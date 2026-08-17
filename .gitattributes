@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+*.rs      text eol=lf diff=rust
+*.toml    text eol=lf
+*.md      text eol=lf
+*.sql     text eol=lf
+*.sh      text eol=lf
+
+# Binary audio fixtures: never converted, never diffed.
+*.flac    binary
+*.mp3     binary
+*.m4a     binary
+*.ogg     binary
+*.opus    binary
+*.wav     binary
+*.aiff    binary
+*.jpg     binary
+*.png     binary

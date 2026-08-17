@@ -1,0 +1,168 @@
+//! Aède — command-line interface.
+//!
+//! Milestone M0: scan folders, build the catalog, query it.
+
+mod args;
+mod commands;
+mod ui;
+
+use args::Args;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Restores the default Unix behaviour for `SIGPIPE`.
+///
+/// Rust ignores that signal at startup, so an `aede stats | head` makes the
+/// write fail and the program panic. We want the opposite: a quiet stop, like
+/// any other command-line tool.
+#[cfg(unix)]
+fn restore_sigpipe() {
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    // Safe: we merely restore the default handler.
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe() {}
+
+fn main() {
+    restore_sigpipe();
+    let args = Args::from_env();
+    ui::init_color(args.has("no-color"));
+
+    if args.has("version") {
+        println!("aede {VERSION}");
+        return;
+    }
+    if args.has("help") || args.command.is_empty() {
+        print_help();
+        return;
+    }
+
+    // A misspelled option has to be visible: without this, `--limite=5`
+    // instead of `--limit=5` would be silently ignored.
+    const OPTIONS: &[&str] = &[
+        "data",
+        "replace",
+        "remove",
+        "limit",
+        "sort",
+        "type",
+        "severity",
+        "artist",
+        "year",
+        "output",
+        "threads",
+        "genre",
+        "label",
+        "json",
+        "no-color",
+        "help",
+        "version",
+        "full",
+        "follow-symlinks",
+        "include-hidden",
+    ];
+    for unknown in args.unknown_flags(OPTIONS) {
+        eprintln!(
+            "{} unknown option ignored: --{unknown}",
+            ui::yellow("Warning:")
+        );
+    }
+
+    let result = match args.command.as_str() {
+        "scan" => commands::scan(&args),
+        "roots" => commands::roots(&args),
+        "stats" => commands::show_stats(&args),
+        "doctor" => commands::show_doctor(&args),
+        "artists" => commands::list_artists(&args),
+        "albums" => commands::list_albums(&args),
+        "genres" => commands::list_genres(&args),
+        "labels" => commands::list_labels(&args),
+        "years" => commands::list_years(&args),
+        "artist" => commands::show_artist(&args),
+        "album" => commands::show_album(&args),
+        "search" => commands::search(&args),
+        "file" => commands::inspect(&args),
+        "export" => commands::export(&args),
+        "help" => {
+            print_help();
+            Ok(())
+        }
+        other => {
+            eprintln!("{} unknown command: \"{other}\"", ui::red("Error:"));
+            eprintln!("Run \"aede help\" for the list of commands.");
+            std::process::exit(2);
+        }
+    };
+
+    if let Err(error) = result {
+        eprintln!("{} {error}", ui::red("Error:"));
+        std::process::exit(1);
+    }
+}
+
+fn print_help() {
+    println!(
+        "{}",
+        ui::bold(&format!("aede {VERSION} — local music library"))
+    );
+    println!(
+        "
+{}
+  aede <command> [options]
+
+{}
+  scan [folder…]       Scan the watched folders; any folder given is added to them
+  roots                List the watched folders (--remove <folder> to drop one)
+  stats                Library statistics
+  doctor               Diagnosis: missing tags, duplicates, incomplete albums
+
+  artists              List of artists
+  albums               List of albums
+  genres               List of genres
+  labels               List of labels
+  years                Breakdown by year
+
+  artist <name>        Artist card: discography, collaborations
+  album <title>        Album card: tracks and credits
+  search <text>        Search the whole catalog
+  file <path>          Inspect a single file, outside the catalog
+  export               Export the catalog as JSON
+
+{}
+  --data <folder>      Catalog location
+                       (default: $AEDE_HOME or ~/.local/share/aede)
+  --limit <n>          Number of rows displayed
+  --json               Machine-readable output (stats, doctor, search)
+  --no-color           Turn colours off
+  -h, --help           Show this help
+  -V, --version        Show the version
+
+{}
+  --full               Ignore the tag cache and re-read every file
+  --replace            Forget the watched folders and keep only those given
+  --threads <n>        Number of reader threads (default: available cores)
+  --follow-symlinks    Follow symbolic links
+  --include-hidden     Include hidden files and folders
+
+{}
+  aede scan ~/Music
+  aede stats
+  aede doctor --severity=error --limit=50
+  aede artist \"Miles Davis\"
+  aede albums --year=1969
+  aede search coltrane",
+        ui::cyan("USAGE"),
+        ui::cyan("COMMANDS"),
+        ui::cyan("GLOBAL OPTIONS"),
+        ui::cyan("SCAN OPTIONS"),
+        ui::cyan("EXAMPLES")
+    );
+}

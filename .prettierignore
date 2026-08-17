@@ -1,0 +1,10 @@
+# Rust, TOML and SQL are formatted by rustfmt and by hand, never by Prettier.
+*.rs
+*.toml
+*.sql
+
+/target
+Cargo.lock
+
+# Binary audio fixtures.
+crates/aede-core/tests/fixtures/

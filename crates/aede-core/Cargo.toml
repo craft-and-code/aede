@@ -1,0 +1,12 @@
+[package]
+name = "aede-core"
+description = "Aede core: data model, music library scanner, statistics."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lofty = { workspace = true }
+
+[dev-dependencies]

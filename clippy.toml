@@ -1,0 +1,16 @@
+# Clippy settings. The project targets zero warnings:
+#
+#     cargo clippy --all-targets -- -D warnings
+
+# Minimum supported Rust version. Clippy uses it to avoid suggesting idioms
+# newer than what the project accepts.
+msrv = "1.89"
+
+# A slightly verbose test constructor beats a dedicated struct for six fields.
+too-many-arguments-threshold = 8
+
+# Binary parsers branch a lot by nature.
+cognitive-complexity-threshold = 40
+
+# Names spelled this way on purpose.
+doc-valid-idents = ["MusicBrainz", "AcoustID", "ReplayGain", "SQLite", "MP3", "FLAC", "ALAC", "AAC", "AIFF", "MPEG", "Ogg", "WavPack", "Musepack", "ADTS", "APEv2"]

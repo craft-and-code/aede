@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/aede-core", "crates/aede-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://example.invalid/aede"
+rust-version = "1.89"
+
+[workspace.dependencies]
+# Tag reading for the containers Aede has no parser of its own for.
+lofty = "0.25"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
