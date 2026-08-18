@@ -52,9 +52,9 @@ Quality
 
                        Count      Size
   ───────────────────  ─────  ────────  ────────────────────
-  Lossless (CD)           11  390.0 KB  ████████████████████
-  Hi-res                   4  648.7 KB  ███████·············
-  Lossy (>= 256 kbps)      3  242.5 KB  █████···············
+  Lossless (CD)           11  399.3 kB  ████████████████████
+  Hi-res                   4  664.3 kB  ███████·············
+  Lossy (>= 256 kbps)      3  248.3 kB  █████···············
 ```
 
 ### Trying it without a library at hand
@@ -168,6 +168,8 @@ Dropping a folder from the list does not empty the catalog on its own: its files
 **Construction is deterministic.** Files are sorted before processing, so two scans of the same library produce exactly the same identifiers. Without that, no readable diff and no reproducible test.
 
 **`Various Artists` is not an artist**, it is the absence of an album artist. Recording it would pollute every count.
+
+**Sizes are decimal, durations are rounded.** 1 kB is 1000 bytes, the convention macOS Finder and most Linux file managers use, so a figure here matches what the system says about the same files. A duration is rounded to the nearest second rather than truncated, as players do.
 
 **Every listing carries the same measures.** Count, duration and size on disk appear on each entity page and in each listing: what a slice of the library weighs should not depend on the command used to look at it.
 

@@ -294,7 +294,9 @@ pub fn percent(ratio: f64) -> String {
 /// Long duration, in days/hours/minutes — and in seconds below a minute, so a
 /// small library does not report "0 min".
 pub fn long_duration(ms: u64) -> String {
-    let total_sec = ms / 1000;
+    // Rounded like `text::format_duration`, so the two never disagree by a
+    // second on the same value.
+    let total_sec = (ms + 500) / 1000;
     let total_min = total_sec / 60;
     let days = total_min / 1440;
     let hours = (total_min % 1440) / 60;

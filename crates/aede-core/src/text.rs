@@ -167,8 +167,13 @@ fn fold_char(c: char) -> std::vec::IntoIter<char> {
 }
 
 /// Formats a duration as `h:mm:ss` or `m:ss`.
+///
+/// The count of seconds is **rounded**, not truncated: a track of 4 min 20.7 s
+/// reads 4:21, as it does in every player. Cutting the fraction off would show
+/// a second less on roughly half the tracks of a library, and the sum of the
+/// displayed times would drift away from the announced total.
 pub fn format_duration(ms: u64) -> String {
-    let total = ms / 1000;
+    let total = (ms + 500) / 1000;
     let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
     if h > 0 {
         format!("{h}:{m:02}:{s:02}")
@@ -178,19 +183,25 @@ pub fn format_duration(ms: u64) -> String {
 }
 
 /// Formats a size in bytes in a readable way.
+///
+/// **Decimal** units, 1 kB being 1000 bytes: that is what macOS Finder and most
+/// Linux file managers show, so the figure matches what the system says about
+/// the same files. Dividing by 1024 while writing "MB" — the usual shortcut —
+/// understates an album by about 5%, which is exactly the kind of discrepancy a
+/// user reports as a bug.
 pub fn format_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
+    const UNITS: [&str; 4] = ["kB", "MB", "GB", "TB"];
+    const STEP: f64 = 1000.0;
+    if bytes < STEP as u64 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / STEP;
     let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
+    while value >= STEP && unit < UNITS.len() - 1 {
+        value /= STEP;
         unit += 1;
     }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
+    format!("{value:.1} {}", UNITS[unit])
 }
 
 /// Extracts the first year from a tag date, whatever its shape
@@ -291,7 +302,12 @@ mod tests {
     fn formatting() {
         assert_eq!(format_duration(65_000), "1:05");
         assert_eq!(format_duration(3_725_000), "1:02:05");
+        // Rounded, not truncated: 4 min 20.7 s is 4:21, as in any player.
+        assert_eq!(format_duration(260_700), "4:21");
+        assert_eq!(format_duration(260_400), "4:20");
         assert_eq!(format_size(512), "512 B");
-        assert_eq!(format_size(1536), "1.5 KB");
+        assert_eq!(format_size(1500), "1.5 kB");
+        // Decimal units, like the Finder: 315.7 MB, not 301.1 "MB".
+        assert_eq!(format_size(315_727_769), "315.7 MB");
     }
 }
