@@ -18,19 +18,19 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 
 ## Commands
 
-| Command                                                   | What it does                                                |
-| --------------------------------------------------------- | ----------------------------------------------------------- |
-| `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them |
-| `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)  |
-| `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness     |
-| `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats  |
-| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                    |
-| `aede artist "<name>"`                                    | Discography, collaborations, roles                          |
-| `aede album "<title>"`                                    | Tracks, durations, formats, credits                         |
-| `aede track "<title>"` | Every track carrying this title: album, credits, technical details, tags |
-| `aede search <text>`                                      | Search across the whole catalog                             |
-| `aede file <path>`                                        | Inspect a single file, outside the catalog                  |
-| `aede export`                                             | Export the catalog as JSON                                  |
+| Command                                                   | What it does                                                             |
+| --------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them              |
+| `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)               |
+| `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                  |
+| `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats               |
+| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                                 |
+| `aede artist "<name>"`                                    | Discography, collaborations, roles                                       |
+| `aede album "<title>"`                                    | Tracks, durations, formats, credits                                      |
+| `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags |
+| `aede search <text>`                                      | Search across the whole catalog                                          |
+| `aede file <path>`                                        | Inspect a single file, outside the catalog                               |
+| `aede export`                                             | Export the catalog as JSON                                               |
 
 `--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
 
@@ -67,6 +67,18 @@ aede doctor
 
 The demo library is deliberately damaged: untagged files, a duplicate, an album missing a track, an album with mixed formats. Enough for `doctor` to have something to bite on.
 
+### Reading the scan report
+
+| Line                      | What it counts                                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Files found               | Audio files seen while walking the folders, duplicates removed                                           |
+| Read from disk            | Files whose tags were parsed: new ones, and those changed since the last scan                            |
+| Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk |
+| Gone since last scan      | Files the catalog knew and that are no longer there; they leave the catalog                              |
+| Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                  |
+
+`Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
+
 ## Supported formats
 
 | Container   | Codecs                    | Tags                          | Duration from                  |
@@ -82,13 +94,13 @@ Extensions: `.flac` `.mp3` `.m4a` `.m4b` `.mp4` `.alac` `.ogg` `.oga` `.opus` `.
 
 The formats below are read through [`lofty`](https://crates.io/crates/lofty), which takes over whenever the signature matches none of the parsers above:
 
-| Container      | Codecs           | Tags            | Duration from      |
-| -------------- | ---------------- | --------------- | ------------------ |
-| AAC            | AAC              | ID3v2, ID3v1    | ADTS frame headers |
-| WavPack        | WavPack          | APEv2, ID3v1    | Block headers      |
-| Monkey's Audio | APE              | APEv2, ID3v1    | Descriptor         |
-| Musepack       | Musepack SV7/SV8 | APEv2, ID3v1    | Stream header      |
-| Speex          | Speex            | Vorbis Comment  | Granule position   |
+| Container      | Codecs           | Tags           | Duration from      |
+| -------------- | ---------------- | -------------- | ------------------ |
+| AAC            | AAC              | ID3v2, ID3v1   | ADTS frame headers |
+| WavPack        | WavPack          | APEv2, ID3v1   | Block headers      |
+| Monkey's Audio | APE              | APEv2, ID3v1   | Descriptor         |
+| Musepack       | Musepack SV7/SV8 | APEv2, ID3v1   | Stream header      |
+| Speex          | Speex            | Vorbis Comment | Granule position   |
 
 Extensions: `.aac` `.ape` `.wv` `.mpc` `.mp+` `.mpp` `.spx`
 
@@ -147,6 +159,8 @@ The graph is already usable at M0, with no network access at all: `aede artist "
 
 **Watched folders accumulate.** `aede scan ~/Music` then `aede scan ~/Live` watches both; a plain `aede scan` refreshes everything. `--replace` keeps only the folders given, and `aede roots --remove` drops one. A watched folder that has become unreachable aborts the scan rather than quietly emptying the catalog.
 
+Dropping a folder from the list does not empty the catalog on its own: its files stay until the next `aede scan` rebuilds the catalog from the folders still watched. Run that scan **without naming a folder** — naming the one just dropped would simply watch it again.
+
 **A guest appearance is not part of a discography.** Singing one track on somebody else's album puts it under _Appears on_, never under _Discography_, and writing or production credits go in a third section. The performer rankings count performing credits only.
 
 **A title is not an identifier.** `aede track "So What"` prints every track carrying that name — the studio take, the single, the live rendition — because they are different recordings. `--artist` and `--album` narrow it down, and a list cut short by `--limit` always says so.
@@ -174,7 +188,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-141 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+143 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

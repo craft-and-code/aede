@@ -68,13 +68,16 @@ pub fn scan(args: &Args) -> Res {
     println!("{}", ui::section("Scan complete"));
     let mut table = Table::plain(2).align(1, Align::Right);
     table.push(vec!["Files found".into(), report.found.to_string()]);
-    table.push(vec!["Read".into(), report.read.to_string()]);
+    table.push(vec!["Read from disk".into(), report.read.to_string()]);
     table.push(vec![
         "Reused from previous scan".into(),
         report.reused.to_string(),
     ]);
     if report.removed > 0 {
-        table.push(vec!["Gone since".into(), report.removed.to_string()]);
+        table.push(vec![
+            "Gone since last scan".into(),
+            report.removed.to_string(),
+        ]);
     }
     table.push(vec!["Elapsed".into(), format!("{} ms", report.elapsed_ms)]);
     print!("{}", table.render());
@@ -144,7 +147,17 @@ fn resolve_roots(args: &Args, stored: Option<&Catalog>) -> Result<Vec<PathBuf>, 
     }
 
     if roots.is_empty() {
-        return Err("give at least one folder: aede scan ~/Music".into());
+        // An empty list is legitimate once a catalog exists: it means the last
+        // watched folder was dropped, and this scan is what empties the
+        // catalog — exactly what `roots --remove` said to run. Refusing here
+        // would leave those files in the catalog with no way out.
+        if stored.is_none() {
+            return Err("give at least one folder: aede scan ~/Music".into());
+        }
+        println!(
+            "{}",
+            ui::yellow("No folder is watched any more: the catalog will be emptied.")
+        );
     }
 
     Ok(dedupe_roots(roots))
@@ -183,9 +196,16 @@ pub fn roots(args: &Args) -> Res {
         }
         store::save(&catalog, &catalog_file)?;
         println!("{} no longer watching {target}", ui::green("->"));
+        // Removing a folder from the list does not empty the catalog: the
+        // files stay until a scan rebuilds it from the folders still watched.
+        // Naming this one again on that scan would simply watch it anew.
         println!(
             "{}",
-            ui::dim("  run `aede scan` to drop its files from the catalog")
+            ui::dim("  its files stay in the catalog until the next scan")
+        );
+        println!(
+            "{}",
+            ui::dim("  run `aede scan` with no folder to drop them")
         );
         return Ok(());
     }

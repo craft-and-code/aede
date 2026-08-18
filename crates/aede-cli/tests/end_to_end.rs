@@ -243,3 +243,46 @@ fn a_track_is_reachable_by_its_title() {
     assert!(!ok);
     assert!(err.contains("none matching the filters"), "stderr: {err}");
 }
+
+#[test]
+fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
+    // `roots --remove` says to run `aede scan` to drop the files. When the
+    // folder removed was the only one, that scan used to fail for want of a
+    // folder, and the files had no way out of the catalog.
+    let sandbox = Sandbox::new("last_root");
+    let scratch = std::env::temp_dir().join("aede_e2e_last_root_src");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::copy(library().join("track.flac"), scratch.join("1.flac")).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", scratch.to_str().unwrap()]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["roots", "--remove", scratch.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["scan"]);
+    assert!(ok, "the scan must run with no folder left. stderr: {err}");
+    assert!(
+        out.lines()
+            .any(|l| l.trim_start().starts_with("Gone since") && l.trim_end().ends_with('1')),
+        "the file must leave the catalog:\n{out}"
+    );
+
+    let (out, _, ok) = sandbox.run(&["stats"]);
+    assert!(ok);
+    assert!(
+        out.lines()
+            .any(|l| l.trim_start().starts_with("Tracks") && l.trim_end().ends_with('0')),
+        "the catalog must be empty:\n{out}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[test]
+fn a_first_scan_still_demands_a_folder() {
+    let sandbox = Sandbox::new("no_catalog");
+    let (_, err, ok) = sandbox.run(&["scan"]);
+    assert!(!ok, "with no catalog there is nothing to infer");
+    assert!(err.contains("give at least one folder"), "stderr: {err}");
+}

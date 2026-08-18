@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 141 tests
+cargo test                       # 143 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -54,7 +54,7 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **Roles are not interchangeable.** `model::is_performing_role` separates being audible on a recording from having written or produced it. The distinction drives the artist page, the performer rankings and the collaboration graph; ignoring it puts other people's albums in an artist's discography.
 
-**Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act.
+**Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act, and a scan with no folder left is the way a catalog is emptied — refusing it would strand the files with no way out.
 
 **`Various Artists` is not an artist**, it is the absence of an album artist. The same reasoning applies to any placeholder name: do not pollute the catalog with entities that are not entities.
 
