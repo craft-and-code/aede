@@ -46,14 +46,13 @@ pub fn show_artist(args: &Args) -> Res {
     let guest = catalog.guest_appearances(artist_id);
     let written = catalog.writing_credits_of_artist(artist_id);
     let tracks = catalog.performed_tracks_of_artist(artist_id);
-    let (duration, size) = totals(&catalog, &tracks);
-    println!(
-        "  {} · {} · {} · {}",
-        ui::plural(own.len(), "album"),
-        ui::plural(tracks.len(), "track"),
-        ui::long_duration(duration),
-        text::format_size(size)
-    );
+    // Two lines, always labelled. An unlabelled count reads as "everything
+    // about this artist", and a band's lyricist — credited on forty albums,
+    // audible on none — was announced as "0 album · 0 track" right above the
+    // forty rows that contradict it.
+    let written_tracks = catalog.written_tracks_of_artist(artist_id);
+    print_measures(&catalog, "performing", own.len(), &tracks);
+    print_measures(&catalog, "writing", written.len(), &written_tracks);
 
     let genres = collect_genres_for_artist(&catalog, artist.id);
     if !genres.is_empty() {
@@ -320,4 +319,24 @@ fn print_tracks_in_common(catalog: &Catalog, artist_id: Id, wanted: &str) -> Res
         ))
     );
     Ok(())
+}
+
+/// One summary line: how many releases, how many tracks, and what they weigh.
+///
+/// `label` says which credits the figures cover, because performing on a
+/// record and writing for it are two different presences and the same artist
+/// can have both.
+fn print_measures(catalog: &Catalog, label: &str, releases: usize, tracks: &[Id]) {
+    if releases == 0 && tracks.is_empty() {
+        return;
+    }
+    let (duration, size) = totals(catalog, tracks);
+    println!(
+        "  {:<11} {} · {} · {} · {}",
+        format!("{label}:"),
+        ui::plural(releases, "album"),
+        ui::plural(tracks.len(), "track"),
+        ui::long_duration(duration),
+        text::format_size(size)
+    );
 }

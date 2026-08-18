@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 146 tests
+cargo test                       # 147 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -53,6 +53,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **The persisted JSON mirrors `schema.sql`.** One key in the file equals one table in the schema. Adding a field to the model means reflecting it in both. That is what will make the move to SQLite mechanical.
 
 **Roles are not interchangeable.** `model::is_performing_role` separates being audible on a recording from having written or produced it. The distinction drives the artist page, the performer rankings and the collaboration graph; ignoring it puts other people's albums in an artist's discography.
+
+A figure derived from it carries the name of the role class it counts. An artist page shows `performing:` and `writing:`, never a bare total: tags credit the band, not its members, so a lyricist with forty albums has zero performing credits and the unlabelled zero read as an error.
 
 **Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act, and a scan with no folder left is the way a catalog is emptied — refusing it would strand the files with no way out.
 
@@ -155,6 +157,8 @@ artist count of every compilation.
 One commit, one idea. Automatic reformatting and lint fixes go in their own commit, never mixed with a behaviour change.
 
 ## 8. Things to watch for in the coming milestones
+
+**M1 — artist identity.** Tags carry names, not identifiers, and the same person arrives spelled several ways: `Ozzy Osbourne` / `O. Osbourne`, `Glen Benton` / `Benton` as credited on the sleeve. Matching on a fragment of the name is out of the question — it would merge Angus and Neil Young. The answer is a local alias file, applied when the graph is built so a `scan` propagates it, plus `doctor` **suggesting** candidates (one name a suffix of another, sharing releases) without ever applying them. Where MusicBrainz gives an identifier, the identifier wins over the name.
 
 **M1 — MusicBrainz.** A hard limit of one request per second and a mandatory identifying `User-Agent`, on pain of being blocked. Wikipedia is CC BY-SA: attribution is mandatory and carries over to translations. Go through Wikidata to reach the article in the user's language — it already exists in the vast majority of cases, written by humans, and no machine translation is then needed.
 

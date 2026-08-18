@@ -414,6 +414,30 @@ impl Catalog {
         set.into_iter().collect()
     }
 
+    /// Tracks the artist is credited on for writing or production, and is not
+    /// audible on.
+    ///
+    /// The counterpart of [`Catalog::performed_tracks_of_artist`]: together
+    /// they cover every track credit, and a track where someone both plays and
+    /// composes counts as performed only.
+    pub fn written_tracks_of_artist(&self, artist_id: Id) -> Vec<Id> {
+        let performed: BTreeSet<Id> = self
+            .performed_tracks_of_artist(artist_id)
+            .into_iter()
+            .collect();
+        let mut set = BTreeSet::new();
+        for credit in self.credits.iter() {
+            if credit.artist_id == artist_id
+                && credit.entity_kind == EntityKind::Track
+                && !is_performing_role(&credit.role)
+                && !performed.contains(&credit.entity_id)
+            {
+                set.insert(credit.entity_id);
+            }
+        }
+        set.into_iter().collect()
+    }
+
     /// Every release the artist appears on, whatever their role.
     pub fn releases_of_artist(&self, artist_id: Id) -> Vec<Id> {
         let mut set = BTreeSet::new();

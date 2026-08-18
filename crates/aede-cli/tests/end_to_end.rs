@@ -337,3 +337,29 @@ fn a_guest_appearance_is_timed_on_its_own_tracks() {
         "the duration must cover the counted tracks only: {row}"
     );
 }
+
+#[test]
+fn a_writer_is_not_announced_as_having_nothing() {
+    // A band's lyricist has no performing credit at all. The page used to open
+    // with "0 album · 0 track" and then list the forty albums he wrote for.
+    let sandbox = Sandbox::new("writer");
+    let scratch = std::env::temp_dir().join("aede_e2e_writer_src");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::copy(library().join("track.flac"), scratch.join("1.flac")).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", scratch.to_str().unwrap()]);
+    assert!(ok);
+
+    // "track.flac" credits Miles Davis as both performer and composer, so the
+    // performing line wins and no writing line is printed for him.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("performing:"), "the line is labelled:\n{out}");
+    assert!(
+        !out.contains("writing:"),
+        "a performed track is not counted twice:\n{out}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
