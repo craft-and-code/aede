@@ -286,3 +286,29 @@ fn a_first_scan_still_demands_a_folder() {
     assert!(!ok, "with no catalog there is nothing to infer");
     assert!(err.contains("give at least one folder"), "stderr: {err}");
 }
+
+#[test]
+fn every_listing_carries_the_same_measures() {
+    // Count, duration and size: what a slice of the library weighs must not
+    // depend on the command used to look at it.
+    let sandbox = Sandbox::new("measures");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    for command in ["artists", "albums", "genres", "labels", "years"] {
+        let (out, _, ok) = sandbox.run(&[command]);
+        assert!(ok, "{command} must run");
+        assert!(
+            out.contains("Duration"),
+            "{command} lacks a duration:\n{out}"
+        );
+        assert!(out.contains("Size"), "{command} lacks a size:\n{out}");
+    }
+
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(
+        out.contains(" KB") || out.contains(" MB") || out.contains(" B"),
+        "the artist page must state a size:\n{out}"
+    );
+}

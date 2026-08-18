@@ -6,7 +6,7 @@
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::text;
 
-use super::{Res, load};
+use super::{Res, load, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -40,16 +40,13 @@ pub fn show_artist(args: &Args) -> Res {
     let guest = catalog.guest_appearances(artist_id);
     let written = catalog.writing_credits_of_artist(artist_id);
     let tracks = catalog.performed_tracks_of_artist(artist_id);
-    let duration: u64 = tracks
-        .iter()
-        .filter_map(|&id| catalog.track(id))
-        .filter_map(|t| t.duration_ms)
-        .sum();
+    let (duration, size) = totals(&catalog, &tracks);
     println!(
-        "  {} · {} · {}",
+        "  {} · {} · {} · {}",
         ui::plural(own.len(), "album"),
         ui::plural(tracks.len(), "track"),
-        ui::long_duration(duration)
+        ui::long_duration(duration),
+        text::format_size(size)
     );
 
     let genres = collect_genres_for_artist(&catalog, artist.id);

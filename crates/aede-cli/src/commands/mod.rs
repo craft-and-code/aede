@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::PathBuf;
 
-use aede_core::model::Catalog;
+use aede_core::model::{Catalog, Id};
 use aede_core::store;
 use aede_core::tags::AudioProperties;
 use aede_core::text;
@@ -140,4 +140,21 @@ fn tags_table(fields: &BTreeMap<String, Vec<String>>) -> Table {
         t.push(vec![key.clone(), values.join(" / ")]);
     }
     t
+}
+
+/// Playing time and size on disk of a set of tracks.
+///
+/// Count, duration and size are the three measures every listing and every
+/// entity page carries: what a part of the library weighs should not depend on
+/// the command used to look at it.
+fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
+    tracks
+        .iter()
+        .filter_map(|&id| catalog.track(id))
+        .fold((0, 0), |(duration, size), track| {
+            (
+                duration + track.duration_ms.unwrap_or(0),
+                size + catalog.file(track.file_id).map(|f| f.size).unwrap_or(0),
+            )
+        })
 }

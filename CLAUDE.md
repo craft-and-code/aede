@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 143 tests
+cargo test                       # 144 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -132,6 +132,8 @@ For a binary parser, always think through the three hostile cases: truncated inp
 Output is for humans first: aligned tables (`ui::Table`), colours that vanish outside a terminal or under `NO_COLOR`, correct plurals (`ui::plural`). Alignment is computed in **display columns**, not bytes — "Björk" takes five columns for six bytes.
 
 `--json` on the query commands, for machine use. A misspelled option is reported, never silently ignored, and an option that expects a value but was given none stops the command: answering as if it had never been typed would be a wrong answer, not an incomplete one. Any option taking a value belongs in `args::VALUED`, or its space-separated form lands in the positionals. The program does not panic when its output is cut off (`aede stats | head`).
+
+Count, duration and size on disk go together: a command that shows one of the three shows all three, and `commands::totals` is what computes the last two. In a table a duration is `text::format_duration` (`h:mm:ss`, right-aligned); in a sentence it is `ui::long_duration` (`1 d 22 h 41 min`).
 
 The shape of an answer does not depend on how many results it has: `aede track` prints the same page whether one track carries the title or four. Any list bounded by a limit says so on screen — a silent truncation reads as "that is all there is".
 

@@ -169,6 +169,8 @@ Dropping a folder from the list does not empty the catalog on its own: its files
 
 **`Various Artists` is not an artist**, it is the absence of an album artist. Recording it would pollute every count.
 
+**Every listing carries the same measures.** Count, duration and size on disk appear on each entity page and in each listing: what a slice of the library weighs should not depend on the command used to look at it.
+
 **An artist is counted once per track.** Miles Davis as both performer and composer of "So What" is one track, not two.
 
 ## Tooling
@@ -188,7 +190,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-143 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+144 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 
