@@ -27,11 +27,12 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                    |
 | `aede artist "<name>"`                                    | Discography, collaborations, roles                          |
 | `aede album "<title>"`                                    | Tracks, durations, formats, credits                         |
+| `aede track "<title>"` | Every track carrying this title: album, credits, technical details, tags |
 | `aede search <text>`                                      | Search across the whole catalog                             |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                  |
 | `aede export`                                             | Export the catalog as JSON                                  |
 
-`--json` on `stats`, `doctor` and `search` produces machine-readable output. `aede help` lists every option.
+`--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
 
 The catalog lives in `$AEDE_HOME`, or `~/.local/share/aede/catalog.json`.
 
@@ -77,7 +78,21 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 | WAV         | PCM                       | `LIST/INFO`, `id3 ` chunk     | `fmt ` + `data`                |
 | AIFF / AIFC | PCM                       | `NAME`/`AUTH`, `ID3 ` chunk   | `COMM`                         |
 
-Read through `lofty`, which takes over whenever the signature matches none of the parsers above: AAC (ADTS), WavPack, Monkey's Audio, Musepack, Speex. It is only ever reached as a fallback, so it can never take a format away from a parser here.
+Extensions: `.flac` `.mp3` `.m4a` `.m4b` `.mp4` `.alac` `.ogg` `.oga` `.opus` `.wav` `.wave` `.aif` `.aiff` `.aifc`
+
+The formats below are read through [`lofty`](https://crates.io/crates/lofty), which takes over whenever the signature matches none of the parsers above:
+
+| Container      | Codecs           | Tags            | Duration from      |
+| -------------- | ---------------- | --------------- | ------------------ |
+| AAC            | AAC              | ID3v2, ID3v1    | ADTS frame headers |
+| WavPack        | WavPack          | APEv2, ID3v1    | Block headers      |
+| Monkey's Audio | APE              | APEv2, ID3v1    | Descriptor         |
+| Musepack       | Musepack SV7/SV8 | APEv2, ID3v1    | Stream header      |
+| Speex          | Speex            | Vorbis Comment  | Granule position   |
+
+Extensions: `.aac` `.ape` `.wv` `.mpc` `.mp+` `.mpp` `.spx`
+
+The fallback is only ever reached last, so it can never take a format away from a parser above.
 
 The parsers are written by hand from the specifications and validated against real files produced by ffmpeg and cross-checked with ffprobe (`crates/aede-core/tests/real_files.rs`). The awkward cases are covered: UTF-16 with a BOM, ID3v2.3 unsynchronisation, numeric genres like `(17)Rock`, the LAME encoder delay (needed later for gapless playback), the ALAC magic cookie for the real bit depth, the Opus pre-skip.
 
@@ -134,6 +149,8 @@ The graph is already usable at M0, with no network access at all: `aede artist "
 
 **A guest appearance is not part of a discography.** Singing one track on somebody else's album puts it under _Appears on_, never under _Discography_, and writing or production credits go in a third section. The performer rankings count performing credits only.
 
+**A title is not an identifier.** `aede track "So What"` prints every track carrying that name — the studio take, the single, the live rendition — because they are different recordings. `--artist` and `--album` narrow it down, and a list cut short by `--limit` always says so.
+
 **Construction is deterministic.** Files are sorted before processing, so two scans of the same library produce exactly the same identifiers. Without that, no readable diff and no reproducible test.
 
 **`Various Artists` is not an artist**, it is the absence of an album artist. Recording it would pollute every count.
@@ -157,7 +174,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-136 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+141 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

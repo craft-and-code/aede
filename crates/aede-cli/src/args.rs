@@ -16,8 +16,8 @@ pub struct Args {
 
 /// Options that expect a value when it is given separately.
 const VALUED: &[&str] = &[
-    "remove", "data", "limit", "sort", "type", "severity", "artist", "year", "output", "threads",
-    "genre", "label",
+    "remove", "data", "limit", "sort", "type", "severity", "artist", "album", "year", "output",
+    "threads", "genre", "label",
 ];
 
 impl Args {
@@ -89,6 +89,19 @@ impl Args {
             .unwrap_or(default)
     }
 
+    /// Options that expect a value and were given none.
+    ///
+    /// `--album` on its own does not narrow anything, so the command would
+    /// answer as if no filter had been asked for — the one case where being
+    /// quiet gives a wrong answer rather than an incomplete one.
+    pub fn options_missing_a_value(&self) -> Vec<&str> {
+        self.flags
+            .iter()
+            .filter(|(name, value)| value.is_none() && VALUED.contains(&name.as_str()))
+            .map(|(name, _)| name.as_str())
+            .collect()
+    }
+
     /// Options given but unknown to the command: better to warn than to
     /// silently ignore a typo.
     pub fn unknown_flags(&self, accepted: &[&str]) -> Vec<&str> {
@@ -106,6 +119,24 @@ mod tests {
 
     fn parse(items: &[&str]) -> Args {
         Args::parse(items.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn a_valued_option_takes_the_next_word() {
+        // `--album` used to be missing from VALUED: the title and the album
+        // ended up glued together into one search string.
+        let a = parse(&["track", "So What", "--album", "Kind of Blue"]);
+        assert_eq!(a.positionals, ["So What"]);
+        assert_eq!(a.value("album"), Some("Kind of Blue"));
+    }
+
+    #[test]
+    fn an_option_left_without_a_value_is_reported() {
+        let a = parse(&["track", "So What", "--album"]);
+        assert_eq!(a.options_missing_a_value(), ["album"]);
+        // A flag that expects nothing is not concerned.
+        let b = parse(&["stats", "--json"]);
+        assert!(b.options_missing_a_value().is_empty());
     }
 
     #[test]

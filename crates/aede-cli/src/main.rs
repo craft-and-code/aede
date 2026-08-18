@@ -56,6 +56,7 @@ fn main() {
         "type",
         "severity",
         "artist",
+        "album",
         "year",
         "output",
         "threads",
@@ -76,6 +77,20 @@ fn main() {
         );
     }
 
+    // An option that expects a value and was given none cannot be honoured.
+    // Carrying on would answer as if the option had never been typed, which
+    // is a wrong answer rather than a missing one.
+    let missing = args.options_missing_a_value();
+    if !missing.is_empty() {
+        for name in &missing {
+            eprintln!(
+                "{} option --{name} expects a value: --{name}=…",
+                ui::red("Error:")
+            );
+        }
+        std::process::exit(2);
+    }
+
     let result = match args.command.as_str() {
         "scan" => commands::scan(&args),
         "roots" => commands::roots(&args),
@@ -88,6 +103,7 @@ fn main() {
         "years" => commands::list_years(&args),
         "artist" => commands::show_artist(&args),
         "album" => commands::show_album(&args),
+        "track" => commands::show_track(&args),
         "search" => commands::search(&args),
         "file" => commands::inspect(&args),
         "export" => commands::export(&args),
@@ -132,6 +148,7 @@ fn print_help() {
 
   artist <name>        Artist card: discography, collaborations
   album <title>        Album card: tracks and credits
+  track <title>        Track card: album, credits, technical details, tags
   search <text>        Search the whole catalog
   file <path>          Inspect a single file, outside the catalog
   export               Export the catalog as JSON
@@ -140,7 +157,7 @@ fn print_help() {
   --data <folder>      Catalog location
                        (default: $AEDE_HOME or ~/.local/share/aede)
   --limit <n>          Number of rows displayed
-  --json               Machine-readable output (stats, doctor, search)
+  --json               Machine-readable output (stats, doctor, search, track)
   --no-color           Turn colours off
   -h, --help           Show this help
   -V, --version        Show the version
@@ -157,6 +174,7 @@ fn print_help() {
   aede stats
   aede doctor --severity=error --limit=50
   aede artist \"Miles Davis\"
+  aede track \"So What\" --artist=\"Miles Davis\"
   aede albums --year=1969
   aede search coltrane",
         ui::cyan("USAGE"),

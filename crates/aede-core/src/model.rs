@@ -552,6 +552,45 @@ impl Catalog {
         let key = text::normalize(title);
         self.releases.iter().find(|r| r.key.starts_with(&key))
     }
+
+    /// Every track carrying this title, up to normalization.
+    ///
+    /// A title is not an identifier: the same one legitimately comes back on
+    /// the album, on a single and on a live record, and those are different
+    /// recordings. All of them are returned, in catalog order.
+    ///
+    /// Exact matches win. Only when there is none does the search widen to the
+    /// titles containing the text, so that a half-remembered title still leads
+    /// somewhere; [`TitleMatch`] says which of the two happened.
+    pub fn find_tracks(&self, title: &str) -> (Vec<&Track>, TitleMatch) {
+        let key = text::normalize(title);
+        if key.is_empty() {
+            return (Vec::new(), TitleMatch::Exact);
+        }
+        let exact: Vec<&Track> = self
+            .tracks
+            .iter()
+            .filter(|t| text::normalize(&t.title) == key)
+            .collect();
+        if !exact.is_empty() {
+            return (exact, TitleMatch::Exact);
+        }
+        let partial = self
+            .tracks
+            .iter()
+            .filter(|t| text::normalize(&t.title).contains(&key))
+            .collect();
+        (partial, TitleMatch::Partial)
+    }
+}
+
+/// How [`Catalog::find_tracks`] reached its results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleMatch {
+    /// The titles are the given one, up to normalization.
+    Exact,
+    /// No title matched, so the ones containing the text were returned.
+    Partial,
 }
 
 /// One answer returned by [`Catalog::search`], ready to be shown and followed.
@@ -1164,6 +1203,56 @@ mod tests {
             vec!["/m".to_string()],
             0,
         )
+    }
+
+    #[test]
+    fn every_track_sharing_a_title_is_returned() {
+        // The studio version and the live one are two different recordings
+        // that happen to share a name; neither may hide the other.
+        let c = build(
+            vec![
+                track(
+                    "/m/a/01 Ride the Lightning.flac",
+                    &[
+                        ("title", "Ride the Lightning"),
+                        ("artist", "Metallica"),
+                        ("album", "Ride the Lightning"),
+                    ],
+                    120_000,
+                ),
+                track(
+                    "/m/b/03 Ride the Lightning.flac",
+                    &[
+                        ("title", "Ride the Lightning"),
+                        ("artist", "Metallica"),
+                        ("album", "Live Shit"),
+                    ],
+                    400_000,
+                ),
+            ],
+            vec!["/m".to_string()],
+            0,
+        );
+        let (found, kind) = c.find_tracks("ride the lightning");
+        assert_eq!(kind, TitleMatch::Exact, "the title matches as written");
+        assert_eq!(found.len(), 2, "both recordings are returned");
+        let durations: Vec<Option<u64>> = found.iter().map(|t| t.duration_ms).collect();
+        assert!(durations.contains(&Some(400_000)), "the live one is there");
+    }
+
+    #[test]
+    fn a_partial_title_widens_the_search_only_as_a_last_resort() {
+        let c = example_catalog();
+        let (exact, kind) = c.find_tracks("Fight Fire with Fire");
+        assert_eq!(kind, TitleMatch::Exact);
+        assert_eq!(exact.len(), 1);
+
+        let (partial, kind) = c.find_tracks("fight fire");
+        assert_eq!(kind, TitleMatch::Partial, "no title is exactly that");
+        assert_eq!(partial.len(), 1);
+
+        let (nothing, _) = c.find_tracks("nothing of the sort");
+        assert!(nothing.is_empty());
     }
 
     #[test]

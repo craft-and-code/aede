@@ -207,3 +207,39 @@ fn a_guest_appearance_is_listed_apart_from_the_discography() {
     assert!(ok);
     assert!(out.contains("Discography"), "output: {out}");
 }
+
+#[test]
+fn a_track_is_reachable_by_its_title() {
+    // The point of the command: the same page as `file`, without having to
+    // type a path.
+    let sandbox = Sandbox::new("track");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok);
+    assert!(out.contains("Kind of Blue"), "the album is shown: {out}");
+    assert!(out.contains("Miles Davis"), "the credits are shown: {out}");
+    assert!(out.contains("Sample rate"), "the technical panel is shown");
+
+    // Several files carry that title: all of them are printed.
+    let pages = out.matches("Album artist").count();
+    assert!(pages > 1, "every match is shown, got {pages}");
+
+    // A limit must be announced, never silent.
+    let (out, _, ok) = sandbox.run(&["track", "So What", "--limit=1"]);
+    assert!(ok);
+    assert_eq!(out.matches("Album artist").count(), 1);
+    assert!(out.contains("shown"), "the truncation is announced: {out}");
+
+    // An unknown title fails with a usable message.
+    let (_, err, ok) = sandbox.run(&["track", "no such title here"]);
+    assert!(!ok);
+    assert!(err.contains("no track matches"), "stderr: {err}");
+
+    // A filter that excludes everything says so rather than denying the title.
+    let (_, err, ok) = sandbox.run(&["track", "So What", "--artist=Ozzy Osbourne"]);
+    assert!(!ok);
+    assert!(err.contains("none matching the filters"), "stderr: {err}");
+}
