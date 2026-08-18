@@ -16,8 +16,8 @@ pub struct Args {
 
 /// Options that expect a value when it is given separately.
 const VALUED: &[&str] = &[
-    "remove", "data", "limit", "sort", "type", "severity", "artist", "album", "year", "output",
-    "threads", "genre", "label",
+    "remove", "data", "limit", "sort", "type", "severity", "artist", "album", "with", "year",
+    "output", "threads", "genre", "label",
 ];
 
 impl Args {

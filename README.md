@@ -18,19 +18,19 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 
 ## Commands
 
-| Command                                                   | What it does                                                             |
-| --------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them              |
-| `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)               |
-| `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                  |
-| `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats               |
-| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                                 |
-| `aede artist "<name>"`                                    | Discography, collaborations, roles                                       |
-| `aede album "<title>"`                                    | Tracks, durations, formats, credits                                      |
-| `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags |
-| `aede search <text>`                                      | Search across the whole catalog                                          |
-| `aede file <path>`                                        | Inspect a single file, outside the catalog                               |
-| `aede export`                                             | Export the catalog as JSON                                               |
+| Command                                                   | What it does                                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them                              |
+| `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)                               |
+| `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                  |
+| `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats                               |
+| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                                                 |
+| `aede artist "<name>"`                                    | Discography, collaborations, roles (`--with <other>` lists the tracks two artists share) |
+| `aede album "<title>"`                                    | Tracks, durations, formats, credits                                                      |
+| `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                 |
+| `aede search <text>`                                      | Search across the whole catalog                                                          |
+| `aede file <path>`                                        | Inspect a single file, outside the catalog                                               |
+| `aede export`                                             | Export the catalog as JSON                                                               |
 
 `--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
 
@@ -147,7 +147,7 @@ The model is not "an album belongs to an artist" but **entities carrying roles t
 
 This is what will let you click a drummer and see their forty appearances. A flat schema would have to be thrown away the day MusicBrainz arrives.
 
-The graph is already usable at M0, with no network access at all: `aede artist "Queen"` shows "played with David Bowie", inferred purely from the fact that both are credited on the same track.
+The graph is already usable at M0, with no network access at all: `aede artist "Queen"` shows "played with David Bowie", inferred purely from the fact that both are credited on the same track. `aede artist "Queen" --with "David Bowie"` then lists those tracks. The relation itself stores only a count; the tracks behind it are recomputed from the `credit` table on demand, so a corrected tag never leaves a stale list behind.
 
 ### A few choices worth knowing about
 
@@ -160,6 +160,8 @@ The graph is already usable at M0, with no network access at all: `aede artist "
 **Watched folders accumulate.** `aede scan ~/Music` then `aede scan ~/Live` watches both; a plain `aede scan` refreshes everything. `--replace` keeps only the folders given, and `aede roots --remove` drops one. A watched folder that has become unreachable aborts the scan rather than quietly emptying the catalog.
 
 Dropping a folder from the list does not empty the catalog on its own: its files stay until the next `aede scan` rebuilds the catalog from the folders still watched. Run that scan **without naming a folder** — naming the one just dropped would simply watch it again.
+
+**A row measures what it counts.** In _Appears on_, the duration and the size cover the tracks the artist is on, not the whole album: one guest song is one guest song, not forty minutes of somebody else's record.
 
 **A guest appearance is not part of a discography.** Singing one track on somebody else's album puts it under _Appears on_, never under _Discography_, and writing or production credits go in a third section. The performer rankings count performing credits only.
 
@@ -192,7 +194,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-144 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+146 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

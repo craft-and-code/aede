@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 144 tests
+cargo test                       # 146 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -134,6 +134,8 @@ Output is for humans first: aligned tables (`ui::Table`), colours that vanish ou
 `--json` on the query commands, for machine use. A misspelled option is reported, never silently ignored, and an option that expects a value but was given none stops the command: answering as if it had never been typed would be a wrong answer, not an incomplete one. Any option taking a value belongs in `args::VALUED`, or its space-separated form lands in the positionals. The program does not panic when its output is cut off (`aede stats | head`).
 
 Sizes are **decimal** (`text::format_size`, 1 kB = 1000 bytes), matching Finder and the other tools of this family; dividing by 1024 under a "MB" label understates an album by 5% and reads as a bug. Durations are **rounded** to the nearest second, never truncated — truncating loses a second on half the tracks of a library.
+
+A row measures the set of tracks it counts, never a wider one: in the *Appears on* table the duration, the size and the formats describe the artist's tracks, not the release they sit on.
 
 Count, duration and size on disk go together: a command that shows one of the three shows all three, and `commands::totals` is what computes the last two. In a table a duration is `text::format_duration` (`h:mm:ss`, right-aligned); in a sentence it is `ui::long_duration` (`1 d 22 h 41 min`).
 

@@ -57,6 +57,7 @@ fn main() {
         "severity",
         "artist",
         "album",
+        "with",
         "year",
         "output",
         "threads",
@@ -147,6 +148,7 @@ fn print_help() {
   years                Breakdown by year
 
   artist <name>        Artist card: discography, collaborations
+                       (--with=<other> lists the tracks the two share)
   album <title>        Album card: tracks and credits
   track <title>        Track card: album, credits, technical details, tags
   search <text>        Search the whole catalog

@@ -27,6 +27,12 @@ pub fn show_artist(args: &Args) -> Res {
         return Err(format!("no artist matches \"{name}\"").into());
     };
 
+    // `--with` turns one line of the collaboration table into the tracks it
+    // counts: the graph is only useful if one can walk down it.
+    if let Some(wanted) = args.value("with") {
+        return print_tracks_in_common(&catalog, artist.id, wanted);
+    }
+
     println!("{}", ui::section(&artist.name));
     if artist.sort_name != artist.name {
         println!("  {}", ui::dim(&format!("sort: {}", artist.sort_name)));
@@ -85,6 +91,10 @@ pub fn show_artist(args: &Args) -> Res {
             "{}",
             ui::dim("  (inferred from the credits found in tags; MusicBrainz will enrich these)")
         );
+        println!(
+            "{}",
+            ui::dim("  aede artist \"<name>\" --with=\"<other>\" lists the tracks in common")
+        );
     }
 
     let roles = collect_roles(&catalog, artist.id);
@@ -124,26 +134,42 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
         "Artist",
         track_header,
         "Duration",
+        "Size",
         "Format",
     ])
     .align(3, Align::Right)
     .align(4, Align::Right)
+    .align(5, Align::Right)
     .limit(1, 40)
-    .limit(2, 24);
+    .limit(2, 24)
+    .limit(6, 30);
 
     let mut list: Vec<&aede_core::model::Release> =
         ids.iter().filter_map(|&id| catalog.release(id)).collect();
     list.sort_by_key(|r| (r.year.unwrap_or(u32::MAX), r.title.clone()));
 
     for release in list {
-        let duration: u64 = release
-            .track_ids
-            .iter()
-            .filter_map(|&id| catalog.track(id))
-            .filter_map(|t| t.duration_ms)
-            .sum();
-        let formats: std::collections::BTreeSet<String> = release
-            .track_ids
+        // The whole row describes the same set of tracks. Counting one track
+        // and timing the entire album made a guest appearance of one song look
+        // like forty minutes of music.
+        let counted: Vec<Id> = match column {
+            TrackColumn::WholeRelease => release.track_ids.clone(),
+            TrackColumn::OnlyArtist { artist_id, .. } => release
+                .track_ids
+                .iter()
+                .copied()
+                .filter(|&track_id| {
+                    catalog
+                        .credits_on(EntityKind::Track, track_id)
+                        .iter()
+                        .any(|(a, role)| {
+                            a.id == artist_id && aede_core::model::is_performing_role(role)
+                        })
+                })
+                .collect(),
+        };
+        let (duration, size) = totals(catalog, &counted);
+        let formats: std::collections::BTreeSet<String> = counted
             .iter()
             .filter_map(|&id| catalog.track(id))
             .filter_map(|t| catalog.file(t.file_id))
@@ -154,21 +180,6 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
             .and_then(|id| catalog.artist(id))
             .map(|a| a.name.clone())
             .unwrap_or_else(|| "Various Artists".into());
-        let tracks = match column {
-            TrackColumn::WholeRelease => release.track_ids.len(),
-            TrackColumn::OnlyArtist { artist_id, .. } => release
-                .track_ids
-                .iter()
-                .filter(|&&track_id| {
-                    catalog
-                        .credits_on(EntityKind::Track, track_id)
-                        .iter()
-                        .any(|(a, role)| {
-                            a.id == artist_id && aede_core::model::is_performing_role(role)
-                        })
-                })
-                .count(),
-        };
         t.push(vec![
             release
                 .year
@@ -176,8 +187,9 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
                 .unwrap_or_else(|| "—".into()),
             release.title.clone(),
             album_artist,
-            tracks.to_string(),
+            counted.len().to_string(),
             text::format_duration(duration),
+            text::format_size(size),
             formats.into_iter().collect::<Vec<_>>().join(", "),
         ]);
     }
@@ -221,4 +233,91 @@ fn role_label(role: &str) -> String {
         other => other,
     }
     .to_string()
+}
+
+/// Lists the tracks two artists both perform on.
+///
+/// The pair is what the collaboration weight counts, so the number of rows
+/// here always matches the figure shown in the "Played with" table.
+fn print_tracks_in_common(catalog: &Catalog, artist_id: Id, wanted: &str) -> Res {
+    let Some(other) = catalog.find_artist(wanted).or_else(|| {
+        catalog
+            .search(wanted, 1)
+            .first()
+            .filter(|h| h.kind == EntityKind::Artist)
+            .and_then(|h| catalog.artist(h.id))
+    }) else {
+        return Err(format!("no artist matches \"{wanted}\"").into());
+    };
+
+    let tracks = catalog.tracks_in_common(artist_id, other.id);
+    let here = catalog
+        .artist(artist_id)
+        .map(|a| a.name.clone())
+        .unwrap_or_default();
+    if tracks.is_empty() {
+        return Err(format!(
+            "no track has both {here} and {} performing on it",
+            other.name
+        )
+        .into());
+    }
+
+    println!(
+        "{}",
+        ui::section(&format!("{here} and {} on the same track", other.name))
+    );
+    let mut t = Table::new(&["Year", "Album", "Track", "Duration", "Size", "Format"])
+        .align(3, Align::Right)
+        .align(4, Align::Right)
+        .limit(1, 32)
+        .limit(2, 36);
+    let mut rows: Vec<(Option<u32>, String, String, u64, u64, String)> = tracks
+        .iter()
+        .filter_map(|&id| catalog.track(id))
+        .map(|track| {
+            let release = track.release_id.and_then(|id| catalog.release(id));
+            let file = catalog.file(track.file_id);
+            (
+                release.and_then(|r| r.year),
+                release.map(|r| r.title.clone()).unwrap_or_default(),
+                track.title.clone(),
+                track.duration_ms.unwrap_or(0),
+                file.map(|f| f.size).unwrap_or(0),
+                file.map(|f| f.properties.quality_label())
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        a.0.unwrap_or(u32::MAX)
+            .cmp(&b.0.unwrap_or(u32::MAX))
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+
+    let (mut duration, mut size) = (0u64, 0u64);
+    for (year, album, title, track_ms, bytes, format) in rows {
+        duration += track_ms;
+        size += bytes;
+        t.push(vec![
+            year.map(|y| y.to_string()).unwrap_or_else(|| "—".into()),
+            album,
+            title,
+            text::format_duration(track_ms),
+            text::format_size(bytes),
+            format,
+        ]);
+    }
+    print!("{}", t.render());
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} · {} · {}",
+            ui::plural(tracks.len(), "track"),
+            ui::long_duration(duration),
+            text::format_size(size)
+        ))
+    );
+    Ok(())
 }

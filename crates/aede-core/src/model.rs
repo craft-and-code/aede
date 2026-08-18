@@ -473,6 +473,27 @@ impl Catalog {
         out
     }
 
+    /// Tracks on which two artists are both credited in a performing role.
+    ///
+    /// This is what the weight of a `collaborated` relation counts, recomputed
+    /// on demand rather than stored: the `credit` table already holds the
+    /// answer, and a second copy is a second thing that can fall out of step.
+    pub fn tracks_in_common(&self, a: Id, b: Id) -> Vec<Id> {
+        let performing_on = |artist: Id| -> BTreeSet<Id> {
+            self.credits
+                .iter()
+                .filter(|c| {
+                    c.entity_kind == EntityKind::Track
+                        && c.artist_id == artist
+                        && is_performing_role(&c.role)
+                })
+                .map(|c| c.entity_id)
+                .collect()
+        };
+        let (left, right) = (performing_on(a), performing_on(b));
+        left.intersection(&right).copied().collect()
+    }
+
     /// Genres attached to an entity.
     pub fn genres_of(&self, kind: EntityKind, id: Id) -> Vec<&Genre> {
         self.genre_links
@@ -1203,6 +1224,24 @@ mod tests {
             vec!["/m".to_string()],
             0,
         )
+    }
+
+    #[test]
+    fn the_shared_tracks_match_the_collaboration_weight() {
+        // The weight of a `collaborated` relation is a count; the tracks it
+        // counts must be reachable, or the graph cannot be walked.
+        let c = example_catalog();
+        let garou = c.find_artist("Garou").expect("Garou present");
+        let celine = c.find_artist("Céline Dion").expect("Céline Dion present");
+        let shared = c.tracks_in_common(garou.id, celine.id);
+        let (_, weight, _) = c.neighbours_of_artist(garou.id)[0];
+        assert_eq!(shared.len() as u32, weight, "count and list must agree");
+        assert_eq!(
+            c.track(shared[0]).map(|t| t.title.as_str()),
+            Some("Sous le vent")
+        );
+        // A composer credit is not a collaboration, and neither is being alone.
+        assert!(c.tracks_in_common(garou.id, garou.id).len() == 1);
     }
 
     #[test]

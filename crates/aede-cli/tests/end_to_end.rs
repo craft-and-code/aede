@@ -312,3 +312,28 @@ fn every_listing_carries_the_same_measures() {
         "the artist page must state a size:\n{out}"
     );
 }
+
+#[test]
+fn a_guest_appearance_is_timed_on_its_own_tracks() {
+    // The row used to count one track and time the whole album: a single guest
+    // song read as forty minutes of music.
+    let sandbox = Sandbox::new("guest_duration");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+
+    let appears = out
+        .split("Appears on")
+        .nth(1)
+        .expect("an Appears on section");
+    let row = appears
+        .lines()
+        .find(|l| l.contains("Kind of Blue"))
+        .expect("a release row");
+    // Nine tracks of one second each: the row cannot claim the whole album.
+    assert!(
+        row.contains("0:0"),
+        "the duration must cover the counted tracks only: {row}"
+    );
+}
