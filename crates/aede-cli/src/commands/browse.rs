@@ -4,7 +4,7 @@ use aede_core::model::Id;
 use aede_core::stats;
 use aede_core::text;
 
-use super::{Res, load, totals};
+use super::{Res, export, load, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -38,6 +38,38 @@ pub fn list_artists(args: &Args) -> Res {
                 .sort_name
                 .cmp(&catalog.artists[b.0 as usize].sort_name)
         });
+    }
+
+    if args.has("csv") {
+        let table: Vec<Vec<String>> = rows
+            .iter()
+            .take(limit)
+            .map(|&(id, tracks, albums, duration, size)| {
+                let a = &catalog.artists[id as usize];
+                vec![
+                    a.name.clone(),
+                    a.sort_name.clone(),
+                    tracks.to_string(),
+                    albums.to_string(),
+                    duration.to_string(),
+                    size.to_string(),
+                    a.mbid.clone().unwrap_or_default(),
+                ]
+            })
+            .collect();
+        return export::rows_table(
+            &[
+                "artist",
+                "sort_name",
+                "tracks",
+                "albums",
+                "duration_ms",
+                "size_bytes",
+                "musicbrainz_artistid",
+            ],
+            &table,
+            args,
+        );
     }
 
     println!(
@@ -95,6 +127,13 @@ pub fn list_albums(args: &Args) -> Res {
             .then_with(|| a.title.cmp(&b.title))
     });
 
+    if args.has("csv") {
+        // The same table as `export --csv`, restricted to what the filters kept:
+        // one file for a whole discography is the usual reason to ask.
+        let ids: Vec<Id> = rows.iter().take(limit).map(|r| r.id).collect();
+        return export::albums_table(&catalog, &ids, args);
+    }
+
     println!(
         "{}",
         ui::section(&format!("Albums ({} matching)", rows.len()))
@@ -142,11 +181,34 @@ pub fn list_albums(args: &Args) -> Res {
 pub fn list_genres(args: &Args) -> Res {
     let catalog = load(args)?;
     let limit = args.usize_value("limit", 50);
+    let top = stats::top_genres(&catalog, limit);
+    if args.has("csv") {
+        let table: Vec<Vec<String>> = top
+            .iter()
+            .map(|&(id, count)| {
+                let tracks = tracks_of_genre(&catalog, id);
+                let (duration, size) = totals(&catalog, &tracks);
+                vec![
+                    catalog
+                        .genre(id)
+                        .map(|g| g.name.clone())
+                        .unwrap_or_default(),
+                    count.to_string(),
+                    duration.to_string(),
+                    size.to_string(),
+                ]
+            })
+            .collect();
+        return export::rows_table(
+            &["genre", "tracks", "duration_ms", "size_bytes"],
+            &table,
+            args,
+        );
+    }
     println!(
         "{}",
         ui::section(&format!("Genres ({} in total)", catalog.genres.len()))
     );
-    let top = stats::top_genres(&catalog, limit);
     let max = top.first().map(|(_, n)| *n).unwrap_or(0);
     let mut t = Table::new(&["Genre", "Tracks", "Duration", "Size", ""])
         .align(1, Align::Right)
@@ -174,11 +236,35 @@ pub fn list_genres(args: &Args) -> Res {
 pub fn list_labels(args: &Args) -> Res {
     let catalog = load(args)?;
     let limit = args.usize_value("limit", 50);
+    let top = stats::top_labels(&catalog, limit);
+    if args.has("csv") {
+        let table: Vec<Vec<String>> = top
+            .iter()
+            .map(|&(id, count)| {
+                let tracks = tracks_of_label(&catalog, id);
+                let (duration, size) = totals(&catalog, &tracks);
+                vec![
+                    catalog
+                        .label(id)
+                        .map(|l| l.name.clone())
+                        .unwrap_or_default(),
+                    count.to_string(),
+                    tracks.len().to_string(),
+                    duration.to_string(),
+                    size.to_string(),
+                ]
+            })
+            .collect();
+        return export::rows_table(
+            &["label", "albums", "tracks", "duration_ms", "size_bytes"],
+            &table,
+            args,
+        );
+    }
     println!(
         "{}",
         ui::section(&format!("Labels ({} in total)", catalog.labels.len()))
     );
-    let top = stats::top_labels(&catalog, limit);
     let max = top.first().map(|(_, n)| *n).unwrap_or(0);
     let mut t = Table::new(&["Label", "Albums", "Tracks", "Duration", "Size", ""])
         .align(1, Align::Right)
@@ -215,6 +301,27 @@ pub fn list_years(args: &Args) -> Res {
         entry.0 += 1;
         entry.1.extend(release.track_ids.iter().copied());
     }
+    if args.has("csv") {
+        let table: Vec<Vec<String>> = by_year
+            .iter()
+            .map(|(year, (albums, tracks))| {
+                let (duration, size) = totals(&catalog, tracks);
+                vec![
+                    year.to_string(),
+                    albums.to_string(),
+                    tracks.len().to_string(),
+                    duration.to_string(),
+                    size.to_string(),
+                ]
+            })
+            .collect();
+        return export::rows_table(
+            &["year", "albums", "tracks", "duration_ms", "size_bytes"],
+            &table,
+            args,
+        );
+    }
+
     println!("{}", ui::section("Years"));
     let max = by_year.values().map(|(a, _)| *a).max().unwrap_or(0);
     let mut t = Table::new(&["Year", "Albums", "Tracks", "Duration", "Size", ""])

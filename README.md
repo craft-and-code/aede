@@ -31,11 +31,58 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                 |
 | `aede search <text>`                                      | Search across the whole catalog                                                          |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                               |
-| `aede export`                                             | Export the catalog as JSON                                                               |
+| `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                       |
 
 `--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
 
 The catalog lives in `$AEDE_HOME`, or `~/.local/share/aede/catalog.json`.
+
+### Getting the data out
+
+Three formats, because they answer three different questions.
+
+**JSON** (`aede export`) is the faithful dump: nine linked tables, one per table of the model. It is what rebuilds a catalog or feeds another program.
+
+**CSV** (`aede export --csv`) is for a spreadsheet, and a spreadsheet cannot hold a graph. It writes **one row per album** — artist, title, year, track and disc counts, duration, size, formats, sample rates, bit depths, label, catalogue number, genres, integrity, folder — which is the view from above: sort by size to find what to re-rip, filter on `lossless` to see what is left to replace. `--tracks` switches to one row per track when the album is too coarse.
+
+Its values are **raw**: `duration_ms` and `size_bytes`, not `4:20` and `31.2 MB`. A column that cannot be added up is a column that cannot be used.
+
+`--separator=;` for Excel in a French or German locale, `--separator=tab` for a TSV. Fields are quoted per RFC 4180, so a title carrying a comma or a quotation mark does not shift every column that follows.
+
+**M3U** (`--m3u`) is not an export of the catalog but of a **selection**: whatever is on screen becomes a playlist.
+
+```sh
+aede album "To Hell With God" --m3u --output=deicide.m3u8
+aede search coltrane --m3u --output=coltrane.m3u8
+mpv --playlist=deicide.m3u8
+```
+
+Paths are absolute, so the playlist works wherever it is saved; `#EXTINF` carries the duration and the title, so a player shows them without opening every file. Without `--output` it goes to standard output, which a shell supporting process substitution can hand straight to a player — `mpv --playlist=<(aede artist "Ozzy Osbourne" --m3u)`.
+
+### Where each option applies
+
+Three groups, and an option that a command cannot honour is **refused**, never ignored.
+
+`export` describes the **catalog**: `--csv` gives one row per album, `--tracks` one row per track. It takes no argument.
+
+The **listings** — `albums`, `artists`, `genres`, `labels`, `years` — turn into a table of exactly what they show, filters included. This is how several albums land in one file:
+
+```sh
+aede albums --csv --artist="Deicide" --output=deicide.csv
+aede albums --csv --year=1990
+aede artists --csv --limit=100 --output=artists.csv
+```
+
+`album`, `artist`, `track` and `search` describe a **selection**: `--csv` and `--m3u` both apply to it, as a table of tracks or as a playlist. For an artist, that means the tracks they are audible on; for a search, the track hits and not the artists or albums found.
+
+```sh
+aede album "To Hell With God" --csv --output=album.csv
+aede artist "Deicide" --csv | sort -t, -k9 -n     # sorted by size
+```
+
+`aede album` takes **one** title — the words are joined so a title can be typed without quotes — and says which command lists several when given more.
+
+`--output <file>` writes wherever these produce text, and states where it went instead of filling the terminal.
 
 ```
 $ aede stats
@@ -240,7 +287,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-164 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+168 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

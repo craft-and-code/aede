@@ -3,7 +3,7 @@
 use aede_core::model::EntityKind;
 use aede_core::text;
 
-use super::{Res, load, role_label};
+use super::{Res, load, role_label, selection_output};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -20,6 +20,18 @@ pub fn show_album(args: &Args) -> Res {
             .filter(|h| h.kind == EntityKind::Release)
             .and_then(|h| catalog.release(h.id))
     }) else {
+        // `album` describes one album; the words are joined so that a title can
+        // be typed without quotes. Someone naming two of them is after a list,
+        // which is what the plural command is for.
+        if args.positionals.len() > 1 {
+            return Err(format!(
+                "no album matches \"{title}\".\n\
+                 aede album takes one title; for several, filter the list:\n\
+                 \taede albums --csv --artist=\"<name>\"\n\
+                 \taede albums --csv --year=1990"
+            )
+            .into());
+        }
         return Err(format!("no album matches \"{title}\"").into());
     };
 
@@ -28,6 +40,10 @@ pub fn show_album(args: &Args) -> Res {
         .and_then(|id| catalog.artist(id))
         .map(|a| a.name.clone())
         .unwrap_or_else(|| "Various Artists".into());
+
+    if let Some(result) = selection_output(&catalog, &release.track_ids, args) {
+        return result;
+    }
 
     println!("{}", ui::section(&release.title));
     println!("  {}", ui::bold(&artist));

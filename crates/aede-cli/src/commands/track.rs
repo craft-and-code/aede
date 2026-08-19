@@ -10,10 +10,10 @@
 //! recordings and the difference is exactly what one wants to see.
 
 use aede_core::json::Json;
-use aede_core::model::{Catalog, EntityKind, TitleMatch, Track};
+use aede_core::model::{Catalog, EntityKind, Id, TitleMatch, Track};
 use aede_core::text;
 
-use super::{Res, load, properties_table, role_label, tags_table};
+use super::{Res, load, properties_table, role_label, selection_output, tags_table};
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -52,6 +52,11 @@ pub fn show_track(args: &Args) -> Res {
     let total = matches.len();
     let limit = args.usize_value("limit", DEFAULT_LIMIT);
     matches.truncate(limit);
+
+    let ids: Vec<Id> = matches.iter().map(|t| t.id).collect();
+    if let Some(result) = selection_output(&catalog, &ids, args) {
+        return result;
+    }
 
     if args.has("json") {
         let json = Json::Arr(matches.iter().map(|t| as_json(&catalog, t)).collect());

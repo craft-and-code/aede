@@ -454,3 +454,145 @@ fn checking_can_be_restricted_to_one_folder() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn exporting_as_csv_and_as_a_playlist() {
+    let sandbox = Sandbox::new("export");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // --- Albums, one row each ----------------------------------------------
+    let (out, _, ok) = sandbox.run(&["export", "--csv"]);
+    assert!(ok);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines[0].starts_with("album_artist,album,year"),
+        "header: {}",
+        lines[0]
+    );
+    assert!(
+        lines.iter().any(|l| l.contains("Kind of Blue")),
+        "the album is there:\n{out}"
+    );
+    // Raw values: a spreadsheet has to be able to add the column up.
+    assert!(
+        lines[1]
+            .split(',')
+            .any(|cell| cell.parse::<u64>().is_ok_and(|n| n > 1000)),
+        "sizes and durations are numbers: {}",
+        lines[1]
+    );
+    assert!(out.contains("\r\n"), "RFC 4180 line endings");
+
+    // --- One row per track --------------------------------------------------
+    let (out, _, ok) = sandbox.run(&["export", "--csv", "--tracks"]);
+    assert!(ok);
+    assert!(
+        out.lines()
+            .next()
+            .unwrap()
+            .starts_with("artist,album_artist")
+    );
+    assert!(out.contains("So What"));
+
+    // --- The separator can be changed for Excel ----------------------------
+    let (out, _, ok) = sandbox.run(&["export", "--csv", "--separator=;"]);
+    assert!(ok);
+    assert!(out.lines().next().unwrap().contains("album_artist;album"));
+    let (_, err, ok) = sandbox.run(&["export", "--csv", "--separator=xyz"]);
+    assert!(!ok);
+    assert!(err.contains("one character"), "stderr: {err}");
+
+    // --- A playlist of what is on screen -----------------------------------
+    let (out, _, ok) = sandbox.run(&["album", "Kind of Blue", "--m3u"]);
+    assert!(ok);
+    assert!(out.starts_with("#EXTM3U"), "output: {out}");
+    assert!(out.contains("#EXTINF:"), "durations and titles: {out}");
+    assert!(out.contains(".flac"), "absolute paths: {out}");
+
+    // --- Written to a file rather than printed ------------------------------
+    let target = std::env::temp_dir().join("aede_e2e_export.m3u8");
+    let _ = std::fs::remove_file(&target);
+    let (out, _, ok) = sandbox.run(&[
+        "album",
+        "Kind of Blue",
+        "--m3u",
+        &format!("--output={}", target.display()),
+    ]);
+    assert!(ok, "output: {out}");
+    let written = std::fs::read_to_string(&target).expect("the playlist file");
+    assert!(written.starts_with("#EXTM3U"));
+    let _ = std::fs::remove_file(&target);
+}
+
+#[test]
+fn a_selection_can_be_exported_too() {
+    let sandbox = Sandbox::new("selection");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    // The same option on a selection gives that selection, not the library.
+    let (whole, _, ok) = sandbox.run(&["export", "--csv", "--tracks"]);
+    assert!(ok);
+    let (one, _, ok) = sandbox.run(&["album", "Kind of Blue", "--csv"]);
+    assert!(ok);
+    assert!(
+        one.lines().count() < whole.lines().count(),
+        "one album is smaller than the catalog"
+    );
+    assert!(one.contains("Kind of Blue"));
+
+    // An argument export cannot honour is refused, with the command that can.
+    let (_, err, ok) = sandbox.run(&["export", "--csv", "Kind of Blue"]);
+    assert!(!ok, "a stray argument must not be ignored");
+    assert!(err.contains("takes no argument"), "stderr: {err}");
+    assert!(err.contains("aede album"), "it points at the right command");
+}
+
+#[test]
+fn every_listing_can_become_a_table() {
+    // `--csv` used to be accepted everywhere and honoured on four commands.
+    let sandbox = Sandbox::new("listing_csv");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    for (command, header) in [
+        ("albums", "album_artist,album,year"),
+        ("artists", "artist,sort_name,tracks"),
+        ("genres", "genre,tracks,duration_ms"),
+        ("labels", "label,albums,tracks"),
+        ("years", "year,albums,tracks"),
+    ] {
+        let (out, _, ok) = sandbox.run(&[command, "--csv"]);
+        assert!(ok, "{command} --csv must run");
+        assert!(
+            out.starts_with(header),
+            "{command} header, got: {}",
+            out.lines().next().unwrap_or("")
+        );
+    }
+
+    // --output writes the file instead of printing it.
+    let target = std::env::temp_dir().join("aede_e2e_listing.csv");
+    let _ = std::fs::remove_file(&target);
+    let (out, _, ok) = sandbox.run(&["albums", "--csv", &format!("--output={}", target.display())]);
+    assert!(ok);
+    assert!(out.contains("written to"), "it says where it went: {out}");
+    let written = std::fs::read_to_string(&target).expect("the file");
+    assert!(written.starts_with("album_artist,"), "content: {written}");
+    let _ = std::fs::remove_file(&target);
+
+    // A command that cannot honour the option refuses it.
+    let (_, err, ok) = sandbox.run(&["stats", "--csv"]);
+    assert!(!ok, "stats has no table to give");
+    assert!(err.contains("cannot produce a table"), "stderr: {err}");
+    let (_, err, ok) = sandbox.run(&["albums", "--m3u"]);
+    assert!(!ok, "a list of albums is not a playlist");
+    assert!(err.contains("cannot produce a playlist"), "stderr: {err}");
+
+    // Naming two albums points at the command that lists several.
+    let (_, err, ok) = sandbox.run(&["album", "Kind of Blue", "Sketches of Spain"]);
+    assert!(!ok);
+    assert!(err.contains("aede albums"), "stderr: {err}");
+}

@@ -8,6 +8,7 @@ mod artist;
 mod browse;
 mod check;
 mod doctor;
+mod export;
 mod inspect;
 mod scan;
 mod search;
@@ -19,7 +20,8 @@ pub use artist::show_artist;
 pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years};
 pub use check::check;
 pub use doctor::show_doctor;
-pub use inspect::{export, inspect};
+pub use export::export;
+pub use inspect::inspect;
 pub use scan::{roots, scan};
 pub use search::search;
 pub use stats::show_stats;
@@ -159,4 +161,34 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
                 size + catalog.file(track.file_id).map(|f| f.size).unwrap_or(0),
             )
         })
+}
+
+/// Hands the tracks on screen to another program, when asked for.
+///
+/// `None` means nothing was asked and the command should print its usual page.
+/// Every command that shows a track list offers the same two exits, so the
+/// option means the same thing wherever it is typed.
+fn selection_output(catalog: &Catalog, tracks: &[Id], args: &Args) -> Option<Res> {
+    if args.has("m3u") {
+        return Some(play_list(catalog, tracks, args));
+    }
+    if args.has("csv") {
+        if tracks.is_empty() {
+            return Some(Err("nothing to put in a table".into()));
+        }
+        return Some(export::tracks_table(catalog, tracks, args));
+    }
+    None
+}
+
+/// Prints the tracks shown as an M3U playlist instead of the usual page.
+///
+/// Every command that puts a track list on screen can hand it to a player;
+/// that the selection was reached through an album, an artist or a search is
+/// the caller's business, not the playlist's.
+fn play_list(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
+    if tracks.is_empty() {
+        return Err("nothing to put in a playlist".into());
+    }
+    export::emit(args, &export::m3u(catalog, tracks))
 }

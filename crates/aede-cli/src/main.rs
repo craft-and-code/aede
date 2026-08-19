@@ -58,6 +58,10 @@ fn main() {
         "artist",
         "album",
         "with",
+        "separator",
+        "csv",
+        "tracks",
+        "m3u",
         "year",
         "output",
         "threads",
@@ -90,6 +94,26 @@ fn main() {
             );
         }
         std::process::exit(2);
+    }
+
+    // An option a command cannot honour is refused rather than ignored. The
+    // global list above only says an option exists; this says where it means
+    // something, which is what stops `aede stats --csv` from printing a table
+    // that is not one.
+    for (option, commands, what) in [
+        ("csv", CSV_COMMANDS, "produce a table"),
+        ("m3u", M3U_COMMANDS, "produce a playlist"),
+        ("output", OUTPUT_COMMANDS, "write to a file"),
+    ] {
+        if args.has(option) && !commands.contains(&args.command.as_str()) {
+            eprintln!(
+                "{} \"{}\" cannot {what}: --{option} applies to {}",
+                ui::red("Error:"),
+                args.command,
+                commands.join(", ")
+            );
+            std::process::exit(2);
+        }
     }
 
     let result = match args.command.as_str() {
@@ -126,6 +150,21 @@ fn main() {
     }
 }
 
+/// Commands that can render what they show as a CSV table.
+const CSV_COMMANDS: &[&str] = &[
+    "export", "album", "artist", "track", "search", "albums", "artists", "genres", "labels",
+    "years",
+];
+
+/// Commands that show tracks, and can therefore hand them to a player.
+const M3U_COMMANDS: &[&str] = &["album", "artist", "track", "search"];
+
+/// Commands whose output can go to a file instead of the terminal.
+const OUTPUT_COMMANDS: &[&str] = &[
+    "export", "album", "artist", "track", "search", "albums", "artists", "genres", "labels",
+    "years",
+];
+
 fn print_help() {
     println!(
         "{}",
@@ -156,13 +195,19 @@ fn print_help() {
   track <title>        Track card: album, credits, technical details, tags
   search <text>        Search the whole catalog
   file <path>          Inspect a single file, outside the catalog
-  export               Export the catalog as JSON
+  export               Export the catalog as JSON, or as CSV with --csv
+                       (one row per album; --tracks for one row per track)
 
 {}
   --data <folder>      Catalog location
                        (default: $AEDE_HOME or ~/.local/share/aede)
   --limit <n>          Number of rows displayed
   --json               Machine-readable output (stats, doctor, search, track)
+  --csv                Spreadsheet output: export, the listings, and any
+                       selection (--separator=; or tab)
+  --m3u                Playlist of the tracks shown (album, artist, track,
+                       search); --output=<file> writes it instead of printing
+  --output <file>      Write to a file rather than to standard output
   --no-color           Turn colours off
   -h, --help           Show this help
   -V, --version        Show the version

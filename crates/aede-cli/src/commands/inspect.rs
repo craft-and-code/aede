@@ -2,11 +2,10 @@
 
 use std::path::Path;
 
-use aede_core::store;
 use aede_core::tags;
 use aede_core::text;
 
-use super::{Res, load};
+use super::Res;
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -76,23 +75,6 @@ pub fn inspect(args: &Args) -> Res {
             t.push(vec![key.clone(), values.join(" / ")]);
         }
         print!("{}", t.render());
-    }
-    Ok(())
-}
-
-pub fn export(args: &Args) -> Res {
-    let catalog = load(args)?;
-    let json = store::to_json(&catalog).to_string_pretty();
-    match args.value("output") {
-        Some(path) => {
-            std::fs::write(path, &json)?;
-            println!(
-                "{} {}",
-                ui::green("→"),
-                format_args!("catalog exported to {path}")
-            );
-        }
-        None => println!("{json}"),
     }
     Ok(())
 }

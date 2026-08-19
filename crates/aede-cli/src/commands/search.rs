@@ -1,9 +1,9 @@
 //! The `search` command: one query across every entity.
 
 use aede_core::json::Json;
-use aede_core::model::EntityKind;
+use aede_core::model::{EntityKind, Id};
 
-use super::{Res, load};
+use super::{Res, load, selection_output};
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -14,6 +14,17 @@ pub fn search(args: &Args) -> Res {
         return Err("give some text to search for".into());
     }
     let hits = catalog.search(&query, args.usize_value("limit", 30));
+
+    // Only the tracks: an artist or an album is not something to play, nor a
+    // row in a table of tracks.
+    let ids: Vec<Id> = hits
+        .iter()
+        .filter(|h| h.kind == EntityKind::Track)
+        .map(|h| h.id)
+        .collect();
+    if let Some(result) = selection_output(&catalog, &ids, args) {
+        return result;
+    }
 
     if args.has("json") {
         let json = Json::Arr(

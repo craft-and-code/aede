@@ -6,7 +6,7 @@
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::text;
 
-use super::{Res, load, totals};
+use super::{Res, load, selection_output, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -31,6 +31,16 @@ pub fn show_artist(args: &Args) -> Res {
     // counts: the graph is only useful if one can walk down it.
     if let Some(wanted) = args.value("with") {
         return print_tracks_in_common(&catalog, artist.id, wanted);
+    }
+
+    // The tracks the artist is audible on, which is what one wants to hear or
+    // to tabulate.
+    if let Some(result) = selection_output(
+        &catalog,
+        &catalog.performed_tracks_of_artist(artist.id),
+        args,
+    ) {
+        return result;
     }
 
     println!("{}", ui::section(&artist.name));
