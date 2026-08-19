@@ -58,11 +58,12 @@ pub fn show_album(args: &Args) -> Res {
     println!("  {}", ui::dim(&release.folder));
 
     println!("{}", ui::section("Tracks"));
-    let mut t = Table::new(&["#", "Title", "Duration", "Format", "Artists"])
+    let mut t = Table::new(&["#", "Title", "Duration", "Size", "Format", "Artists"])
         .align(0, Align::Right)
         .align(2, Align::Right)
+        .align(3, Align::Right)
         .limit(1, 45)
-        .limit(4, 35);
+        .limit(5, 35);
     for &track_id in &release.track_ids {
         let Some(track) = catalog.track(track_id) else {
             continue;
@@ -84,6 +85,7 @@ pub fn show_album(args: &Args) -> Res {
                 .duration_ms
                 .map(text::format_duration)
                 .unwrap_or_else(|| "—".into()),
+            file.map(|f| text::format_size(f.size)).unwrap_or_default(),
             file.map(|f| f.properties.quality_label())
                 .unwrap_or_default(),
             performers.join(", "),
