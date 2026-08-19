@@ -32,6 +32,7 @@ pub fn show_doctor(args: &Args) -> Res {
     println!("{}", ui::section("Diagnosis"));
     if issues.is_empty() {
         println!("  {}", ui::green("No issue found."));
+        print_unverified(&catalog);
         return Ok(());
     }
     for (severity, count) in &summary {
@@ -91,6 +92,7 @@ pub fn show_doctor(args: &Args) -> Res {
             ))
         );
     }
+    print_unverified(&catalog);
     Ok(())
 }
 
@@ -111,4 +113,26 @@ fn issues_to_json(issues: &[Issue]) -> Json {
             })
             .collect(),
     )
+}
+
+/// Says how many files carry no integrity verdict.
+///
+/// `doctor` reads no file, so it can only report what `aede check` established.
+/// Staying silent would let a library look healthy when nothing was verified.
+fn print_unverified(catalog: &aede_core::model::Catalog) {
+    let unverified = catalog
+        .files
+        .iter()
+        .filter(|f| f.integrity.is_none())
+        .count();
+    if unverified == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} not verified — run aede check",
+            ui::plural(unverified, "file")
+        ))
+    );
 }

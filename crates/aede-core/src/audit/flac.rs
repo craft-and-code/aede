@@ -169,13 +169,13 @@ pub fn audit(path: &Path, limits: Limits) -> Result<FlacAudit, TagError> {
 }
 
 /// The few STREAMINFO fields the frame walk needs.
-struct StreamInfo {
-    bits_per_sample: u16,
-    channels: u16,
+pub(crate) struct StreamInfo {
+    pub(crate) bits_per_sample: u16,
+    pub(crate) channels: u16,
 }
 
 /// Reads STREAMINFO and returns it with the offset of the first frame.
-fn read_stream_info(file: &mut std::fs::File) -> Result<(StreamInfo, u64), TagError> {
+pub(crate) fn read_stream_info(file: &mut std::fs::File) -> Result<(StreamInfo, u64), TagError> {
     let start = crate::tags::id3::skip_id3v2(file)?;
     let header = read_at_most(file, start, 4)?;
     if header.len() < 4 || &header[..4] != b"fLaC" {
@@ -220,18 +220,37 @@ fn read_stream_info(file: &mut std::fs::File) -> Result<(StreamInfo, u64), TagEr
 }
 
 /// What one frame contributes to the audit.
-struct FrameAudit {
+pub(crate) struct FrameAudit {
     min_wasted: u32,
     all_constant: bool,
     is_stereo: bool,
     channels_identical: bool,
+    /// Byte range of the frame within the slice being walked, and where its
+    /// header stops — what a checksum needs, and what the resolution audit
+    /// ignores.
+    pub(crate) span: FrameSpan,
+}
+
+/// Where a frame sits in the stream, and the checksums it carries.
+pub(crate) struct FrameSpan {
+    /// Offset of the sync code.
+    pub(crate) start: usize,
+    /// Offset just past the frame's own CRC-16.
+    pub(crate) end: usize,
+    /// Offset of the header's CRC-8, which is also where the header stops.
+    pub(crate) header_end: usize,
+    /// The CRC-8 the header announces.
+    pub(crate) stored_crc8: u8,
+    /// The CRC-16 the frame announces.
+    pub(crate) stored_crc16: u16,
 }
 
 /// Reads one frame header and walks its subframes.
 ///
 /// Returns `None` at the end of the stream or on anything unexpected, which
 /// ends the walk without failing the audit.
-fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Option<FrameAudit> {
+pub(crate) fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Option<FrameAudit> {
+    let start = reader.bit_pos() / 8;
     if reader.bits(14)? != 0b11_1111_1111_1110 {
         return None;
     }
@@ -276,7 +295,8 @@ fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Option<FrameAudi
         15 => return None,
         _ => {}
     }
-    reader.bits(8)?; // header CRC-8
+    let header_end = reader.bit_pos() / 8;
+    let stored_crc8 = reader.bits(8)? as u8;
 
     let bits_per_sample = match sample_size_bits {
         0 => info.bits_per_sample as u32,
@@ -329,13 +349,20 @@ fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Option<FrameAudi
     }
 
     reader.align_to_byte();
-    reader.bits(16)?; // frame CRC-16
+    let stored_crc16 = reader.bits(16)? as u16;
 
     Some(FrameAudit {
         min_wasted,
         all_constant,
         is_stereo: side_index.is_some(),
         channels_identical: side_is_zero,
+        span: FrameSpan {
+            start,
+            end: reader.bit_pos() / 8,
+            header_end,
+            stored_crc8,
+            stored_crc16,
+        },
     })
 }
 

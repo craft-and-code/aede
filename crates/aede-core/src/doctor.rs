@@ -61,15 +61,19 @@ pub enum IssueKind {
     MissingCover,
     /// The announced year falls outside the plausible range for a recording.
     SuspiciousYear,
+    /// A checksum carried by the file does not match its contents: the audio
+    /// has been damaged since it was written.
+    DamagedAudio,
 }
 
 impl IssueKind {
     /// Weight given to this kind of problem, which fixes its rank in the report.
     pub fn severity(self) -> Severity {
         match self {
-            IssueKind::MissingTitle | IssueKind::MissingArtist | IssueKind::MissingDuration => {
-                Severity::Error
-            }
+            IssueKind::MissingTitle
+            | IssueKind::MissingArtist
+            | IssueKind::MissingDuration
+            | IssueKind::DamagedAudio => Severity::Error,
             IssueKind::MissingAlbum
             | IssueKind::DuplicateTrack
             | IssueKind::IncompleteAlbum
@@ -95,6 +99,7 @@ impl IssueKind {
             IssueKind::MixedQuality => "mixed quality within an album",
             IssueKind::MissingCover => "missing cover art",
             IssueKind::SuspiciousYear => "implausible year",
+            IssueKind::DamagedAudio => "damaged audio",
         }
     }
 }
@@ -122,6 +127,7 @@ impl Issue {
 pub fn diagnose(catalog: &Catalog) -> Vec<Issue> {
     let mut issues = Vec::new();
     check_tracks(catalog, &mut issues);
+    check_integrity(catalog, &mut issues);
     check_duplicates(catalog, &mut issues);
     check_releases(catalog, &mut issues);
 
@@ -199,6 +205,25 @@ fn check_tracks(catalog: &Catalog, issues: &mut Vec<Issue>) {
                 files: vec![path],
             }),
             Some(_) => {}
+        }
+    }
+}
+
+/// Reports the files whose stored checksums did not match.
+///
+/// Only what `aede check` has already established: this never reads a file, so
+/// `doctor` stays instant. Files with no verdict are silently passed over here
+/// and counted by the command itself, which can say how to obtain one.
+fn check_integrity(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    for file in &catalog.files {
+        if let Some(record) = &file.integrity
+            && let crate::audit::integrity::Verdict::Damaged { detail } = &record.verdict
+        {
+            issues.push(Issue {
+                kind: IssueKind::DamagedAudio,
+                detail: format!("{detail} — restore from a backup or rip again"),
+                files: vec![file.path.clone()],
+            });
         }
     }
 }
@@ -394,6 +419,7 @@ mod tests {
             mtime: 0,
             tags,
             folder_cover: None,
+            integrity: None,
         }
     }
 

@@ -169,6 +169,7 @@ fn print_track(catalog: &Catalog, track: &Track) {
     if let Some(file) = file {
         context.push(vec!["Path".into(), file.path.clone()]);
     }
+    context.push(vec!["Integrity".into(), integrity_line(track, catalog)]);
     print!("{}", context.render());
 
     if let Some(file) = file {
@@ -278,4 +279,23 @@ fn as_json(catalog: &Catalog, track: &Track) -> Json {
         o.set("tags", tags);
     }
     o
+}
+
+/// What the last integrity check said about the file behind a track.
+///
+/// "not verified" is a state of its own, and saying so is the point: a blank
+/// here would read as "fine".
+fn integrity_line(track: &Track, catalog: &Catalog) -> String {
+    use aede_core::audit::integrity::Verdict;
+    let Some(record) = catalog
+        .file(track.file_id)
+        .and_then(|f| f.integrity.as_ref())
+    else {
+        return "not verified — run aede check".to_string();
+    };
+    match &record.verdict {
+        Verdict::Intact => format!("intact ({})", record.method),
+        Verdict::NothingToCheck => "the container carries no checksum".to_string(),
+        Verdict::Damaged { detail } => format!("damaged — {detail}"),
+    }
 }

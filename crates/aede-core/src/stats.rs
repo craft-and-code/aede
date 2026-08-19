@@ -391,6 +391,7 @@ mod tests {
             mtime: 0,
             tags,
             folder_cover: None,
+            integrity: None,
         }
     }
 

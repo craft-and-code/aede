@@ -363,3 +363,94 @@ fn a_writer_is_not_announced_as_having_nothing() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[test]
+fn checking_a_library_finds_a_damaged_file() {
+    let sandbox = Sandbox::new("check");
+    // Deliberately deep: a real library sits far from the root, and on macOS a
+    // temporary path alone is sixty columns before the file name starts. The
+    // report has to keep the name, which is the only part that identifies the
+    // file.
+    let root = std::env::temp_dir().join("aede_e2e_check_src");
+    let scratch = root.join("a-library-buried-under-a-long-and-tiresome-path/second-level");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::copy(library().join("track.flac"), scratch.join("good.flac")).unwrap();
+    std::fs::copy(library().join("track.mp3"), scratch.join("nothing.mp3")).unwrap();
+    let mut bytes = std::fs::read(library().join("track.flac")).unwrap();
+    let index = bytes.len() - 200;
+    bytes[index] ^= 0x01;
+    std::fs::write(scratch.join("bad.flac"), &bytes).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", scratch.to_str().unwrap()]);
+    assert!(ok);
+
+    // Before any check, nothing is claimed about the files.
+    let (out, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(out.contains("not verified"), "doctor must say so: {out}");
+
+    let (out, _, ok) = sandbox.run(&["check"]);
+    assert!(ok, "the check must run: {out}");
+    assert!(out.contains("Damaged"), "output: {out}");
+    assert!(out.contains("bad.flac"), "the file is named: {out}");
+
+    // The verdict is stored: a second run has nothing left to read.
+    let (out, _, ok) = sandbox.run(&["check"]);
+    assert!(ok);
+    assert!(out.contains("already has a verdict"), "output: {out}");
+
+    // And doctor now reports the damage as an error.
+    let (out, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(out.contains("damaged audio"), "output: {out}");
+    assert!(!out.contains("not verified"), "everything was verified");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn checking_can_be_restricted_to_one_folder() {
+    // Verifying a whole library is a long job; being able to try it on a corner
+    // first is what makes it approachable.
+    let sandbox = Sandbox::new("check_scope");
+    let root = std::env::temp_dir().join("aede_e2e_scope_src");
+    let (left, right) = (root.join("left"), root.join("right"));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::copy(library().join("track.flac"), left.join("1.flac")).unwrap();
+    std::fs::copy(library().join("hires.flac"), right.join("2.flac")).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["check", left.to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("1 file to read"), "output: {out}");
+
+    // The other folder is untouched, and the report says so.
+    let (out, _, ok) = sandbox.run(&["check", right.to_str().unwrap()]);
+    assert!(ok);
+    assert!(out.contains("1 file to read"), "output: {out}");
+
+    // Everything now has a verdict.
+    let (out, _, ok) = sandbox.run(&["check"]);
+    assert!(ok);
+    assert!(out.contains("already has a verdict"), "output: {out}");
+
+    // A folder the catalog knows nothing about is not silently an empty run.
+    let (out, _, ok) = sandbox.run(&["check", std::env::temp_dir().to_str().unwrap()]);
+    assert!(ok);
+    assert!(
+        out.contains("verdict") || out.contains("no file"),
+        "output: {out}"
+    );
+
+    // A folder that does not exist is an error, not an empty result.
+    let (_, err, ok) = sandbox.run(&["check", "/nowhere/at/all"]);
+    assert!(!ok);
+    assert!(err.contains("does not exist"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

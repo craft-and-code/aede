@@ -11,10 +11,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::audit;
 use crate::json::{self, Json};
 use crate::model::{
-    Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, Label, Relation, Release,
-    Track,
+    Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, IntegrityRecord, Label,
+    Relation, Release, Track,
 };
 use crate::tags::AudioProperties;
 
@@ -196,6 +197,20 @@ fn file_to_json(file: &AudioFile) -> Json {
         );
     }
     o.set("tags", tags);
+
+    // Absent when the file was never checked. The three verdicts are stored as
+    // keys rather than as a boolean, because "nothing to check" is an answer of
+    // its own and not a missing one.
+    if let Some(record) = &file.integrity {
+        let mut integrity = Json::obj();
+        integrity.set("state", record.verdict.key().into());
+        integrity.set("method", record.method.clone().into());
+        integrity.set("checked_at", record.checked_at.into());
+        if let audit::integrity::Verdict::Damaged { detail } = &record.verdict {
+            integrity.set("detail", detail.clone().into());
+        }
+        o.set("integrity", integrity);
+    }
     o
 }
 
@@ -499,6 +514,26 @@ fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
         },
         has_embedded_art: item.field_bool("has_embedded_art"),
         tags,
+        integrity: integrity_from_json(item.get("integrity")),
+    })
+}
+
+/// Reads back a stored verdict; an unknown state is treated as no verdict at
+/// all, so a catalog written by a later version degrades instead of failing.
+fn integrity_from_json(value: Option<&Json>) -> Option<IntegrityRecord> {
+    let value = value?;
+    let verdict = match value.field_str("state")?.as_str() {
+        "intact" => audit::integrity::Verdict::Intact,
+        "nothing_to_check" => audit::integrity::Verdict::NothingToCheck,
+        "damaged" => audit::integrity::Verdict::Damaged {
+            detail: value.field_str("detail").unwrap_or_default(),
+        },
+        _ => return None,
+    };
+    Some(IntegrityRecord {
+        verdict,
+        method: value.field_str("method").unwrap_or_default(),
+        checked_at: value.field_u64("checked_at").unwrap_or(0),
     })
 }
 
@@ -549,6 +584,7 @@ mod tests {
                 mtime: 1_700_000_000,
                 tags,
                 folder_cover: Some("/music/Miles Davis/Kind of Blue/cover.jpg".into()),
+                integrity: None,
             }],
             vec!["/music".into()],
             1_700_000_100,
@@ -586,6 +622,42 @@ mod tests {
         let text = to_json(&original).to_string_compact();
         let read_back = from_json(&json::parse(&text).unwrap()).unwrap();
         assert_eq!(read_back.tracks[0].title, "So What");
+    }
+
+    #[test]
+    fn an_integrity_verdict_survives_the_round_trip() {
+        let mut original = example_catalog();
+        original.files[0].integrity = Some(IntegrityRecord {
+            verdict: audit::integrity::Verdict::Damaged {
+                detail: "frame 12: audio checksum mismatch".into(),
+            },
+            method: audit::integrity::FLAC_METHOD.into(),
+            checked_at: 1_700_000_500,
+        });
+        let text = to_json(&original).to_string_compact();
+        let read_back = from_json(&json::parse(&text).unwrap()).unwrap();
+        let record = read_back.files[0]
+            .integrity
+            .as_ref()
+            .expect("the verdict is kept");
+        assert_eq!(record.method, audit::integrity::FLAC_METHOD);
+        assert_eq!(record.checked_at, 1_700_000_500);
+        match &record.verdict {
+            audit::integrity::Verdict::Damaged { detail } => {
+                assert!(detail.contains("frame 12"), "detail kept: {detail}")
+            }
+            other => panic!("wrong verdict: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_file_never_checked_stores_nothing() {
+        // Absent, not "false": a file that was never looked at must not be
+        // confused with one that carries no checksum.
+        let text = to_json(&example_catalog()).to_string_compact();
+        assert!(!text.contains("integrity"), "nothing is written");
+        let read_back = from_json(&json::parse(&text).unwrap()).unwrap();
+        assert!(read_back.files[0].integrity.is_none());
     }
 
     #[test]

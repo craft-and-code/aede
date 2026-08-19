@@ -8,6 +8,8 @@
 //! into a crate of its own and shared with other tools.
 
 mod bits;
+mod crc;
 pub mod flac;
+pub mod integrity;
 
 pub use flac::{FlacAudit, Limits, StereoContent};

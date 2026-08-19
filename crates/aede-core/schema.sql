@@ -32,8 +32,20 @@ CREATE TABLE file (
     bitrate_kbps      INTEGER,
     lossless          INTEGER NOT NULL DEFAULT 0,
     has_embedded_art  INTEGER NOT NULL DEFAULT 0,
-    scanned_at        INTEGER
+    scanned_at        INTEGER,
+    -- What the last integrity check concluded, or NULL when none was ever run.
+    -- NULL is not the same as 'nothing_to_check': the first can change, the
+    -- second is final for that container.
+    integrity_state    TEXT CHECK (integrity_state IN ('intact', 'damaged', 'nothing_to_check')),
+    -- How the verdict was reached: flac-frame-crc, ogg-page-crc, none. A frame
+    -- checksum proves the container intact; an MD5 of the decoded audio, which
+    -- will come with the decoder, proves the music itself intact.
+    integrity_method   TEXT,
+    integrity_detail   TEXT,           -- where it failed, when it did
+    integrity_checked_at INTEGER       -- Unix epoch in seconds
 );
+
+CREATE INDEX file_integrity_idx ON file (integrity_state);
 
 CREATE INDEX file_mtime_idx ON file (mtime);
 

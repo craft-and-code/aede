@@ -79,12 +79,12 @@ pub fn scan(args: &Args) -> Res {
             report.removed.to_string(),
         ]);
     }
-    table.push(vec!["Elapsed".into(), format!("{} ms", report.elapsed_ms)]);
+    table.push(vec!["Elapsed".into(), ui::elapsed(report.elapsed_ms)]);
     print!("{}", table.render());
 
     if !report.failures.is_empty() {
         println!("{}", ui::section("Unreadable files"));
-        let mut t = Table::new(&["File", "Reason"]).limit(0, 60);
+        let mut t = Table::new(&["File", "Reason"]).path_limit(0, 60);
         for (path, reason) in report.failures.iter().take(20) {
             t.push(vec![path.clone(), reason.clone()]);
         }

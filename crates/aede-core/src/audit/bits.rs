@@ -19,6 +19,11 @@ impl<'a> BitReader<'a> {
         self.pos = self.pos.div_ceil(8) * 8;
     }
 
+    /// Position of the next bit to be read, counted from the start.
+    pub fn bit_pos(&self) -> usize {
+        self.pos
+    }
+
     pub fn is_exhausted(&self) -> bool {
         self.pos >= self.data.len() * 8
     }

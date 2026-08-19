@@ -6,6 +6,7 @@
 mod album;
 mod artist;
 mod browse;
+mod check;
 mod doctor;
 mod inspect;
 mod scan;
@@ -16,6 +17,7 @@ mod track;
 pub use album::show_album;
 pub use artist::show_artist;
 pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years};
+pub use check::check;
 pub use doctor::show_doctor;
 pub use inspect::{export, inspect};
 pub use scan::{roots, scan};

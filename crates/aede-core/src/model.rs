@@ -11,6 +11,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use crate::audit;
+
 use crate::tags::{AudioProperties, RawTags};
 use crate::text;
 
@@ -77,6 +79,29 @@ pub struct AudioFile {
     /// Tags as read, lowercase name to values, kept so that the whole graph
     /// can be rebuilt without touching the disk again.
     pub tags: BTreeMap<String, Vec<String>>,
+    /// What the last integrity check concluded, if one was ever run.
+    ///
+    /// `None` means "not checked", which is deliberately distinct from
+    /// [`audit::integrity::Verdict::NothingToCheck`]: the first can change, the
+    /// second cannot. The verdict travels with the file entry, so a scan that
+    /// reuses the entry keeps it and a scan that re-reads the file drops it —
+    /// a modified file has to be checked again.
+    pub integrity: Option<IntegrityRecord>,
+}
+
+/// An integrity verdict, with what produced it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrityRecord {
+    /// What the check concluded.
+    pub verdict: audit::integrity::Verdict,
+    /// How it was reached: `flac-frame-crc`, `ogg-page-crc`, or `none`.
+    ///
+    /// Stored because verdicts of different strengths will coexist: a frame
+    /// checksum proves the container intact, an MD5 of the decoded audio will
+    /// prove the music itself intact.
+    pub method: String,
+    /// When the check ran, in seconds since the Unix epoch.
+    pub checked_at: u64,
 }
 
 impl AudioFile {
@@ -670,6 +695,10 @@ pub struct ScannedFile {
     pub tags: RawTags,
     /// Cover art found in the folder (`cover.jpg`, `folder.png`…).
     pub folder_cover: Option<String>,
+    /// Integrity verdict carried over from the previous catalog, when the file
+    /// was reused unchanged. A freshly read file has none: it has to be checked
+    /// again.
+    pub integrity: Option<IntegrityRecord>,
 }
 
 /// Assembles the graph from the files that were read.
@@ -749,6 +778,7 @@ impl Builder {
             properties: tags.properties.clone(),
             has_embedded_art: tags.has_embedded_art,
             tags: tags.fields.clone(),
+            integrity: item.integrity.clone(),
         };
         let folder = file.folder().to_string();
         self.catalog.files.push(file);
@@ -1201,6 +1231,7 @@ mod tests {
             mtime: 0,
             tags,
             folder_cover: None,
+            integrity: None,
         }
     }
 

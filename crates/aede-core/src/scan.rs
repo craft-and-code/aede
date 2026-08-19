@@ -139,6 +139,9 @@ pub fn scan(
                     mtime,
                     tags,
                     folder_cover: cover_for(&folder_covers, path),
+                    // The file has not moved and has not changed, so what was
+                    // concluded about it still holds.
+                    integrity: old.integrity.clone(),
                 });
             }
             _ => to_read.push(path.clone()),
@@ -183,6 +186,9 @@ pub fn scan(
                                 mtime: meta.as_ref().map(mtime_seconds).unwrap_or(0),
                                 tags,
                                 folder_cover: cover_for(&folder_covers, &path),
+                                // A file read again is a file that changed:
+                                // any earlier verdict is about other bytes.
+                                integrity: None,
                             };
                             results.lock().unwrap_or_else(|e| e.into_inner()).push(file);
                         }

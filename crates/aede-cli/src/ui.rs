@@ -17,6 +17,14 @@ pub fn init_color(force_off: bool) {
     COLOR_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
+/// `true` when the output goes to a terminal.
+///
+/// A progress line redrawn with a carriage return is meant for a human
+/// watching; piped into a file it turns into thousands of useless lines.
+pub fn is_interactive() -> bool {
+    std::io::stdout().is_terminal()
+}
+
 fn colorize(code: &str, text: &str) -> String {
     if COLOR_ENABLED.load(Ordering::Relaxed) {
         format!("\x1b[{code}m{text}\x1b[0m")
@@ -91,6 +99,30 @@ pub fn truncate(text: &str, max: usize) -> String {
     out
 }
 
+/// Truncates to `max` columns by dropping the **start** of the text.
+///
+/// For a file path, the end is what identifies the file. Cutting the tail off
+/// `/private/var/folders/94/hlcz0ry94lb6knr29wxlyt_c0000gn/T/bad.flac` leaves a
+/// row that names no file at all.
+pub fn truncate_start(text: &str, max: usize) -> String {
+    if display_width(text) <= max || max == 0 {
+        return text.to_string();
+    }
+    let mut tail: Vec<char> = Vec::new();
+    let mut width = 0;
+    for c in text.chars().rev() {
+        let w = if is_wide(c) { 2 } else { 1 };
+        if width + w > max.saturating_sub(1) {
+            break;
+        }
+        tail.push(c);
+        width += w;
+    }
+    let mut out = String::from("…");
+    out.extend(tail.into_iter().rev());
+    out
+}
+
 /// Pads on the right up to `width` columns.
 pub fn pad(text: &str, width: usize) -> String {
     let current = display_width(text);
@@ -124,6 +156,8 @@ pub struct Table {
     aligns: Vec<Align>,
     /// Maximum width per column; 0 = unlimited.
     limits: Vec<usize>,
+    /// Columns whose overflow is cut from the start rather than from the end.
+    keep_end: Vec<bool>,
     rows: Vec<Vec<String>>,
     show_header: bool,
 }
@@ -134,6 +168,7 @@ impl Table {
             headers: headers.iter().map(|h| h.to_string()).collect(),
             aligns: vec![Align::Left; headers.len()],
             limits: vec![0; headers.len()],
+            keep_end: vec![false; headers.len()],
             rows: Vec::new(),
             show_header: true,
         }
@@ -157,6 +192,18 @@ impl Table {
     pub fn limit(mut self, index: usize, max: usize) -> Self {
         if let Some(slot) = self.limits.get_mut(index) {
             *slot = max;
+        }
+        self
+    }
+
+    /// Bounds a column like [`Table::limit`], but keeps its **end** when it
+    /// overflows. For paths, where the file name is the informative part.
+    pub fn path_limit(mut self, index: usize, max: usize) -> Self {
+        if let Some(slot) = self.limits.get_mut(index) {
+            *slot = max;
+        }
+        if let Some(slot) = self.keep_end.get_mut(index) {
+            *slot = true;
         }
         self
     }
@@ -185,10 +232,10 @@ impl Table {
                     .enumerate()
                     .map(|(i, cell)| {
                         let limit = self.limits.get(i).copied().unwrap_or(0);
-                        if limit > 0 {
-                            truncate(cell, limit)
-                        } else {
-                            cell.clone()
+                        match (limit > 0, self.keep_end.get(i).copied().unwrap_or(false)) {
+                            (true, true) => truncate_start(cell, limit),
+                            (true, false) => truncate(cell, limit),
+                            (false, _) => cell.clone(),
                         }
                     })
                     .collect()
@@ -291,6 +338,26 @@ pub fn percent(ratio: f64) -> String {
     format!("{:.0} %", ratio * 100.0)
 }
 
+/// A measured elapsed time, in the largest unit that stays readable.
+///
+/// Milliseconds below a second, seconds below a minute, minutes beyond: a scan
+/// that reports `260604 ms` makes the reader do the division.
+pub fn elapsed(ms: u128) -> String {
+    if ms < 1_000 {
+        return format!("{ms} ms");
+    }
+    if ms < 60_000 {
+        return format!("{:.1} s", ms as f64 / 1000.0);
+    }
+    let seconds = (ms + 500) / 1000;
+    let (minutes, rest) = (seconds / 60, seconds % 60);
+    if minutes < 60 {
+        format!("{minutes} min {rest} s")
+    } else {
+        format!("{} h {} min", minutes / 60, minutes % 60)
+    }
+}
+
 /// Long duration, in days/hours/minutes — and in seconds below a minute, so a
 /// small library does not report "0 min".
 pub fn long_duration(ms: u64) -> String {
@@ -315,6 +382,28 @@ pub fn long_duration(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elapsed_time_stays_readable() {
+        assert_eq!(elapsed(842), "842 ms");
+        assert_eq!(elapsed(1_500), "1.5 s");
+        // The one that prompted this: 260604 ms made the reader divide.
+        assert_eq!(elapsed(260_604), "4 min 21 s");
+        assert_eq!(elapsed(7_500_000), "2 h 5 min");
+    }
+
+    #[test]
+    fn a_path_column_keeps_its_file_name() {
+        // On macOS a temporary path is 60 columns of "/private/var/folders/…"
+        // before the name even starts; cutting the tail names nothing.
+        let long = "/private/var/folders/94/hlcz0ry94lb6knr29wxlyt_c0000gn/T/bad.flac";
+        let cut = truncate_start(long, 20);
+        assert!(cut.ends_with("bad.flac"), "kept: {cut}");
+        assert!(cut.starts_with('…'));
+        assert_eq!(display_width(&cut), 20);
+        // Short enough to fit: nothing is touched.
+        assert_eq!(truncate_start("short.flac", 20), "short.flac");
+    }
 
     #[test]
     fn width_with_accents() {

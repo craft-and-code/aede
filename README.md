@@ -24,6 +24,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)                               |
 | `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                  |
 | `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats                               |
+| `aede check [folder…]`                                    | Verify the checksums the files carry (`--full` re-verifies everything)                   |
 | `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                                                 |
 | `aede artist "<name>"`                                    | Discography, collaborations, roles (`--with <other>` lists the tracks two artists share) |
 | `aede album "<title>"`                                    | Tracks, durations, formats, credits                                                      |
@@ -79,6 +80,48 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 
 `Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
 
+## Are the files still intact?
+
+`aede check` answers the one question the tags cannot: has the audio been damaged since it was written? It reads no reference copy and decodes nothing — it verifies the checksums the containers already carry.
+
+| Container                 | What is verified                                              |
+| ------------------------- | ------------------------------------------------------------- |
+| FLAC                      | The CRC-16 of every frame and the CRC-8 of every frame header |
+| Ogg (Vorbis, Opus, Speex) | The CRC-32 of every page                                      |
+| MP3, MP4, WAV, AIFF       | Nothing: these formats carry no checksum                      |
+
+That catches what actually happens to stored files — a flipped bit, a bad sector, a truncated copy. A truncated file is caught even though every frame it still holds is valid, because the last one has to end where the file does.
+
+Four states, and the fourth is the one usually forgotten:
+
+- **not verified** — no check has been run on this file yet;
+- **nothing to check** — the container carries no checksum, and no amount of re-running will change that;
+- **intact** — every checksum matched;
+- **damaged** — one did not, with the frame or page named.
+
+The verdict is stored per file and survives across scans, so the cost is paid once: a second `aede check` has nothing to read. A file that changed loses its verdict, since it is no longer the file that was verified. `doctor` reports damage as an error and says how many files have never been verified rather than letting a library look healthy.
+
+### How long it takes, and how to start small
+
+Verifying means **reading every byte** of the files concerned. On a library of 20 000 tracks — some 600 GB — that is a few minutes on an NVMe drive, and it can be well over an hour on a mechanical disk or a NAS. The time is spent on input/output, not on computation, so more cores barely help.
+
+That is why the check is opt-in, and why it announces itself before starting:
+
+```
+$ aede check
+Verifying 20 148 files to read, 612.4 GB
+  this reads every byte: minutes on an SSD, longer on a mechanical disk
+  stopping it is safe — verified files are saved as the run goes
+```
+
+Two things make it manageable:
+
+**Start on a corner.** `aede check ~/Music/Deicide` restricts the run to a folder, as many as you like. Useful for a first look, and for re-verifying a drive you suspect without touching the rest.
+
+**Interrupting is safe.** Verdicts are written to the catalog every 250 files rather than at the end, so a `Ctrl-C` — or a laptop closing, or a drive going away — costs at most the batch in progress. Everything already verified is kept, and the next run picks up exactly where the last one stopped, since a file that has a verdict is no longer in the queue. A second full run therefore has nothing left to read.
+
+What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the _decoded_ audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it.
+
 ## Supported formats
 
 | Container   | Codecs                    | Tags                          | Duration from                  |
@@ -124,6 +167,7 @@ crates/
     src/tags/         one parser per format -> RawTags
       foreign.rs        the formats handed to lofty
     src/audit/        what a file contains, as opposed to what it claims
+      integrity.rs      the checksums the containers carry
     src/model.rs      the graph: entities, credits, relations
     src/scan.rs       directory walk, parallel reads, incremental
     src/store.rs      JSON persistence, atomic writes
@@ -165,6 +209,8 @@ Dropping a folder from the list does not empty the catalog on its own: its files
 
 **A guest appearance is not part of a discography.** Singing one track on somebody else's album puts it under _Appears on_, never under _Discography_, and writing or production credits go in a third section. The performer rankings count performing credits only.
 
+_Performing_ means credited in a role that makes the artist audible on the recording: `artist`, `albumartist`, `performer`, `featured`, `conductor`, `remixer`. A composer or a lyricist is not audible, so an artist page states its figures on two labelled lines — `performing:` and `writing:` — rather than one unlabelled count. A band's lyricist genuinely has no performing credit: what the files say is that the band played, not who in it.
+
 **A title is not an identifier.** `aede track "So What"` prints every track carrying that name — the studio take, the single, the live rendition — because they are different recordings. `--artist` and `--album` narrow it down, and a list cut short by `--limit` always says so.
 
 **Construction is deterministic.** Files are sorted before processing, so two scans of the same library produce exactly the same identifiers. Without that, no readable diff and no reproducible test.
@@ -194,7 +240,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-147 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+164 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 
@@ -204,7 +250,7 @@ cargo test
 
 **M2 — the API.** HTTP server, JSON and WebSocket. To be frozen early: it is the contract between the core and every future client. This is where `serde` becomes worth its place: hand-written serialization is fine for one internal format, but not for an HTTP contract with a dozen types on it. The current `json` module was written for the catalog file, and the move is meant to be mechanical.
 
-**M3 — playback.** Local output, queue, gapless playback, loudness normalization (EBU R128).
+**M3 — playback.** Local output, queue, gapless playback, loudness normalization (EBU R128). The decoder written for it also brings the FLAC MD5 check, which verifies the decoded audio rather than the container.
 
 **M4 — the network.** Remote playback endpoints. `slimproto` gives the best effort-to-result ratio, since it opens up a fleet of existing devices without reinventing anything; UPnP/OpenHome afterwards for commercial hi-fi streamers.
 

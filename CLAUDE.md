@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 147 tests
+cargo test                       # 164 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -55,6 +55,10 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **Roles are not interchangeable.** `model::is_performing_role` separates being audible on a recording from having written or produced it. The distinction drives the artist page, the performer rankings and the collaboration graph; ignoring it puts other people's albums in an artist's discography.
 
 A figure derived from it carries the name of the role class it counts. An artist page shows `performing:` and `writing:`, never a bare total: tags credit the band, not its members, so a lyricist with forty albums has zero performing credits and the unlabelled zero read as an error.
+
+**"Not checked" is not "nothing to check".** An absent integrity verdict means no one has looked yet, and that can change; `Verdict::NothingToCheck` means the container carries no checksum, and that never will. Collapsing the two would have the user re-running `aede check` forever on their MP3s. The same distinction holds in the JSON, in `schema.sql` and in whatever the interface ends up drawing.
+
+**A verdict belongs to the bytes it was reached on.** `integrity` travels with the file entry: a scan that reuses an unchanged file keeps it, a scan that re-reads a modified one drops it. Never carry a verdict across a change of size or date.
 
 **Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act, and a scan with no folder left is the way a catalog is emptied — refusing it would strand the files with no way out.
 
@@ -133,6 +137,10 @@ For a binary parser, always think through the three hostile cases: truncated inp
 
 Output is for humans first: aligned tables (`ui::Table`), colours that vanish outside a terminal or under `NO_COLOR`, correct plurals (`ui::plural`). Alignment is computed in **display columns**, not bytes — "Björk" takes five columns for six bytes.
 
+An elapsed time goes through `ui::elapsed`, which switches to seconds then to minutes: `260604 ms` makes the reader do the division. A long-running command says what it is about to do before doing it, in volume rather than in a predicted time — how long a read takes depends on the disk, and a wrong estimate is worse than none — and saves its progress as it goes, so that interrupting it costs only the current batch.
+
+A column holding a path is bounded with `Table::path_limit`, which drops the **start** of the text: the file name is what identifies the file, and on macOS a temporary path is sixty columns before the name even begins.
+
 `--json` on the query commands, for machine use. A misspelled option is reported, never silently ignored, and an option that expects a value but was given none stops the command: answering as if it had never been typed would be a wrong answer, not an incomplete one. Any option taking a value belongs in `args::VALUED`, or its space-separated form lands in the positionals. The program does not panic when its output is cut off (`aede stats | head`).
 
 Sizes are **decimal** (`text::format_size`, 1 kB = 1000 bytes), matching Finder and the other tools of this family; dividing by 1024 under a "MB" label understates an album by 5% and reads as a bug. Durations are **rounded** to the nearest second, never truncated — truncating loses a second on half the tracks of a library.
@@ -165,5 +173,7 @@ One commit, one idea. Automatic reformatting and lint fixes go in their own comm
 Matching a file to a release is the hard problem of this project. Always keep a confidence score and a way to review: never overwrite correct tags on the strength of an approximate match.
 
 **M2 — API.** The HTTP contract freezes early and is versioned. Every future client will depend on it.
+
+**M3 — the decoder.** It is what the FLAC MD5 check waits for: verifying that hash means decoding the audio. The frame walk in `audit/flac.rs` already reads every Rice residual and throws the numbers away — what is missing is the LPC restoration, the inter-channel decorrelation and MD5 itself. Adding the stronger verdict must not change the stored shape, only `integrity_method`.
 
 **M3/M4 — playback.** The encoder delay and padding (already extracted from LAME tags and the Opus pre-skip) are what make gapless playback possible. Do not lose them along the way.

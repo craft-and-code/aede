@@ -97,6 +97,7 @@ fn main() {
         "roots" => commands::roots(&args),
         "stats" => commands::show_stats(&args),
         "doctor" => commands::show_doctor(&args),
+        "check" => commands::check(&args),
         "artists" => commands::list_artists(&args),
         "albums" => commands::list_albums(&args),
         "genres" => commands::list_genres(&args),
@@ -140,6 +141,8 @@ fn print_help() {
   roots                List the watched folders (--remove <folder> to drop one)
   stats                Library statistics
   doctor               Diagnosis: missing tags, duplicates, incomplete albums
+  check [folder…]      Verify the checksums the files carry, all of them or
+                       only those under the folders given (--full re-verifies)
 
   artists              List of artists
   albums               List of albums
