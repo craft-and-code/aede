@@ -596,3 +596,42 @@ fn every_listing_can_become_a_table() {
     assert!(!ok);
     assert!(err.contains("aede albums"), "stderr: {err}");
 }
+
+#[test]
+fn resetting_asks_before_removing_the_catalog() {
+    let sandbox = Sandbox::new("reset");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    // With no terminal to ask on, the command refuses rather than guessing.
+    let (out, err, ok) = sandbox.run(&["reset"]);
+    assert!(!ok, "it must not delete without an answer");
+    assert!(err.contains("--yes"), "it says how to proceed: {err}");
+    // And it says what is at stake before asking.
+    assert!(out.contains("Watched folders"), "output: {out}");
+    assert!(out.contains("Integrity verdicts"), "output: {out}");
+    assert!(
+        sandbox.dir.join("catalog.json").exists(),
+        "the catalog is still there"
+    );
+
+    // Explicit consent removes it, and says how to get it back.
+    let (out, _, ok) = sandbox.run(&["reset", "--yes"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("catalog removed"), "output: {out}");
+    assert!(out.contains("aede scan"), "it prints the way back: {out}");
+    assert!(
+        !sandbox.dir.join("catalog.json").exists(),
+        "the file is gone"
+    );
+
+    // The library is unreachable again, as after a fresh install.
+    let (_, err, ok) = sandbox.run(&["stats"]);
+    assert!(!ok);
+    assert!(err.contains("aede scan"), "stderr: {err}");
+
+    // Removing nothing is not an error.
+    let (out, _, ok) = sandbox.run(&["reset", "--yes"]);
+    assert!(ok);
+    assert!(out.contains("no catalog to remove"), "output: {out}");
+}

@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 168 tests
+cargo test                       # 169 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -49,6 +49,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **Parsers never panic.** No `unwrap`, `expect`, `panic!`, direct indexing or unchecked slicing anywhere in `tags/` or `audit/`. A truncated or corrupt file yields an error or a partial result. Use the `Cursor` from `tags/bytes.rs`, whose reads all return `Option`. Use `checked_`/`saturating_` arithmetic on any value that comes from a file.
 
 **The on-disk format is versioned.** Any incompatible change to the catalog bumps `store::FORMAT_VERSION`, and reading an older file must produce a clear message rather than a crash.
+
+**A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders and the integrity verdicts. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
 
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere.
 

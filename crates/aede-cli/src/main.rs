@@ -69,6 +69,7 @@ fn main() {
         "label",
         "json",
         "no-color",
+        "yes",
         "help",
         "version",
         "full",
@@ -122,6 +123,7 @@ fn main() {
         "stats" => commands::show_stats(&args),
         "doctor" => commands::show_doctor(&args),
         "check" => commands::check(&args),
+        "reset" => commands::reset(&args),
         "artists" => commands::list_artists(&args),
         "albums" => commands::list_albums(&args),
         "genres" => commands::list_genres(&args),
@@ -195,6 +197,7 @@ fn print_help() {
   track <title>        Track card: album, credits, technical details, tags
   search <text>        Search the whole catalog
   file <path>          Inspect a single file, outside the catalog
+  reset                Remove the catalog, after confirmation (--yes skips it)
   export               Export the catalog as JSON, or as CSV with --csv
                        (one row per album; --tracks for one row per track)
 

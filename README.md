@@ -32,6 +32,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede search <text>`                                      | Search across the whole catalog                                                          |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                               |
 | `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                       |
+| `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                |
 
 `--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
 
@@ -126,6 +127,26 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 | Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                  |
 
 `Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
+
+### Starting over
+
+`aede reset` removes the catalog. It first says what it holds — tracks, albums, artists, watched folders, integrity verdicts — and what a rescan does not bring back:
+
+```
+$ aede reset
+
+About to remove the catalog
+
+  Tracks                  20 148
+  Watched folders              2
+  Integrity verdicts      20 148
+  File                    9.4 MB
+  a scan rebuilds the catalog; the watched folders and the integrity
+  verdicts are lost and have to be redone
+  Type "yes" to confirm:
+```
+
+`--yes` skips the question, for scripts and tests. Without a terminal to ask on, the command **refuses** rather than assuming an answer either way. Once done, it prints the `aede scan` that rebuilds what it removed, watched folders included — that line is the only trace left of them.
 
 ## Are the files still intact?
 
@@ -287,7 +308,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-168 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+169 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 
