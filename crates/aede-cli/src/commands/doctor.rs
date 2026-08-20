@@ -33,6 +33,7 @@ pub fn show_doctor(args: &Args) -> Res {
     if issues.is_empty() {
         println!("  {}", ui::green("No issue found."));
         print_unverified(&catalog);
+        print_waiting_analyses(&catalog);
         return Ok(());
     }
     for (severity, count) in &summary {
@@ -93,6 +94,7 @@ pub fn show_doctor(args: &Args) -> Res {
         );
     }
     print_unverified(&catalog);
+    print_waiting_analyses(&catalog);
     Ok(())
 }
 
@@ -133,6 +135,25 @@ fn print_unverified(catalog: &aede_core::model::Catalog) {
         ui::dim(&format!(
             "{} not verified — run aede check",
             ui::plural(unverified, "file")
+        ))
+    );
+}
+
+/// Says how many imported analyses describe files the catalog does not hold.
+///
+/// They are not lost and they are not a defect: they are waiting for the folder
+/// they name to be scanned. Saying so is the difference between "waiting" and
+/// "swallowed without a word".
+fn print_waiting_analyses(catalog: &aede_core::model::Catalog) {
+    let waiting = catalog.pending_analyses();
+    if waiting == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} waiting for the folders they name to be scanned",
+            ui::plural(waiting, "imported analysis")
         ))
     );
 }

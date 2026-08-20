@@ -56,6 +56,10 @@ pub enum IssueKind {
     DuplicateAlbum,
     /// The same album is kept in two encodings. Not a defect — worth knowing.
     OtherEdition,
+    /// A decoder found the audio no longer matches the MD5 the file carries.
+    Md5Mismatch,
+    /// An imported analysis suspects the file was built from a lossy source.
+    SuspectEncoding,
     /// Gaps in the numbering of a disc, the sign of a rip left unfinished.
     IncompleteAlbum,
     /// One release mixes codecs or sample rates, which usually means it was assembled from
@@ -77,13 +81,15 @@ impl IssueKind {
             IssueKind::MissingTitle
             | IssueKind::MissingArtist
             | IssueKind::MissingDuration
-            | IssueKind::DamagedAudio => Severity::Error,
+            | IssueKind::DamagedAudio
+            | IssueKind::Md5Mismatch => Severity::Error,
             IssueKind::MissingAlbum
             | IssueKind::DuplicateTrack
             | IssueKind::DuplicateAlbum
             | IssueKind::IncompleteAlbum
             | IssueKind::MixedQuality
-            | IssueKind::SuspiciousYear => Severity::Warning,
+            | IssueKind::SuspiciousYear
+            | IssueKind::SuspectEncoding => Severity::Warning,
             IssueKind::MissingDate
             | IssueKind::MissingTrackNumber
             | IssueKind::MissingCover
@@ -103,6 +109,8 @@ impl IssueKind {
             IssueKind::DuplicateTrack => "likely duplicate",
             IssueKind::DuplicateAlbum => "album present twice",
             IssueKind::OtherEdition => "album kept in two encodings",
+            IssueKind::Md5Mismatch => "audio does not match its MD5",
+            IssueKind::SuspectEncoding => "made from a lossy source",
             IssueKind::IncompleteAlbum => "incomplete album",
             IssueKind::MixedQuality => "mixed quality within an album",
             IssueKind::MissingCover => "missing cover art",
@@ -136,6 +144,7 @@ pub fn diagnose(catalog: &Catalog) -> Vec<Issue> {
     let mut issues = Vec::new();
     check_tracks(catalog, &mut issues);
     check_integrity(catalog, &mut issues);
+    check_imported_analyses(catalog, &mut issues);
     check_duplicate_albums(catalog, &mut issues);
     check_other_editions(catalog, &mut issues);
     check_duplicates(catalog, &mut issues);
@@ -232,6 +241,82 @@ fn check_integrity(catalog: &Catalog, issues: &mut Vec<Issue>) {
             issues.push(Issue {
                 kind: IssueKind::DamagedAudio,
                 detail: format!("{detail} — restore from a backup or rip again"),
+                files: vec![file.path.clone()],
+            });
+        }
+    }
+}
+
+/// Reports what an imported analysis found and Aède cannot see.
+///
+/// An MD5 mismatch is an **error**, even when Aède's own check said the file
+/// was intact: the two look at different things. The frame checksums prove the
+/// container was not corrupted; the MD5 proves the decoded audio is the audio
+/// that was encoded. A file can pass the first and fail the second — a stream
+/// re-encoded by a non-conforming tool — and that case is exactly what Aède
+/// cannot see before it decodes anything itself.
+fn check_imported_analyses(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    let files: BTreeMap<&str, &model::AudioFile> =
+        catalog.files.iter().map(|f| (f.path.as_str(), f)).collect();
+    for record in &catalog.analyses {
+        // An analysis of a file the catalog does not hold is not a problem to
+        // report: it is waiting for the folder it speaks of to be scanned.
+        let Some(file) = files.get(record.path.as_str()) else {
+            continue;
+        };
+        // An analysis of bytes that changed since says nothing about the file
+        // that is there now.
+        if !record.still_applies(file.size, file.mtime) {
+            continue;
+        }
+
+        if record.md5_failed() {
+            let contradiction = matches!(
+                file.integrity.as_ref().map(|r| &r.verdict),
+                Some(crate::audit::integrity::Verdict::Intact)
+            );
+            let detail = if contradiction {
+                format!(
+                    "{} decoded the audio and it does not match the file's own MD5, \
+                     although the frame checksums are valid: the stream was re-encoded",
+                    record.source
+                )
+            } else {
+                format!(
+                    "{} found the audio does not match the file's own MD5",
+                    record.source
+                )
+            };
+            issues.push(Issue {
+                kind: IssueKind::Md5Mismatch,
+                detail,
+                files: vec![file.path.clone()],
+            });
+        }
+
+        if record.suspect_encoding() {
+            // The reason comes from the flags, not from the sentence: the
+            // sentence describes the spectrum, and only the flags say what the
+            // tool concluded from it.
+            let mut reasons: Vec<&str> = Vec::new();
+            match record.transcoding.as_deref() {
+                Some("detected") => reasons.push("transcoded from a lossy source"),
+                Some("suspected") => reasons.push("possibly transcoded from a lossy source"),
+                _ => {}
+            }
+            if record.upscaling == Some(true) {
+                reasons.push("upscaled");
+            }
+            if record.upsampling == Some(true) {
+                reasons.push("upsampled");
+            }
+            let mut detail = reasons.join(", ");
+            if let Some(said) = record.detail.as_ref().or(record.summary.as_ref()) {
+                detail.push_str(&format!(" — {said}"));
+            }
+            issues.push(Issue {
+                kind: IssueKind::SuspectEncoding,
+                detail: format!("{detail} (reported by {})", record.source),
                 files: vec![file.path.clone()],
             });
         }
@@ -528,7 +613,7 @@ fn check_releases(catalog: &Catalog, issues: &mut Vec<Issue>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{self, ScannedFile};
+    use crate::model::{self, IntegrityRecord, ScannedFile};
     use crate::tags::RawTags;
 
     fn file(
@@ -782,5 +867,129 @@ mod tests {
                 .any(|i| i.files.len() == 2),
             "both copies are named"
         );
+    }
+
+    /// Builds a healthy one-file catalog to hang an imported analysis on.
+    fn catalog_of_one() -> Catalog {
+        let fields = vec![
+            ("title", "Intro"),
+            ("artist", "A"),
+            ("album", "Album"),
+            ("date", "1990"),
+        ];
+        let mut f = file("/m/a/01.flac", &fields, Some(30_000), "flac");
+        f.tags.has_embedded_art = true;
+        model::build(vec![f], vec!["/m".into()], 0)
+    }
+
+    fn analysis_of(c: &Catalog) -> crate::analysis::FileAnalysis {
+        let f = &c.files[0];
+        crate::analysis::FileAnalysis {
+            path: f.path.clone(),
+            source: "flaccompagnon".into(),
+            source_version: 1,
+            size_bytes: f.size,
+            modified_unix: f.mtime,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_failed_md5_is_an_error_even_when_the_checksums_passed() {
+        // The two checks answer different questions: the frame CRCs prove the
+        // container was not corrupted, the MD5 proves the audio is the audio
+        // that was encoded. Passing the first and failing the second is not a
+        // contradiction to arbitrate but a finding to report.
+        let mut c = catalog_of_one();
+        c.files[0].integrity = Some(IntegrityRecord {
+            verdict: crate::audit::integrity::Verdict::Intact,
+            method: crate::audit::integrity::FLAC_METHOD.into(),
+            checked_at: 0,
+        });
+        c.analyses.push(crate::analysis::FileAnalysis {
+            md5_state: Some("Mismatch".into()),
+            ..analysis_of(&c)
+        });
+
+        let issues = diagnose(&c);
+        assert_eq!(count(&issues, IssueKind::Md5Mismatch), 1);
+        let issue = issues
+            .iter()
+            .find(|i| i.kind == IssueKind::Md5Mismatch)
+            .unwrap();
+        assert_eq!(issue.kind.severity(), Severity::Error);
+        assert!(
+            issue.detail.contains("re-encoded"),
+            "the disagreement is explained, not hidden: {}",
+            issue.detail
+        );
+        assert!(
+            issue.detail.contains("flaccompagnon"),
+            "and attributed: {}",
+            issue.detail
+        );
+    }
+
+    #[test]
+    fn an_imported_verdict_dies_with_the_bytes_it_was_reached_on() {
+        let mut c = catalog_of_one();
+        let stale = crate::analysis::FileAnalysis {
+            md5_state: Some("Mismatch".into()),
+            transcoding: Some("detected".into()),
+            size_bytes: c.files[0].size + 1,
+            ..analysis_of(&c)
+        };
+        c.analyses.push(stale);
+        let issues = diagnose(&c);
+        assert_eq!(count(&issues, IssueKind::Md5Mismatch), 0);
+        assert_eq!(count(&issues, IssueKind::SuspectEncoding), 0);
+    }
+
+    #[test]
+    fn a_lossy_ancestry_is_a_warning_and_says_who_found_it() {
+        let mut c = catalog_of_one();
+        c.analyses.push(crate::analysis::FileAnalysis {
+            transcoding: Some("detected".into()),
+            detail: Some("cut at 16 kHz".into()),
+            ..analysis_of(&c)
+        });
+        let issues = diagnose(&c);
+        let issue = issues
+            .iter()
+            .find(|i| i.kind == IssueKind::SuspectEncoding)
+            .expect("reported");
+        assert_eq!(issue.kind.severity(), Severity::Warning);
+        assert!(issue.detail.contains("transcoded"), "{}", issue.detail);
+        assert!(issue.detail.contains("cut at 16 kHz"), "{}", issue.detail);
+        assert!(issue.detail.contains("flaccompagnon"), "{}", issue.detail);
+    }
+
+    #[test]
+    fn an_analysis_of_a_file_the_catalog_does_not_hold_is_not_a_problem() {
+        // It is waiting for its folder to be scanned, which is not a defect in
+        // the library and must not be reported as one.
+        let mut c = catalog_of_one();
+        c.analyses.push(crate::analysis::FileAnalysis {
+            path: "/elsewhere/never scanned.flac".into(),
+            source: "flaccompagnon".into(),
+            md5_state: Some("Mismatch".into()),
+            transcoding: Some("detected".into()),
+            ..Default::default()
+        });
+        assert!(diagnose(&c).is_empty(), "got: {:?}", diagnose(&c));
+        assert_eq!(c.pending_analyses(), 1, "but it is counted as waiting");
+    }
+
+    #[test]
+    fn a_clean_analysis_adds_nothing_to_report() {
+        let mut c = catalog_of_one();
+        c.analyses.push(crate::analysis::FileAnalysis {
+            md5_state: Some("Match".into()),
+            transcoding: Some("none".into()),
+            upscaling: Some(false),
+            upsampling: Some(false),
+            ..analysis_of(&c)
+        });
+        assert!(diagnose(&c).is_empty(), "got: {:?}", diagnose(&c));
     }
 }

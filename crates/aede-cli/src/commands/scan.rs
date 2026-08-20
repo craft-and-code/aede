@@ -79,6 +79,18 @@ pub fn scan(args: &Args) -> Res {
             report.removed.to_string(),
         ]);
     }
+    // Only shown when a report was actually met: on a library holding none, a
+    // line reading zero would answer a question nobody asked.
+    if report.reports > 0 {
+        table.push(vec![
+            "Analyses imported".into(),
+            format!(
+                "{} from {}",
+                report.analyses,
+                ui::plural(report.reports, "report")
+            ),
+        ]);
+    }
     table.push(vec!["Elapsed".into(), ui::elapsed(report.elapsed_ms)]);
     print!("{}", table.render());
 

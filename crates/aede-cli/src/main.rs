@@ -70,6 +70,8 @@ fn main() {
         "json",
         "no-color",
         "yes",
+        "forget",
+        "source",
         "help",
         "version",
         "full",
@@ -105,6 +107,8 @@ fn main() {
         ("csv", CSV_COMMANDS, "produce a table"),
         ("m3u", M3U_COMMANDS, "produce a playlist"),
         ("output", OUTPUT_COMMANDS, "write to a file"),
+        ("forget", IMPORT_COMMANDS, "forget an analysis"),
+        ("source", IMPORT_COMMANDS, "select a source"),
     ] {
         if args.has(option) && !commands.contains(&args.command.as_str()) {
             eprintln!(
@@ -124,6 +128,7 @@ fn main() {
         "doctor" => commands::show_doctor(&args),
         "check" => commands::check(&args),
         "reset" => commands::reset(&args),
+        "import" => commands::import(&args),
         "artists" => commands::list_artists(&args),
         "albums" => commands::list_albums(&args),
         "genres" => commands::list_genres(&args),
@@ -161,6 +166,9 @@ const CSV_COMMANDS: &[&str] = &[
 /// Commands that show tracks, and can therefore hand them to a player.
 const M3U_COMMANDS: &[&str] = &["album", "artist", "track", "search"];
 
+/// Commands that act on what was imported from another tool.
+const IMPORT_COMMANDS: &[&str] = &["import"];
+
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
     "export", "album", "artist", "track", "search", "albums", "artists", "genres", "labels",
@@ -197,6 +205,7 @@ fn print_help() {
   track <title>        Track card: album, credits, technical details, tags
   search <text>        Search the whole catalog
   file <path>          Inspect a single file, outside the catalog
+  import <report…>     Take in FlacCompagnon reports (--forget removes them)
   reset                Remove the catalog, after confirmation (--yes skips it)
   export               Export the catalog as JSON, or as CSV with --csv
                        (one row per album; --tracks for one row per track)
@@ -223,17 +232,23 @@ fn print_help() {
   --include-hidden     Include hidden files and folders
 
 {}
+  --forget             Remove the imported analyses instead of adding any
+  --source <name>      Restrict --forget to one tool (default: all of them)
+
+{}
   aede scan ~/Music
   aede stats
   aede doctor --severity=error --limit=50
   aede artist \"Miles Davis\"
   aede track \"So What\" --artist=\"Miles Davis\"
   aede albums --year=1969
-  aede search coltrane",
+  aede search coltrane
+  aede import ~/Desktop/report.json",
         ui::cyan("USAGE"),
         ui::cyan("COMMANDS"),
         ui::cyan("GLOBAL OPTIONS"),
         ui::cyan("SCAN OPTIONS"),
+        ui::cyan("IMPORT OPTIONS"),
         ui::cyan("EXAMPLES")
     );
 }

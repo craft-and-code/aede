@@ -203,6 +203,7 @@ fn print_track(catalog: &Catalog, track: &Track) {
     }
 
     if let Some(file) = file {
+        print_analyses(catalog, file);
         println!("{}", ui::section("Tags"));
         if file.tags.is_empty() {
             println!("  {}", ui::yellow("no tag in this file"));
@@ -303,4 +304,62 @@ fn integrity_line(track: &Track, catalog: &Catalog) -> String {
         Verdict::NothingToCheck => "the container carries no checksum".to_string(),
         Verdict::Damaged { detail } => format!("damaged — {detail}"),
     }
+}
+
+/// Shows what another tool measured on this file, when something was imported.
+///
+/// Attributed by name, and kept apart from Aède's own panel above: the reader
+/// has to be able to tell which program said what, especially when the two
+/// disagree.
+fn print_analyses(catalog: &Catalog, file: &aede_core::model::AudioFile) {
+    for record in catalog.analyses_of(file) {
+        let stale = if record.still_applies(file.size, file.mtime) {
+            String::new()
+        } else {
+            " — stale: the file changed since".to_string()
+        };
+        println!(
+            "{}",
+            ui::section(&format!("Analysed by {}{stale}", record.source))
+        );
+        let mut t = Table::plain(2);
+        let mut row = |label: &str, value: Option<String>| {
+            if let Some(value) = value {
+                t.push(vec![label.into(), value]);
+            }
+        };
+        row("MD5", record.md5_state.clone());
+        row(
+            "Real bit depth",
+            record.real_bit_depth.map(|b| format!("{b} bits")),
+        );
+        row("Fake stereo", record.fake_stereo.map(yes_no));
+        row("Transcoding", record.transcoding.clone());
+        row("Upscaled", record.upscaling.map(yes_no));
+        row("Upsampled", record.upsampling.map(yes_no));
+        row(
+            "Cutoff",
+            record.cutoff_hz.map(|hz| format!("{:.1} kHz", hz / 1000.0)),
+        );
+        row(
+            "Dynamic range",
+            record.dr_db.map(|db| format!("{db:.1} dB")),
+        );
+        row("Peak", record.peak_dbfs.map(|db| format!("{db:.2} dBFS")));
+        row(
+            "True peak",
+            record.true_peak_dbtp.map(|db| format!("{db:.2} dBTP")),
+        );
+        row(
+            "Clipped samples",
+            record.clipped_samples.map(|n| n.to_string()),
+        );
+        row("Verdict", record.detail.clone().or(record.summary.clone()));
+        row("Error", record.error.clone());
+        print!("{}", t.render());
+    }
+}
+
+fn yes_no(value: bool) -> String {
+    if value { "yes" } else { "no" }.to_string()
 }

@@ -670,3 +670,244 @@ fn an_album_query_does_not_pick_one_answer_in_silence() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Writes a report describing `file` as another tool would have measured it.
+///
+/// The size and date are read from the file itself: an imported analysis is
+/// bound to the bytes it was reached on, so a fixture with invented numbers
+/// would only ever exercise the staleness path.
+fn write_report(at: &std::path::Path, file: &std::path::Path, md5: &str, transcoding: &str) {
+    let meta = std::fs::metadata(file).expect("the analysed file");
+    let mtime = meta
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let text = format!(
+        r#"{{"format":"flaccompagnon-report","version":1,"report":{{
+             "root":"{root}",
+             "files":[{{
+               "path":"{path}",
+               "file_name":"{name}",
+               "size_bytes":{size},
+               "modified_unix":{mtime},
+               "detections":{{"transcoding":"{transcoding}","upscaling":false,
+                              "upsampling":false,"summary":"Clean",
+                              "detail":"full-band content"}},
+               "cutoff_hz":22050.0,
+               "real_bit_depth":16,
+               "dr_db":9.3,
+               "clipping":{{"clipped_samples":0,"peak_dbfs":-0.13,"clipped":false}},
+               "flac_md5":{{"state":"{md5}"}}
+             }}]}}}}"#,
+        root = file.parent().unwrap().display(),
+        path = file.display(),
+        name = file.file_name().unwrap().to_str().unwrap(),
+        size = meta.len(),
+    );
+    std::fs::write(at, text).expect("writing the report");
+}
+
+#[test]
+fn another_tools_analysis_can_be_taken_in_and_given_back() {
+    let sandbox = Sandbox::new("import");
+    let root = std::env::temp_dir().join("aede_e2e_import_src");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let flac = root.join("01 So What.flac");
+    std::fs::copy(library().join("track.flac"), &flac).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // --- Importing ----------------------------------------------------------
+    let report = root.join("report.json");
+    write_report(&report, &flac, "Match", "none");
+    let (out, err, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
+    assert!(ok, "the import must succeed. stderr: {err}");
+    assert!(out.contains("Files matched"), "output: {out}");
+    assert!(out.contains("Analyses stored"), "output: {out}");
+
+    // What was imported is attributed to whoever measured it, never merged into
+    // Aède's own reading.
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Analysed by flaccompagnon"), "output: {out}");
+    assert!(out.contains("Dynamic range"), "output: {out}");
+    assert!(!out.contains("stale"), "the file has not changed: {out}");
+
+    // Importing the same report twice replaces; it does not accumulate.
+    let (out, _, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
+    assert!(ok);
+    assert!(out.contains("Analyses stored"), "output: {out}");
+    let (out, _, _) = sandbox.run(&["track", "So What"]);
+    assert_eq!(
+        out.matches("Analysed by flaccompagnon").count(),
+        1,
+        "one analysis per file and per source:\n{out}"
+    );
+
+    // --- Two methods disagreeing --------------------------------------------
+    let (_, _, ok) = sandbox.run(&["check"]);
+    assert!(ok);
+    write_report(&report, &flac, "Mismatch", "detected");
+    let (_, _, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(
+        out.contains("does not match its MD5"),
+        "a failed MD5 is an error even when the checksums passed:\n{out}"
+    );
+    assert!(out.contains("re-encoded"), "and it says why:\n{out}");
+    assert!(
+        out.contains("made from a lossy source"),
+        "the lossy ancestry is reported too:\n{out}"
+    );
+
+    // --- A report about other bytes -----------------------------------------
+    // Once the file has been touched and read again, every imported verdict
+    // about it is worthless: the catalog says so rather than answering with
+    // confidence about bytes that are no longer there.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(&flac)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok);
+    assert!(out.contains("stale"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(
+        !out.contains("does not match its MD5"),
+        "a stale verdict is not reported:\n{out}"
+    );
+
+    // And importing that same report again refuses it for the same reason,
+    // instead of quietly restoring it.
+    let (out, _, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
+    assert!(ok);
+    assert!(out.contains("Changed since the report"), "output: {out}");
+
+    // --- Forgetting ---------------------------------------------------------
+    let (out, _, ok) = sandbox.run(&["import", "--forget"]);
+    assert!(ok, "output: {out}");
+    let (out, _, _) = sandbox.run(&["track", "So What"]);
+    assert!(!out.contains("Analysed by"), "nothing is left: {out}");
+
+    // --- Refusals -----------------------------------------------------------
+    let foreign = root.join("foreign.json");
+    std::fs::write(&foreign, r#"{"format":"something-else"}"#).unwrap();
+    let (_, err, ok) = sandbox.run(&["import", foreign.to_str().unwrap()]);
+    assert!(!ok, "another tool's JSON is refused");
+    assert!(err.contains("not a FlacCompagnon report"), "stderr: {err}");
+
+    let (_, err, ok) = sandbox.run(&["import", "/nowhere/at/all.json"]);
+    assert!(!ok);
+    assert!(err.contains("does not exist"), "stderr: {err}");
+
+    let (_, err, ok) = sandbox.run(&["import"]);
+    assert!(!ok, "an import with nothing to import is an error");
+    assert!(err.contains("give a report"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_analysis_can_arrive_before_the_library_does() {
+    // Analysing a folder and then building the library from it is the natural
+    // order for someone who already owns the other tool. The import must
+    // therefore not require the files to be known yet.
+    let sandbox = Sandbox::new("import_first");
+    let root = std::env::temp_dir().join("aede_e2e_import_first");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let flac = root.join("01 So What.flac");
+    std::fs::copy(library().join("track.flac"), &flac).unwrap();
+    let report = root.join("report.json");
+    write_report(&report, &flac, "Match", "none");
+
+    // Nothing has ever been scanned: the catalog does not exist yet.
+    let (out, err, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
+    assert!(ok, "an import needs no catalog. stderr: {err}");
+    assert!(out.contains("Waiting for a scan"), "output: {out}");
+    assert!(
+        out.contains("they attach themselves"),
+        "and it says what happens next: {out}"
+    );
+
+    // The scan brings the file in, and the analysis is there waiting for it.
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Analysed by flaccompagnon"), "output: {out}");
+    assert!(!out.contains("stale"), "and it applies: {out}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
+    // The report may equally well be sitting in the album folder. A scan walks
+    // over it anyway, so it costs nothing to notice it.
+    let sandbox = Sandbox::new("import_scan");
+    let root = std::env::temp_dir().join("aede_e2e_import_scan");
+    let deep = root.join("Danzig/1996 Blackacidevil");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&deep).unwrap();
+    let flac = deep.join("01 So What.flac");
+    std::fs::copy(library().join("track.flac"), &flac).unwrap();
+    write_report(&deep.join("analysis.json"), &flac, "Match", "none");
+    // A JSON that is not a report is left alone, whatever it holds.
+    std::fs::write(deep.join("other.json"), r#"{"hello": "world"}"#).unwrap();
+
+    let (out, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Analyses imported"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok);
+    assert!(out.contains("Analysed by flaccompagnon"), "output: {out}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn reports_are_looked_for_in_every_folder_underneath() {
+    // Reports are kept the way albums are: one folder per artist, one per
+    // album. Only looking at the top level would find nothing.
+    let sandbox = Sandbox::new("import_recursive");
+    let root = std::env::temp_dir().join("aede_e2e_import_recursive");
+    let music = root.join("music");
+    let reports = root.join("reports/Danzig/1996 Blackacidevil");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&music).unwrap();
+    std::fs::create_dir_all(&reports).unwrap();
+    let flac = music.join("01 So What.flac");
+    std::fs::copy(library().join("track.flac"), &flac).unwrap();
+    write_report(&reports.join("album.json"), &flac, "Match", "none");
+
+    let (_, _, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["import", root.join("reports").to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Files matched"), "output: {out}");
+    let (out, _, _) = sandbox.run(&["track", "So What"]);
+    assert!(out.contains("Analysed by flaccompagnon"), "output: {out}");
+
+    // A folder holding no report at all is an error, not a silent success.
+    let (_, err, ok) = sandbox.run(&["import", music.to_str().unwrap()]);
+    assert!(!ok);
+    assert!(err.contains("no .json report"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

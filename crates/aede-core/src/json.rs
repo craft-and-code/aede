@@ -117,6 +117,20 @@ impl Json {
         self.get(key).and_then(|v| v.as_u32())
     }
 
+    /// Reads a numeric field that may be fractional.
+    pub fn field_f64(&self, key: &str) -> Option<f64> {
+        self.get(key).and_then(|v| v.as_f64())
+    }
+
+    /// Reads a boolean field, `None` when it is absent or of another type.
+    ///
+    /// Distinct from [`Json::field_bool`], which answers `false` for both: an
+    /// imported measurement that was never taken is not a measurement that
+    /// came out negative.
+    pub fn field_optional_bool(&self, key: &str) -> Option<bool> {
+        self.get(key).and_then(|v| v.as_bool())
+    }
+
     /// Reads a flag, where an absent field means `false`: an older catalog that predates the flag
     /// is read without special handling.
     pub fn field_bool(&self, key: &str) -> bool {

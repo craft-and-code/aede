@@ -1,8 +1,9 @@
 //! The `reset` command: throw the catalog away.
 //!
 //! Most of what is lost comes back with one `aede scan`, which is why this is a
-//! small command. Two things do not come back: the **watched folders**, and the
-//! **integrity verdicts**, which may have cost an hour of reading. So the
+//! small command. Three things do not come back: the **watched folders**, the
+//! **integrity verdicts**, which may have cost an hour of reading, and the
+//! **imported analyses**, which cost a run of another program entirely. So the
 //! confirmation says what is at stake rather than asking a bare "are you sure",
 //! and the command prints the scan that rebuilds what it removed.
 
@@ -44,6 +45,12 @@ pub fn reset(args: &Args) -> Res {
         catalog.roots.len().to_string(),
     ]);
     table.push(vec!["Integrity verdicts".into(), verified.to_string()]);
+    if !catalog.analyses.is_empty() {
+        table.push(vec![
+            "Imported analyses".into(),
+            catalog.analyses.len().to_string(),
+        ]);
+    }
     table.push(vec!["File".into(), text::format_size(size)]);
     print!("{}", table.render());
     println!("  {}", ui::dim(&catalog_file.display().to_string()));
@@ -55,6 +62,12 @@ pub fn reset(args: &Args) -> Res {
         ui::dim("a scan rebuilds the catalog; the watched folders and the integrity")
     );
     println!("  {}", ui::dim("verdicts are lost and have to be redone"));
+    if !catalog.analyses.is_empty() {
+        println!(
+            "  {}",
+            ui::dim("the imported analyses go too, and have to be imported again")
+        );
+    }
 
     if !confirmed(args)? {
         println!("  {}", ui::green("nothing was removed"));

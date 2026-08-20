@@ -31,6 +31,7 @@ const VALUED: &[&str] = &[
     "genre",
     "label",
     "separator",
+    "source",
 ];
 
 impl Args {

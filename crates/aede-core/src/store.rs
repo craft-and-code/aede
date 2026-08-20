@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::analysis::FileAnalysis;
 use crate::audit;
 use crate::json::{self, Json};
 use crate::model::{
@@ -147,6 +148,7 @@ pub fn to_json(catalog: &Catalog) -> Json {
         "genre_link",
         array(&catalog.genre_links, genre_link_to_json),
     );
+    root.set("analysis", array(&catalog.analyses, analysis_to_json));
     root
 }
 
@@ -213,6 +215,87 @@ fn file_to_json(file: &AudioFile) -> Json {
         o.set("integrity", integrity);
     }
     o
+}
+
+/// An imported analysis, field for field.
+///
+/// Absent measurements are written as `null` rather than left out: the reader
+/// then distinguishes "not measured" from "measured as zero", which for a peak
+/// or a dynamic range is the whole difference.
+fn analysis_to_json(a: &FileAnalysis) -> Json {
+    let mut o = Json::obj();
+    o.set("path", a.path.clone().into());
+    o.set("source", a.source.clone().into());
+    o.set("source_version", a.source_version.into());
+    o.set("imported_at", a.imported_at.into());
+    o.set("size_bytes", a.size_bytes.into());
+    o.set("modified_unix", a.modified_unix.into());
+    o.set("md5_state", opt_str(&a.md5_state));
+    o.set("md5_detail", opt_str(&a.md5_detail));
+    o.set("real_bit_depth", opt_num(&a.real_bit_depth.map(u32::from)));
+    o.set("requant_rate", opt_float(&a.requant_rate));
+    o.set("fake_stereo", opt_bool(&a.fake_stereo));
+    o.set("ext_mismatch", opt_bool(&a.ext_mismatch));
+    o.set("transcoding", opt_str(&a.transcoding));
+    o.set("upscaling", opt_bool(&a.upscaling));
+    o.set("upsampling", opt_bool(&a.upsampling));
+    o.set("summary", opt_str(&a.summary));
+    o.set("detail", opt_str(&a.detail));
+    o.set("cutoff_hz", opt_float(&a.cutoff_hz));
+    o.set("cutoff_ratio", opt_float(&a.cutoff_ratio));
+    o.set("dr_db", opt_float(&a.dr_db));
+    o.set("peak_dbfs", opt_float(&a.peak_dbfs));
+    o.set("true_peak_dbtp", opt_float(&a.true_peak_dbtp));
+    o.set("clipped_samples", opt_num(&a.clipped_samples));
+    o.set("clip_events", opt_num(&a.clip_events));
+    o.set("clipped", opt_bool(&a.clipped));
+    o.set("error", opt_str(&a.error));
+    o
+}
+
+fn analysis_from_json(item: &Json) -> FileAnalysis {
+    FileAnalysis {
+        path: item.field_str("path").unwrap_or_default(),
+        source: item.field_str("source").unwrap_or_default(),
+        source_version: item.field_u32("source_version").unwrap_or(0),
+        imported_at: item.field_u64("imported_at").unwrap_or(0),
+        size_bytes: item.field_u64("size_bytes").unwrap_or(0),
+        modified_unix: item.field_u64("modified_unix").unwrap_or(0),
+        md5_state: item.field_str("md5_state"),
+        md5_detail: item.field_str("md5_detail"),
+        real_bit_depth: item.field_u32("real_bit_depth").map(|v| v as u16),
+        requant_rate: item.field_f64("requant_rate"),
+        fake_stereo: item.field_optional_bool("fake_stereo"),
+        ext_mismatch: item.field_optional_bool("ext_mismatch"),
+        transcoding: item.field_str("transcoding"),
+        upscaling: item.field_optional_bool("upscaling"),
+        upsampling: item.field_optional_bool("upsampling"),
+        summary: item.field_str("summary"),
+        detail: item.field_str("detail"),
+        cutoff_hz: item.field_f64("cutoff_hz"),
+        cutoff_ratio: item.field_f64("cutoff_ratio"),
+        dr_db: item.field_f64("dr_db"),
+        peak_dbfs: item.field_f64("peak_dbfs"),
+        true_peak_dbtp: item.field_f64("true_peak_dbtp"),
+        clipped_samples: item.field_u64("clipped_samples"),
+        clip_events: item.field_u64("clip_events"),
+        clipped: item.field_optional_bool("clipped"),
+        error: item.field_str("error"),
+    }
+}
+
+fn opt_bool(value: &Option<bool>) -> Json {
+    match value {
+        Some(v) => (*v).into(),
+        None => Json::Null,
+    }
+}
+
+fn opt_float(value: &Option<f64>) -> Json {
+    match value {
+        Some(v) => (*v).into(),
+        None => Json::Null,
+    }
 }
 
 fn artist_to_json(a: &Artist) -> Json {
@@ -457,6 +540,10 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             entity_kind: kind,
             entity_id: item.field_u32("entity_id").unwrap_or(0),
         });
+    }
+
+    for item in rows(value, "analysis") {
+        catalog.analyses.push(analysis_from_json(item));
     }
 
     verify_integrity(&catalog)?;

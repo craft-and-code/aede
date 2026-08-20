@@ -32,6 +32,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede search <text>`                                      | Search across the whole catalog                                                          |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                               |
 | `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                       |
+| `aede import <report…>`                                   | Take in a FlacCompagnon report (`--forget` removes what was imported)                    |
 | `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                |
 
 `--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
@@ -42,7 +43,7 @@ The catalog lives in `$AEDE_HOME`, or `~/.local/share/aede/catalog.json`.
 
 Three formats, because they answer three different questions.
 
-**JSON** (`aede export`) is the faithful dump: nine linked tables, one per table of the model. It is what rebuilds a catalog or feeds another program.
+**JSON** (`aede export`) is the faithful dump: ten linked tables, one per table of the model. It is what rebuilds a catalog or feeds another program.
 
 **CSV** (`aede export --csv`) is for a spreadsheet, and a spreadsheet cannot hold a graph. It writes **one row per album** — artist, title, year, track and disc counts, duration, size, formats, sample rates, bit depths, label, catalogue number, genres, integrity, folder — which is the view from above: sort by size to find what to re-rip, filter on `lossless` to see what is left to replace. `--tracks` switches to one row per track when the album is too coarse.
 
@@ -118,19 +119,20 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 
 ### Reading the scan report
 
-| Line                      | What it counts                                                                                           |
-| ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Files found               | Audio files seen while walking the folders, duplicates removed                                           |
-| Read from disk            | Files whose tags were parsed: new ones, and those changed since the last scan                            |
-| Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk |
-| Gone since last scan      | Files the catalog knew and that are no longer there; they leave the catalog                              |
-| Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                  |
+| Line                      | What it counts                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Files found               | Audio files seen while walking the folders, duplicates removed                                                      |
+| Read from disk            | Files whose tags were parsed: new ones, and those changed since the last scan                                       |
+| Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk            |
+| Gone since last scan      | Files the catalog knew and that are no longer there; they leave the catalog                                         |
+| Analyses imported         | [FlacCompagnon reports](#what-another-tool-found) found in the folders and taken in; only shown when there were any |
+| Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                             |
 
 `Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
 
 ### Starting over
 
-`aede reset` removes the catalog. It first says what it holds — tracks, albums, artists, watched folders, integrity verdicts — and what a rescan does not bring back:
+`aede reset` removes the catalog. It first says what it holds — tracks, albums, artists, watched folders, integrity verdicts, imported analyses — and what a rescan does not bring back:
 
 ```
 $ aede reset
@@ -140,9 +142,11 @@ About to remove the catalog
   Tracks                  20 148
   Watched folders              2
   Integrity verdicts      20 148
+  Imported analyses          312
   File                    9.4 MB
   a scan rebuilds the catalog; the watched folders and the integrity
   verdicts are lost and have to be redone
+  the imported analyses go too, and have to be imported again
   Type "yes" to confirm:
 ```
 
@@ -188,7 +192,67 @@ Two things make it manageable:
 
 **Interrupting is safe.** Verdicts are written to the catalog every 250 files rather than at the end, so a `Ctrl-C` — or a laptop closing, or a drive going away — costs at most the batch in progress. Everything already verified is kept, and the next run picks up exactly where the last one stopped, since a file that has a verdict is no longer in the queue. A second full run therefore has nothing left to read.
 
-What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the _decoded_ audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it.
+What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the _decoded_ audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it. Until then, [taking in another tool's analysis](#what-another-tool-found) fills the gap for whoever already has one.
+
+## What another tool found
+
+Entirely optional, and it changes nothing if you never use it.
+
+Aède reads the _structure_ of a file. It does not decode, so there are questions it cannot answer yet: is this FLAC a re-encoded MP3, was it upsampled, where does the spectrum stop, how loud is it really — and the decisive one, does the decoded audio still match the MD5 the encoder wrote into the file.
+
+[FlacCompagnon](https://github.com/kcell/FlacCompagnon) already does that pass. If you have run it, `aede import` puts the results into the catalog:
+
+```sh
+aede import ~/Desktop/danzig-report.json
+aede import ~/Desktop/reports/            # every .json underneath, at any depth
+aede import --forget                      # remove them all
+aede import --forget --source=flaccompagnon
+```
+
+A folder is walked **recursively**, because reports are kept the way the albums they describe are: one folder per artist, one per album.
+
+### The order does not matter
+
+An analysis is filed under the **path** it describes, not under a catalog entry. So the two operations can be done either way round, which matters because analysing a folder and _then_ building the library from it is the natural order for someone who already owns the other tool.
+
+- **Import first.** The records are stored and reported as `Waiting for a scan`. The scan that brings those files in makes them attach by themselves. `doctor` says how many are still waiting rather than letting them sit there unmentioned.
+- **Scan first.** Files are matched by path, then by name and size for a library that has moved since — a name and a byte count together are very nearly unique.
+- **Leave the report in the album folder.** A scan walks over it anyway: any `.json` announcing itself as a FlacCompagnon report is read and taken in, and the scan report says how many. Half a kilobyte is read from each `.json` met to recognise one, so nothing else in the library is parsed.
+
+Imported analyses survive a scan — they are the one thing in the catalog that reading the files again cannot recompute.
+
+`aede track` then shows a second panel, named after whoever measured it:
+
+```
+Analysed by flaccompagnon
+
+  MD5              Match
+  Real bit depth   16 bits
+  Cutoff           22.1 kHz
+  Dynamic range    9.3 dB
+  True peak        0.28 dBTP
+  Verdict          Clean — full-band content to ~22.1 kHz, no lossy signature.
+```
+
+Three rules govern what happens to those numbers.
+
+**They are never merged into Aède's own.** A verdict carries the method that produced it. Overwriting the bit depth read from the frames with one obtained by decoding would leave the catalog unable to say where the number came from — and unable to notice that the two disagree. Noticing is the point.
+
+**They expire with the bytes they describe.** An analysis is bound to the size and modification date the file had when it was measured, the same test the incremental scan uses. Edit the file and the panel says `— stale: the file changed since` rather than answering confidently about music that is no longer there. Re-importing that same report is refused for the same reason.
+
+**A disagreement is a finding, not something to arbitrate.** `doctor` reports an MD5 mismatch as an **error** even when `aede check` found the file intact, because the two look at different things:
+
+```
+error  audio does not match its MD5
+       flaccompagnon decoded the audio and it does not match the file's own MD5,
+       although the frame checksums are valid: the stream was re-encoded
+```
+
+The frame checksums prove the _container_ was not corrupted; the MD5 proves the _audio_ is the audio that was encoded. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but kept the old signature — exactly the case Aède cannot see before it decodes anything itself. A lossy ancestry — transcoded, upscaled, upsampled — is reported as a warning, with the reason and the source named.
+
+### Where it is all stored
+
+In the catalog, and nowhere else: `~/.local/share/aede/catalog.json` grows one more table, `analysis`, one row per path and per source. The report you imported is never referred to again — you can move it or throw it away. `aede export` includes the table, `aede import --forget` empties it, and `aede reset` warns about it before removing the catalog.
 
 ## Supported formats
 
@@ -323,7 +387,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-174 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+190 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

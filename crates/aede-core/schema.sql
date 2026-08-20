@@ -61,6 +61,73 @@ CREATE TABLE raw_tag (
     PRIMARY KEY (file_id, key, position)
 ) WITHOUT ROWID;
 
+-- What another tool measured by decoding the audio, imported and attributed.
+--
+-- Deliberately a table of its own rather than columns on `file`: these values
+-- were not obtained by Aède's own method, and a verdict carries the method
+-- that produced it. Keeping them apart is what lets `doctor` notice that two
+-- methods disagree — a `Mismatch` here against an `intact` on `file` says the
+-- container is sound but the audio inside was re-encoded.
+--
+-- `size_bytes` and `modified_unix` are the file as it was when it was
+-- analysed, and expire the row exactly as the incremental scan expires a read.
+-- Every measurement is nullable: NULL is "not measured", which for a peak or a
+-- dynamic range is not the same as zero.
+--
+-- Keyed on the **path** and deliberately not a foreign key onto `file`: a row
+-- may describe a file the catalog does not hold yet. Analysing a folder before
+-- ever scanning it is a legitimate order of operations, and such a row waits
+-- here until the scan brings its file in. `v_file_analysis` is the join for
+-- everything else.
+CREATE TABLE analysis (
+    path             TEXT    NOT NULL,   -- absolute path the tool analysed
+    source           TEXT    NOT NULL,   -- 'flaccompagnon'
+    source_version   INTEGER NOT NULL,   -- version of that tool's report format
+    imported_at      INTEGER NOT NULL,   -- Unix epoch in seconds
+    size_bytes       INTEGER NOT NULL,
+    modified_unix    INTEGER NOT NULL,
+    -- Verdict on the MD5 the encoder wrote in STREAMINFO, as a state and not a
+    -- hash: the tool compares and reports. 'Match' is a successful `flac -t`.
+    -- Kept in the source's own spelling, unnormalised, because the row belongs
+    -- to the source: renaming its vocabulary here would make the catalog claim
+    -- a verdict the tool never worded that way.
+    md5_state        TEXT CHECK (md5_state IN
+                         ('NoSignature', 'Present', 'Match', 'Mismatch', 'Error')),
+    md5_detail       TEXT,
+    real_bit_depth   INTEGER,            -- depth actually carried, by decoding
+    requant_rate     REAL,
+    fake_stereo      INTEGER,            -- both channels hold the same signal
+    ext_mismatch     INTEGER,            -- extension against the real container
+    transcoding      TEXT CHECK (transcoding IN ('none', 'suspected', 'detected')),
+    upscaling        INTEGER,            -- lossless built from a lossy source
+    upsampling       INTEGER,            -- rate raised above what the content justifies
+    summary          TEXT,               -- the tool's own one-word verdict
+    detail           TEXT,               -- and the same in a sentence
+    cutoff_hz        REAL,               -- where the spectrum stops
+    cutoff_ratio     REAL,               -- as a fraction of the Nyquist limit
+    dr_db            REAL,
+    peak_dbfs        REAL,
+    true_peak_dbtp   REAL,
+    clipped_samples  INTEGER,
+    clip_events      INTEGER,
+    clipped          INTEGER,
+    error            TEXT,               -- what stopped the analysis of this file
+    -- One analysis per path and per source: importing the same report twice
+    -- replaces, it does not accumulate.
+    PRIMARY KEY (path, source)
+) WITHOUT ROWID;
+
+CREATE INDEX analysis_md5_idx ON analysis (md5_state);
+
+-- Imported analyses that describe a file the catalog actually holds, and only
+-- those whose row still applies to it. A row that fails the size and date test
+-- describes bytes that are no longer there and must never reach a query.
+CREATE VIEW v_file_analysis AS
+SELECT f.id AS file_id, a.*
+FROM analysis a
+JOIN file f ON f.path = a.path
+WHERE a.size_bytes = f.size AND a.modified_unix = f.mtime;
+
 -- ---------------------------------------------------------------------------
 -- Entities
 -- ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use crate::analysis;
 use crate::model::{self, Catalog, ScannedFile};
 use crate::tags::{self, RawTags};
 
@@ -56,6 +57,11 @@ pub struct ScanReport {
     /// Files that could not be read, as `(path, reason)` pairs sorted by path.
     /// A failure excludes the file from the catalog but never aborts the scan.
     pub failures: Vec<(String, String)>,
+    /// Analysis reports found inside the folders and taken in.
+    pub reports: usize,
+    /// Imported analyses the catalog holds once the scan is done, the ones
+    /// carried over from the previous catalog included.
+    pub analyses: usize,
     /// Wall-clock time of the whole scan in milliseconds, traversal included.
     pub elapsed_ms: u128,
 }
@@ -96,9 +102,11 @@ pub fn scan(
     }
     let Walker {
         mut audio_files,
+        reports: mut reports_found,
         folder_covers,
         ..
     } = walker;
+    reports_found.sort();
     audio_files.sort();
     audio_files.dedup();
     report.found = audio_files.len();
@@ -230,9 +238,59 @@ pub fn scan(
         .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
-    let catalog = model::build(scanned, roots_str, now_seconds());
+    let mut catalog = model::build(scanned, roots_str, now_seconds());
+
+    // Analyses are keyed by path, so they simply travel: nothing to remap, and
+    // nothing to lose. They are the one thing in a catalog that reading the
+    // files again cannot recompute.
+    if let Some(previous) = previous {
+        catalog.analyses = previous.analyses.clone();
+    }
+    // Reports lying in the library are taken in, so that analysing a folder and
+    // then scanning it works as well as the other way round.
+    report.reports = import_reports(&reports_found, &mut catalog);
+    report.analyses = catalog.analyses.len();
+
     report.elapsed_ms = started.elapsed().as_millis();
     Ok((catalog, report))
+}
+
+/// Reads the reports found while walking, and merges what they hold.
+///
+/// Returns how many were actually reports. A file is only parsed once
+/// [`analysis::looks_like_a_report`] has recognised it, and one that turns out
+/// to be unreadable is passed over: a scan is not the place to fail over a
+/// sidecar file nobody asked about.
+fn import_reports(found: &[PathBuf], catalog: &mut Catalog) -> usize {
+    let mut count = 0;
+    let now = now_seconds();
+    for path in found {
+        let Ok(report) = analysis::read_report(path) else {
+            continue;
+        };
+        count += 1;
+        for mut record in report.files {
+            record.imported_at = now;
+            merge_analysis(catalog, record);
+        }
+    }
+    if count > 0 {
+        catalog
+            .analyses
+            .sort_by(|a, b| (&a.path, &a.source).cmp(&(&b.path, &b.source)));
+    }
+    count
+}
+
+/// Stores one analysis, replacing the one that source had already given.
+///
+/// One record per path and per source: reading the same report twice replaces,
+/// it does not accumulate.
+fn merge_analysis(catalog: &mut Catalog, record: analysis::FileAnalysis) {
+    catalog
+        .analyses
+        .retain(|a| !(a.path == record.path && a.source == record.source));
+    catalog.analyses.push(record);
 }
 
 fn resolve_threads(requested: usize) -> usize {
@@ -271,6 +329,8 @@ fn cover_for(covers: &HashMap<PathBuf, PathBuf>, file: &Path) -> Option<String> 
 struct Walker<'a> {
     options: &'a ScanOptions,
     audio_files: Vec<PathBuf>,
+    /// Analysis reports met on the way, to be taken in at the end.
+    reports: Vec<PathBuf>,
     /// Best cover art found per folder.
     folder_covers: HashMap<PathBuf, PathBuf>,
     /// Folders already visited, so as not to go round in circles on a
@@ -283,6 +343,7 @@ impl<'a> Walker<'a> {
         Walker {
             options,
             audio_files: Vec::new(),
+            reports: Vec::new(),
             folder_covers: HashMap::new(),
             visited: HashSet::new(),
         }
@@ -327,6 +388,13 @@ impl<'a> Walker<'a> {
                 self.walk(&path)?;
             } else if tags::is_audio_path(&path) {
                 self.audio_files.push(path);
+            } else if name.to_ascii_lowercase().ends_with(".json")
+                && analysis::looks_like_a_report(&path)
+            {
+                // Someone may analyse a folder before ever scanning it, and
+                // leave the report sitting in it. Picking it up here is what
+                // makes the order of the two operations irrelevant.
+                self.reports.push(path);
             } else if let Some(rank) = cover_rank(&name)
                 && best_cover.as_ref().map(|(r, _)| rank < *r).unwrap_or(true)
             {

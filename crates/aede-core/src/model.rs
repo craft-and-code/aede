@@ -308,6 +308,16 @@ pub struct Catalog {
     pub scanned_at: u64,
     /// The files that were read, in the order the scan settled on.
     pub files: Vec<AudioFile>,
+    /// Deep analyses imported from another tool, one row per path and source.
+    ///
+    /// Optional by nature: a catalog without a single one works exactly the
+    /// same. They are kept apart from the files rather than merged into them,
+    /// so that a measurement always answers "who says so".
+    ///
+    /// Keyed by path, which means some of them may describe files the catalog
+    /// does not hold — a library analysed before it was ever scanned. Those
+    /// wait here until a scan brings the file in.
+    pub analyses: Vec<crate::analysis::FileAnalysis>,
     /// Artists, one entry per normalized key.
     pub artists: Vec<Artist>,
     /// Releases, one entry per title, owner and folder.
@@ -345,6 +355,29 @@ impl Catalog {
     /// The file an id designates, or `None` when the id is out of range.
     pub fn file(&self, id: Id) -> Option<&AudioFile> {
         self.files.get(id as usize)
+    }
+
+    /// Every imported analysis that describes this file, whatever the source.
+    pub fn analyses_of(
+        &self,
+        file: &AudioFile,
+    ) -> impl Iterator<Item = &crate::analysis::FileAnalysis> {
+        self.analyses.iter().filter(|a| a.path == file.path)
+    }
+
+    /// Imported analyses describing files the catalog does not hold.
+    ///
+    /// Not an error and not garbage: the usual reason is that the folder they
+    /// speak of has not been scanned yet. Counting them is how the interface
+    /// can say "twelve analyses are waiting for a scan" instead of losing them
+    /// without a word.
+    pub fn pending_analyses(&self) -> usize {
+        let known: std::collections::BTreeSet<&str> =
+            self.files.iter().map(|f| f.path.as_str()).collect();
+        self.analyses
+            .iter()
+            .filter(|a| !known.contains(a.path.as_str()))
+            .count()
     }
 
     /// The label an id designates, or `None` when the id is out of range.

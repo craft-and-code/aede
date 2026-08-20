@@ -320,11 +320,26 @@ pub fn bar(value: usize, max: usize, width: usize) -> String {
 }
 
 /// Pluralises a noun: `plural(1, "album")` → "1 album".
+///
+/// Only the two endings the program actually uses are special-cased — `-is`
+/// becoming `-es` (analysis → analyses) and the sibilants that take `-es`. A
+/// full English pluraliser would be a library; "1 analysiss" is a typo the
+/// user reads every time.
 pub fn plural(count: usize, singular: &str) -> String {
-    if count > 1 {
-        format!("{count} {singular}s")
+    if count <= 1 {
+        return format!("{count} {singular}");
+    }
+    let lower = singular.to_ascii_lowercase();
+    if lower.ends_with("is") {
+        return format!("{count} {}es", &singular[..singular.len() - 2]);
+    }
+    if ["s", "x", "z", "ch", "sh"]
+        .iter()
+        .any(|end| lower.ends_with(end))
+    {
+        format!("{count} {singular}es")
     } else {
-        format!("{count} {singular}")
+        format!("{count} {singular}s")
     }
 }
 
@@ -452,6 +467,11 @@ mod tests {
         assert_eq!(plural(0, "album"), "0 album");
         assert_eq!(plural(1, "album"), "1 album");
         assert_eq!(plural(3, "album"), "3 albums");
+        // The two endings the program actually uses.
+        assert_eq!(plural(3, "analysis"), "3 analyses");
+        assert_eq!(plural(3, "imported analysis"), "3 imported analyses");
+        assert_eq!(plural(1, "analysis"), "1 analysis");
+        assert_eq!(plural(3, "match"), "3 matches");
     }
 
     #[test]

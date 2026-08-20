@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 174 tests
+cargo test                       # 190 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -52,13 +52,15 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **The on-disk format is versioned.** Any incompatible change to the catalog bumps `store::FORMAT_VERSION`, and reading an older file must produce a clear message rather than a crash.
 
-**A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders and the integrity verdicts. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
+**A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders, the integrity verdicts and the imported analyses. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
 
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere.
 
 **An option means the same thing wherever it is typed.** `--m3u` and `--csv` on `album`, `artist`, `track` and `search` all describe the tracks on screen, through one helper (`commands::selection_output`); `export` describes the catalog. A command that cannot honour an argument says so — `aede export "an album"` is an error, never a full export under a name that promised a selection.
 
 **Each export answers one question.** JSON is the faithful dump and mirrors the model; CSV is a flat table for a spreadsheet, denormalized on purpose and carrying raw values, since a formatted column cannot be summed; M3U exports a selection, not the catalog. Adding a format means saying which question it answers that the other three do not.
+
+**A folder given to a command is walked whole.** `import` recurses, because reports are filed the way albums are — one folder per artist, one per album — and a walk that stopped at the top level would report "nothing found" on the folder the user actually meant. The same applies to any folder argument added later.
 
 **The persisted JSON mirrors `schema.sql`.** One key in the file equals one table in the schema. Adding a field to the model means reflecting it in both. That is what will make the move to SQLite mechanical.
 
@@ -70,7 +72,13 @@ A figure derived from it carries the name of the role class it counts. An artist
 
 **"Not checked" is not "nothing to check".** An absent integrity verdict means no one has looked yet, and that can change; `Verdict::NothingToCheck` means the container carries no checksum, and that never will. Collapsing the two would have the user re-running `aede check` forever on their MP3s. The same distinction holds in the JSON, in `schema.sql` and in whatever the interface ends up drawing.
 
-**A verdict belongs to the bytes it was reached on.** `integrity` travels with the file entry: a scan that reuses an unchanged file keeps it, a scan that re-reads a modified one drops it. Never carry a verdict across a change of size or date.
+**A verdict belongs to the bytes it was reached on.** `integrity` travels with the file entry: a scan that reuses an unchanged file keeps it, a scan that re-reads a modified one drops it. Never carry a verdict across a change of size or date. An imported analysis follows the same rule from the other side: `FileAnalysis::still_applies` compares the size and date the other tool saw against the ones the catalog holds, and nothing acts on a record that fails it.
+
+**A measurement carries who made it.** Imported analyses live in their own table, attributed to their source, and are never merged into Aède's own fields. A bit depth read from the wasted-bits counts and one obtained by decoding are two different claims; merging them loses the provenance and, worse, hides the case where they disagree. Noticing the disagreement is the whole reason to keep the data. `doctor` reports an MD5 mismatch as an **error** even when `aede check` said intact — the frame checksums prove the container, the MD5 proves the audio, and passing one while failing the other is a finding, not a contradiction to arbitrate.
+
+**A scan may not destroy what it cannot recompute.** Imported analyses travel with the catalog a scan rebuilds. Tags, durations and the graph all come back from reading the files again; an hour of someone else's decoding does not. Anything future that is entered rather than read belongs in that same carry-over.
+
+**Entered data is keyed by path, not by identifier.** Identifiers are positions that every scan renumbers, so anything not rebuilt by the scan would have to be remapped after it — and, worse, could not exist before it. `FileAnalysis` therefore carries the path it describes and no id. That is what lets a report be imported into an empty catalog and attach itself later, which makes the order of "analyse" and "scan" irrelevant. A record whose file the catalog does not hold is waiting, not broken: it is counted (`Catalog::pending_analyses`), reported, and never diagnosed as a defect.
 
 **Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act, and a scan with no folder left is the way a catalog is emptied — refusing it would strand the files with no way out.
 
@@ -189,5 +197,7 @@ Matching a file to a release is the hard problem of this project. Always keep a 
 **M2 — API.** The HTTP contract freezes early and is versioned. Every future client will depend on it.
 
 **M3 — the decoder.** It is what the FLAC MD5 check waits for: verifying that hash means decoding the audio. The frame walk in `audit/flac.rs` already reads every Rice residual and throws the numbers away — what is missing is the LPC restoration, the inter-channel decorrelation and MD5 itself. Adding the stronger verdict must not change the stored shape, only `integrity_method`.
+
+The two checks are not competing methods and neither replaces the other: the frame CRCs are the cheap pass that reads the container, the MD5 is the deep pass that reads the audio. Both stay. "Aligning on FlacCompagnon" therefore does not mean copying its verdict but computing the same digest over the same bytes — the interleaved little-endian samples the FLAC specification defines, which is the only thing there is to agree on. Two conforming implementations cannot disagree, and if they do, one of them has a bug: that is exactly the check `doctor` already performs on imported reports, and it is why the disagreement is reported rather than resolved. The way to guarantee it is to stop having two implementations at all — extract `audit` into a crate both programs depend on.
 
 **M3/M4 — playback.** The encoder delay and padding (already extracted from LAME tags and the Opus pre-skip) are what make gapless playback possible. Do not lose them along the way.
