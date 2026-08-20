@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 169 tests
+cargo test                       # 172 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -48,6 +48,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **Parsers never panic.** No `unwrap`, `expect`, `panic!`, direct indexing or unchecked slicing anywhere in `tags/` or `audit/`. A truncated or corrupt file yields an error or a partial result. Use the `Cursor` from `tags/bytes.rs`, whose reads all return `Option`. Use `checked_`/`saturating_` arithmetic on any value that comes from a file.
 
+**Inferred data carries the version of the rules that inferred it.** `model::RELATION_RULES` is bumped when the way relations are derived changes; `store::from_json` then recomputes them, in memory, from the credits and tracks it just read. This is deliberately not `FORMAT_VERSION`: an out-of-date inference is stale, not invalid, and refusing to load would cost the user their integrity verdicts. The rule generalises — anything derived rather than read belongs here, not in the format version.
+
 **The on-disk format is versioned.** Any incompatible change to the catalog bumps `store::FORMAT_VERSION`, and reading an older file must produce a clear message rather than a crash.
 
 **A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders and the integrity verdicts. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
@@ -59,6 +61,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **Each export answers one question.** JSON is the faithful dump and mirrors the model; CSV is a flat table for a spreadsheet, denormalized on purpose and carrying raw values, since a formatted column cannot be summed; M3U exports a selection, not the catalog. Adding a format means saying which question it answers that the other three do not.
 
 **The persisted JSON mirrors `schema.sql`.** One key in the file equals one table in the schema. Adding a field to the model means reflecting it in both. That is what will make the move to SQLite mechanical.
+
+**The same album twice is two releases and one relation.** Never merge two folders into one release: they are two sets of files, and the folder is what the user acts on. `model::DUPLICATE` and `model::OTHER_EDITION` say which case it is — same track list and same encoding, or same track list and a different one. Reporting belongs to the album level: a copied album is one issue, not one per track, and an other edition is information rather than a warning.
 
 **Roles are not interchangeable.** `model::is_performing_role` separates being audible on a recording from having written or produced it. The distinction drives the artist page, the performer rankings and the collaboration graph; ignoring it puts other people's albums in an artist's discography.
 

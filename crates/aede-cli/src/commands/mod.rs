@@ -165,6 +165,24 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
         })
 }
 
+/// Marker put after an album title when the same album sits elsewhere too.
+///
+/// Two words rather than a symbol: a legend nobody reads is worse than four
+/// characters of prose, and the two cases call for opposite reactions.
+fn copy_marker(catalog: &Catalog, release_id: Id) -> String {
+    use aede_core::model::{DUPLICATE, OTHER_EDITION};
+    if !catalog.related_releases(release_id, DUPLICATE).is_empty() {
+        return " (duplicate)".to_string();
+    }
+    if !catalog
+        .related_releases(release_id, OTHER_EDITION)
+        .is_empty()
+    {
+        return " (other edition)".to_string();
+    }
+    String::new()
+}
+
 /// Hands the tracks on screen to another program, when asked for.
 ///
 /// `None` means nothing was asked and the command should print its usual page.

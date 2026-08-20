@@ -4,7 +4,7 @@ use aede_core::model::Id;
 use aede_core::stats;
 use aede_core::text;
 
-use super::{Res, export, load, totals};
+use super::{Res, copy_marker, export, load, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -166,7 +166,7 @@ pub fn list_albums(args: &Args) -> Res {
                 .year
                 .map(|y| y.to_string())
                 .unwrap_or_else(|| "—".into()),
-            release.title.clone(),
+            format!("{}{}", release.title, copy_marker(&catalog, release.id)),
             artist,
             release.track_ids.len().to_string(),
             text::format_duration(duration),

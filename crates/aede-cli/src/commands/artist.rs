@@ -6,7 +6,7 @@
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::text;
 
-use super::{Res, load, selection_output, totals};
+use super::{Res, copy_marker, load, selection_output, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -194,7 +194,7 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
                 .year
                 .map(|y| y.to_string())
                 .unwrap_or_else(|| "—".into()),
-            release.title.clone(),
+            format!("{}{}", release.title, copy_marker(catalog, release.id)),
             album_artist,
             counted.len().to_string(),
             text::format_duration(duration),

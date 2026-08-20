@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::model::{Catalog, Id};
+use crate::model::{self, Catalog, Id};
 use crate::text;
 
 /// How much a problem hurts, from the most serious to the least.
@@ -52,6 +52,10 @@ pub enum IssueKind {
     MissingDuration,
     /// Same artist and title heard again at a near-identical duration: the copies waste space.
     DuplicateTrack,
+    /// A whole album is present twice, in the same quality: one of the two copies is dead weight.
+    DuplicateAlbum,
+    /// The same album is kept in two encodings. Not a defect — worth knowing.
+    OtherEdition,
     /// Gaps in the numbering of a disc, the sign of a rip left unfinished.
     IncompleteAlbum,
     /// One release mixes codecs or sample rates, which usually means it was assembled from
@@ -76,12 +80,14 @@ impl IssueKind {
             | IssueKind::DamagedAudio => Severity::Error,
             IssueKind::MissingAlbum
             | IssueKind::DuplicateTrack
+            | IssueKind::DuplicateAlbum
             | IssueKind::IncompleteAlbum
             | IssueKind::MixedQuality
             | IssueKind::SuspiciousYear => Severity::Warning,
-            IssueKind::MissingDate | IssueKind::MissingTrackNumber | IssueKind::MissingCover => {
-                Severity::Info
-            }
+            IssueKind::MissingDate
+            | IssueKind::MissingTrackNumber
+            | IssueKind::MissingCover
+            | IssueKind::OtherEdition => Severity::Info,
         }
     }
 
@@ -95,6 +101,8 @@ impl IssueKind {
             IssueKind::MissingTrackNumber => "missing track number",
             IssueKind::MissingDuration => "unreadable duration",
             IssueKind::DuplicateTrack => "likely duplicate",
+            IssueKind::DuplicateAlbum => "album present twice",
+            IssueKind::OtherEdition => "album kept in two encodings",
             IssueKind::IncompleteAlbum => "incomplete album",
             IssueKind::MixedQuality => "mixed quality within an album",
             IssueKind::MissingCover => "missing cover art",
@@ -128,6 +136,8 @@ pub fn diagnose(catalog: &Catalog) -> Vec<Issue> {
     let mut issues = Vec::new();
     check_tracks(catalog, &mut issues);
     check_integrity(catalog, &mut issues);
+    check_duplicate_albums(catalog, &mut issues);
+    check_other_editions(catalog, &mut issues);
     check_duplicates(catalog, &mut issues);
     check_releases(catalog, &mut issues);
 
@@ -228,6 +238,122 @@ fn check_integrity(catalog: &Catalog, issues: &mut Vec<Issue>) {
     }
 }
 
+/// Reports the albums the model linked to a copy of themselves.
+///
+/// Only the copies that are identical in quality: a hi-res edition beside the
+/// CD rip is a deliberate second copy and not something to fix.
+fn check_duplicate_albums(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    let mut seen: std::collections::BTreeSet<(Id, Id)> = Default::default();
+    for release in &catalog.releases {
+        for other_id in catalog.related_releases(release.id, model::DUPLICATE) {
+            let pair = (release.id.min(other_id), release.id.max(other_id));
+            if !seen.insert(pair) {
+                continue;
+            }
+            let Some(other) = catalog.release(other_id) else {
+                continue;
+            };
+            // The smaller of the two is what deleting one would free; both are
+            // named, since only the user knows which folder to keep.
+            let wasted = release_size(catalog, release.id).min(release_size(catalog, other_id));
+            issues.push(Issue {
+                kind: IssueKind::DuplicateAlbum,
+                detail: format!(
+                    "\"{}\" is present twice in the same quality ({} recoverable)",
+                    release.title,
+                    text::format_size(wasted)
+                ),
+                files: vec![release.folder.clone(), other.folder.clone()],
+            });
+        }
+    }
+}
+
+/// `true` when the tracks all come from releases the model already tied
+/// together, whichever way.
+///
+/// A copied album would otherwise be reported once per track, and so would a
+/// hi-res edition sitting beside its CD rip — which is not a defect at all. The
+/// album-level lines say both things once, and name the folders.
+fn covered_by_the_album(catalog: &Catalog, cluster: &[(Id, u64)]) -> bool {
+    let releases: Vec<Id> = cluster
+        .iter()
+        .filter_map(|&(id, _)| catalog.track(id))
+        .filter_map(|t| t.release_id)
+        .collect();
+    if releases.len() != cluster.len() || releases.len() < 2 {
+        return false;
+    }
+    let first = releases[0];
+    let linked: std::collections::BTreeSet<Id> = catalog
+        .related_releases(first, model::DUPLICATE)
+        .into_iter()
+        .chain(catalog.related_releases(first, model::OTHER_EDITION))
+        .collect();
+    releases
+        .iter()
+        .skip(1)
+        .all(|other| *other == first || linked.contains(other))
+}
+
+/// Notes the albums kept in two encodings. Not a defect: a hi-res copy beside
+/// the CD rip is a choice, and saying nothing at all would look like an
+/// oversight next to the duplicate lines.
+fn check_other_editions(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    let mut seen: std::collections::BTreeSet<(Id, Id)> = Default::default();
+    for release in &catalog.releases {
+        for other_id in catalog.related_releases(release.id, model::OTHER_EDITION) {
+            let pair = (release.id.min(other_id), release.id.max(other_id));
+            if !seen.insert(pair) {
+                continue;
+            }
+            let Some(other) = catalog.release(other_id) else {
+                continue;
+            };
+            issues.push(Issue {
+                kind: IssueKind::OtherEdition,
+                detail: format!(
+                    "\"{}\" is kept in two encodings ({} and {})",
+                    release.title,
+                    quality_summary(catalog, release.id),
+                    quality_summary(catalog, other_id)
+                ),
+                files: vec![release.folder.clone(), other.folder.clone()],
+            });
+        }
+    }
+}
+
+/// The formats a release is made of, in one short phrase.
+fn quality_summary(catalog: &Catalog, release_id: Id) -> String {
+    let labels: std::collections::BTreeSet<String> = catalog
+        .release(release_id)
+        .map(|r| {
+            r.track_ids
+                .iter()
+                .filter_map(|&id| catalog.track(id))
+                .filter_map(|t| catalog.file(t.file_id))
+                .map(|f| f.properties.quality_label())
+                .collect()
+        })
+        .unwrap_or_default();
+    labels.into_iter().collect::<Vec<_>>().join(", ")
+}
+
+fn release_size(catalog: &Catalog, release_id: Id) -> u64 {
+    catalog
+        .release(release_id)
+        .map(|r| {
+            r.track_ids
+                .iter()
+                .filter_map(|&id| catalog.track(id))
+                .filter_map(|t| catalog.file(t.file_id))
+                .map(|f| f.size)
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 /// Two tracks are considered duplicates if the same artist and the same title
 /// come back with a close duration (less than 3 seconds apart).
 ///
@@ -272,6 +398,12 @@ fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
         clusters.push(cluster);
 
         for cluster in clusters.into_iter().filter(|c| c.len() > 1) {
+            // A copied album would otherwise be reported once per track: the
+            // album-level issue already names the two folders, and thirteen
+            // lines saying the same thing bury everything else.
+            if covered_by_the_album(catalog, &cluster) {
+                continue;
+            }
             let files: Vec<String> = cluster
                 .iter()
                 .filter_map(|&(id, _)| catalog.track(id))
@@ -471,6 +603,51 @@ mod tests {
     }
 
     #[test]
+    fn a_copied_album_is_reported_once_and_not_per_track() {
+        // The same three tracks in two folders. Before, this produced three
+        // "likely duplicate" lines saying the same thing.
+        let common = |n: &'static str, title: &'static str| {
+            vec![
+                ("title", title),
+                ("artist", "Danzig"),
+                ("albumartist", "Danzig"),
+                ("album", "Danzig 4"),
+                ("date", "1994"),
+                ("tracknumber", n),
+            ]
+        };
+        let mut files = Vec::new();
+        for folder in ["/m/A", "/m/B"] {
+            for (n, title) in [
+                ("1", "Brand New God"),
+                ("2", "Little Whip"),
+                ("3", "Cantspeak"),
+            ] {
+                files.push(file(
+                    &format!("{folder}/{n}.flac"),
+                    &common(n, title),
+                    Some(100_000 + n.parse::<u64>().unwrap_or(0) * 1000),
+                    "flac",
+                ));
+            }
+        }
+        let c = model::build(files, vec!["/m".into()], 0);
+        let issues = diagnose(&c);
+        assert_eq!(count(&issues, IssueKind::DuplicateAlbum), 1);
+        assert_eq!(
+            count(&issues, IssueKind::DuplicateTrack),
+            0,
+            "the album line already says it"
+        );
+        let album = issues
+            .iter()
+            .find(|i| i.kind == IssueKind::DuplicateAlbum)
+            .unwrap();
+        assert_eq!(album.files.len(), 2, "both folders are named");
+        assert_eq!(album.severity(), Severity::Warning);
+    }
+
+    #[test]
     fn detects_a_duplicate_but_not_a_live_version() {
         let common = |album: &'static str| {
             vec![
@@ -575,7 +752,8 @@ mod tests {
 
     #[test]
     fn two_identical_tracks_are_not_silently_ignored() {
-        // Two genuinely identical tracks must indeed be reported.
+        // Two genuinely identical tracks must be reported — as tracks, or as
+        // the album that holds them, but never passed over.
         let fields = vec![
             ("title", "Intro"),
             ("artist", "A"),
@@ -590,6 +768,19 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        assert_eq!(count(&diagnose(&c), IssueKind::DuplicateTrack), 1);
+        let issues = diagnose(&c);
+        let reported =
+            count(&issues, IssueKind::DuplicateTrack) + count(&issues, IssueKind::DuplicateAlbum);
+        assert_eq!(reported, 1, "reported once, one way or the other");
+        assert!(
+            issues
+                .iter()
+                .filter(|i| matches!(
+                    i.kind,
+                    IssueKind::DuplicateTrack | IssueKind::DuplicateAlbum
+                ))
+                .any(|i| i.files.len() == 2),
+            "both copies are named"
+        );
     }
 }

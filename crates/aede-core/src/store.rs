@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use crate::audit;
 use crate::json::{self, Json};
 use crate::model::{
-    Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, IntegrityRecord, Label,
-    Relation, Release, Track,
+    self, Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, IntegrityRecord,
+    Label, Relation, Release, Track,
 };
 use crate::tags::AudioProperties;
 
@@ -128,6 +128,7 @@ pub fn load(path: &Path) -> Result<Option<Catalog>, StoreError> {
 pub fn to_json(catalog: &Catalog) -> Json {
     let mut root = Json::obj();
     root.set("format_version", FORMAT_VERSION.into());
+    root.set("relation_rules", model::RELATION_RULES.into());
     root.set("scanned_at", catalog.scanned_at.into());
     root.set(
         "roots",
@@ -334,6 +335,11 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
         roots: string_list(value.get("roots")),
         ..Default::default()
     };
+    // Relations inferred under older rules are stale, not wrong: they are
+    // recomputed below rather than refused, so that upgrading Aède never costs
+    // a rescan — nor the integrity verdicts a rescan would keep but a rebuilt
+    // catalog would not.
+    let stale_relations = value.field_u32("relation_rules").unwrap_or(0) != model::RELATION_RULES;
 
     for item in rows(value, "file") {
         catalog.files.push(file_from_json(item)?);
@@ -454,6 +460,9 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     }
 
     verify_integrity(&catalog)?;
+    if stale_relations {
+        model::rebuild_relations(&mut catalog);
+    }
     Ok(catalog)
 }
 
@@ -658,6 +667,50 @@ mod tests {
         assert!(!text.contains("integrity"), "nothing is written");
         let read_back = from_json(&json::parse(&text).unwrap()).unwrap();
         assert!(read_back.files[0].integrity.is_none());
+    }
+
+    #[test]
+    fn relations_inferred_under_older_rules_are_rebuilt_on_load() {
+        // Upgrading Aède must not require a rescan to get the benefit of a new
+        // inference, and must not cost the integrity verdicts a rebuilt
+        // catalog would lose.
+        // Two performers on one track, which is what a relation is made of.
+        let mut tags = RawTags::default();
+        tags.insert("title", "Sous le vent");
+        tags.insert("artist", "Garou feat. Céline Dion");
+        tags.insert("album", "Duos");
+        tags.properties.duration_ms = Some(200_000);
+        let original = model::build(
+            vec![ScannedFile {
+                path: "/music/Duos/01.flac".into(),
+                size: 1_000,
+                mtime: 0,
+                tags,
+                folder_cover: None,
+                integrity: None,
+            }],
+            vec!["/music".into()],
+            0,
+        );
+        assert!(!original.relations.is_empty(), "the fixture has relations");
+
+        let mut encoded = to_json(&original);
+        encoded.set("relation_rules", 0u32.into());
+        encoded.set("relation", Json::Arr(Vec::new()));
+
+        let read_back = from_json(&encoded).expect("an older catalog still loads");
+        assert_eq!(
+            read_back.relations.len(),
+            original.relations.len(),
+            "the relations were recomputed from the credits"
+        );
+
+        // A catalog written by this version is left exactly as it is.
+        let current = to_json(&read_back);
+        assert_eq!(
+            current.field_u32("relation_rules"),
+            Some(model::RELATION_RULES)
+        );
     }
 
     #[test]

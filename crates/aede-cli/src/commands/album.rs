@@ -6,6 +6,7 @@ use aede_core::text;
 use super::{Res, load, role_label, selection_output};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
+use aede_core::model::{DUPLICATE, OTHER_EDITION};
 
 pub fn show_album(args: &Args) -> Res {
     let catalog = load(args)?;
@@ -72,6 +73,27 @@ pub fn show_album(args: &Args) -> Res {
         println!("  {}", ui::dim(&genres.join(", ")));
     }
     println!("  {}", ui::dim(&release.folder));
+
+    // The same album elsewhere on disk: a copy to remove, or another encoding
+    // kept on purpose. Either way the folder is what one needs.
+    for (kind, wording) in [
+        (DUPLICATE, "also present, same quality:"),
+        (OTHER_EDITION, "also present, encoded differently:"),
+    ] {
+        for other in catalog.related_releases(release.id, kind) {
+            if let Some(other) = catalog.release(other) {
+                let line = format!("  {wording} {}", other.folder);
+                println!(
+                    "{}",
+                    if kind == DUPLICATE {
+                        ui::yellow(&line)
+                    } else {
+                        ui::dim(&line)
+                    }
+                );
+            }
+        }
+    }
 
     println!("{}", ui::section("Tracks"));
     let mut t = Table::new(&["#", "Title", "Duration", "Size", "Format", "Artists"])
