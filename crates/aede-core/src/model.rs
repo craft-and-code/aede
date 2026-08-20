@@ -632,9 +632,37 @@ impl Catalog {
     }
 
     /// Finds a release by title, up to normalization.
+    ///
+    /// The first of [`Catalog::find_releases`], which means an exact title
+    /// wins over an album that merely begins with it: `Danzig` is the 1988
+    /// record, not whichever of `Danzig 4` or `Danzig II` the catalog happens
+    /// to hold first.
     pub fn find_release(&self, title: &str) -> Option<&Release> {
+        self.find_releases(title).0.into_iter().next()
+    }
+
+    /// Every release whose title matches, exactly or failing that partially.
+    ///
+    /// Same rule as [`Catalog::find_tracks`], and for the same reason: a
+    /// command must not pick one answer out of several without saying so.
+    /// Unlike tracks, though, two matching albums are two *different* albums —
+    /// a shared prefix is not an ambiguity — which is why the exact match is
+    /// what usually ends the search.
+    pub fn find_releases(&self, title: &str) -> (Vec<&Release>, TitleMatch) {
         let key = text::normalize(title);
-        self.releases.iter().find(|r| r.key.starts_with(&key))
+        if key.is_empty() {
+            return (Vec::new(), TitleMatch::Exact);
+        }
+        let exact: Vec<&Release> = self.releases.iter().filter(|r| r.key == key).collect();
+        if !exact.is_empty() {
+            return (exact, TitleMatch::Exact);
+        }
+        let partial = self
+            .releases
+            .iter()
+            .filter(|r| r.key.contains(&key))
+            .collect();
+        (partial, TitleMatch::Partial)
     }
 
     /// Every track carrying this title, up to normalization.
@@ -1453,6 +1481,52 @@ mod tests {
         );
         // A composer credit is not a collaboration, and neither is being alone.
         assert!(c.tracks_in_common(garou.id, garou.id).len() == 1);
+    }
+
+    #[test]
+    fn an_exact_album_title_wins_over_the_ones_beginning_with_it() {
+        // "Danzig" used to match "Danzig 4" and return whichever came first in
+        // the catalog: an arbitrary answer, given without saying so.
+        let album = |folder: &str, title: &'static str| {
+            track(
+                &format!("{folder}/01.flac"),
+                &[
+                    ("title", "A song"),
+                    ("artist", "Danzig"),
+                    ("albumartist", "Danzig"),
+                    ("album", title),
+                ],
+                120_000,
+            )
+        };
+        let c = build(
+            vec![
+                album("/m/4", "Danzig 4"),
+                album("/m/1", "Danzig"),
+                album("/m/2", "Danzig II: Lucifuge"),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+
+        let (exact, kind) = c.find_releases("Danzig");
+        assert_eq!(kind, TitleMatch::Exact);
+        assert_eq!(exact.len(), 1, "one album is titled exactly that");
+        assert_eq!(exact[0].title, "Danzig");
+        assert_eq!(
+            c.find_release("Danzig").map(|r| r.title.as_str()),
+            Some("Danzig")
+        );
+
+        // With no exact title, every match is returned rather than one of them.
+        let (partial, kind) = c.find_releases("danzig i");
+        assert_eq!(kind, TitleMatch::Partial);
+        assert_eq!(partial.len(), 1);
+        // Normalization trims the query, so a trailing space is not a way to
+        // ask for "the longer titles"; a fragment is.
+        let (several, kind) = c.find_releases("anzig");
+        assert_eq!(kind, TitleMatch::Partial);
+        assert_eq!(several.len(), 3, "every title containing it");
     }
 
     #[test]

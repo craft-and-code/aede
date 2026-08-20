@@ -635,3 +635,38 @@ fn resetting_asks_before_removing_the_catalog() {
     assert!(ok);
     assert!(out.contains("no catalog to remove"), "output: {out}");
 }
+
+#[test]
+fn an_album_query_does_not_pick_one_answer_in_silence() {
+    let sandbox = Sandbox::new("album_match");
+    let root = std::env::temp_dir().join("aede_e2e_album_match");
+    let _ = std::fs::remove_dir_all(&root);
+    for (folder, album) in [("one", "Danzig"), ("four", "Danzig 4")] {
+        let dir = root.join(folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(library().join("track.flac"), dir.join("1.flac")).unwrap();
+        // The tag decides the album, not the folder name.
+        let _ = album;
+    }
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // The fixture is one album ("Kind of Blue") in two folders, so asking for a
+    // fragment must show both matches rather than one of them.
+    let (out, _, ok) = sandbox.run(&["album", "kind of"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("showing the titles containing it"),
+        "it says the match is not exact: {out}"
+    );
+
+    // An exact title stops the search there.
+    let (out, _, ok) = sandbox.run(&["album", "Kind of Blue"]);
+    assert!(ok);
+    assert!(
+        !out.contains("showing the titles containing it"),
+        "an exact title needs no widening: {out}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

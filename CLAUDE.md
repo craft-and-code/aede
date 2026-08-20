@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 172 tests
+cargo test                       # 174 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -160,6 +160,8 @@ Sizes are **decimal** (`text::format_size`, 1 kB = 1000 bytes), matching Finder 
 A row measures the set of tracks it counts, never a wider one: in the *Appears on* table the duration, the size and the formats describe the artist's tracks, not the release they sit on.
 
 Count, duration and size on disk go together: a command that shows one of the three shows all three, and `commands::totals` is what computes the last two. In a table a duration is `text::format_duration` (`h:mm:ss`, right-aligned); in a sentence it is `ui::long_duration` (`1 d 22 h 41 min`).
+
+A lookup by name matches exactly first, and only widens when nothing matched — `Catalog::find_releases` and `Catalog::find_tracks` share that rule and report which of the two happened. Returning the first of several partial matches is the fault this replaced: an arbitrary answer, given without saying so.
 
 The shape of an answer does not depend on how many results it has: `aede track` prints the same page whether one track carries the title or four. Any list bounded by a limit says so on screen — a silent truncation reads as "that is all there is".
 

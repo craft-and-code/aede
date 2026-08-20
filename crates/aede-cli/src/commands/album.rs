@@ -1,6 +1,6 @@
 //! The `album` command: one page per release.
 
-use aede_core::model::EntityKind;
+use aede_core::model::{Catalog, EntityKind, Id, Release, TitleMatch};
 use aede_core::text;
 
 use super::{Res, load, role_label, selection_output};
@@ -14,13 +14,19 @@ pub fn show_album(args: &Args) -> Res {
     if title.trim().is_empty() {
         return Err("give a title: aede album \"Kind of Blue\"".into());
     }
-    let Some(release) = catalog.find_release(&title).or_else(|| {
-        catalog
+    let (found, kind) = catalog.find_releases(&title);
+    let mut matches: Vec<&Release> = found;
+    if matches.is_empty()
+        && let Some(hit) = catalog
             .search(&title, 1)
             .first()
             .filter(|h| h.kind == EntityKind::Release)
             .and_then(|h| catalog.release(h.id))
-    }) else {
+    {
+        matches.push(hit);
+    }
+
+    if matches.is_empty() {
         // `album` describes one album; the words are joined so that a title can
         // be typed without quotes. Someone naming two of them is after a list,
         // which is what the plural command is for.
@@ -34,17 +40,53 @@ pub fn show_album(args: &Args) -> Res {
             .into());
         }
         return Err(format!("no album matches \"{title}\"").into());
-    };
+    }
 
+    let total = matches.len();
+    matches.truncate(args.usize_value("limit", DEFAULT_LIMIT));
+
+    // A selection covers every album matched, not the first of them.
+    let tracks: Vec<Id> = matches.iter().flat_map(|r| r.track_ids.clone()).collect();
+    if let Some(result) = selection_output(&catalog, &tracks, args) {
+        return result;
+    }
+
+    if kind == TitleMatch::Partial {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "no album is titled \"{title}\"; showing the titles containing it"
+            ))
+        );
+    }
+    for release in &matches {
+        print_album(&catalog, release);
+    }
+    if total > matches.len() {
+        println!(
+            "\n  {}",
+            ui::yellow(&format!(
+                "{} of {} shown — raise --limit",
+                matches.len(),
+                total
+            ))
+        );
+    } else if total > 1 {
+        println!("\n  {}", ui::dim(&ui::plural(total, "album")));
+    }
+    Ok(())
+}
+
+/// Default number of album pages printed: an album page is long, and a prefix
+/// that matches a whole discography should not scroll for a minute.
+const DEFAULT_LIMIT: usize = 5;
+
+fn print_album(catalog: &Catalog, release: &Release) {
     let artist = release
         .album_artist_id
         .and_then(|id| catalog.artist(id))
         .map(|a| a.name.clone())
         .unwrap_or_else(|| "Various Artists".into());
-
-    if let Some(result) = selection_output(&catalog, &release.track_ids, args) {
-        return result;
-    }
 
     println!("{}", ui::section(&release.title));
     println!("  {}", ui::bold(&artist));
@@ -178,5 +220,4 @@ pub fn show_album(args: &Args) -> Res {
         }
         print!("{}", t.render());
     }
-    Ok(())
 }
