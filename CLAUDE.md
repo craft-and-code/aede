@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 190 tests
+cargo test                       # 194 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -79,6 +79,8 @@ A figure derived from it carries the name of the role class it counts. An artist
 **A scan may not destroy what it cannot recompute.** Imported analyses travel with the catalog a scan rebuilds. Tags, durations and the graph all come back from reading the files again; an hour of someone else's decoding does not. Anything future that is entered rather than read belongs in that same carry-over.
 
 **Entered data is keyed by path, not by identifier.** Identifiers are positions that every scan renumbers, so anything not rebuilt by the scan would have to be remapped after it — and, worse, could not exist before it. `FileAnalysis` therefore carries the path it describes and no id. That is what lets a report be imported into an empty catalog and attach itself later, which makes the order of "analyse" and "scan" irrelevant. A record whose file the catalog does not hold is waiting, not broken: it is counted (`Catalog::pending_analyses`), reported, and never diagnosed as a defect.
+
+**Matching a file is not the same as describing it.** `analysis::merge_into` is the single place that decides which file a record is about — by path, then by name and size — and both routes end in the same `still_applies` test against that file's size and date. The fallback bypassing it was a real bug: a name and a size can agree while the modification date says the tags were rewritten yesterday. `analysis::reconcile` re-tries the waiting records after a scan, which is what makes a report written against a symbolic link (or `/var` against a canonical `/private/var`) attach at all. Never re-implement this matching in a caller — the scan and `import` share it precisely so the two cannot drift.
 
 **Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act, and a scan with no folder left is the way a catalog is emptied — refusing it would strand the files with no way out.
 

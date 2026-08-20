@@ -6,7 +6,7 @@
 //! it really, and — the decisive one — does the audio still match the MD5 the
 //! encoder wrote in STREAMINFO.
 //!
-//! [FlacCompagnon](https://github.com/kcell/FlacCompagnon) already does that
+//! [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) already does that
 //! pass and can export it. Rather than wait for the decoder that arrives at M3,
 //! a user who has run it can hand the results over.
 //!
@@ -17,9 +17,11 @@
 //! catalog unable to say where the number came from, and unable to notice that
 //! the two disagree. Noticing is the point.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::json::{self, Json};
+use crate::model::Catalog;
 
 /// The report format this reader understands.
 pub const FLACCOMPAGNON_FORMAT: &str = "flaccompagnon-report";
@@ -155,6 +157,188 @@ pub struct Report {
     pub version: u32,
     /// One entry per analysed file.
     pub files: Vec<FileAnalysis>,
+}
+
+/// Waiting paths listed by [`Attachment`]; the rest are counted, not named.
+const WAITING_SHOWN: usize = 10;
+
+/// What became of a batch of records handed to [`merge_into`].
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Attachment {
+    /// Records whose path the catalog already knew.
+    pub matched: usize,
+    /// Records attached to a file that has moved since it was analysed.
+    pub moved: usize,
+    /// Records about bytes that have changed since, and therefore dropped.
+    pub stale: usize,
+    /// Records kept although no file matches them yet.
+    pub waiting: usize,
+    /// The first few waiting paths, for a report that names rather than counts.
+    pub waiting_paths: Vec<String>,
+}
+
+impl Attachment {
+    /// Records that found their file, one way or the other.
+    pub fn attached(&self) -> usize {
+        self.matched + self.moved
+    }
+}
+
+/// Stores records in the catalog, attaching each to the file it describes.
+///
+/// Three outcomes, and the third is the one that makes the order of operations
+/// irrelevant:
+///
+/// - the path is one the catalog holds — the usual case;
+/// - the path is unknown but a file of the same **name and size** is there, so
+///   the library has moved since it was analysed: the record is refiled under
+///   where the file is now, which is also what makes it attach directly next
+///   time;
+/// - nothing matches, and the record is kept as it is. The folder it names has
+///   most likely not been scanned yet.
+///
+/// In the first two cases the record must still describe the file as it is now,
+/// or it is dropped: matching a file is not the same as describing it. A name
+/// and a size can agree while the modification date says the tags were rewritten
+/// yesterday.
+pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -> Attachment {
+    let mut out = Attachment::default();
+    let mut resolved: Vec<FileAnalysis> = Vec::with_capacity(records.len());
+
+    {
+        let known: BTreeMap<&str, (u64, u64)> = catalog
+            .files
+            .iter()
+            .map(|f| (f.path.as_str(), (f.size, f.mtime)))
+            .collect();
+        let by_name_size = name_size_index(catalog);
+
+        for mut record in records {
+            match known.get(record.path.as_str()) {
+                Some(&(size, mtime)) => {
+                    if !record.still_applies(size, mtime) {
+                        out.stale += 1;
+                        continue;
+                    }
+                    out.matched += 1;
+                }
+                None => match by_name_size.get(&(record.file_name(), record.size_bytes)) {
+                    Some(&(path, mtime)) => {
+                        if !record.still_applies(record.size_bytes, mtime) {
+                            out.stale += 1;
+                            continue;
+                        }
+                        record.path = path.to_string();
+                        out.moved += 1;
+                    }
+                    None => {
+                        out.waiting += 1;
+                        if out.waiting_paths.len() < WAITING_SHOWN {
+                            out.waiting_paths.push(record.path.clone());
+                        }
+                    }
+                },
+            }
+            record.imported_at = now;
+            resolved.push(record);
+        }
+    }
+
+    for record in resolved {
+        store_one(catalog, record);
+    }
+    sort_analyses(catalog);
+    out
+}
+
+/// Attaches the records that were still waiting for their file.
+///
+/// Called after a scan. A record waits because nothing matched it at import
+/// time, and the usual reason is that its folder had not been scanned yet — but
+/// also that the path it names is not the path the catalog settled on. Watched
+/// folders are stored canonical, so a report written against a symbolic link,
+/// or against `/var` where the system says `/private/var`, names the same file
+/// by another route. Matching on name and size finds it either way.
+///
+/// Returns how many were attached.
+pub fn reconcile(catalog: &mut Catalog) -> usize {
+    let mut moves: Vec<(usize, String)> = Vec::new();
+    {
+        let known: BTreeSet<&str> = catalog.files.iter().map(|f| f.path.as_str()).collect();
+        let by_name_size = name_size_index(catalog);
+        let taken: BTreeSet<(&str, &str)> = catalog
+            .analyses
+            .iter()
+            .filter(|a| known.contains(a.path.as_str()))
+            .map(|a| (a.path.as_str(), a.source.as_str()))
+            .collect();
+
+        for (index, record) in catalog.analyses.iter().enumerate() {
+            if known.contains(record.path.as_str()) {
+                continue;
+            }
+            let Some(&(path, mtime)) = by_name_size.get(&(record.file_name(), record.size_bytes))
+            else {
+                continue;
+            };
+            if !record.still_applies(record.size_bytes, mtime) {
+                continue;
+            }
+            // A record already filed under the real path wins: it was attached
+            // deliberately, this one is being guessed at.
+            if taken.contains(&(path, record.source.as_str())) {
+                continue;
+            }
+            moves.push((index, path.to_string()));
+        }
+    }
+    let attached = moves.len();
+    for (index, path) in moves {
+        catalog.analyses[index].path = path;
+    }
+    if attached > 0 {
+        // Refiling two records onto the same path is possible when a report
+        // named the same file twice by two routes; the last one wins, as it
+        // does on import.
+        let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+        catalog.analyses.reverse();
+        catalog
+            .analyses
+            .retain(|a| seen.insert((a.path.clone(), a.source.clone())));
+        catalog.analyses.reverse();
+        sort_analyses(catalog);
+    }
+    attached
+}
+
+/// Files indexed by name and size, with the modification date of each.
+///
+/// A name and a byte count together are very nearly unique in a music library.
+/// When they are not — the same track twice, in two folders — the first path in
+/// order wins, which at least makes the choice the same on every run.
+fn name_size_index(catalog: &Catalog) -> BTreeMap<(&str, u64), (&str, u64)> {
+    let mut index: BTreeMap<(&str, u64), (&str, u64)> = BTreeMap::new();
+    for file in &catalog.files {
+        index
+            .entry((file.file_name(), file.size))
+            .or_insert((file.path.as_str(), file.mtime));
+    }
+    index
+}
+
+/// Stores one record, replacing what that source had already said about that
+/// path. Importing the same report twice replaces, it does not accumulate.
+fn store_one(catalog: &mut Catalog, record: FileAnalysis) {
+    catalog
+        .analyses
+        .retain(|a| !(a.path == record.path && a.source == record.source));
+    catalog.analyses.push(record);
+}
+
+fn sort_analyses(catalog: &mut Catalog) {
+    catalog
+        .analyses
+        .sort_by(|a, b| (&a.path, &a.source).cmp(&(&b.path, &b.source)));
 }
 
 /// Anything that can stop a report from being read.
@@ -451,6 +635,112 @@ mod tests {
         let error = read_report(&path).expect_err("too new");
         std::fs::remove_file(&path).ok();
         assert!(matches!(error, ImportError::Version { found: 99 }));
+    }
+
+    /// A catalog holding one file, built by hand: matching needs a path, a
+    /// size and a date, and nothing else.
+    fn catalog_holding(path: &str, size: u64, mtime: u64) -> Catalog {
+        let mut catalog = Catalog::default();
+        catalog.files.push(crate::model::AudioFile {
+            id: 0,
+            path: path.to_string(),
+            size,
+            mtime,
+            ..Default::default()
+        });
+        catalog
+    }
+
+    fn record_for(path: &str, size: u64, mtime: u64) -> FileAnalysis {
+        FileAnalysis {
+            path: path.to_string(),
+            source: "flaccompagnon".into(),
+            source_version: 1,
+            size_bytes: size,
+            modified_unix: mtime,
+            md5_state: Some("Match".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_record_naming_the_file_by_another_route_still_finds_it() {
+        // Watched folders are stored canonical, so a report written against a
+        // symbolic link — or against /var where macOS says /private/var — names
+        // the same file by a string that will never compare equal.
+        let mut catalog = catalog_holding("/private/var/music/01 So What.flac", 500, 10);
+        let record = record_for("/var/music/01 So What.flac", 500, 10);
+
+        let outcome = merge_into(&mut catalog, vec![record], 99);
+        assert_eq!(outcome.matched, 0, "the path itself does not match");
+        assert_eq!(outcome.moved, 1, "but the name and the size do");
+        assert_eq!(outcome.attached(), 1);
+        assert_eq!(
+            catalog.analyses[0].path, "/private/var/music/01 So What.flac",
+            "and it is refiled under where the file is, so it attaches directly next time"
+        );
+        assert_eq!(catalog.analyses[0].imported_at, 99);
+        assert_eq!(catalog.pending_analyses(), 0);
+    }
+
+    #[test]
+    fn matching_a_file_is_not_the_same_as_describing_it() {
+        // The trap: name and size agree, so the record is *about* this file —
+        // but the date says it was written to since, so it no longer describes
+        // it. Matching by name and size must not skip that test.
+        let mut catalog = catalog_holding("/music/01 So What.flac", 500, 20);
+        let record = record_for("/elsewhere/01 So What.flac", 500, 10);
+
+        let outcome = merge_into(&mut catalog, vec![record], 0);
+        assert_eq!(outcome.moved, 0);
+        assert_eq!(outcome.stale, 1);
+        assert!(catalog.analyses.is_empty(), "nothing is stored");
+    }
+
+    #[test]
+    fn a_record_waits_when_nothing_matches_it_yet() {
+        let mut catalog = Catalog::default();
+        let outcome = merge_into(&mut catalog, vec![record_for("/music/a.flac", 500, 10)], 0);
+        assert_eq!(outcome.waiting, 1);
+        assert_eq!(outcome.waiting_paths, vec!["/music/a.flac".to_string()]);
+        assert_eq!(catalog.analyses.len(), 1, "kept, not thrown away");
+
+        // The scan brings the file in — under another name for the same path.
+        catalog.files.push(crate::model::AudioFile {
+            id: 0,
+            path: "/library/a.flac".into(),
+            size: 500,
+            mtime: 10,
+            ..Default::default()
+        });
+        assert_eq!(reconcile(&mut catalog), 1);
+        assert_eq!(catalog.analyses[0].path, "/library/a.flac");
+        assert_eq!(reconcile(&mut catalog), 0, "and it is not done twice");
+    }
+
+    #[test]
+    fn a_record_filed_under_the_real_path_beats_one_that_is_guessed_at() {
+        // Two records of the same source could otherwise land on one file: the
+        // one that was attached deliberately must survive.
+        let mut catalog = catalog_holding("/music/a.flac", 500, 10);
+        catalog.analyses.push(FileAnalysis {
+            detail: Some("attached".into()),
+            ..record_for("/music/a.flac", 500, 10)
+        });
+        catalog.analyses.push(FileAnalysis {
+            detail: Some("waiting".into()),
+            ..record_for("/elsewhere/a.flac", 500, 10)
+        });
+
+        assert_eq!(reconcile(&mut catalog), 0);
+        assert_eq!(catalog.analyses.len(), 2, "the waiting one is left waiting");
+        let attached: Vec<&str> = catalog
+            .analyses
+            .iter()
+            .filter(|a| a.path == "/music/a.flac")
+            .filter_map(|a| a.detail.as_deref())
+            .collect();
+        assert_eq!(attached, vec!["attached"]);
     }
 
     #[test]

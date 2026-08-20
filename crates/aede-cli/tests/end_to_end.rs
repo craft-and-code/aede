@@ -677,6 +677,23 @@ fn an_album_query_does_not_pick_one_answer_in_silence() {
 /// bound to the bytes it was reached on, so a fixture with invented numbers
 /// would only ever exercise the staleness path.
 fn write_report(at: &std::path::Path, file: &std::path::Path, md5: &str, transcoding: &str) {
+    let named_as = file.to_string_lossy().into_owned();
+    write_report_naming(at, file, &named_as, md5, transcoding);
+}
+
+/// The same, but writing `named_as` as the path instead of where the file is.
+///
+/// This is not an academic case. Watched folders are stored canonical, so a
+/// report written against a symbolic link — or against `/var` where macOS says
+/// `/private/var` — names the very same file by another route, and the two
+/// strings never match.
+fn write_report_naming(
+    at: &std::path::Path,
+    file: &std::path::Path,
+    named_as: &str,
+    md5: &str,
+    transcoding: &str,
+) {
     let meta = std::fs::metadata(file).expect("the analysed file");
     let mtime = meta
         .modified()
@@ -702,7 +719,7 @@ fn write_report(at: &std::path::Path, file: &std::path::Path, md5: &str, transco
                "flac_md5":{{"state":"{md5}"}}
              }}]}}}}"#,
         root = file.parent().unwrap().display(),
-        path = file.display(),
+        path = named_as,
         name = file.file_name().unwrap().to_str().unwrap(),
         size = meta.len(),
     );
@@ -826,13 +843,22 @@ fn an_analysis_can_arrive_before_the_library_does() {
     // order for someone who already owns the other tool. The import must
     // therefore not require the files to be known yet.
     let sandbox = Sandbox::new("import_first");
-    let root = std::env::temp_dir().join("aede_e2e_import_first");
+    let root = std::env::temp_dir().join("aede_e2e_import_first_src");
+    let music = root.join("music");
     let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    let flac = root.join("01 So What.flac");
+    std::fs::create_dir_all(&music).unwrap();
+    let flac = music.join("01 So What.flac");
     std::fs::copy(library().join("track.flac"), &flac).unwrap();
+
+    // The report sits outside the library, so that the scan reaches it through
+    // what was already imported rather than by walking over it. And it names
+    // the file by a path the catalog will never hold: this is what a report
+    // written against a symbolic link looks like, and on macOS what every
+    // report under /var looks like once the folder is canonicalized to
+    // /private/var. Only the name and the size can bridge the two.
     let report = root.join("report.json");
-    write_report(&report, &flac, "Match", "none");
+    let elsewhere = "/elsewhere/Danzig/01 So What.flac";
+    write_report_naming(&report, &flac, elsewhere, "Match", "none");
 
     // Nothing has ever been scanned: the catalog does not exist yet.
     let (out, err, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
@@ -843,13 +869,20 @@ fn an_analysis_can_arrive_before_the_library_does() {
         "and it says what happens next: {out}"
     );
 
-    // The scan brings the file in, and the analysis is there waiting for it.
-    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    // The scan brings the file in, and the analysis attaches itself although
+    // the path it names is not the path the file is at.
+    let (out, _, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
     assert!(ok);
+    assert!(out.contains("Analyses now attached"), "output: {out}");
     let (out, _, ok) = sandbox.run(&["track", "So What"]);
     assert!(ok, "output: {out}");
     assert!(out.contains("Analysed by flaccompagnon"), "output: {out}");
     assert!(!out.contains("stale"), "and it applies: {out}");
+
+    // Attached for good: a second scan does not have to do it again.
+    let (out, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    assert!(!out.contains("Analyses now attached"), "output: {out}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -859,7 +892,7 @@ fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
     // The report may equally well be sitting in the album folder. A scan walks
     // over it anyway, so it costs nothing to notice it.
     let sandbox = Sandbox::new("import_scan");
-    let root = std::env::temp_dir().join("aede_e2e_import_scan");
+    let root = std::env::temp_dir().join("aede_e2e_import_scan_src");
     let deep = root.join("Danzig/1996 Blackacidevil");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&deep).unwrap();
@@ -885,7 +918,7 @@ fn reports_are_looked_for_in_every_folder_underneath() {
     // Reports are kept the way albums are: one folder per artist, one per
     // album. Only looking at the top level would find nothing.
     let sandbox = Sandbox::new("import_recursive");
-    let root = std::env::temp_dir().join("aede_e2e_import_recursive");
+    let root = std::env::temp_dir().join("aede_e2e_import_recursive_src");
     let music = root.join("music");
     let reports = root.join("reports/Danzig/1996 Blackacidevil");
     let _ = std::fs::remove_dir_all(&root);

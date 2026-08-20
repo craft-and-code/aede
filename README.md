@@ -126,6 +126,7 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 | Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk            |
 | Gone since last scan      | Files the catalog knew and that are no longer there; they leave the catalog                                         |
 | Analyses imported         | [FlacCompagnon reports](#what-another-tool-found) found in the folders and taken in; only shown when there were any |
+| Analyses now attached     | Imported analyses that were waiting for a file and found it this time                                               |
 | Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                             |
 
 `Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
@@ -200,7 +201,7 @@ Entirely optional, and it changes nothing if you never use it.
 
 Aède reads the _structure_ of a file. It does not decode, so there are questions it cannot answer yet: is this FLAC a re-encoded MP3, was it upsampled, where does the spectrum stop, how loud is it really — and the decisive one, does the decoded audio still match the MD5 the encoder wrote into the file.
 
-[FlacCompagnon](https://github.com/kcell/FlacCompagnon) already does that pass. If you have run it, `aede import` puts the results into the catalog:
+[FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) already does that pass. If you have run it, `aede import` puts the results into the catalog:
 
 ```sh
 aede import ~/Desktop/danzig-report.json
@@ -215,9 +216,13 @@ A folder is walked **recursively**, because reports are kept the way the albums 
 
 An analysis is filed under the **path** it describes, not under a catalog entry. So the two operations can be done either way round, which matters because analysing a folder and _then_ building the library from it is the natural order for someone who already owns the other tool.
 
-- **Import first.** The records are stored and reported as `Waiting for a scan`. The scan that brings those files in makes them attach by themselves. `doctor` says how many are still waiting rather than letting them sit there unmentioned.
+- **Import first.** The records are stored and reported as `Waiting for a scan`. The scan that brings those files in makes them attach by themselves, and says so (`Analyses now attached`). `doctor` says how many are still waiting rather than letting them sit there unmentioned.
 - **Scan first.** Files are matched by path, then by name and size for a library that has moved since — a name and a byte count together are very nearly unique.
 - **Leave the report in the album folder.** A scan walks over it anyway: any `.json` announcing itself as a FlacCompagnon report is read and taken in, and the scan report says how many. Half a kilobyte is read from each `.json` met to recognise one, so nothing else in the library is parsed.
+
+Matching never relies on the two paths being written the same way. Watched folders are stored canonical, so a report produced against a symbolic link — or against `/var` where macOS says `/private/var` — names the very same file by a string that will never compare equal; the name and the size bridge the two, and the record is then refiled under the path the catalog uses.
+
+Being _about_ a file is not the same as _describing_ it: a record that matches by name and size is still checked against that file's modification date, and dropped if the file was written to since.
 
 Imported analyses survive a scan — they are the one thing in the catalog that reading the files again cannot recompute.
 
@@ -387,7 +392,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-190 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+194 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

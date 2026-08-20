@@ -91,6 +91,12 @@ pub fn scan(args: &Args) -> Res {
             ),
         ]);
     }
+    if report.attached > 0 {
+        table.push(vec![
+            "Analyses now attached".into(),
+            report.attached.to_string(),
+        ]);
+    }
     table.push(vec!["Elapsed".into(), ui::elapsed(report.elapsed_ms)]);
     print!("{}", table.render());
 

@@ -59,6 +59,8 @@ pub struct ScanReport {
     pub failures: Vec<(String, String)>,
     /// Analysis reports found inside the folders and taken in.
     pub reports: usize,
+    /// Imported analyses that were waiting for a file and found it this time.
+    pub attached: usize,
     /// Imported analyses the catalog holds once the scan is done, the ones
     /// carried over from the previous catalog included.
     pub analyses: usize,
@@ -249,6 +251,10 @@ pub fn scan(
     // Reports lying in the library are taken in, so that analysing a folder and
     // then scanning it works as well as the other way round.
     report.reports = import_reports(&reports_found, &mut catalog);
+    // And whatever was waiting is given another chance now that the files are
+    // known — including records naming the same file by another route, which
+    // is what a report written against a symbolic link looks like.
+    report.attached = analysis::reconcile(&mut catalog);
     report.analyses = catalog.analyses.len();
 
     report.elapsed_ms = started.elapsed().as_millis();
@@ -261,6 +267,9 @@ pub fn scan(
 /// [`analysis::looks_like_a_report`] has recognised it, and one that turns out
 /// to be unreadable is passed over: a scan is not the place to fail over a
 /// sidecar file nobody asked about.
+///
+/// The records go through the same matching as `aede import` — the scan has no
+/// business being more trusting than the command whose whole job this is.
 fn import_reports(found: &[PathBuf], catalog: &mut Catalog) -> usize {
     let mut count = 0;
     let now = now_seconds();
@@ -269,28 +278,9 @@ fn import_reports(found: &[PathBuf], catalog: &mut Catalog) -> usize {
             continue;
         };
         count += 1;
-        for mut record in report.files {
-            record.imported_at = now;
-            merge_analysis(catalog, record);
-        }
-    }
-    if count > 0 {
-        catalog
-            .analyses
-            .sort_by(|a, b| (&a.path, &a.source).cmp(&(&b.path, &b.source)));
+        analysis::merge_into(catalog, report.files, now);
     }
     count
-}
-
-/// Stores one analysis, replacing the one that source had already given.
-///
-/// One record per path and per source: reading the same report twice replaces,
-/// it does not accumulate.
-fn merge_analysis(catalog: &mut Catalog, record: analysis::FileAnalysis) {
-    catalog
-        .analyses
-        .retain(|a| !(a.path == record.path && a.source == record.source));
-    catalog.analyses.push(record);
 }
 
 fn resolve_threads(requested: usize) -> usize {
