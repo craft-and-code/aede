@@ -285,13 +285,63 @@ fn a_genre_and_a_label_are_pages_of_their_own() {
     assert!(!ok);
     assert!(err.contains("aede genres"), "stderr: {err}");
 
-    // A partial match is announced rather than passed off as exact.
+    // A partial match that lands on one name says nothing: the heading shows
+    // the real name, so the widening is on screen already. `label earache`
+    // used to print "no label is called \"earache\"" directly above a heading
+    // reading "Earache Records" — a denial and its refutation, one line apart,
+    // while `albums --label earache` narrowed on the same text without a word.
     let (out, _, ok) = sandbox.run(&["genre", "jaz"]);
     assert!(ok);
+    assert!(out.contains("Jazz"), "the real name is the answer: {out}");
     assert!(
-        out.contains("showing the ones containing it"),
-        "output: {out}"
+        !out.contains("no genre is called"),
+        "a page that answers must not open by denying: {out}"
     );
+
+    // The Artists table counts tracks, and a track counts once however many
+    // performing roles the artist holds on it. Counting credits reported 57
+    // tracks for a band whose albums on the label hold 29 — credited both as
+    // main artist and as performer on each one — which the albums table
+    // directly above visibly contradicted.
+    let (out, _, ok) = sandbox.run(&["label", "Columbia"]);
+    assert!(ok, "output: {out}");
+    let page_holds = tracks_on_line(&out, "9 track");
+    let artists = section(&out, "Artists");
+    for line in artists.lines().filter(|l| l.contains("Miles Davis")) {
+        let count: usize = line
+            .split_whitespace()
+            .next_back()
+            .and_then(|c| c.parse().ok())
+            .unwrap_or_else(|| panic!("no count on: {line}"));
+        assert!(
+            count <= page_holds,
+            "no artist can carry more tracks than the page holds \
+             ({count} > {page_holds}):\n{out}"
+        );
+    }
+}
+
+/// The body of one `ui::section`, up to the next heading.
+///
+/// Sections are headings in column zero; every row under one is indented.
+fn section<'a>(out: &'a str, heading: &str) -> &'a str {
+    let start = out
+        .find(heading)
+        .map(|i| i + heading.len())
+        .unwrap_or_else(|| panic!("no {heading} section in:\n{out}"));
+    let rest = &out[start..];
+    let end = rest
+        .lines()
+        .scan(0usize, |at, line| {
+            let here = *at;
+            *at += line.len() + 1;
+            Some((here, line))
+        })
+        .skip(1)
+        .find(|(_, line)| !line.is_empty() && !line.starts_with(' '))
+        .map(|(at, _)| at)
+        .unwrap_or(rest.len());
+    &rest[..end]
 }
 
 #[test]

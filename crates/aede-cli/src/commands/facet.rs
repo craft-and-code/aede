@@ -52,16 +52,8 @@ pub fn show_genre(args: &Args) -> Res {
         return result;
     }
 
-    let heading = names.join(", ");
-    println!("{}", ui::section(&heading));
-    if kind == TitleMatch::Partial {
-        println!(
-            "  {}",
-            ui::dim(&format!(
-                "no genre is called \"{name}\"; showing the ones containing it"
-            ))
-        );
-    }
+    println!("{}", ui::section(&names.join(", ")));
+    announce_match(kind, &name, &names, "genre");
     print_totals(&catalog, &tracks);
 
     let releases = releases_holding(&catalog, &tracks);
@@ -101,17 +93,39 @@ pub fn show_label(args: &Args) -> Res {
     }
 
     println!("{}", ui::section(&names.join(", ")));
-    if kind == TitleMatch::Partial {
-        println!(
-            "  {}",
-            ui::dim(&format!(
-                "no label is called \"{name}\"; showing the ones containing it"
-            ))
-        );
-    }
+    announce_match(kind, &name, &names, "label");
     print_totals(&catalog, &tracks);
     print_albums(&catalog, &releases, args)?;
     print_artists(&catalog, &tracks, args)
+}
+
+/// Says what the page ended up covering, when the heading does not say it
+/// already.
+///
+/// `aede label earache` printed *no label is called "earache"* directly above a
+/// heading reading **Earache Records**: a denial and its own refutation, one
+/// line apart, while `aede albums --label earache` narrowed on the same text
+/// without a word. The note was reporting the mechanism — exact lookup failed,
+/// substring lookup ran — where the user asked a question that was answered.
+///
+/// One name needs no gloss: the heading shows the real name, and that any
+/// widening happened is visible in the difference. Several do, because the
+/// heading then joins them with a comma and reads as a single name.
+fn announce_match(kind: TitleMatch, typed: &str, names: &[String], what: &str) {
+    if let Some(line) = match_note(kind, typed, names, what) {
+        println!("  {}", ui::dim(&line));
+    }
+}
+
+/// The note itself, so what it says can be asserted rather than eyeballed.
+fn match_note(kind: TitleMatch, typed: &str, names: &[String], what: &str) -> Option<String> {
+    if kind == TitleMatch::Exact || names.len() < 2 {
+        return None;
+    }
+    Some(format!(
+        "\"{typed}\" matches {}; this page covers them all",
+        ui::plural(names.len(), what)
+    ))
 }
 
 /// The three measures every page carries: count, playing time, size on disk.
@@ -190,21 +204,29 @@ fn print_albums(catalog: &Catalog, releases: &[Id], args: &Args) -> Res {
     Ok(())
 }
 
-/// Who is audible here, ranked by how much of it they carry.
+/// How many of these tracks each artist is audible on, most first.
 ///
 /// Performing roles only: a genre is something you *hear*, and counting the
 /// lyricist of a track among the artists of a style would be a different claim.
-fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
+///
+/// The count is of **tracks**, so a track counts once however many performing
+/// roles the artist holds on it. Counting credits instead reported 57 tracks
+/// for a band whose three albums on the label hold 29 — credited both as main
+/// artist and as performer on each one, the usual shape of a well-tagged file —
+/// a figure the albums table directly above visibly contradicted. Any column
+/// headed with a unit counts that unit, not the rows that mention it.
+fn tracks_per_artist(catalog: &Catalog, tracks: &[Id]) -> Vec<(Id, usize)> {
     let mut counts: BTreeMap<Id, usize> = BTreeMap::new();
     for &track in tracks {
+        let mut on_this_track: std::collections::BTreeSet<Id> = Default::default();
         for (artist, role) in catalog.credits_on(aede_core::model::EntityKind::Track, track) {
             if aede_core::model::is_performing_role(role) {
-                *counts.entry(artist.id).or_insert(0) += 1;
+                on_this_track.insert(artist.id);
             }
         }
-    }
-    if counts.is_empty() {
-        return Ok(());
+        for artist in on_this_track {
+            *counts.entry(artist).or_insert(0) += 1;
+        }
     }
     let mut rows: Vec<(Id, usize)> = counts.into_iter().collect();
     rows.sort_by(|a, b| {
@@ -215,6 +237,15 @@ fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
                 .cmp(&catalog.artist(b.0).map(|x| x.sort_name.as_str()))
         })
     });
+    rows
+}
+
+/// Who is audible here, ranked by how much of it they carry.
+fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
+    let rows = tracks_per_artist(catalog, tracks);
+    if rows.is_empty() {
+        return Ok(());
+    }
 
     let window = args.window(DEFAULT_LIMIT)?;
     println!("{}", ui::section("Artists"));
@@ -229,4 +260,116 @@ fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
     print!("{}", t.render());
     announce_window(window, total, "artist");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use aede_core::model::{Artist, Credit, EntityKind};
+
+    use super::*;
+
+    fn artist(id: Id, name: &str) -> Artist {
+        Artist {
+            id,
+            name: name.into(),
+            sort_name: name.into(),
+            key: name.to_lowercase(),
+            mbid: None,
+        }
+    }
+
+    fn credit(artist_id: Id, track: Id, role: &str) -> Credit {
+        Credit {
+            artist_id,
+            entity_kind: EntityKind::Track,
+            entity_id: track,
+            role: role.into(),
+        }
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn a_page_that_answers_does_not_open_by_denying() {
+        // `label earache` printed "no label is called \"earache\"" directly
+        // above a heading reading "Earache Records", while `albums --label
+        // earache` narrowed on the same text without a word. The note was
+        // reporting the mechanism — exact lookup failed, substring lookup ran —
+        // where the question had in fact been answered.
+        assert_eq!(
+            match_note(
+                TitleMatch::Partial,
+                "earache",
+                &names(&["Earache Records"]),
+                "label"
+            ),
+            None,
+            "one name needs no gloss: the heading is the answer"
+        );
+        assert_eq!(
+            match_note(
+                TitleMatch::Exact,
+                "Columbia",
+                &names(&["Columbia"]),
+                "label"
+            ),
+            None
+        );
+
+        // Several do, because the heading joins them with a comma and reads as
+        // a single name.
+        assert_eq!(
+            match_note(
+                TitleMatch::Partial,
+                "metal",
+                &names(&["Black Metal", "Doom Metal", "Metal"]),
+                "genre"
+            )
+            .as_deref(),
+            Some("\"metal\" matches 3 genres; this page covers them all")
+        );
+    }
+
+    #[test]
+    fn an_artist_counts_once_per_track_however_many_roles_they_hold() {
+        // A well-tagged file carries ARTIST and PERFORMER, so the band is
+        // credited twice on every track of its own album. The label page read
+        // that as 57 tracks for a band whose albums on the page held 29, right
+        // under an albums table that added up to 29.
+        let mut catalog = Catalog {
+            artists: vec![artist(0, "Deicide"), artist(1, "Steve Asheim")],
+            ..Default::default()
+        };
+        for track in 0..3 {
+            catalog.credits.push(credit(0, track, "main"));
+            catalog.credits.push(credit(0, track, "performer"));
+            // A non-performing role stays out of the reckoning entirely.
+            catalog.credits.push(credit(1, track, "lyricist"));
+        }
+        // And one track where the drummer is heard as well as credited.
+        catalog.credits.push(credit(1, 0, "performer"));
+
+        let rows = tracks_per_artist(&catalog, &[0, 1, 2]);
+        assert_eq!(rows, vec![(0, 3), (1, 1)], "counted rows, not tracks");
+    }
+
+    #[test]
+    fn no_artist_can_carry_more_tracks_than_the_page_holds() {
+        // The bound the printed page must always satisfy, whatever the tags do.
+        let mut catalog = Catalog {
+            artists: vec![artist(0, "Bolt Thrower")],
+            ..Default::default()
+        };
+        for track in 0..9 {
+            for role in ["main", "performer", "conductor", "remixer"] {
+                catalog.credits.push(credit(0, track, role));
+            }
+        }
+        let tracks: Vec<Id> = (0..9).collect();
+        for (_, count) in tracks_per_artist(&catalog, &tracks) {
+            assert!(count <= tracks.len(), "{count} of {}", tracks.len());
+        }
+    }
 }

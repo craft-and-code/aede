@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 218 tests
+cargo test                       # 221 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -78,6 +78,10 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **What is shown is what is accepted.** `commands::ROLE_NAMES` is one table read in both directions — `role_label` for display, `role_key` for input — because a one-way `match` produced a message that denied a role and listed it in the same breath: the screen said "album artist", the parser wanted "album". Anything the interface prints as a name must be typeable back in, and an error offering alternatives offers them in the spelling it displays them in. The same applies to any vocabulary added later.
 
 **A role is a question asked in both directions.** `Catalog::artists_in_role` answers "who does this here", `Catalog::tracks_of_artist_in_role` answers "what did this person do in that role", and `--role` carries both readings depending on whether it is attached to the listing or to a page. That inversion is the whole reason the `credit` table stores a role rather than being a bare artist column. `Catalog::roles_in_use` reads the vocabulary from the credits rather than from a fixed list — a role arriving from MusicBrainz at M1 must work without a line of code. A role needs a person, which is why `album` and `track` refuse it and say so: there, `--artist` is the filter.
+
+**A column headed with a unit counts that unit, and two tables on one page must agree.** The Artists table of a facet page is headed *Tracks* and was counting **credits**: a band credited as main artist and as performer on each of its own tracks — the ordinary shape of a well-tagged file — showed 57 for the 29 tracks the albums table listed directly above it. Both numbers were on screen at once, which is what made it a defect rather than a curiosity: a page that contradicts itself teaches the user to distrust every figure on it. `facet::tracks_per_artist` folds the roles per track before counting, and its unit tests bound each count by the number of tracks the page holds. Any figure derived from the `credit` table is a count of credits until something makes it otherwise.
+
+**A page that answers does not open by denying.** `aede label earache` printed *no label is called "earache"* immediately above a heading reading **Earache Records**, while `aede albums --label earache` narrowed on the same text without a word — the note was reporting the mechanism (exact lookup missed, substring lookup ran) to a user who had asked a question and got it answered. `facet::match_note` speaks only when the heading cannot: one name is its own explanation, several need saying, since the heading joins them with commas and reads as one. A note earns its line by carrying something not already on screen.
 
 **A truncated list says so, and says where it stopped.** `args::Window` is the one reading of `--limit`, `--offset` and `--all` for the whole program, and `commands::announce_window` the one way of reporting it: `1–50 of 312 albums`, nothing at all when everything fit, and an explicit line when the window falls past the end. All five listings used to stop in silence, and sorted by year that made the most recent albums of a real library invisible — the header counting the matches is not enough, since nobody compares it against the rows they were handed.
 
