@@ -1045,10 +1045,27 @@ fn checking_a_library_finds_a_damaged_file() {
     assert!(out.contains("Damaged"), "output: {out}");
     assert!(out.contains("bad.flac"), "the file is named: {out}");
 
-    // The verdict is stored: a second run has nothing left to read.
+    // The verdict is stored: a second run has nothing left to read — and says
+    // so *while still showing the verdicts*. The command answers "are my files
+    // intact?", and it used to withhold that answer exactly when the work was
+    // already done.
     let (out, _, ok) = sandbox.run(&["check"]);
     assert!(ok);
-    assert!(out.contains("already has a verdict"), "output: {out}");
+    assert!(out.contains("nothing to read"), "output: {out}");
+    assert!(
+        out.contains("Intact"),
+        "the verdicts are still shown:\n{out}"
+    );
+    assert!(out.contains("Damaged"), "output: {out}");
+    assert!(
+        out.contains("bad.flac"),
+        "including which file is damaged:\n{out}"
+    );
+    // The same shape either way: a command answering in a different form
+    // depending on the result is a command you cannot learn.
+    for heading in ["Intact", "Damaged", "No checksum in the file"] {
+        assert!(out.contains(heading), "{heading} missing from:\n{out}");
+    }
 
     // And doctor now reports the damage as an error.
     let (out, _, ok) = sandbox.run(&["doctor"]);
@@ -1084,16 +1101,22 @@ fn checking_can_be_restricted_to_one_folder() {
     assert!(ok);
     assert!(out.contains("1 file to read"), "output: {out}");
 
-    // Everything now has a verdict.
+    // Everything now has a verdict, and the state is shown all the same.
     let (out, _, ok) = sandbox.run(&["check"]);
     assert!(ok);
-    assert!(out.contains("already has a verdict"), "output: {out}");
+    assert!(out.contains("nothing to read"), "output: {out}");
+    assert!(out.contains("Intact"), "output: {out}");
 
     // A folder the catalog knows nothing about is not silently an empty run.
-    let (out, _, ok) = sandbox.run(&["check", std::env::temp_dir().to_str().unwrap()]);
+    // It has to be a real folder holding none of the library — the temporary
+    // directory itself is the *parent* of this test's library, so pointing at
+    // it proved nothing.
+    let elsewhere = root.join("empty");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let (out, _, ok) = sandbox.run(&["check", elsewhere.to_str().unwrap()]);
     assert!(ok);
     assert!(
-        out.contains("verdict") || out.contains("no file"),
+        out.contains("no file of the catalog is in that folder"),
         "output: {out}"
     );
 

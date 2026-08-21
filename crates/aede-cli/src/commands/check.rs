@@ -45,19 +45,12 @@ pub fn check(args: &Args) -> Res {
     let scope = resolve_scope(args)?;
     let queue = to_verify(&catalog, &scope, args.has("full"));
 
+    // Nothing to read is not nothing to say. The command answers "are my files
+    // intact?", and it used to withhold that answer precisely when the work was
+    // already done — leaving the user with "every file already has a verdict"
+    // and no way to learn which verdict.
     if queue.is_empty() {
-        println!("{}", ui::section("Integrity"));
-        if scope.is_empty() {
-            println!("  {}", ui::dim("every file already has a verdict"));
-            println!("  {}", ui::dim("aede check --full verifies them again"));
-        } else if in_scope_count(&catalog, &scope) == 0 {
-            println!(
-                "  {}",
-                ui::yellow("no file of the catalog is in that folder")
-            );
-        } else {
-            println!("  {}", ui::dim("every file there already has a verdict"));
-        }
+        report(&catalog, &scope, 0, None, &[]);
         return Ok(());
     }
 
@@ -135,7 +128,13 @@ pub fn check(args: &Args) -> Res {
         println!("\r  {total}/{total}   ");
     }
 
-    report(&catalog, &scope, started, &failures);
+    report(
+        &catalog,
+        &scope,
+        total,
+        Some(started.elapsed().as_millis()),
+        &failures,
+    );
     Ok(())
 }
 
@@ -163,14 +162,6 @@ fn is_in_scope(path: &str, scope: &[String]) -> bool {
     scope
         .iter()
         .any(|root| aede_core::text::is_under(path, root))
-}
-
-fn in_scope_count(catalog: &Catalog, scope: &[String]) -> usize {
-    catalog
-        .files
-        .iter()
-        .filter(|f| is_in_scope(&f.path, scope))
-        .count()
 }
 
 fn to_verify(catalog: &Catalog, scope: &[String], full: bool) -> Vec<(Id, PathBuf)> {
@@ -214,7 +205,21 @@ fn announce(catalog: &Catalog, queue: &[(Id, PathBuf)]) {
     }
 }
 
-fn report(catalog: &Catalog, scope: &[String], started: Instant, failures: &[(String, String)]) {
+/// The state of the library, and what this run did to reach it.
+///
+/// The two are separate on purpose. The table describes **every file in
+/// scope**, whatever run established each verdict; the line under it describes
+/// **this run**. Reading "137 files to read" and then "1304 intact" as one
+/// figure is the confusion that follows from mixing them, and the shape does
+/// not change when there was nothing to read: a command that answers in a
+/// different form depending on the result is a command you cannot learn.
+fn report(
+    catalog: &Catalog,
+    scope: &[String],
+    read: usize,
+    elapsed_ms: Option<u128>,
+    failures: &[(String, String)],
+) {
     let (mut intact, mut damaged, mut nothing, mut unchecked) = (0usize, 0usize, 0usize, 0usize);
     for file in catalog.files.iter().filter(|f| is_in_scope(&f.path, scope)) {
         match file.integrity.as_ref().map(|r| &r.verdict) {
@@ -233,13 +238,32 @@ fn report(catalog: &Catalog, scope: &[String], started: Instant, failures: &[(St
     if unchecked > 0 {
         table.push(vec!["Not verified".into(), unchecked.to_string()]);
     }
-    table.push(vec![
-        "Elapsed".into(),
-        ui::elapsed(started.elapsed().as_millis()),
-    ]);
     print!("{}", table.render());
     if !scope.is_empty() {
         println!("  {}", ui::dim(&format!("in {}", scope.join(", "))));
+    }
+
+    // What this run did, said apart from what the library holds.
+    match elapsed_ms {
+        Some(ms) => println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} read in {}",
+                ui::plural(read, "file"),
+                ui::elapsed(ms)
+            ))
+        ),
+        None if intact + damaged + nothing + unchecked == 0 => println!(
+            "  {}",
+            ui::yellow(match scope.is_empty() {
+                true => "the catalog holds no file",
+                false => "no file of the catalog is in that folder",
+            })
+        ),
+        None => {
+            println!("  {}", ui::dim("nothing to read: it all has a verdict"));
+            println!("  {}", ui::dim("aede check --full verifies them again"));
+        }
     }
 
     if damaged > 0 {

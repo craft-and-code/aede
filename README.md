@@ -292,7 +292,21 @@ Four states, and the fourth is the one usually forgotten:
 - **intact** — every checksum matched;
 - **damaged** — one did not, with the frame or page named.
 
-The verdict is stored per file and survives across scans, so the cost is paid once: a second `aede check` has nothing to read. A file that changed loses its verdict, since it is no longer the file that was verified. `doctor` reports damage as an error and says how many files have never been verified rather than letting a library look healthy.
+The verdict is stored per file and survives across scans, so the cost is paid once: a second `aede check` has nothing to read — and says so **while showing the verdicts all the same**, since the question the command answers is "are my files intact?", not "was there work to do":
+
+```
+$ aede check
+
+Integrity
+
+  Intact                     1304
+  Damaged                       0
+  No checksum in the file       0
+  nothing to read: it all has a verdict
+  aede check --full verifies them again
+```
+
+The table describes every file in scope, whatever run established each verdict; the line under it describes **this** run. Mixing the two is what makes "137 files to read" and "1304 intact" look like one figure. A file that changed loses its verdict, since it is no longer the file that was verified. `doctor` reports damage as an error and says how many files have never been verified rather than letting a library look healthy.
 
 ### How long it takes, and how to start small
 
