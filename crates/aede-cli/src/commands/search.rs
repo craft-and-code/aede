@@ -10,8 +10,8 @@
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
 
-use super::{Res, announce_limit, load, selection_output};
-use crate::args::Args;
+use super::{Res, announce_window, load, selection_output};
+use crate::args::{Args, Window};
 use crate::ui::{self, Table};
 
 pub fn search(args: &Args) -> Res {
@@ -20,8 +20,15 @@ pub fn search(args: &Args) -> Res {
     if query.trim().is_empty() {
         return Err("give some text to search for".into());
     }
-    let limit = args.usize_value("limit", 30);
-    let hits = catalog.search(&query, limit);
+    let window = args.window(30)?;
+    // The search ranks by how well a name matched, so a window over the hits
+    // is a window over that ranking: page two is the next thirty best, not a
+    // second search.
+    let hits: Vec<aede_core::model::SearchHit> = catalog
+        .search(&query, window.offset.saturating_add(window.limit))
+        .into_iter()
+        .skip(window.offset)
+        .collect();
 
     // Kept apart from the hits above rather than merged into them: a hit found
     // in a comment was found by another route, and the reader has to be able to
@@ -49,7 +56,7 @@ pub fn search(args: &Args) -> Res {
     }
 
     if args.has("json") {
-        return print_json(&catalog, &hits, &in_comments, limit);
+        return print_json(&catalog, &hits, &in_comments, window);
     }
 
     println!("{}", ui::section(&format!("Results for \"{query}\"")));
@@ -71,7 +78,7 @@ pub fn search(args: &Args) -> Res {
     print!("{}", t.render());
 
     if args.has("comments") {
-        print_comment_hits(&catalog, &in_comments, limit);
+        print_comment_hits(&catalog, &in_comments, window);
     }
     Ok(())
 }
@@ -82,7 +89,7 @@ fn print_json(
     catalog: &Catalog,
     hits: &[aede_core::model::SearchHit],
     in_comments: &[Id],
-    limit: usize,
+    window: Window,
 ) -> Res {
     let mut rows: Vec<Json> = hits
         .iter()
@@ -96,7 +103,7 @@ fn print_json(
             o
         })
         .collect();
-    for &id in in_comments.iter().take(limit) {
+    for &id in in_comments.iter().skip(window.offset).take(window.limit) {
         let Some(track) = catalog.track(id) else {
             continue;
         };
@@ -120,7 +127,7 @@ fn print_json(
 }
 
 /// The tracks whose comment carries the text, in their own section.
-fn print_comment_hits(catalog: &Catalog, tracks: &[Id], limit: usize) {
+fn print_comment_hits(catalog: &Catalog, tracks: &[Id], window: Window) {
     if tracks.is_empty() {
         println!("  {}", ui::dim("nothing in the comments"));
         return;
@@ -130,7 +137,7 @@ fn print_comment_hits(catalog: &Catalog, tracks: &[Id], limit: usize) {
         .limit(0, 30)
         .limit(1, 25)
         .limit(2, 45);
-    for &id in tracks.iter().take(limit) {
+    for &id in tracks.iter().skip(window.offset).take(window.limit) {
         let Some(track) = catalog.track(id) else {
             continue;
         };
@@ -146,5 +153,5 @@ fn print_comment_hits(catalog: &Catalog, tracks: &[Id], limit: usize) {
         ]);
     }
     print!("{}", t.render());
-    announce_limit(tracks.len().min(limit), tracks.len(), "comment");
+    announce_window(window, tracks.len(), "comment");
 }

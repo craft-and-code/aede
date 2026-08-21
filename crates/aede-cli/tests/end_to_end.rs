@@ -231,7 +231,12 @@ fn a_track_is_reachable_by_its_title() {
     let (out, _, ok) = sandbox.run(&["track", "So What", "--limit=1"]);
     assert!(ok);
     assert_eq!(out.matches("Album artist").count(), 1);
-    assert!(out.contains("shown"), "the truncation is announced: {out}");
+    assert!(out.contains("1–1 of"), "the truncation is announced: {out}");
+
+    // And a page of one walks through them.
+    let (out, _, ok) = sandbox.run(&["track", "So What", "--limit=1", "--offset=1"]);
+    assert!(ok);
+    assert!(out.contains("2–2 of"), "output: {out}");
 
     // An unknown title fails with a usable message.
     let (_, err, ok) = sandbox.run(&["track", "no such title here"]);
@@ -595,21 +600,86 @@ fn a_listing_never_stops_without_saying_so() {
     let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
     assert!(ok);
 
-    // Sixty albums, fifty rows: the cut has to be announced.
+    // Sixty albums, fifty rows: the cut has to be announced, and it says which
+    // rows these are so a second page can be asked for.
     let (out, _, ok) = sandbox.run(&["albums"]);
     assert!(ok, "output: {out}");
     assert!(
-        out.contains("50 of 60 albums shown"),
-        "the cut must be announced:\n{out}"
+        out.contains("1–50 of 60 albums"),
+        "the cut must name the rows shown:\n{out}"
     );
-    assert!(out.contains("--limit"), "and it must say how to lift it");
+    assert!(
+        out.contains("--offset=50"),
+        "and hand over the next page: {out}"
+    );
+
+    // Page two picks up exactly where page one stopped.
+    let (out, _, ok) = sandbox.run(&["albums", "--limit=50", "--offset=50"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("51–60 of 60 albums"), "output: {out}");
 
     // Shown in full, nothing is said: a notice that always fires means nothing.
-    let (out, _, ok) = sandbox.run(&["albums", "--limit=200"]);
+    for form in [vec!["albums", "--limit=200"], vec!["albums", "--all"]] {
+        let (out, _, ok) = sandbox.run(&form);
+        assert!(ok);
+        assert!(
+            !out.contains(" of 60 albums"),
+            "nothing was left out:\n{out}"
+        );
+        // Sixty copies of one album in sixty folders: sixty releases, since a
+        // folder is what the user acts on.
+        assert_eq!(
+            out.lines().filter(|l| l.contains("Kind of Blue")).count(),
+            60,
+            "every row is there: {form:?}"
+        );
+    }
+
+    // A window past the end is not an error, but silence there would read as
+    // an empty library.
+    let (out, _, ok) = sandbox.run(&["albums", "--offset=500"]);
     assert!(ok);
-    assert!(!out.contains("shown —"), "nothing was left out:\n{out}");
+    assert!(out.contains("starts past the end"), "output: {out}");
+
+    // The ways of asking for a window that mean nothing are refused.
+    for form in [
+        vec!["albums", "--limit=0"],
+        vec!["albums", "--limit=abc"],
+        vec!["albums", "--all", "--limit=5"],
+    ] {
+        let (_, err, ok) = sandbox.run(&form);
+        assert!(!ok, "{form:?} must be refused");
+        assert!(!err.is_empty(), "{form:?} must say why");
+    }
+
+    // And paging a command that shows no rows is refused too, instead of being
+    // accepted and ignored as --limit used to be everywhere.
+    let (_, err, ok) = sandbox.run(&["reset", "--offset=2"]);
+    assert!(!ok);
+    assert!(err.contains("cannot"), "stderr: {err}");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_short_option_writes_the_same_thing() {
+    let sandbox = Sandbox::new("short_option");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let short = sandbox.dir.join("short.csv");
+    let long = sandbox.dir.join("long.csv");
+    let (out, err, ok) = sandbox.run(&["albums", "--csv", "-o", short.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("written to"), "output: {out}");
+    let (_, _, ok) = sandbox.run(&["albums", "--csv", "--output", long.to_str().unwrap()]);
+    assert!(ok);
+    assert_eq!(
+        std::fs::read_to_string(&short).unwrap(),
+        std::fs::read_to_string(&long).unwrap(),
+        "-o and --output are one option written two ways"
+    );
 }
 
 #[test]

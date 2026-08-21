@@ -13,7 +13,9 @@ use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id, TitleMatch, Track};
 use aede_core::text;
 
-use super::{Res, load, properties_table, role_label, selection_output, tags_table};
+use super::{
+    Res, announce_window, load, properties_table, role_label, selection_output, tags_table,
+};
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -30,7 +32,7 @@ pub fn show_track(args: &Args) -> Res {
 
     let (found, kind) = catalog.find_tracks(&title);
     let before_filters = found.len();
-    let mut matches: Vec<&Track> = found
+    let matches: Vec<&Track> = found
         .into_iter()
         .filter(|t| keeps_artist(&catalog, t, args.value("artist")))
         .filter(|t| keeps_album(&catalog, t, args.value("album")))
@@ -51,8 +53,12 @@ pub fn show_track(args: &Args) -> Res {
         .into());
     }
     let total = matches.len();
-    let limit = args.usize_value("limit", DEFAULT_LIMIT);
-    matches.truncate(limit);
+    let window = args.window(DEFAULT_LIMIT)?;
+    let matches: Vec<&Track> = matches
+        .into_iter()
+        .skip(window.offset)
+        .take(window.limit)
+        .collect();
 
     let ids: Vec<Id> = matches.iter().map(|t| t.id).collect();
     if let Some(result) = selection_output(&catalog, &ids, args) {
@@ -79,17 +85,15 @@ pub fn show_track(args: &Args) -> Res {
 
     // A truncated list must say so: a silent cut reads as "that is all there
     // is", which is the one thing it is not.
+    println!();
     if total > matches.len() {
+        announce_window(window, total, "track");
         println!(
-            "\n  {}",
-            ui::yellow(&format!(
-                "{} of {} shown — raise --limit, or narrow with --artist or --album",
-                matches.len(),
-                total
-            ))
+            "  {}",
+            ui::dim("or narrow it down with --artist, --album or --comment")
         );
     } else if total > 1 {
-        println!("\n  {}", ui::dim(&ui::plural(total, "track")));
+        println!("  {}", ui::dim(&ui::plural(total, "track")));
     }
     Ok(())
 }

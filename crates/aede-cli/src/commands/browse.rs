@@ -5,14 +5,14 @@ use aede_core::stats;
 use aede_core::text;
 
 use super::{
-    Res, announce_limit, copy_marker, export, load, role_key, role_label, roles_offered, totals,
+    Res, announce_window, copy_marker, export, load, role_key, role_label, roles_offered, totals,
 };
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn list_artists(args: &Args) -> Res {
     let catalog = load(args)?;
-    let limit = args.usize_value("limit", 50);
+    let window = args.window(50)?;
     let by_tracks = args.value("sort").unwrap_or("tracks") == "tracks";
 
     // Who does *this* in my library — the inverse of the artist page, and the
@@ -88,7 +88,8 @@ pub fn list_artists(args: &Args) -> Res {
     if args.has("csv") {
         let table: Vec<Vec<String>> = rows
             .iter()
-            .take(limit)
+            .skip(window.offset)
+            .take(window.limit)
             .map(|&(id, tracks, albums, duration, size)| {
                 let a = &catalog.artists[id as usize];
                 vec![
@@ -129,7 +130,9 @@ pub fn list_artists(args: &Args) -> Res {
         .align(4, Align::Right)
         .limit(0, 50);
     let total = rows.len();
-    for (id, tracks, albums, duration, size) in rows.into_iter().take(limit) {
+    for (id, tracks, albums, duration, size) in
+        rows.into_iter().skip(window.offset).take(window.limit)
+    {
         let a = &catalog.artists[id as usize];
         t.push(vec![
             a.name.clone(),
@@ -140,13 +143,13 @@ pub fn list_artists(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
-    announce_limit(total.min(limit), total, "artist");
+    announce_window(window, total, "artist");
     Ok(())
 }
 
 pub fn list_albums(args: &Args) -> Res {
     let catalog = load(args)?;
-    let limit = args.usize_value("limit", 50);
+    let window = args.window(50)?;
 
     let artist_filter = args.value("artist").map(text::normalize);
     let year_filter: Option<u32> = args.value("year").and_then(|v| v.parse().ok());
@@ -259,7 +262,12 @@ pub fn list_albums(args: &Args) -> Res {
     if args.has("csv") {
         // The same table as `export --csv`, restricted to what the filters kept:
         // one file for a whole discography is the usual reason to ask.
-        let ids: Vec<Id> = rows.iter().take(limit).map(|r| r.id).collect();
+        let ids: Vec<Id> = rows
+            .iter()
+            .skip(window.offset)
+            .take(window.limit)
+            .map(|r| r.id)
+            .collect();
         return export::albums_table(&catalog, &ids, args);
     }
 
@@ -305,7 +313,7 @@ pub fn list_albums(args: &Args) -> Res {
     .limit(2, 30)
     .limit(6, 30);
     let total = rows.len();
-    for release in rows.into_iter().take(limit) {
+    for release in rows.into_iter().skip(window.offset).take(window.limit) {
         let artist = release
             .album_artist_id
             .and_then(|id| catalog.artist(id))
@@ -333,13 +341,13 @@ pub fn list_albums(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
-    announce_limit(total.min(limit), total, "album");
+    announce_window(window, total, "album");
     Ok(())
 }
 
 pub fn list_genres(args: &Args) -> Res {
     let catalog = load(args)?;
-    let limit = args.usize_value("limit", 50);
+    let window = args.window(50)?;
     // Ranked in full, cut at display: the notice below can only be honest if
     // the count of what was left out is known.
     let top = stats::top_genres(&catalog, usize::MAX);
@@ -377,7 +385,7 @@ pub fn list_genres(args: &Args) -> Res {
         .align(3, Align::Right)
         .limit(0, 40);
     let total = top.len();
-    for (id, count) in top.into_iter().take(limit) {
+    for (id, count) in top.into_iter().skip(window.offset).take(window.limit) {
         let name = catalog
             .genre(id)
             .map(|g| g.name.clone())
@@ -392,13 +400,13 @@ pub fn list_genres(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
-    announce_limit(total.min(limit), total, "genre");
+    announce_window(window, total, "genre");
     Ok(())
 }
 
 pub fn list_labels(args: &Args) -> Res {
     let catalog = load(args)?;
-    let limit = args.usize_value("limit", 50);
+    let window = args.window(50)?;
     let top = stats::top_labels(&catalog, usize::MAX);
     if args.has("csv") {
         let table: Vec<Vec<String>> = top
@@ -436,7 +444,7 @@ pub fn list_labels(args: &Args) -> Res {
         .align(4, Align::Right)
         .limit(0, 40);
     let total = top.len();
-    for (id, count) in top.into_iter().take(limit) {
+    for (id, count) in top.into_iter().skip(window.offset).take(window.limit) {
         let name = catalog
             .label(id)
             .map(|l| l.name.clone())
@@ -453,7 +461,7 @@ pub fn list_labels(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
-    announce_limit(total.min(limit), total, "label");
+    announce_window(window, total, "label");
     Ok(())
 }
 

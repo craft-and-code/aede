@@ -77,6 +77,8 @@ fn main() {
         "role",
         "comment",
         "comments",
+        "offset",
+        "all",
         "help",
         "version",
         "full",
@@ -129,6 +131,9 @@ fn main() {
         ("label", LABEL_COMMANDS, "filter by label"),
         ("comment", COMMENT_COMMANDS, "filter on the comments"),
         ("comments", &["search"], "search the comments"),
+        ("limit", PAGING_COMMANDS, "show a window of its result"),
+        ("offset", PAGING_COMMANDS, "start further down its result"),
+        ("all", PAGING_COMMANDS, "drop the row limit"),
     ] {
         if args.has(option) && !commands.contains(&args.command.as_str()) {
             eprintln!(
@@ -258,6 +263,15 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
     })
 }
 
+/// Commands that show a bounded number of rows, and can therefore be paged.
+///
+/// `--limit` was global and honoured only here; on `scan` or `reset` it was
+/// accepted and ignored like any other option nobody listed.
+const PAGING_COMMANDS: &[&str] = &[
+    "albums", "artists", "genres", "labels", "album", "artist", "track", "genre", "label",
+    "search", "doctor", "stats",
+];
+
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
     "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
@@ -305,12 +319,14 @@ fn print_help() {
   --data <folder>      Catalog location
                        (default: $AEDE_HOME or ~/.local/share/aede)
   --limit <n>          Number of rows displayed
+  --offset <n>         Rows skipped first, to walk a result page by page
+  --all                Every row, however many there are
   --json               Machine-readable output (stats, doctor, search, track)
   --csv                Spreadsheet output: export, the listings, and any
                        selection (--separator=; or tab)
   --m3u                Playlist of the tracks shown (album, artist, track,
                        search); --output=<file> writes it instead of printing
-  --output <file>      Write to a file rather than to standard output
+  -o, --output <file>  Write to a file rather than to standard output
   --no-color           Turn colours off
   -h, --help           Show this help
   -V, --version        Show the version
@@ -352,6 +368,8 @@ fn print_help() {
   aede artist Ozzy --role performer --m3u
   aede search --comments \"vinyl rip\" --m3u
   aede search coltrane
+  aede albums --limit 50 --offset 50
+  aede albums --all -o everything.csv --csv
   aede import ~/Desktop/report.json",
         ui::cyan("USAGE"),
         ui::cyan("COMMANDS"),

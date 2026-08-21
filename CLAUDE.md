@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 211 tests
+cargo test                       # 215 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -61,6 +61,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders, the integrity verdicts and the imported analyses. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
 
+**A short option is the long one written shorter.** `args::SHORT` resolves it to a long name and everything downstream — values, guards, the missing-value check — sees one option. Aliases stay few: four saved keystrokes cost a documented line for ever, so they are worth it only where the option is typed constantly (`-o`, `-j`, `-h`, `-V`).
+
 **The help is part of the contract.** An option printed under a heading that names the one command it does not work on is a lie that costs more than a missing line. Each option in `print_help` says where it applies, and a test asserts the help names every filter option the parser accepts — the same claim, checked from both ends.
 
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere.
@@ -71,7 +73,9 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **A role is a question asked in both directions.** `Catalog::artists_in_role` answers "who does this here", `Catalog::tracks_of_artist_in_role` answers "what did this person do in that role", and `--role` carries both readings depending on whether it is attached to the listing or to a page. That inversion is the whole reason the `credit` table stores a role rather than being a bare artist column. `Catalog::roles_in_use` reads the vocabulary from the credits rather than from a fixed list — a role arriving from MusicBrainz at M1 must work without a line of code. A role needs a person, which is why `album` and `track` refuse it and say so: there, `--artist` is the filter.
 
-**A truncated list says so.** Every listing stops at `--limit` rows; `commands::announce_limit` is what tells the user rows were left out, and it prints nothing when none were. All five listings used to stop in silence, and sorted by year that made the most recent albums of a real library invisible — the header counting the matches is not enough, since nobody compares it against the rows they were handed. Any new listing goes through that helper.
+**A truncated list says so, and says where it stopped.** `args::Window` is the one reading of `--limit`, `--offset` and `--all` for the whole program, and `commands::announce_window` the one way of reporting it: `1–50 of 312 albums`, nothing at all when everything fit, and an explicit line when the window falls past the end. All five listings used to stop in silence, and sorted by year that made the most recent albums of a real library invisible — the header counting the matches is not enough, since nobody compares it against the rows they were handed.
+
+Paging is only meaningful because construction is deterministic: page two is the rows after page one, and that holds only while every listing sorts. The window is read **strictly** — `--limit abc` is an error, not a fall-back on the default — and `--limit=0` is refused in favour of `--all`, because a size of zero is never what anyone means and "everything" deserves a name rather than an encoding. Any new listing goes through `Window` and that helper.
 
 **A value that is a name may be typed in several words.** `args::VALUED_NAME` (`--artist`, `--album`, `--with`, `--genre`, `--label`) takes every word up to the next option; `args::VALUED_WORD` takes exactly one, because a number, a path or a keyword is one word. The bug this fixes was the worst kind: `artist Ozzy --with Jeff Beck` gave `--with` the word "Jeff", left "Beck" to be joined onto the positional, and went looking for an "Ozzy Beck" nobody had typed. A wrong answer built in silence is worse than a refusal — and here it is worse than being permissive too, since the shell has already split the words and only this program knows they were one name. Adding a name-valued option means adding it to the right list.
 

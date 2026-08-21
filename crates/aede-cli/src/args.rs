@@ -6,6 +6,32 @@
 
 use std::collections::BTreeMap;
 
+/// Where a listing starts and how many rows it shows.
+///
+/// `limit` is `usize::MAX` when `--all` was given: "everything" is a very large
+/// window rather than a special case every caller would have to remember.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Window {
+    /// Rows skipped before the first one shown.
+    pub offset: usize,
+    /// Rows shown from there.
+    pub limit: usize,
+}
+
+impl Window {
+    /// Row numbers shown, counting from one, given how many there are in all.
+    ///
+    /// `None` when the window falls past the end — which is not an error but
+    /// does need saying, or an empty screen reads as an empty library.
+    pub fn shown(&self, total: usize) -> Option<(usize, usize)> {
+        if self.offset >= total {
+            return None;
+        }
+        let last = total.min(self.offset.saturating_add(self.limit));
+        Some((self.offset + 1, last))
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Args {
     /// First positional value: the command.
@@ -30,6 +56,7 @@ const VALUED_WORD: &[&str] = &[
     "threads",
     "separator",
     "source",
+    "offset",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in
@@ -52,6 +79,36 @@ const VALUED_NAME: &[&str] = &[
     "artist", "album", "with", "genre", "label", "comment", "role",
 ];
 
+/// Short spellings, each standing for exactly one long option.
+///
+/// Deliberately few. A one-letter alias saves four keystrokes and costs a line
+/// of documentation for ever, so it is worth it only where the option is typed
+/// constantly.
+const SHORT: &[(&str, &str)] = &[
+    ("h", "help"),
+    ("V", "version"),
+    ("j", "json"),
+    ("o", "output"),
+];
+
+/// Long name behind a short one; an unknown letter keeps its own spelling so
+/// that the unknown-option warning can name what was actually typed.
+fn long_name(short: &str) -> String {
+    SHORT
+        .iter()
+        .find(|(letter, _)| *letter == short)
+        .map(|(_, long)| (*long).to_string())
+        .unwrap_or_else(|| short.to_string())
+}
+
+/// Splits `name=value` into its two halves; `value` is `None` without a `=`.
+fn split_option(text: &str) -> (String, Option<String>) {
+    match text.split_once('=') {
+        Some((name, value)) => (name.to_string(), Some(value.to_string())),
+        None => (text.to_string(), None),
+    }
+}
+
 impl Args {
     pub fn parse(raw: impl IntoIterator<Item = String>) -> Args {
         let mut args = Args::default();
@@ -67,39 +124,40 @@ impl Args {
                 only_positionals = true;
                 continue;
             }
-            if let Some(rest) = item.strip_prefix("--") {
-                match rest.split_once('=') {
-                    Some((name, value)) => {
-                        args.flags.insert(name.to_string(), Some(value.to_string()));
+            // A short option is resolved to its long name and then treated
+            // exactly like it: `-o file`, `-o=file` and `--output file` are one
+            // option written three ways, and only the spelling differs.
+            let named = if let Some(rest) = item.strip_prefix("--") {
+                Some(split_option(rest))
+            } else if item.len() >= 2
+                && item.starts_with('-')
+                && (item.len() == 2 || item.as_bytes().get(2) == Some(&b'='))
+            {
+                let (short, value) = split_option(&item[1..]);
+                Some((long_name(&short), value))
+            } else {
+                None
+            };
+            let Some((name, inline)) = named else {
+                args.positionals.push(item);
+                continue;
+            };
+
+            let value = match inline {
+                Some(value) => Some(value),
+                None if VALUED_NAME.contains(&name.as_str()) => {
+                    let mut words: Vec<String> = Vec::new();
+                    while let Some(word) = iter.next_if(|next| !next.starts_with('-')) {
+                        words.push(word);
                     }
-                    None => {
-                        let value = if VALUED_NAME.contains(&rest) {
-                            let mut words: Vec<String> = Vec::new();
-                            while let Some(word) = iter.next_if(|next| !next.starts_with('-')) {
-                                words.push(word);
-                            }
-                            (!words.is_empty()).then(|| words.join(" "))
-                        } else if VALUED_WORD.contains(&rest) {
-                            iter.next_if(|next| !next.starts_with('-'))
-                        } else {
-                            None
-                        };
-                        args.flags.insert(rest.to_string(), value);
-                    }
+                    (!words.is_empty()).then(|| words.join(" "))
                 }
-                continue;
-            }
-            if item.len() == 2 && item.starts_with('-') {
-                let name = match item.as_str() {
-                    "-h" => "help",
-                    "-V" => "version",
-                    "-j" => "json",
-                    other => &other[1..],
-                };
-                args.flags.insert(name.to_string(), None);
-                continue;
-            }
-            args.positionals.push(item);
+                None if VALUED_WORD.contains(&name.as_str()) => {
+                    iter.next_if(|next| !next.starts_with('-'))
+                }
+                None => None,
+            };
+            args.flags.insert(name, value);
         }
 
         if !args.positionals.is_empty() {
@@ -118,6 +176,48 @@ impl Args {
 
     pub fn value(&self, name: &str) -> Option<&str> {
         self.flags.get(name).and_then(|v| v.as_deref())
+    }
+
+    /// The slice of a result to show: where to start, and how much.
+    ///
+    /// One reading for the whole program, because paging is only meaningful if
+    /// every command agrees on what a window is — and because the interface at
+    /// M2 will ask for pages, not for "the first fifty of everything". The
+    /// order is already deterministic on every listing, which is what makes a
+    /// second page mean anything at all.
+    ///
+    /// Strict, unlike the old `--limit` reading: `--limit abc` used to fall
+    /// back on the default and answer a question nobody asked.
+    pub fn window(&self, default_limit: usize) -> Result<Window, String> {
+        let offset = self.whole_number("offset")?.unwrap_or(0);
+        if self.has("all") && self.value("limit").is_some() {
+            return Err("--all and --limit ask for opposite things".into());
+        }
+        if self.has("all") {
+            return Ok(Window {
+                offset,
+                limit: usize::MAX,
+            });
+        }
+        let limit = match self.whole_number("limit")? {
+            // Zero shows nothing, which nobody ever means; "everything" has a
+            // name of its own rather than an encoding to remember.
+            Some(0) => return Err("--limit=0 would show nothing; --all shows everything".into()),
+            Some(n) => n,
+            None => default_limit,
+        };
+        Ok(Window { offset, limit })
+    }
+
+    /// A whole number given to an option, refusing anything else.
+    fn whole_number(&self, name: &str) -> Result<Option<usize>, String> {
+        match self.value(name) {
+            None => Ok(None),
+            Some(raw) => raw
+                .parse::<usize>()
+                .map(Some)
+                .map_err(|_| format!("--{name} expects a whole number, not \"{raw}\"")),
+        }
     }
 
     pub fn usize_value(&self, name: &str, default: usize) -> usize {
@@ -194,6 +294,105 @@ mod tests {
         assert_eq!(
             parse(&["artist", "Ozzy", "--with=Zakk Wylde"]).value("with"),
             Some("Zakk Wylde")
+        );
+    }
+
+    #[test]
+    fn a_short_option_is_the_long_one_written_shorter() {
+        // -o carries a value, which the old short-flag branch could not do: it
+        // inserted a valueless flag and left the file name as a positional.
+        for form in [
+            vec!["albums", "-o", "out.csv"],
+            vec!["albums", "-o=out.csv"],
+            vec!["albums", "--output", "out.csv"],
+            vec!["albums", "--output=out.csv"],
+        ] {
+            let a = parse(&form);
+            assert_eq!(a.value("output"), Some("out.csv"), "form: {form:?}");
+            assert!(a.positionals.is_empty(), "form: {form:?}");
+        }
+        // The valueless ones keep working.
+        assert!(parse(&["-h"]).has("help"));
+        assert!(parse(&["-V"]).has("version"));
+        assert!(parse(&["stats", "-j"]).has("json"));
+    }
+
+    #[test]
+    fn a_window_is_read_strictly() {
+        let w = parse(&["albums", "--limit", "10", "--offset", "20"])
+            .window(50)
+            .expect("a window");
+        assert_eq!(w.offset, 20);
+        assert_eq!(w.limit, 10);
+        assert_eq!(parse(&["albums"]).window(50).unwrap().limit, 50);
+        assert_eq!(
+            parse(&["albums", "--all"]).window(50).unwrap().limit,
+            usize::MAX
+        );
+
+        // A limit that cannot be read used to fall back on the default and
+        // answer a question nobody asked.
+        assert!(parse(&["albums", "--limit", "abc"]).window(50).is_err());
+        // Written with `=`, since a bare `-1` is refused earlier as a missing
+        // value: an option's value may not start with a dash.
+        assert!(parse(&["albums", "--offset=-1"]).window(50).is_err());
+        assert!(
+            parse(&["albums", "--offset", "-1"])
+                .options_missing_a_value()
+                .contains(&"offset"),
+            "a value that looks like an option is not a value"
+        );
+        // Zero shows nothing, which nobody means.
+        assert!(parse(&["albums", "--limit", "0"]).window(50).is_err());
+        // And the two ways of saying how much are opposites.
+        assert!(
+            parse(&["albums", "--all", "--limit", "5"])
+                .window(50)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_window_says_which_rows_it_shows() {
+        let w = Window {
+            offset: 50,
+            limit: 50,
+        };
+        assert_eq!(w.shown(312), Some((51, 100)));
+        // The last page is short, and stops at the last row rather than past it.
+        assert_eq!(
+            Window {
+                offset: 300,
+                limit: 50
+            }
+            .shown(312),
+            Some((301, 312))
+        );
+        // Everything fits: the caller prints nothing.
+        assert_eq!(
+            Window {
+                offset: 0,
+                limit: 50
+            }
+            .shown(12),
+            Some((1, 12))
+        );
+        // Past the end is not an error, but it has to be said.
+        assert_eq!(
+            Window {
+                offset: 400,
+                limit: 50
+            }
+            .shown(312),
+            None
+        );
+        assert_eq!(
+            Window {
+                offset: 0,
+                limit: usize::MAX
+            }
+            .shown(312),
+            Some((1, 312))
         );
     }
 

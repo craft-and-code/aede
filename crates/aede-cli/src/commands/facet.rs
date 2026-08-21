@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use aede_core::model::{Catalog, Id, TitleMatch};
 use aede_core::text;
 
-use super::{Res, announce_limit, load, selection_output, totals};
+use super::{Res, announce_window, load, selection_output, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -65,9 +65,8 @@ pub fn show_genre(args: &Args) -> Res {
     print_totals(&catalog, &tracks);
 
     let releases = releases_holding(&catalog, &tracks);
-    print_albums(&catalog, &releases, args);
-    print_artists(&catalog, &tracks, args);
-    Ok(())
+    print_albums(&catalog, &releases, args)?;
+    print_artists(&catalog, &tracks, args)
 }
 
 pub fn show_label(args: &Args) -> Res {
@@ -111,9 +110,8 @@ pub fn show_label(args: &Args) -> Res {
         );
     }
     print_totals(&catalog, &tracks);
-    print_albums(&catalog, &releases, args);
-    print_artists(&catalog, &tracks, args);
-    Ok(())
+    print_albums(&catalog, &releases, args)?;
+    print_artists(&catalog, &tracks, args)
 }
 
 /// The three measures every page carries: count, playing time, size on disk.
@@ -141,11 +139,11 @@ fn releases_holding(catalog: &Catalog, tracks: &[Id]) -> Vec<Id> {
     releases.into_iter().collect()
 }
 
-fn print_albums(catalog: &Catalog, releases: &[Id], args: &Args) {
+fn print_albums(catalog: &Catalog, releases: &[Id], args: &Args) -> Res {
     if releases.is_empty() {
-        return;
+        return Ok(());
     }
-    let limit = args.usize_value("limit", DEFAULT_LIMIT);
+    let window = args.window(DEFAULT_LIMIT)?;
     let mut rows: Vec<(&aede_core::model::Release, u64, u64)> = releases
         .iter()
         .filter_map(|&id| catalog.release(id))
@@ -169,7 +167,7 @@ fn print_albums(catalog: &Catalog, releases: &[Id], args: &Args) {
         .limit(1, 40)
         .limit(2, 30);
     let total = rows.len();
-    for (release, duration, size) in rows.into_iter().take(limit) {
+    for (release, duration, size) in rows.into_iter().skip(window.offset).take(window.limit) {
         let artist = release
             .album_artist_id
             .and_then(|id| catalog.artist(id))
@@ -188,14 +186,15 @@ fn print_albums(catalog: &Catalog, releases: &[Id], args: &Args) {
         ]);
     }
     print!("{}", t.render());
-    announce_limit(total.min(limit), total, "album");
+    announce_window(window, total, "album");
+    Ok(())
 }
 
 /// Who is audible here, ranked by how much of it they carry.
 ///
 /// Performing roles only: a genre is something you *hear*, and counting the
 /// lyricist of a track among the artists of a style would be a different claim.
-fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) {
+fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
     let mut counts: BTreeMap<Id, usize> = BTreeMap::new();
     for &track in tracks {
         for (artist, role) in catalog.credits_on(aede_core::model::EntityKind::Track, track) {
@@ -205,7 +204,7 @@ fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) {
         }
     }
     if counts.is_empty() {
-        return;
+        return Ok(());
     }
     let mut rows: Vec<(Id, usize)> = counts.into_iter().collect();
     rows.sort_by(|a, b| {
@@ -217,16 +216,17 @@ fn print_artists(catalog: &Catalog, tracks: &[Id], args: &Args) {
         })
     });
 
-    let limit = args.usize_value("limit", DEFAULT_LIMIT);
+    let window = args.window(DEFAULT_LIMIT)?;
     println!("{}", ui::section("Artists"));
     let mut t = Table::new(&["Artist", "Tracks"]).align(1, Align::Right);
     let total = rows.len();
-    for (id, count) in rows.into_iter().take(limit) {
+    for (id, count) in rows.into_iter().skip(window.offset).take(window.limit) {
         let Some(artist) = catalog.artist(id) else {
             continue;
         };
         t.push(vec![artist.name.clone(), count.to_string()]);
     }
     print!("{}", t.render());
-    announce_limit(total.min(limit), total, "artist");
+    announce_window(window, total, "artist");
+    Ok(())
 }

@@ -3,7 +3,7 @@
 use aede_core::doctor::{self, Issue, Severity};
 use aede_core::json::Json;
 
-use super::{Res, load};
+use super::{Res, announce_window, load};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -61,9 +61,9 @@ pub fn show_doctor(args: &Args) -> Res {
     }
     print!("{}", t.render());
 
-    let limit = args.usize_value("limit", 25);
-    println!("{}", ui::section(&format!("Details (limited to {limit})")));
-    for issue in issues.iter().take(limit) {
+    let window = args.window(25)?;
+    println!("{}", ui::section("Details"));
+    for issue in issues.iter().skip(window.offset).take(window.limit) {
         let mark = match issue.severity() {
             Severity::Error => ui::red("✗"),
             Severity::Warning => ui::yellow("!"),
@@ -84,15 +84,8 @@ pub fn show_doctor(args: &Args) -> Res {
             );
         }
     }
-    if issues.len() > limit {
-        println!(
-            "{}",
-            ui::dim(&format!(
-                "\n  … {} not shown (--limit=N)",
-                ui::plural(issues.len() - limit, "issue")
-            ))
-        );
-    }
+    println!();
+    announce_window(window, issues.len(), "issue");
     print_unverified(&catalog);
     print_waiting_analyses(&catalog);
     Ok(())

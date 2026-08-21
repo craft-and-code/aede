@@ -42,7 +42,7 @@ use aede_core::store;
 use aede_core::tags::AudioProperties;
 use aede_core::text;
 
-use crate::args::Args;
+use crate::args::{Args, Window};
 use crate::ui::{self, Table};
 
 /// What every command returns: nothing useful, or an error already worded for
@@ -229,14 +229,25 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
 ///
 /// Nothing is printed when everything was shown, so the notice keeps meaning
 /// something.
-fn announce_limit(shown: usize, total: usize, what: &str) {
-    if shown >= total {
+fn announce_window(window: Window, total: usize, what: &str) {
+    let Some((first, last)) = window.shown(total) else {
+        println!(
+            "  {}",
+            ui::yellow(&format!(
+                "nothing here: {} in all, and --offset={} starts past the end",
+                ui::plural(total, what),
+                window.offset
+            ))
+        );
+        return;
+    };
+    if first == 1 && last == total {
         return;
     }
     println!(
         "  {}",
         ui::yellow(&format!(
-            "{shown} of {} shown — raise --limit to see the rest",
+            "{first}–{last} of {} — --offset={last} for the next page, --all for every row",
             ui::plural(total, what)
         ))
     );

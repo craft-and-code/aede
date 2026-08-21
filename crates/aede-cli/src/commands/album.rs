@@ -43,7 +43,12 @@ pub fn show_album(args: &Args) -> Res {
     }
 
     let total = matches.len();
-    matches.truncate(args.usize_value("limit", DEFAULT_LIMIT));
+    let window = args.window(DEFAULT_LIMIT)?;
+    let matches: Vec<&Release> = matches
+        .into_iter()
+        .skip(window.offset)
+        .take(window.limit)
+        .collect();
 
     // A selection covers every album matched, not the first of them.
     let tracks: Vec<Id> = matches.iter().flat_map(|r| r.track_ids.clone()).collect();

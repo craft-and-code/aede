@@ -97,7 +97,7 @@ aede track So What --artist Miles Davis --limit 1
 
 Put the positional before the option: `aede track --artist Miles Davis So What` gives the whole tail to `--artist`, and the command then says it was given no title — rather than answering a question you did not ask.
 
-`--output <file>` writes wherever these produce text, and states where it went instead of filling the terminal.
+`--output <file>`, or `-o`, writes wherever these produce text, and states where it went instead of filling the terminal.
 
 ```
 $ aede stats
@@ -190,15 +190,28 @@ aede albums --no-compilations    # everything except those
 
 Asking for both is refused — they are opposites, and an empty answer would look like a library with nothing in it.
 
-### A listing always says when it stopped
+### Paging through a result
 
-Every listing shows **50 rows** by default. It now says so when there are more:
+Every listing shows **50 rows** by default and says which ones they are:
 
 ```
-  50 of 312 albums shown — raise --limit to see the rest
+  1–50 of 312 albums — --offset=50 for the next page, --all for every row
 ```
 
-Nothing is printed when everything fit, so the line keeps meaning something. Sorted by year, a silent cut used to make the most recent albums of a library simply invisible.
+Three options, one window, the same everywhere:
+
+```sh
+aede albums                        # the first 50
+aede albums --limit 50 --offset 50 # the next 50
+aede albums --all                  # every row, however many
+aede albums --all --csv -o all.csv # and into a file
+```
+
+`--offset` is what a front end needs: the order of every listing is deterministic, so page two is genuinely the rows after page one. `--all` says "everything" by name rather than by an encoding to remember — `--limit=0` is refused, since it would show nothing, and so is `--limit abc`, which used to fall back on the default and answer a question nobody asked.
+
+Nothing is printed when everything fit, so the line keeps meaning something. A window past the end says so rather than showing an empty screen that reads as an empty library.
+
+`-o` is short for `--output`.
 
 ### Trying it without a library at hand
 
@@ -491,7 +504,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-211 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+215 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 
