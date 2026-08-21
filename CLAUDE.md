@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 201 tests
+cargo test                       # 207 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -63,6 +63,10 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere.
 
+**Every entity deserves a page, and every page a filter.** The model is a graph; a listing that counts genres without letting you open one is a dead end. `artist`, `album`, `track`, `genre` and `label` each have a singular page, and what a page gathers is a selection — so `--csv` and `--m3u` work on it, through `commands::selection_output`, without the command knowing anything about them. Adding an entity kind means adding its page.
+
+**A role is a question asked in both directions.** `Catalog::artists_in_role` is the inverse of the artist page: one says what a person did, the other who does a thing. That inversion is the whole reason the `credit` table stores a role rather than being a bare artist column, and `Catalog::roles_in_use` reads the vocabulary from the credits rather than from a fixed list — a role arriving from MusicBrainz at M1 must work without a line of code.
+
 **A truncated list says so.** Every listing stops at `--limit` rows; `commands::announce_limit` is what tells the user rows were left out, and it prints nothing when none were. All five listings used to stop in silence, and sorted by year that made the most recent albums of a real library invisible — the header counting the matches is not enough, since nobody compares it against the rows they were handed. Any new listing goes through that helper.
 
 **A value that is a name may be typed in several words.** `args::VALUED_NAME` (`--artist`, `--album`, `--with`, `--genre`, `--label`) takes every word up to the next option; `args::VALUED_WORD` takes exactly one, because a number, a path or a keyword is one word. The bug this fixes was the worst kind: `artist Ozzy --with Jeff Beck` gave `--with` the word "Jeff", left "Beck" to be joined onto the positional, and went looking for an "Ozzy Beck" nobody had typed. A wrong answer built in silence is worse than a refusal — and here it is worse than being permissive too, since the shell has already split the words and only this program knows they were one name. Adding a name-valued option means adding it to the right list.
@@ -70,6 +74,12 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **An option means the same thing wherever it is typed.** `--m3u` and `--csv` on `album`, `artist`, `track` and `search` all describe the tracks on screen, through one helper (`commands::selection_output`); `export` describes the catalog. A command that cannot honour an argument says so — `aede export "an album"` is an error, never a full export under a name that promised a selection.
 
 **Each export answers one question.** JSON is the faithful dump and mirrors the model; CSV is a flat table for a spreadsheet, denormalized on purpose and carrying raw values, since a formatted column cannot be summed; M3U exports a selection, not the catalog. Adding a format means saying which question it answers that the other three do not.
+
+**An argument a command cannot read is refused.** The twin of the rule above, and it bit later: `main.rs::takes_no_argument` names the commands that read only their options, and a positional given to one of them is an error pointing at the command that does take it. `aede artists ozzy --role producer` listed every producer with "ozzy" going into the void — an answer that looks right is worse than one that fails.
+
+**A count of zero is an answer; an empty screen is not.** `stats` prints the credit vocabulary the library actually holds, so `--role composer` returning nothing can be told apart from a bug. Wherever a filter can legitimately match nothing, something must let the user see the domain it filters over — otherwise every empty result reads as a defect, and the user is right to think so.
+
+**A filter is visible or it is not a filter.** `albums` prints the facets it narrowed on, because a filter that leaves the count unchanged cannot be told from one that was ignored — and this project shipped `--genre` and `--label` declared in the option list and honoured nowhere for months. A filter matching nothing is an **error** naming where to look, never an empty listing: an empty listing reads as an empty library.
 
 **A folder given to a command is walked whole.** `import` recurses, because reports are filed the way albums are — one folder per artist, one per album — and a walk that stopped at the top level would report "nothing found" on the folder the user actually meant. The same applies to any folder argument added later.
 

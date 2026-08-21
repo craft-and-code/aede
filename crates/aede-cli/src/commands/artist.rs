@@ -106,8 +106,14 @@ pub fn show_artist(args: &Args) -> Res {
         );
     }
 
+    // Shown as soon as the artist does something beyond being the main credit,
+    // even if that is the only thing they do: an artist who is *only* a
+    // producer used to get no panel at all, which read as "no role recorded".
     let roles = collect_roles(&catalog, artist.id);
-    if roles.len() > 1 {
+    if roles
+        .iter()
+        .any(|(role, _)| role != "main" && role != "album")
+    {
         println!("{}", ui::section("Roles"));
         let mut t = Table::new(&["Role", "Occurrences"]).align(1, Align::Right);
         for (role, count) in roles {

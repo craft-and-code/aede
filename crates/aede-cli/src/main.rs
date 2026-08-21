@@ -74,6 +74,9 @@ fn main() {
         "source",
         "compilations",
         "no-compilations",
+        "role",
+        "comment",
+        "comments",
         "help",
         "version",
         "full",
@@ -121,6 +124,11 @@ fn main() {
             ALBUM_LIST_COMMANDS,
             "leave compilations out",
         ),
+        ("role", ROLE_COMMANDS, "filter by role"),
+        ("genre", GENRE_COMMANDS, "filter by genre"),
+        ("label", LABEL_COMMANDS, "filter by label"),
+        ("comment", COMMENT_COMMANDS, "filter on the comments"),
+        ("comments", &["search"], "search the comments"),
     ] {
         if args.has(option) && !commands.contains(&args.command.as_str()) {
             eprintln!(
@@ -131,6 +139,23 @@ fn main() {
             );
             std::process::exit(2);
         }
+    }
+
+    // A command that reads no positional must refuse one rather than answer as
+    // though nothing had been typed. `aede artists ozzy --role producer` used
+    // to list every producer in the library, "ozzy" going into the void — the
+    // same fault as an option silently ignored, and the answer looks right,
+    // which is what makes it worse.
+    if let Some(hint) = takes_no_argument(&args.command)
+        && !args.positionals.is_empty()
+    {
+        eprintln!(
+            "{} \"{}\" takes no argument: \"{}\" was ignored.\n{hint}",
+            ui::red("Error:"),
+            args.command,
+            args.positionals.join(" ")
+        );
+        std::process::exit(2);
     }
 
     let result = match args.command.as_str() {
@@ -144,7 +169,9 @@ fn main() {
         "artists" => commands::list_artists(&args),
         "albums" => commands::list_albums(&args),
         "genres" => commands::list_genres(&args),
+        "genre" => commands::show_genre(&args),
         "labels" => commands::list_labels(&args),
+        "label" => commands::show_label(&args),
         "years" => commands::list_years(&args),
         "artist" => commands::show_artist(&args),
         "album" => commands::show_album(&args),
@@ -171,12 +198,12 @@ fn main() {
 
 /// Commands that can render what they show as a CSV table.
 const CSV_COMMANDS: &[&str] = &[
-    "export", "album", "artist", "track", "search", "albums", "artists", "genres", "labels",
-    "years",
+    "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
+    "genres", "labels", "years",
 ];
 
 /// Commands that show tracks, and can therefore hand them to a player.
-const M3U_COMMANDS: &[&str] = &["album", "artist", "track", "search"];
+const M3U_COMMANDS: &[&str] = &["album", "artist", "track", "genre", "label", "search"];
 
 /// Commands that act on what was imported from another tool.
 const IMPORT_COMMANDS: &[&str] = &["import"];
@@ -185,10 +212,43 @@ const IMPORT_COMMANDS: &[&str] = &["import"];
 /// from the rest.
 const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 
+/// The listing that can be narrowed to the people holding one role.
+const ROLE_COMMANDS: &[&str] = &["artists"];
+
+/// Commands that can be narrowed to one genre, or to one label.
+const GENRE_COMMANDS: &[&str] = &["albums"];
+const LABEL_COMMANDS: &[&str] = &["albums"];
+
+/// Commands that can be narrowed to what a comment says.
+const COMMENT_COMMANDS: &[&str] = &["albums", "track"];
+
+/// Commands that read nothing but their options, and what to do instead.
+///
+/// `None` for the commands that do take an argument. The hint names the
+/// singular command when there is one, since typing the plural with a name is
+/// almost always a reach for the page rather than for the list.
+fn takes_no_argument(command: &str) -> Option<&'static str> {
+    Some(match command {
+        "artists" => {
+            "For one artist: aede artist \"<name>\"\n\
+             To narrow the list: --role, --sort, --limit"
+        }
+        "albums" => {
+            "For one album: aede album \"<title>\"\n\
+             To narrow the list: --artist, --year, --genre, --label, --compilations"
+        }
+        "genres" => "For one genre: aede genre <name>",
+        "labels" => "For one label: aede label \"<name>\"",
+        "years" => "For one year: aede albums --year=<year>",
+        "stats" | "doctor" | "roots" => "It describes the whole catalog.",
+        _ => return None,
+    })
+}
+
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
-    "export", "album", "artist", "track", "search", "albums", "artists", "genres", "labels",
-    "years",
+    "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
+    "genres", "labels", "years",
 ];
 
 fn print_help() {
@@ -209,8 +269,8 @@ fn print_help() {
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies)
 
-  artists              List of artists
-  albums               List of albums (--compilations, --no-compilations)
+  artists              List of artists (--role composer, producer…)
+  albums               List of albums (--compilations, --genre, --label)
   genres               List of genres
   labels               List of labels
   years                Breakdown by year
@@ -219,7 +279,9 @@ fn print_help() {
                        (--with=<other> lists the tracks the two share)
   album <title>        Album card: tracks and credits
   track <title>        Track card: album, credits, technical details, tags
-  search <text>        Search the whole catalog
+  genre <name>         Genre page: albums and artists carrying it
+  label <name>         Label page: its catalogue and its artists
+  search <text>        Search the whole catalog (--comments looks there too)
   file <path>          Inspect a single file, outside the catalog
   import <report…>     Take in FlacCompagnon reports (--forget removes them)
   reset                Remove the catalog, after confirmation (--yes skips it)
@@ -252,6 +314,11 @@ fn print_help() {
   --no-compilations    Everything except those
   --artist <name>      Only the albums of one artist
   --year <year>        Only the albums of one year
+  --genre <name>       Only the albums carrying a genre
+  --label <name>       Only the albums published under a label
+  --comment <text>     Only what a comment mentions (albums, track)
+  --role <role>        Who is credited that way (artists)
+  --comments           Search the comment tag as well (search)
 
 {}
   --forget             Remove the imported analyses instead of adding any
@@ -265,6 +332,9 @@ fn print_help() {
   aede track \"So What\" --artist=\"Miles Davis\"
   aede albums --year=1969
   aede albums --compilations
+  aede genre metal
+  aede artists --role producer
+  aede search --comments \"vinyl rip\" --m3u
   aede search coltrane
   aede import ~/Desktop/report.json",
         ui::cyan("USAGE"),

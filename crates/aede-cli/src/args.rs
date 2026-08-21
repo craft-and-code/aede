@@ -30,6 +30,7 @@ const VALUED_WORD: &[&str] = &[
     "threads",
     "separator",
     "source",
+    "role",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in
@@ -48,7 +49,7 @@ const VALUED_WORD: &[&str] = &[
 /// --artist Miles Davis So What` — makes it swallow the title too, and the
 /// command then says it was given no title rather than answering the wrong
 /// question.
-const VALUED_NAME: &[&str] = &["artist", "album", "with", "genre", "label"];
+const VALUED_NAME: &[&str] = &["artist", "album", "with", "genre", "label", "comment"];
 
 impl Args {
     pub fn parse(raw: impl IntoIterator<Item = String>) -> Args {

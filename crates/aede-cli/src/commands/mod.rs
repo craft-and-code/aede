@@ -9,6 +9,7 @@ mod browse;
 mod check;
 mod doctor;
 mod export;
+mod facet;
 mod import;
 mod inspect;
 mod reset;
@@ -23,6 +24,7 @@ pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years
 pub use check::check;
 pub use doctor::show_doctor;
 pub use export::export;
+pub use facet::{show_genre, show_label};
 pub use import::import;
 pub use inspect::inspect;
 pub use reset::reset;

@@ -1,9 +1,16 @@
 //! The `search` command: one query across every entity.
+//!
+//! Names only, by default. `--comments` widens it to the **comment** tag, which
+//! is the one field a user writes themselves: where a rip came from, which
+//! pressing this is, what still needs replacing. That is worth searching, and
+//! worth turning into a playlist — but not worth mixing into every search,
+//! since a comment is free prose and a common word in it would bury the entity
+//! that actually bears the name.
 
 use aede_core::json::Json;
-use aede_core::model::{EntityKind, Id};
+use aede_core::model::{Catalog, EntityKind, Id};
 
-use super::{Res, load, selection_output};
+use super::{Res, announce_limit, load, selection_output};
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -13,34 +20,36 @@ pub fn search(args: &Args) -> Res {
     if query.trim().is_empty() {
         return Err("give some text to search for".into());
     }
-    let hits = catalog.search(&query, args.usize_value("limit", 30));
+    let limit = args.usize_value("limit", 30);
+    let hits = catalog.search(&query, limit);
+
+    // Kept apart from the hits above rather than merged into them: a hit found
+    // in a comment was found by another route, and the reader has to be able to
+    // tell which. The same reason an imported analysis sits in its own panel.
+    let in_comments: Vec<Id> = if args.has("comments") {
+        catalog.tracks_with_comment(&query)
+    } else {
+        Vec::new()
+    };
 
     // Only the tracks: an artist or an album is not something to play, nor a
-    // row in a table of tracks.
-    let ids: Vec<Id> = hits
+    // row in a table of tracks. Comment hits are tracks, so they join in.
+    let mut ids: Vec<Id> = hits
         .iter()
         .filter(|h| h.kind == EntityKind::Track)
         .map(|h| h.id)
         .collect();
+    for &id in &in_comments {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
     if let Some(result) = selection_output(&catalog, &ids, args) {
         return result;
     }
 
     if args.has("json") {
-        let json = Json::Arr(
-            hits.iter()
-                .map(|h| {
-                    let mut o = Json::obj();
-                    o.set("type", h.kind.as_str().into());
-                    o.set("id", h.id.into());
-                    o.set("name", h.name.clone().into());
-                    o.set("context", h.detail.clone().into());
-                    o
-                })
-                .collect(),
-        );
-        println!("{}", json.to_string_pretty());
-        return Ok(());
+        return print_json(&catalog, &hits, &in_comments, limit);
     }
 
     println!("{}", ui::section(&format!("Results for \"{query}\"")));
@@ -48,6 +57,9 @@ pub fn search(args: &Args) -> Res {
         .limit(1, 45)
         .limit(2, 35);
     for hit in &hits {
+        // "release" is the model's word; "album" is the user's. On screen the
+        // user's wins — the JSON keeps the model's, for a client that has to
+        // map it back onto a table.
         let kind = match hit.kind {
             EntityKind::Artist => "artist",
             EntityKind::Release => "album",
@@ -57,5 +69,82 @@ pub fn search(args: &Args) -> Res {
         t.push(vec![kind.to_string(), hit.name.clone(), hit.detail.clone()]);
     }
     print!("{}", t.render());
+
+    if args.has("comments") {
+        print_comment_hits(&catalog, &in_comments, limit);
+    }
     Ok(())
+}
+
+/// Machine-readable form. Every row says **where** it was found, so a client
+/// can tell a name match from a comment match without guessing.
+fn print_json(
+    catalog: &Catalog,
+    hits: &[aede_core::model::SearchHit],
+    in_comments: &[Id],
+    limit: usize,
+) -> Res {
+    let mut rows: Vec<Json> = hits
+        .iter()
+        .map(|h| {
+            let mut o = Json::obj();
+            o.set("type", h.kind.as_str().into());
+            o.set("id", h.id.into());
+            o.set("name", h.name.clone().into());
+            o.set("context", h.detail.clone().into());
+            o.set("found_in", "name".to_string().into());
+            o
+        })
+        .collect();
+    for &id in in_comments.iter().take(limit) {
+        let Some(track) = catalog.track(id) else {
+            continue;
+        };
+        let mut o = Json::obj();
+        o.set("type", EntityKind::Track.as_str().into());
+        o.set("id", id.into());
+        o.set("name", track.title.clone().into());
+        o.set(
+            "context",
+            catalog
+                .comment_of_track(id)
+                .unwrap_or_default()
+                .to_string()
+                .into(),
+        );
+        o.set("found_in", "comment".to_string().into());
+        rows.push(o);
+    }
+    println!("{}", Json::Arr(rows).to_string_pretty());
+    Ok(())
+}
+
+/// The tracks whose comment carries the text, in their own section.
+fn print_comment_hits(catalog: &Catalog, tracks: &[Id], limit: usize) {
+    if tracks.is_empty() {
+        println!("  {}", ui::dim("nothing in the comments"));
+        return;
+    }
+    println!("{}", ui::section("In comments"));
+    let mut t = Table::new(&["Track", "Album", "Comment"])
+        .limit(0, 30)
+        .limit(1, 25)
+        .limit(2, 45);
+    for &id in tracks.iter().take(limit) {
+        let Some(track) = catalog.track(id) else {
+            continue;
+        };
+        let album = track
+            .release_id
+            .and_then(|r| catalog.release(r))
+            .map(|r| r.title.clone())
+            .unwrap_or_default();
+        t.push(vec![
+            track.title.clone(),
+            album,
+            catalog.comment_of_track(id).unwrap_or_default().to_string(),
+        ]);
+    }
+    print!("{}", t.render());
+    announce_limit(tracks.len().min(limit), tracks.len(), "comment");
 }

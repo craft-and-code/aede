@@ -4,7 +4,7 @@ use aede_core::model::Id;
 use aede_core::stats;
 use aede_core::text;
 
-use super::{Res, announce_limit, copy_marker, export, load, totals};
+use super::{Res, announce_limit, copy_marker, export, load, role_label, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -13,9 +13,36 @@ pub fn list_artists(args: &Args) -> Res {
     let limit = args.usize_value("limit", 50);
     let by_tracks = args.value("sort").unwrap_or("tracks") == "tracks";
 
+    // Who does *this* in my library — the inverse of the artist page, and the
+    // whole reason credits carry a role rather than being a bare artist
+    // column. A role nobody is credited with is an error, with the list of the
+    // ones that exist: guessing the spelling of a role is not the user's job.
+    let role = args.value("role");
+    let in_role: Option<std::collections::BTreeSet<Id>> = match role {
+        Some(role) => {
+            let found: std::collections::BTreeSet<Id> = catalog
+                .artists_in_role(role)
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
+            if found.is_empty() {
+                let known = catalog.roles_in_use().join(", ");
+                return Err(
+                    format!("nobody is credited as \"{role}\".\nRoles in use: {known}").into(),
+                );
+            }
+            Some(found)
+        }
+        None => None,
+    };
+
     let mut rows: Vec<(Id, usize, usize, u64, u64)> = catalog
         .artists
         .iter()
+        .filter(|a| match &in_role {
+            Some(ids) => ids.contains(&a.id),
+            None => true,
+        })
         .map(|a| {
             let tracks = catalog.tracks_of_artist(a.id);
             let albums = catalog.releases_of_artist(a.id).len();
@@ -72,10 +99,11 @@ pub fn list_artists(args: &Args) -> Res {
         );
     }
 
-    println!(
-        "{}",
-        ui::section(&format!("Artists ({} in total)", catalog.artists.len()))
-    );
+    let heading = match role {
+        Some(role) => format!("Artists credited as {} ({})", role_label(role), rows.len()),
+        None => format!("Artists ({} in total)", catalog.artists.len()),
+    };
+    println!("{}", ui::section(&heading));
     let mut t = Table::new(&["Artist", "Tracks", "Albums", "Duration", "Size"])
         .align(1, Align::Right)
         .align(2, Align::Right)
@@ -114,6 +142,57 @@ pub fn list_albums(args: &Args) -> Res {
     let compilations_only = args.has("compilations");
     let albums_only = args.has("no-compilations");
 
+    // `--genre` and `--label` were declared among the options and honoured
+    // nowhere: accepted everywhere, ignored everywhere. A filter that does
+    // nothing answers about the whole library under a name that promised a
+    // part of it.
+    let genre_ids = matching_ids(args.value("genre"), |key| {
+        catalog
+            .genres
+            .iter()
+            .filter(|g| g.key.contains(key))
+            .map(|g| g.id)
+            .collect()
+    });
+    let label_ids = matching_ids(args.value("label"), |key| {
+        catalog
+            .labels
+            .iter()
+            .filter(|l| l.key.contains(key))
+            .map(|l| l.id)
+            .collect()
+    });
+    if let Some(ids) = &genre_ids
+        && ids.is_empty()
+    {
+        return Err(format!(
+            "no genre matches \"{}\".\nRun \"aede genres\" for the list.",
+            args.value("genre").unwrap_or_default()
+        )
+        .into());
+    }
+    if let Some(ids) = &label_ids
+        && ids.is_empty()
+    {
+        return Err(format!(
+            "no label matches \"{}\".\nRun \"aede labels\" for the list.",
+            args.value("label").unwrap_or_default()
+        )
+        .into());
+    }
+    let of_genre: Option<std::collections::BTreeSet<Id>> = genre_ids.map(|ids| {
+        ids.iter()
+            .flat_map(|&id| catalog.releases_of_genre(id))
+            .collect()
+    });
+    let with_comment: Option<std::collections::BTreeSet<Id>> = args.value("comment").map(|text| {
+        catalog
+            .tracks_with_comment(text)
+            .into_iter()
+            .filter_map(|t| catalog.track(t).and_then(|t| t.release_id))
+            .collect()
+    });
+
     let mut rows: Vec<&aede_core::model::Release> = catalog
         .releases
         .iter()
@@ -136,6 +215,18 @@ pub fn list_albums(args: &Args) -> Res {
         })
         .filter(|r| match year_filter {
             Some(year) => r.year == Some(year),
+            None => true,
+        })
+        .filter(|r| match &of_genre {
+            Some(ids) => ids.contains(&r.id),
+            None => true,
+        })
+        .filter(|r| match &label_ids {
+            Some(ids) => ids.iter().any(|id| r.label_ids.contains(id)),
+            None => true,
+        })
+        .filter(|r| match &with_comment {
+            Some(ids) => ids.contains(&r.id),
             None => true,
         })
         .collect();
@@ -165,6 +256,27 @@ pub fn list_albums(args: &Args) -> Res {
         "{}",
         ui::section(&format!("{heading} ({} matching)", rows.len()))
     );
+    // What was narrowed, spelled out. A filter that leaves the count unchanged
+    // is indistinguishable from a filter that was ignored, and this project has
+    // shipped two options that really were ignored.
+    let mut applied: Vec<String> = Vec::new();
+    for (name, value) in [
+        ("artist", args.value("artist")),
+        ("year", args.value("year")),
+        ("genre", args.value("genre")),
+        ("label", args.value("label")),
+        ("comment", args.value("comment")),
+    ] {
+        if let Some(value) = value {
+            applied.push(format!("{name} \"{value}\""));
+        }
+    }
+    if !applied.is_empty() {
+        println!(
+            "  {}",
+            ui::dim(&format!("filtered on {}", applied.join(", ")))
+        );
+    }
     let mut t = Table::new(&[
         "Year", "Album", "Artist", "Tracks", "Duration", "Size", "Format",
     ])
@@ -380,6 +492,16 @@ pub fn list_years(args: &Args) -> Res {
 }
 
 /// Tracks carrying a genre, directly or through their release.
+/// Ids of the entities whose normalized name contains what was asked for.
+///
+/// `None` when the option was not given at all, which is not the same as an
+/// empty result: one means "no filter", the other means "a filter that matches
+/// nothing", and the second is an error rather than an empty listing.
+fn matching_ids(wanted: Option<&str>, lookup: impl Fn(&str) -> Vec<Id>) -> Option<Vec<Id>> {
+    let key = text::normalize(wanted?);
+    Some(lookup(&key))
+}
+
 fn tracks_of_genre(catalog: &aede_core::model::Catalog, genre_id: Id) -> Vec<Id> {
     use aede_core::model::EntityKind;
     let mut tracks: std::collections::BTreeSet<Id> = Default::default();

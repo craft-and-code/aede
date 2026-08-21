@@ -11,7 +11,7 @@
 //! about an artist says which class of role it counts: being audible on a
 //! record and having written it are not the same fact.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::text;
 
@@ -399,6 +399,169 @@ impl Catalog {
             .filter(|t| text::normalize(&t.title).contains(&key))
             .collect();
         (partial, TitleMatch::Partial)
+    }
+
+    /// Every genre whose name matches, exactly or failing that partially.
+    ///
+    /// Same rule as [`Catalog::find_releases`]: "metal" must reach the genre
+    /// spelled exactly that way without hiding "Black Metal" and "Doom Metal"
+    /// when there is no exact one.
+    pub fn find_genres(&self, name: &str) -> (Vec<&Genre>, TitleMatch) {
+        let key = text::normalize(name);
+        if key.is_empty() {
+            return (Vec::new(), TitleMatch::Exact);
+        }
+        let exact: Vec<&Genre> = self.genres.iter().filter(|g| g.key == key).collect();
+        if !exact.is_empty() {
+            return (exact, TitleMatch::Exact);
+        }
+        (
+            self.genres
+                .iter()
+                .filter(|g| g.key.contains(&key))
+                .collect(),
+            TitleMatch::Partial,
+        )
+    }
+
+    /// Every label whose name matches, exactly or failing that partially.
+    pub fn find_labels(&self, name: &str) -> (Vec<&Label>, TitleMatch) {
+        let key = text::normalize(name);
+        if key.is_empty() {
+            return (Vec::new(), TitleMatch::Exact);
+        }
+        let exact: Vec<&Label> = self.labels.iter().filter(|l| l.key == key).collect();
+        if !exact.is_empty() {
+            return (exact, TitleMatch::Exact);
+        }
+        (
+            self.labels
+                .iter()
+                .filter(|l| l.key.contains(&key))
+                .collect(),
+            TitleMatch::Partial,
+        )
+    }
+
+    /// Tracks carrying a genre, directly or through their release.
+    ///
+    /// A genre attached to an album is a genre of every track on it: tags put
+    /// it in either place, and a listener does not think of the difference.
+    pub fn tracks_of_genre(&self, genre_id: Id) -> Vec<Id> {
+        let mut tracks: BTreeSet<Id> = BTreeSet::new();
+        for link in &self.genre_links {
+            if link.genre_id != genre_id {
+                continue;
+            }
+            match link.entity_kind {
+                EntityKind::Track => {
+                    tracks.insert(link.entity_id);
+                }
+                EntityKind::Release => {
+                    if let Some(release) = self.release(link.entity_id) {
+                        tracks.extend(release.track_ids.iter().copied());
+                    }
+                }
+                EntityKind::Artist | EntityKind::Label => {}
+            }
+        }
+        tracks.into_iter().collect()
+    }
+
+    /// Releases holding at least one track of a genre, or carrying it whole.
+    pub fn releases_of_genre(&self, genre_id: Id) -> Vec<Id> {
+        let tracks: BTreeSet<Id> = self.tracks_of_genre(genre_id).into_iter().collect();
+        let mut releases: BTreeSet<Id> = BTreeSet::new();
+        for track in self.tracks.iter().filter(|t| tracks.contains(&t.id)) {
+            if let Some(id) = track.release_id {
+                releases.insert(id);
+            }
+        }
+        releases.into_iter().collect()
+    }
+
+    /// Tracks published under a label, through the releases carrying it.
+    pub fn tracks_of_label(&self, label_id: Id) -> Vec<Id> {
+        self.releases
+            .iter()
+            .filter(|r| r.label_ids.contains(&label_id))
+            .flat_map(|r| r.track_ids.iter().copied())
+            .collect()
+    }
+
+    /// Releases published under a label.
+    pub fn releases_of_label(&self, label_id: Id) -> Vec<Id> {
+        self.releases
+            .iter()
+            .filter(|r| r.label_ids.contains(&label_id))
+            .map(|r| r.id)
+            .collect()
+    }
+
+    /// Everyone credited in a role, with how many credits each holds.
+    ///
+    /// This is the inverse of the artist page: that one answers "what did this
+    /// person do", this one answers "who does this in my library". The whole
+    /// point of storing roles rather than a bare artist column is that the
+    /// question can be asked in both directions.
+    ///
+    /// Sorted by number of credits, then by sort name, so the answer is stable
+    /// and the most present come first.
+    pub fn artists_in_role(&self, role: &str) -> Vec<(Id, usize)> {
+        let mut counts: BTreeMap<Id, usize> = BTreeMap::new();
+        for credit in self.credits.iter().filter(|c| c.role == role) {
+            *counts.entry(credit.artist_id).or_insert(0) += 1;
+        }
+        let mut rows: Vec<(Id, usize)> = counts.into_iter().collect();
+        rows.sort_by(|a, b| {
+            b.1.cmp(&a.1).then_with(|| {
+                self.artist(a.0)
+                    .map(|x| x.sort_name.as_str())
+                    .cmp(&self.artist(b.0).map(|x| x.sort_name.as_str()))
+            })
+        });
+        rows
+    }
+
+    /// Every role actually used in this catalog, in the order they are shown.
+    ///
+    /// Read from the credits rather than from a fixed list: a role that came
+    /// from a tag nobody anticipated is still a role, and it must be offerable.
+    pub fn roles_in_use(&self) -> Vec<&str> {
+        let mut roles: BTreeSet<&str> = BTreeSet::new();
+        for credit in &self.credits {
+            roles.insert(credit.role.as_str());
+        }
+        roles.into_iter().collect()
+    }
+
+    /// Tracks whose file carries a comment containing this text.
+    ///
+    /// The comment belongs to the **file**, not to the track: it is free text a
+    /// user wrote, and it survives in the raw tags exactly as it was typed.
+    /// Matching is done on the normalized form, so accents and case are no
+    /// obstacle — a comment is prose, and prose is typed carelessly.
+    pub fn tracks_with_comment(&self, text: &str) -> Vec<Id> {
+        let needle = text::normalize(text);
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        self.tracks
+            .iter()
+            .filter(|t| {
+                self.file(t.file_id)
+                    .and_then(|f| f.first_tag("comment"))
+                    .map(|c| text::normalize(c).contains(&needle))
+                    .unwrap_or(false)
+            })
+            .map(|t| t.id)
+            .collect()
+    }
+
+    /// The comment carried by the file behind a track, when there is one.
+    pub fn comment_of_track(&self, track_id: Id) -> Option<&str> {
+        let track = self.track(track_id)?;
+        self.file(track.file_id)?.first_tag("comment")
     }
 }
 

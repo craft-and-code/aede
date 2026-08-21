@@ -25,11 +25,13 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                  |
 | `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats                               |
 | `aede check [folder…]`                                    | Verify the checksums the files carry (`--full` re-verifies everything)                   |
-| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings (`albums --compilations` singles out the shared ones)                           |
+| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings (`artists --role producer`, `albums --compilations`)                            |
 | `aede artist "<name>"`                                    | Discography, collaborations, roles (`--with <other>` lists the tracks two artists share) |
 | `aede album "<title>"`                                    | Tracks, durations, formats, credits                                                      |
 | `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                 |
-| `aede search <text>`                                      | Search across the whole catalog                                                          |
+| `aede genre <name>`                                       | What is in a genre: albums and the artists audible on them                               |
+| `aede label <name>`                                       | A label's catalogue and its artists                                                      |
+| `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag)                  |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                               |
 | `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                       |
 | `aede import <report…>`                                   | Take in a FlacCompagnon report (`--forget` removes what was imported)                    |
@@ -63,7 +65,7 @@ Paths are absolute, so the playlist works wherever it is saved; `#EXTINF` carrie
 
 ### Where each option applies
 
-Three groups, and an option that a command cannot honour is **refused**, never ignored.
+Three groups, and an option that a command cannot honour is **refused**, never ignored. So is an **argument**: `aede artists ozzy` used to list every artist and drop the word, which looks like an answer. It now says what to type instead.
 
 `export` describes the **catalog**: `--csv` gives one row per album, `--tracks` one row per track. It takes no argument.
 
@@ -117,6 +119,57 @@ Quality
   Hi-res                   4  664.3 kB  ███████·············
   Lossy (>= 256 kbps)      3  248.3 kB  █████···············
 ```
+
+### Browsing by facet
+
+The model is a graph of entities carrying roles towards one another, and every entity deserves a page. `artist`, `album` and `track` had one; `genre` and `label` now do too.
+
+```sh
+aede genre metal            # the albums, and who is audible on them
+aede label "Blue Note"      # the catalogue, and its artists
+```
+
+A name matching nothing exact widens to the names containing it — `aede genre metal` reaches Black Metal and Doom Metal — and says it did. What the page gathers is a **selection**, so `--csv` and `--m3u` apply: `aede genre jazz --m3u` is a playlist of every jazz track.
+
+The listings take the same facets as filters:
+
+```sh
+aede albums --genre metal --year 1994
+aede albums --label "Blue Note"
+```
+
+**Roles read the other way round.** The artist page answers "what did this person do"; `--role` answers "who does this in my library" — which is the whole reason credits store a role rather than a bare artist column:
+
+```sh
+aede artists --role producer
+aede artists --role composer --csv --output=composers.csv
+```
+
+A role nobody holds is an error listing the ones that exist, since guessing the spelling of a role is not your job. `aede stats` shows the whole vocabulary **this** library holds, with counts — so a role that returns nothing can be told apart from a bug: your files simply never carried that tag.
+
+```
+Roles
+
+  Role      Artists  Credits
+  ────────  ───────  ───────
+  composer       48      412
+  producer       11       87
+```
+
+`main` and `album` are left out: every track and every release carries them by construction, so they say nothing. At M1, a role coming from MusicBrainz will work here without a line of code, because the list is read from the credits rather than fixed.
+
+### Comments
+
+The `comment` tag is the one field _you_ write: where a rip came from, which pressing this is, what still needs replacing. It is read from every format and it is searchable, but only when asked:
+
+```sh
+aede search --comments "vinyl rip"
+aede search --comments "to replace" --m3u --output=todo.m3u8
+aede track "So What" --comment "2009 remaster"
+aede albums --comment "vinyl"
+```
+
+Off by default on `search`, because a comment is free prose: a common word in one would bury the album that actually bears the name. Comment hits are shown in **their own section** and marked `found_in: comment` in the JSON — a hit says by which route it was found, the same rule that keeps an imported analysis in its own panel.
 
 ### Compilations
 
@@ -430,7 +483,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-201 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+207 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

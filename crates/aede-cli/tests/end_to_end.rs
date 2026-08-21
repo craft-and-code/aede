@@ -245,6 +245,225 @@ fn a_track_is_reachable_by_its_title() {
 }
 
 #[test]
+fn a_genre_and_a_label_are_pages_of_their_own() {
+    // `genres` counts them; nothing could open one. A count you cannot open is
+    // a dead end, and the interface at M2 needs exactly this page.
+    let sandbox = Sandbox::new("facet");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["genre", "jazz"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Jazz"), "the genre is named: {out}");
+    assert!(out.contains("Albums"), "what is in it: {out}");
+    assert!(out.contains("Kind of Blue"), "output: {out}");
+    assert!(out.contains("Artists"), "and who is in it: {out}");
+    assert!(out.contains("Miles Davis"), "output: {out}");
+
+    // The tracks it gathers are a selection, like an album's or an artist's.
+    let (m3u, _, ok) = sandbox.run(&["genre", "jazz", "--m3u"]);
+    assert!(ok);
+    assert!(m3u.starts_with("#EXTM3U"), "output: {m3u}");
+
+    let (out, _, ok) = sandbox.run(&["label", "Columbia"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Columbia"), "output: {out}");
+    assert!(out.contains("Kind of Blue"), "output: {out}");
+
+    // A name nobody carries is an error that says where to look.
+    let (_, err, ok) = sandbox.run(&["genre", "no such genre"]);
+    assert!(!ok);
+    assert!(err.contains("aede genres"), "stderr: {err}");
+
+    // A partial match is announced rather than passed off as exact.
+    let (out, _, ok) = sandbox.run(&["genre", "jaz"]);
+    assert!(ok);
+    assert!(
+        out.contains("showing the ones containing it"),
+        "output: {out}"
+    );
+}
+
+#[test]
+fn the_two_filters_that_were_declared_and_ignored_now_bite() {
+    // `--genre` and `--label` sat in the option list and were honoured
+    // nowhere: accepted everywhere, ignored everywhere.
+    let sandbox = Sandbox::new("facet_filter");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["albums", "--genre", "jazz"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("filtered on genre"),
+        "a filter has to be visible, or it cannot be told from one that does \
+         nothing:\n{out}"
+    );
+
+    // A genre nobody carries is an error, not an empty listing that reads as
+    // an empty library.
+    let (_, err, ok) = sandbox.run(&["albums", "--genre", "polka"]);
+    assert!(!ok);
+    assert!(err.contains("no genre matches"), "stderr: {err}");
+
+    let (_, err, ok) = sandbox.run(&["albums", "--label", "no such label"]);
+    assert!(!ok);
+    assert!(err.contains("no label matches"), "stderr: {err}");
+}
+
+#[test]
+fn a_command_that_reads_no_argument_refuses_one() {
+    // `aede artists ozzy --role producer` listed every producer in the
+    // library, "ozzy" going into the void. The answer looked right, which is
+    // exactly what made it dangerous.
+    let sandbox = Sandbox::new("no_argument");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (_, err, ok) = sandbox.run(&["artists", "ozzy", "--role", "composer"]);
+    assert!(!ok, "the argument must not be swallowed");
+    assert!(err.contains("takes no argument"), "stderr: {err}");
+    assert!(err.contains("\"ozzy\" was ignored"), "it names it: {err}");
+    assert!(
+        err.contains("aede artist"),
+        "and points at what does: {err}"
+    );
+
+    for (plural, singular) in [
+        ("albums", "aede album"),
+        ("genres", "aede genre"),
+        ("labels", "aede label"),
+    ] {
+        let (_, err, ok) = sandbox.run(&[plural, "something"]);
+        assert!(!ok, "{plural} must refuse an argument");
+        assert!(
+            err.contains(singular),
+            "{plural} points at {singular}: {err}"
+        );
+    }
+
+    // The commands that do take one are untouched.
+    let (_, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["artists", "--role", "composer"]);
+    assert!(ok, "the option alone is still fine");
+}
+
+#[test]
+fn the_roles_a_library_holds_are_visible() {
+    // `--role composer` returning nothing is indistinguishable from a bug
+    // unless the library can say which roles it holds at all. A count of zero
+    // is an answer; an empty screen is not.
+    let sandbox = Sandbox::new("roles_seen");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["stats"]);
+    assert!(ok);
+    assert!(out.contains("Roles"), "output: {out}");
+    assert!(out.contains("composer"), "output: {out}");
+    assert!(
+        !out.contains("main artist"),
+        "the roles every track carries say nothing:\n{out}"
+    );
+
+    // A client builds its role picker from this, not from a list of its own.
+    let (out, _, ok) = sandbox.run(&["stats", "--json"]);
+    assert!(ok);
+    let value = aede_core::json::parse(&out).expect("valid JSON");
+    let roles = value.get("roles").and_then(|r| r.as_arr()).expect("roles");
+    assert!(
+        roles
+            .iter()
+            .any(|r| r.field_str("role").as_deref() == Some("composer")),
+        "output: {out}"
+    );
+
+    // And the artist page names the role, even for someone who holds one only.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("composer"), "output: {out}");
+}
+
+#[test]
+fn the_credits_can_be_read_the_other_way_round() {
+    // The artist page says what one person did; this says who does a thing.
+    // That the question can be asked in both directions is the whole reason
+    // credits carry a role.
+    let sandbox = Sandbox::new("role");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["artists", "--role", "composer"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("credited as composer"), "output: {out}");
+    assert!(out.contains("Miles Davis"), "output: {out}");
+
+    // A role nobody holds lists the ones that exist: guessing the spelling of
+    // a role is not the user's job.
+    let (_, err, ok) = sandbox.run(&["artists", "--role", "drummer"]);
+    assert!(!ok);
+    assert!(err.contains("Roles in use"), "stderr: {err}");
+    assert!(err.contains("composer"), "stderr: {err}");
+
+    // And a command that cannot honour it refuses rather than ignoring it.
+    let (_, err, ok) = sandbox.run(&["stats", "--role", "composer"]);
+    assert!(!ok);
+    assert!(err.contains("cannot filter by role"), "stderr: {err}");
+}
+
+#[test]
+fn what_a_user_wrote_in_a_comment_can_be_found_again() {
+    // The comment is the one tag the user writes themselves — where a rip came
+    // from, what still needs replacing. It was read and stored, and searchable
+    // nowhere.
+    let sandbox = Sandbox::new("comments");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // Off by default: a comment is free prose, and a common word in one would
+    // bury the entity that actually bears the name.
+    let (out, _, ok) = sandbox.run(&["search", "vinyl"]);
+    assert!(ok);
+    assert!(!out.contains("In comments"), "opt-in only:\n{out}");
+
+    let (out, _, ok) = sandbox.run(&["search", "--comments", "vinyl"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("In comments"), "its own section: {out}");
+    assert!(out.contains("Take Five"), "output: {out}");
+    assert!(
+        out.contains("needs replacing"),
+        "the comment is shown: {out}"
+    );
+
+    // A comment hit is a track, so it can become a playlist like any other.
+    let (m3u, _, ok) = sandbox.run(&["search", "--comments", "vinyl", "--m3u"]);
+    assert!(ok);
+    assert!(m3u.contains("Take Five"), "output: {m3u}");
+
+    // The JSON says where each hit was found, so a client need not guess.
+    let (out, _, ok) = sandbox.run(&["search", "--comments", "vinyl", "--json"]);
+    assert!(ok);
+    assert!(out.contains("\"found_in\""), "output: {out}");
+    assert!(out.contains("comment"), "output: {out}");
+
+    // And it filters a selection.
+    let (out, _, ok) = sandbox.run(&["track", "Take Five", "--comment", "vinyl"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Take Five"), "output: {out}");
+
+    let (_, err, ok) = sandbox.run(&["track", "Take Five", "--comment", "nothing like this"]);
+    assert!(!ok);
+    assert!(err.contains("none matching the filters"), "stderr: {err}");
+}
+
+#[test]
 fn a_listing_never_stops_without_saying_so() {
     // A listing shows fifty rows by default and used to stop there in silence.
     // Sorted by year, that meant the most recent albums of a real library

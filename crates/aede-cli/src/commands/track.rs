@@ -34,6 +34,7 @@ pub fn show_track(args: &Args) -> Res {
         .into_iter()
         .filter(|t| keeps_artist(&catalog, t, args.value("artist")))
         .filter(|t| keeps_album(&catalog, t, args.value("album")))
+        .filter(|t| keeps_comment(&catalog, t, args.value("comment")))
         .collect();
 
     if matches.is_empty() {
@@ -116,6 +117,25 @@ fn keeps_artist(catalog: &Catalog, track: &Track, wanted: Option<&str>) -> bool 
         .and_then(|id| catalog.artist(id))
         .is_some_and(|a| text::normalize(&a.name).contains(&key));
     credited || album_artist
+}
+
+/// Keeps a track whose file carries a comment containing the text.
+///
+/// The comment is the one field the user wrote themselves, so it is the one
+/// field where their own vocabulary lives: "vinyl rip", "to replace", "from
+/// the 2009 remaster". Matching is on the normalized form, since prose is
+/// typed carelessly.
+fn keeps_comment(catalog: &Catalog, track: &Track, wanted: Option<&str>) -> bool {
+    let Some(wanted) = wanted else {
+        return true;
+    };
+    let key = text::normalize(wanted);
+    if key.is_empty() {
+        return true;
+    }
+    catalog
+        .comment_of_track(track.id)
+        .is_some_and(|c| text::normalize(c).contains(&key))
 }
 
 /// `true` when the track has no album filter to satisfy, or satisfies it.
