@@ -38,6 +38,8 @@ pub struct Args {
     pub command: String,
     pub positionals: Vec<String>,
     flags: BTreeMap<String, Option<String>>,
+    /// How each option was written, so an error can quote it back.
+    spellings: BTreeMap<String, String>,
 }
 
 /// Options whose value is a single token: a number, a path, a keyword.
@@ -91,8 +93,8 @@ const SHORT: &[(&str, &str)] = &[
     ("o", "output"),
 ];
 
-/// Long name behind a short one; an unknown letter keeps its own spelling so
-/// that the unknown-option warning can name what was actually typed.
+/// Long name behind a short one; an unknown letter keeps its own spelling, and
+/// [`Args::as_typed`] is what puts the dashes back on for a message.
 fn long_name(short: &str) -> String {
     SHORT
         .iter()
@@ -128,13 +130,17 @@ impl Args {
             // exactly like it: `-o file`, `-o=file` and `--output file` are one
             // option written three ways, and only the spelling differs.
             let named = if let Some(rest) = item.strip_prefix("--") {
-                Some(split_option(rest))
+                let (name, value) = split_option(rest);
+                args.spellings.insert(name.clone(), format!("--{name}"));
+                Some((name, value))
             } else if item.len() >= 2
                 && item.starts_with('-')
                 && (item.len() == 2 || item.as_bytes().get(2) == Some(&b'='))
             {
                 let (short, value) = split_option(&item[1..]);
-                Some((long_name(&short), value))
+                let name = long_name(&short);
+                args.spellings.insert(name.clone(), format!("-{short}"));
+                Some((name, value))
             } else {
                 None
             };
@@ -243,15 +249,66 @@ impl Args {
             .collect()
     }
 
-    /// Options given but unknown to the command: better to warn than to
-    /// silently ignore a typo.
+    /// Options the program knows nothing about, each in the spelling it was
+    /// typed in.
+    ///
+    /// The caller refuses them. It used to warn and carry on, so
+    /// `aede albums --limite=5` put one line on the error stream and the whole
+    /// unlimited listing on the standard one — a wrong answer rather than a
+    /// missing one, and the answer is the half that gets read. Every other
+    /// silent acceptance in this program has been closed the same way; this was
+    /// the last one open, and the only one whose own comment claimed it was
+    /// handled.
     pub fn unknown_flags(&self, accepted: &[&str]) -> Vec<&str> {
         self.flags
             .keys()
-            .map(|k| k.as_str())
-            .filter(|k| !accepted.contains(k))
+            .filter(|k| !accepted.contains(&k.as_str()))
+            .map(|k| self.as_typed(k))
             .collect()
     }
+
+    /// The option as the user wrote it, dashes included.
+    ///
+    /// `-o` and `--output` are one option, and an error naming the second when
+    /// the first was typed sends the reader hunting for something they never
+    /// wrote. Same rule as the role names: what is shown is what was accepted.
+    fn as_typed<'a>(&'a self, name: &'a str) -> &'a str {
+        self.spellings.get(name).map(|s| s.as_str()).unwrap_or(name)
+    }
+}
+
+/// The known option closest to what was typed, when one is close enough.
+///
+/// Levenshtein distance, bounded by a third of the length: `--limite` is
+/// `--limit` misspelled, `--json` is not `--label` misspelled. A suggestion
+/// that fires on everything is noise; one that never fires costs a round trip
+/// through the help for a dropped letter.
+pub fn nearest(typed: &str, known: &[&str]) -> Option<String> {
+    let typed = typed.trim_start_matches('-');
+    let bound = (typed.chars().count() / 3).max(1);
+    known
+        .iter()
+        .map(|option| (distance(typed, option), *option))
+        .filter(|(d, _)| *d <= bound)
+        .min_by_key(|(d, option)| (*d, option.len()))
+        .map(|(_, option)| format!("--{option}"))
+}
+
+/// Levenshtein distance, two rows at a time.
+fn distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut previous: Vec<usize> = (0..=b.len()).collect();
+    let mut current = vec![0usize; b.len() + 1];
+    for (i, &ca) in a.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, &cb) in b.iter().enumerate() {
+            let substitute = previous[j] + usize::from(ca != cb);
+            current[j + 1] = substitute.min(previous[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[b.len()]
 }
 
 #[cfg(test)]
@@ -454,9 +511,32 @@ mod tests {
     }
 
     #[test]
-    fn unknown_options_spotted() {
+    fn unknown_options_are_named_as_they_were_typed() {
         let a = parse(&["stats", "--limite=3"]);
-        assert_eq!(a.unknown_flags(&["limit", "json"]), ["limite"]);
+        assert_eq!(a.unknown_flags(&["limit", "json"]), ["--limite"]);
+
+        // `-o` and `--output` are one option, and a message naming the long
+        // form when the short one was typed sends the reader hunting for
+        // something they never wrote. The same rule as the role names.
+        let a = parse(&["artists", "-z"]);
+        assert_eq!(a.unknown_flags(&["limit", "json"]), ["-z"]);
+        let a = parse(&["artists", "-o", "out.csv"]);
+        assert!(a.unknown_flags(&["output"]).is_empty(), "-o is --output");
+    }
+
+    #[test]
+    fn a_dropped_letter_gets_a_suggestion_and_a_distant_word_does_not() {
+        let known = &["limit", "label", "json", "all", "compilations"];
+        assert_eq!(nearest("--limite", known).as_deref(), Some("--limit"));
+        assert_eq!(nearest("--lmit", known).as_deref(), Some("--limit"));
+        assert_eq!(
+            nearest("--compilation", known).as_deref(),
+            Some("--compilations")
+        );
+        // Two real options one letter apart from each other must not be
+        // proposed for something that is neither.
+        assert_eq!(nearest("--fegioregj", known), None);
+        assert_eq!(nearest("--x", known), None);
     }
 
     #[test]

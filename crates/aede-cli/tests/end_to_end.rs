@@ -126,10 +126,56 @@ fn unknown_command_is_reported() {
 }
 
 #[test]
-fn misspelled_option_is_reported() {
+fn a_misspelled_option_stops_the_command() {
+    // It used to warn and carry on: `albums --limite=5` put one line on the
+    // error stream and the whole unlimited listing on the standard one. The
+    // answer is the half that gets read, and it was a wrong answer rather than
+    // a missing one.
     let sandbox = Sandbox::new("option");
-    let (_, err, _) = sandbox.run(&["stats", "--limite=3"]);
+    let (out, err, ok) = sandbox.run(&["stats", "--limite=3"]);
+    assert!(!ok, "an option nobody recognises stops the command");
+    assert!(err.contains("unknown option: --limite"), "stderr: {err}");
+    assert!(err.contains("Did you mean --limit?"), "stderr: {err}");
+    assert!(out.is_empty(), "and answers nothing: {out}");
+
+    // Named in the spelling it was typed in: `-o` and `--output` are one
+    // option, and an error naming the other sends the reader hunting.
+    let (_, err, ok) = sandbox.run(&["artists", "-z"]);
+    assert!(!ok);
+    assert!(err.contains("unknown option: -z"), "stderr: {err}");
+
+    // Refused before anything answers, `--help` included. `aede --fegioregj`
+    // printing a cheerful help page is the same silence in a friendlier
+    // costume: the command line was not understood, and the page says nothing
+    // about that.
+    let (out, err, ok) = sandbox.run(&["--fegioregj"]);
+    assert!(!ok, "output: {out}");
     assert!(err.contains("unknown option"), "stderr: {err}");
+    assert!(
+        !out.contains("COMMANDS"),
+        "the help is not an answer: {out}"
+    );
+}
+
+#[test]
+fn help_is_a_command_like_the_others() {
+    // It answers, so it is listed; it reads no argument, so it refuses one.
+    // `aede help scan` reads as a request for one command's page and printed
+    // the whole help as though nothing had been typed.
+    let sandbox = Sandbox::new("help_command");
+
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+    assert!(
+        out.lines().any(|l| l.trim_start().starts_with("help ")),
+        "a command that works is a command the help names:\n{out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["help", "scan"]);
+    assert!(!ok, "output: {out}");
+    assert!(err.contains("takes no argument"), "stderr: {err}");
+    assert!(err.contains("\"scan\" was ignored"), "stderr: {err}");
+    assert!(!out.contains("COMMANDS"), "and prints nothing else: {out}");
 }
 
 #[test]

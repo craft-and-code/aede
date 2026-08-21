@@ -36,17 +36,10 @@ fn main() {
     let args = Args::from_env();
     ui::init_color(args.has("no-color"));
 
-    if args.has("version") {
-        println!("aede {VERSION}");
-        return;
-    }
-    if args.has("help") || args.command.is_empty() {
-        print_help();
-        return;
-    }
-
-    // A misspelled option has to be visible: without this, `--limite=5`
-    // instead of `--limit=5` would be silently ignored.
+    // Before anything answers, including `--help` and `--version`: an option
+    // nobody recognises makes the whole command line untrustworthy, and
+    // `aede --fegioregj` printing a cheerful help page is the same silence in
+    // a friendlier costume.
     const OPTIONS: &[&str] = &[
         "data",
         "replace",
@@ -85,11 +78,25 @@ fn main() {
         "follow-symlinks",
         "include-hidden",
     ];
-    for unknown in args.unknown_flags(OPTIONS) {
-        eprintln!(
-            "{} unknown option ignored: --{unknown}",
-            ui::yellow("Warning:")
-        );
+    let unknown = args.unknown_flags(OPTIONS);
+    if !unknown.is_empty() {
+        for option in &unknown {
+            eprintln!("{} unknown option: {option}", ui::red("Error:"));
+            if let Some(near) = args::nearest(option, OPTIONS) {
+                eprintln!("Did you mean {near}?");
+            }
+        }
+        eprintln!("Run \"aede help\" for the list of options.");
+        std::process::exit(2);
+    }
+
+    if args.has("version") {
+        println!("aede {VERSION}");
+        return;
+    }
+    if args.has("help") || args.command.is_empty() {
+        print_help();
+        return;
     }
 
     // An option that expects a value and was given none cannot be honoured.
@@ -269,6 +276,10 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
         "labels" => "For one label: aede label \"<name>\"",
         "years" => "For one year: aede albums --year=<year>",
         "stats" | "doctor" | "roots" => "It describes the whole catalog.",
+        // `aede help scan` reads like a request for one command's page, and
+        // there is no such page: printing the whole help as though the word had
+        // not been typed answers a question that was not asked.
+        "help" => "It prints the whole help; there is no page per command.",
         _ => return None,
     })
 }
@@ -325,6 +336,7 @@ fn print_help() {
   reset                Remove the catalog, after confirmation (--yes skips it)
   export               Export the catalog as JSON, or as CSV with --csv
                        (one row per album; --tracks for one row per track)
+  help                 This page, which is also what running aede alone shows
 
 {}
   --data <folder>      Catalog location

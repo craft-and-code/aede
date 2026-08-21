@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 221 tests
+cargo test                       # 223 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -69,9 +69,11 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **A short option is the long one written shorter.** `args::SHORT` resolves it to a long name and everything downstream — values, guards, the missing-value check — sees one option. Aliases stay few: four saved keystrokes cost a documented line for ever, so they are worth it only where the option is typed constantly (`-o`, `-j`, `-h`, `-V`).
 
-**The help is part of the contract.** An option printed under a heading that names the one command it does not work on is a lie that costs more than a missing line. Each option in `print_help` says where it applies, and a test asserts the help names every filter option the parser accepts — the same claim, checked from both ends. A command's own line in COMMANDS names the filters it honours, too: for most readers that line is the whole help, so `--year`, honoured by `albums` and named only in the section below, existed for them nowhere.
+**The help is part of the contract.** An option printed under a heading that names the one command it does not work on is a lie that costs more than a missing line. Each option in `print_help` says where it applies, and a test asserts the help names every filter option the parser accepts — the same claim, checked from both ends. A command's own line in COMMANDS names the filters it honours, too: for most readers that line is the whole help, so `--year`, honoured by `albums` and named only in the section below, existed for them nowhere. It runs the other way as well — `help` answered for months without appearing in its own list of commands.
 
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere. `--artist` and `--year` were the proof: declared, documented, guarded nowhere, so `aede artists --year=1969` answered about every year. A filter whose value does not parse is refused for the same reason — `--year=abc` used to become no filter at all, which is the whole library returned under a name that promised one year.
+
+An option the program has never heard of is refused too, and **before anything answers, `--help` and `--version` included**. It used to be a warning: `aede albums --limite=5` put one line on the error stream and the whole unlimited listing on the standard one, and the answer is the half that gets read. `aede --fegioregj` printed a cheerful help page — the same silence in a friendlier costume, since the page says nothing about the command line having failed to parse. `args::nearest` proposes the closest known option within a third of the typed length, and `args::as_typed` quotes the option back in the spelling it was typed in, `-z` and not `--z`. The rule that covers all of it: **a command either answers the question it was asked or refuses; it never answers a different one.** Warning and carrying on is answering a different one.
 
 **Every entity deserves a page, and every page a filter.** The model is a graph; a listing that counts genres without letting you open one is a dead end. `artist`, `album`, `track`, `genre` and `label` each have a singular page, and what a page gathers is a selection — so `--csv` and `--m3u` work on it, through `commands::selection_output`, without the command knowing anything about them. Adding an entity kind means adding its page.
 
