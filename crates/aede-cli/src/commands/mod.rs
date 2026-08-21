@@ -41,7 +41,7 @@ use aede_core::tags::AudioProperties;
 use aede_core::text;
 
 use crate::args::Args;
-use crate::ui::Table;
+use crate::ui::{self, Table};
 
 /// What every command returns: nothing useful, or an error already worded for
 /// the user.
@@ -165,6 +165,30 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
                 size + catalog.file(track.file_id).map(|f| f.size).unwrap_or(0),
             )
         })
+}
+
+/// Says that a listing was cut, and what to do about it.
+///
+/// Every listing stops at `--limit` rows so as not to fill the terminal, and
+/// all five of them used to stop **in silence**. A cut list reads as "that is
+/// all there is", which is the one thing it is not: an album sitting past the
+/// fiftieth row simply did not exist as far as the user could tell. The header
+/// counting the matches is not enough — nobody compares it against the rows
+/// they were given.
+///
+/// Nothing is printed when everything was shown, so the notice keeps meaning
+/// something.
+fn announce_limit(shown: usize, total: usize, what: &str) {
+    if shown >= total {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::yellow(&format!(
+            "{shown} of {} shown — raise --limit to see the rest",
+            ui::plural(total, what)
+        ))
+    );
 }
 
 /// Marker put after an album title when the same album sits elsewhere too.

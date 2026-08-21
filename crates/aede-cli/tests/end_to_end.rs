@@ -245,6 +245,85 @@ fn a_track_is_reachable_by_its_title() {
 }
 
 #[test]
+fn a_listing_never_stops_without_saying_so() {
+    // A listing shows fifty rows by default and used to stop there in silence.
+    // Sorted by year, that meant the most recent albums of a real library
+    // simply did not exist as far as the user could see.
+    let sandbox = Sandbox::new("listing_limit");
+    let root = std::env::temp_dir().join("aede_e2e_listing_limit_src");
+    let _ = std::fs::remove_dir_all(&root);
+    let source = library().join("track.flac");
+    for year in 1960..1960 + 60 {
+        let dir = root.join(format!("{year} Album {year}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(&source, dir.join("01.flac")).unwrap();
+    }
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // Sixty albums, fifty rows: the cut has to be announced.
+    let (out, _, ok) = sandbox.run(&["albums"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("50 of 60 albums shown"),
+        "the cut must be announced:\n{out}"
+    );
+    assert!(out.contains("--limit"), "and it must say how to lift it");
+
+    // Shown in full, nothing is said: a notice that always fires means nothing.
+    let (out, _, ok) = sandbox.run(&["albums", "--limit=200"]);
+    assert!(ok);
+    assert!(!out.contains("shown —"), "nothing was left out:\n{out}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compilations_can_be_singled_out() {
+    let sandbox = Sandbox::new("compilations");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // The reference library holds one compilation, "Duos", and albums with an
+    // album artist.
+    let (all, _, _) = sandbox.run(&["albums", "--limit=200"]);
+    assert!(all.contains("Duos"), "output: {all}");
+    assert!(all.contains("Kind of Blue"), "output: {all}");
+
+    let (only, _, ok) = sandbox.run(&["albums", "--compilations"]);
+    assert!(ok, "output: {only}");
+    assert!(only.contains("Compilations"), "the heading says so: {only}");
+    assert!(only.contains("Duos"), "output: {only}");
+    assert!(
+        !only.contains("Kind of Blue"),
+        "an album with an album artist is not a compilation:\n{only}"
+    );
+
+    let (without, _, ok) = sandbox.run(&["albums", "--no-compilations"]);
+    assert!(ok);
+    assert!(without.contains("Kind of Blue"), "output: {without}");
+    assert!(!without.contains("Duos"), "output: {without}");
+
+    // The two are opposites: asking for both is a contradiction, not a
+    // silently empty answer.
+    let (_, err, ok) = sandbox.run(&["albums", "--compilations", "--no-compilations"]);
+    assert!(!ok);
+    assert!(err.contains("opposite"), "stderr: {err}");
+
+    // The filter reaches the CSV too, since it is the same selection.
+    let (csv, _, ok) = sandbox.run(&["albums", "--compilations", "--csv"]);
+    assert!(ok);
+    assert!(csv.contains("Duos"), "output: {csv}");
+    assert!(!csv.contains("Kind of Blue"), "output: {csv}");
+
+    // A command that cannot honour it says so rather than ignoring it.
+    let (_, err, ok) = sandbox.run(&["artists", "--compilations"]);
+    assert!(!ok);
+    assert!(err.contains("cannot"), "stderr: {err}");
+}
+
+#[test]
 fn a_name_given_to_an_option_may_be_typed_without_quotes() {
     // The shell splits on spaces, so `--with Jeff Beck` reached the program as
     // two words: the option took "Jeff" and "Beck" was left to be joined onto

@@ -72,6 +72,8 @@ fn main() {
         "yes",
         "forget",
         "source",
+        "compilations",
+        "no-compilations",
         "help",
         "version",
         "full",
@@ -109,6 +111,16 @@ fn main() {
         ("output", OUTPUT_COMMANDS, "write to a file"),
         ("forget", IMPORT_COMMANDS, "forget an analysis"),
         ("source", IMPORT_COMMANDS, "select a source"),
+        (
+            "compilations",
+            ALBUM_LIST_COMMANDS,
+            "single out compilations",
+        ),
+        (
+            "no-compilations",
+            ALBUM_LIST_COMMANDS,
+            "leave compilations out",
+        ),
     ] {
         if args.has(option) && !commands.contains(&args.command.as_str()) {
             eprintln!(
@@ -169,6 +181,10 @@ const M3U_COMMANDS: &[&str] = &["album", "artist", "track", "search"];
 /// Commands that act on what was imported from another tool.
 const IMPORT_COMMANDS: &[&str] = &["import"];
 
+/// The one command that lists releases and can therefore sort compilations
+/// from the rest.
+const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
+
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
     "export", "album", "artist", "track", "search", "albums", "artists", "genres", "labels",
@@ -194,7 +210,7 @@ fn print_help() {
                        only those under the folders given (--full re-verifies)
 
   artists              List of artists
-  albums               List of albums
+  albums               List of albums (--compilations, --no-compilations)
   genres               List of genres
   labels               List of labels
   years                Breakdown by year
@@ -232,6 +248,12 @@ fn print_help() {
   --include-hidden     Include hidden files and folders
 
 {}
+  --compilations       Only the albums several artists share
+  --no-compilations    Everything except those
+  --artist <name>      Only the albums of one artist
+  --year <year>        Only the albums of one year
+
+{}
   --forget             Remove the imported analyses instead of adding any
   --source <name>      Restrict --forget to one tool (default: all of them)
 
@@ -242,12 +264,14 @@ fn print_help() {
   aede artist \"Miles Davis\"
   aede track \"So What\" --artist=\"Miles Davis\"
   aede albums --year=1969
+  aede albums --compilations
   aede search coltrane
   aede import ~/Desktop/report.json",
         ui::cyan("USAGE"),
         ui::cyan("COMMANDS"),
         ui::cyan("GLOBAL OPTIONS"),
         ui::cyan("SCAN OPTIONS"),
+        ui::cyan("ALBUM LIST OPTIONS"),
         ui::cyan("IMPORT OPTIONS"),
         ui::cyan("EXAMPLES")
     );

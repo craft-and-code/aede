@@ -25,7 +25,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                  |
 | `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats                               |
 | `aede check [folder…]`                                    | Verify the checksums the files carry (`--full` re-verifies everything)                   |
-| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings                                                                                 |
+| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings (`albums --compilations` singles out the shared ones)                           |
 | `aede artist "<name>"`                                    | Discography, collaborations, roles (`--with <other>` lists the tracks two artists share) |
 | `aede album "<title>"`                                    | Tracks, durations, formats, credits                                                      |
 | `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                 |
@@ -72,6 +72,7 @@ The **listings** — `albums`, `artists`, `genres`, `labels`, `years` — turn i
 ```sh
 aede albums --csv --artist="Deicide" --output=deicide.csv
 aede albums --csv --year=1990
+aede albums --csv --compilations --output=compilations.csv
 aede artists --csv --limit=100 --output=artists.csv
 ```
 
@@ -116,6 +117,27 @@ Quality
   Hi-res                   4  664.3 kB  ███████·············
   Lossy (>= 256 kbps)      3  248.3 kB  █████···············
 ```
+
+### Compilations
+
+A **compilation** is a release with no album artist: several artists share it, which is why it stays out of every discography. Nothing else in the program singles them out, so `albums` does:
+
+```sh
+aede albums --compilations       # only the ones several artists share
+aede albums --no-compilations    # everything except those
+```
+
+Asking for both is refused — they are opposites, and an empty answer would look like a library with nothing in it.
+
+### A listing always says when it stopped
+
+Every listing shows **50 rows** by default. It now says so when there are more:
+
+```
+  50 of 312 albums shown — raise --limit to see the rest
+```
+
+Nothing is printed when everything fit, so the line keeps meaning something. Sorted by year, a silent cut used to make the most recent albums of a library simply invisible.
 
 ### Trying it without a library at hand
 
@@ -408,7 +430,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-199 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+201 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

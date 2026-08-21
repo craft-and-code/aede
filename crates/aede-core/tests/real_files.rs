@@ -3,6 +3,12 @@
 //! The files in `tests/fixtures/` were produced with ffmpeg and verified with
 //! ffprobe: they are real containers, not mock-ups. That is the only way to
 //! catch misreadings of the specifications.
+//!
+//! `compilation.flac` is the one exception: it is `track.flac` with its
+//! Vorbis comment block rewritten to carry `ALBUMARTIST=Various Artists`, the
+//! padding block shrunk by exactly as much so the audio is untouched. A
+//! library with no compilation in it cannot test the one thing that
+//! distinguishes a compilation from an album.
 
 use std::path::PathBuf;
 

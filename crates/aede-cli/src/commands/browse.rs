@@ -4,7 +4,7 @@ use aede_core::model::Id;
 use aede_core::stats;
 use aede_core::text;
 
-use super::{Res, copy_marker, export, load, totals};
+use super::{Res, announce_limit, copy_marker, export, load, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -82,6 +82,7 @@ pub fn list_artists(args: &Args) -> Res {
         .align(3, Align::Right)
         .align(4, Align::Right)
         .limit(0, 50);
+    let total = rows.len();
     for (id, tracks, albums, duration, size) in rows.into_iter().take(limit) {
         let a = &catalog.artists[id as usize];
         t.push(vec![
@@ -93,6 +94,7 @@ pub fn list_artists(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
+    announce_limit(total.min(limit), total, "artist");
     Ok(())
 }
 
@@ -103,9 +105,27 @@ pub fn list_albums(args: &Args) -> Res {
     let artist_filter = args.value("artist").map(text::normalize);
     let year_filter: Option<u32> = args.value("year").and_then(|v| v.parse().ok());
 
+    // A compilation is a release with no album artist: several artists share
+    // it, which is exactly why nothing else in the program can single them out.
+    // The two flags are opposites and cannot both be honoured.
+    if args.has("compilations") && args.has("no-compilations") {
+        return Err("--compilations and --no-compilations ask for opposite things".into());
+    }
+    let compilations_only = args.has("compilations");
+    let albums_only = args.has("no-compilations");
+
     let mut rows: Vec<&aede_core::model::Release> = catalog
         .releases
         .iter()
+        .filter(|r| {
+            if compilations_only {
+                return r.is_compilation;
+            }
+            if albums_only {
+                return !r.is_compilation;
+            }
+            true
+        })
         .filter(|r| match &artist_filter {
             Some(key) => r
                 .album_artist_id
@@ -134,9 +154,16 @@ pub fn list_albums(args: &Args) -> Res {
         return export::albums_table(&catalog, &ids, args);
     }
 
+    let heading = if compilations_only {
+        "Compilations"
+    } else if albums_only {
+        "Albums, compilations left out"
+    } else {
+        "Albums"
+    };
     println!(
         "{}",
-        ui::section(&format!("Albums ({} matching)", rows.len()))
+        ui::section(&format!("{heading} ({} matching)", rows.len()))
     );
     let mut t = Table::new(&[
         "Year", "Album", "Artist", "Tracks", "Duration", "Size", "Format",
@@ -147,6 +174,7 @@ pub fn list_albums(args: &Args) -> Res {
     .limit(1, 40)
     .limit(2, 30)
     .limit(6, 30);
+    let total = rows.len();
     for release in rows.into_iter().take(limit) {
         let artist = release
             .album_artist_id
@@ -175,13 +203,16 @@ pub fn list_albums(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
+    announce_limit(total.min(limit), total, "album");
     Ok(())
 }
 
 pub fn list_genres(args: &Args) -> Res {
     let catalog = load(args)?;
     let limit = args.usize_value("limit", 50);
-    let top = stats::top_genres(&catalog, limit);
+    // Ranked in full, cut at display: the notice below can only be honest if
+    // the count of what was left out is known.
+    let top = stats::top_genres(&catalog, usize::MAX);
     if args.has("csv") {
         let table: Vec<Vec<String>> = top
             .iter()
@@ -215,7 +246,8 @@ pub fn list_genres(args: &Args) -> Res {
         .align(2, Align::Right)
         .align(3, Align::Right)
         .limit(0, 40);
-    for (id, count) in top {
+    let total = top.len();
+    for (id, count) in top.into_iter().take(limit) {
         let name = catalog
             .genre(id)
             .map(|g| g.name.clone())
@@ -230,13 +262,14 @@ pub fn list_genres(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
+    announce_limit(total.min(limit), total, "genre");
     Ok(())
 }
 
 pub fn list_labels(args: &Args) -> Res {
     let catalog = load(args)?;
     let limit = args.usize_value("limit", 50);
-    let top = stats::top_labels(&catalog, limit);
+    let top = stats::top_labels(&catalog, usize::MAX);
     if args.has("csv") {
         let table: Vec<Vec<String>> = top
             .iter()
@@ -272,7 +305,8 @@ pub fn list_labels(args: &Args) -> Res {
         .align(3, Align::Right)
         .align(4, Align::Right)
         .limit(0, 40);
-    for (id, count) in top {
+    let total = top.len();
+    for (id, count) in top.into_iter().take(limit) {
         let name = catalog
             .label(id)
             .map(|l| l.name.clone())
@@ -289,6 +323,7 @@ pub fn list_labels(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
+    announce_limit(total.min(limit), total, "label");
     Ok(())
 }
 
