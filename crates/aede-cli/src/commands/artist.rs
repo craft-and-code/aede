@@ -6,7 +6,9 @@
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::text;
 
-use super::{Res, copy_marker, load, selection_output, totals};
+use super::{
+    Res, copy_marker, load, role_key, role_label, roles_offered, selection_output, totals,
+};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -33,6 +35,14 @@ pub fn show_artist(args: &Args) -> Res {
         return print_tracks_in_common(&catalog, artist.id, wanted);
     }
 
+    // `--role` narrows the page to what this person did *in that role*. The
+    // page below already separates performing from writing; this goes one step
+    // finer, and is the only way to ask "what did Ozzy sing on" as opposed to
+    // "what is Ozzy on at all".
+    if let Some(role) = args.value("role") {
+        return print_tracks_in_role(&catalog, artist.id, role, args);
+    }
+
     // The tracks the artist is audible on, which is what one wants to hear or
     // to tabulate.
     if let Some(result) = selection_output(
@@ -54,15 +64,25 @@ pub fn show_artist(args: &Args) -> Res {
     let artist_id = artist.id;
     let own = catalog.releases_as_album_artist(artist_id);
     let guest = catalog.guest_appearances(artist_id);
-    let written = catalog.writing_credits_of_artist(artist_id);
     let tracks = catalog.performed_tracks_of_artist(artist_id);
     // Two lines, always labelled. An unlabelled count reads as "everything
     // about this artist", and a band's lyricist — credited on forty albums,
     // audible on none — was announced as "0 album · 0 track" right above the
     // forty rows that contradict it.
-    let written_tracks = catalog.written_tracks_of_artist(artist_id);
+    //
+    // And each line counts **everything** in its class. The writing line used
+    // to report the size of the table further down, which leaves out whatever
+    // the artist also plays on: Ozzy Osbourne, sixty-nine composer credits and
+    // sixty-eight as lyricist, was announced as writing one track. A figure
+    // that answers a narrower question than its label is worse than no figure.
+    let writing_releases = catalog.releases_with_writing_credit(artist_id);
+    let writing_tracks = catalog.writing_tracks_of_artist(artist_id);
     print_measures(&catalog, "performing", own.len(), &tracks);
-    print_measures(&catalog, "writing", written.len(), &written_tracks);
+    print_measures(&catalog, "writing", writing_releases.len(), &writing_tracks);
+
+    // The table below shows only what the two tables above do not, so it needs
+    // its own set — and, since the two numbers differ, its own heading.
+    let written_elsewhere = catalog.releases_written_without_performing(artist_id);
 
     let genres = collect_genres_for_artist(&catalog, artist.id);
     if !genres.is_empty() {
@@ -81,8 +101,8 @@ pub fn show_artist(args: &Args) -> Res {
     );
     print_release_table(
         &catalog,
-        "Credited as writer or producer",
-        &written,
+        "Written or produced, without performing on it",
+        &written_elsewhere,
         TrackColumn::WholeRelease,
     );
 
@@ -232,28 +252,61 @@ fn collect_roles(catalog: &Catalog, artist_id: Id) -> Vec<(String, usize)> {
     list
 }
 
-/// Display name for an internal role key; unknown keys are shown as they are.
-fn role_label(role: &str) -> String {
-    match role {
-        "main" => "main artist",
-        "album" => "album artist",
-        "composer" => "composer",
-        "conductor" => "conductor",
-        "remixer" => "remixer",
-        "lyricist" => "lyricist",
-        "performer" => "performer",
-        "producer" => "producer",
-        "engineer" => "engineer",
-        "featured" => "featured",
-        other => other,
-    }
-    .to_string()
-}
-
 /// Lists the tracks two artists both perform on.
 ///
 /// The pair is what the collaboration weight counts, so the number of rows
 /// here always matches the figure shown in the "Played with" table.
+/// The tracks one artist holds one role on.
+///
+/// An empty answer names the roles this person *does* hold: told only that
+/// nobody is credited that way, the user cannot tell a wrong spelling from a
+/// library whose tags never carried the field.
+fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Args) -> Res {
+    let name = catalog
+        .artist(artist_id)
+        .map(|a| a.name.clone())
+        .unwrap_or_default();
+    let held = catalog.roles_of_artist(artist_id);
+    let listed: Vec<String> = held
+        .iter()
+        .map(|(role, count)| format!("{} ({count})", role_label(role)))
+        .collect();
+
+    // What the user typed is matched against both spellings of every role,
+    // because "album artist" is the only one they have ever been shown.
+    let Some(role) = role_key(catalog, typed) else {
+        return Err(match listed.is_empty() {
+            true => format!("{name} carries no credit at all"),
+            false => format!(
+                "no role is called \"{typed}\".\nRoles in use: {}",
+                roles_offered(catalog)
+            ),
+        }
+        .into());
+    };
+    let tracks = catalog.tracks_of_artist_in_role(artist_id, &role);
+    if tracks.is_empty() {
+        return Err(match listed.is_empty() {
+            true => format!("{name} carries no credit at all"),
+            false => format!(
+                "{name} is not credited as {}.\nCredited as: {}",
+                role_label(&role),
+                listed.join(", ")
+            ),
+        }
+        .into());
+    }
+
+    if let Some(result) = selection_output(catalog, &tracks, args) {
+        return result;
+    }
+    print_track_table(
+        catalog,
+        &format!("{name} as {}", role_label(&role)),
+        &tracks,
+    )
+}
+
 fn print_tracks_in_common(catalog: &Catalog, artist_id: Id, wanted: &str) -> Res {
     let Some(other) = catalog.find_artist(wanted).or_else(|| {
         catalog
@@ -277,11 +330,20 @@ fn print_tracks_in_common(catalog: &Catalog, artist_id: Id, wanted: &str) -> Res
         )
         .into());
     }
+    print_track_table(
+        catalog,
+        &format!("{here} and {} on the same track", other.name),
+        &tracks,
+    )
+}
 
-    println!(
-        "{}",
-        ui::section(&format!("{here} and {} on the same track", other.name))
-    );
+/// One table of tracks, with the three measures under it.
+///
+/// Shared by every way of narrowing an artist page down to a track list — the
+/// tracks two people share, the tracks one of them holds a role on — because a
+/// track list is a track list, and two renderings of it would drift apart.
+fn print_track_table(catalog: &Catalog, heading: &str, tracks: &[Id]) -> Res {
+    println!("{}", ui::section(heading));
     let mut t = Table::new(&["Year", "Album", "Track", "Duration", "Size", "Format"])
         .align(3, Align::Right)
         .align(4, Align::Right)

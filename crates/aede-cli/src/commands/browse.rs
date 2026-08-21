@@ -4,7 +4,9 @@ use aede_core::model::Id;
 use aede_core::stats;
 use aede_core::text;
 
-use super::{Res, announce_limit, copy_marker, export, load, role_label, totals};
+use super::{
+    Res, announce_limit, copy_marker, export, load, role_key, role_label, roles_offered, totals,
+};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -17,19 +19,35 @@ pub fn list_artists(args: &Args) -> Res {
     // whole reason credits carry a role rather than being a bare artist
     // column. A role nobody is credited with is an error, with the list of the
     // ones that exist: guessing the spelling of a role is not the user's job.
-    let role = args.value("role");
-    let in_role: Option<std::collections::BTreeSet<Id>> = match role {
+    let role: Option<String> = match args.value("role") {
+        Some(typed) => match role_key(&catalog, typed) {
+            Some(key) => Some(key),
+            None => {
+                return Err(format!(
+                    "no role is called \"{typed}\".\nRoles in use: {}",
+                    roles_offered(&catalog)
+                )
+                .into());
+            }
+        },
+        None => None,
+    };
+    let in_role: Option<std::collections::BTreeSet<Id>> = match role.as_ref() {
         Some(role) => {
             let found: std::collections::BTreeSet<Id> = catalog
                 .artists_in_role(role)
                 .into_iter()
                 .map(|(id, _)| id)
                 .collect();
+            // A real role that this library happens not to hold: an empty
+            // result, not a misunderstanding, and the two read differently.
             if found.is_empty() {
-                let known = catalog.roles_in_use().join(", ");
-                return Err(
-                    format!("nobody is credited as \"{role}\".\nRoles in use: {known}").into(),
-                );
+                return Err(format!(
+                    "nobody here is credited as {}.\nRoles in use: {}",
+                    role_label(role),
+                    roles_offered(&catalog)
+                )
+                .into());
             }
             Some(found)
         }
@@ -99,7 +117,7 @@ pub fn list_artists(args: &Args) -> Res {
         );
     }
 
-    let heading = match role {
+    let heading = match &role {
         Some(role) => format!("Artists credited as {} ({})", role_label(role), rows.len()),
         None => format!("Artists ({} in total)", catalog.artists.len()),
     };

@@ -138,14 +138,22 @@ aede albums --genre metal --year 1994
 aede albums --label "Blue Note"
 ```
 
-**Roles read the other way round.** The artist page answers "what did this person do"; `--role` answers "who does this in my library" — which is the whole reason credits store a role rather than a bare artist column:
+**Roles read both ways.** `--role` means two things, depending on what it is attached to — and both are useful:
 
 ```sh
-aede artists --role producer
+aede artists --role producer                    # who produces, in my library
+aede artist Ozzy --role performer               # what Ozzy sang on
+aede artist Ozzy --role performer --m3u         # …as a playlist
 aede artists --role composer --csv --output=composers.csv
 ```
 
-A role nobody holds is an error listing the ones that exist, since guessing the spelling of a role is not your job. `aede stats` shows the whole vocabulary **this** library holds, with counts — so a role that returns nothing can be told apart from a bug: your files simply never carried that tag.
+On the **listing**, it answers "who does this here". On one person's **page**, it answers "what did they do in that role" — one step finer than the performing/writing split the page already shows. That a role can be read in both directions is the whole reason credits store one rather than a bare artist column.
+
+It needs a person, so `aede album "<title>" --role performer` is refused: a role with nobody attached asks nothing. There, `--artist` is the filter.
+
+A role is typed the way it is **shown**: `--role "album artist"` as well as `--role album`, in either case, with or without quotes. What a screen displays must be what the parser accepts, or the program contradicts itself — as it did, denying a role and listing it among the artist's credits in the same message.
+
+Three different answers, because they are three different situations: a word that names no role at all lists the ones that do; a real role this library happens not to hold says so; and a role the _person_ does not hold names the ones they do. `aede stats` shows the whole vocabulary **this** library holds, with counts — so a role that returns nothing can be told apart from a bug: your files simply never carried that tag.
 
 ```
 Roles
@@ -483,7 +491,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-207 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+211 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

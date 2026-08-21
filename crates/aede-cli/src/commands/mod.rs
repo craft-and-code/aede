@@ -67,22 +67,71 @@ fn load(args: &Args) -> Result<Catalog, Box<dyn Error>> {
     }
 }
 
+/// The role vocabulary, as `(key stored, name shown)`.
+///
+/// One table read in both directions. It used to be a one-way `match`, and the
+/// consequence was a message contradicting itself in a single breath: asked for
+/// `--role "album artist"` — the only spelling ever shown on screen — the
+/// program answered that the artist was *not* credited as album artist and then
+/// listed "album artist (14)" among their credits. The user can only type what
+/// they are shown; whatever is shown must therefore be accepted.
+const ROLE_NAMES: &[(&str, &str)] = &[
+    ("main", "main artist"),
+    ("album", "album artist"),
+    ("composer", "composer"),
+    ("conductor", "conductor"),
+    ("remixer", "remixer"),
+    ("lyricist", "lyricist"),
+    ("performer", "performer"),
+    ("producer", "producer"),
+    ("engineer", "engineer"),
+    ("featured", "featured"),
+];
+
 /// Display name for an internal role key; unknown keys are shown as they are.
 fn role_label(role: &str) -> String {
-    match role {
-        "main" => "main artist",
-        "album" => "album artist",
-        "composer" => "composer",
-        "conductor" => "conductor",
-        "remixer" => "remixer",
-        "lyricist" => "lyricist",
-        "performer" => "performer",
-        "producer" => "producer",
-        "engineer" => "engineer",
-        "featured" => "featured",
-        other => other,
-    }
-    .to_string()
+    ROLE_NAMES
+        .iter()
+        .find(|(key, _)| *key == role)
+        .map(|(_, label)| (*label).to_string())
+        .unwrap_or_else(|| role.to_string())
+}
+
+/// The key behind whatever the user typed, or `None` if it names no role.
+///
+/// Accepts the stored key and the displayed name alike, up to case and
+/// accents. It looks first at the roles the catalog **holds** — so a role
+/// arriving from MusicBrainz at M1, absent from the table above, is reachable
+/// by its own name without a line of code — then at the known vocabulary, so
+/// that a real role nobody holds here can be told apart from a word that is no
+/// role at all. The two deserve different answers: one is an empty result, the
+/// other a misunderstanding.
+fn role_key(catalog: &Catalog, typed: &str) -> Option<String> {
+    let wanted = text::normalize(typed);
+    let in_use = catalog
+        .roles_in_use()
+        .into_iter()
+        .find(|key| text::normalize(key) == wanted || text::normalize(&role_label(key)) == wanted)
+        .map(|key| key.to_string());
+    in_use.or_else(|| {
+        ROLE_NAMES
+            .iter()
+            .find(|(key, label)| text::normalize(key) == wanted || text::normalize(label) == wanted)
+            .map(|(key, _)| (*key).to_string())
+    })
+}
+
+/// The roles a catalog holds, spelled the way they are shown.
+///
+/// What an error message offers has to be typeable back in: listing the stored
+/// keys would name `album` where every screen says `album artist`.
+fn roles_offered(catalog: &Catalog) -> String {
+    catalog
+        .roles_in_use()
+        .into_iter()
+        .map(role_label)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Technical description of a stream, shown identically by `file` and by

@@ -314,6 +314,121 @@ fn the_two_filters_that_were_declared_and_ignored_now_bite() {
 }
 
 #[test]
+fn a_role_reads_one_way_on_the_list_and_another_on_the_page() {
+    // Two readings of the same word: on the listing, who is credited that way;
+    // on one person's page, what they did in that role. The page could not be
+    // asked at all — the option was refused there — although it is the more
+    // natural of the two questions.
+    let sandbox = Sandbox::new("role_page");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["artist", "Miles Davis", "--role", "composer"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("as composer"), "the heading says which: {out}");
+    assert!(out.contains("Kind of Blue"), "output: {out}");
+
+    // It narrows a selection, so it can be played or tabulated.
+    let (m3u, _, ok) = sandbox.run(&["artist", "Miles Davis", "--role", "composer", "--m3u"]);
+    assert!(ok);
+    assert!(m3u.starts_with("#EXTM3U"), "output: {m3u}");
+
+    // A role this person does not hold names the ones they do: told only that
+    // nobody is credited that way, one cannot tell a misspelling from a
+    // library whose tags never carried the field.
+    let (_, err, ok) = sandbox.run(&["artist", "Miles Davis", "--role", "producer"]);
+    assert!(!ok);
+    assert!(err.contains("Credited as"), "stderr: {err}");
+    assert!(err.contains("composer"), "stderr: {err}");
+
+    // Where a role means nothing, the refusal says what to type instead.
+    let (_, err, ok) = sandbox.run(&["album", "Kind of Blue", "--role", "performer"]);
+    assert!(!ok);
+    assert!(err.contains("A role needs a person"), "stderr: {err}");
+    assert!(err.contains("aede artist"), "stderr: {err}");
+}
+
+#[test]
+fn a_role_is_accepted_by_the_name_it_is_shown_under() {
+    // The message contradicted itself in one breath: asked for
+    // --role "album artist" — the only spelling ever printed — it answered
+    // that the artist was not credited as album artist, and listed
+    // "album artist (14)" among their credits. The screen said one word, the
+    // parser wanted another.
+    let sandbox = Sandbox::new("role_naming");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // The reference library has a Sextet as album artist of Kind of Blue.
+    let by_label = sandbox.run(&["artists", "--role", "album artist"]);
+    let by_key = sandbox.run(&["artists", "--role", "album"]);
+    assert!(by_label.2, "stderr: {}", by_label.1);
+    assert_eq!(
+        by_label.0, by_key.0,
+        "the shown name and the stored key must reach the same answer"
+    );
+    assert!(by_label.0.contains("Sextet"), "output: {}", by_label.0);
+
+    // Typed as two bare words, since a role name has a space in it.
+    let unquoted = sandbox.run(&["artists", "--role", "album", "artist"]);
+    assert_eq!(unquoted.0, by_label.0, "no quotes needed either");
+
+    // A role that does not exist offers the ones that do, spelled the way they
+    // are shown — an error listing "album" where every screen says "album
+    // artist" tells the user to type something that will be refused.
+    let (_, err, ok) = sandbox.run(&["artists", "--role", "drummer"]);
+    assert!(!ok);
+    assert!(err.contains("Roles in use"), "stderr: {err}");
+    assert!(
+        err.contains("album artist"),
+        "the offer has to be typeable back in: {err}"
+    );
+
+    // And a refusal on a person names what they *are*, without contradicting
+    // itself: Miles Davis is not the album artist here, the Sextet is.
+    let (_, err, ok) = sandbox.run(&["artist", "Miles Davis", "--role", "album artist"]);
+    assert!(!ok);
+    assert!(
+        err.contains("not credited as album artist"),
+        "stderr: {err}"
+    );
+    assert!(
+        !err.contains("Credited as: main artist (12), composer (8), album artist"),
+        "a message may not deny and confirm the same role: {err}"
+    );
+}
+
+#[test]
+fn the_help_says_where_each_option_applies() {
+    // `--role` was printed under a heading that named the album listing, which
+    // is the one place it does not work. A help that lies costs more than a
+    // help that is short.
+    let sandbox = Sandbox::new("help_options");
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+    assert!(!out.contains("ALBUM LIST OPTIONS"), "output: {out}");
+    assert!(out.contains("FILTER OPTIONS"), "output: {out}");
+
+    // Every filter option named in the help must be spelled the way the
+    // program accepts it — a help naming an option the parser rejects is the
+    // same lie in the other direction.
+    for option in [
+        "--artist",
+        "--year",
+        "--genre",
+        "--label",
+        "--compilations",
+        "--comment",
+        "--comments",
+        "--role",
+    ] {
+        assert!(out.contains(option), "the help must name {option}:\n{out}");
+    }
+}
+
+#[test]
 fn a_command_that_reads_no_argument_refuses_one() {
     // `aede artists ozzy --role producer` listed every producer in the
     // library, "ozzy" going into the void. The answer looked right, which is
@@ -687,10 +802,44 @@ fn a_guest_appearance_is_timed_on_its_own_tracks() {
     );
 }
 
+/// The number on a line like `  writing:    1 album · 8 tracks · …`.
+fn tracks_on_line(out: &str, label: &str) -> usize {
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with(label))
+        .unwrap_or_else(|| panic!("no \"{label}\" line in:\n{out}"));
+    let before = line
+        .split("track")
+        .next()
+        .expect("something before the word");
+    before
+        .split_whitespace()
+        .filter_map(|w| w.parse::<usize>().ok())
+        .next_back()
+        .unwrap_or_else(|| panic!("no count on: {line}"))
+}
+
+/// The count on a row of the Roles table, `  composer   8`.
+fn role_count(out: &str, role: &str) -> usize {
+    let roles = out.split("Roles").nth(1).expect("a Roles panel");
+    let line = roles
+        .lines()
+        .find(|l| l.trim_start().starts_with(role))
+        .unwrap_or_else(|| panic!("no {role} row in:\n{roles}"));
+    line.split_whitespace()
+        .filter_map(|w| w.parse::<usize>().ok())
+        .next_back()
+        .unwrap_or_else(|| panic!("no count on: {line}"))
+}
+
 #[test]
-fn a_writer_is_not_announced_as_having_nothing() {
-    // A band's lyricist has no performing credit at all. The page used to open
-    // with "0 album · 0 track" and then list the forty albums he wrote for.
+fn the_summary_lines_agree_with_the_roles_panel() {
+    // Two figures about one person on one page, and they contradicted each
+    // other: the header said "writing: 1 track" while the Roles panel counted
+    // sixty-nine composer credits. The header reported the size of a display
+    // table further down — a set that leaves out everything the artist also
+    // plays on. A number answering a narrower question than its label is worse
+    // than no number.
     let sandbox = Sandbox::new("writer");
     let scratch = std::env::temp_dir().join("aede_e2e_writer_src");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -700,14 +849,24 @@ fn a_writer_is_not_announced_as_having_nothing() {
     let (_, _, ok) = sandbox.run(&["scan", scratch.to_str().unwrap()]);
     assert!(ok);
 
-    // "track.flac" credits Miles Davis as both performer and composer, so the
-    // performing line wins and no writing line is printed for him.
+    // "track.flac" credits Miles Davis as performer *and* composer. Both are
+    // true of him, so both lines are printed and both count that track.
     let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
     assert!(ok);
     assert!(out.contains("performing:"), "the line is labelled:\n{out}");
+    assert!(out.contains("writing:"), "so is the other one:\n{out}");
+    assert_eq!(tracks_on_line(&out, "performing:"), 1, "output: {out}");
+    assert_eq!(
+        tracks_on_line(&out, "writing:"),
+        role_count(&out, "composer"),
+        "the header and the Roles panel must count the same thing:\n{out}"
+    );
+
+    // The table below is the one that subtracts, and it says so in its title
+    // rather than letting the reader assume it lists everything written.
     assert!(
-        !out.contains("writing:"),
-        "a performed track is not counted twice:\n{out}"
+        !out.contains("Credited as writer or producer"),
+        "a heading that promises more than the table holds:\n{out}"
     );
 
     let _ = std::fs::remove_dir_all(&scratch);

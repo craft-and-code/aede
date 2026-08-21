@@ -137,6 +137,15 @@ fn main() {
                 args.command,
                 commands.join(", ")
             );
+            // Naming the commands is not always enough. A role means nothing
+            // without a person, and someone typing `album "X" --role performer`
+            // is after the people, not the album.
+            if option == "role" {
+                eprintln!(
+                    "A role needs a person: aede artist \"<name>\" --role {}",
+                    args.value("role").unwrap_or("<role>")
+                );
+            }
             std::process::exit(2);
         }
     }
@@ -212,8 +221,12 @@ const IMPORT_COMMANDS: &[&str] = &["import"];
 /// from the rest.
 const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 
-/// The listing that can be narrowed to the people holding one role.
-const ROLE_COMMANDS: &[&str] = &["artists"];
+/// Where a role means something: the listing narrows to the people who hold
+/// one, the page narrows to what that person did in it. Two readings of the
+/// same word, both useful, and neither of them makes sense without a person —
+/// which is why `album` and `track` are not here: there, `--artist` is the
+/// filter, and a role with nobody attached asks nothing.
+const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
 
 /// Commands that can be narrowed to one genre, or to one label.
 const GENRE_COMMANDS: &[&str] = &["albums"];
@@ -310,15 +323,17 @@ fn print_help() {
   --include-hidden     Include hidden files and folders
 
 {}
-  --compilations       Only the albums several artists share
-  --no-compilations    Everything except those
-  --artist <name>      Only the albums of one artist
-  --year <year>        Only the albums of one year
-  --genre <name>       Only the albums carrying a genre
-  --label <name>       Only the albums published under a label
+  Each says where it applies; a command that cannot honour one refuses it.
+  --artist <name>      Of one artist (albums, track)
+  --year <year>        Of one year (albums)
+  --genre <name>       Carrying a genre (albums)
+  --label <name>       Published under a label (albums)
+  --compilations       Only what several artists share (albums)
+  --no-compilations    Everything except those (albums)
   --comment <text>     Only what a comment mentions (albums, track)
-  --role <role>        Who is credited that way (artists)
   --comments           Search the comment tag as well (search)
+  --role <role>        On artists: who is credited that way.
+                       On artist <name>: what they did in that role.
 
 {}
   --forget             Remove the imported analyses instead of adding any
@@ -334,6 +349,7 @@ fn print_help() {
   aede albums --compilations
   aede genre metal
   aede artists --role producer
+  aede artist Ozzy --role performer --m3u
   aede search --comments \"vinyl rip\" --m3u
   aede search coltrane
   aede import ~/Desktop/report.json",
@@ -341,7 +357,7 @@ fn print_help() {
         ui::cyan("COMMANDS"),
         ui::cyan("GLOBAL OPTIONS"),
         ui::cyan("SCAN OPTIONS"),
-        ui::cyan("ALBUM LIST OPTIONS"),
+        ui::cyan("FILTER OPTIONS"),
         ui::cyan("IMPORT OPTIONS"),
         ui::cyan("EXAMPLES")
     );

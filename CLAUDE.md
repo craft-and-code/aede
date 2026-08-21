@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 207 tests
+cargo test                       # 211 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -61,11 +61,15 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 
 **A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders, the integrity verdicts and the imported analyses. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
 
+**The help is part of the contract.** An option printed under a heading that names the one command it does not work on is a lie that costs more than a missing line. Each option in `print_help` says where it applies, and a test asserts the help names every filter option the parser accepts — the same claim, checked from both ends.
+
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere.
 
 **Every entity deserves a page, and every page a filter.** The model is a graph; a listing that counts genres without letting you open one is a dead end. `artist`, `album`, `track`, `genre` and `label` each have a singular page, and what a page gathers is a selection — so `--csv` and `--m3u` work on it, through `commands::selection_output`, without the command knowing anything about them. Adding an entity kind means adding its page.
 
-**A role is a question asked in both directions.** `Catalog::artists_in_role` is the inverse of the artist page: one says what a person did, the other who does a thing. That inversion is the whole reason the `credit` table stores a role rather than being a bare artist column, and `Catalog::roles_in_use` reads the vocabulary from the credits rather than from a fixed list — a role arriving from MusicBrainz at M1 must work without a line of code.
+**What is shown is what is accepted.** `commands::ROLE_NAMES` is one table read in both directions — `role_label` for display, `role_key` for input — because a one-way `match` produced a message that denied a role and listed it in the same breath: the screen said "album artist", the parser wanted "album". Anything the interface prints as a name must be typeable back in, and an error offering alternatives offers them in the spelling it displays them in. The same applies to any vocabulary added later.
+
+**A role is a question asked in both directions.** `Catalog::artists_in_role` answers "who does this here", `Catalog::tracks_of_artist_in_role` answers "what did this person do in that role", and `--role` carries both readings depending on whether it is attached to the listing or to a page. That inversion is the whole reason the `credit` table stores a role rather than being a bare artist column. `Catalog::roles_in_use` reads the vocabulary from the credits rather than from a fixed list — a role arriving from MusicBrainz at M1 must work without a line of code. A role needs a person, which is why `album` and `track` refuse it and say so: there, `--artist` is the filter.
 
 **A truncated list says so.** Every listing stops at `--limit` rows; `commands::announce_limit` is what tells the user rows were left out, and it prints nothing when none were. All five listings used to stop in silence, and sorted by year that made the most recent albums of a real library invisible — the header counting the matches is not enough, since nobody compares it against the rows they were handed. Any new listing goes through that helper.
 
@@ -90,6 +94,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **Roles are not interchangeable.** `model::is_performing_role` separates being audible on a recording from having written or produced it. The distinction drives the artist page, the performer rankings and the collaboration graph; ignoring it puts other people's albums in an artist's discography.
 
 A figure derived from it carries the name of the role class it counts. An artist page shows `performing:` and `writing:`, never a bare total: tags credit the band, not its members, so a lyricist with forty albums has zero performing credits and the unlabelled zero read as an error.
+
+The two lines are **not a partition**, and must not be made into one. Someone who writes what they sing belongs in both, because writing it and playing it are two facts about the same track, not two halves of one. The page also holds *display* sets that do subtract — `releases_written_without_performing`, `written_tracks_without_performing` — so a table does not repeat what the table above it already showed. Those exist to be printed, never to be counted: reporting one as `writing:` announced Ozzy Osbourne, sixty-nine composer credits, as writing a single track. A method whose result is a display set says so in its name, and a summary line reads from the measure, never from the size of a table.
 
 **"Not checked" is not "nothing to check".** An absent integrity verdict means no one has looked yet, and that can change; `Verdict::NothingToCheck` means the container carries no checksum, and that never will. Collapsing the two would have the user re-running `aede check` forever on their MP3s. The same distinction holds in the JSON, in `schema.sql` and in whatever the interface ends up drawing.
 

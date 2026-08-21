@@ -108,8 +108,37 @@ impl Catalog {
             .collect()
     }
 
-    /// Releases where the artist only wrote or produced, without performing.
-    pub fn writing_credits_of_artist(&self, artist_id: Id) -> Vec<Id> {
+    /// Releases where the artist holds a credit that is not a performance.
+    ///
+    /// **All of them**, including the ones they also play on. Ozzy Osbourne
+    /// composes most of what he sings: a figure that subtracted those would
+    /// report one album where the credits count sixty-nine, and the number
+    /// would be right about a set nobody asked for.
+    pub fn releases_with_writing_credit(&self, artist_id: Id) -> Vec<Id> {
+        self.releases_for(artist_id, false)
+    }
+
+    /// Tracks where the artist holds a credit that is not a performance.
+    pub fn writing_tracks_of_artist(&self, artist_id: Id) -> Vec<Id> {
+        let mut set = BTreeSet::new();
+        for credit in self.credits.iter() {
+            if credit.artist_id == artist_id
+                && credit.entity_kind == EntityKind::Track
+                && !is_performing_role(&credit.role)
+            {
+                set.insert(credit.entity_id);
+            }
+        }
+        set.into_iter().collect()
+    }
+
+    /// Releases the artist wrote or produced **and is not audible on**.
+    ///
+    /// Not a measure of anything — a display set. It exists so the artist page
+    /// can show the records that would otherwise never appear on it, without
+    /// repeating the discography above. Never label it "writing": that is
+    /// [`Catalog::releases_with_writing_credit`].
+    pub fn releases_written_without_performing(&self, artist_id: Id) -> Vec<Id> {
         let heard: BTreeSet<Id> = self
             .releases_as_album_artist(artist_id)
             .into_iter()
@@ -155,13 +184,14 @@ impl Catalog {
         set.into_iter().collect()
     }
 
-    /// Tracks the artist is credited on for writing or production, and is not
-    /// audible on.
+    /// Tracks the artist wrote or produced **and is not audible on**.
     ///
-    /// The counterpart of [`Catalog::performed_tracks_of_artist`]: together
-    /// they cover every track credit, and a track where someone both plays and
-    /// composes counts as performed only.
-    pub fn written_tracks_of_artist(&self, artist_id: Id) -> Vec<Id> {
+    /// The display counterpart of [`Catalog::performed_tracks_of_artist`]:
+    /// together they cover every track credit without counting one twice, a
+    /// track where someone both plays and composes going to the first. For
+    /// "how much did this person write", use
+    /// [`Catalog::writing_tracks_of_artist`].
+    pub fn written_tracks_without_performing(&self, artist_id: Id) -> Vec<Id> {
         let performed: BTreeSet<Id> = self
             .performed_tracks_of_artist(artist_id)
             .into_iter()
@@ -523,6 +553,53 @@ impl Catalog {
         rows
     }
 
+    /// Tracks on which an artist holds one particular role.
+    ///
+    /// The other direction of [`Catalog::artists_in_role`], one person at a
+    /// time: not "who produces here" but "what did this person produce". The
+    /// artist page separates performing from writing; this goes one step
+    /// finer, down to the single role.
+    ///
+    /// `album` is credited on the **release**, not on its tracks, so asking
+    /// for it yields every track of the releases they sign — otherwise the
+    /// answer would be empty for the one role every album artist holds.
+    pub fn tracks_of_artist_in_role(&self, artist_id: Id, role: &str) -> Vec<Id> {
+        let mut tracks: BTreeSet<Id> = BTreeSet::new();
+        for credit in self
+            .credits
+            .iter()
+            .filter(|c| c.artist_id == artist_id && c.role == role)
+        {
+            match credit.entity_kind {
+                EntityKind::Track => {
+                    tracks.insert(credit.entity_id);
+                }
+                EntityKind::Release => {
+                    if let Some(release) = self.release(credit.entity_id) {
+                        tracks.extend(release.track_ids.iter().copied());
+                    }
+                }
+                EntityKind::Artist | EntityKind::Label => {}
+            }
+        }
+        tracks.into_iter().collect()
+    }
+
+    /// The roles one artist holds, with how many credits each.
+    ///
+    /// What makes an empty answer readable: told that nobody is credited a
+    /// given way, the user has to be able to see what this person *is*
+    /// credited as.
+    pub fn roles_of_artist(&self, artist_id: Id) -> Vec<(&str, usize)> {
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for credit in self.credits.iter().filter(|c| c.artist_id == artist_id) {
+            *counts.entry(credit.role.as_str()).or_insert(0) += 1;
+        }
+        let mut rows: Vec<(&str, usize)> = counts.into_iter().collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        rows
+    }
+
     /// Every role actually used in this catalog, in the order they are shown.
     ///
     /// Read from the credits rather than from a fixed list: a role that came
@@ -821,8 +898,64 @@ mod tests {
             .expect("the composer is an entity");
         assert!(c.releases_as_album_artist(rhoads.id).is_empty());
         assert!(c.guest_appearances(rhoads.id).is_empty());
-        assert_eq!(c.writing_credits_of_artist(rhoads.id).len(), 1);
+        assert_eq!(c.releases_written_without_performing(rhoads.id).len(), 1);
         assert!(c.performed_tracks_of_artist(rhoads.id).is_empty());
+    }
+
+    #[test]
+    fn what_someone_wrote_is_counted_even_when_they_play_it_too() {
+        // Ozzy Osbourne, sixty-nine composer credits and sixty-eight as
+        // lyricist, was announced on his own page as writing one track: the
+        // figure reported the size of a display table, which leaves out
+        // everything he also sings on. A number that answers a narrower
+        // question than its label is worse than no number.
+        let c = build(
+            vec![track(
+                "/m/Ozzy Osbourne/Blizzard of Ozz/01 Crazy Train.flac",
+                &[
+                    ("title", "Crazy Train"),
+                    ("artist", "Ozzy Osbourne"),
+                    ("albumartist", "Ozzy Osbourne"),
+                    ("album", "Blizzard of Ozz"),
+                    ("composer", "Ozzy Osbourne"),
+                    ("date", "1980"),
+                ],
+                60_000,
+            )],
+            vec!["/m".into()],
+            0,
+        );
+        let ozzy = c.find_artist("Ozzy Osbourne").expect("the artist");
+
+        // He sings it and he wrote it: both are true, and both are counted.
+        assert_eq!(c.performed_tracks_of_artist(ozzy.id).len(), 1);
+        assert_eq!(
+            c.writing_tracks_of_artist(ozzy.id).len(),
+            1,
+            "writing counts what he wrote, not what he wrote and does not play"
+        );
+        assert_eq!(c.releases_with_writing_credit(ozzy.id).len(), 1);
+
+        // The display set is the one that subtracts, and it is empty here:
+        // the album is already in the discography above it.
+        assert!(c.written_tracks_without_performing(ozzy.id).is_empty());
+        assert!(c.releases_written_without_performing(ozzy.id).is_empty());
+
+        // The property that makes the page consistent: every non-performing
+        // credit the artist holds on a track is in the writing set. This is
+        // what the summary line and the Roles panel are both read from, so
+        // they cannot contradict one another again.
+        let written: std::collections::BTreeSet<Id> =
+            c.writing_tracks_of_artist(ozzy.id).into_iter().collect();
+        for credit in c.credits.iter().filter(|x| x.artist_id == ozzy.id) {
+            if credit.entity_kind == EntityKind::Track && !is_performing_role(&credit.role) {
+                assert!(
+                    written.contains(&credit.entity_id),
+                    "a {} credit is missing from the writing set",
+                    credit.role
+                );
+            }
+        }
     }
 
     #[test]
