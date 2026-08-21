@@ -263,8 +263,10 @@ Sessionx.vim
 
 # Temporary
 .netrwhist
-# Auto-generated tag files
-tags
+# Auto-generated tag files. Anchored to the repository root: a bare "tags"
+# also matches any *directory* of that name, which silently excluded
+# crates/aede-core/src/tags/ from the repository.
+/tags
 # Persistent undo
 [._]*.un~
 
