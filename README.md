@@ -84,6 +84,16 @@ aede artist "Deicide" --csv | sort -t, -k9 -n     # sorted by size
 
 `aede album` takes **one** title — the words are joined so a title can be typed without quotes — and says which command lists several when given more.
 
+The same holds for an option whose value is a **name**: `--artist`, `--album`, `--with`, `--genre` and `--label` take the words that follow, up to the next option. `--limit`, `--year`, `--output` and the rest take exactly one word, because a number or a path is one word.
+
+```sh
+aede artist Ozzy --with Zakk Wylde        # no quotes needed anywhere
+aede artist Ozzy --with "Zakk Wylde"      # the same thing
+aede track So What --artist Miles Davis --limit 1
+```
+
+Put the positional before the option: `aede track --artist Miles Davis So What` gives the whole tail to `--artist`, and the command then says it was given no title — rather than answering a question you did not ask.
+
 `--output <file>` writes wherever these produce text, and states where it went instead of filling the terminal.
 
 ```
@@ -398,7 +408,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-195 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+199 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

@@ -14,25 +14,41 @@ pub struct Args {
     flags: BTreeMap<String, Option<String>>,
 }
 
-/// Options that expect a value when it is given separately.
-const VALUED: &[&str] = &[
+/// Options whose value is a single token: a number, a path, a keyword.
+///
+/// Exactly one word is taken, and anything after it goes on being parsed
+/// normally — `--limit 10 coltrane` limits to ten and searches for Coltrane.
+const VALUED_WORD: &[&str] = &[
     "remove",
     "data",
     "limit",
     "sort",
     "type",
     "severity",
-    "artist",
-    "album",
-    "with",
     "year",
     "output",
     "threads",
-    "genre",
-    "label",
     "separator",
     "source",
 ];
+
+/// Options whose value is the **name of something**, and names have spaces in
+/// them.
+///
+/// These take every word up to the next option, exactly as a title typed
+/// without quotes is joined into one. `--with Jeff Beck` is the guitarist, not
+/// the word "Jeff" followed by a stray "Beck" — and that stray word used to be
+/// swallowed into the artist being asked about, which turned
+/// `artist Ozzy --with Jeff Beck` into a search for "Ozzy Beck". Silently
+/// building a name nobody typed is the worst of the three possible behaviours;
+/// the other two are demanding quotes, and this.
+///
+/// The value still ends at the next `-`, so `--with Jeff Beck --json` works.
+/// Putting such an option *before* the positional it competes with — `track
+/// --artist Miles Davis So What` — makes it swallow the title too, and the
+/// command then says it was given no title rather than answering the wrong
+/// question.
+const VALUED_NAME: &[&str] = &["artist", "album", "with", "genre", "label"];
 
 impl Args {
     pub fn parse(raw: impl IntoIterator<Item = String>) -> Args {
@@ -55,8 +71,13 @@ impl Args {
                         args.flags.insert(name.to_string(), Some(value.to_string()));
                     }
                     None => {
-                        let expects_value = VALUED.contains(&rest);
-                        let value = if expects_value {
+                        let value = if VALUED_NAME.contains(&rest) {
+                            let mut words: Vec<String> = Vec::new();
+                            while let Some(word) = iter.next_if(|next| !next.starts_with('-')) {
+                                words.push(word);
+                            }
+                            (!words.is_empty()).then(|| words.join(" "))
+                        } else if VALUED_WORD.contains(&rest) {
                             iter.next_if(|next| !next.starts_with('-'))
                         } else {
                             None
@@ -111,7 +132,11 @@ impl Args {
     pub fn options_missing_a_value(&self) -> Vec<&str> {
         self.flags
             .iter()
-            .filter(|(name, value)| value.is_none() && VALUED.contains(&name.as_str()))
+            .filter(|(name, value)| {
+                value.is_none()
+                    && (VALUED_WORD.contains(&name.as_str())
+                        || VALUED_NAME.contains(&name.as_str()))
+            })
             .map(|(name, _)| name.as_str())
             .collect()
     }
@@ -137,11 +162,50 @@ mod tests {
 
     #[test]
     fn a_valued_option_takes_the_next_word() {
-        // `--album` used to be missing from VALUED: the title and the album
-        // ended up glued together into one search string.
+        // `--album` used to be missing from the valued list: the title and the
+        // album ended up glued together into one search string.
         let a = parse(&["track", "So What", "--album", "Kind of Blue"]);
         assert_eq!(a.positionals, ["So What"]);
         assert_eq!(a.value("album"), Some("Kind of Blue"));
+    }
+
+    #[test]
+    fn a_name_option_takes_the_whole_name() {
+        // `artist Ozzy --with Jeff Beck` used to give --with the word "Jeff"
+        // and leave "Beck" to be joined onto the artist, which turned the
+        // question into one about an "Ozzy Beck" nobody had ever typed.
+        let a = parse(&["artist", "Ozzy", "--with", "Jeff", "Beck"]);
+        assert_eq!(a.positionals, ["Ozzy"]);
+        assert_eq!(a.value("with"), Some("Jeff Beck"));
+    }
+
+    #[test]
+    fn a_name_ends_at_the_next_option() {
+        let a = parse(&["artist", "Ozzy", "--with", "Zakk", "Wylde", "--json"]);
+        assert_eq!(a.positionals, ["Ozzy"]);
+        assert_eq!(a.value("with"), Some("Zakk Wylde"));
+        assert!(a.has("json"));
+
+        // Quoting still works, and gives the same thing.
+        let quoted = parse(&["artist", "Ozzy", "--with", "Zakk Wylde"]);
+        assert_eq!(quoted.value("with"), Some("Zakk Wylde"));
+        assert_eq!(
+            parse(&["artist", "Ozzy", "--with=Zakk Wylde"]).value("with"),
+            Some("Zakk Wylde")
+        );
+    }
+
+    #[test]
+    fn a_word_option_keeps_taking_exactly_one_word() {
+        // A number, a path or a keyword must not swallow what follows it: only
+        // names are greedy, because only names have spaces in them.
+        let a = parse(&["search", "--limit", "10", "coltrane"]);
+        assert_eq!(a.value("limit"), Some("10"));
+        assert_eq!(a.positionals, ["coltrane"]);
+
+        let b = parse(&["albums", "--year", "1969", "--artist", "Miles", "Davis"]);
+        assert_eq!(b.value("year"), Some("1969"));
+        assert_eq!(b.value("artist"), Some("Miles Davis"));
     }
 
     #[test]

@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 195 tests
+cargo test                       # 199 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -62,6 +62,8 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders, the integrity verdicts and the imported analyses. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
 
 **An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere.
+
+**A value that is a name may be typed in several words.** `args::VALUED_NAME` (`--artist`, `--album`, `--with`, `--genre`, `--label`) takes every word up to the next option; `args::VALUED_WORD` takes exactly one, because a number, a path or a keyword is one word. The bug this fixes was the worst kind: `artist Ozzy --with Jeff Beck` gave `--with` the word "Jeff", left "Beck" to be joined onto the positional, and went looking for an "Ozzy Beck" nobody had typed. A wrong answer built in silence is worse than a refusal — and here it is worse than being permissive too, since the shell has already split the words and only this program knows they were one name. Adding a name-valued option means adding it to the right list.
 
 **An option means the same thing wherever it is typed.** `--m3u` and `--csv` on `album`, `artist`, `track` and `search` all describe the tracks on screen, through one helper (`commands::selection_output`); `export` describes the catalog. A command that cannot honour an argument says so — `aede export "an album"` is an error, never a full export under a name that promised a selection.
 

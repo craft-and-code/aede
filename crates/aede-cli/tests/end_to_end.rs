@@ -245,6 +245,57 @@ fn a_track_is_reachable_by_its_title() {
 }
 
 #[test]
+fn a_name_given_to_an_option_may_be_typed_without_quotes() {
+    // The shell splits on spaces, so `--with Jeff Beck` reached the program as
+    // two words: the option took "Jeff" and "Beck" was left to be joined onto
+    // the positional. The command then went looking for an "Ozzy Beck" that
+    // nobody had typed — a wrong answer built in silence, which is worse than
+    // a refusal.
+    let sandbox = Sandbox::new("name_option");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // A name typed in several words reaches the option whole. The pair does
+    // not play together, and the answer says exactly that — the point is that
+    // both names were understood.
+    let (out, err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill", "Evans"]);
+    let text = format!("{out}{err}");
+    assert!(
+        !text.contains("Miles Evans"),
+        "no name may be invented from the leftovers:\n{text}"
+    );
+    assert!(
+        text.contains("Bill Evans"),
+        "the whole name reached the option:\n{text}"
+    );
+
+    // The value stops at the next option rather than eating it.
+    let (out, err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill", "Evans", "--limit=1"]);
+    let text = format!("{out}{err}");
+    assert!(text.contains("Bill Evans"), "output: {text}");
+    assert!(
+        !text.contains("--limit"),
+        "the option was not swallowed: {text}"
+    );
+
+    // Quoting keeps working, and says the same thing.
+    let (plain_out, plain_err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill", "Evans"]);
+    let (quoted_out, quoted_err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill Evans"]);
+    assert_eq!(
+        format!("{quoted_out}{quoted_err}"),
+        format!("{plain_out}{plain_err}"),
+        "quoted and unquoted must not diverge"
+    );
+
+    // A number is not a name: it still takes exactly one word, or `--limit 10
+    // coltrane` would search for nothing at all.
+    let (out, _, ok) = sandbox.run(&["search", "--limit", "1", "miles"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Miles"), "the search term survived: {out}");
+}
+
+#[test]
 fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
     // `roots --remove` says to run `aede scan` to drop the files. When the
     // folder removed was the only one, that scan used to fail for want of a
