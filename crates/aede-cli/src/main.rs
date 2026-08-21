@@ -127,6 +127,8 @@ fn main() {
             "leave compilations out",
         ),
         ("role", ROLE_COMMANDS, "filter by role"),
+        ("artist", ARTIST_COMMANDS, "narrow to one artist"),
+        ("year", YEAR_COMMANDS, "narrow to one year"),
         ("genre", GENRE_COMMANDS, "filter by genre"),
         ("label", LABEL_COMMANDS, "filter by label"),
         ("comment", COMMENT_COMMANDS, "filter on the comments"),
@@ -233,6 +235,14 @@ const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 /// filter, and a role with nobody attached asks nothing.
 const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
 
+/// Commands that can be narrowed to one artist, or to one year.
+///
+/// Both were declared among the options and guarded nowhere: `aede artists
+/// --year=1969` answered about every year under a name that promised one. The
+/// help says where a filter applies; this is what makes that true.
+const ARTIST_COMMANDS: &[&str] = &["albums", "track"];
+const YEAR_COMMANDS: &[&str] = &["albums"];
+
 /// Commands that can be narrowed to one genre, or to one label.
 const GENRE_COMMANDS: &[&str] = &["albums"];
 const LABEL_COMMANDS: &[&str] = &["albums"];
@@ -297,7 +307,8 @@ fn print_help() {
                        only those under the folders given (--full re-verifies)
 
   artists              List of artists (--role composer, producer…)
-  albums               List of albums (--compilations, --genre, --label)
+  albums               List of albums (--artist, --year, --genre, --label,
+                       --comment, --compilations, --no-compilations)
   genres               List of genres
   labels               List of labels
   years                Breakdown by year

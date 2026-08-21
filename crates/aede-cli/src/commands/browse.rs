@@ -152,7 +152,16 @@ pub fn list_albums(args: &Args) -> Res {
     let window = args.window(50)?;
 
     let artist_filter = args.value("artist").map(text::normalize);
-    let year_filter: Option<u32> = args.value("year").and_then(|v| v.parse().ok());
+    // A year that does not parse used to become "no filter at all": the whole
+    // library came back under a name that asked for one year, and nothing said
+    // the filter had been dropped. Same fault as an option silently ignored.
+    let year_filter: Option<u32> = match args.value("year") {
+        None => None,
+        Some(raw) => Some(
+            raw.parse()
+                .map_err(|_| format!("--year expects a year: --year=1969, not \"{raw}\""))?,
+        ),
+    };
 
     // A compilation is a release with no album artist: several artists share
     // it, which is exactly why nothing else in the program can single them out.

@@ -435,6 +435,63 @@ fn the_help_says_where_each_option_applies() {
     ] {
         assert!(out.contains(option), "the help must name {option}:\n{out}");
     }
+
+    // The COMMANDS list is what a user reads first, and for most of them it is
+    // all they read. A filter named only in the section below exists, for that
+    // reader, nowhere: `--year` was honoured by `albums` and absent from its
+    // line. Whatever a command accepts, its own line says so.
+    let commands = out
+        .split("GLOBAL OPTIONS")
+        .next()
+        .expect("the help lists the commands before the global options");
+    let albums = commands
+        .lines()
+        .skip_while(|line| !line.trim_start().starts_with("albums "))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ");
+    for option in [
+        "--artist",
+        "--year",
+        "--genre",
+        "--label",
+        "--comment",
+        "--compilations",
+    ] {
+        assert!(
+            albums.contains(option),
+            "the albums line must name {option}: {albums}"
+        );
+    }
+}
+
+#[test]
+fn a_filter_is_refused_where_it_means_nothing() {
+    // `--year` and `--artist` were declared among the options and guarded
+    // nowhere: `aede artists --year=1969` listed every artist of every year,
+    // and the answer looked right. A filter that applies nowhere must say so
+    // rather than be dropped in silence.
+    let sandbox = Sandbox::new("filter_guard");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (_, err, ok) = sandbox.run(&["artists", "--year", "1969"]);
+    assert!(!ok, "the year must not be swallowed");
+    assert!(err.contains("--year applies to albums"), "stderr: {err}");
+
+    let (_, err, ok) = sandbox.run(&["genres", "--artist", "Ozzy"]);
+    assert!(!ok, "the artist must not be swallowed");
+    assert!(err.contains("--artist applies to"), "stderr: {err}");
+
+    // And where it does apply, a value that is not a year is an error, not a
+    // filter quietly dropped.
+    let (_, err, ok) = sandbox.run(&["albums", "--year", "sixty-nine"]);
+    assert!(!ok, "an unparsable year must not become no filter");
+    assert!(err.contains("--year expects a year"), "stderr: {err}");
+
+    let (_, _, ok) = sandbox.run(&["albums", "--year", "1969"]);
+    assert!(ok, "a real year still works");
 }
 
 #[test]
