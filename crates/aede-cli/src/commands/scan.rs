@@ -3,12 +3,13 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use aede_core::model::Catalog;
+use aede_core::model::{Catalog, Id};
 use aede_core::scan::{self, Progress, ScanOptions};
 use aede_core::stats;
 use aede_core::store;
+use aede_core::text;
 
-use super::{Res, data_dir, load};
+use super::{Res, data_dir, load, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -229,15 +230,84 @@ pub fn roots(args: &Args) -> Res {
     }
 
     println!("{}", ui::section("Watched folders"));
-    let mut t = Table::new(&["Folder", "Tracks"]).align(1, Align::Right);
+    // The same three measures every listing and every page carries. A folder
+    // count without a weight is the one figure a user cannot act on: knowing a
+    // drive holds four thousand tracks says nothing about whether it will fit
+    // anywhere.
+    let mut t = Table::new(&["Folder", "Tracks", "Duration", "Size"])
+        .align(1, Align::Right)
+        .align(2, Align::Right)
+        .align(3, Align::Right)
+        .path_limit(0, 60);
+    let mut counted: std::collections::BTreeSet<Id> = Default::default();
     for root in &catalog.roots {
-        let count = catalog
-            .files
-            .iter()
-            .filter(|f| f.path.starts_with(root.as_str()))
-            .count();
-        t.push(vec![root.clone(), count.to_string()]);
+        let tracks = tracks_under(&catalog, root);
+        counted.extend(tracks.iter().copied());
+        let (duration, size) = totals(&catalog, &tracks);
+        t.push(vec![
+            root.clone(),
+            tracks.len().to_string(),
+            text::format_duration(duration),
+            text::format_size(size),
+        ]);
+    }
+
+    // Files left over from a folder that was dropped and not yet rescanned.
+    // The removal message promises they are still there; a table that does not
+    // show them makes that promise unverifiable.
+    let orphans: Vec<Id> = catalog
+        .tracks
+        .iter()
+        .map(|t| t.id)
+        .filter(|id| !counted.contains(id))
+        .collect();
+    if !orphans.is_empty() {
+        let (duration, size) = totals(&catalog, &orphans);
+        t.push(vec![
+            "(no longer watched)".into(),
+            orphans.len().to_string(),
+            text::format_duration(duration),
+            text::format_size(size),
+        ]);
     }
     print!("{}", t.render());
+
+    if catalog.roots.len() + usize::from(!orphans.is_empty()) > 1 {
+        let all: Vec<Id> = catalog.tracks.iter().map(|t| t.id).collect();
+        let (duration, size) = totals(&catalog, &all);
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} · {} · {} in all",
+                ui::plural(all.len(), "track"),
+                ui::long_duration(duration),
+                text::format_size(size)
+            ))
+        );
+    }
+    if !orphans.is_empty() {
+        println!(
+            "  {}",
+            ui::dim("run `aede scan` to drop what is no longer watched")
+        );
+    }
     Ok(())
+}
+
+/// Tracks whose file sits in a folder, or in something under it.
+///
+/// On the path boundary, never on the bare string: `/music/Rock` would
+/// otherwise claim every file of `/music/Rockabilly`, and the count of a
+/// watched folder would quietly include a neighbour's.
+fn tracks_under(catalog: &Catalog, root: &str) -> Vec<Id> {
+    catalog
+        .tracks
+        .iter()
+        .filter(|t| {
+            catalog
+                .file(t.file_id)
+                .is_some_and(|f| aede_core::text::is_under(&f.path, root))
+        })
+        .map(|t| t.id)
+        .collect()
 }

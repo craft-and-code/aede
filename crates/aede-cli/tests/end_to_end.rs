@@ -182,6 +182,10 @@ fn watched_folders_accumulate_across_scans() {
     assert!(ok);
     assert!(out.contains("a"), "output: {out}");
     assert!(out.contains("b"), "output: {out}");
+    // The same three measures every listing carries: a folder count without a
+    // weight is the one figure a user cannot act on.
+    assert!(out.contains("Duration"), "output: {out}");
+    assert!(out.contains("Size"), "output: {out}");
 
     // Dropping a folder needs one more scan to take the files out.
     let (_, _, ok) = sandbox.run(&["roots", "--remove", b.to_str().unwrap()]);
@@ -657,6 +661,74 @@ fn a_listing_never_stops_without_saying_so() {
     let (_, err, ok) = sandbox.run(&["reset", "--offset=2"]);
     assert!(!ok);
     assert!(err.contains("cannot"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The row of a table whose path column ends in this folder.
+///
+/// Matched on the **tail**, never on the whole path: the column truncates from
+/// the left so that the last components — the ones that identify the folder —
+/// survive a narrow terminal. On macOS a temporary path alone is sixty columns,
+/// so a test comparing the full path there passes on Linux and fails on a Mac.
+fn row_for_folder<'a>(out: &'a str, ending: &str) -> &'a str {
+    out.lines()
+        .find(|l| {
+            l.split_whitespace()
+                .next()
+                .is_some_and(|column| column.ends_with(ending))
+        })
+        .unwrap_or_else(|| panic!("no row ending in {ending} in:\n{out}"))
+}
+
+#[test]
+fn a_watched_folder_is_weighed_and_not_confused_with_its_neighbour() {
+    // `path.starts_with(root)` on the bare string made "/music/Rock" claim
+    // every file of "/music/Rockabilly": one folder counting a neighbour's
+    // files, silently.
+    let sandbox = Sandbox::new("roots_weight");
+    let root = std::env::temp_dir().join("aede_e2e_roots_weight_src");
+    let (rock, rockabilly) = (root.join("Rock"), root.join("Rockabilly"));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&rock).unwrap();
+    std::fs::create_dir_all(&rockabilly).unwrap();
+    std::fs::copy(library().join("track.flac"), rock.join("1.flac")).unwrap();
+    std::fs::copy(library().join("hires.flac"), rockabilly.join("2.flac")).unwrap();
+    std::fs::copy(library().join("track.mp3"), rockabilly.join("3.mp3")).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", rock.to_str().unwrap(), rockabilly.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["roots"]);
+    assert!(ok, "output: {out}");
+    let rock_row = row_for_folder(&out, "/Rock");
+    assert!(
+        rock_row.split_whitespace().any(|w| w == "1"),
+        "Rock holds one track, not its neighbour's two: {rock_row}"
+    );
+    assert!(
+        row_for_folder(&out, "/Rockabilly")
+            .split_whitespace()
+            .any(|w| w == "2"),
+        "and the neighbour keeps its own:\n{out}"
+    );
+    assert!(
+        out.contains("Duration") && out.contains("Size"),
+        "output: {out}"
+    );
+
+    // Dropping a folder leaves its files in the catalog until a rescan, and
+    // the table has to show them: the removal message promises they are still
+    // there, and a table that hides them makes that promise unverifiable.
+    let (_, _, ok) = sandbox.run(&["roots", "--remove", rockabilly.to_str().unwrap()]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["roots"]);
+    assert!(ok);
+    assert!(out.contains("no longer watched"), "output: {out}");
+    assert!(
+        out.contains("aede scan"),
+        "and says how to drop them: {out}"
+    );
 
     let _ = std::fs::remove_dir_all(&root);
 }

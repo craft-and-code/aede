@@ -239,6 +239,20 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 
 ### Starting over
 
+`aede roots` weighs each watched folder, so the list answers "what is on this drive" and not merely "which drives":
+
+```
+Watched folders
+
+  Folder                 Tracks  Duration       Size
+  ─────────────────────  ──────  ────────  ─────────
+  /Volumes/Music/FLAC     18 402   52 days     4.1 TB
+  /Users/kcell/Music         746   2 days    112.4 GB
+  (no longer watched)         92   6 h        8.1 GB
+```
+
+The last row appears only after `roots --remove`: those files stay in the catalog until the next scan, and a table that hid them would make that promise unverifiable.
+
 `aede reset` removes the catalog. It first says what it holds — tracks, albums, artists, watched folders, integrity verdicts, imported analyses — and what a rescan does not bring back:
 
 ```
@@ -504,7 +518,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-215 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+217 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

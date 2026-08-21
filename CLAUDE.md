@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 215 tests
+cargo test                       # 217 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -48,6 +48,10 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **The model is a graph.** The `credit` table (who does what, on what) and the `relation` table (typed links between entities) are the heart of the system. Never "simplify" towards an album → artist hierarchy: that graph is precisely what will let a user click a drummer and see their forty appearances.
 
 `model/` is divided by verb, and the division is load-bearing rather than cosmetic: `query.rs` takes `&self` throughout, so a lookup that tried to change something would not compile; `builder.rs` is the only place identifiers are handed out; `relations.rs` holds what is inferred rather than read, which is why it is the thing that carries `RELATION_RULES`. A new function goes to the file whose verb it is, not to whichever one is shortest. What the rest of the program calls is re-exported from `model/mod.rs`, so callers never name the sub-modules.
+
+**A test asserts on what survives the display.** Path columns truncate from the **left**, so the last components — the ones that identify the thing — are what remains on a narrow terminal. A test matching a whole path therefore passes on Linux and fails on macOS, where a temporary path alone is sixty columns; this has now cost two rounds. Match the tail, or assert on something the renderer never shortens.
+
+**A folder is not a prefix of its name.** `text::is_under` is the only way to ask whether a path sits in a folder. The obvious `path.starts_with(root)` is wrong on strings — `/music/Rock` claims every file of `/music/Rockabilly` — and `aede roots` counted a neighbour's files that way while `check` had already got it right inline, which is how one idea becomes two. The test is on a separator boundary, in one place.
 
 **One idea, one implementation.** `text::file_name` and `text::folder` split a path; `clock::now_seconds` says what time it is. Both had grown three copies in three files, each a little different — which is how "the same thing" quietly becomes two things. A helper short enough to retype is exactly the one that gets retyped: put it where it belongs and use it.
 

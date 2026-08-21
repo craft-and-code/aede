@@ -256,9 +256,37 @@ pub fn folder(path: &str) -> &str {
     }
 }
 
+/// `true` when a path is the folder itself or something inside it.
+///
+/// Written out because the obvious `path.starts_with(folder)` is wrong on
+/// strings: `/music/Rock` would then claim every file of `/music/Rockabilly`.
+/// The test is on a separator boundary, which is the difference between a
+/// folder and a prefix of its name.
+pub fn is_under(path: &str, folder: &str) -> bool {
+    if path == folder {
+        return true;
+    }
+    let Some(rest) = path.strip_prefix(folder) else {
+        return false;
+    };
+    // A folder written with its trailing slash is still that folder.
+    rest.starts_with('/') || folder.ends_with('/')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_is_not_a_prefix_of_its_name() {
+        assert!(is_under("/music/Rock/01.flac", "/music/Rock"));
+        assert!(is_under("/music/Rock", "/music/Rock"));
+        assert!(is_under("/music/Rock/01.flac", "/music/Rock/"));
+        // The trap: one name beginning with the other.
+        assert!(!is_under("/music/Rockabilly/01.flac", "/music/Rock"));
+        assert!(!is_under("/music", "/music/Rock"));
+        assert!(!is_under("/other/Rock/01.flac", "/music/Rock"));
+    }
 
     #[test]
     fn path_parts() {

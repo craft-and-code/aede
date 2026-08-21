@@ -162,7 +162,7 @@ fn is_in_scope(path: &str, scope: &[String]) -> bool {
     }
     scope
         .iter()
-        .any(|root| path == root || path.starts_with(&format!("{root}/")))
+        .any(|root| aede_core::text::is_under(path, root))
 }
 
 fn in_scope_count(catalog: &Catalog, scope: &[String]) -> usize {
