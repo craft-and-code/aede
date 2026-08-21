@@ -305,13 +305,19 @@ crates/
       foreign.rs        the formats handed to lofty
     src/audit/        what a file contains, as opposed to what it claims
       integrity.rs      the checksums the containers carry
-    src/model.rs      the graph: entities, credits, relations
+    src/model/        the graph: entities, credits, relations
+      mod.rs            the entities, and the catalog that holds them
+      query.rs          reading the graph (&self throughout)
+      builder.rs        scanned files -> entities, deterministically
+      relations.rs      the links inferred from credits and track lists
     src/scan.rs       directory walk, parallel reads, incremental
     src/store.rs      JSON persistence, atomic writes
     src/stats.rs      statistics
     src/doctor.rs     diagnostics
+    src/analysis.rs   analyses imported from another tool
     src/text.rs       name normalization (how entities are matched)
     src/json.rs       minimal JSON reader and writer
+    src/clock.rs      the one unit of time the catalog stores
     schema.sql        the SQLite schema targeted by milestone M1
   aede-cli/         the `aede` binary
     src/commands/     one module per group of commands
@@ -378,11 +384,11 @@ _Performing_ means credited in a role that makes the artist audible on the recor
 ## Tooling
 
 ```sh
-tools/check.sh        # formatting, lint, tests, release build
+tools/check.sh        # formatting, lint, tests, documentation, release build
 cargo doc --no-deps --open   # the API documentation
 ```
 
-Every public item of `aede-core` is documented: the crate sets `#![warn(missing_docs)]`, so a gap is a warning and `tools/check.sh` fails on it.
+Every public item of `aede-core` is documented: the crate sets `#![warn(missing_docs)]`, so a gap is a warning and `tools/check.sh` fails on it. The check also builds the documentation with `RUSTDOCFLAGS="-D warnings"`, which makes a **broken link** an error too — nothing else reads doc comments, so moving an item between modules would otherwise leave dead references behind in silence.
 
 Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON and YAML (`.prettierrc`). The project targets **zero clippy warnings**.
 
@@ -392,7 +398,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-194 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+195 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

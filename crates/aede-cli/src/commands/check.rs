@@ -13,9 +13,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use aede_core::audit::integrity::{self, Verdict};
+use aede_core::clock::now_seconds;
 use aede_core::model::{Catalog, Id, IntegrityRecord};
 use aede_core::store;
 use aede_core::text;
@@ -277,11 +278,4 @@ fn resolve_threads(requested: usize) -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-}
-
-fn now_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

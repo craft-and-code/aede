@@ -231,9 +231,46 @@ pub fn parse_track_number(raw: &str) -> (Option<u32>, Option<u32>) {
     (number, total)
 }
 
+/// Last component of a path, extension included.
+///
+/// Written by hand rather than through `std::path`: catalog paths are stored as
+/// `String`, and a round trip through `Path` would either allocate or force
+/// every caller to deal with a name that is not valid UTF-8. The separator is
+/// `/`, which is what the scanner produces on the systems this runs on.
+pub fn file_name(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(i) => &path[i + 1..],
+        None => path,
+    }
+}
+
+/// Containing directory of a path, without its trailing separator.
+///
+/// Empty when the path has no directory part at all — a bare file name is in no
+/// folder, and inventing `"."` here would group it with every other path that
+/// has no folder either.
+pub fn folder(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(i) => &path[..i],
+        None => "",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_parts() {
+        assert_eq!(file_name("/music/a/01.flac"), "01.flac");
+        assert_eq!(folder("/music/a/01.flac"), "/music/a");
+        // A bare name is its own file name, and is in no folder.
+        assert_eq!(file_name("01.flac"), "01.flac");
+        assert_eq!(folder("01.flac"), "");
+        // A file sitting at the root has no folder either: the root is not a
+        // grouping.
+        assert_eq!(folder("/01.flac"), "");
+    }
 
     #[test]
     fn article_normalization() {

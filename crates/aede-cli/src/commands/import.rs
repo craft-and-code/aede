@@ -16,9 +16,9 @@
 //! two operations can be done in either order.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use aede_core::analysis::{self, FileAnalysis};
+use aede_core::clock::now_seconds;
 use aede_core::model::Catalog;
 use aede_core::store;
 
@@ -196,11 +196,4 @@ fn walk_for_reports(dir: &Path) -> Vec<PathBuf> {
     }
     found.sort();
     found
-}
-
-fn now_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

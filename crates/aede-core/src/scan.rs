@@ -9,9 +9,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use crate::analysis;
+use crate::clock::{mtime_seconds, now_seconds};
 use crate::model::{self, Catalog, ScannedFile};
 use crate::tags::{self, RawTags};
 
@@ -290,21 +291,6 @@ fn resolve_threads(requested: usize) -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-}
-
-fn mtime_seconds(meta: &std::fs::Metadata) -> u64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn now_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 fn cover_for(covers: &HashMap<PathBuf, PathBuf>, file: &Path) -> Option<String> {

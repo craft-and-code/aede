@@ -19,6 +19,12 @@ cargo clippy --offline --all-targets -- -D warnings
 echo "-> Tests"
 cargo test --offline
 
+# Broken doc links are silent everywhere else: neither the build nor clippy
+# reads them. Moving an item between modules is exactly what breaks them, and
+# the documentation is where the reasoning behind this code lives.
+echo "-> Documentation (no broken link)"
+RUSTDOCFLAGS="-D warnings" cargo doc --offline --no-deps --quiet
+
 echo "-> Release build"
 cargo build --offline --release
 

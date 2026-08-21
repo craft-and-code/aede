@@ -707,7 +707,8 @@ mod tests {
         assert!(f.properties.lossless);
         assert_eq!(f.first_tag("artist"), Some("Miles Davis"));
 
-        let album = decoded.find_release("Kind of Blue").expect("album");
+        let (albums, _) = decoded.find_releases("Kind of Blue");
+        let album = albums.first().expect("album");
         assert_eq!(album.year, Some(1959));
         assert!(album.cover_path.is_some());
     }

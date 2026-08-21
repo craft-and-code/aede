@@ -22,15 +22,18 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 194 tests
+cargo test                       # 195 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
-tools/check.sh                   # all four at once, before committing
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps   # broken links are errors
+tools/check.sh                   # all five at once, before committing
 tools/demo-library.sh /tmp/demo-music   # test library (needs ffmpeg)
 ```
 
 `tools/check.sh` must pass before every commit. No exceptions.
+
+It includes `cargo doc` because a broken documentation link is silent everywhere else — neither the build nor clippy reads them — and moving an item between modules is precisely what breaks one. In a codebase where the reasoning lives in the doc comments, a dead link is a real defect.
 
 ## 3. Invariants
 
@@ -43,6 +46,10 @@ Current list: `lofty`, for the containers we have no parser of our own for. Plan
 **The hand-written parsers stay.** `lofty` is a fallback reached only when the signature matches none of them, and it must never become the primary path for FLAC, MP3, MP4, Ogg, WAV or AIFF. Those parsers extract things no general-purpose library exposes — the LAME encoder delay and padding, the ALAC magic cookie, the Opus pre-skip — and M3 needs them for gapless playback. A format one of them claims and then fails on keeps its own diagnosis: the fallback is for `UnrecognizedFormat`, nothing else.
 
 **The model is a graph.** The `credit` table (who does what, on what) and the `relation` table (typed links between entities) are the heart of the system. Never "simplify" towards an album → artist hierarchy: that graph is precisely what will let a user click a drummer and see their forty appearances.
+
+`model/` is divided by verb, and the division is load-bearing rather than cosmetic: `query.rs` takes `&self` throughout, so a lookup that tried to change something would not compile; `builder.rs` is the only place identifiers are handed out; `relations.rs` holds what is inferred rather than read, which is why it is the thing that carries `RELATION_RULES`. A new function goes to the file whose verb it is, not to whichever one is shortest. What the rest of the program calls is re-exported from `model/mod.rs`, so callers never name the sub-modules.
+
+**One idea, one implementation.** `text::file_name` and `text::folder` split a path; `clock::now_seconds` says what time it is. Both had grown three copies in three files, each a little different — which is how "the same thing" quietly becomes two things. A helper short enough to retype is exactly the one that gets retyped: put it where it belongs and use it.
 
 **Construction is deterministic.** Two scans of the same library produce exactly the same identifiers. Consequences: sort before iterating, never let `HashMap` iteration order leak into output or into identifier assignment, and prefer `BTreeMap`/`BTreeSet` wherever order matters.
 

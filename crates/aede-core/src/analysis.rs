@@ -141,10 +141,7 @@ impl FileAnalysis {
     /// was analysed — a name and a byte count together are very nearly unique
     /// in a music library.
     pub fn file_name(&self) -> &str {
-        match self.path.rfind('/') {
-            Some(i) => &self.path[i + 1..],
-            None => &self.path,
-        }
+        crate::text::file_name(&self.path)
     }
 }
 
