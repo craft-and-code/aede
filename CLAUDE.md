@@ -35,6 +35,8 @@ tools/demo-library.sh /tmp/demo-music   # test library (needs ffmpeg)
 
 **`Cargo.lock` belongs to the machine that builds, and is never delivered.** The development sandbox resolves against a vendored mirror rather than crates.io, which makes the lock it writes wrong twice over: it carries no `checksum` lines at all — the one thing a lock exists to provide — and it can name a version the registry does not have. It did: `flate2 1.1.10` shipped in a delivery, crates.io stops at 1.1.9, and `cargo test` refused to resolve. The lock is regenerated locally, from the real registry, and `rust-version = "1.89"` with `resolver = "3"` is what keeps that resolution inside the MSRV. Deliveries exclude it.
 
+More generally, **a delivery carries the files that changed, and nothing else.** Shipping the tree as an archive and unpacking it over the working copy overwrote files nobody had touched — `.gitignore` twice, then `Cargo.lock` — and left staging directories behind to be cleaned up by hand. The blast radius of a change should be the change.
+
 `tools/check.sh` includes `cargo doc` because a broken documentation link is silent everywhere else — neither the build nor clippy reads them — and moving an item between modules is precisely what breaks one. In a codebase where the reasoning lives in the doc comments, a dead link is a real defect.
 
 ## 3. Invariants
