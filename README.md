@@ -538,21 +538,29 @@ cargo test
 
 **M0 — the catalog (this repository).** Scanning, graph model, statistics, diagnostics, command-line navigation.
 
-**M1 — identification.** MusicBrainz for relations and credits, AcoustID/Chromaprint for badly tagged files, Cover Art Archive for artwork, Wikidata to reach the Wikipedia article in the user's language — in the vast majority of cases it already exists, written by humans, so no machine translation is needed. Move to SQLite. The hard part will be matching files to releases: plan for a confidence score and manual correction, never a blind rewrite.
+**M0.5 — what the user writes, and how it is asked for.** Favourites, ratings, notes and free-form tags in one annotation store keyed so that a scan can never destroy them; play history and play counts; and a real query grammar with ranges, negation and `OR`, of which today's options become shorthand. None of it needs the network or a database, and the identity design underneath it has to be right before anything else is built on top. See [What the user writes](#what-the-user-writes-favourites-ratings-notes-history) and [Querying](#querying).
+
+**M1 — identification.** MusicBrainz for relations and credits, AcoustID/Chromaprint for badly tagged files, Cover Art Archive for artwork, Wikidata to reach the Wikipedia article in the user's language — in the vast majority of cases it already exists, written by humans, so no machine translation is needed. Move to SQLite. Also: country and formation dates, band line-ups as dated relations, release types, and the completeness report that says which albums are missing from the shelf. The hard part will be matching files to releases: plan for a confidence score and manual correction, never a blind rewrite. See [Identification](#identification-m1).
 
 **M2 — the API.** HTTP server, JSON and WebSocket. To be frozen early: it is the contract between the core and every future client. This is where `serde` becomes worth its place: hand-written serialization is fine for one internal format, but not for an HTTP contract with a dozen types on it. The current `json` module was written for the catalog file, and the move is meant to be mechanical.
 
-**M3 — playback.** Local output, queue, gapless playback, loudness normalization (EBU R128). The decoder written for it also brings the FLAC MD5 check, which verifies the decoded audio rather than the container. Sketched out in [Notes towards M3](#notes-towards-m3) below.
+**M2.5 — other servers' languages.** Subsonic and OpenSubsonic first: eighty-odd existing clients on every platform, which is the shortest path from "no mobile client" to "thirty of them". Jellyfin afterwards, and timeboxed. Both as translations over the M2 API, never as a second core. See [Speaking other servers' languages](#speaking-other-servers-languages).
+
+**M3 — playback.** Local output, queue, gapless playback, loudness normalization (EBU R128). The decoder written for it also brings the FLAC MD5 check, which verifies the decoded audio rather than the container. See [Playback](#playback-m3).
 
 **M4 — the network.** Remote playback endpoints. `slimproto` gives the best effort-to-result ratio, since it opens up a fleet of existing devices without reinventing anything; UPnP/OpenHome afterwards for commercial hi-fi streamers.
 
+**Independent of the sequence.** Transcoding through ffmpeg, which depends on nothing above and is held back only by the rule that its output must never re-enter the library — see [Converting files](#converting-files).
+
 Explicitly out of scope: RAAT and the "Roon Ready" certification are proprietary and licensed — there is no technical path to them.
 
-## Notes towards M3
+## Notes towards what comes next
 
-Nothing here is built. It is written down while the reasoning is fresh, so that
-the milestone starts from a position rather than from a blank page. Anything in
-it may turn out to be wrong once there is sound coming out.
+Nothing in this part is built. It is written down while the reasoning is fresh,
+so that each milestone starts from a position rather than from a blank page.
+Anything in it may turn out to be wrong once there is code under it.
+
+## Playback (M3)
 
 ### The queue is a selection, not a new idea
 
@@ -701,6 +709,306 @@ first: if the numbers turn out to be wrong, everything above is premature.
 No writing tags, no reorganising files on disk, no cloud, and no second
 catalog. Playback reads; the scan is still the only thing that writes what the
 library is.
+
+## What the user writes: favourites, ratings, notes, history
+
+This is the part that needs deciding **first**, before any of it is built,
+because it is the only data in the whole program that cannot be recovered. Lose
+the catalog and a scan rebuilds it in a minute. Lose the notes and they are
+gone.
+
+### One shape, not five
+
+Favourites, ratings, notes and free-form user tags look like four features. They
+are one: **something the user wrote about an entity of the catalog.** They
+should be one table, one file, one reconciliation, one import/export — and one
+place to get right.
+
+```rust
+struct Annotation {
+    target: EntityRef,          // what it is about
+    loved: bool,                // a favourite
+    rating: Option<u8>,         // 1..=5
+    note: Option<String>,       // free text
+    tags: BTreeSet<String>,     // free labels: "to rip again", "vinyl"
+    created_at: u64,
+    updated_at: u64,
+}
+```
+
+One record per target rather than one per fact, which makes the operation of
+copying everything said about one album onto another a single record copy
+rather than a loop over four kinds.
+
+Any entity can be a target: track, release, artist, label, genre. Not just
+albums — a note on a label ("great remasters, bad pressings") is exactly the
+kind of thing that gets lost otherwise.
+
+### The identity problem, which is the whole problem
+
+Catalog identifiers are **positions in a vector that every scan renumbers.**
+Annotations must therefore never be keyed by them — the same lesson the imported
+FlacCompagnon analyses already taught, and it cost a rewrite to learn. An
+`EntityRef` is a kind plus a **stable key**:
+
+| Kind         | Stable key                                                    |
+| ------------ | ------------------------------------------------------------- |
+| Track        | the file path, with name + size as a fallback                 |
+| Release      | album artist + title + folder, the key it is already built on |
+| Artist       | the normalized name key, until M1 brings MBIDs                |
+| Genre, label | the normalized key                                            |
+
+And the same reconciliation as the analyses: an annotation whose target is not
+in the catalog is **kept waiting, never dropped.** Rename a folder, rescan, and
+the note reattaches when the path comes back — or attaches by name and size if
+the file merely moved. Silently deleting what a user wrote because a file moved
+is the one unforgivable failure in this program.
+
+At M1 the MBID becomes a second key that survives renaming altogether, and the
+path becomes the fallback rather than the other way round.
+
+### Its own file, and it is the one worth backing up
+
+Not in `catalog.json`. Two reasons, and the second is the real one:
+
+- the catalog is derived from disk and reproducible; annotations are not
+  reproducible from anything;
+- the catalog is written whole. Ratings and play events change constantly, and
+  rewriting the entire library to record a click is absurd.
+
+A separate file, human-readable, hand-editable, and small. Export and import are
+then almost free, and worth having from the first day: `aede notes --export` /
+`--import`, merging rather than replacing, because a merge is what someone
+restoring half a backup actually wants.
+
+### Play history, which has a different shape
+
+An annotation is a statement; a play is an event. Append-only:
+
+```rust
+struct Play { track: EntityRef, at: u64, ms_played: u64, completed: bool }
+```
+
+The log itself should be **bounded** — the last few hundred events, shown as
+"what did I listen to last night", filterable by artist, album, period. But
+counters must **not** be bounded: a per-track `play_count` and `last_played`
+that never forget, because M3's `discover` shuffle asks "what have I never
+heard", and a truncated log cannot answer that. Two structures, because they
+answer two questions.
+
+`completed` matters more than it looks: a track skipped after eight seconds is
+evidence _against_ it, and a rating system that cannot tell a skip from a listen
+is measuring the wrong thing.
+
+### Commands
+
+Sketch, following the shape already in use — the page commands already resolve a
+name to an entity, and that resolution is what should be reused:
+
+```sh
+aede love album "To Hell With God"      # and --remove
+aede rate artist Ozzy --stars 4
+aede note album "Animals" --text "…"    # --remove, --from album:"…" to copy
+aede notes                              # every annotation, filterable, --export/--import
+aede favourites                         # and aede history --limit 100
+```
+
+and, more usefully, as **filters on what already exists**, which costs nothing
+because the filter machinery is built:
+
+```sh
+aede albums --loved --rating 5
+aede artists --tag "to rip again"
+```
+
+None of this needs the network, SQL, or M1. It needs the identity design above
+to be right, which is why it is written down before anything is typed.
+
+## Querying
+
+The roadmap says "SQLite at M1" and that has been quietly standing in for a
+query language. It should not. **A query language is an interface, not a
+storage engine.** Defined on its own it works today over the in-memory catalog
+and tomorrow over SQL; defined as "whatever SQLite makes easy", it arrives late
+and shaped by the wrong concerns.
+
+Where things actually stand:
+
+| Capability                       | Today                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Several criteria at once         | Partly — `--artist --year --genre --label --comment`, combined with an implicit AND            |
+| Filters                          | Yes, per command, each refused where it means nothing                                          |
+| Numeric and date ranges          | **No.** `--year 1969` is exact; there is no `1969..1975`, no `bitrate:..128`, no `added:-1w..` |
+| Sorting                          | Barely — one `--sort` on one listing                                                           |
+| Pagination                       | Yes: `--limit`, `--offset`, `--all`, through one `Window`                                      |
+| Aggregation and statistics       | Yes: `stats`, `years`, and counts, durations and sizes on every listing                        |
+| Search on user tags              | No — see the section above                                                                     |
+| Search on relations              | Partly: `artist --with`, `--role`. Not expressible in general                                  |
+| `AND` / `OR` / `NOT`             | **AND only, implicitly.** No OR, no negation                                                   |
+| Saved queries, smart collections | No                                                                                             |
+
+The two real gaps are **ranges** and **boolean composition**, and they are the
+two that no amount of adding options ever fixes: options compose by AND and
+nothing else. One grammar, in the spirit of what beets settled on:
+
+```
+genre:metal year:1990..1999 rating:>=4 -label:earache
+(artist:ozzy OR artist:dio) added:-1w..
+```
+
+The rule that keeps it from becoming a second implementation: **every existing
+option is sugar for one term of the grammar.** `aede albums --genre metal`
+parses to the same query as `genre:metal`, and there is one evaluator. Options
+stay for the common cases, because `--genre metal` is nicer to type than a
+quoted expression, and nothing is duplicated.
+
+A **saved query is a smart collection**, and a smart collection is a selection —
+which is already the thing `--csv` and `--m3u` render and the thing M3's queue
+consumes. "Every 5-star metal album I have never played" becomes a playable
+collection with no new machinery at all. That closure is the reason to define
+the grammar early rather than bolt filters on for another year.
+
+## Identification (M1)
+
+What MusicBrainz brings, beyond what is already planned.
+
+### Country, formation, membership
+
+There is no widely-used tag for an artist's country of origin — `RELEASECOUNTRY`
+exists but that is the country a _release_ came out in, which is a different
+question and answers it wrongly (an American pressing of a French band). So this
+waits for M1 and comes from the artist entity: its **area**, its **begin and end
+dates** (formation and split, with an explicit "ended" flag), and its type
+(person, group, orchestra, choir…).
+
+Band membership needs **no new table**: it is an artist-to-artist link, and the
+`relation` table exists for exactly that. MusicBrainz's "member of band"
+relationship carries begin and end dates and an instrument, so the one model
+change is a **dated relation** — an optional period on a link. Which is worth
+doing carefully, because "who was in the band in 1979" is a question the graph
+should be able to answer, and dated links are how.
+
+Then `aede artists --country FR`, `aede artist "Iron Maiden" --members`, and a
+band page that shows a line-up rather than a list of names.
+
+### Editions: single, EP, live, remaster, deluxe
+
+Half of this is cleaner than expected and half is messier.
+
+**Clean:** MusicBrainz release _groups_ carry a primary type — Album, Single,
+EP, Broadcast, Other — and secondary types: Compilation, Soundtrack, Live,
+Remix, DJ-mix, Demo, Mixtape, Spokenword, Interview, Audiobook, Audio drama,
+Field recording. That is the vocabulary, it is stable, and it is exactly what an
+interface needs for its icons.
+
+**Messy:** _remaster_ and _deluxe edition_ are **not types.** MusicBrainz keeps
+a remaster in the same release group as the original and distinguishes it at
+release level — by date, label, catalogue number, barcode, and a disambiguation
+comment such as "2011 remaster" — plus an explicit release-to-release "remaster
+of" link. So a remaster is not a category to display; it is _another release of
+the same thing_, which is a better model anyway and one this catalog can already
+express.
+
+Partly available before M1: Picard writes `RELEASETYPE` and `RELEASESTATUS`
+into the tags, so a well-tagged library already knows its EPs from its albums.
+Titles can be mined for "(Deluxe Edition)" and "Remastered 2011" — but a guess
+from a title is a guess, and this project records where a fact came from
+(read from a tag, inferred by a rule, fetched from MusicBrainz) rather than
+flattening the three into one field that looks equally certain.
+
+### What is missing from the shelf
+
+The completeness report — the thing worth building:
+
+```
+Collection completeness
+──────────────────────
+Pink Floyd
+Albums:
+██████████████░░░ 82%
+✓ The Dark Side of the Moon
+✓ Wish You Were Here
+✓ Animals
+✗ The Final Cut
+✗ The Division Bell
+```
+
+Three things decide whether this is useful or infuriating:
+
+- **Compare release groups, not releases.** Otherwise every reissue of _Animals_
+  counts as an album you are missing, and the figure is noise.
+- **Say what the percentage is of.** 82% of studio albums is a fact; 82% of
+  everything MusicBrainz holds, bootlegs and DJ-mixes included, is a number that
+  will never reach 100 and therefore means nothing. The secondary types are the
+  filter, and the heading must name it.
+- **An absence is not a defect.** Nobody wants every Frank Zappa release. The
+  report answers a question; it does not nag, and it belongs beside `doctor`
+  rather than inside it.
+
+Discogs is the obvious second source and adds real depth — pressings, matrix
+numbers, plants, editions — but its API terms are far more restrictive than
+MusicBrainz's CC0: authentication, rate limits, no commercial use without
+permission, no caching beyond serving the immediate user. Worth it for editions
+of physical media, not worth it as the primary source, and not worth it at all
+before MusicBrainz is working.
+
+**Available now, without any of the above:** `doctor` already reports an
+incomplete album, but only by finding _gaps_ — it looks at the track numbers it
+has and notices 2 is missing between 1 and 3. An album missing its last three
+tracks looks perfectly whole to it. `TRACKTOTAL`/`DISCTOTAL` are in the tags and
+are not being read. That is a small fix and does not wait for anything.
+
+## Speaking other servers' languages
+
+Aède's own API (M2) is the contract, and it should be designed for Aède rather
+than for anyone else. Compatibility surfaces are then **translations on top of
+it**, never a second core — the moment a foreign API's model reaches into the
+catalog, that model has won.
+
+**Subsonic / OpenSubsonic first, and it deserves higher priority than it
+sounds.** The original Subsonic API has been frozen since 2019 at version
+1.16.1; OpenSubsonic is the community continuation, backwards-compatible in both
+directions and actively specified. Between them they are spoken by something
+like eighty clients — Symfonium, Supersonic, Feishin, Tempo, Amperfy and the
+rest — on every platform there is. Implementing it is the difference between
+"Aède has no mobile client" and "Aède has thirty", without writing an app. It is
+plausibly the highest return of any single item in this file.
+
+**Jellyfin afterwards, and with lower expectations.** Its API is documented by a
+generated OpenAPI specification, but the specification is thin on meaning: one
+enormous polymorphic item type, an Emby-era composite authorization header, and
+enough undocumented behaviour that real integrations proceed by watching the
+official web client's traffic. Clients emulate it routinely; servers emulating
+it appear to be rare, which is itself a signal. Worth doing for the clients it
+unlocks, worth doing _after_ Subsonic, and worth timeboxing.
+
+_(One correction to the note that prompted this: no evidence could be found that
+Navidrome exposes any part of the Jellyfin API. Its documentation and releases
+mention only Subsonic 1.16.1 plus OpenSubsonic extensions, and its own private
+API for its web interface. The bridges that exist run the other way — Jellyfin
+plugins that read from Navidrome.)_
+
+## Converting files
+
+Transcoding for a phone or a car stereo, driven by ffmpeg, as beets does it.
+
+Two decisions matter more than the feature:
+
+- **ffmpeg is an external program, not a dependency.** It is invoked, its
+  absence is detected, and a missing ffmpeg produces a clear message rather than
+  a mysterious failure. The dependency rule in `CLAUDE.md` is not being bent for
+  this.
+- **The converted files must not come back in through the front door.** They go
+  to a destination folder that is _not_ watched, and they are never registered as
+  library items — the originals stay the library. A converted copy landing under
+  a watched folder doubles the library at the next scan, and this is precisely
+  the trap beets designed around: its `convert` writes elsewhere and the database
+  keeps pointing at the originals. Files already in the target format are copied
+  rather than re-encoded, which is worth stealing too.
+
+This is also the first thing in the entire project that would _write audio_, and
+that line is worth guarding: it writes new files, in a folder the user names,
+and it never touches a source file.
 
 ## Licence
 
