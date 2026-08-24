@@ -189,6 +189,55 @@ fn inspecting_a_single_file() {
 }
 
 #[test]
+fn an_option_without_a_command_has_nothing_to_act_on() {
+    // `aede --data ~/music` named a catalog, did nothing with it, printed the
+    // help and reported success. The option went into the void exactly as a
+    // swallowed argument does, and the help made it look like an answer.
+    let sandbox = Sandbox::new("no_command");
+
+    let (out, err, ok) = sandbox.run(&["--data", "/tmp/aede_e2e_nowhere"]);
+    assert!(!ok, "output: {out}");
+    assert!(
+        err.contains("no command to apply --data to"),
+        "stderr: {err}"
+    );
+    assert!(!out.contains("COMMANDS"), "and no help page: {out}");
+
+    // `--data <folder>` is the one option taking a folder that does not mean
+    // "read the music in it", so it is the one people type expecting a scan.
+    // An error saying only "no command" leaves them exactly where they were.
+    assert!(
+        err.contains("where the catalog is kept"),
+        "it says what --data means: {err}"
+    );
+    assert!(
+        err.contains("aede scan /tmp/aede_e2e_nowhere"),
+        "and names what does read a folder: {err}"
+    );
+
+    // Named as typed, short spelling included.
+    let (_, err, ok) = sandbox.run(&["-o", "somewhere.csv"]);
+    assert!(!ok);
+    assert!(err.contains("-o"), "stderr: {err}");
+
+    // `--data` with no value at all is the question "where is my catalog?",
+    // so the message answers it instead of only refusing.
+    let (_, err, ok) = sandbox.run(&["--data"]);
+    assert!(!ok);
+    assert!(err.contains("expects a value"), "stderr: {err}");
+    assert!(err.contains("catalog is currently in"), "stderr: {err}");
+
+    // Nothing at all still asks for the help, and so does an option that only
+    // shapes what is printed: `--no-color` has the help itself to act on.
+    let (out, _, ok) = sandbox.run(&[]);
+    assert!(ok);
+    assert!(out.contains("COMMANDS"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["--no-color"]);
+    assert!(ok);
+    assert!(out.contains("COMMANDS"), "output: {out}");
+}
+
+#[test]
 fn help_and_version() {
     let sandbox = Sandbox::new("help");
     let (out, _, ok) = sandbox.run(&["--version"]);

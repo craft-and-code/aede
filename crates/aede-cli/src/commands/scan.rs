@@ -291,6 +291,13 @@ pub fn roots(args: &Args) -> Res {
             ui::dim("run `aede scan` to drop what is no longer watched")
         );
     }
+    // Where the answers themselves are kept. `roots` is the command someone
+    // runs to ask where their things are, and the catalog file was the one
+    // location it never named — only `scan` mentioned it, once, in passing.
+    println!(
+        "  {}",
+        ui::dim(&format!("catalog: {}", catalog_file.display()))
+    );
     Ok(())
 }
 

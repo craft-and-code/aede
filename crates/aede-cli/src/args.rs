@@ -180,6 +180,21 @@ impl Args {
         self.flags.contains_key(name)
     }
 
+    /// Options typed, minus those listed, each in the spelling it was typed in.
+    ///
+    /// What separates "run with nothing", which asks for the help, from "run
+    /// with options and no command", which asks for something the program
+    /// cannot do and has to be told so. The exceptions are the options that
+    /// shape what is printed rather than what is answered: they have the help
+    /// itself to act on.
+    pub fn options_given_except(&self, ignored: &[&str]) -> Vec<&str> {
+        self.flags
+            .keys()
+            .filter(|k| !ignored.contains(&k.as_str()))
+            .map(|k| self.as_typed(k))
+            .collect()
+    }
+
     pub fn value(&self, name: &str) -> Option<&str> {
         self.flags.get(name).and_then(|v| v.as_deref())
     }

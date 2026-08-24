@@ -393,6 +393,8 @@ The frame checksums prove the _container_ was not corrupted; the MD5 proves the 
 
 In the catalog, and nowhere else: `~/.local/share/aede/catalog.json` grows one more table, `analysis`, one row per path and per source. The report you imported is never referred to again — you can move it or throw it away. `aede export` includes the table, `aede import --forget` empties it, and `aede reset` warns about it before removing the catalog.
 
+`--data <folder>` puts the catalog elsewhere, `$AEDE_HOME` does the same by environment. `aede roots` ends by naming the file it just read, so the answer to "where is all this kept" is on the screen that lists what is watched.
+
 ## Supported formats
 
 | Container   | Codecs                    | Tags                          | Duration from                  |
@@ -532,7 +534,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-223 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+224 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 
@@ -744,6 +746,47 @@ Any entity can be a target: track, release, artist, label, genre. Not just
 albums — a note on a label ("great remasters, bad pressings") is exactly the
 kind of thing that gets lost otherwise.
 
+**A favourite does not deserve a table of its own.** It looks like it should:
+one boolean, one index, done. But the hard part of any of this is not the value,
+it is the stable reference and the reconciliation that keeps it attached across
+a rescan — and a second table means a second copy of that, kept in step by hand
+for ever. One record per target, and `loved` is a field on it. Fast lookup is an
+index, which is not the same thing as a table.
+
+One field the sketch above is missing, and it is cheaper to add now than later:
+an **owner**. As soon as the Subsonic surface exists there are users, and
+starred items are per user in that API. Retrofitting an owner into a store that
+assumed one is the kind of migration that eats a weekend.
+
+### Why the note is not the comment tag
+
+Tempting, and worth saying why not — because the answer is not "purity", it is
+the direction of writing.
+
+**The comment tag lives inside the audio file.** Storing a note there means
+Aède rewrites tags, which is the one thing this project has refused from the
+start. Rewriting a FLAC to record "great remaster" changes the file: it moves
+the mtime, so the next scan re-reads it; it invalidates the integrity verdict
+that a whole subsystem exists to produce; and it cannot be undone. A note is not
+worth touching the audio for.
+
+**The comment tag belongs to whoever tagged the file, and often already says
+something.** A library where tracks carry `comment=Vinyl rip, needs replacing`
+is a library where writing notes into that field destroys real information —
+information Aède reads and can already search on.
+
+**And it does not reach.** A comment is a field on a file. There is no file for
+an artist, a label or a genre, and no obvious file for an album — the note would
+have to be copied onto every track and kept consistent, or written to one of
+them and lost when that one moves.
+
+So: a separate field, in Aède's own store. But the good half of the idea stands,
+and it is the half worth keeping — **read the comment as a note, never write
+it.** An entity then shows what the tagger wrote and what the user wrote, side
+by side, each labelled with where it came from, exactly as this project already
+distinguishes a fact read from a tag from one it inferred. `--comment` and
+`--comments` then search both, which is a feature nobody has to build twice.
+
 ### The identity problem, which is the whole problem
 
 Catalog identifiers are **positions in a vector that every scan renumbers.**
@@ -780,6 +823,34 @@ A separate file, human-readable, hand-editable, and small. Export and import are
 then almost free, and worth having from the first day: `aede notes --export` /
 `--import`, merging rather than replacing, because a merge is what someone
 restoring half a backup actually wants.
+
+### Which is also what makes the move to SQLite cheap
+
+M1 replaces JSON with SQLite **as the store**. That is not the end of JSON here:
+`aede export` is the faithful dump, a different job, and it stays.
+
+The migration is smaller than it looks, because **most of the catalog does not
+need migrating at all.** Everything in it was read from disk and a scan rebuilds
+it in a minute; rescanning is a perfectly good migration path for anything
+reproducible.
+
+What is not reproducible has to be carried across, and `aede reset` already
+names the list, since it is the same one — what a rescan does _not_ bring back:
+
+- the **integrity verdicts**, which can cost an hour of reading;
+- the **imported analyses**, which cost a run of another program entirely;
+- and, once they exist, the **annotations**.
+
+All three live inside the very file M1 replaces. So M1 either reads the last
+JSON catalog once to carry them over, or — better — the annotations are already
+in a file of their own by then, which is what the section above argues for on
+grounds that have nothing to do with SQLite. Doing M0.5 first shrinks the M1
+migration to two tables and makes it a non-event.
+
+Worth noting while on the subject of where things live: `--data <folder>`
+chooses the location for one command, and `AEDE_HOME` chooses it for good. The
+second is the least discoverable thing in the program, which is why the error
+for a `--data` with no value names both.
 
 ### Play history, which has a different shape
 

@@ -90,18 +90,11 @@ fn main() {
         std::process::exit(2);
     }
 
-    if args.has("version") {
-        println!("aede {VERSION}");
-        return;
-    }
-    if args.has("help") || args.command.is_empty() {
-        print_help();
-        return;
-    }
-
     // An option that expects a value and was given none cannot be honoured.
     // Carrying on would answer as if the option had never been typed, which
-    // is a wrong answer rather than a missing one.
+    // is a wrong answer rather than a missing one. Checked before `--help`,
+    // for the same reason the unknown options are: a command line that did not
+    // parse gets an error, not a friendly page about something else.
     let missing = args.options_missing_a_value();
     if !missing.is_empty() {
         for name in &missing {
@@ -109,7 +102,60 @@ fn main() {
                 "{} option --{name} expects a value: --{name}=…",
                 ui::red("Error:")
             );
+            // `aede --data` is how someone asks where their catalog is, so the
+            // message answers that rather than only complaining about it.
+            if *name == "data" {
+                eprintln!(
+                    "Its catalog is currently in {}",
+                    commands::data_dir(&args).display()
+                );
+                // The location can be changed for good, and the variable that
+                // does it is the least discoverable thing in the program.
+                eprintln!("--data moves it for one command; AEDE_HOME moves it for good.");
+            }
         }
+        std::process::exit(2);
+    }
+
+    if args.has("version") {
+        println!("aede {VERSION}");
+        return;
+    }
+    if args.has("help") {
+        print_help();
+        return;
+    }
+    if args.command.is_empty() {
+        // Running the program with nothing at all is a request for the help,
+        // and that is worth keeping. Running it with options and no command is
+        // not: `aede --data ~/music` named a catalog, did nothing with it,
+        // printed the help and reported success — the options going into the
+        // void exactly as a swallowed argument does.
+        //
+        // Except the ones that only shape what is printed: `--no-color` has
+        // the help itself to act on, so it is not left with nothing.
+        let idle = args.options_given_except(PRESENTATION_OPTIONS);
+        if idle.is_empty() {
+            print_help();
+            return;
+        }
+        eprintln!(
+            "{} no command to apply {} to.",
+            ui::red("Error:"),
+            idle.join(", ")
+        );
+        eprintln!("An option shapes what a command does; alone it does nothing.");
+        // Naming the commands is not always enough — the same reason `--role`
+        // carries a hint. `--data <folder>` is the one option in the program
+        // that takes a folder without meaning "read the music in it", and
+        // `aede --data ~/Music` is what someone types who reads it that way.
+        // The error that only says "no command" leaves them exactly there.
+        if let Some(folder) = args.value("data") {
+            eprintln!("--data says where the catalog is kept, not what to read:");
+            eprintln!("  aede scan {folder}              reads the music in that folder");
+            eprintln!("  aede --data {folder} stats      uses a catalog kept there");
+        }
+        eprintln!("Run \"aede help\" for the list of commands.");
         std::process::exit(2);
     }
 
@@ -241,6 +287,10 @@ const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 /// which is why `album` and `track` are not here: there, `--artist` is the
 /// filter, and a role with nobody attached asks nothing.
 const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
+
+/// Options that shape what is printed rather than what is answered, and so are
+/// not left with nothing to do when no command follows them.
+const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 
 /// Commands that can be narrowed to one artist, or to one year.
 ///

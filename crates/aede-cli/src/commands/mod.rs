@@ -49,7 +49,8 @@ use crate::ui::{self, Table};
 /// the user.
 pub type Res = Result<(), Box<dyn Error>>;
 
-fn data_dir(args: &Args) -> PathBuf {
+/// Where the catalog lives: what `--data` names, or the default location.
+pub fn data_dir(args: &Args) -> PathBuf {
     args.value("data")
         .map(PathBuf::from)
         .unwrap_or_else(store::default_data_dir)
