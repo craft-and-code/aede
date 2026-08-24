@@ -540,7 +540,7 @@ cargo test
 
 **M0 — the catalog (this repository).** Scanning, graph model, statistics, diagnostics, command-line navigation.
 
-**M0.5 — what the user writes, and how it is asked for.** Favourites, ratings, notes and free-form tags in one annotation store keyed so that a scan can never destroy them; play history and play counts; and a real query grammar with ranges, negation and `OR`, of which today's options become shorthand. None of it needs the network or a database, and the identity design underneath it has to be right before anything else is built on top. See [What the user writes](#what-the-user-writes-favourites-ratings-notes-history) and [Querying](#querying).
+**M0.5 — what the user writes, and how it is asked for.** Favourites, ratings, notes and free-form tags in one annotation store keyed so that a scan can never destroy them; play history and play counts; and a real query grammar with ranges, negation and `OR`, of which today's options become shorthand. Every one of those records carries an **owner** from its first version, so that the accounts arriving at M2.5 are a second value in a field rather than a migration. None of it needs the network or a database, and the identity design underneath it has to be right before anything else is built on top. See [What the user writes](#what-the-user-writes-favourites-ratings-notes-history), [several users](#which-is-the-same-question-as-several-users) and [Querying](#querying).
 
 **M1 — identification.** MusicBrainz for relations and credits, AcoustID/Chromaprint for badly tagged files, Cover Art Archive for artwork, Wikidata to reach the Wikipedia article in the user's language — in the vast majority of cases it already exists, written by humans, so no machine translation is needed. Move to SQLite. Also: country and formation dates, band line-ups as dated relations, release types, and the completeness report that says which albums are missing from the shelf. The hard part will be matching files to releases: plan for a confidence score and manual correction, never a blind rewrite. See [Identification](#identification-m1).
 
@@ -728,6 +728,7 @@ place to get right.
 
 ```rust
 struct Annotation {
+    owner: UserRef,             // whose opinion it is — see below
     target: EntityRef,          // what it is about
     loved: bool,                // a favourite
     rating: Option<u8>,         // 1..=5
@@ -753,10 +754,9 @@ a rescan — and a second table means a second copy of that, kept in step by han
 for ever. One record per target, and `loved` is a field on it. Fast lookup is an
 index, which is not the same thing as a table.
 
-One field the sketch above is missing, and it is cheaper to add now than later:
-an **owner**. As soon as the Subsonic surface exists there are users, and
-starred items are per user in that API. Retrofitting an owner into a store that
-assumed one is the kind of migration that eats a weekend.
+The `owner` is there from the first version, and has a section of its own
+further down. On a single-user installation it always holds the same value
+and looks like dead weight; it is the cheapest field in the whole design.
 
 ### Why the note is not the comment tag
 
@@ -824,6 +824,48 @@ then almost free, and worth having from the first day: `aede notes --export` /
 `--import`, merging rather than replacing, because a merge is what someone
 restoring half a backup actually wants.
 
+### Which is the same question as "several users"
+
+There will be accounts: the Subsonic surface has them by definition, and Aède's
+own front end will want them. That sounds like a separate, large subject. It is
+not — it is **this** subject, seen from the other side, and the boundary drawn
+above is already the answer:
+
+|                                                                      | Belongs to  | Same for everyone?                  |
+| -------------------------------------------------------------------- | ----------- | ----------------------------------- |
+| Files, tracks, releases, artists, credits, relations, genres, labels | the catalog | yes                                 |
+| Integrity verdicts, imported analyses                                | the catalog | yes — a measurement, not an opinion |
+| Favourites, ratings, notes, tags                                     | a person    | no                                  |
+| Play history and counts, queues, saved queries                       | a person    | no                                  |
+
+Facts about the files are read from the disk or measured on it: two people
+looking at the same library see the same ones. Everything a person _said or
+did_ is theirs, always — including when there is exactly one of them.
+
+**So the rule is: no per-user field ever lands on a catalog entity.** A
+`rating` on a release, or a `play_count` on a track, looks harmless while there
+is one user and becomes a question with no answer — _whose?_ — the day there are
+two, by which time every read in the program assumes the single answer. As of
+M0 that boundary is intact: every table in the catalog is a fact. It stayed that
+way by luck rather than by intent, which is exactly why it is written down now.
+
+**And the shape that means the migration never happens:** a per-user record
+carries an **owner from the first version in which it exists**, and every read
+filters by it, even when the only owner is the local one. The single-user case
+is then the multi-user case with one user — one code path, exercised on every
+run, instead of a second one written blind two years later. It is the same move
+as `Window` for paging and the stable `EntityRef` for annotations: decide the
+general shape once, then let the simple case be an instance of it.
+
+That is the whole of what M0 owes the subject, and it costs one field.
+Authentication is M2's problem — and Subsonic's legacy scheme in particular must
+stay inside the compatibility layer rather than reaching the model.
+Authorization is M2's too; the working assumption, there to be argued against
+rather than from, is that the **library is shared and only the annotations are
+private**: scanning, importing and resetting belong to whoever owns the
+installation, not to a listener. The catalog itself has no owner, and that is a
+decision rather than an oversight.
+
 ### Which is also what makes the move to SQLite cheap
 
 M1 replaces JSON with SQLite **as the store**. That is not the end of JSON here:
@@ -857,15 +899,20 @@ for a `--data` with no value names both.
 An annotation is a statement; a play is an event. Append-only:
 
 ```rust
-struct Play { track: EntityRef, at: u64, ms_played: u64, completed: bool }
+struct Play { owner: UserRef, track: EntityRef, at: u64, ms_played: u64, completed: bool }
 ```
 
 The log itself should be **bounded** — the last few hundred events, shown as
 "what did I listen to last night", filterable by artist, album, period. But
-counters must **not** be bounded: a per-track `play_count` and `last_played`
-that never forget, because M3's `discover` shuffle asks "what have I never
-heard", and a truncated log cannot answer that. Two structures, because they
-answer two questions.
+counters must **not** be bounded: a `play_count` and a `last_played` that never
+forget, because M3's `discover` shuffle asks "what have I never heard", and a
+truncated log cannot answer that. Two structures, because they answer two
+questions.
+
+The counters are per **owner and track**, not per track — "played eleven times"
+is not a fact about the file, and a shared counter would make one listener's
+history drive another's shuffle. The library-wide figure is then a sum, computed
+when someone asks for it, which is what a total should always be.
 
 `completed` matters more than it looks: a track skipped after eight seconds is
 evidence _against_ it, and a rating system that cannot tell a skip from a listen
