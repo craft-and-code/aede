@@ -322,8 +322,16 @@ const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
 /// not left with nothing to do when no command follows them.
 const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 
-/// Commands that can answer in JSON rather than in a table.
-const JSON_COMMANDS: &[&str] = &["stats", "doctor", "search", "track"];
+/// Commands that can answer in JSON.
+///
+/// Everything that can render a CSV can render a JSON of the same rows — they
+/// go through one function — plus the two that have a shape of their own.
+/// `--json` used to be declared globally and read by four commands, so
+/// `aede albums --json` printed the ordinary table and dropped the word.
+const JSON_COMMANDS: &[&str] = &[
+    "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
+    "genres", "labels", "years", "stats", "doctor",
+];
 
 /// The one listing whose order can be chosen.
 const SORT_COMMANDS: &[&str] = &["artists"];
@@ -435,7 +443,8 @@ fn print_help() {
   --limit <n>          Number of rows displayed
   --offset <n>         Rows skipped first, to walk a result page by page
   --all                Every row, however many there are
-  --json               Machine-readable output (stats, doctor, search, track)
+  --json               Machine-readable output: the same rows as --csv,
+                       plus stats, doctor, search and track
   --csv                Spreadsheet output: export, the listings, and any
                        selection (--separator=; or tab)
   --m3u                Playlist of the tracks shown (album, artist, track,

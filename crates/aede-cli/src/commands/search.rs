@@ -51,12 +51,14 @@ pub fn search(args: &Args) -> Res {
             ids.push(id);
         }
     }
-    if let Some(result) = selection_output(&catalog, &ids, args) {
-        return result;
-    }
-
+    // A command with a JSON shape of its own answers first: `search --json`
+    // reports the hits — artists and albums included — which is a better answer
+    // than the flat track table the shared selection path would give.
     if args.has("json") {
         return print_json(&catalog, &hits, &in_comments, window);
+    }
+    if let Some(result) = selection_output(&catalog, &ids, args) {
+        return result;
     }
 
     println!("{}", ui::section(&format!("Results for \"{query}\"")));

@@ -182,7 +182,6 @@ fn every_option_is_refused_where_it_means_nothing() {
         vec!["genres", "--sort", "tracks"],
         vec!["scan", "--severity=error"],
         vec!["roots", "--full"],
-        vec!["export", "--json"],
         vec!["albums", "--follow-symlinks"],
         vec!["stats", "--remove", "/tmp"],
     ] {
@@ -214,6 +213,68 @@ fn every_option_is_refused_where_it_means_nothing() {
     ] {
         let (_, err, ok) = sandbox.run(&args);
         assert!(ok, "{args:?} must work: {err}");
+    }
+}
+
+#[test]
+fn json_is_offered_wherever_a_table_is() {
+    // `--json` was declared globally and read by four commands. Everywhere
+    // else — every listing, every page — it was accepted, ignored, and the
+    // ordinary table printed instead, which looks like an answer.
+    let sandbox = Sandbox::new("json_everywhere");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    for args in [
+        vec!["albums", "--json"],
+        vec!["artists", "--json"],
+        vec!["genres", "--json"],
+        vec!["labels", "--json"],
+        vec!["years", "--json"],
+        vec!["genre", "jazz", "--json"],
+        vec!["label", "Columbia", "--json"],
+        vec!["album", "Kind of Blue", "--json"],
+        vec!["artist", "Miles Davis", "--json"],
+    ] {
+        let (out, err, ok) = sandbox.run(&args);
+        assert!(ok, "{args:?} failed: {err}");
+        assert!(
+            out.trim_start().starts_with('['),
+            "{args:?} must answer in JSON, got:\n{out}"
+        );
+    }
+
+    // The commands with a shape of their own keep it: `search --json` reports
+    // the hits, artists and albums included, not a flat table of tracks.
+    let (out, _, ok) = sandbox.run(&["search", "miles", "--json"]);
+    assert!(ok);
+    assert!(
+        out.contains("\"found_in\""),
+        "the search shape is kept: {out}"
+    );
+
+    // Numbers are numbers and empty cells are null, because JSON can say what
+    // a CSV cannot. A title that merely looks like a number stays a string.
+    let (out, _, ok) = sandbox.run(&["albums", "--json"]);
+    assert!(ok);
+    assert!(out.contains("\"tracks\": 9"), "a count is a number: {out}");
+    assert!(out.contains("\"compilation\": false"), "output: {out}");
+    assert!(out.contains(": null"), "an absent field is null: {out}");
+    assert!(
+        out.contains("\"album\": \"Kind of Blue\""),
+        "a title is a string: {out}"
+    );
+
+    // And the two formats come from one table, so a column cannot exist in one
+    // and not the other.
+    let (csv, _, _) = sandbox.run(&["albums", "--csv"]);
+    let header = csv.lines().next().expect("a header row");
+    for column in header.split(',') {
+        assert!(
+            out.contains(&format!("\"{column}\":")),
+            "column {column} is in the CSV and not in the JSON"
+        );
     }
 }
 

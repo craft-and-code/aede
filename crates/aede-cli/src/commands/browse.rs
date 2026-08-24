@@ -94,7 +94,7 @@ pub fn list_artists(args: &Args) -> Res {
         });
     }
 
-    if args.has("csv") {
+    if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = rows
             .iter()
             .skip(window.offset)
@@ -277,7 +277,7 @@ pub fn list_albums(args: &Args) -> Res {
             .then_with(|| a.title.cmp(&b.title))
     });
 
-    if args.has("csv") {
+    if args.has("csv") || args.has("json") {
         // The same table as `export --csv`, restricted to what the filters kept:
         // one file for a whole discography is the usual reason to ask.
         let ids: Vec<Id> = rows
@@ -369,7 +369,7 @@ pub fn list_genres(args: &Args) -> Res {
     // Ranked in full, cut at display: the notice below can only be honest if
     // the count of what was left out is known.
     let top = stats::top_genres(&catalog, usize::MAX);
-    if args.has("csv") {
+    if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = top
             .iter()
             .map(|&(id, count)| {
@@ -426,7 +426,7 @@ pub fn list_labels(args: &Args) -> Res {
     let catalog = load(args)?;
     let window = args.window(50)?;
     let top = stats::top_labels(&catalog, usize::MAX);
-    if args.has("csv") {
+    if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = top
             .iter()
             .map(|&(id, count)| {
@@ -492,7 +492,7 @@ pub fn list_years(args: &Args) -> Res {
         entry.0 += 1;
         entry.1.extend(release.track_ids.iter().copied());
     }
-    if args.has("csv") {
+    if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = by_year
             .iter()
             .map(|(year, (albums, tracks))| {

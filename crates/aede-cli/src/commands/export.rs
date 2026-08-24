@@ -17,6 +17,7 @@
 
 use std::collections::BTreeSet;
 
+use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::store;
 
@@ -38,27 +39,27 @@ pub fn export(args: &Args) -> Res {
     }
 
     let catalog = load(args)?;
-    let text = if args.has("csv") {
-        let separator = separator(args)?;
-        if args.has("tracks") {
+    // `--csv` flattens the graph into one table; without it the dump is the
+    // faithful one, and `--json` on `export` asks for exactly that.
+    if args.has("csv") {
+        return if args.has("tracks") {
             let all: Vec<Id> = catalog.tracks.iter().map(|t| t.id).collect();
-            tracks_csv(&catalog, &all, separator)
+            tracks_table(&catalog, &all, args)
         } else {
             let all: Vec<Id> = catalog.releases.iter().map(|r| r.id).collect();
-            albums_csv(&catalog, &all, separator)
-        }
-    } else {
-        store::to_json(&catalog).to_string_pretty()
-    };
-    emit(args, &text)
+            albums_table(&catalog, &all, args)
+        };
+    }
+    emit(args, &store::to_json(&catalog).to_string_pretty())
 }
 
-/// Writes the tracks on screen as a CSV table.
+/// Writes the tracks on screen as a table, in whichever format was asked for.
 ///
-/// The counterpart of [`m3u`] for a spreadsheet: same selection, other shape.
+/// The counterpart of [`m3u`] for a spreadsheet or a program: same selection,
+/// other shape.
 pub fn tracks_table(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
-    let separator = separator(args)?;
-    emit(args, &tracks_csv(catalog, tracks, separator))
+    let (header, rows) = track_rows(catalog, tracks);
+    rows_table(&header, &rows, args)
 }
 
 /// Writes to the file given by `--output`, or to standard output.
@@ -101,17 +102,24 @@ fn separator(args: &Args) -> Result<char, Box<dyn std::error::Error>> {
     }
 }
 
-/// Writes the albums on screen as a CSV table.
+/// Writes the albums on screen as a table, in whichever format was asked for.
 pub fn albums_table(catalog: &Catalog, releases: &[Id], args: &Args) -> Res {
-    let separator = separator(args)?;
-    emit(args, &albums_csv(catalog, releases, separator))
+    let (header, rows) = album_rows(catalog, releases);
+    rows_table(&header, &rows, args)
 }
 
-/// Writes any listing as a CSV table: a header, then the rows as given.
+/// Writes any listing as a table: a header, then the rows as given.
 ///
 /// The listings differ too much to share a shape — a year is not an artist —
-/// but they share the quoting, the separator and where the text ends up.
+/// but they share the quoting, the separator, the JSON typing and where the
+/// text ends up. **One function for both formats**, so that an option honoured
+/// by one and not the other cannot happen again: `--json` was accepted by every
+/// listing and read by none, which printed the ordinary table and dropped the
+/// word.
 pub fn rows_table(header: &[&str], rows: &[Vec<String>], args: &Args) -> Res {
+    if args.has("json") {
+        return emit(args, &rows_json(header, rows));
+    }
     let separator = separator(args)?;
     let mut out = String::new();
     push_row(
@@ -125,10 +133,73 @@ pub fn rows_table(header: &[&str], rows: &[Vec<String>], args: &Args) -> Res {
     emit(args, &out)
 }
 
+/// Columns whose value is a number, and must reach JSON as one.
+///
+/// Named rather than guessed: a cell that merely *looks* like a number is not
+/// one. An album called "1999" is a title, and turning it into an integer
+/// because it happens to parse is a wrong answer no reader could detect.
+const NUMERIC_COLUMNS: &[&str] = &[
+    "tracks",
+    "albums",
+    "discs",
+    "year",
+    "duration_ms",
+    "size_bytes",
+    "track_no",
+    "disc_no",
+    "bitrate_kbps",
+    "sample_rate_hz",
+    "bit_depth",
+    "channels",
+];
+
+/// Columns holding a yes/no, which JSON has a type for.
+const BOOLEAN_COLUMNS: &[&str] = &["lossless", "compilation"];
+
+/// The same rows as the CSV, as an array of objects.
+///
+/// An empty cell becomes `null` rather than `""`: "this album has no year" and
+/// "this album has an empty year" are different claims, and only the first is
+/// true. The CSV cannot make that distinction; JSON can, so it does.
+pub fn rows_json(header: &[&str], rows: &[Vec<String>]) -> String {
+    let list: Vec<Json> = rows
+        .iter()
+        .map(|row| {
+            let mut o = Json::obj();
+            for (name, cell) in header.iter().zip(row) {
+                o.set(name, cell_json(name, cell));
+            }
+            o
+        })
+        .collect();
+    Json::Arr(list).to_string_pretty()
+}
+
+fn cell_json(name: &str, cell: &str) -> Json {
+    if cell.is_empty() {
+        return Json::Null;
+    }
+    if BOOLEAN_COLUMNS.contains(&name) {
+        match cell {
+            "true" => return Json::Bool(true),
+            "false" => return Json::Bool(false),
+            _ => {}
+        }
+    }
+    if NUMERIC_COLUMNS.contains(&name)
+        && let Ok(number) = cell.parse::<f64>()
+    {
+        return Json::Num(number);
+    }
+    Json::Str(cell.to_string())
+}
+
 /// One row per album: what a library looks like from above.
-fn albums_csv(catalog: &Catalog, releases: &[Id], separator: char) -> String {
-    let mut out = String::new();
-    let header = [
+///
+/// Built once, so that the CSV and the JSON can never drift apart.
+fn album_rows(catalog: &Catalog, releases: &[Id]) -> (Vec<&'static str>, Vec<Vec<String>>) {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let header = vec![
         "album_artist",
         "album",
         "year",
@@ -151,8 +222,6 @@ fn albums_csv(catalog: &Catalog, releases: &[Id], separator: char) -> String {
         "musicbrainz_albumid",
         "folder",
     ];
-    push_row(&mut out, &header.map(String::from), separator);
-
     for release in releases.iter().filter_map(|&id| catalog.release(id)) {
         let tracks: Vec<&aede_core::model::Track> = release
             .track_ids
@@ -215,15 +284,16 @@ fn albums_csv(catalog: &Catalog, releases: &[Id], separator: char) -> String {
             release.mbid.clone().unwrap_or_default(),
             release.folder.clone(),
         ];
-        push_row(&mut out, &row, separator);
+        rows.push(row.to_vec());
     }
-    out
+    (header, rows)
 }
 
 /// One row per track, for when the album view is too coarse.
-fn tracks_csv(catalog: &Catalog, tracks: &[Id], separator: char) -> String {
-    let mut out = String::new();
-    let header = [
+/// The track table, once, for the same reason.
+fn track_rows(catalog: &Catalog, tracks: &[Id]) -> (Vec<&'static str>, Vec<Vec<String>>) {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let header = vec![
         "artist",
         "album_artist",
         "album",
@@ -245,8 +315,6 @@ fn tracks_csv(catalog: &Catalog, tracks: &[Id], separator: char) -> String {
         "musicbrainz_recordingid",
         "path",
     ];
-    push_row(&mut out, &header.map(String::from), separator);
-
     for track in tracks.iter().filter_map(|&id| catalog.track(id)) {
         let release = track.release_id.and_then(|id| catalog.release(id));
         let file = catalog.file(track.file_id);
@@ -287,9 +355,9 @@ fn tracks_csv(catalog: &Catalog, tracks: &[Id], separator: char) -> String {
             track.mbid.clone().unwrap_or_default(),
             file.map(|f| f.path.clone()).unwrap_or_default(),
         ];
-        push_row(&mut out, &row, separator);
+        rows.push(row.to_vec());
     }
-    out
+    (header, rows)
 }
 
 /// Integrity of a set of files, in one word.

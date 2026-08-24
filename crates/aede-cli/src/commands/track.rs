@@ -61,14 +61,16 @@ pub fn show_track(args: &Args) -> Res {
         .collect();
 
     let ids: Vec<Id> = matches.iter().map(|t| t.id).collect();
-    if let Some(result) = selection_output(&catalog, &ids, args) {
-        return result;
-    }
-
+    // Its own JSON shape answers first, for the same reason as `search`: this
+    // one carries the credits and the technical detail, which no flat table of
+    // a selection can.
     if args.has("json") {
         let json = Json::Arr(matches.iter().map(|t| as_json(&catalog, t)).collect());
         println!("{}", json.to_string_pretty());
         return Ok(());
+    }
+    if let Some(result) = selection_output(&catalog, &ids, args) {
+        return result;
     }
 
     if kind == TitleMatch::Partial {

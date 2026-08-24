@@ -37,7 +37,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede import <report…>`                                   | Take in a FlacCompagnon report (`--forget` removes what was imported)                    |
 | `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                |
 
-`--json` on `stats`, `doctor`, `search` and `track` produces machine-readable output. `aede help` lists every option.
+`--json` produces machine-readable output wherever `--csv` does — the same rows, typed — plus `stats`, `doctor`, `search` and `track`, which have shapes of their own. `aede help` lists every option.
 
 The catalog lives in `$AEDE_HOME`, or `~/.local/share/aede/catalog.json`.
 
@@ -534,7 +534,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-227 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+228 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 

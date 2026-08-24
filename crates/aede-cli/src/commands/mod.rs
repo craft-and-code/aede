@@ -281,7 +281,7 @@ fn selection_output(catalog: &Catalog, tracks: &[Id], args: &Args) -> Option<Res
     if args.has("m3u") {
         return Some(play_list(catalog, tracks, args));
     }
-    if args.has("csv") {
+    if args.has("csv") || args.has("json") {
         if tracks.is_empty() {
             return Some(Err("nothing to put in a table".into()));
         }
