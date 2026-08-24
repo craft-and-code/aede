@@ -46,7 +46,6 @@ fn main() {
         "remove",
         "limit",
         "sort",
-        "type",
         "severity",
         "artist",
         "album",
@@ -189,6 +188,20 @@ fn main() {
         ("limit", PAGING_COMMANDS, "show a window of its result"),
         ("offset", PAGING_COMMANDS, "start further down its result"),
         ("all", PAGING_COMMANDS, "drop the row limit"),
+        ("json", JSON_COMMANDS, "answer in JSON"),
+        ("separator", CSV_COMMANDS, "choose a separator"),
+        ("sort", SORT_COMMANDS, "be sorted"),
+        ("severity", DOCTOR_COMMANDS, "filter by severity"),
+        ("album", &["track"], "narrow to one album"),
+        ("with", &["artist"], "cross two artists"),
+        ("tracks", &["export"], "switch to one row per track"),
+        ("yes", &["reset"], "skip the confirmation"),
+        ("remove", &["roots"], "drop a folder"),
+        ("full", &["scan", "check"], "ignore what was already done"),
+        ("threads", &["scan", "check"], "read on several threads"),
+        ("replace", &["scan"], "forget the watched folders"),
+        ("follow-symlinks", &["scan"], "follow symbolic links"),
+        ("include-hidden", &["scan"], "walk hidden files"),
     ] {
         if args.has(option) && !commands.contains(&args.command.as_str()) {
             eprintln!(
@@ -206,6 +219,23 @@ fn main() {
                     args.value("role").unwrap_or("<role>")
                 );
             }
+            std::process::exit(2);
+        }
+    }
+
+    // Some options mean nothing on their own, only alongside another. The
+    // command being right is not enough: `aede export --tracks` without `--csv`
+    // writes the JSON dump and drops the option, and `aede albums --separator=;`
+    // prints a table nobody asked to separate. The last corner of the same
+    // fault, and the one the table above cannot see, since it only knows which
+    // commands an option reaches, not what it needs once there.
+    for (option, needs) in [("separator", "csv"), ("tracks", "csv")] {
+        if args.has(option) && !args.has(needs) {
+            eprintln!(
+                "{} --{option} means nothing without --{needs}.",
+                ui::red("Error:")
+            );
+            eprintln!("Add --{needs}, or drop --{option}.");
             std::process::exit(2);
         }
     }
@@ -292,6 +322,15 @@ const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
 /// not left with nothing to do when no command follows them.
 const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 
+/// Commands that can answer in JSON rather than in a table.
+const JSON_COMMANDS: &[&str] = &["stats", "doctor", "search", "track"];
+
+/// The one listing whose order can be chosen.
+const SORT_COMMANDS: &[&str] = &["artists"];
+
+/// The one command that reports issues, and can therefore filter them.
+const DOCTOR_COMMANDS: &[&str] = &["doctor"];
+
 /// Commands that can be narrowed to one artist, or to one year.
 ///
 /// Both were declared among the options and guarded nowhere: `aede artists
@@ -364,10 +403,12 @@ fn print_help() {
   roots                List the watched folders (--remove <folder> to drop one)
   stats                Library statistics
   doctor               Diagnosis: missing tags, duplicates, incomplete albums
+                       (--severity=error|warning|info)
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies)
 
-  artists              List of artists (--role composer, producer…)
+  artists              List of artists (--role composer, producer…,
+                       --sort tracks|name)
   albums               List of albums (--artist, --year, --genre, --label,
                        --comment, --compilations, --no-compilations)
   genres               List of genres
@@ -406,8 +447,10 @@ fn print_help() {
 
 {}
   --full               Ignore the tag cache and re-read every file
+                       (scan, check)
   --replace            Forget the watched folders and keep only those given
-  --threads <n>        Number of reader threads (default: available cores)
+  --threads <n>        Number of reader threads (scan, check;
+                       default: available cores)
   --follow-symlinks    Follow symbolic links
   --include-hidden     Include hidden files and folders
 
@@ -423,6 +466,10 @@ fn print_help() {
   --comments           Search the comment tag as well (search)
   --role <role>        On artists: who is credited that way.
                        On artist <name>: what they did in that role.
+  --album <title>      Of one album (track)
+  --with <name>        The tracks two artists share (artist)
+  --severity <level>   error, warning or info (doctor)
+  --sort <order>       tracks or name (artists)
 
 {}
   --forget             Remove the imported analyses instead of adding any

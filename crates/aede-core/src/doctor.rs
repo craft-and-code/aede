@@ -60,7 +60,8 @@ pub enum IssueKind {
     Md5Mismatch,
     /// An imported analysis suspects the file was built from a lossy source.
     SuspectEncoding,
-    /// Gaps in the numbering of a disc, the sign of a rip left unfinished.
+    /// Tracks missing from a disc, the sign of a rip left unfinished — whether
+    /// they are gaps in the numbering or a tail short of the announced total.
     IncompleteAlbum,
     /// One release mixes codecs or sample rates, which usually means it was assembled from
     /// different sources.
@@ -118,6 +119,35 @@ impl IssueKind {
             IssueKind::DamagedAudio => "damaged audio",
         }
     }
+}
+
+/// How many tracks the file says its disc holds, if it says so at all.
+///
+/// Taggers disagree on the name and some write `9/12` in the number itself, so
+/// all three spellings are read and only the leading digits of the value are
+/// kept. A value that does not parse is no answer rather than a wrong one.
+fn announced_total(file: &crate::model::AudioFile) -> Option<u32> {
+    ["tracktotal", "totaltracks", "tracknumber"]
+        .iter()
+        .filter_map(|name| file.tags.get(*name))
+        .filter_map(|values| values.first())
+        .filter_map(|value| value.split_once('/').map(|(_, total)| total.to_string()))
+        .chain(
+            ["tracktotal", "totaltracks"]
+                .iter()
+                .filter_map(|name| file.tags.get(*name))
+                .filter_map(|values| values.first())
+                .cloned(),
+        )
+        .filter_map(|value| {
+            let digits: String = value
+                .trim()
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            digits.parse::<u32>().ok()
+        })
+        .max()
 }
 
 /// One observation made on the library, tied to the files that carry it.
@@ -531,20 +561,31 @@ fn check_releases(catalog: &Catalog, issues: &mut Vec<Issue>) {
             .map(|f| f.path.clone())
             .collect();
 
-        // Gaps in the numbering, disc by disc.
-        let mut by_disc: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        // Gaps in the numbering, disc by disc — and what the files themselves
+        // say the disc should hold, which is the only way to see the tracks
+        // missing from the *end*. On gaps alone, an album truncated after track
+        // 9 of 12 looks perfectly whole: there is nothing between 1 and 9 left
+        // to be missing. That is exactly the shape an interrupted rip has, so
+        // the check was blind to its most common case.
+        let mut by_disc: BTreeMap<u32, (Vec<u32>, u32)> = BTreeMap::new();
         for track in &tracks {
             if let Some(no) = track.track_no {
-                by_disc
-                    .entry(track.disc_no.unwrap_or(1))
-                    .or_default()
-                    .push(no);
+                let entry = by_disc.entry(track.disc_no.unwrap_or(1)).or_default();
+                entry.0.push(no);
+                if let Some(total) = catalog.file(track.file_id).and_then(announced_total) {
+                    entry.1 = entry.1.max(total);
+                }
             }
         }
-        for (disc, mut numbers) in by_disc {
+        for (disc, (mut numbers, announced)) in by_disc {
             numbers.sort_unstable();
             numbers.dedup();
-            let Some(&max) = numbers.last() else { continue };
+            let Some(&last) = numbers.last() else {
+                continue;
+            };
+            // A total smaller than what is present is a wrong tag, not a
+            // missing track, so the ceiling is whichever of the two is larger.
+            let max = last.max(announced);
             let missing: Vec<u32> = (1..=max).filter(|n| !numbers.contains(n)).collect();
             if !missing.is_empty() {
                 let list: Vec<String> = missing.iter().take(12).map(|n| n.to_string()).collect();
@@ -765,6 +806,69 @@ mod tests {
             .collect();
         assert_eq!(duplicates.len(), 1, "only one duplicate group expected");
         assert_eq!(duplicates[0].files.len(), 2);
+    }
+
+    #[test]
+    fn an_album_cut_short_at_the_end_is_incomplete_too() {
+        // Counting gaps alone, an album truncated after track 2 of 5 looks
+        // whole: there is nothing between 1 and 2 left to be missing. That is
+        // the shape an interrupted rip has, and the check was blind to it.
+        let track = |n: &'static str| {
+            vec![
+                ("title", "T"),
+                ("artist", "A"),
+                ("album", "Album"),
+                ("date", "1990"),
+                ("tracknumber", n),
+                ("tracktotal", "5"),
+            ]
+        };
+        let c = model::build(
+            vec![
+                file("/m/a/01.flac", &track("1"), Some(1000), "flac"),
+                file("/m/a/02.flac", &track("2"), Some(2000), "flac"),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+        let gap = diagnose(&c)
+            .into_iter()
+            .find(|i| i.kind == IssueKind::IncompleteAlbum)
+            .expect("the missing tail must be seen");
+        for n in ["3", "4", "5"] {
+            assert!(gap.detail.contains(n), "detail: {}", gap.detail);
+        }
+    }
+
+    #[test]
+    fn a_total_smaller_than_what_is_there_is_a_wrong_tag_not_a_gap() {
+        // A disc announcing 2 while holding 3 has a bad tag; inventing missing
+        // tracks from it would report a defect that is not one.
+        let track = |n: &'static str| {
+            vec![
+                ("title", "T"),
+                ("artist", "A"),
+                ("album", "Album"),
+                ("date", "1990"),
+                ("tracknumber", n),
+                ("tracktotal", "2"),
+            ]
+        };
+        let c = model::build(
+            vec![
+                file("/m/b/01.flac", &track("1"), Some(1000), "flac"),
+                file("/m/b/02.flac", &track("2"), Some(2000), "flac"),
+                file("/m/b/03.flac", &track("3"), Some(3000), "flac"),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+        assert!(
+            !diagnose(&c)
+                .iter()
+                .any(|i| i.kind == IssueKind::IncompleteAlbum),
+            "nothing is missing here"
+        );
     }
 
     #[test]

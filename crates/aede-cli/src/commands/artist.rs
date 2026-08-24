@@ -112,7 +112,7 @@ pub fn show_artist(args: &Args) -> Res {
         let mut t = Table::new(&["Artist", "Tracks in common"])
             .align(1, Align::Right)
             .limit(0, 40);
-        for (other, weight, _) in neighbours.iter().take(args.usize_value("limit", 20)) {
+        for (other, weight, _) in neighbours.iter().take(args.number_or("limit", 20)?) {
             t.push(vec![other.name.clone(), weight.to_string()]);
         }
         print!("{}", t.render());

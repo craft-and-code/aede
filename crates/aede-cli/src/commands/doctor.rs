@@ -11,16 +11,21 @@ pub fn show_doctor(args: &Args) -> Res {
     let catalog = load(args)?;
     let mut issues = doctor::diagnose(&catalog);
 
+    // A level nobody recognises used to leave the filter off entirely: the
+    // whole diagnosis came back under a name that had asked for a third of it,
+    // and nothing said so. Same fault as `--year=abc`, same answer.
     if let Some(filter) = args.value("severity") {
         let wanted = match filter {
-            "error" | "errors" => Some(Severity::Error),
-            "warning" | "warnings" => Some(Severity::Warning),
-            "info" | "infos" => Some(Severity::Info),
-            _ => None,
+            "error" | "errors" => Severity::Error,
+            "warning" | "warnings" => Severity::Warning,
+            "info" | "infos" => Severity::Info,
+            other => {
+                return Err(
+                    format!("--severity takes error, warning or info: got \"{other}\"").into(),
+                );
+            }
         };
-        if let Some(wanted) = wanted {
-            issues.retain(|i| i.severity() == wanted);
-        }
+        issues.retain(|i| i.severity() == wanted);
     }
 
     if args.has("json") {

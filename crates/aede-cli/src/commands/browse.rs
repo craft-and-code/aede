@@ -13,7 +13,16 @@ use crate::ui::{self, Align, Table};
 pub fn list_artists(args: &Args) -> Res {
     let catalog = load(args)?;
     let window = args.window(50)?;
-    let by_tracks = args.value("sort").unwrap_or("tracks") == "tracks";
+    // Read strictly, like the window: `--sort banana` used to fall through to
+    // sorting by name, which is an answer to a question nobody asked and looks
+    // exactly like a correct one.
+    let by_tracks = match args.value("sort") {
+        None | Some("tracks") => true,
+        Some("name") => false,
+        Some(other) => {
+            return Err(format!("--sort takes \"tracks\" or \"name\": got \"{other}\"").into());
+        }
+    };
 
     // Who does *this* in my library — the inverse of the artist page, and the
     // whole reason credits carry a role rather than being a bare artist

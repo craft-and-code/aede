@@ -77,7 +77,7 @@ pub fn show_stats(args: &Args) -> Res {
     // answer; an empty screen is not.
     print_roles(&catalog);
 
-    let limit = args.usize_value("limit", 10);
+    let limit = args.number_or("limit", 10)?;
     println!(
         "{}",
         ui::section(&format!("Most present performers (top {limit})"))

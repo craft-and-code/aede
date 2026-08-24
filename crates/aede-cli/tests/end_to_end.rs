@@ -158,6 +158,66 @@ fn a_misspelled_option_stops_the_command() {
 }
 
 #[test]
+fn every_option_is_refused_where_it_means_nothing() {
+    // Three rounds of this fault had been fixed one option at a time — `--csv`,
+    // then `--genre`/`--label`, then `--artist`/`--year` — while fourteen more
+    // stayed unguarded: `aede stats --severity=error`, `aede albums --full`,
+    // `aede artists --with Miles` all answered cheerfully and dropped the word.
+    // Fixing a class one member at a time is how it survives.
+    let sandbox = Sandbox::new("all_guards");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    for args in [
+        vec!["stats", "--severity=error"],
+        vec!["stats", "--sort", "tracks"],
+        vec!["albums", "--full"],
+        vec!["albums", "--threads", "4"],
+        vec!["albums", "--yes"],
+        vec!["albums", "--replace"],
+        vec!["albums", "--tracks"],
+        vec!["artists", "--album", "Kind of Blue"],
+        vec!["artists", "--with", "Miles"],
+        vec!["genres", "--sort", "tracks"],
+        vec!["scan", "--severity=error"],
+        vec!["roots", "--full"],
+        vec!["export", "--json"],
+        vec!["albums", "--follow-symlinks"],
+        vec!["stats", "--remove", "/tmp"],
+    ] {
+        let (out, err, ok) = sandbox.run(&args);
+        assert!(!ok, "{args:?} must be refused, got:\n{out}");
+        assert!(err.contains("applies to"), "{args:?} stderr: {err}");
+    }
+
+    // And an option that needs another one, which the table cannot see: it
+    // knows where an option reaches, not what it needs once it is there.
+    for args in [vec!["export", "--tracks"], vec!["albums", "--separator=;"]] {
+        let (out, err, ok) = sandbox.run(&args);
+        assert!(!ok, "{args:?} must be refused, got:\n{out}");
+        assert!(err.contains("without --csv"), "{args:?} stderr: {err}");
+    }
+
+    // A value the option cannot read is an error too, not a different answer:
+    // `--sort banana` used to fall through to sorting by name.
+    let (_, err, ok) = sandbox.run(&["artists", "--sort", "banana"]);
+    assert!(!ok);
+    assert!(err.contains("--sort takes"), "stderr: {err}");
+
+    // What is guarded still works where it belongs.
+    for args in [
+        vec!["artists", "--sort", "name"],
+        vec!["doctor", "--severity=error"],
+        vec!["export", "--csv", "--tracks"],
+        vec!["albums", "--csv", "--separator=;"],
+    ] {
+        let (_, err, ok) = sandbox.run(&args);
+        assert!(ok, "{args:?} must work: {err}");
+    }
+}
+
+#[test]
 fn help_is_a_command_like_the_others() {
     // It answers, so it is listed; it reads no argument, so it refuses one.
     // `aede help scan` reads as a request for one command's page and printed

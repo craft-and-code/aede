@@ -40,7 +40,7 @@ pub fn scan(args: &Args) -> Res {
     };
 
     let options = ScanOptions {
-        threads: args.usize_value("threads", 0),
+        threads: args.number_or("threads", 0)?,
         follow_symlinks: args.has("follow-symlinks"),
         skip_hidden: !args.has("include-hidden"),
     };

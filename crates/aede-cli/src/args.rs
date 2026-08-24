@@ -51,7 +51,6 @@ const VALUED_WORD: &[&str] = &[
     "data",
     "limit",
     "sort",
-    "type",
     "severity",
     "year",
     "output",
@@ -231,7 +230,7 @@ impl Args {
     }
 
     /// A whole number given to an option, refusing anything else.
-    fn whole_number(&self, name: &str) -> Result<Option<usize>, String> {
+    pub fn whole_number(&self, name: &str) -> Result<Option<usize>, String> {
         match self.value(name) {
             None => Ok(None),
             Some(raw) => raw
@@ -241,10 +240,13 @@ impl Args {
         }
     }
 
-    pub fn usize_value(&self, name: &str, default: usize) -> usize {
-        self.value(name)
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(default)
+    /// A whole number, or the default when the option was not given.
+    ///
+    /// Strict, like [`Args::window`]: `--threads abc` used to fall back on the
+    /// default and read on however many threads it liked, which is a different
+    /// answer to the question rather than a refusal to answer it.
+    pub fn number_or(&self, name: &str, default: usize) -> Result<usize, String> {
+        Ok(self.whole_number(name)?.unwrap_or(default))
     }
 
     /// Options that expect a value and were given none.
@@ -502,7 +504,7 @@ mod tests {
         let a = parse(&["albums", "--limit=5", "--artist", "Miles Davis"]);
         assert_eq!(a.value("limit"), Some("5"));
         assert_eq!(a.value("artist"), Some("Miles Davis"));
-        assert_eq!(a.usize_value("limit", 20), 5);
+        assert_eq!(a.number_or("limit", 20), Ok(5));
     }
 
     #[test]
