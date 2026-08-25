@@ -4,6 +4,7 @@
 //! catalog lives, how it is loaded, how a role is spelled out — stays here.
 
 mod album;
+mod annotate;
 mod artist;
 mod browse;
 mod check;
@@ -19,6 +20,10 @@ mod stats;
 mod track;
 
 pub use album::show_album;
+use annotate::panel_for;
+pub use annotate::{
+    collection, collections, favourites, history, love, note, notes, played, query, rate, tag,
+};
 pub use artist::show_artist;
 pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years};
 pub use check::check;
@@ -66,6 +71,17 @@ fn load(args: &Args) -> Result<Catalog, Box<dyn Error>> {
         )
         .into()),
     }
+}
+
+/// What the user wrote, reattached to this catalog.
+///
+/// Shared so that a listing evaluating a query has the ratings and tags a
+/// query may ask about, without every command learning where the file is.
+fn user_data(args: &Args, catalog: &Catalog) -> Result<aede_core::user::UserData, Box<dyn Error>> {
+    let path = aede_core::user::user_path(&data_dir(args));
+    let mut data = aede_core::user::load(&path)?.unwrap_or_default();
+    aede_core::user::reconcile(&mut data, catalog);
+    Ok(data)
 }
 
 /// The role vocabulary, as `(key stored, name shown)`.

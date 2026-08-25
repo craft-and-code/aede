@@ -1,7 +1,8 @@
 //! Text normalization: this is the piece that decides whether "The Beatles",
 //! "Beatles, The" and "beatles" designate the same entity.
 //!
-//! All entity matching in milestone M0 rests on [`normalize`].
+//! All entity matching rests on [`normalize`], until M1 brings identifiers
+//! that do not depend on spelling.
 //! When MusicBrainz arrives (M1), these normalized keys will remain the safety
 //! net for unidentified files.
 

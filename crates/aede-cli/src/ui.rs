@@ -325,6 +325,24 @@ pub fn bar(value: usize, max: usize, width: usize) -> String {
 /// becoming `-es` (analysis → analyses) and the sibilants that take `-es`. A
 /// full English pluraliser would be a library; "1 analysiss" is a typo the
 /// user reads every time.
+/// How long ago something happened, in one short phrase.
+///
+/// Coarse on purpose: a history is read for its order, not for its arithmetic,
+/// and "3 days ago" is easier to place than a date nobody remembers.
+pub fn ago(seconds: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    match seconds {
+        s if s < MINUTE => "just now".into(),
+        s if s < HOUR => format!("{} min ago", s / MINUTE),
+        s if s < DAY => plural((s / HOUR) as usize, "hour") + " ago",
+        s if s < 30 * DAY => plural((s / DAY) as usize, "day") + " ago",
+        s if s < 365 * DAY => plural((s / (30 * DAY)) as usize, "month") + " ago",
+        s => plural((s / (365 * DAY)) as usize, "year") + " ago",
+    }
+}
+
 pub fn plural(count: usize, singular: &str) -> String {
     if count <= 1 {
         return format!("{count} {singular}");

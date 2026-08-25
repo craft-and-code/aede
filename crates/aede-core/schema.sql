@@ -1,6 +1,6 @@
 -- Aède — target relational schema (milestone M1).
 --
--- At milestone M0 the catalog lives in memory and is persisted as JSON: every
+-- Until M1 the catalog lives in memory and is persisted as JSON: every
 -- key of the file maps exactly to one table below, and every object to one
 -- row. This file is therefore not prospective documentation, it is the
 -- contract `store.rs` already honours.

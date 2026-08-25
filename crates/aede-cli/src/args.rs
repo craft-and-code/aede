@@ -47,7 +47,6 @@ pub struct Args {
 /// Exactly one word is taken, and anything after it goes on being parsed
 /// normally — `--limit 10 coltrane` limits to ten and searches for Coltrane.
 const VALUED_WORD: &[&str] = &[
-    "remove",
     "data",
     "limit",
     "sort",
@@ -58,6 +57,9 @@ const VALUED_WORD: &[&str] = &[
     "separator",
     "source",
     "offset",
+    "stars",
+    "file",
+    "import",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in
@@ -77,7 +79,7 @@ const VALUED_WORD: &[&str] = &[
 /// command then says it was given no title rather than answering the wrong
 /// question.
 const VALUED_NAME: &[&str] = &[
-    "artist", "album", "with", "genre", "label", "comment", "role",
+    "artist", "album", "with", "genre", "label", "comment", "role", "text", "from", "tag", "query",
 ];
 
 /// Short spellings, each standing for exactly one long option.
@@ -100,6 +102,16 @@ fn long_name(short: &str) -> String {
         .find(|(letter, _)| *letter == short)
         .map(|(_, long)| (*long).to_string())
         .unwrap_or_else(|| short.to_string())
+}
+
+/// `true` when a word can be the value of the option before it.
+///
+/// A leading dash means an option, with one exception every command-line tool
+/// shares: a lone `-` is the name of standard input, and `--file -` is how a
+/// note gets piped in. Refusing it there would refuse the one spelling everyone
+/// already knows.
+fn is_value(word: &str) -> bool {
+    word == "-" || !word.starts_with('-')
 }
 
 /// Splits `name=value` into its two halves; `value` is `None` without a `=`.
@@ -152,14 +164,12 @@ impl Args {
                 Some(value) => Some(value),
                 None if VALUED_NAME.contains(&name.as_str()) => {
                     let mut words: Vec<String> = Vec::new();
-                    while let Some(word) = iter.next_if(|next| !next.starts_with('-')) {
+                    while let Some(word) = iter.next_if(|next| is_value(next)) {
                         words.push(word);
                     }
                     (!words.is_empty()).then(|| words.join(" "))
                 }
-                None if VALUED_WORD.contains(&name.as_str()) => {
-                    iter.next_if(|next| !next.starts_with('-'))
-                }
+                None if VALUED_WORD.contains(&name.as_str()) => iter.next_if(|next| is_value(next)),
                 None => None,
             };
             args.flags.insert(name, value);
@@ -554,6 +564,18 @@ mod tests {
         // proposed for something that is neither.
         assert_eq!(nearest("--fegioregj", known), None);
         assert_eq!(nearest("--x", known), None);
+    }
+
+    #[test]
+    fn a_lone_dash_is_a_value_and_not_an_option() {
+        // `--file -` is how everyone spells "read it from the pipe", and a
+        // parser that reads the dash as an option refuses the one form the
+        // user already knows.
+        let a = parse(&["note", "--file", "-"]);
+        assert_eq!(a.value("file"), Some("-"));
+        // A dash followed by anything else is still an option.
+        let a = parse(&["albums", "--limit", "-5"]);
+        assert_eq!(a.value("limit"), None);
     }
 
     #[test]

@@ -11,7 +11,6 @@
 
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id, TitleMatch, Track};
-use aede_core::text;
 
 use super::{
     Res, announce_window, load, properties_table, role_label, selection_output, tags_table,
@@ -32,11 +31,25 @@ pub fn show_track(args: &Args) -> Res {
 
     let (found, kind) = catalog.find_tracks(&title);
     let before_filters = found.len();
+
+    // The options are shorthand for the grammar here too: three hand-written
+    // filters used to answer questions the one evaluator already answers.
+    let expression = track_query(args);
+    let parsed = aede_core::query::parse(&expression)?;
+    let data = super::user_data(args, &catalog)?;
+    let context = aede_core::query::Context {
+        catalog: &catalog,
+        data: &data,
+        owner: aede_core::user::LOCAL_USER,
+    };
+    if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
+        return Err(
+            format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),
+        );
+    }
     let matches: Vec<&Track> = found
         .into_iter()
-        .filter(|t| keeps_artist(&catalog, t, args.value("artist")))
-        .filter(|t| keeps_album(&catalog, t, args.value("album")))
-        .filter(|t| keeps_comment(&catalog, t, args.value("comment")))
+        .filter(|t| aede_core::query::matches(&parsed, &context, t.id))
         .collect();
 
     if matches.is_empty() {
@@ -97,66 +110,42 @@ pub fn show_track(args: &Args) -> Res {
     } else if total > 1 {
         println!("  {}", ui::dim(&ui::plural(total, "track")));
     }
+    for track in &matches {
+        super::panel_for(args, &catalog, EntityKind::Track, track.id);
+    }
     Ok(())
 }
 
-/// `true` when the track has no artist filter to satisfy, or satisfies it.
+/// Turns the filter options into one expression.
 ///
-/// Every credit counts, not just the performers: filtering a title by its
-/// composer is as legitimate as filtering it by its singer.
-fn keeps_artist(catalog: &Catalog, track: &Track, wanted: Option<&str>) -> bool {
-    let Some(wanted) = wanted else {
-        return true;
-    };
-    let key = text::normalize(wanted);
-    if key.is_empty() {
-        return true;
+/// One mapping is a decision rather than a transcription, and the grammar is
+/// what made it expressible: `--artist` on a track matches **either** a credit
+/// **or** the album's own artist — asking for a track "by Miles Davis" should
+/// find it on a Miles Davis album whether or not he is credited on that
+/// particular piece. That is an `OR`, which is precisely what a pile of options
+/// could never say and what the grammar says in four characters.
+fn track_query(args: &Args) -> String {
+    let mut terms: Vec<String> = Vec::new();
+    if let Some(artist) = args.value("artist") {
+        let value = quoted(artist);
+        terms.push(format!("(artist:{value} OR albumartist:{value})"));
     }
-    let credited = catalog
-        .credits_on(EntityKind::Track, track.id)
-        .into_iter()
-        .any(|(artist, _)| text::normalize(&artist.name).contains(&key));
-    let album_artist = track
-        .release_id
-        .and_then(|id| catalog.release(id))
-        .and_then(|r| r.album_artist_id)
-        .and_then(|id| catalog.artist(id))
-        .is_some_and(|a| text::normalize(&a.name).contains(&key));
-    credited || album_artist
+    if let Some(album) = args.value("album") {
+        terms.push(format!("album:{}", quoted(album)));
+    }
+    if let Some(comment) = args.value("comment") {
+        terms.push(format!("comment:{}", quoted(comment)));
+    }
+    terms.join(" ")
 }
 
-/// Keeps a track whose file carries a comment containing the text.
-///
-/// The comment is the one field the user wrote themselves, so it is the one
-/// field where their own vocabulary lives: "vinyl rip", "to replace", "from
-/// the 2009 remaster". Matching is on the normalized form, since prose is
-/// typed carelessly.
-fn keeps_comment(catalog: &Catalog, track: &Track, wanted: Option<&str>) -> bool {
-    let Some(wanted) = wanted else {
-        return true;
-    };
-    let key = text::normalize(wanted);
-    if key.is_empty() {
-        return true;
+/// Wraps a value so that a name with spaces survives being put in a query.
+fn quoted(value: &str) -> String {
+    if value.contains(char::is_whitespace) {
+        format!("\"{}\"", value.replace('"', ""))
+    } else {
+        value.to_string()
     }
-    catalog
-        .comment_of_track(track.id)
-        .is_some_and(|c| text::normalize(c).contains(&key))
-}
-
-/// `true` when the track has no album filter to satisfy, or satisfies it.
-fn keeps_album(catalog: &Catalog, track: &Track, wanted: Option<&str>) -> bool {
-    let Some(wanted) = wanted else {
-        return true;
-    };
-    let key = text::normalize(wanted);
-    if key.is_empty() {
-        return true;
-    }
-    track
-        .release_id
-        .and_then(|id| catalog.release(id))
-        .is_some_and(|r| r.key.contains(&key))
 }
 
 fn print_track(catalog: &Catalog, track: &Track) {
@@ -388,4 +377,47 @@ fn print_analyses(catalog: &Catalog, file: &aede_core::model::AudioFile) {
 
 fn yes_no(value: bool) -> String {
     if value { "yes" } else { "no" }.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::Args;
+
+    fn expression(words: &[&str]) -> String {
+        track_query(&Args::parse(words.iter().map(|w| w.to_string())))
+    }
+
+    #[test]
+    fn asking_for_a_track_by_an_artist_accepts_either_reading() {
+        // A track "by Miles Davis" should be found on a Miles Davis album
+        // whether or not he is credited on that particular piece. That is an
+        // OR — the one thing a pile of options could never say, and the reason
+        // this mapping is a decision rather than a transcription.
+        assert_eq!(
+            expression(&["track", "So What", "--artist", "Miles Davis"]),
+            "(artist:\"Miles Davis\" OR albumartist:\"Miles Davis\")"
+        );
+    }
+
+    #[test]
+    fn each_filter_becomes_one_term_and_a_name_keeps_its_spaces() {
+        assert_eq!(
+            expression(&["track", "x", "--album", "Kind of Blue"]),
+            "album:\"Kind of Blue\""
+        );
+        assert_eq!(
+            expression(&["track", "x", "--comment", "vinyl"]),
+            "comment:vinyl"
+        );
+        assert_eq!(
+            expression(&["track", "x"]),
+            "",
+            "no filter is no expression"
+        );
+        assert_eq!(
+            expression(&["track", "x", "--album", "Legion", "--comment", "rip"]),
+            "album:Legion comment:rip"
+        );
+    }
 }

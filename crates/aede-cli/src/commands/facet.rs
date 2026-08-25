@@ -58,7 +58,11 @@ pub fn show_genre(args: &Args) -> Res {
 
     let releases = releases_holding(&catalog, &tracks);
     print_albums(&catalog, &releases, args)?;
-    print_artists(&catalog, &tracks, args)
+    print_artists(&catalog, &tracks, args)?;
+    for &id in &ids {
+        super::panel_for(args, &catalog, aede_core::model::EntityKind::Genre, id);
+    }
+    Ok(())
 }
 
 pub fn show_label(args: &Args) -> Res {
@@ -96,7 +100,11 @@ pub fn show_label(args: &Args) -> Res {
     announce_match(kind, &name, &names, "label");
     print_totals(&catalog, &tracks);
     print_albums(&catalog, &releases, args)?;
-    print_artists(&catalog, &tracks, args)
+    print_artists(&catalog, &tracks, args)?;
+    for &id in &ids {
+        super::panel_for(args, &catalog, aede_core::model::EntityKind::Label, id);
+    }
+    Ok(())
 }
 
 /// Says what the page ended up covering, when the heading does not say it

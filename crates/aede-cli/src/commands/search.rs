@@ -74,6 +74,7 @@ pub fn search(args: &Args) -> Res {
             EntityKind::Release => "album",
             EntityKind::Track => "track",
             EntityKind::Label => "label",
+            EntityKind::Genre => "genre",
         };
         t.push(vec![kind.to_string(), hit.name.clone(), hit.detail.clone()]);
     }

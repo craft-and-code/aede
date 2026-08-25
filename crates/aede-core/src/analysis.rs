@@ -156,7 +156,11 @@ pub struct Report {
     pub files: Vec<FileAnalysis>,
 }
 
-/// Waiting paths listed by [`Attachment`]; the rest are counted, not named.
+/// Waiting **folders** listed by [`Attachment`]; the rest are counted only.
+///
+/// Bounded on folders rather than on files because that is the unit a reader
+/// acts on: one album of fourteen tracks is one decision, and fourteen rows
+/// saying so push the next album off the screen.
 const WAITING_SHOWN: usize = 10;
 
 /// What became of a batch of records handed to [`merge_into`].
@@ -170,8 +174,17 @@ pub struct Attachment {
     pub stale: usize,
     /// Records kept although no file matches them yet.
     pub waiting: usize,
-    /// The first few waiting paths, for a report that names rather than counts.
-    pub waiting_paths: Vec<String>,
+    /// The first few waiting **folders**, each with how many wait in it, for a
+    /// report that names rather than counts.
+    ///
+    /// Folders, not paths, and for the reason a reader would give: what one
+    /// does with a waiting record is scan the folder it names, or decide that
+    /// folder is gone. The file name inside it settles nothing, and listing
+    /// every file of an album spends ten rows to say one thing. It also
+    /// survives the column width — a path cut to fit is cut at the *tail*,
+    /// where the file name is, leaving the head that identifies the folder
+    /// exactly where it cannot be read.
+    pub waiting_folders: BTreeMap<String, usize>,
 }
 
 impl Attachment {
@@ -230,8 +243,13 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
                     }
                     None => {
                         out.waiting += 1;
-                        if out.waiting_paths.len() < WAITING_SHOWN {
-                            out.waiting_paths.push(record.path.clone());
+                        let folder = crate::text::folder(&record.path);
+                        // A folder already listed keeps counting however many
+                        // are shown: the cap bounds the rows, not the totals.
+                        if let Some(count) = out.waiting_folders.get_mut(folder) {
+                            *count += 1;
+                        } else if out.waiting_folders.len() < WAITING_SHOWN {
+                            out.waiting_folders.insert(folder.to_string(), 1);
                         }
                     }
                 },
@@ -699,7 +717,11 @@ mod tests {
         let mut catalog = Catalog::default();
         let outcome = merge_into(&mut catalog, vec![record_for("/music/a.flac", 500, 10)], 0);
         assert_eq!(outcome.waiting, 1);
-        assert_eq!(outcome.waiting_paths, vec!["/music/a.flac".to_string()]);
+        assert_eq!(
+            outcome.waiting_folders,
+            BTreeMap::from([("/music".to_string(), 1)]),
+            "reported by the folder to scan, not by the file name in it"
+        );
         assert_eq!(catalog.analyses.len(), 1, "kept, not thrown away");
 
         // The scan brings the file in — under another name for the same path.
@@ -713,6 +735,56 @@ mod tests {
         assert_eq!(reconcile(&mut catalog), 1);
         assert_eq!(catalog.analyses[0].path, "/library/a.flac");
         assert_eq!(reconcile(&mut catalog), 0, "and it is not done twice");
+    }
+
+    #[test]
+    fn an_album_of_waiting_records_is_reported_as_one_folder() {
+        // A report of a whole album is one decision — scan that folder, or
+        // decide it is gone — and naming every track spends fourteen rows to
+        // say it once. The count is what carries the volume.
+        let mut catalog = Catalog::default();
+        let records: Vec<FileAnalysis> = (1..=14)
+            .map(|n| {
+                record_for(
+                    &format!("/music/Blizzard of Ozz/{n:02} track.flac"),
+                    500,
+                    10,
+                )
+            })
+            .collect();
+        let outcome = merge_into(&mut catalog, records, 0);
+        assert_eq!(outcome.waiting, 14);
+        assert_eq!(
+            outcome.waiting_folders,
+            BTreeMap::from([("/music/Blizzard of Ozz".to_string(), 14)]),
+            "one row, and it says how many"
+        );
+    }
+
+    #[test]
+    fn the_cap_bounds_the_rows_and_not_the_counts() {
+        // More folders than can be shown: the ones listed must still carry
+        // their true totals, or the report understates what is waiting in the
+        // very folders it does name.
+        let mut catalog = Catalog::default();
+        let mut records = Vec::new();
+        for folder in 0..WAITING_SHOWN + 5 {
+            for track in 0..3 {
+                records.push(record_for(
+                    &format!("/music/album{folder:02}/{track}.flac"),
+                    500,
+                    10,
+                ));
+            }
+        }
+        let outcome = merge_into(&mut catalog, records, 0);
+        assert_eq!(outcome.waiting, (WAITING_SHOWN + 5) * 3);
+        assert_eq!(outcome.waiting_folders.len(), WAITING_SHOWN);
+        assert!(
+            outcome.waiting_folders.values().all(|&n| n == 3),
+            "a folder that is shown is shown whole: {:?}",
+            outcome.waiting_folders
+        );
     }
 
     #[test]

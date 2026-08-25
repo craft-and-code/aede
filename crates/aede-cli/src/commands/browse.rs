@@ -156,119 +156,96 @@ pub fn list_artists(args: &Args) -> Res {
     Ok(())
 }
 
-pub fn list_albums(args: &Args) -> Res {
-    let catalog = load(args)?;
-    let window = args.window(50)?;
-
-    let artist_filter = args.value("artist").map(text::normalize);
-    // A year that does not parse used to become "no filter at all": the whole
-    // library came back under a name that asked for one year, and nothing said
-    // the filter had been dropped. Same fault as an option silently ignored.
-    let year_filter: Option<u32> = match args.value("year") {
-        None => None,
-        Some(raw) => Some(
-            raw.parse()
-                .map_err(|_| format!("--year expects a year: --year=1969, not \"{raw}\""))?,
-        ),
-    };
-
-    // A compilation is a release with no album artist: several artists share
-    // it, which is exactly why nothing else in the program can single them out.
+/// Turns the filter options into one expression.
+///
+/// **The options are shorthand, not a second implementation.** They used to be
+/// their own filter loop, which meant `aede albums --genre metal` and
+/// `aede query "genre:metal"` were two evaluators answering the same question
+/// — one too many, and the day one of them changed nobody would have seen it.
+///
+/// The mapping is deliberate rather than mechanical in one place: `--artist` on
+/// an album listing means the **album artist**, so it becomes `albumartist:`
+/// and not `artist:`. Mapping it to `artist:` would have quietly started
+/// listing every album Ozzy appears on as a guest under "albums by Ozzy".
+fn albums_query(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
     // The two flags are opposites and cannot both be honoured.
     if args.has("compilations") && args.has("no-compilations") {
         return Err("--compilations and --no-compilations ask for opposite things".into());
     }
-    let compilations_only = args.has("compilations");
-    let albums_only = args.has("no-compilations");
-
-    // `--genre` and `--label` were declared among the options and honoured
-    // nowhere: accepted everywhere, ignored everywhere. A filter that does
-    // nothing answers about the whole library under a name that promised a
-    // part of it.
-    let genre_ids = matching_ids(args.value("genre"), |key| {
-        catalog
-            .genres
-            .iter()
-            .filter(|g| g.key.contains(key))
-            .map(|g| g.id)
-            .collect()
-    });
-    let label_ids = matching_ids(args.value("label"), |key| {
-        catalog
-            .labels
-            .iter()
-            .filter(|l| l.key.contains(key))
-            .map(|l| l.id)
-            .collect()
-    });
-    if let Some(ids) = &genre_ids
-        && ids.is_empty()
-    {
-        return Err(format!(
-            "no genre matches \"{}\".\nRun \"aede genres\" for the list.",
-            args.value("genre").unwrap_or_default()
-        )
-        .into());
+    let mut terms: Vec<String> = Vec::new();
+    if let Some(artist) = args.value("artist") {
+        terms.push(format!("albumartist:{}", quoted(artist)));
     }
-    if let Some(ids) = &label_ids
-        && ids.is_empty()
-    {
-        return Err(format!(
-            "no label matches \"{}\".\nRun \"aede labels\" for the list.",
-            args.value("label").unwrap_or_default()
-        )
-        .into());
+    if let Some(raw) = args.value("year") {
+        // Read here rather than by the grammar so that the message names the
+        // option the user actually typed.
+        raw.parse::<u32>()
+            .map_err(|_| format!("--year expects a year: --year=1969, not \"{raw}\""))?;
+        terms.push(format!("year:{raw}"));
     }
-    let of_genre: Option<std::collections::BTreeSet<Id>> = genre_ids.map(|ids| {
-        ids.iter()
-            .flat_map(|&id| catalog.releases_of_genre(id))
-            .collect()
-    });
-    let with_comment: Option<std::collections::BTreeSet<Id>> = args.value("comment").map(|text| {
-        catalog
-            .tracks_with_comment(text)
-            .into_iter()
-            .filter_map(|t| catalog.track(t).and_then(|t| t.release_id))
-            .collect()
-    });
+    for (option, field) in [
+        ("genre", "genre"),
+        ("label", "label"),
+        ("comment", "comment"),
+    ] {
+        if let Some(value) = args.value(option) {
+            terms.push(format!("{field}:{}", quoted(value)));
+        }
+    }
+    if args.has("compilations") {
+        terms.push("compilation:true".into());
+    }
+    if args.has("no-compilations") {
+        terms.push("compilation:false".into());
+    }
+    Ok(terms.join(" "))
+}
 
+/// Wraps a value so that a name with spaces survives being put in a query.
+fn quoted(value: &str) -> String {
+    if value.contains(char::is_whitespace) {
+        format!("\"{}\"", value.replace('"', ""))
+    } else {
+        value.to_string()
+    }
+}
+
+pub fn list_albums(args: &Args) -> Res {
+    let catalog = load(args)?;
+    let window = args.window(50)?;
+
+    let expression = albums_query(args)?;
+    let parsed = aede_core::query::parse(&expression)?;
+    let data = super::user_data(args, &catalog)?;
+    let context = aede_core::query::Context {
+        catalog: &catalog,
+        data: &data,
+        owner: aede_core::user::LOCAL_USER,
+    };
+
+    // A value naming nothing in the library is a misunderstanding, not an
+    // empty result, and the two read differently. This is the distinction the
+    // hand-written filter drew and the grammar now draws for everyone.
+    if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
+        return Err(
+            format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),
+        );
+    }
+
+    // An album is kept when any of its tracks answers: the coarser question is
+    // a fold of the finer one, which is why the grammar evaluates over tracks.
+    let matched: std::collections::BTreeSet<Id> = aede_core::query::run(&parsed, &context)
+        .into_iter()
+        .filter_map(|id| catalog.track(id).and_then(|t| t.release_id))
+        .collect();
     let mut rows: Vec<&aede_core::model::Release> = catalog
         .releases
         .iter()
-        .filter(|r| {
-            if compilations_only {
-                return r.is_compilation;
-            }
-            if albums_only {
-                return !r.is_compilation;
-            }
-            true
-        })
-        .filter(|r| match &artist_filter {
-            Some(key) => r
-                .album_artist_id
-                .and_then(|id| catalog.artist(id))
-                .map(|a| a.key.contains(key.as_str()))
-                .unwrap_or(false),
-            None => true,
-        })
-        .filter(|r| match year_filter {
-            Some(year) => r.year == Some(year),
-            None => true,
-        })
-        .filter(|r| match &of_genre {
-            Some(ids) => ids.contains(&r.id),
-            None => true,
-        })
-        .filter(|r| match &label_ids {
-            Some(ids) => ids.iter().any(|id| r.label_ids.contains(id)),
-            None => true,
-        })
-        .filter(|r| match &with_comment {
-            Some(ids) => ids.contains(&r.id),
-            None => true,
-        })
+        .filter(|r| matched.contains(&r.id))
         .collect();
+
+    let compilations_only = args.has("compilations");
+    let albums_only = args.has("no-compilations");
 
     rows.sort_by(|a, b| {
         a.year
@@ -535,17 +512,6 @@ pub fn list_years(args: &Args) -> Res {
     Ok(())
 }
 
-/// Tracks carrying a genre, directly or through their release.
-/// Ids of the entities whose normalized name contains what was asked for.
-///
-/// `None` when the option was not given at all, which is not the same as an
-/// empty result: one means "no filter", the other means "a filter that matches
-/// nothing", and the second is an error rather than an empty listing.
-fn matching_ids(wanted: Option<&str>, lookup: impl Fn(&str) -> Vec<Id>) -> Option<Vec<Id>> {
-    let key = text::normalize(wanted?);
-    Some(lookup(&key))
-}
-
 fn tracks_of_genre(catalog: &aede_core::model::Catalog, genre_id: Id) -> Vec<Id> {
     use aede_core::model::EntityKind;
     let mut tracks: std::collections::BTreeSet<Id> = Default::default();
@@ -576,4 +542,80 @@ fn tracks_of_label(catalog: &aede_core::model::Catalog, label_id: Id) -> Vec<Id>
         .filter(|r| r.label_ids.contains(&label_id))
         .flat_map(|r| r.track_ids.iter().copied())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::Args;
+
+    fn expression(words: &[&str]) -> String {
+        let args = Args::parse(words.iter().map(|w| w.to_string()));
+        albums_query(&args).expect("a readable expression")
+    }
+
+    #[test]
+    fn an_album_listing_asks_for_the_album_artist_and_not_any_credit() {
+        // The one mapping that is a decision rather than a transcription, and
+        // the one no end-to-end test on this library could catch: the fixtures
+        // hold nobody who guests on somebody else's album, so both spellings
+        // answer the same there. The decision is therefore tested where it is
+        // taken. Mapping `--artist` onto `artist:` would quietly list every
+        // album an artist appears on as one of theirs.
+        assert_eq!(
+            expression(&["albums", "--artist", "Ozzy"]),
+            "albumartist:Ozzy"
+        );
+        assert!(
+            !expression(&["albums", "--artist", "Ozzy"]).starts_with("artist:"),
+            "any credit is a different question from the album's own artist"
+        );
+    }
+
+    #[test]
+    fn every_filter_option_becomes_one_term() {
+        assert_eq!(expression(&["albums", "--genre", "metal"]), "genre:metal");
+        assert_eq!(
+            expression(&["albums", "--label", "Earache"]),
+            "label:Earache"
+        );
+        assert_eq!(expression(&["albums", "--year", "1969"]), "year:1969");
+        assert_eq!(
+            expression(&["albums", "--comment", "vinyl"]),
+            "comment:vinyl"
+        );
+        assert_eq!(
+            expression(&["albums", "--compilations"]),
+            "compilation:true"
+        );
+        assert_eq!(
+            expression(&["albums", "--no-compilations"]),
+            "compilation:false"
+        );
+        assert_eq!(expression(&["albums"]), "", "no filter is no expression");
+
+        // A name with spaces has to survive being put into a query, or
+        // `--artist Miles Davis` would become two terms and quietly ask for
+        // albums whose artist is "Miles" *and* something called "Davis".
+        assert_eq!(
+            expression(&["albums", "--artist", "Miles Davis"]),
+            "albumartist:\"Miles Davis\""
+        );
+
+        // Several options join with a space, which the grammar reads as AND.
+        assert_eq!(
+            expression(&["albums", "--genre", "metal", "--year", "1994"]),
+            "year:1994 genre:metal"
+        );
+    }
+
+    #[test]
+    fn a_year_that_is_not_one_is_refused_by_the_option_that_named_it() {
+        let args = Args::parse(["albums", "--year", "abc"].iter().map(|w| w.to_string()));
+        let error = albums_query(&args).expect_err("not a year");
+        assert!(
+            error.to_string().contains("--year expects a year"),
+            "the message names the option typed, not the grammar: {error}"
+        );
+    }
 }

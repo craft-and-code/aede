@@ -15,6 +15,7 @@
 //! the records wait, and the scan that brings the files in picks them up. The
 //! two operations can be done in either order.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use aede_core::analysis::{self, FileAnalysis};
@@ -22,7 +23,7 @@ use aede_core::clock::now_seconds;
 use aede_core::model::Catalog;
 use aede_core::store;
 
-use super::{Res, data_dir};
+use super::{Res, announce_window, data_dir};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -36,6 +37,10 @@ pub fn import(args: &Args) -> Res {
 
     if args.has("forget") {
         return forget(&mut catalog, &catalog_file, args);
+    }
+
+    if args.has("pending") {
+        return list_pending(&catalog, args);
     }
 
     if args.positionals.is_empty() {
@@ -95,19 +100,23 @@ pub fn import(args: &Args) -> Res {
     ]);
     print!("{}", table.render());
 
-    if !outcome.waiting_paths.is_empty() {
+    if !outcome.waiting_folders.is_empty() {
+        // Folders, written out whole — the same reasoning as `--pending`, and
+        // the same bug before it: a path cut to a column width loses its head,
+        // which is the half that says *which* folder. See [`list_pending`].
         println!("{}", ui::section("Waiting for a scan"));
-        let mut t = Table::new(&["File"]).path_limit(0, 70);
-        for path in &outcome.waiting_paths {
-            t.push(vec![path.clone()]);
+        let shown: usize = outcome.waiting_folders.values().sum();
+        let mut t = Table::new(&["Folder", "Analyses"]).align(1, Align::Right);
+        for (folder, count) in &outcome.waiting_folders {
+            t.push(vec![folder.clone(), count.to_string()]);
         }
         print!("{}", t.render());
-        if outcome.waiting > outcome.waiting_paths.len() {
+        if outcome.waiting > shown {
             println!(
-                "{}",
+                "  {}",
                 ui::dim(&format!(
-                    "  … and {} more",
-                    outcome.waiting - outcome.waiting_paths.len()
+                    "… and {} elsewhere — aede import --pending lists every folder",
+                    ui::plural(outcome.waiting - shown, "analysis")
                 ))
             );
         }
@@ -116,7 +125,7 @@ pub fn import(args: &Args) -> Res {
         // been scanned yet.
         println!(
             "  {}",
-            ui::dim("they are stored; scan the folders they name and they attach themselves")
+            ui::dim("they are stored; scan the folders above and they attach themselves")
         );
     }
     if outcome.stale > 0 {
@@ -128,13 +137,145 @@ pub fn import(args: &Args) -> Res {
     Ok(())
 }
 
-/// Removes imported analyses, all of them or only one source's.
-fn forget(catalog: &mut Catalog, catalog_file: &Path, args: &Args) -> Res {
-    let before = catalog.analyses.len();
-    match args.value("source") {
-        Some(source) => catalog.analyses.retain(|a| a.source != source),
-        None => catalog.analyses.clear(),
+/// `true` when a waiting record is one the user asked about.
+///
+/// The folders are compared as **strings**, never canonicalized: a waiting
+/// record is precisely one whose path the catalog does not hold, and the
+/// commonest reason is that the folder is not there any more. Asking the
+/// filesystem to resolve it — as `check` legitimately does for folders it is
+/// about to read — would refuse the one scope that matters here.
+fn selected(record: &FileAnalysis, source: Option<&str>, folders: &[String]) -> bool {
+    if source.is_some_and(|s| record.source != s) {
+        return false;
     }
+    folders.is_empty()
+        || folders
+            .iter()
+            .any(|folder| aede_core::text::is_under(&record.path, folder))
+}
+
+/// Lists the imported analyses that describe no file the catalog holds,
+/// **grouped by the folder they name**.
+///
+/// `doctor` only ever says how many are waiting, which answers "how many" and
+/// not "which" — and "which" is the whole question, because a count cannot
+/// tell "not scanned yet" from "will never match".
+///
+/// Grouped, and with the folder written out in full, for two reasons that both
+/// came from the listing that did neither. One report of a hundred and forty
+/// tracks is *one* decision — scan that folder, or drop it — and a hundred and
+/// forty rows bury it. And a path cut to fit a column is cut at the wrong end:
+/// `…/1980 Blizzard of Ozz/01 I Don't Know.flac` hides the only part that
+/// distinguishes a drive that is merely unplugged from a folder that was
+/// renamed. The file name identifies a file, but here nobody is looking for a
+/// file — they are looking for the folder to scan, and that is the head of the
+/// path, not its tail. So the column is left unbounded: this is the one
+/// listing whose whole content is the path.
+fn list_pending(catalog: &Catalog, args: &Args) -> Res {
+    let source = args.value("source");
+    let folders = scope(args);
+    let pending: Vec<&FileAnalysis> = catalog
+        .pending_analyses_list()
+        .into_iter()
+        .filter(|a| selected(a, source, &folders))
+        .collect();
+
+    println!("{}", ui::section("Waiting for a scan"));
+    if pending.is_empty() {
+        // Narrowed to nothing and holding nothing are different answers, and
+        // "nothing is waiting" said under a filter is the wrong one: it reads
+        // as a clean catalog when it may only mean the filter missed.
+        let narrowed = source.is_some() || !folders.is_empty();
+        println!(
+            "  {}",
+            match narrowed {
+                true => ui::yellow("nothing waiting matches that"),
+                false => ui::green("nothing is waiting"),
+            }
+        );
+        return Ok(());
+    }
+
+    // One row per folder and per source: the unit a user acts on. Sorted by
+    // folder, so the same catalog lists the same way twice.
+    let mut by_folder: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for record in &pending {
+        *by_folder
+            .entry((
+                aede_core::text::folder(&record.path),
+                record.source.as_str(),
+            ))
+            .or_insert(0) += 1;
+    }
+
+    let window = args.window(25)?;
+    let mut t = Table::new(&["Folder", "Analyses", "Source"]).align(1, Align::Right);
+    for ((folder, source), count) in by_folder.iter().skip(window.offset).take(window.limit) {
+        t.push(vec![
+            folder.to_string(),
+            count.to_string(),
+            (*source).to_string(),
+        ]);
+    }
+    print!("{}", t.render());
+    announce_window(window, by_folder.len(), "folder");
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} in all",
+            ui::plural(pending.len(), "waiting analysis")
+        ))
+    );
+    println!(
+        "  {}",
+        ui::dim("scan a folder to attach its analyses, or drop one that is gone for good:")
+    );
+    println!("  {}", ui::dim("aede import --forget --pending <folder>"));
+    Ok(())
+}
+
+/// Folders the run is restricted to, exactly as they were typed.
+fn scope(args: &Args) -> Vec<String> {
+    args.positionals.clone()
+}
+
+/// Removes imported analyses: all of them, one source's, only the ones still
+/// waiting for a scan, or any narrowing of those by folder.
+///
+/// `--pending` is what makes this safe to reach for. A plain `--forget` cannot
+/// drop a report that will never attach without also losing every analysis
+/// that *did* match a file — an hour of somebody else's decoding, and the one
+/// thing in the catalog a re-scan cannot rebuild.
+fn forget(catalog: &mut Catalog, catalog_file: &Path, args: &Args) -> Res {
+    let source = args.value("source");
+    let pending_only = args.has("pending");
+    let folders = scope(args);
+
+    // A folder narrows *which* records are dropped, and only `--pending` gives
+    // it a meaning here — without it, `aede import --forget <folder>` reads
+    // like "import that folder and forget it", which is not a thing. Refused
+    // rather than ignored: a swallowed argument on a destructive command is
+    // the worst place for one.
+    if !folders.is_empty() && !pending_only {
+        return Err(format!(
+            "--forget takes no folder: \"{}\" was ignored.\n\
+             To drop only what is waiting under it: aede import --forget --pending {}",
+            folders.join(" "),
+            folders[0]
+        )
+        .into());
+    }
+
+    let before = catalog.analyses.len();
+    // Collected before the retain: a record only knows it is pending by
+    // comparison with the files the catalog holds right now, and that
+    // comparison cannot be made from inside a closure that is, at the same
+    // time, mutating the very list being compared against.
+    let known: std::collections::BTreeSet<String> =
+        catalog.files.iter().map(|f| f.path.clone()).collect();
+    catalog.analyses.retain(|a| {
+        !(selected(a, source, &folders) && (!pending_only || !known.contains(&a.path)))
+    });
     let removed = before - catalog.analyses.len();
     store::save(catalog, catalog_file)?;
     println!("{}", ui::section("Import"));

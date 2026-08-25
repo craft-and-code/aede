@@ -279,6 +279,576 @@ fn json_is_offered_wherever_a_table_is() {
 }
 
 #[test]
+fn what_the_user_writes_survives_a_rescan() {
+    // The only data in the program that no scan can rebuild. Keyed by anything
+    // a scan renumbers, it would be lost on the second run — which is exactly
+    // how the imported analyses were lost the first time.
+    let sandbox = Sandbox::new("annotations");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["rate", "artist", "Miles Davis", "--stars", "5"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains('★'), "output: {out}");
+    let (_, _, ok) = sandbox.run(&["love", "artist", "Miles Davis"]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["note", "artist", "Miles Davis", "--text", "the quintet"]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "vinyl"]);
+    assert!(ok);
+
+    // A second scan renumbers everything.
+    let (_, _, ok) = sandbox.run(&["scan", "--full"]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["notes"]);
+    assert!(ok);
+    assert!(out.contains("Miles Davis"), "output: {out}");
+    assert!(out.contains("the quintet"), "the note survived: {out}");
+    assert!(out.contains("vinyl"), "the tag survived: {out}");
+    assert!(out.contains('★'), "the rating survived: {out}");
+
+    let (out, _, ok) = sandbox.run(&["favourites"]);
+    assert!(ok);
+    assert!(out.contains("Miles Davis"), "output: {out}");
+
+    // One record holds all four, so taking them all back leaves nothing.
+    for args in [
+        vec!["love", "artist", "Miles Davis", "--remove"],
+        vec!["rate", "artist", "Miles Davis", "--remove"],
+        vec!["note", "artist", "Miles Davis", "--remove"],
+        vec!["tag", "artist", "Miles Davis", "vinyl", "--remove"],
+    ] {
+        let (_, err, ok) = sandbox.run(&args);
+        assert!(ok, "{args:?}: {err}");
+    }
+    let (out, _, ok) = sandbox.run(&["notes"]);
+    assert!(ok);
+    assert!(
+        out.contains("nothing has been written"),
+        "no empty shell is left behind: {out}"
+    );
+}
+
+#[test]
+fn tags_go_on_and_come_off_in_lists() {
+    // Tagging is the one annotation that is naturally plural — a record is
+    // vinyl *and* rare *and* to-rip-again — and putting them on one at a time,
+    // then taking them off one at a time, is the kind of asymmetry that makes a
+    // command tiring to use.
+    let sandbox = Sandbox::new("tag_lists");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    // --- Several at once ------------------------------------------------------
+    let (out, err, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "vinyl,rare,to keep"]);
+    assert!(ok, "stderr: {err}");
+    for label in ["vinyl", "rare", "to keep"] {
+        assert!(out.contains(label), "{label} is missing from: {out}");
+    }
+
+    // A space after the comma is the way a person writes a list, and must mean
+    // the same thing as no space at all.
+    let (out, err, ok) = sandbox.run(&["tag", "album", "Duos", "jazz, modal"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("jazz"), "output: {out}");
+    assert!(out.contains("modal"), "output: {out}");
+
+    // All of them landed, and the pages show them.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    for label in ["vinyl", "rare", "to keep"] {
+        assert!(out.contains(label), "{label} not on the page: {out}");
+    }
+
+    // --- What was already there is not reported as new ------------------------
+    let (out, _, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "vinyl,fresh"]);
+    assert!(ok);
+    assert!(out.contains("fresh"), "output: {out}");
+    assert!(
+        out.contains("already carried"),
+        "a label that was already on it is said so, not counted twice: {out}"
+    );
+
+    // --- Taking several off ---------------------------------------------------
+    let (out, err, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "vinyl, fresh", "--remove"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("no longer carries"), "output: {out}");
+    let (out, _, _) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(!out.contains("vinyl"), "vinyl is gone: {out}");
+    assert!(!out.contains("fresh"), "fresh is gone: {out}");
+    assert!(out.contains("rare"), "and the others stayed: {out}");
+
+    // --- Taking every one off -------------------------------------------------
+    // Having listed them to put them on, being made to list them again to take
+    // them off is the asymmetry this whole change is about.
+    let (out, err, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "--remove"]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        out.contains("rare") && out.contains("to keep"),
+        "it names what it removed, since the user did not type the list: {out}"
+    );
+    let (out, _, _) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(!out.contains("rare"), "nothing is left: {out}");
+
+    // Removing from something that carries nothing says so rather than
+    // claiming a removal.
+    let (out, _, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "--remove"]);
+    assert!(ok);
+    assert!(out.contains("no tag at all"), "output: {out}");
+
+    // A label that was never there is not reported as taken off.
+    let (_, _, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "kept"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["tag", "artist", "Miles Davis", "kept,never", "--remove"]);
+    assert!(ok);
+    assert!(out.contains("did not carry"), "output: {out}");
+    assert!(out.contains("never"), "and names which: {out}");
+
+    // --- The old shape is untouched -------------------------------------------
+    // One word, no comma, an unquoted multi-word name: exactly what worked
+    // before lists existed, and it must still mean the same thing.
+    let (out, err, ok) = sandbox.run(&["tag", "artist", "Dave Brubeck", "classic"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Dave Brubeck"), "output: {out}");
+    assert!(out.contains("classic"), "output: {out}");
+
+    // And a tag with no target is still refused.
+    let (_, err, ok) = sandbox.run(&["tag", "album"]);
+    assert!(!ok, "stderr: {err}");
+}
+
+#[test]
+fn a_name_matching_several_things_is_refused_with_something_typeable() {
+    // Listing the names again repeats the ambiguity being reported: two albums
+    // called "Kind of Blue" print as "Kind of Blue, Kind of Blue", which tells
+    // the reader nothing and offers nothing to type.
+    let sandbox = Sandbox::new("ambiguous");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (_, err, ok) = sandbox.run(&["love", "album", "Kind of Blue"]);
+    assert!(!ok, "two albums carry that title");
+    assert!(err.contains("matches 2 albums"), "stderr: {err}");
+    assert!(err.contains("Miles Davis Sextet"), "it says which: {err}");
+
+    // And what it printed can be typed straight back in.
+    let reference = err
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("release:"))
+        .expect("a reference to paste back");
+    let (out, err, ok) = sandbox.run(&["love", reference]);
+    assert!(ok, "the reference it offered must be accepted: {err}");
+    assert!(out.contains("favourite"), "output: {out}");
+}
+
+#[test]
+fn the_history_counts_more_than_it_keeps() {
+    let sandbox = Sandbox::new("history");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let file = root.join("track.flac");
+    let reference = format!("track:{}", file.to_str().unwrap());
+    for _ in 0..3 {
+        let (_, err, ok) = sandbox.run(&["played", &reference]);
+        assert!(ok, "stderr: {err}");
+    }
+    let (out, _, ok) = sandbox.run(&["history"]);
+    assert!(ok);
+    assert!(out.contains("So What"), "output: {out}");
+    assert!(out.contains("3 times"), "the counter is shown: {out}");
+}
+
+#[test]
+fn reset_says_what_it_does_not_take() {
+    // The catalog goes; what the user wrote is in another file and stays. A
+    // destructive command that does not say so invites the wrong hesitation.
+    let sandbox = Sandbox::new("reset_notes");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["love", "artist", "Miles Davis"]);
+    assert!(ok);
+
+    let (out, _, _) = sandbox.run(&["reset"]);
+    assert!(
+        out.contains("stay: they are not in this file"),
+        "output: {out}"
+    );
+}
+
+#[test]
+fn a_rating_given_is_a_rating_shown() {
+    // A rating that never appears again is a rating nobody trusts. Every page
+    // that names an entity ends with what was written about it — and prints
+    // nothing at all when nothing was.
+    let sandbox = Sandbox::new("panel");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(
+        !out.contains("Yours"),
+        "nothing written, nothing shown: {out}"
+    );
+
+    let (_, _, ok) = sandbox.run(&["rate", "artist", "Miles Davis", "--stars", "5"]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["love", "artist", "Miles Davis"]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["note", "artist", "Miles Davis", "--text", "the quintet"]);
+    assert!(ok);
+
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("Yours"), "output: {out}");
+    assert!(out.contains('★'), "the rating: {out}");
+    assert!(out.contains('♥'), "the favourite: {out}");
+    assert!(out.contains("the quintet"), "the note: {out}");
+
+    // And reading a note back is what `note` does with nothing to write.
+    let (out, _, ok) = sandbox.run(&["note", "artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("the quintet"), "output: {out}");
+}
+
+#[test]
+fn a_note_is_a_written_thing_with_a_section_of_its_own() {
+    // A rating is a label on a thing; a note is a text somebody wrote, and
+    // burying it in a row of stars and tags says it matters less than they do.
+    let sandbox = Sandbox::new("notes_section");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let note = std::env::temp_dir().join("aede_e2e_note.md");
+    std::fs::write(
+        &note,
+        "# Kind of Blue\n\nThe 1997 remaster is the one:\n\n- side A was fast\n- side B was not\n",
+    )
+    .expect("the note file");
+
+    let (_, err, ok) = sandbox.run(&[
+        "note",
+        "artist",
+        "Miles Davis",
+        "--file",
+        note.to_str().unwrap(),
+    ]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("Notes"), "its own section: {out}");
+    assert!(
+        !out.contains("Yours"),
+        "and nothing else was written: {out}"
+    );
+    // Kept exactly as typed, blank lines and all: a note is not a field to be
+    // tidied, and the front end is what will render the Markdown.
+    assert!(out.contains("# Kind of Blue"), "output: {out}");
+    assert!(out.contains("- side A was fast"), "output: {out}");
+
+    // Marks and note are two sections, not one row.
+    let (_, _, ok) = sandbox.run(&["rate", "artist", "Miles Davis", "--stars", "5"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    let yours = out.find("Yours").expect("the marks");
+    let notes = out.find("Notes").expect("the note");
+    assert!(yours < notes, "marks first, then the text: {out}");
+
+    // Appending keeps what was there, with a blank line between two thoughts.
+    let (_, err, ok) = sandbox.run(&[
+        "note",
+        "artist",
+        "Miles Davis",
+        "--text",
+        "and the Japanese pressing",
+        "--append",
+    ]);
+    assert!(ok, "stderr: {err}");
+    let (out, _, ok) = sandbox.run(&["note", "artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("# Kind of Blue"), "the old text stays: {out}");
+    assert!(
+        out.contains("Japanese pressing"),
+        "the new text is added: {out}"
+    );
+
+    // One note per thing: writing again without --append replaces it.
+    let (_, _, ok) = sandbox.run(&["note", "artist", "Miles Davis", "--text", "only this"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["note", "artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(!out.contains("Kind of Blue"), "one note, replaced: {out}");
+    assert!(out.contains("only this"), "output: {out}");
+
+    // Two sources for one text is a contradiction, not a precedence rule.
+    let (_, err, ok) = sandbox.run(&[
+        "note",
+        "artist",
+        "Miles Davis",
+        "--text",
+        "a",
+        "--file",
+        "b",
+    ]);
+    assert!(!ok);
+    assert!(err.contains("give one"), "stderr: {err}");
+}
+
+#[test]
+fn a_query_expresses_what_options_never_could() {
+    let sandbox = Sandbox::new("query");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // OR and negation, the two things a pile of options cannot say.
+    let (out, err, ok) = sandbox.run(&["query", "genre:jazz"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("So What"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["query", "genre:jazz -album:duos"]);
+    assert!(ok);
+    assert!(!out.contains("Take Five"), "negation bites: {out}");
+
+    let (out, _, ok) = sandbox.run(&[
+        "query",
+        "(album:duos OR album:\"kind of blue\") year:..1960",
+    ]);
+    assert!(ok);
+    assert!(out.contains("So What"), "output: {out}");
+    assert!(!out.contains("Take Five"), "1963 is past 1960: {out}");
+
+    // What the user wrote is queryable, and the field says where it was
+    // written: stars on the artist are not stars on the track.
+    let (_, _, ok) = sandbox.run(&["rate", "artist", "Miles Davis", "--stars", "5"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["query", "artist.rating:>=4"]);
+    assert!(ok);
+    assert!(out.contains("So What"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["query", "rating:>=4"]);
+    assert!(ok);
+    assert!(
+        out.contains("nothing matches"),
+        "the stars are on the artist, not the track: {out}"
+    );
+
+    // The result is a selection, so everything a selection can do applies.
+    let (m3u, _, ok) = sandbox.run(&["query", "genre:jazz", "--m3u"]);
+    assert!(ok);
+    assert!(m3u.starts_with("#EXTM3U"), "output: {m3u}");
+    let (json, _, ok) = sandbox.run(&["query", "genre:jazz", "--json"]);
+    assert!(ok);
+    assert!(json.trim_start().starts_with('['), "output: {json}");
+
+    // A field nobody has heard of names the ones that exist.
+    let (_, err, ok) = sandbox.run(&["query", "bogus:1"]);
+    assert!(!ok);
+    assert!(err.contains("not a field"), "stderr: {err}");
+    assert!(err.contains("genre"), "and lists them: {err}");
+}
+
+#[test]
+fn a_saved_query_keeps_the_question_and_not_the_answer() {
+    // A collection that stored its result would be a playlist. Keeping the
+    // expression is what makes it answer with what the library holds now.
+    let sandbox = Sandbox::new("collections");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["collection", "jazz", "--query", "genre:jazz"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("saved"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["collection", "jazz"]);
+    assert!(ok);
+    assert!(out.contains("jazz ("), "the name heads the answer: {out}");
+    assert!(out.contains("So What"), "output: {out}");
+
+    // Running one produces a selection, so a playlist costs nothing.
+    let (m3u, _, ok) = sandbox.run(&["collection", "jazz", "--m3u"]);
+    assert!(ok);
+    assert!(m3u.starts_with("#EXTM3U"), "output: {m3u}");
+
+    let (out, _, ok) = sandbox.run(&["collections"]);
+    assert!(ok);
+    assert!(out.contains("genre:jazz"), "it shows the question: {out}");
+
+    // An expression that does not parse is refused when it is saved, not the
+    // next time somebody opens it.
+    let (_, err, ok) = sandbox.run(&["collection", "broken", "--query", "bogus:1"]);
+    assert!(!ok);
+    assert!(err.contains("not a field"), "stderr: {err}");
+
+    // A name nobody saved says what is saved.
+    let (_, err, ok) = sandbox.run(&["collection", "metal"]);
+    assert!(!ok);
+    assert!(err.contains("Saved: jazz"), "stderr: {err}");
+
+    let (_, _, ok) = sandbox.run(&["collection", "jazz", "--remove"]);
+    assert!(ok);
+    let (_, err, ok) = sandbox.run(&["collection", "jazz"]);
+    assert!(!ok);
+    assert!(err.contains("none is saved yet"), "stderr: {err}");
+}
+
+#[test]
+fn a_result_can_be_ordered_and_the_unknown_stays_last() {
+    let sandbox = Sandbox::new("sorting");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["query", "genre:jazz", "--sort", "year"]);
+    assert!(ok, "stderr: {err}");
+    let first = out
+        .lines()
+        .find(|l| l.contains("19"))
+        .map(str::to_string)
+        .unwrap_or_default();
+    assert!(!first.is_empty(), "output: {out}");
+
+    let (_, err, ok) = sandbox.run(&["query", "genre:jazz", "--sort", "bananas"]);
+    assert!(!ok);
+    assert!(err.contains("not something to sort on"), "stderr: {err}");
+    assert!(err.contains("year"), "and lists them: {err}");
+}
+
+#[test]
+fn what_the_user_wrote_can_leave_and_come_back() {
+    // The only irreplaceable data in the program deserves a way out and a way
+    // back in — and the way back is a merge, because someone restoring half a
+    // backup wants their two halves.
+    let source = Sandbox::new("export_from");
+    let root = library();
+    let (_, _, ok) = source.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    let (_, _, ok) = source.run(&["rate", "artist", "Miles Davis", "--stars", "5"]);
+    assert!(ok);
+    let (_, _, ok) = source.run(&["collection", "jazz", "--query", "genre:jazz"]);
+    assert!(ok);
+
+    let backup = std::env::temp_dir().join("aede_e2e_backup.json");
+    let (_, err, ok) = source.run(&["notes", "--export", "-o", backup.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let restored = Sandbox::new("export_to");
+    let (_, _, ok) = restored.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    // Something written here first, and newer, must survive the import.
+    let (_, _, ok) = restored.run(&["note", "artist", "Miles Davis", "--text", "mine"]);
+    assert!(ok);
+
+    let (out, err, ok) = restored.run(&["notes", "--import", backup.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("kept as they were"), "output: {out}");
+
+    let (out, _, ok) = restored.run(&["notes"]);
+    assert!(ok);
+    assert!(out.contains("mine"), "the newer local note stayed: {out}");
+    let (out, _, ok) = restored.run(&["collections"]);
+    assert!(ok);
+    assert!(out.contains("jazz"), "the collection came across: {out}");
+
+    // Importing the same backup twice changes nothing.
+    let (out, _, ok) = restored.run(&["notes", "--import", backup.to_str().unwrap()]);
+    assert!(ok);
+    assert!(out.contains("0 added"), "output: {out}");
+}
+
+#[test]
+fn the_options_and_the_grammar_are_one_evaluator() {
+    // `aede albums --genre metal` and `aede query "genre:metal"` used to be two
+    // filter loops answering the same question. Two is one too many: the day
+    // one of them changed, nobody would have seen it. The options are now
+    // shorthand for the grammar, and this walks both doors to the same room.
+    let sandbox = Sandbox::new("sugar");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // Album titles from a listing, whichever way it was asked for.
+    let albums_of = |args: &[&str]| -> Vec<String> {
+        let (out, err, ok) = sandbox.run(args);
+        assert!(ok, "{args:?}: {err}");
+        out.lines()
+            .filter_map(|line| {
+                let cells: Vec<&str> = line.split(',').collect();
+                (cells.len() > 2).then(|| cells[1].trim_matches('"').to_string())
+            })
+            .filter(|title| !title.is_empty() && title != "album")
+            .collect()
+    };
+
+    for (options, expression) in [
+        (vec!["albums", "--csv", "--genre", "jazz"], "genre:jazz"),
+        (vec!["albums", "--csv", "--year", "1959"], "year:1959"),
+        (
+            vec!["albums", "--csv", "--label", "Columbia"],
+            "label:Columbia",
+        ),
+        (
+            vec!["albums", "--csv", "--compilations"],
+            "compilation:true",
+        ),
+        (
+            vec!["albums", "--csv", "--no-compilations"],
+            "compilation:false",
+        ),
+    ] {
+        let by_option = albums_of(&options);
+        // The grammar evaluates over tracks; an album listing is the fold of
+        // that, so the comparison goes through the same fold.
+        let (out, err, ok) = sandbox.run(&["query", expression, "--csv", "--all"]);
+        assert!(ok, "{expression}: {err}");
+        let mut by_query: Vec<String> = out
+            .lines()
+            .filter_map(|line| {
+                let cells: Vec<&str> = line.split(',').collect();
+                (cells.len() > 3).then(|| cells[2].trim_matches('"').to_string())
+            })
+            .filter(|title| !title.is_empty() && title != "album")
+            .collect();
+        by_query.sort();
+        by_query.dedup();
+        let mut expected = by_option.clone();
+        expected.sort();
+        expected.dedup();
+        assert_eq!(
+            expected, by_query,
+            "{options:?} and {expression:?} must answer the same"
+        );
+    }
+
+    // The one mapping that is deliberate rather than mechanical: `--artist` on
+    // an album listing means the **album artist**. Mapping it to `artist:`
+    // would quietly have listed every album somebody guests on as their own.
+    let (out, _, ok) = sandbox.run(&["albums", "--artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("Kind of Blue"), "output: {out}");
+
+    // And a value naming nothing is still a misunderstanding, not an empty
+    // result — the distinction the hand-written filter drew, now everyone's.
+    let (_, err, ok) = sandbox.run(&["albums", "--genre", "polka"]);
+    assert!(!ok, "a genre nobody has is not an empty answer");
+    assert!(err.contains("no genre matches"), "stderr: {err}");
+    let (_, err, ok) = sandbox.run(&["query", "genre:polka"]);
+    assert!(!ok, "and the same through the other door");
+    assert!(err.contains("no genre matches"), "stderr: {err}");
+}
+
+#[test]
 fn help_is_a_command_like_the_others() {
     // It answers, so it is listed; it reads no argument, so it refuses one.
     // `aede help scan` reads as a request for one command's page and printed
@@ -297,6 +867,37 @@ fn help_is_a_command_like_the_others() {
     assert!(err.contains("takes no argument"), "stderr: {err}");
     assert!(err.contains("\"scan\" was ignored"), "stderr: {err}");
     assert!(!out.contains("COMMANDS"), "and prints nothing else: {out}");
+}
+
+#[test]
+fn the_help_says_what_check_prints_with_nothing_left_to_verify() {
+    // A user who ran `aede check` and got back a table, not a progress bar,
+    // read the help's "verify the checksums" and had no way to connect the
+    // two: the help described the run, never the report a run with nothing
+    // left to do prints instead.
+    let sandbox = Sandbox::new("help_check_wording");
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+    assert!(
+        out.contains("Nothing left to check prints the current report instead"),
+        "output: {out}"
+    );
+}
+
+#[test]
+fn the_help_explains_pending_analyses() {
+    // `doctor` can only count what is waiting; `import --pending` is where a
+    // user is meant to learn which ones, and `--forget --pending` where they
+    // drop what will clearly never attach. All three must be named.
+    let sandbox = Sandbox::new("help_import_pending");
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+    assert!(out.contains("--pending"), "output: {out}");
+    assert!(out.contains("match no file yet"), "output: {out}");
+    assert!(
+        out.contains("--forget --pending"),
+        "the way to drop them is named too: {out}"
+    );
 }
 
 #[test]
@@ -1884,6 +2485,149 @@ fn an_analysis_can_arrive_before_the_library_does() {
 }
 
 #[test]
+fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
+    // A scan only ever attaches a waiting analysis by matching name and size —
+    // never by the mere fact that a scan happened. A report naming a file
+    // under a path (and a name) the library will never hold is the case a
+    // user actually hits: an old FlacCompagnon run, a folder that moved, a
+    // report exported against a library that no longer exists. `doctor` can
+    // only say how many are stuck like that; this is where a user is meant to
+    // learn which ones, and to be rid of them without losing analyses that did
+    // attach.
+    let sandbox = Sandbox::new("import_pending");
+    let root = std::env::temp_dir().join("aede_e2e_import_pending_src");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let flac = root.join("01 So What.flac");
+    std::fs::copy(library().join("track.flac"), &flac).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // Matches the scanned file directly.
+    let matched_report = root.join("matched.json");
+    write_report(&matched_report, &flac, "Match", "none");
+    // Names a file that is neither in the catalog nor a name-and-size match
+    // for anything in it: nothing will ever attach it.
+    let vanished_report = root.join("vanished.json");
+    write_report_naming(
+        &vanished_report,
+        &flac,
+        "/an/old/library/that moved away.flac",
+        "Match",
+        "none",
+    );
+    let (_, _, ok) = sandbox.run(&["import", matched_report.to_str().unwrap()]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["import", vanished_report.to_str().unwrap()]);
+    assert!(ok);
+    assert!(out.contains("Waiting for a scan"), "output: {out}");
+
+    // `doctor` counts it, but only names how many.
+    let (out, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(
+        out.contains("1 imported analysis waiting for the folders they name to be scanned"),
+        "output: {out}"
+    );
+
+    // A scan of the very folder the report names does not make it attach: the
+    // file it describes is not there, under any name.
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(
+        out.contains("waiting for the folders they name to be scanned"),
+        "still waiting after a re-scan: {out}"
+    );
+
+    // --- Naming it -----------------------------------------------------------
+    let (out, _, ok) = sandbox.run(&["import", "--pending"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Waiting for a scan"), "output: {out}");
+    assert!(out.contains("flaccompagnon"), "and its source: {out}");
+    assert!(
+        !out.contains("01 So What.flac"),
+        "the matched analysis is not pending, and must not be listed: {out}"
+    );
+
+    // The folder is what a user acts on — scan it, or drop it — so that is the
+    // unit listed, and it is written out **whole**. The listing that named
+    // files and cut them to a column width showed
+    // `…/1980 Blizzard of Ozz/01 I Don't Know.flac`, hiding the very part that
+    // says whether a drive is unplugged or a folder was renamed.
+    assert!(
+        out.contains("/an/old/library"),
+        "the head of the path is what identifies the folder: {out}"
+    );
+    assert!(
+        out.lines()
+            .any(|l| l.contains("Folder") && l.contains("Analyses")),
+        "one row per folder, with how many wait in it: {out}"
+    );
+    assert!(
+        out.lines()
+            .filter(|l| l.contains("/an/old/library"))
+            .all(|l| !l.contains('…')),
+        "the folder is written whole, never cut to a column width: {out}"
+    );
+
+    // A source nobody imported from finds nothing — and says it was narrowed,
+    // rather than reporting the clean catalog it is not.
+    let (out, _, ok) = sandbox.run(&["import", "--pending", "--source=someone-else"]);
+    assert!(ok);
+    assert!(
+        out.contains("nothing waiting matches that"),
+        "output: {out}"
+    );
+
+    // A folder narrows the listing the same way.
+    let (out, _, ok) = sandbox.run(&["import", "--pending", "/an/old"]);
+    assert!(ok);
+    assert!(out.contains("/an/old/library"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["import", "--pending", "/somewhere/else"]);
+    assert!(ok);
+    assert!(
+        out.contains("nothing waiting matches that"),
+        "output: {out}"
+    );
+
+    // --- Dropping only what is pending ----------------------------------------
+    // A folder on a plain --forget is refused rather than swallowed: on a
+    // command that deletes, an ignored argument is the worst kind.
+    let (_, err, ok) = sandbox.run(&["import", "--forget", "/an/old"]);
+    assert!(!ok, "stderr: {err}");
+    assert!(err.contains("takes no folder"), "stderr: {err}");
+    assert!(
+        err.contains("--forget --pending"),
+        "and says what does: {err}"
+    );
+
+    // A folder holding nothing pending removes nothing, and leaves the rest.
+    let (out, _, ok) = sandbox.run(&["import", "--forget", "--pending", "/somewhere/else"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("0 analysis removed"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["import", "--forget", "--pending"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("1 analysis removed"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["import", "--pending"]);
+    assert!(ok);
+    assert!(out.contains("nothing is waiting"), "output: {out}");
+
+    // The one that had attached is untouched.
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok);
+    assert!(
+        out.contains("Analysed by flaccompagnon"),
+        "a matched analysis must survive --forget --pending: {out}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
     // The report may equally well be sitting in the album folder. A scan walks
     // over it anyway, so it costs nothing to notice it.
@@ -1939,4 +2683,144 @@ fn reports_are_looked_for_in_every_folder_underneath() {
     assert!(err.contains("no .json report"), "stderr: {err}");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn every_command_that_works_is_named_by_the_help() {
+    // Two commands worked for a week without appearing anywhere in the help:
+    // `find` and `favorites`, both perfectly good, both invisible. The rule
+    // that caught `help` itself had no test behind it, so nothing said. This is
+    // that test, and it is the reason the dispatcher and the help now read one
+    // table.
+    let sandbox = Sandbox::new("help_commands");
+    let (help, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+
+    for command in [
+        "scan",
+        "roots",
+        "stats",
+        "doctor",
+        "check",
+        "reset",
+        "import",
+        "query",
+        "find",
+        "collection",
+        "collections",
+        "love",
+        "rate",
+        "note",
+        "tag",
+        "played",
+        "favourites",
+        "favorites",
+        "notes",
+        "history",
+        "artists",
+        "albums",
+        "genres",
+        "genre",
+        "labels",
+        "label",
+        "years",
+        "artist",
+        "album",
+        "track",
+        "search",
+        "file",
+        "export",
+        "help",
+    ] {
+        // It answers — an unknown command exits 2 with "unknown command",
+        // which is what tells a real command from a typo.
+        let (_, err, _) = sandbox.run(&[command]);
+        assert!(
+            !err.contains("unknown command"),
+            "{command} is not a command"
+        );
+        assert!(
+            help.contains(command),
+            "{command} works and the help never names it"
+        );
+    }
+
+    // And a word that is no command says so, with the nearest one it knows.
+    let (_, err, ok) = sandbox.run(&["albuns"]);
+    assert!(!ok);
+    assert!(err.contains("unknown command"), "stderr: {err}");
+    assert!(err.contains("albums"), "and points at the real one: {err}");
+}
+
+#[test]
+fn an_alias_is_the_command_and_not_a_lesser_one() {
+    // `find` is `query`, `favorites` is `favourites`. Both dispatched to the
+    // right function — and were refused their options on the way there, because
+    // every guard table in the program was written in terms of the canonical
+    // name and only the dispatcher had been told the two are one thing. The
+    // symptom was the program contradicting itself in a single breath:
+    //
+    //     $ aede find year:1990..1994 --csv
+    //     Error: "find" cannot produce a table: --csv applies to …, query, …
+    //
+    // — refusing a table and then listing, among those that can produce one,
+    // the very command that had just been typed under its other name.
+    let sandbox = Sandbox::new("alias_options");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    // Every option the canonical name accepts, the alias accepts too. Each is
+    // run for real, not merely past the guard: an option that parses and then
+    // does nothing is the fault this whole class of guard exists to catch.
+    for (alias, canonical, options) in [
+        (
+            "find",
+            "query",
+            vec![
+                vec!["year:1900..2100", "--csv"],
+                vec!["year:1900..2100", "--json"],
+                vec!["year:1900..2100", "--m3u"],
+                vec!["year:1900..2100", "--sort", "title"],
+                vec!["year:1900..2100", "--limit", "1"],
+                vec!["year:1900..2100", "--all"],
+            ],
+        ),
+        (
+            "favorites",
+            "favourites",
+            vec![vec!["--csv"], vec!["--json"], vec!["--limit", "1"]],
+        ),
+    ] {
+        for option in options {
+            let mut typed = vec![alias];
+            typed.extend(option.iter().copied());
+            let (out, err, ok) = sandbox.run(&typed);
+            assert!(
+                ok,
+                "aede {} was refused what {canonical} accepts.\nstderr: {err}",
+                typed.join(" ")
+            );
+            assert!(!err.contains("cannot"), "aede {}: {err}", typed.join(" "));
+
+            // And it answers the same thing under either name, which is the
+            // point of an alias — passing the guard is only half of it.
+            let mut under_the_other_name = vec![canonical];
+            under_the_other_name.extend(option.iter().copied());
+            let (same, _, ok) = sandbox.run(&under_the_other_name);
+            assert!(ok);
+            assert_eq!(
+                out,
+                same,
+                "aede {} and aede {} must answer alike",
+                typed.join(" "),
+                under_the_other_name.join(" ")
+            );
+        }
+    }
+
+    // The refusals travel with the alias too: `favourites` reads no argument,
+    // so `favorites` must refuse one rather than ignore it in silence.
+    let (_, err, ok) = sandbox.run(&["favorites", "something"]);
+    assert!(!ok, "stderr: {err}");
+    assert!(err.contains("takes no argument"), "stderr: {err}");
 }

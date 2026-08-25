@@ -48,6 +48,22 @@ impl Catalog {
         self.analyses.iter().filter(|a| a.path == file.path)
     }
 
+    /// Imported analyses describing files the catalog does not hold, in full.
+    ///
+    /// Same population [`Catalog::pending_analyses`] counts. Kept apart
+    /// because most callers only want the number — `doctor` says "N waiting"
+    /// on every run — and building the list, with its own reference into
+    /// every path, is a heavier answer nobody should pay for just to learn
+    /// how many there are. `aede import --pending` is the caller that does
+    /// want the list, to say *which* ones.
+    pub fn pending_analyses_list(&self) -> Vec<&crate::analysis::FileAnalysis> {
+        let known: BTreeSet<&str> = self.files.iter().map(|f| f.path.as_str()).collect();
+        self.analyses
+            .iter()
+            .filter(|a| !known.contains(a.path.as_str()))
+            .collect()
+    }
+
     /// Imported analyses describing files the catalog does not hold.
     ///
     /// Not an error and not garbage: the usual reason is that the folder they
@@ -55,12 +71,7 @@ impl Catalog {
     /// can say "twelve analyses are waiting for a scan" instead of losing them
     /// without a word.
     pub fn pending_analyses(&self) -> usize {
-        let known: std::collections::BTreeSet<&str> =
-            self.files.iter().map(|f| f.path.as_str()).collect();
-        self.analyses
-            .iter()
-            .filter(|a| !known.contains(a.path.as_str()))
-            .count()
+        self.pending_analyses_list().len()
     }
 
     /// The label an id designates, or `None` when the id is out of range.
@@ -492,7 +503,7 @@ impl Catalog {
                         tracks.extend(release.track_ids.iter().copied());
                     }
                 }
-                EntityKind::Artist | EntityKind::Label => {}
+                EntityKind::Artist | EntityKind::Label | EntityKind::Genre => {}
             }
         }
         tracks.into_iter().collect()
@@ -579,7 +590,7 @@ impl Catalog {
                         tracks.extend(release.track_ids.iter().copied());
                     }
                 }
-                EntityKind::Artist | EntityKind::Label => {}
+                EntityKind::Artist | EntityKind::Label | EntityKind::Genre => {}
             }
         }
         tracks.into_iter().collect()

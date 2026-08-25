@@ -56,6 +56,10 @@ pub enum EntityKind {
     Track,
     /// A record label.
     Label,
+    /// A genre. Never carried by a credit or a relation — a genre performs
+    /// nothing — but an entity all the same, and one a user can have an
+    /// opinion about.
+    Genre,
 }
 
 impl EntityKind {
@@ -66,6 +70,7 @@ impl EntityKind {
             EntityKind::Release => "release",
             EntityKind::Track => "track",
             EntityKind::Label => "label",
+            EntityKind::Genre => "genre",
         }
     }
 
@@ -77,6 +82,7 @@ impl EntityKind {
             "release" => EntityKind::Release,
             "track" => EntityKind::Track,
             "label" => EntityKind::Label,
+            "genre" => EntityKind::Genre,
             _ => return None,
         })
     }
@@ -268,9 +274,10 @@ pub struct Credit {
 
 /// A typed and dated link between two entities.
 ///
-/// At milestone M0 only what the tags allow us to infer is available:
-/// collaboration (two artists credited on the same track). MusicBrainz will
-/// then bring `member_of`, `founded`, `signed_to`…
+/// Until M1 only what the tags allow us to infer is available: collaboration
+/// (two artists credited on the same track). MusicBrainz will then bring
+/// `member_of`, `founded`, `signed_to`… — the last of which needs a period on
+/// the link, since a line-up is a fact with dates.
 #[derive(Debug, Clone)]
 pub struct Relation {
     /// Which table `source_id` indexes.
@@ -281,7 +288,7 @@ pub struct Relation {
     pub target_kind: EntityKind,
     /// Entity the link reaches.
     pub target_id: Id,
-    /// Nature of the link; only `collaborated` exists at milestone M0.
+    /// Nature of the link; only `collaborated` exists until M1.
     pub kind: String,
     /// Number of observed occurrences: used to rank links by strength.
     pub weight: u32,

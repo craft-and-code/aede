@@ -141,6 +141,8 @@ pub fn show_artist(args: &Args) -> Res {
         }
         print!("{}", t.render());
     }
+    // A rating given and never shown again is a rating nobody trusts.
+    super::panel_for(args, &catalog, EntityKind::Artist, artist.id);
     Ok(())
 }
 

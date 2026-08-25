@@ -69,6 +69,25 @@ pub fn reset(args: &Args) -> Res {
         );
     }
 
+    // The one thing `reset` must never take: what the user wrote lives in
+    // another file, and a command that empties the catalog has no business
+    // touching it. Saying so is what stops the hesitation from being about the
+    // wrong thing.
+    let written = aede_core::user::load(&aede_core::user::user_path(&super::data_dir(args)))
+        .ok()
+        .flatten()
+        .map(|d| d.annotations.len())
+        .unwrap_or(0);
+    if written > 0 {
+        println!(
+            "  {}",
+            ui::green(&format!(
+                "your {} stay: they are not in this file",
+                ui::plural(written, "note")
+            ))
+        );
+    }
+
     if !confirmed(args)? {
         println!("  {}", ui::green("nothing was removed"));
         return Ok(());

@@ -1,6 +1,7 @@
 //! Aède — command-line interface.
 //!
-//! Milestone M0: scan folders, build the catalog, query it.
+//! Milestone M0.5: scan folders, build the catalog, query it, and record what
+//! the user makes of it.
 
 mod args;
 mod commands;
@@ -63,6 +64,7 @@ fn main() {
         "no-color",
         "yes",
         "forget",
+        "pending",
         "source",
         "compilations",
         "no-compilations",
@@ -76,6 +78,15 @@ fn main() {
         "full",
         "follow-symlinks",
         "include-hidden",
+        "stars",
+        "text",
+        "from",
+        "tag",
+        "file",
+        "append",
+        "query",
+        "export",
+        "import",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -158,6 +169,16 @@ fn main() {
         std::process::exit(2);
     }
 
+    // An alias **is** the command, and every table below is written in terms of
+    // the one name. Resolved once, here, rather than spelled twice in each of
+    // the eight lists: `aede find year:1990..1994 --csv` was refused a table
+    // that `aede query` produced happily, and the refusal helpfully listed
+    // `query` among the commands that can — the program contradicting itself in
+    // one breath, because only the dispatcher had been told the two are one
+    // thing. Adding an alias must not mean revisiting eight tables to keep it
+    // from becoming a second-class command.
+    let command = canonical(&args.command);
+
     // An option a command cannot honour is refused rather than ignored. The
     // global list above only says an option exists; this says where it means
     // something, which is what stops `aede stats --csv` from printing a table
@@ -167,6 +188,11 @@ fn main() {
         ("m3u", M3U_COMMANDS, "produce a playlist"),
         ("output", OUTPUT_COMMANDS, "write to a file"),
         ("forget", IMPORT_COMMANDS, "forget an analysis"),
+        (
+            "pending",
+            IMPORT_COMMANDS,
+            "list or restrict to what is waiting",
+        ),
         ("source", IMPORT_COMMANDS, "select a source"),
         (
             "compilations",
@@ -196,14 +222,27 @@ fn main() {
         ("with", &["artist"], "cross two artists"),
         ("tracks", &["export"], "switch to one row per track"),
         ("yes", &["reset"], "skip the confirmation"),
-        ("remove", &["roots"], "drop a folder"),
+        (
+            "remove",
+            &["roots", "love", "rate", "note", "tag", "collection"],
+            "take something back",
+        ),
         ("full", &["scan", "check"], "ignore what was already done"),
         ("threads", &["scan", "check"], "read on several threads"),
         ("replace", &["scan"], "forget the watched folders"),
         ("follow-symlinks", &["scan"], "follow symbolic links"),
         ("include-hidden", &["scan"], "walk hidden files"),
+        ("stars", &["rate"], "carry a rating"),
+        ("text", &["note"], "carry a note"),
+        ("file", &["note"], "read a note from a file"),
+        ("append", &["note"], "add to a note"),
+        ("query", &["collection"], "hold an expression"),
+        ("export", &["notes"], "write what you wrote to a file"),
+        ("import", &["notes"], "take back in what was exported"),
+        ("from", &["note"], "copy what was said elsewhere"),
+        ("tag", &["notes"], "filter on a tag"),
     ] {
-        if args.has(option) && !commands.contains(&args.command.as_str()) {
+        if args.has(option) && !commands.contains(&command) {
             eprintln!(
                 "{} \"{}\" cannot {what}: --{option} applies to {}",
                 ui::red("Error:"),
@@ -245,8 +284,12 @@ fn main() {
     // to list every producer in the library, "ozzy" going into the void — the
     // same fault as an option silently ignored, and the answer looks right,
     // which is what makes it worse.
-    if let Some(hint) = takes_no_argument(&args.command)
+    // `roots --remove <folder>` is the one place a listing does read an
+    // argument, because the folder is what is being removed.
+    let reads_an_argument = command == "roots" && args.has("remove");
+    if let Some(hint) = takes_no_argument(command)
         && !args.positionals.is_empty()
+        && !reads_an_argument
     {
         eprintln!(
             "{} \"{}\" takes no argument: \"{}\" was ignored.\n{hint}",
@@ -257,37 +300,28 @@ fn main() {
         std::process::exit(2);
     }
 
-    let result = match args.command.as_str() {
-        "scan" => commands::scan(&args),
-        "roots" => commands::roots(&args),
-        "stats" => commands::show_stats(&args),
-        "doctor" => commands::show_doctor(&args),
-        "check" => commands::check(&args),
-        "reset" => commands::reset(&args),
-        "import" => commands::import(&args),
-        "artists" => commands::list_artists(&args),
-        "albums" => commands::list_albums(&args),
-        "genres" => commands::list_genres(&args),
-        "genre" => commands::show_genre(&args),
-        "labels" => commands::list_labels(&args),
-        "label" => commands::show_label(&args),
-        "years" => commands::list_years(&args),
-        "artist" => commands::show_artist(&args),
-        "album" => commands::show_album(&args),
-        "track" => commands::show_track(&args),
-        "search" => commands::search(&args),
-        "file" => commands::inspect(&args),
-        "export" => commands::export(&args),
-        "help" => {
-            print_help();
-            Ok(())
+    let Some((_, _, run)) = COMMANDS
+        .iter()
+        .find(|(name, alias, _)| *name == args.command || alias.is_some_and(|a| a == args.command))
+    else {
+        eprintln!(
+            "{} unknown command: \"{}\"",
+            ui::red("Error:"),
+            args.command
+        );
+        if let Some(near) = args::nearest(
+            &args.command,
+            &COMMANDS
+                .iter()
+                .map(|(name, _, _)| *name)
+                .collect::<Vec<_>>(),
+        ) {
+            eprintln!("Did you mean {}?", near.trim_start_matches('-'));
         }
-        other => {
-            eprintln!("{} unknown command: \"{other}\"", ui::red("Error:"));
-            eprintln!("Run \"aede help\" for the list of commands.");
-            std::process::exit(2);
-        }
+        eprintln!("Run \"aede help\" for the list of commands.");
+        std::process::exit(2);
     };
+    let result = run(&args);
 
     if let Err(error) = result {
         eprintln!("{} {error}", ui::red("Error:"));
@@ -297,12 +331,35 @@ fn main() {
 
 /// Commands that can render what they show as a CSV table.
 const CSV_COMMANDS: &[&str] = &[
-    "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
-    "genres", "labels", "years",
+    "export",
+    "album",
+    "artist",
+    "track",
+    "genre",
+    "label",
+    "search",
+    "albums",
+    "artists",
+    "genres",
+    "labels",
+    "years",
+    "favourites",
+    "notes",
+    "query",
+    "collection",
 ];
 
 /// Commands that show tracks, and can therefore hand them to a player.
-const M3U_COMMANDS: &[&str] = &["album", "artist", "track", "genre", "label", "search"];
+const M3U_COMMANDS: &[&str] = &[
+    "album",
+    "artist",
+    "track",
+    "genre",
+    "label",
+    "search",
+    "query",
+    "collection",
+];
 
 /// Commands that act on what was imported from another tool.
 const IMPORT_COMMANDS: &[&str] = &["import"];
@@ -318,6 +375,76 @@ const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 /// filter, and a role with nobody attached asks nothing.
 const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
 
+/// Every command, its alias if it has one, and what it runs.
+///
+/// **One table, not a `match` and a help page that drift apart.** Two commands
+/// worked for a week without appearing in the help — `find` and `favorites`,
+/// both perfectly good, both invisible. The rule that caught `help` itself
+/// ("a command that works is a command the help names") had no test behind it,
+/// so nothing said. Now the dispatcher reads this list, the help is checked
+/// against it, and a command added in one place cannot hide from the other.
+type Command = fn(&Args) -> commands::Res;
+const COMMANDS: &[(&str, Option<&str>, Command)] = &[
+    ("scan", None, commands::scan),
+    ("roots", None, commands::roots),
+    ("stats", None, commands::show_stats),
+    ("doctor", None, commands::show_doctor),
+    ("check", None, commands::check),
+    ("reset", None, commands::reset),
+    ("import", None, commands::import),
+    ("query", Some("find"), commands::query),
+    ("collection", None, commands::collection),
+    ("collections", None, commands::collections),
+    ("love", None, commands::love),
+    ("rate", None, commands::rate),
+    ("note", None, commands::note),
+    ("tag", None, commands::tag),
+    ("played", None, commands::played),
+    ("favourites", Some("favorites"), commands::favourites),
+    ("notes", None, commands::notes),
+    ("history", None, commands::history),
+    ("artists", None, commands::list_artists),
+    ("albums", None, commands::list_albums),
+    ("genres", None, commands::list_genres),
+    ("genre", None, commands::show_genre),
+    ("labels", None, commands::list_labels),
+    ("label", None, commands::show_label),
+    ("years", None, commands::list_years),
+    ("artist", None, commands::show_artist),
+    ("album", None, commands::show_album),
+    ("track", None, commands::show_track),
+    ("search", None, commands::search),
+    ("file", None, commands::inspect),
+    ("export", None, commands::export),
+    ("help", None, run_help),
+];
+
+/// The one name a command is known by everywhere except on the command line.
+///
+/// [`COMMANDS`] is the only place an alias is written down, and this is what
+/// keeps it that way. Every guard table below lists canonical names; a word
+/// that is not an alias is already canonical and comes back unchanged, so the
+/// caller never has to know which it was given.
+///
+/// Without it an alias dispatched correctly and was refused everything on the
+/// way there — `aede find … --csv` answered that "find" cannot produce a table
+/// and then listed `query`, which is the same command. An alias that is not the
+/// command in *every* table is not an alias, it is a trap.
+fn canonical(typed: &str) -> &str {
+    COMMANDS
+        .iter()
+        .find(|(_, alias, _)| alias.is_some_and(|a| a == typed))
+        .map(|(name, _, _)| *name)
+        .unwrap_or(typed)
+}
+
+/// `help` as a function, so that it sits in the table like every other command
+/// rather than being a special case the table could forget.
+fn run_help(_args: &Args) -> commands::Res {
+    print_help();
+    Ok(())
+}
+
 /// Options that shape what is printed rather than what is answered, and so are
 /// not left with nothing to do when no command follows them.
 const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
@@ -329,12 +456,28 @@ const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 /// `--json` used to be declared globally and read by four commands, so
 /// `aede albums --json` printed the ordinary table and dropped the word.
 const JSON_COMMANDS: &[&str] = &[
-    "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
-    "genres", "labels", "years", "stats", "doctor",
+    "export",
+    "album",
+    "artist",
+    "track",
+    "genre",
+    "label",
+    "search",
+    "albums",
+    "artists",
+    "genres",
+    "labels",
+    "years",
+    "stats",
+    "doctor",
+    "favourites",
+    "notes",
+    "query",
+    "collection",
 ];
 
 /// The one listing whose order can be chosen.
-const SORT_COMMANDS: &[&str] = &["artists"];
+const SORT_COMMANDS: &[&str] = &["artists", "query", "collection"];
 
 /// The one command that reports issues, and can therefore filter them.
 const DOCTOR_COMMANDS: &[&str] = &["doctor"];
@@ -373,6 +516,12 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
         "labels" => "For one label: aede label \"<name>\"",
         "years" => "For one year: aede albums --year=<year>",
         "stats" | "doctor" | "roots" => "It describes the whole catalog.",
+        "collections" => {
+            "It lists what you saved. To save one: aede collection <name> --query \"…\""
+        }
+        "favourites" | "notes" | "history" => {
+            "It lists what you wrote. To write: aede love|rate|note <kind> \"<name>\""
+        }
         // `aede help scan` reads like a request for one command's page, and
         // there is no such page: printing the whole help as though the word had
         // not been typed answers a question that was not asked.
@@ -386,14 +535,44 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
 /// `--limit` was global and honoured only here; on `scan` or `reset` it was
 /// accepted and ignored like any other option nobody listed.
 const PAGING_COMMANDS: &[&str] = &[
-    "albums", "artists", "genres", "labels", "album", "artist", "track", "genre", "label",
-    "search", "doctor", "stats",
+    "albums",
+    "artists",
+    "genres",
+    "labels",
+    "album",
+    "artist",
+    "track",
+    "genre",
+    "label",
+    "search",
+    "doctor",
+    "stats",
+    "favourites",
+    "notes",
+    "history",
+    "query",
+    "collection",
+    "import",
 ];
 
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
-    "export", "album", "artist", "track", "genre", "label", "search", "albums", "artists",
-    "genres", "labels", "years",
+    "export",
+    "album",
+    "artist",
+    "track",
+    "genre",
+    "label",
+    "search",
+    "albums",
+    "artists",
+    "genres",
+    "labels",
+    "years",
+    "favourites",
+    "notes",
+    "query",
+    "collection",
 ];
 
 fn print_help() {
@@ -413,7 +592,8 @@ fn print_help() {
   doctor               Diagnosis: missing tags, duplicates, incomplete albums
                        (--severity=error|warning|info)
   check [folder…]      Verify the checksums the files carry, all of them or
-                       only those under the folders given (--full re-verifies)
+                       only those under the folders given (--full re-verifies).
+                       Nothing left to check prints the current report instead
 
   artists              List of artists (--role composer, producer…,
                        --sort tracks|name)
@@ -431,10 +611,45 @@ fn print_help() {
   label <name>         Label page: its catalogue and its artists
   search <text>        Search the whole catalog (--comments looks there too)
   file <path>          Inspect a single file, outside the catalog
-  import <report…>     Take in FlacCompagnon reports (--forget removes them)
+  import <report…>     Take in FlacCompagnon reports. --pending lists the
+                       folders whose analyses match no file yet, --forget
+                       removes analyses; --forget --pending [folder…] drops
+                       only what is waiting, and keeps what did attach
   reset                Remove the catalog, after confirmation (--yes skips it)
   export               Export the catalog as JSON, or as CSV with --csv
                        (one row per album; --tracks for one row per track)
+  query <expression>   (also: find) Every track an expression matches; the
+                       result is a selection, so --csv, --json and --m3u apply
+                         genre:metal year:1990..1999 -label:earache
+                         (artist:ozzy OR artist:dio) album.rating:>=4 played:0
+                       Fields: title artist album albumartist genre label
+                       comment path codec year duration size bitrate
+                       samplerate lossless played rating loved tag note,
+                       the last four also as album.<field> and artist.<field>,
+                       and who did what: composer, lyricist, producer,
+                       engineer, performer, conductor, remixer, featured,
+                       mainartist, performing
+  love <kind> <name>   Mark a favourite (--remove takes it back)
+  rate <kind> <name>   Give it 1 to 5 stars: --stars 4, or --remove
+  note <kind> <name>   Write a note. One note per thing, kept as typed.
+                       --text <words>, or --file <path> (- reads a pipe),
+                       --append adds to it, --remove takes it away,
+                       --from <reference> copies another one.
+                       With none of those, it reads the note back
+  tag <kind> <name> <label[,label…]>
+                       Attach free labels, several at once: vinyl,rare
+                       --remove takes off the ones named, or every one of
+                       them when none is named
+  played <track>       Record a listen, until playback records its own
+  collection <name>    Save a query under a name (--query), run it, or
+                       drop it with --remove. It keeps the question, not the
+                       answer, so it says what the library holds now
+  collections          The saved queries, and how much each one holds now
+  favourites           (also: favorites) Everything marked a favourite
+  notes                Everything written (--tag <label> narrows)
+                       --export writes it all out, --import <file> merges it
+                       back in — never replaces
+  history              What was played, most recent first
   help                 This page, which is also what running aede alone shows
 
 {}
@@ -473,16 +688,32 @@ fn print_help() {
   --no-compilations    Everything except those (albums)
   --comment <text>     Only what a comment mentions (albums, track)
   --comments           Search the comment tag as well (search)
+  --stars <1-5>        How many stars (rate)
+  --text <words>       The note itself (note)
+  --file <path>        Read the note from a file, or from a pipe with - (note)
+  --append             Add to the note instead of replacing it (note)
+  --query <expression> What a collection asks (collection)
+  --export             Write out everything you wrote (notes)
+  --import <file>      Merge a previous export back in (notes)
+  --from <reference>   Copy what was said about another thing (note)
+  --tag <label>        Only what carries this label (notes)
+  --remove             Take back what was set (love, rate, note, tag, roots);
+                       on tag with no label named, takes off every one
   --role <role>        On artists: who is credited that way.
                        On artist <name>: what they did in that role.
   --album <title>      Of one album (track)
   --with <name>        The tracks two artists share (artist)
   --severity <level>   error, warning or info (doctor)
-  --sort <order>       tracks or name (artists)
+  --sort <order>       tracks or name (artists); on query and collection:
+                       title, artist, album, year, duration, size, rating,
+                       played, catalog — a trailing - reverses it
 
 {}
   --forget             Remove the imported analyses instead of adding any
-  --source <name>      Restrict --forget to one tool (default: all of them)
+  --pending            List the folders whose analyses match no file yet;
+                       with --forget, remove only those. Both accept
+                       folders, to act on one rather than on all of them
+  --source <name>      Restrict to one tool (--forget, --pending)
 
 {}
   aede scan ~/Music
@@ -499,7 +730,22 @@ fn print_help() {
   aede search coltrane
   aede albums --limit 50 --offset 50
   aede albums --all -o everything.csv --csv
-  aede import ~/Desktop/report.json",
+  aede query \"genre:metal year:1990..1999 -label:earache\"
+  aede query \"album.rating:>=4 played:0\" --m3u
+  aede query \"loved\" --sort played- --limit 20
+  aede collection wishlist --query \"loved played:0\"
+  aede collection wishlist --m3u
+  aede notes --export -o backup.json
+  aede love album \"Kind of Blue\"
+  aede rate artist \"Miles Davis\" --stars 5
+  aede note album \"Legion\" --text \"the 1992 pressing\"
+  aede tag album \"Legion\" vinyl,rare,to rip again
+  aede tag album \"Legion\" rare --remove
+  aede tag album \"Legion\" --remove
+  aede notes --tag vinyl
+  aede import ~/Desktop/report.json
+  aede import --pending
+  aede import --forget --pending \"/Volumes/OldDrive/Music\"",
         ui::cyan("USAGE"),
         ui::cyan("COMMANDS"),
         ui::cyan("GLOBAL OPTIONS"),

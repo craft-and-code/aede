@@ -204,7 +204,14 @@ pub fn roots(args: &Args) -> Res {
     let catalog_file = store::catalog_path(&dir);
     let mut catalog = load(args)?;
 
-    if let Some(target) = args.value("remove") {
+    // `--remove` is a flag, and the folder is the argument. It used to take
+    // its value, which made one option mean two things — a flag on `love`, a
+    // value here — and an option with two meanings is one nobody can predict.
+    if args.has("remove") {
+        let target = &args.positionals.join(" ");
+        if target.trim().is_empty() {
+            return Err("which folder? aede roots --remove ~/Music".into());
+        }
         let wanted = std::fs::canonicalize(target)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| target.to_string());
