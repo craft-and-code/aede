@@ -60,6 +60,7 @@ const VALUED_WORD: &[&str] = &[
     "stars",
     "file",
     "import",
+    "extras",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in
@@ -79,7 +80,18 @@ const VALUED_WORD: &[&str] = &[
 /// command then says it was given no title rather than answering the wrong
 /// question.
 const VALUED_NAME: &[&str] = &[
-    "artist", "album", "with", "genre", "label", "comment", "role", "text", "from", "tag", "query",
+    "artist",
+    "album",
+    "with",
+    "genre",
+    "label",
+    "comment",
+    "role",
+    "text",
+    "from",
+    "tag",
+    "query",
+    "collection",
 ];
 
 /// Short spellings, each standing for exactly one long option.

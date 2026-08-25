@@ -8,6 +8,7 @@ mod annotate;
 mod artist;
 mod browse;
 mod check;
+mod copy;
 mod doctor;
 mod export;
 mod facet;
@@ -27,6 +28,7 @@ pub use annotate::{
 pub use artist::show_artist;
 pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years};
 pub use check::check;
+pub use copy::copy;
 pub use doctor::show_doctor;
 pub use export::export;
 pub use facet::{show_genre, show_label};
@@ -40,7 +42,7 @@ pub use track::show_track;
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aede_core::model::{Catalog, Id};
 use aede_core::store;
@@ -53,6 +55,32 @@ use crate::ui::{self, Table};
 /// What every command returns: nothing useful, or an error already worded for
 /// the user.
 pub type Res = Result<(), Box<dyn Error>>;
+
+/// A folder the user named, resolved the way the catalog stores folders.
+///
+/// **Every path that arrives from the command line and will be compared against
+/// a stored one goes through here.** The catalog keeps its watched roots
+/// canonical, and the comparisons that matter — is this file under that root,
+/// is this destination inside my library — are string comparisons on a
+/// separator boundary ([`aede_core::text::is_under`]). A path reached through a
+/// symbolic link names the same folder by a string that never compares equal,
+/// so the answer comes back "no" for a folder that plainly is.
+///
+/// On macOS this is not a corner case but the ordinary one: `/var` is a link to
+/// `/private/var` and `/tmp` to `/private/tmp`, so most paths exist in two
+/// spellings and only one of them is ever the catalog's.
+///
+/// The step was written out four times, slightly differently, in `scan`,
+/// `roots`, `check` and `copy` — and `copy`, the one command that *writes*, was
+/// the one that had left it out. Its "this destination is inside your library"
+/// refusal therefore waved through precisely the case it exists to catch. One
+/// helper, so that the fifth command cannot forget it.
+///
+/// A path the filesystem will not resolve comes back as it was: acting on the
+/// name given is better than refusing outright.
+pub fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
 
 /// Where the catalog lives: what `--data` names, or the default location.
 pub fn data_dir(args: &Args) -> PathBuf {

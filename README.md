@@ -34,6 +34,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag)                                                      |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                                                                   |
 | `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                                                           |
+| `aede copy <destination>`                                 | Copy a selection to a player, a card or a drive, keeping its folder tree                                                     |
 | `aede import <report…>`                                   | Take in a FlacCompagnon report (`--pending` lists the folders whose analyses match no file yet, `--forget` removes analyses) |
 | `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                                                    |
 | `aede love\|rate\|note\|tag <kind> <name>`                | What you think of it: a favourite, 1–5 stars, a note, free labels (`tag` takes a comma-separated list)                       |
@@ -478,6 +479,60 @@ Two things make it manageable:
 
 What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the _decoded_ audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it. Until then, [taking in another tool's analysis](#what-another-tool-found) fills the gap for whoever already has one.
 
+## Copying to a player
+
+`aede copy` is the one command that writes files, and it writes them **outside** the library. A player, an SD card, an external drive — somewhere that is not a catalog and will never be scanned.
+
+```sh
+aede copy /Volumes/Player                                   # the whole library
+aede copy /Volumes/Player --query "loved rating:>=4"        # a selection
+aede copy /Volumes/Card --collection wishlist --verify      # a saved query, read back
+aede copy /Volumes/Player --dry-run                         # what it would do, writing nothing
+```
+
+**The selection is the grammar's**, not a set of filters of its own — the rule every listing already follows. Whatever `aede query` would have listed is what `aede copy --query` writes. With neither `--query` nor `--collection`, the whole library goes.
+
+**The tree is kept relative to the watched folder that holds each file.** A track scanned under `~/Music` at `Ozzy Osbourne/1980 Blizzard of Ozz/01.flac` arrives at exactly that path under the destination. Inventing a layout from the tags would be a different feature — organising — and one this project has not decided it wants. A file sitting under no watched folder has no tree to keep, so it is reported rather than dropped at the top level among the ones that do.
+
+### What travels beside the audio
+
+| `--extras`          | What comes                                                                       |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `none`              | Audio only. Cover art embedded in the tags travels anyway: it is inside the file |
+| `cover` _(default)_ | The one cover the catalog identified for the release                             |
+| `images`            | Every image in the folder                                                        |
+| `all`               | Everything beside the audio: logs, cue sheets, reports                           |
+
+The default is `cover` rather than `images` for a reason worth spelling out: **a rip folder's spectrograms and booklet scans are PNGs too.** Filtering on the extension copies exactly what you were trying to leave behind. The catalog already knows which file is the cover — the scan picked it by rank and stored it on the release — so `cover` is an exact answer where `images` can only be a guess.
+
+### Names a player refuses
+
+FAT32 and exFAT — which is what a card or a player almost always is — reject `? * : " < > |`, trailing dots and spaces, and the old DOS device names. A music library is full of them: `Where Is My Mind?`, `Symphony No. 5: Allegro`. Left alone, the copy fails on those files one at a time, twenty minutes into a run.
+
+Aède asks the destination what it accepts by **writing one probe file into it**, rather than reading the filesystem's name and inferring. The empirical answer is right where the inference is wrong: a FUSE mount, an SMB share of a Windows folder or a card reader all report something no table lists. `--safe-names` and `--raw-names` force it either way.
+
+Every adapted name is **listed, not counted** — a copy whose names quietly differ from the library is a copy nobody can compare against the original afterwards. Where two different names adapt to the same one (`Vol. 1: Live` and `Vol. 1? Live` both become `Vol. 1_ Live`), a counter keeps them apart rather than letting one overwrite the other.
+
+### Getting it there intact
+
+Size is checked on every file, always: it costs one metadata read and catches what actually goes wrong — a run interrupted mid-file, a disk that filled up. Each file is written under a temporary name and moved into place, so an interrupted run never leaves half a file wearing a whole one's name, and re-running skips what is already there at the right size.
+
+`--verify` adds a full read-back and CRC-32 comparison. Two honest limits: the file is flushed to the device before being read back, but a read can still be served from the kernel's cache — this proves the bytes made it through the program and the filesystem, not that they reached the platter; and a CRC-32 detects accidental corruption, it is not meant to resist anyone deliberately producing a collision. Nothing here is a security boundary.
+
+### What it refuses
+
+**A destination that does not exist.** The folder is never created for you: `aede copy /Volumes/Player` with the player unplugged would otherwise create that folder on the internal disk and quietly fill it.
+
+**A destination inside a watched folder.** The next scan would read the copies back in, the catalog would double, and `doctor` would report every album as its own duplicate.
+
+**Not enough room**, checked before the first byte rather than discovered on the last album.
+
+### Converting on the way out — not yet
+
+Transcoding to fill a small card (`--compress mp3` and friends) is the second half of this feature and is not implemented yet. It will drive **ffmpeg** as an external program, the way beets does, rather than taking a codec library as a dependency — which means it will be optional, detected at run time, and refused with a clear message when ffmpeg is not installed. Two decisions are already settled: a source that is already lossy is copied as it stands rather than re-encoded a second time, and metadata follows the audio.
+
+Note that writing tags into a _derived copy_ is not the same act as rewriting the tags of your library, which this project refuses to do. The distinction is deliberate, and recorded as such.
+
 ## What another tool found
 
 Entirely optional, and it changes nothing if you never use it.
@@ -722,11 +777,13 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-287 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+306 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
 
 ## Roadmap
 
 **M0 — the catalog (this repository).** Scanning, graph model, statistics, diagnostics, command-line navigation.
+
+**M0.6 — getting music out.** `aede copy`: a selection, written to a player or a card, keeping the tree it sits in. The selection is the query grammar's, so the command adds no filters of its own. What is settled and done: the tree, the companion files (with the catalog's own cover rather than an extension filter), name adaptation for FAT/exFAT probed rather than guessed, verification, resume, and the refusals — a destination that is missing, one inside the library, one without room. What remains: `--compress` through ffmpeg. See [Copying to a player](#copying-to-a-player).
 
 **M0.5 — what the user writes, and how it is asked for.** Favourites, ratings, notes and free-form tags in one annotation store keyed so that a scan can never destroy them; play history and play counts; a real query grammar with ranges, negation and `OR`; saved queries; and export/import of the lot. What remains of it: relations inside the grammar, and today's options becoming shorthand for it rather than a second evaluator. Every one of those records carries an **owner** from its first version, so that the accounts arriving at M2.5 are a second value in a field rather than a migration. None of it needs the network or a database, and the identity design underneath it has to be right before anything else is built on top. See [What the user writes](#what-the-user-writes-favourites-ratings-notes-history), [several users](#which-is-the-same-question-as-several-users) and [Querying](#querying).
 

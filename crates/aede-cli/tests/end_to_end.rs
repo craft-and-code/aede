@@ -2686,6 +2686,211 @@ fn reports_are_looked_for_in_every_folder_underneath() {
 }
 
 #[test]
+fn a_selection_is_copied_out_keeping_its_tree() {
+    // The one command that writes files, and it writes them outside the
+    // library. Everything it can get wrong is expensive: a tree that does not
+    // survive, a name the card refuses halfway through, a copy written into the
+    // library itself.
+    let sandbox = Sandbox::new("copy");
+    let root = std::env::temp_dir().join("aede_e2e_copy_src");
+    let out = std::env::temp_dir().join("aede_e2e_copy_dest");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+    let album = root.join("Pixies/Surfer Rosa");
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::create_dir_all(&out).unwrap();
+    // A title a FAT card refuses, beside a cover and a spectrogram that a
+    // filter on "images" could not tell apart.
+    std::fs::copy(
+        library().join("track.flac"),
+        album.join("04 Where Is My Mind?.flac"),
+    )
+    .unwrap();
+    std::fs::write(album.join("cover.jpg"), b"cover").unwrap();
+    std::fs::write(album.join("spectrogram.png"), b"spectrum").unwrap();
+    std::fs::write(album.join("rip.log"), b"log").unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // --- A dry run writes nothing ------------------------------------------
+    let (report, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--dry-run"]);
+    assert!(ok, "stderr: {err}");
+    assert!(report.contains("nothing was written"), "output: {report}");
+    assert_eq!(
+        std::fs::read_dir(&out).unwrap().count(),
+        0,
+        "a dry run must leave the destination untouched"
+    );
+
+    // The cover travels by default; the spectrogram does not. This is the
+    // whole reason the catalog's own choice beats an extension filter — both
+    // files are images, and only one of them belongs on a player.
+    assert!(report.contains("Covers"), "output: {report}");
+
+    // --- The real thing -----------------------------------------------------
+    let (report, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--verify"]);
+    assert!(ok, "stderr: {err}");
+    assert!(report.contains("Written"), "output: {report}");
+
+    let track = out.join("Pixies/Surfer Rosa/04 Where Is My Mind?.flac");
+    assert!(track.is_file(), "the tree is kept: {}", track.display());
+    assert!(
+        out.join("Pixies/Surfer Rosa/cover.jpg").is_file(),
+        "the cover came"
+    );
+    assert!(
+        !out.join("Pixies/Surfer Rosa/spectrogram.png").exists(),
+        "the spectrogram did not"
+    );
+    assert!(
+        !out.join("Pixies/Surfer Rosa/rip.log").exists(),
+        "nor the log"
+    );
+    // Copied, not truncated.
+    assert_eq!(
+        std::fs::metadata(&track).unwrap().len(),
+        std::fs::metadata(album.join("04 Where Is My Mind?.flac"))
+            .unwrap()
+            .len()
+    );
+    // And nothing half-written is left wearing a real name.
+    assert!(
+        !out.join("Pixies/Surfer Rosa/04 Where Is My Mind?.aede-partial")
+            .exists()
+    );
+
+    // --- Running it again costs nothing ------------------------------------
+    let (report, _, ok) = sandbox.run(&["copy", out.to_str().unwrap()]);
+    assert!(ok);
+    assert!(
+        report.contains("Already there"),
+        "an interrupted run must be cheap to finish: {report}"
+    );
+
+    // --- Names a card would refuse -----------------------------------------
+    let (report, err, ok) =
+        sandbox.run(&["copy", out.to_str().unwrap(), "--safe-names", "--dry-run"]);
+    assert!(ok, "stderr: {err}");
+    assert!(report.contains("Renamed"), "output: {report}");
+    assert!(
+        report.contains("Where Is My Mind_.flac"),
+        "the new name is shown, not just counted: {report}"
+    );
+
+    // --- What it refuses ----------------------------------------------------
+    // A destination that does not exist is almost always a drive that is not
+    // plugged in, and creating it would fill the internal disk instead.
+    let (_, err, ok) = sandbox.run(&["copy", "/tmp/aede_e2e_copy_absent"]);
+    assert!(!ok);
+    assert!(err.contains("does not exist"), "stderr: {err}");
+    assert!(
+        err.contains("not plugged in"),
+        "and says why it matters: {err}"
+    );
+
+    // A copy inside the library would be read back by the next scan, and every
+    // album would become its own duplicate.
+    let inside = root.join("backup");
+    std::fs::create_dir_all(&inside).unwrap();
+    let (_, err, ok) = sandbox.run(&["copy", inside.to_str().unwrap()]);
+    assert!(!ok);
+    assert!(err.contains("is not a library"), "stderr: {err}");
+
+    // …and it is still inside the library when reached by another route.
+    // Watched folders are stored canonical, so a destination given through a
+    // symbolic link names the same folder by a string that never compares
+    // equal — and the guard, comparing strings, waved it straight through. On
+    // macOS this is not a corner case but the ordinary one: /var is a link to
+    // /private/var, so every path under it arrives in two spellings. `scan`
+    // and `check` both canonicalize; `copy`, the one command that *writes*,
+    // was the one that did not.
+    let link = std::env::temp_dir().join("aede_e2e_copy_link");
+    let _ = std::fs::remove_file(&link);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&root, &link).unwrap();
+    #[cfg(unix)]
+    {
+        let through_the_link = link.join("backup");
+        let (_, err, ok) = sandbox.run(&["copy", through_the_link.to_str().unwrap()]);
+        assert!(
+            !ok,
+            "a symbolic link is not a way out of the library: {err}"
+        );
+        assert!(err.contains("is not a library"), "stderr: {err}");
+    }
+    let _ = std::fs::remove_file(&link);
+
+    // A word that names no level of extras.
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--extras", "everything"]);
+    assert!(!ok);
+    assert!(err.contains("none, cover, images, all"), "stderr: {err}");
+
+    // Two options asking for opposite things.
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--safe-names", "--raw-names"]);
+    assert!(!ok);
+    assert!(err.contains("opposite"), "stderr: {err}");
+
+    // The selection goes in --query; a second positional is not a silent extra.
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "loved"]);
+    assert!(!ok);
+    assert!(err.contains("one destination"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+#[test]
+fn a_copy_takes_its_selection_from_the_grammar() {
+    // `copy` has no filters of its own: the selection is the one `query`
+    // answers, which is the rule every listing already follows.
+    let sandbox = Sandbox::new("copy_selection");
+    let out = std::env::temp_dir().join("aede_e2e_copy_sel_dest");
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    // A saved query is a selection like any other.
+    let (_, _, ok) = sandbox.run(&["collection", "hires", "--query", "samplerate:>48000"]);
+    assert!(ok);
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--collection",
+        "hires",
+        "--dry-run",
+    ]);
+    assert!(ok, "stderr: {err}");
+    assert!(report.contains("Tracks"), "output: {report}");
+
+    // A collection nobody saved is an error, not an empty copy.
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--collection", "nope"]);
+    assert!(!ok);
+    assert!(err.contains("no collection"), "stderr: {err}");
+
+    // Both at once name two selections, and the command copies one thing.
+    let (_, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--collection",
+        "hires",
+        "--query",
+        "loved",
+    ]);
+    assert!(!ok);
+    assert!(err.contains("give one"), "stderr: {err}");
+
+    // A selection matching nothing says so rather than reporting a copy of
+    // nothing as a success.
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--query", "played:>500"]);
+    assert!(!ok);
+    assert!(err.contains("matches no track"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+#[test]
 fn every_command_that_works_is_named_by_the_help() {
     // Two commands worked for a week without appearing anywhere in the help:
     // `find` and `favorites`, both perfectly good, both invisible. The rule
@@ -2702,6 +2907,7 @@ fn every_command_that_works_is_named_by_the_help() {
         "stats",
         "doctor",
         "check",
+        "copy",
         "reset",
         "import",
         "query",

@@ -1,7 +1,7 @@
 //! Aède — command-line interface.
 //!
-//! Milestone M0.5: scan folders, build the catalog, query it, and record what
-//! the user makes of it.
+//! Milestone M0.6: scan folders, build the catalog, query it, record what the
+//! user makes of it, and copy a selection out to a player or a card.
 
 mod args;
 mod commands;
@@ -65,6 +65,12 @@ fn main() {
         "yes",
         "forget",
         "pending",
+        "extras",
+        "dry-run",
+        "verify",
+        "safe-names",
+        "raw-names",
+        "collection",
         "source",
         "compilations",
         "no-compilations",
@@ -229,14 +235,28 @@ fn main() {
         ),
         ("full", &["scan", "check"], "ignore what was already done"),
         ("threads", &["scan", "check"], "read on several threads"),
-        ("replace", &["scan"], "forget the watched folders"),
+        ("replace", &["scan", "copy"], "forget the watched folders"),
         ("follow-symlinks", &["scan"], "follow symbolic links"),
         ("include-hidden", &["scan"], "walk hidden files"),
         ("stars", &["rate"], "carry a rating"),
         ("text", &["note"], "carry a note"),
         ("file", &["note"], "read a note from a file"),
         ("append", &["note"], "add to a note"),
-        ("query", &["collection"], "hold an expression"),
+        ("query", &["collection", "copy"], "hold an expression"),
+        ("extras", &["copy"], "choose what travels beside the audio"),
+        (
+            "dry-run",
+            &["copy"],
+            "say what it would do without doing it",
+        ),
+        ("verify", &["copy"], "read back what it wrote"),
+        ("safe-names", &["copy"], "adapt names to the destination"),
+        ("raw-names", &["copy"], "leave names exactly as they are"),
+        (
+            "collection",
+            &["copy"],
+            "take its selection from a saved query",
+        ),
         ("export", &["notes"], "write what you wrote to a file"),
         ("import", &["notes"], "take back in what was exported"),
         ("from", &["note"], "copy what was said elsewhere"),
@@ -390,6 +410,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("stats", None, commands::show_stats),
     ("doctor", None, commands::show_doctor),
     ("check", None, commands::check),
+    ("copy", None, commands::copy),
     ("reset", None, commands::reset),
     ("import", None, commands::import),
     ("query", Some("find"), commands::query),
@@ -591,6 +612,12 @@ fn print_help() {
   stats                Library statistics
   doctor               Diagnosis: missing tags, duplicates, incomplete albums
                        (--severity=error|warning|info)
+  copy <destination>   Copy a selection somewhere that is not a library — a
+                       player, a card, a drive — keeping its folder tree.
+                       --query or --collection choose what; without either,
+                       the whole library. --extras none|cover|images|all
+                       (default: cover), --verify reads back what it wrote,
+                       --dry-run says what it would do and writes nothing
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
@@ -709,6 +736,17 @@ fn print_help() {
                        played, catalog — a trailing - reverses it
 
 {}
+  --extras <what>      What travels beside the audio: none, cover (default),
+                       images, all. The cover is the one the catalog picked,
+                       so it leaves spectrograms and booklet scans behind
+  --collection <name>  Copy what a saved query holds
+  --verify             Read each file back and compare it with the source
+  --dry-run            Say what would be copied, and write nothing
+  --safe-names         Adapt names a destination refuses: ? : * < > and more
+  --raw-names          Leave names exactly as they are
+  --replace            Write files again even when they are already there
+
+{}
   --forget             Remove the imported analyses instead of adding any
   --pending            List the folders whose analyses match no file yet;
                        with --forget, remove only those. Both accept
@@ -743,6 +781,8 @@ fn print_help() {
   aede tag album \"Legion\" rare --remove
   aede tag album \"Legion\" --remove
   aede notes --tag vinyl
+  aede copy /Volumes/Player --query \"loved rating:>=4\" --verify
+  aede copy /Volumes/Card --collection wishlist --extras none
   aede import ~/Desktop/report.json
   aede import --pending
   aede import --forget --pending \"/Volumes/OldDrive/Music\"",
@@ -751,6 +791,7 @@ fn print_help() {
         ui::cyan("GLOBAL OPTIONS"),
         ui::cyan("SCAN OPTIONS"),
         ui::cyan("FILTER OPTIONS"),
+        ui::cyan("COPY OPTIONS"),
         ui::cyan("IMPORT OPTIONS"),
         ui::cyan("EXAMPLES")
     );

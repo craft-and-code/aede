@@ -8,7 +8,10 @@
 //! into a crate of its own and shared with other tools.
 
 mod bits;
-mod crc;
+/// Public because a checksum is a checksum. `copy` verifies a file it has just
+/// written with the same CRC-32 routine Ogg pages are checked with, rather than
+/// growing a second implementation of the same polynomial next door.
+pub mod crc;
 pub mod flac;
 pub mod integrity;
 

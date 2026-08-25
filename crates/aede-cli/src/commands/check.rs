@@ -148,8 +148,7 @@ fn resolve_scope(args: &Args) -> Result<Vec<String>, Box<dyn std::error::Error>>
         if !path.exists() {
             return Err(format!("\"{raw}\" does not exist").into());
         }
-        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        scope.push(canonical.to_string_lossy().to_string());
+        scope.push(super::canonical(path).to_string_lossy().to_string());
     }
     Ok(scope)
 }

@@ -1,7 +1,7 @@
 //! Scanning folders and managing the watched folder list.
 
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aede_core::model::{Catalog, Id};
 use aede_core::scan::{self, Progress, ScanOptions};
@@ -162,7 +162,7 @@ fn resolve_roots(args: &Args, stored: Option<&Catalog>) -> Result<Vec<PathBuf>, 
         if !path.is_dir() {
             return Err(format!("\"{raw}\" is not a readable folder").into());
         }
-        roots.push(std::fs::canonicalize(&path).unwrap_or(path));
+        roots.push(super::canonical(&path));
     }
 
     if roots.is_empty() {
@@ -212,9 +212,9 @@ pub fn roots(args: &Args) -> Res {
         if target.trim().is_empty() {
             return Err("which folder? aede roots --remove ~/Music".into());
         }
-        let wanted = std::fs::canonicalize(target)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| target.to_string());
+        let wanted = super::canonical(Path::new(target))
+            .to_string_lossy()
+            .to_string();
         let before = catalog.roots.len();
         catalog.roots.retain(|r| r != &wanted && r != target);
         if catalog.roots.len() == before {
