@@ -12,7 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
-use aede_core::copy::{self, Extras, Item, ItemKind, Plan};
+use aede_core::copy::transcode::{self, Quality, Target};
+use aede_core::copy::{self, Extras, Item, ItemKind, Plan, Recipe};
 use aede_core::model::Catalog;
 use aede_core::text;
 
@@ -61,8 +62,16 @@ pub fn copy(args: &Args) -> Res {
         (false, false) => copy::names::restricts_names(&destination),
     };
 
-    let plan = copy::plan(&catalog, &tracks, extras, restrict);
-    announce(&plan, &destination, restrict);
+    let target = convert(args)?;
+    let recipe = Recipe {
+        extras,
+        restrict_names: restrict,
+        convert: target,
+        quality: quality(args, target)?,
+    };
+
+    let plan = copy::plan(&catalog, &tracks, &recipe);
+    announce(&plan, &destination, restrict, &recipe);
     if args.has("dry-run") {
         println!(
             "  {}",
@@ -73,8 +82,65 @@ pub fn copy(args: &Args) -> Res {
     if plan.items.is_empty() {
         return Err("nothing to copy".into());
     }
+    // Looked for once, before the first file rather than on each of nine
+    // hundred — and before the first byte is written, so a missing encoder is
+    // an error at the start rather than half a copy.
+    let ffmpeg = match plan.converted() > 0 {
+        false => None,
+        true => Some(transcode::find_ffmpeg().ok_or(transcode::MISSING_FFMPEG)?),
+    };
     room_for(&plan, &destination)?;
-    run(&plan, &destination, args)
+    run(&plan, &destination, args, &recipe, ffmpeg.as_deref())
+}
+
+/// The format to encode into, when one was asked for.
+fn convert(args: &Args) -> Result<Option<Target>, Box<dyn std::error::Error>> {
+    let Some(word) = args.value("compress") else {
+        return Ok(None);
+    };
+    Target::parse(word)
+        .map(Some)
+        .ok_or_else(|| format!("--compress takes {}: got \"{word}\"", Target::names()).into())
+}
+
+/// How hard the encoder should try, when it was said.
+///
+/// Refused rather than ignored in the two cases where it cannot be honoured,
+/// and the second is the interesting one. `--compress wav --quality 128k` reads
+/// as a request for small files; WAV has no quality setting at all, so the
+/// option went into the void and the run produced files roughly eleven times
+/// larger than the number that had just been typed. On the card this command
+/// exists to fill, that is the difference between fitting and not.
+///
+/// Stopping costs nothing here — the check happens before a single file is
+/// read — which is what settles it against a warning: a warning scrolls past a
+/// plan and a progress line, and the run that follows is the wrong one.
+fn quality(
+    args: &Args,
+    target: Option<Target>,
+) -> Result<Option<Quality>, Box<dyn std::error::Error>> {
+    let Some(word) = args.value("quality") else {
+        return Ok(None);
+    };
+    let Some(target) = target else {
+        return Err(
+            "--quality says how to encode, and nothing is being encoded: add --compress".into(),
+        );
+    };
+    if target.lossless() {
+        return Err(format!(
+            "--quality means nothing for {}: a lossless format keeps every sample, \
+             so there is no quality to choose.\n\
+             It applies to {}.\n\
+             Drop --quality, or compress to one of those.",
+            args.value("compress").unwrap_or("that format"),
+            Target::lossy_names()
+        )
+        .into());
+    }
+    Quality::parse(word)
+        .map(Some)
+        .ok_or_else(|| format!("--quality takes {}: got \"{word}\"", Quality::FORMS).into())
 }
 
 /// Where the copy is going, checked before anything else is read.
@@ -156,7 +222,7 @@ fn selection(
 }
 
 /// What the copy is about to do, said before it does it.
-fn announce(plan: &Plan, destination: &Path, restrict: bool) {
+fn announce(plan: &Plan, destination: &Path, restrict: bool, recipe: &Recipe) {
     println!("{}", ui::section("Copy"));
     let counts = plan.counts();
     let mut table = Table::plain(2).align(1, Align::Right);
@@ -169,9 +235,51 @@ fn announce(plan: &Plan, destination: &Path, restrict: bool) {
             table.push(vec![label.into(), count.to_string()]);
         }
     }
-    table.push(vec!["Size".into(), text::format_size(plan.total_bytes())]);
+    if plan.converted() > 0 {
+        table.push(vec!["To encode".into(), plan.converted().to_string()]);
+        let untouched = counts.get(&ItemKind::Audio).copied().unwrap_or(0) - plan.converted();
+        if untouched > 0 {
+            table.push(vec!["Copied as they are".into(), untouched.to_string()]);
+        }
+    }
+    table.push(vec![
+        match plan.size_is_estimated() {
+            true => "Size (estimated)".into(),
+            false => "Size".to_string(),
+        },
+        text::format_size(plan.total_bytes()),
+    ]);
     print!("{}", table.render());
     println!("  {}", ui::dim(&format!("to {}", destination.display())));
+    if plan.size_is_estimated() {
+        println!(
+            "  {}",
+            ui::dim("what an encoder produces is not known until it has: the size is a guess")
+        );
+    }
+    // Said plainly, because it is the one thing about a conversion that
+    // surprises people: a library that is half MP3 already comes out half
+    // untouched, and a silent skip would look like files had been lost.
+    let audio = counts.get(&ItemKind::Audio).copied().unwrap_or(0);
+    if plan.converted() > 0 && plan.converted() < audio {
+        println!(
+            "  {}",
+            ui::dim("what is already compressed is copied rather than encoded a second time")
+        );
+    }
+    // And the case where *nothing* is encoded, which is the same silence seen
+    // from the other side: `--compress mp3` over a selection that is already
+    // MP3 did its job perfectly and said nothing at all about it, leaving the
+    // option looking ignored. It was honoured; it simply had nothing to do.
+    if recipe.convert.is_some() && plan.converted() == 0 && audio > 0 {
+        println!(
+            "  {}",
+            ui::yellow(
+                "nothing here needs encoding: every track is already compressed, \
+                       or already in that format"
+            )
+        );
+    }
     if restrict {
         println!(
             "  {}",
@@ -259,7 +367,7 @@ fn free_space(destination: &Path) -> Option<u64> {
 }
 
 /// Writes the plan, saying where it is as it goes.
-fn run(plan: &Plan, destination: &Path, args: &Args) -> Res {
+fn run(plan: &Plan, destination: &Path, args: &Args, recipe: &Recipe, ffmpeg: Option<&str>) -> Res {
     let verify = args.has("verify");
     let replace = args.has("replace");
     let interactive = ui::is_interactive();
@@ -270,7 +378,7 @@ fn run(plan: &Plan, destination: &Path, args: &Args) -> Res {
     let mut failures: Vec<(PathBuf, String)> = Vec::new();
 
     for (done, item) in plan.items.iter().enumerate() {
-        match write_one(item, destination, verify, replace) {
+        match write_one(item, destination, verify, replace, recipe, ffmpeg) {
             Ok(copy::Wrote::Copied) => copied += 1,
             Ok(copy::Wrote::Skipped) => skipped += 1,
             // One unreadable file does not end the run: the other nine hundred
@@ -332,12 +440,60 @@ fn write_one(
     destination: &Path,
     verify: bool,
     replace: bool,
+    recipe: &Recipe,
+    ffmpeg: Option<&str>,
 ) -> Result<copy::Wrote, String> {
-    copy::copy_one(
-        &item.source,
-        &destination.join(&item.relative),
-        item.size,
-        verify,
-        replace,
-    )
+    let target = destination.join(&item.relative);
+    let Some(format) = item.convert else {
+        return copy::copy_one(&item.source, &target, item.size, verify, replace);
+    };
+    let Some(ffmpeg) = ffmpeg else {
+        return Err("no encoder".into());
+    };
+
+    // A file already there is left alone, as in a plain copy — but the test
+    // cannot be the size, which for an encoder's output is a guess. Existence
+    // and a non-empty length is what can honestly be checked, so an
+    // interrupted conversion is finished rather than restarted, and --replace
+    // is how somebody who changed the quality asks for the work again.
+    if !replace
+        && let Ok(existing) = std::fs::metadata(&target)
+        && existing.is_file()
+        && existing.len() > 0
+    {
+        return Ok(copy::Wrote::Skipped);
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+
+    // Encoded under a temporary name and moved into place, exactly as a copy
+    // is: a run interrupted mid-encode must never leave a half file wearing a
+    // whole one's name, or the resume above would count it as done.
+    let partial = copy::partial_path(&target);
+    let outcome = transcode::convert(ffmpeg, &item.source, &partial, format, recipe.quality)
+        .and_then(|()| match verify {
+            // Comparing checksums here would be meaningless: the bytes differ
+            // by construction. What can be checked is that the result reads
+            // back as audio of the right length — which catches the failure
+            // that happens, an encode cut short.
+            true => transcode::verify(&partial, source_duration(&item.source)),
+            false => Ok(()),
+        });
+    if let Err(reason) = outcome {
+        let _ = std::fs::remove_file(&partial);
+        return Err(reason);
+    }
+    std::fs::rename(&partial, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+    Ok(copy::Wrote::Copied)
+}
+
+/// How long the source plays, read from the file rather than from the catalog.
+///
+/// The catalog would be quicker, and wrong the day the file changed without a
+/// scan: a verification that trusts a stale figure verifies nothing.
+fn source_duration(source: &Path) -> Option<u64> {
+    aede_core::tags::read(source)
+        .ok()
+        .and_then(|tags| tags.properties.duration_ms)
 }

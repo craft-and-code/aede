@@ -61,6 +61,8 @@ const VALUED_WORD: &[&str] = &[
     "file",
     "import",
     "extras",
+    "compress",
+    "quality",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in

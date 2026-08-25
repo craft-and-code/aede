@@ -2840,6 +2840,262 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     let _ = std::fs::remove_dir_all(&out);
 }
 
+/// `true` when ffmpeg is installed, which the conversion tests need and the
+/// rest of the suite does not.
+///
+/// Skipped rather than failed where it is missing: ffmpeg is an external
+/// program by design, and a checkout without it must still be able to run its
+/// tests green. The skip says so out loud, so a suite that silently stopped
+/// testing conversion cannot pass for a suite that tested it.
+fn ffmpeg_is_installed() -> bool {
+    let there = std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !there {
+        eprintln!("skipped: ffmpeg is not installed");
+    }
+    there
+}
+
+#[test]
+fn only_what_is_lossless_is_encoded_on_the_way_out() {
+    // A library is mixed, and that is the case worth getting right: the FLACs
+    // and WAVs are encoded, the MP3s are copied as they stand. Re-encoding an
+    // MP3 into an MP3 loses quality to produce the same thing; into a FLAC it
+    // produces something *larger* and no better, which is exactly what
+    // `doctor` reports as made from a lossy source.
+    if !ffmpeg_is_installed() {
+        return;
+    }
+    let sandbox = Sandbox::new("copy_compress");
+    let root = std::env::temp_dir().join("aede_e2e_compress_src");
+    let out = std::env::temp_dir().join("aede_e2e_compress_dest");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+    let album = root.join("Miles/Kind of Blue");
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::copy(library().join("track.flac"), album.join("01 lossless.flac")).unwrap();
+    std::fs::copy(
+        library().join("track.mp3"),
+        album.join("02 already lossy.mp3"),
+    )
+    .unwrap();
+    std::fs::copy(
+        library().join("track.wav"),
+        album.join("03 uncompressed.wav"),
+    )
+    .unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // --- What it says it will do -------------------------------------------
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "mp3",
+        "--dry-run",
+    ]);
+    assert!(ok, "stderr: {err}");
+    assert!(report.contains("To encode"), "output: {report}");
+    assert!(
+        report.contains("Copied as they are"),
+        "the split is shown, because a silent skip looks like lost files: {report}"
+    );
+    assert!(
+        report.contains("estimated"),
+        "an encoder's output is a guess and says so: {report}"
+    );
+
+    // --- And what it does ---------------------------------------------------
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "mp3",
+        "--verify",
+    ]);
+    assert!(ok, "stderr: {err}\n{report}");
+
+    let album_out = out.join("Miles/Kind of Blue");
+    assert!(
+        album_out.join("01 lossless.mp3").is_file(),
+        "the FLAC was encoded"
+    );
+    assert!(
+        album_out.join("03 uncompressed.mp3").is_file(),
+        "so was the WAV"
+    );
+    assert!(
+        album_out.join("02 already lossy.mp3").is_file(),
+        "and the MP3 arrived"
+    );
+    // Copied rather than re-encoded: byte for byte what it was.
+    assert_eq!(
+        std::fs::read(album_out.join("02 already lossy.mp3")).unwrap(),
+        std::fs::read(album.join("02 already lossy.mp3")).unwrap(),
+        "an MP3 asked to become an MP3 is copied, not encoded a second time"
+    );
+
+    // …and the case that one does *not* prove. An MP3 asked to become an MP3
+    // is left alone by the "already in that format" rule alone, so a build
+    // that had lost the lossless rule entirely would still pass the assertion
+    // above. The question the rule actually answers is what happens to an MP3
+    // when a *different* format is asked for, and the answer must be the same:
+    // a second lossy pass over a first one is audible, and an MP3 grown into a
+    // FLAC is larger, no better, and precisely what `doctor` calls made from a
+    // lossy source.
+    for (format, extension) in [("opus", "opus"), ("flac", "flac")] {
+        let other = std::env::temp_dir().join(format!("aede_e2e_compress_{format}"));
+        let _ = std::fs::remove_dir_all(&other);
+        std::fs::create_dir_all(&other).unwrap();
+        let (report, err, ok) =
+            sandbox.run(&["copy", other.to_str().unwrap(), "--compress", format]);
+        assert!(ok, "stderr: {err}\n{report}");
+        let there = other.join("Miles/Kind of Blue");
+        assert!(
+            there.join("02 already lossy.mp3").is_file(),
+            "the MP3 stays an MP3 when {format} is asked for"
+        );
+        assert!(
+            !there.join(format!("02 already lossy.{extension}")).exists(),
+            "and is not encoded a second time into {format}"
+        );
+        // While the lossless ones did convert, so the run did do its job.
+        assert!(there.join(format!("01 lossless.{extension}")).exists() || format == "flac");
+        let _ = std::fs::remove_dir_all(&other);
+    }
+    // The originals are untouched — this is the one command that writes, and
+    // it writes outside.
+    assert!(album.join("01 lossless.flac").is_file());
+
+    // The metadata travelled: a player showing "track 1" and nothing else is
+    // not a copy of a library.
+    let (shown, _, ok) =
+        sandbox.run(&["file", album_out.join("01 lossless.mp3").to_str().unwrap()]);
+    assert!(ok);
+    assert!(shown.contains("So What"), "the title followed: {shown}");
+
+    // --- Running it again encodes nothing again -----------------------------
+    let (report, _, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--compress", "mp3"]);
+    assert!(ok);
+    assert!(
+        report.contains("Already there"),
+        "an interrupted conversion is finished, not restarted: {report}"
+    );
+    // And nothing half-encoded is left wearing a whole file's name.
+    assert!(!album_out.join("01 lossless.aede-partial.mp3").exists());
+
+    // --- What it refuses ----------------------------------------------------
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--compress", "wma"]);
+    assert!(!ok);
+    assert!(
+        err.contains("mp3, opus"),
+        "it offers what it accepts: {err}"
+    );
+
+    let (_, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "mp3",
+        "--quality",
+        "best",
+    ]);
+    assert!(!ok);
+    assert!(err.contains("192k"), "stderr: {err}");
+
+    // A quality with nothing to apply it to is an option going into the void.
+    let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--quality", "V0"]);
+    assert!(!ok);
+    assert!(err.contains("add --compress"), "stderr: {err}");
+
+    // …and so is a quality on a format that has none. `--compress wav
+    // --quality 128k` reads as a request for small files, and WAV has no
+    // quality setting at all: the option went into the void and the run
+    // produced files some eleven times larger than the number just typed. On
+    // the card this command exists to fill, that is the difference between
+    // fitting and not — and the check costs nothing, since it happens before a
+    // single file is read.
+    for lossless in ["wav", "flac"] {
+        let (_, err, ok) = sandbox.run(&[
+            "copy",
+            out.to_str().unwrap(),
+            "--compress",
+            lossless,
+            "--quality",
+            "128k",
+        ]);
+        assert!(!ok, "--quality must not be swallowed by {lossless}");
+        assert!(err.contains("means nothing for"), "stderr: {err}");
+        assert!(
+            err.contains("mp3") && err.contains("opus"),
+            "and it names the formats that do have one: {err}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+#[test]
+fn a_conversion_with_nothing_to_convert_says_so() {
+    // The same silence as a swallowed option, seen from the other side:
+    // `--compress mp3` over a selection that is already MP3 did exactly what
+    // it should and said nothing at all about it, which reads as an option
+    // that was ignored. It was honoured; it simply had nothing to do, and
+    // that is worth one line.
+    let sandbox = Sandbox::new("copy_nothing_to_convert");
+    let root = std::env::temp_dir().join("aede_e2e_nothing_src");
+    let out = std::env::temp_dir().join("aede_e2e_nothing_dest");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+    let album = root.join("a");
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::copy(library().join("track.mp3"), album.join("01.mp3")).unwrap();
+    std::fs::copy(library().join("vbr.mp3"), album.join("02.mp3")).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "mp3",
+        "--dry-run",
+    ]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        report.contains("nothing here needs encoding"),
+        "an option that had nothing to do must not look ignored: {report}"
+    );
+
+    // And with something to encode, that line is not printed — a notice that
+    // appears whatever happens stops meaning anything.
+    std::fs::copy(library().join("track.flac"), album.join("03.flac")).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (report, _, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "mp3",
+        "--dry-run",
+    ]);
+    assert!(ok);
+    assert!(!report.contains("nothing here needs encoding"), "{report}");
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
 #[test]
 fn a_copy_takes_its_selection_from_the_grammar() {
     // `copy` has no filters of its own: the selection is the one `query`

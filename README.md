@@ -527,11 +527,46 @@ Size is checked on every file, always: it costs one metadata read and catches wh
 
 **Not enough room**, checked before the first byte rather than discovered on the last album.
 
-### Converting on the way out — not yet
+### Converting on the way out
 
-Transcoding to fill a small card (`--compress mp3` and friends) is the second half of this feature and is not implemented yet. It will drive **ffmpeg** as an external program, the way beets does, rather than taking a codec library as a dependency — which means it will be optional, detected at run time, and refused with a clear message when ffmpeg is not installed. Two decisions are already settled: a source that is already lossy is copied as it stands rather than re-encoded a second time, and metadata follows the audio.
+A 64 GB card does not hold a FLAC library. `--compress` encodes as it copies:
 
-Note that writing tags into a _derived copy_ is not the same act as rewriting the tags of your library, which this project refuses to do. The distinction is deliberate, and recorded as such.
+```sh
+aede copy /Volumes/Phone --compress opus --quality 128k
+aede copy /Volumes/Phone --compress mp3 --quality V0 --query "loved"
+```
+
+Targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `wav`. `--quality` takes `V0`…`V9` for MP3, `q0`…`q10` for Vorbis, or a bitrate like `192k`; each encoder has a sane default, and a value that parses as none of those is refused rather than quietly replaced.
+
+`--quality` is refused on `flac` and `wav` rather than ignored, because there is nothing there to choose: a lossless format keeps every sample. `--compress wav --quality 128k` reads as a request for small files and would have produced files some eleven times larger than the number just typed — on the card this command exists to fill, that is the difference between fitting and not. The check happens before a single file is read, so being stopped costs nothing.
+
+**Only lossless sources are encoded.** Everything else is copied exactly as it stands, and that one rule settles three cases at once:
+
+| Source          | `--compress mp3` asks for | What happens                                                                                                         |
+| --------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| FLAC, WAV, ALAC | MP3                       | encoded                                                                                                              |
+| MP3             | MP3                       | copied — re-encoding loses quality to produce the same thing                                                         |
+| MP3             | Opus                      | copied — a second lossy pass over a first one is audible, and the file was already small                             |
+| MP3             | FLAC                      | copied — the result would be _larger_, no better, and is exactly what `doctor` reports as "made from a lossy source" |
+
+So a mixed library converted for a phone comes out with its lossless half encoded and its lossy half untouched, which is what you wanted and never had to ask for. The report says how many of each, because a silent skip looks like lost files.
+
+**ffmpeg does the encoding, and it is an external program — not a dependency.** Nothing is linked or vendored; a checkout without ffmpeg builds fine and every other command works. `--compress` looks for it once, before the first byte is written, and says how to install it if it is missing. This is how beets drives its `convert` plugin, and for the same reason.
+
+```
+$ aede copy /Volumes/Phone --compress mp3
+Error: --compress needs ffmpeg, and it was not found.
+  macOS          brew install ffmpeg
+  Debian/Ubuntu  sudo apt install ffmpeg
+```
+
+**Metadata follows**: `-map_metadata` carries the tags across and the embedded cover is copied where the container holds one. Neither is perfect — no two tag formats hold quite the same fields — but arriving on a player with no artist and no title is not a trade anyone would accept.
+
+Sizes shown before a conversion are **estimates**, and labelled as such: what an encoder produces is not known until it has produced it, and answering "unknown" to "will this fit on my card" would be answering the wrong question.
+
+`--verify` cannot compare checksums here — the bytes differ by construction, which is the point. It instead reads the result back **with Aède's own parsers** and checks that it holds audio of the right length, which catches the failure that actually happens: an encode cut short by a full disk or a killed process. A verification that asked ffmpeg whether ffmpeg had done its job would not be one.
+
+Note that writing tags into a _derived copy_ is not the same act as rewriting the tags of your library, which this project refuses to do. That refusal protects **your** files, whose modification date, integrity verdict and scan state all depend on not being touched; a file that did not exist a second ago has none of those. The distinction is deliberate, and recorded as such.
 
 ## What another tool found
 
@@ -777,13 +812,13 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-306 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary.
+316 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
 **M0 — the catalog (this repository).** Scanning, graph model, statistics, diagnostics, command-line navigation.
 
-**M0.6 — getting music out.** `aede copy`: a selection, written to a player or a card, keeping the tree it sits in. The selection is the query grammar's, so the command adds no filters of its own. What is settled and done: the tree, the companion files (with the catalog's own cover rather than an extension filter), name adaptation for FAT/exFAT probed rather than guessed, verification, resume, and the refusals — a destination that is missing, one inside the library, one without room. What remains: `--compress` through ffmpeg. See [Copying to a player](#copying-to-a-player).
+**M0.6 — getting music out (done).** `aede copy`: a selection, written to a player or a card, keeping the tree it sits in. The selection is the query grammar's, so the command adds no filters of its own. What is settled and done: the tree, the companion files (with the catalog's own cover rather than an extension filter), name adaptation for FAT/exFAT probed rather than guessed, verification, resume, and the refusals — a destination that is missing, one inside the library, one without room. Conversion on the way out (`--compress`) drives ffmpeg as an external program, encodes only lossless sources, and carries the metadata across. See [Copying to a player](#copying-to-a-player).
 
 **M0.5 — what the user writes, and how it is asked for.** Favourites, ratings, notes and free-form tags in one annotation store keyed so that a scan can never destroy them; play history and play counts; a real query grammar with ranges, negation and `OR`; saved queries; and export/import of the lot. What remains of it: relations inside the grammar, and today's options becoming shorthand for it rather than a second evaluator. Every one of those records carries an **owner** from its first version, so that the accounts arriving at M2.5 are a second value in a field rather than a migration. None of it needs the network or a database, and the identity design underneath it has to be right before anything else is built on top. See [What the user writes](#what-the-user-writes-favourites-ratings-notes-history), [several users](#which-is-the-same-question-as-several-users) and [Querying](#querying).
 
@@ -1449,25 +1484,21 @@ plugins that read from Navidrome.)_
 
 ## Converting files
 
-Transcoding for a phone or a car stereo, driven by ffmpeg, as beets does it.
+Done, and described where the command is: see [Converting on the way out](#converting-on-the-way-out).
 
-Two decisions matter more than the feature:
+The two decisions that mattered more than the feature both held. **ffmpeg is an
+external program, not a dependency** — invoked, detected, and its absence
+reported in a sentence; the dependency rule in `CLAUDE.md` was not bent. And
+**the converted files do not come back in through the front door**: `copy`
+refuses a destination inside a watched folder, so the originals stay the
+library, which is precisely the trap beets designed around.
 
-- **ffmpeg is an external program, not a dependency.** It is invoked, its
-  absence is detected, and a missing ffmpeg produces a clear message rather than
-  a mysterious failure. The dependency rule in `CLAUDE.md` is not being bent for
-  this.
-- **The converted files must not come back in through the front door.** They go
-  to a destination folder that is _not_ watched, and they are never registered as
-  library items — the originals stay the library. A converted copy landing under
-  a watched folder doubles the library at the next scan, and this is precisely
-  the trap beets designed around: its `convert` writes elsewhere and the database
-  keeps pointing at the originals. Files already in the target format are copied
-  rather than re-encoded, which is worth stealing too.
+## Contributing
 
-This is also the first thing in the entire project that would _write audio_, and
-that line is worth guarding: it writes new files, in a folder the user names,
-and it never touches a source file.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: the mechanics are
+GitHub's and need no explaining, but what this project accepts and refuses does
+— a pull request adding a crate, rewriting tags, or reaching the network is one
+somebody spent an evening on for nothing.
 
 ## Licence
 

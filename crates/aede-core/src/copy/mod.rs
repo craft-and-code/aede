@@ -19,6 +19,7 @@
 //! (organising), and one this project has not decided it wants.
 
 pub mod names;
+pub mod transcode;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -89,10 +90,14 @@ pub struct Item {
     /// Relative rather than absolute so the plan can be compared, printed and
     /// tested without knowing which drive it is bound for.
     pub relative: PathBuf,
-    /// Bytes, as the catalog last read them.
+    /// Bytes, as the catalog last read them — or an **estimate** when this
+    /// item is to be converted, since what an encoder produces is not known
+    /// until it has produced it.
     pub size: u64,
     /// Why it is here.
     pub kind: ItemKind,
+    /// What to encode it into, or `None` to copy the bytes as they are.
+    pub convert: Option<transcode::Target>,
 }
 
 /// A name the destination could not have taken as it stood.
@@ -133,13 +138,60 @@ impl Plan {
     }
 }
 
-/// Works out what copying these tracks would mean. Writes nothing, reads
-/// nothing off the disk: every answer comes from the catalog.
+/// Everything the caller chose, gathered so that a plan reads as one decision
+/// rather than as four positional booleans nobody can tell apart at the call
+/// site.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Recipe {
+    /// What travels beside the audio.
+    pub extras: Extras,
+    /// Whether the destination refuses the punctuation a music library is full
+    /// of — see [`names::restricts_names`], which answers it by asking the
+    /// volume rather than by guessing.
+    pub restrict_names: bool,
+    /// What to encode the audio into, or `None` to copy it unchanged.
+    pub convert: Option<transcode::Target>,
+    /// How hard the encoder should try.
+    pub quality: Option<transcode::Quality>,
+}
+
+/// Whether a file should be encoded on the way out, and what into.
 ///
-/// `restrict_names` says whether the destination refuses the punctuation a
-/// music library is full of — see [`names::restricts_names`], which answers it
-/// by asking the volume rather than by guessing.
-pub fn plan(catalog: &Catalog, tracks: &[Id], extras: Extras, restrict_names: bool) -> Plan {
+/// **One rule, and it falls out of what conversion is for.** A file is encoded
+/// only when it is lossless *and* not already in the target format. Everything
+/// else is copied as it stands, which covers three cases that would otherwise
+/// each need their own argument:
+///
+/// - it is already an MP3 and MP3 was asked for — re-encoding would lose
+///   quality to produce the same thing;
+/// - it is an MP3 and Opus was asked for — a second lossy pass over a first one
+///   is audible, and the file is already small, which was the point;
+/// - it is an MP3 and FLAC was asked for — the result would be *larger* than
+///   the source and no better, and it is exactly what `doctor` reports as
+///   "made from a lossy source". Producing that deliberately would be absurd.
+///
+/// So a mixed library converted for a phone comes out with its lossless half
+/// encoded and its lossy half untouched, which is what somebody filling a phone
+/// wants and never has to ask for.
+fn conversion_for(
+    file: &crate::model::AudioFile,
+    target: Option<transcode::Target>,
+) -> Option<transcode::Target> {
+    let target = target?;
+    if !file.properties.lossless {
+        return None;
+    }
+    let already = crate::text::file_name(&file.path)
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case(target.extension()));
+    (!already).then_some(target)
+}
+
+/// Works out what copying these tracks would mean. Writes nothing, and reads
+/// the disk only to list what sits beside the audio: every other answer comes
+/// from the catalog.
+pub fn plan(catalog: &Catalog, tracks: &[Id], recipe: &Recipe) -> Plan {
+    let (extras, restrict_names) = (recipe.extras, recipe.restrict_names);
     let mut out = Plan::default();
     // Two tracks can share a file — the same path selected twice through two
     // routes — and a folder's extras are gathered once however many of its
@@ -202,21 +254,84 @@ pub fn plan(catalog: &Catalog, tracks: &[Id], extras: Extras, restrict_names: bo
             out.rootless.push(PathBuf::from(path));
             continue;
         };
-        let placed = place(&relative, restrict_names, &mut taken);
+        let file = catalog.files.iter().find(|f| f.path == path);
+        // Only the audio is ever encoded: a cover is a cover on any device.
+        let convert = match kind {
+            ItemKind::Audio => file.and_then(|f| conversion_for(f, recipe.convert)),
+            _ => None,
+        };
+        // The extension changes **before** the name is placed, so that two
+        // sources landing on one name — `01.flac` and `01.wav` both becoming
+        // `01.mp3` — are seen as the collision they are rather than one file
+        // written over the other.
+        let renamed_relative = match convert {
+            Some(target) => with_extension(&relative, target.extension()),
+            None => relative.clone(),
+        };
+        let placed = place(&renamed_relative, restrict_names, &mut taken);
         if placed != Path::new(&relative) {
             out.renamed.push(Renamed {
                 from: PathBuf::from(&relative),
                 to: placed.clone(),
             });
         }
+        let size = match convert {
+            Some(target) => transcode::estimated_size(
+                target,
+                recipe.quality,
+                file.and_then(|f| f.properties.duration_ms).unwrap_or(0),
+                file.map(|f| f.size).unwrap_or(0),
+            ),
+            None => size_of(catalog, &path),
+        };
         out.items.push(Item {
-            size: size_of(catalog, &path),
+            size,
             source: PathBuf::from(path),
             relative: placed,
             kind,
+            convert,
         });
     }
     out
+}
+
+/// The same relative path with another extension on its last component.
+///
+/// Written out rather than `Path::set_extension`, which takes everything after
+/// the **first** dot of the file name to be an extension on some platforms and
+/// would turn `Vol. 2 - Live.flac` into `Vol.mp3`.
+fn with_extension(relative: &str, extension: &str) -> String {
+    let (folder, name) = match relative.rfind('/') {
+        Some(slash) => (&relative[..=slash], &relative[slash + 1..]),
+        None => ("", relative),
+    };
+    let stem = match name.rfind('.') {
+        Some(dot) if dot > 0 => &name[..dot],
+        _ => name,
+    };
+    format!("{folder}{stem}.{extension}")
+}
+
+/// How many files the plan would encode rather than copy.
+impl Plan {
+    /// Items that go through an encoder, and those that are copied as they are.
+    ///
+    /// Reported separately because the difference is the one thing a user needs
+    /// to see before a conversion starts: a library that is half MP3 already
+    /// comes out half untouched, and a count that hid that would look like the
+    /// conversion had silently skipped things.
+    pub fn converted(&self) -> usize {
+        self.items
+            .iter()
+            .filter(|item| item.convert.is_some())
+            .count()
+    }
+
+    /// `true` when any size in the plan is an encoder's output, and therefore
+    /// a guess rather than a measurement.
+    pub fn size_is_estimated(&self) -> bool {
+        self.converted() > 0
+    }
 }
 
 /// The files sitting beside the audio that this level of `extras` asks for.
@@ -344,6 +459,28 @@ pub fn inside_a_watched_root(catalog: &Catalog, destination: &Path) -> Option<St
         .cloned()
 }
 
+/// The name a file is written under before it is moved into place.
+///
+/// **The extension is kept**, and not as a nicety: ffmpeg chooses its muxer
+/// from it, so a file written as `01 Crazy Train.aede-partial` made it answer
+/// "Invalid argument" and the whole conversion failed on every track. The
+/// marker therefore goes *before* the extension rather than replacing it.
+///
+/// One helper for the copy and the conversion alike, so the two cannot disagree
+/// about what a half-written file is called — which is what the resume test
+/// depends on.
+pub fn partial_path(destination: &Path) -> PathBuf {
+    let name = destination
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name.as_str(), ""),
+    };
+    destination.with_file_name(format!("{stem}.aede-partial{extension}"))
+}
+
 /// What became of one file the plan named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wrote {
@@ -406,7 +543,7 @@ pub fn copy_one(
     // interrupted run never leaves a half-file wearing the name of a whole
     // one — the next run would see the right name, and only a wrong length
     // would give it away.
-    let partial = destination.with_extension("aede-partial");
+    let partial = partial_path(destination);
     let written = std::fs::copy(source, &partial)
         .map_err(|e| format!("{} → {}: {e}", source.display(), destination.display()))?;
 
@@ -509,7 +646,14 @@ mod tests {
             ],
             &["/m"],
         );
-        let plan = plan(&catalog, &all_tracks(&catalog), Extras::None, false);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                ..Default::default()
+            },
+        );
         let places: Vec<String> = plan
             .items
             .iter()
@@ -532,7 +676,14 @@ mod tests {
         // shorter root would carry the intermediate folders into a destination
         // the user asked precisely to be rid of.
         let catalog = catalog_of(&[("/m/live/set/01.flac", "Set")], &["/m", "/m/live"]);
-        let plan = plan(&catalog, &all_tracks(&catalog), Extras::None, false);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                ..Default::default()
+            },
+        );
         assert_eq!(plan.items[0].relative, Path::new("set/01.flac"));
     }
 
@@ -542,7 +693,14 @@ mod tests {
         // it in with the folders that do have one.
         let mut catalog = catalog_of(&[("/m/a/01.flac", "A")], &["/m"]);
         catalog.roots = vec!["/elsewhere".into()];
-        let plan = plan(&catalog, &all_tracks(&catalog), Extras::None, false);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                ..Default::default()
+            },
+        );
         assert!(plan.items.is_empty());
         assert_eq!(plan.rootless, vec![PathBuf::from("/m/a/01.flac")]);
     }
@@ -551,7 +709,14 @@ mod tests {
     fn one_file_reached_by_two_tracks_is_copied_once() {
         let catalog = catalog_of(&[("/m/a/01.flac", "A")], &["/m"]);
         let id = catalog.tracks[0].id;
-        let plan = plan(&catalog, &[id, id, id], Extras::None, false);
+        let plan = plan(
+            &catalog,
+            &[id, id, id],
+            &Recipe {
+                extras: Extras::None,
+                ..Default::default()
+            },
+        );
         assert_eq!(plan.items.len(), 1);
     }
 
@@ -567,7 +732,15 @@ mod tests {
             )],
             &["/m"],
         );
-        let plan = plan(&catalog, &all_tracks(&catalog), Extras::None, true);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                restrict_names: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             plan.items[0].relative,
             Path::new("Pixies/Surfer Rosa/Where Is My Mind_.flac")
@@ -575,7 +748,14 @@ mod tests {
         assert_eq!(plan.renamed.len(), 1, "and it is reported");
 
         // Left alone when the destination takes them.
-        let unrestricted = super::plan(&catalog, &all_tracks(&catalog), Extras::None, false);
+        let unrestricted = super::plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             unrestricted.items[0].relative,
             Path::new("Pixies/Surfer Rosa/Where Is My Mind?.flac")
@@ -591,7 +771,15 @@ mod tests {
             &[("/m/a/1: Live.flac", "A"), ("/m/a/1? Live.flac", "A")],
             &["/m"],
         );
-        let plan = plan(&catalog, &all_tracks(&catalog), Extras::None, true);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                restrict_names: true,
+                ..Default::default()
+            },
+        );
         let places: BTreeSet<PathBuf> = plan.items.iter().map(|i| i.relative.clone()).collect();
         assert_eq!(places.len(), 2, "two files, two destinations: {places:?}");
     }
@@ -601,7 +789,15 @@ mod tests {
         // Uniqueness is per folder. Forcing it across the tree would rename
         // half a library, where every album legitimately opens with an `01`.
         let catalog = catalog_of(&[("/m/a/01.flac", "A"), ("/m/b/01.flac", "B")], &["/m"]);
-        let plan = plan(&catalog, &all_tracks(&catalog), Extras::None, true);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                restrict_names: true,
+                ..Default::default()
+            },
+        );
         assert!(plan.renamed.is_empty(), "{:?}", plan.renamed);
         assert_eq!(plan.items.len(), 2);
     }
@@ -624,6 +820,123 @@ mod tests {
             inside_a_watched_root(&catalog, Path::new("/Volumes/USB")),
             None
         );
+    }
+
+    /// A catalog holding one file of a given codec, lossless or not.
+    fn catalog_of_codec(path: &str, codec: &str, lossless: bool) -> Catalog {
+        let mut f = file(path, "A");
+        f.tags.properties.codec = codec.into();
+        f.tags.properties.lossless = lossless;
+        f.tags.properties.duration_ms = Some(240_000);
+        model::build(vec![f], vec!["/m".into()], 0)
+    }
+
+    fn converted_to(catalog: &Catalog, target: transcode::Target) -> Option<transcode::Target> {
+        let plan = plan(
+            catalog,
+            &all_tracks(catalog),
+            &Recipe {
+                extras: Extras::None,
+                convert: Some(target),
+                ..Default::default()
+            },
+        );
+        plan.items[0].convert
+    }
+
+    #[test]
+    fn only_a_lossless_source_is_ever_encoded() {
+        use transcode::Target;
+        // The rule, and the three cases it settles at once.
+        let flac = catalog_of_codec("/m/a/01.flac", "flac", true);
+        assert_eq!(converted_to(&flac, Target::Mp3), Some(Target::Mp3));
+
+        // Already lossy, lossy asked for: a second pass over a first one is
+        // audible, and the file was already small, which was the point.
+        let mp3 = catalog_of_codec("/m/a/01.mp3", "mp3", false);
+        assert_eq!(
+            converted_to(&mp3, Target::Opus),
+            None,
+            "copied as it stands"
+        );
+
+        // Already lossy, lossless asked for: the result would be larger than
+        // the source and no better, and it is what `doctor` reports as made
+        // from a lossy source. Producing it deliberately would be absurd.
+        assert_eq!(converted_to(&mp3, Target::Flac), None);
+
+        // Already in the target format: nothing to do.
+        let already = catalog_of_codec("/m/a/01.mp3", "mp3", false);
+        assert_eq!(converted_to(&already, Target::Mp3), None);
+        let flac_to_flac = catalog_of_codec("/m/a/01.flac", "flac", true);
+        assert_eq!(converted_to(&flac_to_flac, Target::Flac), None);
+
+        // Lossless to lossless, different format: the reason to convert a WAV
+        // rip at all.
+        let wav = catalog_of_codec("/m/a/01.wav", "pcm", true);
+        assert_eq!(converted_to(&wav, Target::Flac), Some(Target::Flac));
+    }
+
+    #[test]
+    fn a_converted_file_carries_the_new_extension() {
+        use transcode::Target;
+        let catalog = catalog_of_codec("/m/a/01 Crazy Train.flac", "flac", true);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                convert: Some(Target::Mp3),
+                ..Default::default()
+            },
+        );
+        assert_eq!(plan.items[0].relative, Path::new("a/01 Crazy Train.mp3"));
+        assert_eq!(plan.converted(), 1);
+        assert!(plan.size_is_estimated(), "an encoder's output is a guess");
+    }
+
+    #[test]
+    fn two_sources_landing_on_one_name_do_not_become_one_file() {
+        use transcode::Target;
+        // `01.flac` and `01.wav` both want to be `01.mp3`. Writing the second
+        // over the first would lose a track and report a complete copy — which
+        // is why the extension changes before the name is placed.
+        let mut a = file("/m/a/01.flac", "A");
+        a.tags.properties.lossless = true;
+        a.tags.properties.duration_ms = Some(1000);
+        let mut b = file("/m/a/01.wav", "A");
+        b.tags.properties.codec = "pcm".into();
+        b.tags.properties.lossless = true;
+        b.tags.properties.duration_ms = Some(1000);
+        let catalog = model::build(vec![a, b], vec!["/m".into()], 0);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                convert: Some(Target::Mp3),
+                ..Default::default()
+            },
+        );
+        let places: BTreeSet<PathBuf> = plan.items.iter().map(|i| i.relative.clone()).collect();
+        assert_eq!(places.len(), 2, "two sources, two destinations: {places:?}");
+    }
+
+    #[test]
+    fn a_title_whose_own_dot_is_not_an_extension_keeps_it() {
+        use transcode::Target;
+        // `Path::set_extension` takes everything after the first dot on some
+        // platforms and would turn this into `Vol.mp3`.
+        assert_eq!(
+            with_extension("a/Vol. 2 - Live.flac", "mp3"),
+            "a/Vol. 2 - Live.mp3"
+        );
+        assert_eq!(with_extension("no folder.flac", "opus"), "no folder.opus");
+        assert_eq!(
+            with_extension("a/no extension", "mp3"),
+            "a/no extension.mp3"
+        );
+        let _ = Target::Mp3;
     }
 
     #[test]

@@ -71,6 +71,8 @@ fn main() {
         "safe-names",
         "raw-names",
         "collection",
+        "compress",
+        "quality",
         "source",
         "compilations",
         "no-compilations",
@@ -617,7 +619,9 @@ fn print_help() {
                        --query or --collection choose what; without either,
                        the whole library. --extras none|cover|images|all
                        (default: cover), --verify reads back what it wrote,
-                       --dry-run says what it would do and writes nothing
+                       --dry-run says what it would do and writes nothing.
+                       --compress <format> encodes on the way out, through
+                       ffmpeg; what is already compressed is copied as it is
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
@@ -745,6 +749,13 @@ fn print_help() {
   --safe-names         Adapt names a destination refuses: ? : * < > and more
   --raw-names          Leave names exactly as they are
   --replace            Write files again even when they are already there
+  --compress <format>  Encode on the way out: mp3, opus, aac, vorbis, flac,
+                       wav. Needs ffmpeg installed. Only lossless sources are
+                       encoded — what is already compressed is copied as it
+                       stands rather than losing a second time
+  --quality <setting>  V0…V9 for MP3, q0…q10 for Vorbis, or a bitrate like
+                       192k. Only for the formats that have one: flac and
+                       wav keep every sample, so there is nothing to choose
 
 {}
   --forget             Remove the imported analyses instead of adding any
@@ -783,6 +794,8 @@ fn print_help() {
   aede notes --tag vinyl
   aede copy /Volumes/Player --query \"loved rating:>=4\" --verify
   aede copy /Volumes/Card --collection wishlist --extras none
+  aede copy /Volumes/Phone --compress opus --quality 128k
+  aede copy /Volumes/Phone --compress mp3 --quality V0 --query \"loved\"
   aede import ~/Desktop/report.json
   aede import --pending
   aede import --forget --pending \"/Volumes/OldDrive/Music\"",
