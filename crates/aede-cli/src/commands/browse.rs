@@ -198,6 +198,15 @@ fn albums_query(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
     if args.has("no-compilations") {
         terms.push("compilation:false".into());
     }
+    // Whatever the options cannot say, the grammar can. Wrapped in brackets so
+    // that an expression holding an `OR` narrows *with* the options rather than
+    // swallowing them: `--artist X --query "a OR b"` must mean X and (a or b),
+    // and juxtaposition binding tighter than OR would otherwise make it
+    // (X and a) or b — a listing quietly wider than what was asked for.
+    if let Some(expression) = args.value("query") {
+        aede_core::query::parse(expression)?;
+        terms.push(format!("({expression})"));
+    }
     Ok(terms.join(" "))
 }
 

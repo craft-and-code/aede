@@ -606,6 +606,70 @@ fn quoted(labels: &[String]) -> String {
     }
 }
 
+/// Says where what the user wrote actually is, when the question found it
+/// nowhere.
+///
+/// A bare `loved` asks about the **track**, by design: five stars on an artist
+/// is not five stars on a track, and a field that folded the scopes together
+/// could never say which was meant. The cost of that design is one badly
+/// misleading answer — somebody who marked an *album* a favourite types
+/// `loved`, is told nothing matches, and reasonably concludes the feature is
+/// broken.
+///
+/// So the empty answer asks the same question again of the album and of the
+/// artist, and names the scope that holds something. It changes nothing about
+/// what the query means; it only stops an empty result from looking like an
+/// empty library.
+fn elsewhere(parsed: &aede_core::query::Query, context: &aede_core::query::Context, typed: &str) {
+    use aede_core::query::{Scope, asks_about_the_track_itself, rescoped, run};
+    if !asks_about_the_track_itself(parsed) {
+        return;
+    }
+    for (scope, prefix) in [(Scope::Album, "album."), (Scope::Artist, "artist.")] {
+        let found = run(&rescoped(parsed, scope), context);
+        if found.is_empty() {
+            continue;
+        }
+        println!(
+            "  {}",
+            ui::yellow(&format!(
+                "{} if you ask it of the {} — that is where you wrote it",
+                ui::plural(found.len(), "track"),
+                prefix.trim_end_matches('.')
+            ))
+        );
+        println!(
+            "  {}",
+            ui::dim(&format!("aede query \"{}\"", scoped_text(typed, prefix)))
+        );
+        return;
+    }
+}
+
+/// The expression as it would be typed at another scope.
+///
+/// Textual, deliberately: what is offered has to be typeable back in, and the
+/// user typed words rather than a syntax tree. Only the four fields that carry
+/// a scope are touched, and only where they stand alone — a `note:` already
+/// written `album.note:` is left as it is.
+fn scoped_text(typed: &str, prefix: &str) -> String {
+    typed
+        .split(' ')
+        .map(|word| {
+            let (negation, rest) = match word.strip_prefix('-') {
+                Some(rest) => ("-", rest),
+                None => ("", word),
+            };
+            let name = rest.split_once(':').map(|(n, _)| n).unwrap_or(rest);
+            match matches!(name, "rating" | "loved" | "tag" | "note") {
+                true => format!("{negation}{prefix}{rest}"),
+                false => word.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// `aede played <title>` — records a listen from outside.
 ///
 /// Aède plays nothing yet, and will not until M3. Until then the history is
@@ -692,6 +756,7 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
     }
     if tracks.is_empty() {
         println!("{}", ui::dim(&format!("nothing matches {expression:?}")));
+        elsewhere(&parsed, &context, expression);
         return Ok(());
     }
 

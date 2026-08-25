@@ -31,7 +31,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                                                     |
 | `aede genre <name>`                                       | What is in a genre: albums and the artists audible on them                                                                   |
 | `aede label <name>`                                       | A label's catalogue and its artists                                                                                          |
-| `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag)                                                      |
+| `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes)                         |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                                                                   |
 | `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                                                           |
 | `aede copy <destination>`                                 | Copy a selection to a player, a card or a drive, keeping its folder tree                                                     |
@@ -256,6 +256,69 @@ Those last four also read `album.rating`, `artist.loved` and so on, because
 artist is not five stars on the track, and a field that folded the two together
 could never say which was meant.
 
+### Searching what you wrote
+
+Everything you write is queryable, and searching _inside_ a note or a tag is
+the same field with a value:
+
+```sh
+aede query "tag:vinyl"              # tracks carrying that label
+aede query "album.tag:vinyl"        # tracks whose album carries it
+aede query "note:remaster"          # the note says "remaster" somewhere
+aede query "artist.note:live"       # something written about the artist
+aede query "album.rating:>=4 -played"
+```
+
+**The scope is part of the question, and it is the one thing that surprises
+people.** A bare `loved`, `rating`, `tag` or `note` asks about the **track**. If
+you marked an _album_ a favourite, `aede query "loved"` finds nothing — you
+asked a different question from the one you meant. So an empty answer says
+where what you wrote actually is, and offers the expression that finds it:
+
+```
+$ aede query "loved"
+nothing matches "loved"
+  1 track if you ask it of the album — that is where you wrote it
+  aede query "album.loved"
+```
+
+The query still means exactly what it says; the line is a hint, not a
+correction. Folding the scopes together instead would be worse: five stars on
+an artist is not five stars on a track, and a field that merged them could
+never say which was meant.
+
+**A field written alone asks whether there is one at all**, and `-field` asks
+the opposite — which is how a library is combed for what has _not_ been
+annotated yet:
+
+```sh
+aede query "note"        # everything you have written a note on
+aede query "-rating"     # everything you have never rated
+aede query "tag"         # everything carrying at least one label
+```
+
+The two questions were one predicate here until it turned out they were two,
+and the consequence was that "which things have I written a note on" could not
+be asked at all: a bare `note` fell through to a text search for the word, and
+`note:true` searched for the word "true". The cost of separating them is that a
+bare `note`, `tag` or `rating` is no longer a text search for those three
+words; written with a field they still are, as `title:note`.
+
+### Listing albums rather than tracks
+
+The grammar evaluates over **tracks**, because that is the finer question and
+the coarser one is a fold of it. When what you want back is a list of _albums_,
+`aede albums` takes the same expression:
+
+```sh
+aede albums --query "album.rating:>=4"        # the albums, not their tracks
+aede albums --query "album.tag:vinyl"
+aede albums --artist ozzy --query "album.rating:>=4"
+```
+
+An album is kept when any of its tracks answers. The option filters and the
+expression compose by AND, so `--artist ozzy --query "…"` narrows twice.
+
 Ranges are inclusive and either end may be left open (`year:1990..`,
 `duration:..3:30`); comparisons are `>`, `>=`, `<`, `<=`; `field:=value` asks
 for an exact match where a bare value asks for a substring; a length may be
@@ -328,6 +391,15 @@ aede albums --comment "vinyl"
 ```
 
 Off by default on `search`, because a comment is free prose: a common word in one would bury the album that actually bears the name. Comment hits are shown in **their own section** and marked `found_in: comment` in the JSON — a hit says by which route it was found, the same rule that keeps an imported analysis in its own panel.
+
+`--notes` does the same for what _you_ wrote:
+
+```sh
+aede search "vinyle" --notes
+aede search "remaster" --notes
+```
+
+The two are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you. Searching one is searching the library, searching the other is searching yourself — so they keep separate sections and separate options. A note can be about anything, so the results name the kind: an artist, an album, a label.
 
 ### Compilations
 
@@ -812,7 +884,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-316 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+321 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
@@ -1256,18 +1328,18 @@ and shaped by the wrong concerns.
 
 Where things actually stand:
 
-| Capability                       | Today                                                                                      |
-| -------------------------------- | ------------------------------------------------------------------------------------------ |
-| Several criteria at once         | Yes, and any depth of them                                                                 |
-| Filters                          | Yes, per command, each refused where it means nothing                                      |
-| Numeric and date ranges          | Yes: `year:1990..1999`, `duration:..3:30`, `rating:>=4`                                    |
-| Sorting                          | Yes on `query` and `collection`; `artists` still has its own two keys                      |
-| Pagination                       | Yes: `--limit`, `--offset`, `--all`, through one `Window`                                  |
-| Aggregation and statistics       | Yes: `stats`, `years`, and counts, durations and sizes on every listing                    |
-| Search on user tags              | Yes: `tag:`, `rating:`, `loved`, `note:`, and their `album.`/`artist.` forms               |
-| Search on relations              | Yes: `artist:` is any credit, and `composer:`, `producer:`, `performer:`… ask who did what |
-| `AND` / `OR` / `NOT`             | Yes                                                                                        |
-| Saved queries, smart collections | Yes: `aede collection <name> --query "…"`                                                  |
+| Capability                       | Today                                                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Several criteria at once         | Yes, and any depth of them                                                                                                          |
+| Filters                          | Yes, per command, each refused where it means nothing                                                                               |
+| Numeric and date ranges          | Yes: `year:1990..1999`, `duration:..3:30`, `rating:>=4`                                                                             |
+| Sorting                          | Yes on `query` and `collection`; `artists` still has its own two keys                                                               |
+| Pagination                       | Yes: `--limit`, `--offset`, `--all`, through one `Window`                                                                           |
+| Aggregation and statistics       | Yes: `stats`, `years`, and counts, durations and sizes on every listing                                                             |
+| Search on user tags              | Yes: `tag:`, `rating:`, `loved`, `note:`, and their `album.`/`artist.` forms; `aede search <text> --notes` reads the notes as prose |
+| Search on relations              | Yes: `artist:` is any credit, and `composer:`, `producer:`, `performer:`… ask who did what                                          |
+| `AND` / `OR` / `NOT`             | Yes                                                                                                                                 |
+| Saved queries, smart collections | Yes: `aede collection <name> --query "…"`                                                                                           |
 
 **The options are shorthand for the grammar, not a second implementation.**
 `aede albums --genre metal` builds `genre:metal` and hands it to the one

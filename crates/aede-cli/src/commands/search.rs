@@ -1,11 +1,17 @@
 //! The `search` command: one query across every entity.
 //!
-//! Names only, by default. `--comments` widens it to the **comment** tag, which
-//! is the one field a user writes themselves: where a rip came from, which
-//! pressing this is, what still needs replacing. That is worth searching, and
-//! worth turning into a playlist — but not worth mixing into every search,
-//! since a comment is free prose and a common word in it would bury the entity
-//! that actually bears the name.
+//! Names only, by default. `--comments` widens it to the **comment** tag — where
+//! a rip came from, which pressing this is — and `--notes` to what the user
+//! wrote themselves. Both are free prose, and a common word in either would
+//! bury the entity that actually bears the name, which is why neither joins an
+//! ordinary search and why each keeps a section of its own: a hit found in a
+//! note was found by another route, and the reader has to be able to tell
+//! which.
+//!
+//! The two are not the same field and must not be folded together. A comment
+//! lives **inside the audio file**, put there by whoever tagged it; a note
+//! lives in `user.json`, put there by the person using Aède. Searching one is
+//! searching the library, searching the other is searching yourself.
 
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
@@ -35,6 +41,15 @@ pub fn search(args: &Args) -> Res {
     // tell which. The same reason an imported analysis sits in its own panel.
     let in_comments: Vec<Id> = if args.has("comments") {
         catalog.tracks_with_comment(&query)
+    } else {
+        Vec::new()
+    };
+
+    // A note can be about anything — a label, a genre, an artist — so what
+    // comes back is not a list of tracks the way a comment hit is. It is shown
+    // as what it is.
+    let in_notes: Vec<(aede_core::user::EntityRef, String)> = if args.has("notes") {
+        notes_matching(args, &catalog, &query)?
     } else {
         Vec::new()
     };
@@ -83,7 +98,62 @@ pub fn search(args: &Args) -> Res {
     if args.has("comments") {
         print_comment_hits(&catalog, &in_comments, window);
     }
+    if args.has("notes") {
+        print_note_hits(&catalog, &in_notes, window);
+    }
     Ok(())
+}
+
+/// What the user wrote, wherever the text appears in it.
+///
+/// Accent- and case-insensitive through `text::normalize`, like every other
+/// search in the program: somebody who wrote "pressage vinyle" must find it by
+/// typing "Vinyle".
+fn notes_matching(
+    args: &Args,
+    catalog: &Catalog,
+    query: &str,
+) -> Result<Vec<(aede_core::user::EntityRef, String)>, Box<dyn std::error::Error>> {
+    let data = super::user_data(args, catalog)?;
+    let wanted = aede_core::text::normalize(query);
+    let mut found: Vec<(aede_core::user::EntityRef, String)> = data
+        .annotations
+        .iter()
+        .filter(|a| a.owner == aede_core::user::LOCAL_USER)
+        .filter_map(|a| a.note.as_ref().map(|note| (a.target.clone(), note.clone())))
+        .filter(|(_, note)| aede_core::text::normalize(note).contains(&wanted))
+        .collect();
+    // Sorted so two runs agree, and so the kinds group together on screen.
+    found.sort_by(|a, b| (a.0.kind, &a.0.key).cmp(&(b.0.kind, &b.0.key)));
+    Ok(found)
+}
+
+/// The notes carrying the text, in their own section.
+fn print_note_hits(
+    catalog: &Catalog,
+    notes: &[(aede_core::user::EntityRef, String)],
+    window: Window,
+) {
+    if notes.is_empty() {
+        println!("  {}", ui::dim("nothing in your notes"));
+        return;
+    }
+    println!("{}", ui::section("In your notes"));
+    let mut t = Table::new(&["Kind", "Name", "Note"])
+        .limit(1, 30)
+        .limit(2, 50);
+    for (reference, note) in notes.iter().skip(window.offset).take(window.limit) {
+        t.push(vec![
+            match reference.kind {
+                EntityKind::Release => "album".to_string(),
+                other => other.as_str().to_string(),
+            },
+            reference.display_name(catalog),
+            note.replace('\n', " "),
+        ]);
+    }
+    print!("{}", t.render());
+    announce_window(window, notes.len(), "note");
 }
 
 /// Machine-readable form. Every row says **where** it was found, so a client

@@ -79,6 +79,7 @@ fn main() {
         "role",
         "comment",
         "comments",
+        "notes",
         "offset",
         "all",
         "help",
@@ -219,6 +220,7 @@ fn main() {
         ("label", LABEL_COMMANDS, "filter by label"),
         ("comment", COMMENT_COMMANDS, "filter on the comments"),
         ("comments", &["search"], "search the comments"),
+        ("notes", &["search"], "search what you wrote"),
         ("limit", PAGING_COMMANDS, "show a window of its result"),
         ("offset", PAGING_COMMANDS, "start further down its result"),
         ("all", PAGING_COMMANDS, "drop the row limit"),
@@ -244,7 +246,11 @@ fn main() {
         ("text", &["note"], "carry a note"),
         ("file", &["note"], "read a note from a file"),
         ("append", &["note"], "add to a note"),
-        ("query", &["collection", "copy"], "hold an expression"),
+        (
+            "query",
+            &["collection", "copy", "albums"],
+            "hold an expression",
+        ),
         ("extras", &["copy"], "choose what travels beside the audio"),
         (
             "dry-run",
@@ -629,7 +635,9 @@ fn print_help() {
   artists              List of artists (--role composer, producer…,
                        --sort tracks|name)
   albums               List of albums (--artist, --year, --genre, --label,
-                       --comment, --compilations, --no-compilations)
+                       --comment, --compilations, --no-compilations).
+                       --query narrows it by anything the grammar can say:
+                       aede albums --query \"album.rating:>=4\"
   genres               List of genres
   labels               List of labels
   years                Breakdown by year
@@ -640,7 +648,8 @@ fn print_help() {
   track <title>        Track card: album, credits, technical details, tags
   genre <name>         Genre page: albums and artists carrying it
   label <name>         Label page: its catalogue and its artists
-  search <text>        Search the whole catalog (--comments looks there too)
+  search <text>        Search the whole catalog. --comments also looks in the
+                       comment tag, --notes in what you wrote yourself
   file <path>          Inspect a single file, outside the catalog
   import <report…>     Take in FlacCompagnon reports. --pending lists the
                        folders whose analyses match no file yet, --forget
@@ -653,13 +662,27 @@ fn print_help() {
                        result is a selection, so --csv, --json and --m3u apply
                          genre:metal year:1990..1999 -label:earache
                          (artist:ozzy OR artist:dio) album.rating:>=4 played:0
-                       Fields: title artist album albumartist genre label
-                       comment path codec year duration size bitrate
-                       samplerate lossless played rating loved tag note,
-                       the last four also as album.<field> and artist.<field>,
-                       and who did what: composer, lyricist, producer,
-                       engineer, performer, conductor, remixer, featured,
-                       mainartist, performing
+                       From the tags: title artist album albumartist genre
+                       label comment path codec year duration size bitrate
+                       samplerate lossless compilation
+                       What you wrote: rating loved tag note played — each
+                       also as album.<field> and artist.<field>, since stars
+                       on a track and on its album are different claims
+                       A scope is part of the question: a bare rating, loved,
+                       tag or note asks about the **track**, and what you
+                       wrote on an album is album.<field>. An answer that
+                       finds nothing says where it actually is.
+                         tag:vinyl                 the track carries it
+                         album.tag:vinyl           its album does
+                         note:remaster             the note says so
+                         rating:>=4  album.rating:5  loved
+                       A field alone asks whether there is one at all, and
+                       -field asks the opposite:
+                         note        what you have written a note on
+                         -rating     what you have never rated
+                       Who did what: composer, lyricist, producer, engineer,
+                       performer, conductor, remixer, featured, mainartist,
+                       performing
   love <kind> <name>   Mark a favourite (--remove takes it back)
   rate <kind> <name>   Give it 1 to 5 stars: --stars 4, or --remove
   note <kind> <name>   Write a note. One note per thing, kept as typed.
@@ -719,11 +742,14 @@ fn print_help() {
   --no-compilations    Everything except those (albums)
   --comment <text>     Only what a comment mentions (albums, track)
   --comments           Search the comment tag as well (search)
+  --notes              Search your own notes as well (search)
   --stars <1-5>        How many stars (rate)
   --text <words>       The note itself (note)
   --file <path>        Read the note from a file, or from a pipe with - (note)
   --append             Add to the note instead of replacing it (note)
-  --query <expression> What a collection asks (collection)
+  --query <expression> An expression from the query grammar (collection,
+                       copy, albums). On albums it keeps those holding a
+                       track it matches: --query \"album.rating:>=4\"
   --export             Write out everything you wrote (notes)
   --import <file>      Merge a previous export back in (notes)
   --from <reference>   Copy what was said about another thing (note)
@@ -782,6 +808,11 @@ fn print_help() {
   aede query \"genre:metal year:1990..1999 -label:earache\"
   aede query \"album.rating:>=4 played:0\" --m3u
   aede query \"loved\" --sort played- --limit 20
+  aede albums --query \"album.rating:>=4\"
+  aede albums --query \"album.tag:vinyl\"
+  aede query \"note:remaster\"
+  aede query \"album.tag:vinyl OR album.tag:rare\"
+  aede query \"-rating loved\"
   aede collection wishlist --query \"loved played:0\"
   aede collection wishlist --m3u
   aede notes --export -o backup.json
@@ -792,6 +823,7 @@ fn print_help() {
   aede tag album \"Legion\" rare --remove
   aede tag album \"Legion\" --remove
   aede notes --tag vinyl
+  aede search vinyle --notes
   aede copy /Volumes/Player --query \"loved rating:>=4\" --verify
   aede copy /Volumes/Card --collection wishlist --extras none
   aede copy /Volumes/Phone --compress opus --quality 128k

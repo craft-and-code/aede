@@ -901,6 +901,38 @@ fn the_help_explains_pending_analyses() {
 }
 
 #[test]
+fn the_help_shows_how_to_search_what_the_user_wrote() {
+    // The fields were all listed, in one dense block of thirty words, with no
+    // example of any of them. Somebody who had rated albums and tagged them
+    // read that block and concluded the feature was gone. A list of field
+    // names is a reference; it is not an answer to "how do I find my
+    // four-star albums".
+    let sandbox = Sandbox::new("help_user_fields");
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+
+    // Each of the three shapes is shown at least once, with a value.
+    for shown in [
+        "tag:vinyl",
+        "album.tag:vinyl",
+        "note:remaster",
+        "album.rating",
+    ] {
+        assert!(out.contains(shown), "the help never shows {shown}:\n{out}");
+    }
+    // And the bare form, which had no way of being guessed at.
+    assert!(
+        out.contains("asks whether there is one at all"),
+        "output: {out}"
+    );
+    // The one question that started this: a list of albums, not of tracks.
+    assert!(
+        out.contains("aede albums --query"),
+        "the help must say how to list albums by what you wrote:\n{out}"
+    );
+}
+
+#[test]
 fn inspecting_a_single_file() {
     let sandbox = Sandbox::new("file");
     let file = library().join("track.flac");
@@ -3094,6 +3126,167 @@ fn a_conversion_with_nothing_to_convert_says_so() {
 
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&out);
+}
+
+#[test]
+fn an_empty_answer_says_where_what_you_wrote_actually_is() {
+    // A bare `loved` asks about the **track**, by design. The cost of that
+    // design is one badly misleading answer: somebody who marked an *album* a
+    // favourite types `loved`, is told nothing matches, and reasonably
+    // concludes the feature is broken. It is not; they asked a different
+    // question from the one they meant, and nothing on screen said so.
+    let sandbox = Sandbox::new("query_scope_hint");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+    let (_, err, ok) = sandbox.run(&["love", "album", "Duos"]);
+    assert!(ok, "stderr: {err}");
+    let (_, _, ok) = sandbox.run(&["tag", "album", "Duos", "great"]);
+    assert!(ok);
+
+    for (asked, offered) in [
+        ("loved", "album.loved"),
+        ("tag:great", "album.tag:great"),
+        // A negated term is rewritten too, and this one stays empty at track
+        // scope where a bare `-loved` would not: nothing is loved *on a
+        // track*, so `-loved` matches the whole library and needs no hint.
+        (
+            "loved -tag:nosuchlabel",
+            "album.loved -album.tag:nosuchlabel",
+        ),
+    ] {
+        let (out, _, ok) = sandbox.run(&["query", asked]);
+        assert!(ok, "output: {out}");
+        // An empty answer is still an empty answer: the query means what it
+        // says, and the hint is a hint.
+        assert!(out.contains("nothing matches"), "output: {out}");
+        assert!(
+            out.contains("that is where you wrote it"),
+            "{asked} must say where it actually is: {out}"
+        );
+        // What is offered has to be typeable back in, and give the answer.
+        assert!(out.contains(offered), "{asked} must offer {offered}: {out}");
+        let (found, _, ok) = sandbox.run(&["query", offered]);
+        assert!(ok);
+        assert!(
+            !found.contains("nothing matches"),
+            "what was offered must answer: {found}"
+        );
+    }
+
+    // A question with nothing user-written in it gets no such line — a notice
+    // printed whatever happens stops meaning anything.
+    let (out, _, ok) = sandbox.run(&["query", "genre:nonexistentgenre"]);
+    let _ = ok;
+    assert!(!out.contains("that is where you wrote it"), "{out}");
+
+    // And neither does one that already found something.
+    let (out, _, ok) = sandbox.run(&["query", "album.loved"]);
+    assert!(ok);
+    assert!(!out.contains("that is where you wrote it"), "{out}");
+}
+
+#[test]
+fn a_search_can_look_in_what_you_wrote() {
+    // `--comments` searches the comment tag, which lives inside the audio
+    // file. `--notes` searches what the user wrote, which lives in user.json.
+    // Two different fields, two different sections, never folded together:
+    // searching one is searching the library, searching the other is
+    // searching yourself.
+    let sandbox = Sandbox::new("search_notes");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+    let (_, err, ok) = sandbox.run(&["note", "album", "Duos", "--text", "pressage vinyle de 1963"]);
+    assert!(ok, "stderr: {err}");
+    let (_, _, ok) = sandbox.run(&["note", "artist", "Dave Brubeck", "--text", "le quintet"]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["search", "vinyle", "--notes"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("In your notes"), "output: {out}");
+    assert!(out.contains("Duos"), "output: {out}");
+    assert!(out.contains("pressage vinyle"), "output: {out}");
+
+    // A note on an artist is not a track, and is shown as what it is.
+    let (out, _, ok) = sandbox.run(&["search", "quintet", "--notes"]);
+    assert!(ok);
+    assert!(out.contains("artist"), "the kind is named: {out}");
+    assert!(out.contains("Dave Brubeck"), "output: {out}");
+
+    // Accent- and case-insensitive, like every other search in the program.
+    let (out, _, ok) = sandbox.run(&["search", "VINYLE", "--notes"]);
+    assert!(ok);
+    assert!(out.contains("Duos"), "output: {out}");
+
+    // Without the option the notes are not searched at all: a common word in
+    // free prose would bury the entity that actually bears the name.
+    let (out, _, ok) = sandbox.run(&["search", "vinyle"]);
+    assert!(ok);
+    assert!(!out.contains("In your notes"), "output: {out}");
+
+    // Nothing written that matches says so, rather than printing an empty
+    // heading.
+    let (out, _, ok) = sandbox.run(&["search", "nothingwrittenaboutthis", "--notes"]);
+    assert!(ok);
+    assert!(out.contains("nothing in your notes"), "output: {out}");
+
+    // And the option is refused where it means nothing.
+    let (_, err, ok) = sandbox.run(&["albums", "--notes"]);
+    assert!(!ok);
+    assert!(err.contains("--notes applies to search"), "stderr: {err}");
+}
+
+#[test]
+fn an_album_listing_answers_the_grammar_too() {
+    // The grammar evaluates over tracks, so "the albums I rated four stars or
+    // more" had no answer: `query` gave back their tracks. An album listing
+    // that takes the same expression is the fold of the finer question, and it
+    // is what somebody asking about albums meant.
+    let sandbox = Sandbox::new("albums_query");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    let (_, err, ok) = sandbox.run(&["rate", "album", "Duos", "--stars", "5"]);
+    assert!(ok, "stderr: {err}");
+    let (_, _, ok) = sandbox.run(&["tag", "album", "Duos", "vinyl,rare"]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["albums", "--query", "album.rating:>=4"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Duos"), "output: {out}");
+    assert!(out.contains("Album"), "it is an album listing: {out}");
+    assert!(!out.contains("Take Five"), "and not a track listing: {out}");
+
+    // What was written is searchable from here too.
+    let (out, _, ok) = sandbox.run(&["albums", "--query", "album.tag:vinyl"]);
+    assert!(ok);
+    assert!(out.contains("Duos"), "output: {out}");
+
+    // The options and the expression compose by AND rather than one replacing
+    // the other — and an expression holding an OR must narrow *with* the
+    // option, not swallow it.
+    // The second branch of the OR is deliberately one that *does* match Duos:
+    // with the expression left unbracketed, juxtaposition binds tighter than
+    // OR, so `year:1900 album.rating:>=4 OR album.rating:5` reads as
+    // `(year:1900 AND rating>=4) OR rating:5` and Duos comes back through the
+    // second branch with the year silently ignored. A branch that matched
+    // nothing would have let both readings pass, and proved nothing.
+    let (out, _, ok) = sandbox.run(&[
+        "albums",
+        "--query",
+        "album.rating:>=4 OR album.rating:5",
+        "--year",
+        "1900",
+    ]);
+    assert!(ok);
+    assert!(
+        !out.contains("Duos"),
+        "--year 1900 must still narrow it, whatever the expression says: {out}"
+    );
+
+    // A broken expression is refused where it is typed, not at some later run.
+    let (_, err, ok) = sandbox.run(&["albums", "--query", "nosuchfield:x"]);
+    assert!(!ok);
+    assert!(err.contains("is not a field"), "stderr: {err}");
 }
 
 #[test]

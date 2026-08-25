@@ -312,9 +312,10 @@ fn parse_unary(words: &[String], at: &mut usize) -> Result<Query, QueryError> {
 
 fn parse_term(word: &str) -> Result<Term, QueryError> {
     let Some((name, value)) = word.split_once(':') else {
-        // A bare word is a flag when it names one, and a search otherwise.
+        // A bare word is a question when it names a field that can be asked
+        // one, and a search otherwise.
         if let Some(field) = field_named(word)
-            && is_flag(&field)
+            && asks_whether_it_holds_anything(&field)
         {
             return Ok(Term {
                 field,
@@ -492,6 +493,83 @@ fn is_flag(field: &Field) -> bool {
         field,
         Field::Lossless | Field::Compilation | Field::Loved(_)
     )
+}
+
+/// The same question, asked of the album or the artist instead of the track.
+///
+/// Every field the *user* writes carries a scope, and a bare `loved` means the
+/// track's own. That is deliberate — five stars on an artist is not five stars
+/// on a track — but it makes one answer badly misleading: somebody who marked
+/// an **album** a favourite types `loved`, is told nothing matches, and
+/// concludes the feature is broken. It is not; they asked a different question
+/// from the one they meant.
+///
+/// So a caller that gets an empty result can ask the same question again at
+/// another scope, and — if *that* answers — say which scope holds what was
+/// written. The suggestion is only ever a suggestion: the query itself keeps
+/// meaning exactly what it says.
+///
+/// Fields that carry no scope are left alone, so a mixed expression such as
+/// `genre:metal loved` is rescoped only where rescoping means something.
+pub fn rescoped(query: &Query, scope: Scope) -> Query {
+    match query {
+        Query::All => Query::All,
+        Query::And(parts) => Query::And(parts.iter().map(|p| rescoped(p, scope)).collect()),
+        Query::Or(parts) => Query::Or(parts.iter().map(|p| rescoped(p, scope)).collect()),
+        Query::Not(inner) => Query::Not(Box::new(rescoped(inner, scope))),
+        Query::Term(term) => Query::Term(Term {
+            field: match &term.field {
+                Field::Rating(_) => Field::Rating(scope),
+                Field::Loved(_) => Field::Loved(scope),
+                Field::Tag(_) => Field::Tag(scope),
+                Field::Note(_) => Field::Note(scope),
+                other => other.clone(),
+            },
+            test: term.test.clone(),
+        }),
+    }
+}
+
+/// `true` when the expression asks about something the user wrote, at the
+/// track's own scope — the case where [`rescoped`] has anything to offer.
+pub fn asks_about_the_track_itself(query: &Query) -> bool {
+    match query {
+        Query::All => false,
+        Query::And(parts) | Query::Or(parts) => parts.iter().any(asks_about_the_track_itself),
+        Query::Not(inner) => asks_about_the_track_itself(inner),
+        Query::Term(term) => matches!(
+            term.field,
+            Field::Rating(Scope::Track)
+                | Field::Loved(Scope::Track)
+                | Field::Tag(Scope::Track)
+                | Field::Note(Scope::Track)
+        ),
+    }
+}
+
+/// Fields a bare mention can ask about: "is there one at all?"
+///
+/// Wider than [`is_flag`], and the two were one predicate until that turned out
+/// to answer two different questions with one answer. `is_flag` says whether
+/// `field:true` means a yes or a no; this says whether the field's *name*,
+/// written alone, is a question. They coincide for `lossless` and `loved`, and
+/// come apart exactly where it matters:
+///
+/// - `note:vinyle` searches inside the note, so `note` is not a yes/no field;
+/// - `note` alone can only mean "the ones I have written a note on", because
+///   nobody searches a music library for the word "note".
+///
+/// Before they were separated there was **no way at all** to ask which things
+/// carried a note, a tag or a rating: a bare `note` fell through to a text
+/// search for the word, `note:true` searched for the word "true", and the
+/// fallback in [`flag_of`] that exists precisely to answer this — "any other
+/// field used as a bare flag asks whether it holds anything" — was unreachable.
+///
+/// The cost is that a bare `note`, `tag` or `rating` can no longer be a text
+/// search for those three words. Written with a field they still are:
+/// `title:note` finds the word.
+fn asks_whether_it_holds_anything(field: &Field) -> bool {
+    is_flag(field) || matches!(field, Field::Rating(_) | Field::Note(_) | Field::Tag(_))
 }
 
 /// Fields whose values come from a closed list the library holds.
@@ -1149,6 +1227,40 @@ mod tests {
         assert_eq!(titles("tag:vinyl", &c, &d), ["So What"]);
         assert_eq!(titles("note:remaster", &c, &d), ["So What"]);
         assert_eq!(titles("-loved", &c, &d).len(), 2);
+    }
+
+    #[test]
+    fn a_field_asked_by_its_name_alone_asks_whether_there_is_one() {
+        // "Which things have I written a note on" had no way of being asked at
+        // all: a bare `note` fell through to a text search for the word,
+        // `note:true` searched for the word "true", and the fallback in
+        // `flag_of` meant to answer exactly this was unreachable. The question
+        // is the natural one to ask of anything the user writes.
+        let c = catalog();
+        let mut d = UserData::default();
+        let track = EntityRef::new(EntityKind::Track, "/m/Miles/Kind of Blue/01 So What.flac");
+        {
+            let a = d.entry(LOCAL_USER, &track, 1);
+            a.tags.insert("vinyl".into());
+            a.note = Some("the 1997 remaster".into());
+            a.rating = Some(4);
+        }
+
+        assert_eq!(titles("note", &c, &d), ["So What"]);
+        assert_eq!(titles("tag", &c, &d), ["So What"]);
+        assert_eq!(titles("rating", &c, &d), ["So What"]);
+        // And its negation, which is how a library is combed for what has not
+        // been annotated yet.
+        assert_eq!(titles("-note", &c, &d).len(), 2);
+
+        // The searches this could have broken still work: the two questions
+        // were one predicate until it turned out they were two, and asking
+        // "does it hold anything" must not cost the ability to ask "does it
+        // hold *this*".
+        assert_eq!(titles("note:remaster", &c, &d), ["So What"]);
+        assert_eq!(titles("tag:vinyl", &c, &d), ["So What"]);
+        assert_eq!(titles("rating:>=4", &c, &d), ["So What"]);
+        assert!(titles("note:nineteen", &c, &d).is_empty());
     }
 
     #[test]
