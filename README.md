@@ -931,7 +931,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-332 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+336 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
@@ -1542,11 +1542,32 @@ permission, no caching beyond serving the immediate user. Worth it for editions
 of physical media, not worth it as the primary source, and not worth it at all
 before MusicBrainz is working.
 
-**Available now, without any of the above:** `doctor` already reports an
-incomplete album, but only by finding _gaps_ — it looks at the track numbers it
-has and notices 2 is missing between 1 and 3. An album missing its last three
-tracks looks perfectly whole to it. `TRACKTOTAL`/`DISCTOTAL` are in the tags and
-are not being read. That is a small fix and does not wait for anything.
+**Done, without any of the above:** completeness at the level of one album needs
+no network at all, because the files say what they belong to. `doctor` reported
+an incomplete album by finding _gaps_ — 2 missing between 1 and 3 — which left
+two shapes invisible, and both are the ordinary ones:
+
+- an album **cut short at the end**: truncated after track 9 of 12, there is
+  nothing between 1 and 9 left to be missing, and that is exactly what an
+  interrupted rip looks like. `TRACKTOTAL` answers it.
+- a **whole disc absent**: every disc that is there is complete, and the
+  numbering says nothing about how many there should be. A four-disc soundtrack
+  ripped as three looks perfect until the day it is played. `DISCTOTAL` answers
+  it, and so does a hole in the disc numbers themselves.
+
+```
+warning  incomplete album  "FINAL FANTASY VII: Original Soundtrack": missing disc 4 of 4
+```
+
+With one precaution: before calling a disc missing, it is looked for in the rest
+of the library. A set laid out as `Box CD1` beside `Box CD2` — sibling folders
+rather than a common parent, which the disc-folder rule does not recognise —
+arrives as two releases, and each would otherwise report the other as missing
+while it sits right there.
+
+What still waits for MusicBrainz is the _other_ completeness question — which
+albums are missing from an artist's discography — because nothing in your files
+can know what was released.
 
 ## Lyrics
 

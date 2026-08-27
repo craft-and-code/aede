@@ -5,7 +5,7 @@
 //! anything — automatic correction will come later, and will have to be
 //! reversible.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::{self, Catalog, Id};
 use crate::text;
@@ -121,33 +121,44 @@ impl IssueKind {
     }
 }
 
-/// How many tracks the file says its disc holds, if it says so at all.
+/// How many parts the file says the whole holds, if it says so at all.
 ///
-/// Taggers disagree on the name and some write `9/12` in the number itself, so
-/// all three spellings are read and only the leading digits of the value are
-/// kept. A value that does not parse is no answer rather than a wrong one.
+/// One helper for two questions — how many tracks on this disc, how many discs
+/// in this set — because they are the same question asked of two vocabularies,
+/// and both are read the same way: a dedicated total field, or the trailing
+/// half of a `9/12` written into the number itself, which many taggers do.
+/// `field` names the total, `numbered` the field that may carry the pair.
+///
+/// Only the leading digits of a value are kept, and a value that does not parse
+/// is no answer rather than a wrong one. The names given here are the canonical
+/// ones: `tags::canonical_key` has already folded `totaltracks`, `disctotal`
+/// and the rest into a single spelling, so this must not keep a second list of
+/// aliases that would then have to be maintained beside it.
+fn announced(file: &crate::model::AudioFile, field: &str, numbered: &str) -> Option<u32> {
+    let leading = |value: &str| {
+        let digits: String = value
+            .trim()
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse::<u32>().ok()
+    };
+    let from_pair = file
+        .first_tag(numbered)
+        .and_then(|value| value.split_once('/').map(|(_, total)| total.to_string()))
+        .and_then(|total| leading(&total));
+    let from_field = file.first_tag(field).and_then(leading);
+    from_pair.into_iter().chain(from_field).max()
+}
+
+/// How many tracks the file says its disc holds, if it says so at all.
 fn announced_total(file: &crate::model::AudioFile) -> Option<u32> {
-    ["tracktotal", "totaltracks", "tracknumber"]
-        .iter()
-        .filter_map(|name| file.tags.get(*name))
-        .filter_map(|values| values.first())
-        .filter_map(|value| value.split_once('/').map(|(_, total)| total.to_string()))
-        .chain(
-            ["tracktotal", "totaltracks"]
-                .iter()
-                .filter_map(|name| file.tags.get(*name))
-                .filter_map(|values| values.first())
-                .cloned(),
-        )
-        .filter_map(|value| {
-            let digits: String = value
-                .trim()
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            digits.parse::<u32>().ok()
-        })
-        .max()
+    announced(file, "tracktotal", "tracknumber")
+}
+
+/// How many discs the file says its set holds, if it says so at all.
+fn announced_discs(file: &crate::model::AudioFile) -> Option<u32> {
+    announced(file, "disctotal", "discnumber")
 }
 
 /// One observation made on the library, tied to the files that carry it.
@@ -545,7 +556,29 @@ fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
     }
 }
 
+/// What names an album across the folders it may be spread over.
+///
+/// Deliberately *not* the release identity, which includes the folder — that is
+/// what tells a CD rip from a vinyl rip of the same record, and it is exactly
+/// the part that has to be dropped here to see the two halves of one set.
+fn album_key(release: &model::Release) -> (String, Option<Id>) {
+    (release.key.clone(), release.album_artist_id)
+}
+
+/// Every disc the library holds of each album, wherever it sits on disk.
+fn discs_by_album(catalog: &Catalog) -> BTreeMap<(String, Option<Id>), BTreeSet<u32>> {
+    let mut out: BTreeMap<(String, Option<Id>), BTreeSet<u32>> = BTreeMap::new();
+    for release in &catalog.releases {
+        let discs = out.entry(album_key(release)).or_default();
+        for track in release.track_ids.iter().filter_map(|&id| catalog.track(id)) {
+            discs.insert(track.disc_no.unwrap_or(1));
+        }
+    }
+    out
+}
+
 fn check_releases(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    let discs_elsewhere = discs_by_album(catalog);
     for release in &catalog.releases {
         let tracks: Vec<_> = release
             .track_ids
@@ -600,6 +633,54 @@ fn check_releases(catalog: &Catalog, issues: &mut Vec<Issue>) {
                     files: paths.clone(),
                 });
             }
+        }
+
+        // A whole disc missing, which the check above cannot see: every disc
+        // that is there is complete, and nothing in the numbering says how many
+        // there should be. A four-disc soundtrack ripped as three looks perfect
+        // until the day it is played. `disctotal` answers it, and so does a
+        // hole in the disc numbers themselves.
+        let present: BTreeSet<u32> = tracks.iter().map(|t| t.disc_no.unwrap_or(1)).collect();
+        let announced = tracks
+            .iter()
+            .filter_map(|t| catalog.file(t.file_id))
+            .filter_map(announced_discs)
+            .max();
+        // Same rule as the tracks: a total smaller than what is here is a wrong
+        // tag rather than a missing disc.
+        let ceiling = present
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(1)
+            .max(announced.unwrap_or(0));
+        let sibling = discs_elsewhere.get(&album_key(release));
+        let missing: Vec<u32> = (1..=ceiling)
+            .filter(|n| !present.contains(n))
+            // Not missing, merely somewhere else: a set laid out as two folders
+            // the disc-folder rule does not recognise — "Album CD1" beside
+            // "Album CD2" rather than under a common parent — makes two
+            // releases, each of which would otherwise report the other as
+            // missing. Look for it in the library before calling it lost.
+            .filter(|n| !sibling.is_some_and(|discs| discs.contains(n)))
+            .collect();
+        if !missing.is_empty() {
+            let list: Vec<String> = missing.iter().take(12).map(|n| n.to_string()).collect();
+            issues.push(Issue {
+                kind: IssueKind::IncompleteAlbum,
+                detail: format!(
+                    "\"{}\": missing {} {}{}{}",
+                    release.title,
+                    if missing.len() > 1 { "discs" } else { "disc" },
+                    list.join(", "),
+                    if missing.len() > 12 { "…" } else { "" },
+                    match announced {
+                        Some(total) => format!(" of {total}"),
+                        None => String::new(),
+                    }
+                ),
+                files: paths.clone(),
+            });
         }
 
         // A mix of codecs or sample rates within a single album: the sign of an
@@ -868,6 +949,126 @@ mod tests {
                 .iter()
                 .any(|i| i.kind == IssueKind::IncompleteAlbum),
             "nothing is missing here"
+        );
+    }
+
+    /// One disc of a set, complete in itself.
+    fn disc(path: &'static str, disc: &'static str, total: &'static str) -> ScannedFile {
+        file(
+            path,
+            &[
+                ("title", "T"),
+                ("artist", "A"),
+                ("album", "Box"),
+                ("date", "1997"),
+                ("tracknumber", "1"),
+                ("tracktotal", "1"),
+                ("discnumber", disc),
+                ("disctotal", total),
+            ],
+            Some(1000),
+            "flac",
+        )
+    }
+
+    #[test]
+    fn a_set_missing_a_whole_disc_is_incomplete() {
+        // Every disc that is there is complete, so the gap check sees nothing:
+        // a four-disc soundtrack ripped as three looks perfect until the day
+        // it is played. Only the announced total can say otherwise.
+        let c = model::build(
+            vec![
+                disc("/m/box/Disc 1/01.flac", "1", "4"),
+                disc("/m/box/Disc 2/01.flac", "2", "4"),
+                disc("/m/box/Disc 3/01.flac", "3", "4"),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+        let issue = diagnose(&c)
+            .into_iter()
+            .find(|i| i.kind == IssueKind::IncompleteAlbum)
+            .expect("the missing disc must be seen");
+        assert_eq!(issue.detail, "\"Box\": missing disc 4 of 4");
+    }
+
+    #[test]
+    fn a_hole_in_the_disc_numbers_needs_no_total() {
+        // Nothing announces four here; discs 1 and 3 alone are enough to say
+        // that the second is not on the shelf.
+        let c = model::build(
+            vec![
+                disc("/m/box/Disc 1/01.flac", "1", ""),
+                disc("/m/box/Disc 3/01.flac", "3", ""),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+        let issue = diagnose(&c)
+            .into_iter()
+            .find(|i| i.kind == IssueKind::IncompleteAlbum)
+            .expect("the hole must be seen");
+        assert_eq!(issue.detail, "\"Box\": missing disc 2");
+    }
+
+    #[test]
+    fn a_complete_set_and_a_plain_album_say_nothing() {
+        // The check has to be silent on the ordinary case, or it becomes the
+        // line everybody learns to skip.
+        let c = model::build(
+            vec![
+                disc("/m/box/Disc 1/01.flac", "1", "2"),
+                disc("/m/box/Disc 2/01.flac", "2", "2"),
+                file(
+                    "/m/plain/01.flac",
+                    &[
+                        ("title", "T"),
+                        ("artist", "A"),
+                        ("album", "Plain"),
+                        ("date", "1990"),
+                        ("tracknumber", "1"),
+                        ("tracktotal", "1"),
+                    ],
+                    Some(1000),
+                    "flac",
+                ),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+        assert!(
+            !diagnose(&c)
+                .iter()
+                .any(|i| i.kind == IssueKind::IncompleteAlbum),
+            "nothing is missing in either"
+        );
+    }
+
+    #[test]
+    fn a_disc_in_a_folder_of_its_own_is_not_a_disc_that_is_missing() {
+        // "Box CD1" beside "Box CD2" is a layout the disc-folder rule does not
+        // recognise — the names are not bare disc folders — so the set arrives
+        // as two releases. Each announces two discs and holds one, and each
+        // would report the other as missing while it sits right there.
+        let c = model::build(
+            vec![
+                disc("/m/Box CD1/01.flac", "1", "2"),
+                disc("/m/Box CD2/01.flac", "2", "2"),
+            ],
+            vec!["/m".into()],
+            0,
+        );
+        assert_eq!(c.releases.len(), 2, "two folders, two releases");
+        assert!(
+            !diagnose(&c)
+                .iter()
+                .any(|i| i.kind == IssueKind::IncompleteAlbum),
+            "both discs are in the library: {:#?}",
+            diagnose(&c)
+                .iter()
+                .filter(|i| i.kind == IssueKind::IncompleteAlbum)
+                .map(|i| i.detail.clone())
+                .collect::<Vec<_>>()
         );
     }
 

@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 332 tests
+cargo test                       # 336 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -201,6 +201,8 @@ The two lines are **not a partition**, and must not be made into one. Someone wh
 **A design that is right can still answer badly.** A bare `loved` asks about the track, and that is correct — five stars on an artist is not five stars on a track. But somebody who marked an *album* a favourite types `loved`, is told nothing matches, and concludes the feature is broken: the semantics were right and the *answer* was misleading. `query::rescoped` re-asks the same question at the album and artist scopes when the result is empty, and the empty answer names the scope that holds something, offering an expression that can be typed back in. The query still means exactly what it says. Generalise this rather than the fix: where a correct-but-surprising rule produces an empty result, the empty result is the place to explain the rule — not the rule's place to bend.
 
 **Two emptinesses, two explanations.** A listing shows no rows either because nothing matched or because the page asked for lies past the last row, and `announce_window` explained both with the paging sentence. Harmless while the listings could only be paged; misleading the day they learned `--query`, where `aede artists --query "year:2050"` answered "0 artist in all, and --offset=0 starts past the end" — sending the reader after a page number they never typed. A message that covers two states has to name the one it is in, and the give-away is a value in it that reads as absurd (`0 in all`, `--offset=0 ... past the end`).
+
+**Before calling something missing, look for it in the rest of the library.** `doctor` learned to report a whole disc absent from a set — `disctotal` says four, three are here — and the first version of it reported a false one on a layout that is common in the wild: `Box CD1` beside `Box CD2`, sibling folders rather than a child of a common parent, which the disc-folder rule does not recognise. That is two releases of the same album, each announcing two discs and holding one, each pointing at the other as lost. The check now consults every release sharing the album key (title and album artist, deliberately *without* the folder that identifies an edition) before it speaks. The general shape: an absence is a claim about the whole library, and it cannot be established from one record in it.
 
 **A comment and a note are not the same field.** The comment tag lives inside the audio file, put there by whoever tagged it; a note lives in `user.json`, put there by the person using Aède. `search --comments` and `search --notes` therefore stay two options with two sections, and must never be folded into one "free text" search: searching one is searching the library, searching the other is searching yourself, and a hit has to say by which route it was found.
 
