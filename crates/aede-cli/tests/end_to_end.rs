@@ -179,7 +179,11 @@ fn every_option_is_refused_where_it_means_nothing() {
         vec!["albums", "--tracks"],
         vec!["artists", "--album", "Kind of Blue"],
         vec!["artists", "--with", "Miles"],
-        vec!["genres", "--sort", "tracks"],
+        // `genres --sort tracks` used to belong here and no longer does: every
+        // listing takes --sort now. `search` is the one that still cannot be
+        // ordered, since its rows are ranked by how well the name matched and
+        // reordering them would throw the ranking away.
+        vec!["search", "--sort", "tracks"],
         vec!["scan", "--severity=error"],
         vec!["roots", "--full"],
         vec!["albums", "--follow-symlinks"],
@@ -202,7 +206,9 @@ fn every_option_is_refused_where_it_means_nothing() {
     // `--sort banana` used to fall through to sorting by name.
     let (_, err, ok) = sandbox.run(&["artists", "--sort", "banana"]);
     assert!(!ok);
-    assert!(err.contains("--sort takes"), "stderr: {err}");
+    assert!(err.contains("is not something to sort on"), "stderr: {err}");
+    // And it offers what this listing does have, rather than a fixed list.
+    assert!(err.contains("tracks"), "stderr: {err}");
 
     // What is guarded still works where it belongs.
     for args in [
@@ -1600,6 +1606,18 @@ fn a_listing_never_stops_without_saying_so() {
     let (out, _, ok) = sandbox.run(&["albums", "--offset=500"]);
     assert!(ok);
     assert!(out.contains("starts past the end"), "output: {out}");
+
+    // A listing that matched nothing, though, is not a paging accident: saying
+    // "--offset=0 starts past the end" of a list with no rows in it sends the
+    // reader after a page nobody asked for. Easy to meet since the listings
+    // learned --query.
+    let (out, _, ok) = sandbox.run(&["artists", "--query", "year:2050"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        !out.contains("--offset"),
+        "an empty match must not blame paging:\n{out}"
+    );
+    assert!(out.contains("no artist to show"), "output: {out}");
 
     // The ways of asking for a window that mean nothing are refused.
     for form in [
@@ -3285,6 +3303,253 @@ fn an_album_listing_answers_the_grammar_too() {
 
     // A broken expression is refused where it is typed, not at some later run.
     let (_, err, ok) = sandbox.run(&["albums", "--query", "nosuchfield:x"]);
+    assert!(!ok);
+    assert!(err.contains("is not a field"), "stderr: {err}");
+}
+
+#[test]
+fn a_folder_can_be_kept_out_of_the_library_for_good() {
+    // A music folder is rarely only music: Audiobooks, Podcasts, _incoming, a
+    // Samples folder for a DAW. Without this the only way to keep them out is
+    // to reorganise the disk to suit the program, which is the wrong way
+    // round.
+    let sandbox = Sandbox::new("scan_exclude");
+    let root = std::env::temp_dir().join("aede_e2e_exclude_src");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("Music/Album")).unwrap();
+    std::fs::create_dir_all(root.join("Audiobooks/Book")).unwrap();
+    std::fs::copy(
+        library().join("track.flac"),
+        root.join("Music/Album/01.flac"),
+    )
+    .unwrap();
+    std::fs::copy(
+        library().join("track.mp3"),
+        root.join("Audiobooks/Book/ch1.mp3"),
+    )
+    .unwrap();
+
+    let (out, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+    let (out, _, _) = sandbox.run(&["stats"]);
+    assert!(out.contains('2'), "both were taken in to begin with: {out}");
+
+    // --- Excluding ----------------------------------------------------------
+    let books = root.join("Audiobooks");
+    let (out, err, ok) = sandbox.run(&["roots", "--exclude", books.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("will not be read"), "output: {out}");
+    // The same promise `--remove` on a root makes, and it must be kept.
+    assert!(out.contains("stay in the catalog"), "output: {out}");
+
+    // A plain rescan honours it — this is the whole point. An exclusion that
+    // had to be retyped would be forgotten exactly when it mattered.
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["query", "path:Audiobooks"]);
+    assert!(ok);
+    assert!(out.contains("nothing matches"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["query", "path:Album"]);
+    assert!(ok);
+    assert!(
+        !out.contains("nothing matches"),
+        "the rest is untouched: {out}"
+    );
+
+    // --- And it survives being rebuilt again --------------------------------
+    // A scan rebuilds the catalog from the files, and an exclusion is typed
+    // rather than read from any file: dropping it here is the same fault as
+    // dropping an imported analysis, and it is the one this feature shipped
+    // with the first time.
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["roots"]);
+    assert!(ok);
+    assert!(
+        out.contains("Never read"),
+        "an exclusion nobody can see is one nobody remembers setting: {out}"
+    );
+    assert!(out.contains("Audiobooks"), "output: {out}");
+
+    // --- Taking it back -----------------------------------------------------
+    let (out, err, ok) = sandbox.run(&["roots", "--exclude", books.to_str().unwrap(), "--remove"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("will be read again"), "output: {out}");
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["query", "path:Audiobooks"]);
+    assert!(ok);
+    assert!(!out.contains("nothing matches"), "it is back: {out}");
+
+    // Excluding what is not excluded, and dropping what was never excluded,
+    // are both said rather than passed over.
+    let (_, err, ok) = sandbox.run(&["roots", "--exclude", "/nowhere/at/all", "--remove"]);
+    assert!(!ok);
+    assert!(err.contains("is not excluded"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_listen_recorded_by_mistake_can_be_taken_back() {
+    // Every other mark the user writes takes `--remove`: a favourite, a
+    // rating, a note, a tag, a saved query. A listen was the one that could
+    // only ever be added, so a mistaken `aede played` was permanent.
+    let sandbox = Sandbox::new("history_remove");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+    for _ in 0..3 {
+        let (_, err, ok) = sandbox.run(&["played", "Take Five"]);
+        assert!(ok, "stderr: {err}");
+    }
+    let (out, _, ok) = sandbox.run(&["query", "played:3"]);
+    assert!(ok);
+    assert!(!out.contains("nothing matches"), "output: {out}");
+
+    // --- One listen back ----------------------------------------------------
+    let (out, err, ok) = sandbox.run(&["played", "Take Five", "--remove"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("forgotten"), "output: {out}");
+
+    // The counter and the log move together. They are two structures — the log
+    // is bounded, the counter is not — and a removal that touched one only
+    // would leave a track "played three times" with two plays behind it.
+    let (out, _, ok) = sandbox.run(&["query", "played:2"]);
+    assert!(ok);
+    assert!(
+        !out.contains("nothing matches"),
+        "the count followed: {out}"
+    );
+    let (out, _, ok) = sandbox.run(&["history"]);
+    assert!(ok);
+    // Two rows left, plus the "most played" line under the table, which names
+    // the title again.
+    assert_eq!(
+        out.lines().filter(|l| l.contains("Take Five")).count(),
+        3,
+        "and so did the log: {out}"
+    );
+
+    // Nothing left to take back says so rather than claiming a removal.
+    for _ in 0..2 {
+        let (_, _, ok) = sandbox.run(&["played", "Take Five", "--remove"]);
+        assert!(ok);
+    }
+    let (out, _, ok) = sandbox.run(&["played", "Take Five", "--remove"]);
+    assert!(ok);
+    assert!(out.contains("no listen on record"), "output: {out}");
+
+    // --- All of it ----------------------------------------------------------
+    let (_, _, ok) = sandbox.run(&["played", "Take Five"]);
+    assert!(ok);
+    // Not undoable and not rebuildable, so it is confirmed like `reset` — and
+    // refused outright where there is no terminal to confirm on.
+    let (_, err, ok) = sandbox.run(&["history", "--remove"]);
+    assert!(!ok, "a pipe must not be taken for a yes");
+    assert!(err.contains("--yes"), "stderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["history", "--remove", "--yes"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("forgotten"), "output: {out}");
+    // It says what went: "your history is cleared" is a claim nobody can check.
+    assert!(out.contains("listen"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["history"]);
+    assert!(ok);
+    assert!(out.contains("nothing has been played"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["query", "played:0"]);
+    assert!(ok);
+    assert!(
+        !out.contains("nothing matches"),
+        "the counts went too: {out}"
+    );
+
+    let (out, _, ok) = sandbox.run(&["history", "--remove", "--yes"]);
+    assert!(ok);
+    assert!(out.contains("no history to forget"), "output: {out}");
+}
+
+#[test]
+fn every_listing_is_put_in_order_by_one_vocabulary() {
+    // `--sort` reached three commands and not the other four, and the three
+    // that had it did not agree on what the words meant. One vocabulary, and
+    // the same trailing `-` the query grammar uses: somebody who learnt it on
+    // one listing must not relearn it on the next.
+    let sandbox = Sandbox::new("listing_sort");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    for (listing, key) in [
+        ("albums", "size"),
+        ("albums", "year"),
+        ("albums", "artist"),
+        ("artists", "tracks"),
+        ("artists", "name"),
+        ("genres", "name"),
+        ("genres", "tracks"),
+        ("labels", "albums"),
+        ("years", "year"),
+        ("years", "tracks"),
+    ] {
+        let (up, err, ok) = sandbox.run(&[listing, "--sort", key]);
+        assert!(ok, "{listing} --sort {key}: {err}");
+        // And the reversal, which must be accepted everywhere the key is.
+        let (down, err, ok) = sandbox.run(&[listing, "--sort", &format!("{key}-")]);
+        assert!(ok, "{listing} --sort {key}-: {err}");
+        // Ascending and descending are two different answers wherever there is
+        // more than one row to order — a `-` silently ignored is the fault
+        // this whole class of guard exists to prevent.
+        let rows = up.lines().count();
+        if rows > 6 {
+            assert_ne!(up, down, "{listing} --sort {key}- changed nothing");
+        }
+    }
+
+    // A key this listing has no column for is refused, not ignored, and the
+    // refusal offers the ones it does have.
+    let (_, err, ok) = sandbox.run(&["genres", "--sort", "year"]);
+    assert!(!ok);
+    assert!(err.contains("no year to sort on"), "stderr: {err}");
+    assert!(err.contains("tracks"), "and offers what it has: {err}");
+
+    // A word that names no order at all.
+    let (_, err, ok) = sandbox.run(&["albums", "--sort", "banana"]);
+    assert!(!ok);
+    assert!(err.contains("is not something to sort on"), "stderr: {err}");
+
+    // Bare, every listing keeps the order that was chosen for it — `--sort`
+    // overrides, its absence changes nothing.
+    let (out, _, ok) = sandbox.run(&["artists"]);
+    assert!(ok);
+    assert!(out.contains("in total"), "output: {out}");
+}
+
+#[test]
+fn an_artist_listing_answers_the_grammar_too() {
+    // The symmetry `albums --query` was missing: an artist is kept when any
+    // track the expression matches is credited to them.
+    let sandbox = Sandbox::new("artists_query");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+    let (_, err, ok) = sandbox.run(&["rate", "album", "Duos", "--stars", "5"]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["artists", "--query", "album.rating:>=4"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Dave Brubeck"), "output: {out}");
+    assert!(!out.contains("Miles Davis"), "and nobody else: {out}");
+    // A count that says "3 in total" over one row contradicts the rows under
+    // it: the moment anything narrows the listing, the number is the rows.
+    assert!(out.contains("matching"), "output: {out}");
+    assert!(!out.contains("in total"), "output: {out}");
+
+    // Unfiltered, it still says how many the library holds — which is what it
+    // is showing.
+    let (out, _, ok) = sandbox.run(&["artists"]);
+    assert!(ok);
+    assert!(out.contains("in total"), "output: {out}");
+
+    // A broken expression is refused where it is typed.
+    let (_, err, ok) = sandbox.run(&["artists", "--query", "nosuchfield:x"]);
     assert!(!ok);
     assert!(err.contains("is not a field"), "stderr: {err}");
 }

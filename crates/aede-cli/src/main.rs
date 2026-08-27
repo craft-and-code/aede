@@ -87,6 +87,7 @@ fn main() {
         "full",
         "follow-symlinks",
         "include-hidden",
+        "exclude",
         "stars",
         "text",
         "from",
@@ -231,15 +232,25 @@ fn main() {
         ("album", &["track"], "narrow to one album"),
         ("with", &["artist"], "cross two artists"),
         ("tracks", &["export"], "switch to one row per track"),
-        ("yes", &["reset"], "skip the confirmation"),
+        ("yes", &["reset", "history"], "skip the confirmation"),
         (
             "remove",
-            &["roots", "love", "rate", "note", "tag", "collection"],
+            &[
+                "roots",
+                "love",
+                "rate",
+                "note",
+                "tag",
+                "collection",
+                "played",
+                "history",
+            ],
             "take something back",
         ),
         ("full", &["scan", "check"], "ignore what was already done"),
         ("threads", &["scan", "check"], "read on several threads"),
         ("replace", &["scan", "copy"], "forget the watched folders"),
+        ("exclude", &["roots"], "keep a folder out of the catalog"),
         ("follow-symlinks", &["scan"], "follow symbolic links"),
         ("include-hidden", &["scan"], "walk hidden files"),
         ("stars", &["rate"], "carry a rating"),
@@ -248,7 +259,7 @@ fn main() {
         ("append", &["note"], "add to a note"),
         (
             "query",
-            &["collection", "copy", "albums"],
+            &["collection", "copy", "albums", "artists"],
             "hold an expression",
         ),
         ("extras", &["copy"], "choose what travels beside the audio"),
@@ -506,7 +517,15 @@ const JSON_COMMANDS: &[&str] = &[
 ];
 
 /// The one listing whose order can be chosen.
-const SORT_COMMANDS: &[&str] = &["artists", "query", "collection"];
+const SORT_COMMANDS: &[&str] = &[
+    "artists",
+    "albums",
+    "genres",
+    "labels",
+    "years",
+    "query",
+    "collection",
+];
 
 /// The one command that reports issues, and can therefore filter them.
 const DOCTOR_COMMANDS: &[&str] = &["doctor"];
@@ -616,7 +635,10 @@ fn print_help() {
 
 {}
   scan [folder…]       Scan the watched folders; any folder given is added to them
-  roots                List the watched folders (--remove <folder> to drop one)
+  roots                List the watched folders and the ones never read
+                       (--remove <folder> drops a watched folder;
+                       --exclude <folder> keeps one out of the catalog for
+                       good, --exclude <folder> --remove reads it again)
   stats                Library statistics
   doctor               Diagnosis: missing tags, duplicates, incomplete albums
                        (--severity=error|warning|info)
@@ -695,6 +717,7 @@ fn print_help() {
                        --remove takes off the ones named, or every one of
                        them when none is named
   played <track>       Record a listen, until playback records its own
+                       (--remove takes back the most recent one)
   collection <name>    Save a query under a name (--query), run it, or
                        drop it with --remove. It keeps the question, not the
                        answer, so it says what the library holds now
@@ -704,6 +727,7 @@ fn print_help() {
                        --export writes it all out, --import <file> merges it
                        back in — never replaces
   history              What was played, most recent first
+                       (--remove forgets the lot, after confirmation)
   help                 This page, which is also what running aede alone shows
 
 {}
@@ -731,6 +755,8 @@ fn print_help() {
                        default: available cores)
   --follow-symlinks    Follow symbolic links
   --include-hidden     Include hidden files and folders
+  --exclude <folder>   Never read this folder (roots). Kept in the catalog,
+                       so a plain `aede scan` goes on honouring it
 
 {}
   Each says where it applies; a command that cannot honour one refuses it.
@@ -754,16 +780,19 @@ fn print_help() {
   --import <file>      Merge a previous export back in (notes)
   --from <reference>   Copy what was said about another thing (note)
   --tag <label>        Only what carries this label (notes)
-  --remove             Take back what was set (love, rate, note, tag, roots);
-                       on tag with no label named, takes off every one
+  --remove             Take back what was set (love, rate, note, tag, roots,
+                       played, history); on tag with no label named, takes
+                       off every one
   --role <role>        On artists: who is credited that way.
                        On artist <name>: what they did in that role.
   --album <title>      Of one album (track)
   --with <name>        The tracks two artists share (artist)
   --severity <level>   error, warning or info (doctor)
-  --sort <order>       tracks or name (artists); on query and collection:
-                       title, artist, album, year, duration, size, rating,
-                       played, catalog — a trailing - reverses it
+  --sort <order>       On the listings: name, artist, tracks, albums,
+                       duration, size, year — each listing accepts the ones
+                       it has a column for. On query and collection: title,
+                       artist, album, year, duration, size, rating, played,
+                       catalog. A trailing - reverses it, everywhere
 
 {}
   --extras <what>      What travels beside the audio: none, cover (default),
@@ -824,6 +853,9 @@ fn print_help() {
   aede tag album \"Legion\" --remove
   aede notes --tag vinyl
   aede search vinyle --notes
+  aede roots --exclude ~/Music/Audiobooks
+  aede played \"So What\" --remove
+  aede history --remove
   aede copy /Volumes/Player --query \"loved rating:>=4\" --verify
   aede copy /Volumes/Card --collection wishlist --extras none
   aede copy /Volumes/Phone --compress opus --quality 128k

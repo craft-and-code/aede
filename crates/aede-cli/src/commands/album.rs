@@ -144,6 +144,15 @@ fn print_album(catalog: &Catalog, release: &Release) {
     }
 
     println!("{}", ui::section("Tracks"));
+    // A box set numbered 1, 2, 3, 1, 2, 3 with nothing saying which disc is a
+    // page that cannot be read against the object on the shelf. The model has
+    // carried `disc_no` since the first scan; only the page threw it away.
+    //
+    // The **column set stays the same** — a table that grows a column on some
+    // albums and not others is a table nobody can learn, the same rule that
+    // keeps `check` reporting in one shape. So the number itself carries the
+    // disc, and only where there is more than one to carry.
+    let discs = discs_spanned(catalog, release);
     let mut t = Table::new(&["#", "Title", "Duration", "Size", "Format", "Artists"])
         .align(0, Align::Right)
         .align(2, Align::Right)
@@ -162,10 +171,7 @@ fn print_album(catalog: &Catalog, release: &Release) {
             .map(|(a, _)| a.name.clone())
             .collect();
         t.push(vec![
-            track
-                .track_no
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "—".into()),
+            track_number(track, discs),
             track.title.clone(),
             track
                 .duration_ms
@@ -194,12 +200,7 @@ fn print_album(catalog: &Catalog, release: &Release) {
         .sum();
     println!(
         "  {}",
-        ui::dim(&format!(
-            "{} · {} · {}",
-            ui::plural(release.track_ids.len(), "track"),
-            text::format_duration(duration),
-            text::format_size(size)
-        ))
+        ui::dim(&summary(discs, release.track_ids.len(), duration, size))
     );
 
     // Credits other than the main performance.
@@ -225,5 +226,109 @@ fn print_album(catalog: &Catalog, release: &Release) {
             ]);
         }
         print!("{}", t.render());
+    }
+}
+
+/// How many discs the release actually spans.
+///
+/// A missing `disc_no` counts as the first, which is what the model does when
+/// it orders tracks: a single-disc album whose tags omit the field must not
+/// read as a two-disc set.
+fn discs_spanned(catalog: &Catalog, release: &aede_core::model::Release) -> usize {
+    release
+        .track_ids
+        .iter()
+        .filter_map(|&id| catalog.track(id))
+        .map(|t| t.disc_no.unwrap_or(1))
+        .collect::<std::collections::BTreeSet<u32>>()
+        .len()
+}
+
+/// The number as it should be read: `7` on one disc, `2-07` across several.
+fn track_number(track: &aede_core::model::Track, discs: usize) -> String {
+    let Some(number) = track.track_no else {
+        return "—".to_string();
+    };
+    match discs > 1 {
+        // Zero-padded on a multi-disc set so the column lines up: `2-7` beside
+        // `2-11` reads as two different widths of the same thing.
+        true => format!("{}-{number:02}", track.disc_no.unwrap_or(1)),
+        false => number.to_string(),
+    }
+}
+
+/// The line under the tracks: what the object is, in one breath.
+///
+/// The disc count leads it, and only when there is more than one — the same
+/// rule the `#` column follows, for the same reason: "1 disc" under every
+/// album in the library is a word that never carries information, and the eye
+/// stops reading a line that is always the same. On a box set it is the first
+/// thing asked ("is my rip complete?"), and counting the `2-xx` rows by hand to
+/// find out is exactly the work the page exists to save.
+///
+/// It says how many discs are **here**, not how many the tags claim: a set
+/// missing its fourth disc must read as three, or the page reassures the user
+/// about a hole it is looking straight at.
+fn summary(discs: usize, tracks: usize, duration_ms: u64, size: u64) -> String {
+    let mut parts = Vec::new();
+    if discs > 1 {
+        parts.push(ui::plural(discs, "disc"));
+    }
+    parts.push(ui::plural(tracks, "track"));
+    parts.push(text::format_duration(duration_ms));
+    parts.push(text::format_size(size));
+    parts.join(" · ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aede_core::model::Track;
+
+    fn track(disc: Option<u32>, number: Option<u32>) -> Track {
+        Track {
+            disc_no: disc,
+            track_no: number,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_single_disc_album_shows_a_plain_number() {
+        // A column of "1-01, 1-02" on every album in a library is noise: the
+        // disc is worth saying only where there is more than one.
+        assert_eq!(track_number(&track(Some(1), Some(7)), 1), "7");
+        assert_eq!(track_number(&track(None, Some(7)), 1), "7");
+        assert_eq!(track_number(&track(None, None), 1), "—");
+    }
+
+    #[test]
+    fn a_box_set_says_which_disc() {
+        // Numbered 1, 2, 3, 1, 2, 3 with nothing saying which disc, the page
+        // cannot be read against the object on the shelf.
+        assert_eq!(track_number(&track(Some(2), Some(7)), 3), "2-07");
+        // Zero-padded so the column lines up: "2-7" beside "2-11" reads as two
+        // different widths of the same thing.
+        assert_eq!(track_number(&track(Some(2), Some(11)), 3), "2-11");
+        // A track whose disc the tags forgot belongs to the first, which is
+        // where the model orders it.
+        assert_eq!(track_number(&track(None, Some(3)), 2), "1-03");
+        assert_eq!(track_number(&track(Some(2), None), 2), "—");
+    }
+
+    #[test]
+    fn the_summary_counts_the_discs_of_a_box_set_and_only_of_a_box_set() {
+        // 4 discs is the answer to "is my rip complete?", and counting the
+        // "4-xx" rows by hand to get it is work the page should have done.
+        assert_eq!(
+            summary(4, 85, 16_451_000, 1_500_000_000),
+            "4 discs · 85 tracks · 4:34:11 · 1.5 GB"
+        );
+        // On a single disc the word carries nothing, and a line that always
+        // reads the same stops being read at all.
+        assert_eq!(
+            summary(1, 9, 2_700_000, 300_000_000),
+            "9 tracks · 45:00 · 300.0 MB"
+        );
     }
 }

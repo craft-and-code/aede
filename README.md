@@ -39,7 +39,7 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                                                    |
 | `aede love\|rate\|note\|tag <kind> <name>`                | What you think of it: a favourite, 1–5 stars, a note, free labels (`tag` takes a comma-separated list)                       |
 | `aede favourites` / `notes` / `history`                   | What you wrote, and what you played                                                                                          |
-| `aede played <track>`                                     | Record a listen, until playback records its own                                                                              |
+| `aede played <track>`                                     | Record a listen, until playback records its own (`--remove` undoes the last one)                                             |
 | `aede query <expression>`                                 | Every track an expression matches, as a selection                                                                            |
 | `aede collection <name>`                                  | Save a query under a name, run it, or drop it                                                                                |
 | `aede collections`                                        | The saved queries, and how much each holds now                                                                               |
@@ -379,6 +379,30 @@ Roles
 
 `main` and `album` are left out: every track and every release carries them by construction, so they say nothing. At M1, a role coming from MusicBrainz will work here without a line of code, because the list is read from the credits rather than fixed.
 
+### Tagging: use Picard
+
+Aède **never writes to your files** — not tags, not names, not folders. That is a deliberate limit, and it leaves a real job undone: something has to put good metadata in there in the first place.
+
+[MusicBrainz Picard](https://picard.musicbrainz.org/) is the tool for it, and the two compose rather than compete. Picard identifies your files against MusicBrainz and writes the tags; Aède reads them, never touches them, and builds the catalog. A library tagged with Picard already carries the MusicBrainz identifiers (`MUSICBRAINZ_*`), which is precisely what M1 will use to reach relations and credits without having to guess at a match — the hard and error-prone part of identification is then already done, by a tool built for it, under your eye.
+
+It also makes the divergences M1 reports rare by construction: if your tags came from MusicBrainz, MusicBrainz will mostly agree with them, and the layer will be there to fill gaps rather than to argue.
+
+If you would rather not run Picard, nothing breaks — Aède reads whatever the tags say and `aede doctor` tells you where they are thin.
+
+### Folders never read
+
+A music folder is rarely only music. `Audiobooks`, `Podcasts`, `_incoming`, a `Samples` folder for a DAW — none of it belongs in a music catalog, and reorganising the disk to suit the program is the wrong way round.
+
+```sh
+aede roots --exclude ~/Music/Audiobooks     # never read it again
+aede roots                                  # shows what is watched and what is not
+aede roots --exclude ~/Music/Audiobooks --remove
+```
+
+The exclusions live **in the catalog**, beside the watched roots, not in the options of one run. A plain `aede scan` re-reads every root, so an exclusion that had to be retyped would be forgotten precisely when it mattered. They also survive the rebuild a scan performs — the same rule that carries imported analyses across: **a scan may not destroy what it cannot recompute**, and an exclusion is typed, not read from any file. (The first version of this feature dropped them exactly there; the symptom was an exclusion that worked once and then vanished.)
+
+Matching is on the canonical path, so a folder reached through a symbolic link is excluded too, and excluding a folder does not empty the catalog of what it already holds — the next scan does that, exactly as dropping a watched root does.
+
 ### Comments
 
 The `comment` tag is the one field _you_ write: where a rip came from, which pressing this is, what still needs replacing. It is read from every format and it is searchable, but only when asked:
@@ -400,6 +424,29 @@ aede search "remaster" --notes
 ```
 
 The two are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you. Searching one is searching the library, searching the other is searching yourself — so they keep separate sections and separate options. A note can be about anything, so the results name the kind: an artist, an album, a label.
+
+### Box sets, and where a release lives
+
+A box set is almost always laid out with one folder per disc:
+
+```
+Nobuo Uematsu/1997 FINAL FANTASY VII [FLAC]/Disc 1/
+Nobuo Uematsu/1997 FINAL FANTASY VII [FLAC]/Disc 2/
+```
+
+The folder is part of what identifies a release — it is what tells a CD rip from a vinyl rip of the same record by the same artist. But a **disc folder is a subdivision of a release, not another edition of it**, so `Disc 1`, `CD2`, `Disque 3` and the like are folded into their parent: the release lives where the album does. Without that, one soundtrack came back as two albums of the same name, each numbering its tracks from one, with nothing on screen saying which disc was which except the path.
+
+The number then shows in the track column, as `1-01`, `2-07`, and only on albums that span more than one disc — a column of `1-` on every single-disc album in a library is noise. The column set does not change, which is the same rule that keeps `check` reporting in one shape.
+
+Where the tags carry `discnumber` it is used; where a rip split the discs into folders and left the tag empty, the folder supplies it. The tag wins when both are there — it is what the person who made the file said.
+
+The line under the tracks counts them too:
+
+```
+  4 discs · 85 tracks · 4:34:11 · 1.5 GB
+```
+
+It says how many discs are **there**, not how many the tags claim — a set missing its fourth disc reads as three, which is the question actually being asked of a box set. Like the column, it appears only past one disc.
 
 ### Compilations
 
@@ -884,7 +931,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-321 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+332 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
@@ -895,6 +942,10 @@ cargo test
 **M0.5 — what the user writes, and how it is asked for.** Favourites, ratings, notes and free-form tags in one annotation store keyed so that a scan can never destroy them; play history and play counts; a real query grammar with ranges, negation and `OR`; saved queries; and export/import of the lot. What remains of it: relations inside the grammar, and today's options becoming shorthand for it rather than a second evaluator. Every one of those records carries an **owner** from its first version, so that the accounts arriving at M2.5 are a second value in a field rather than a migration. None of it needs the network or a database, and the identity design underneath it has to be right before anything else is built on top. See [What the user writes](#what-the-user-writes-favourites-ratings-notes-history), [several users](#which-is-the-same-question-as-several-users) and [Querying](#querying).
 
 **M1 — identification.** MusicBrainz for relations and credits, AcoustID/Chromaprint for badly tagged files, Cover Art Archive for artwork, Wikidata to reach the Wikipedia article in the user's language — in the vast majority of cases it already exists, written by humans, so no machine translation is needed. Move to SQLite. Also: country and formation dates, band line-ups as dated relations, release types, and the completeness report that says which albums are missing from the shelf. The hard part will be matching files to releases: plan for a confidence score and manual correction, never a blind rewrite. See [Identification](#identification-m1).
+
+**Decided before a line of it is written: a value from MusicBrainz sits _beside_ the tag, never on top of it.** The precedent is already in the codebase — an imported analysis is attributed to its source and never merged into Aède's own fields, which is exactly what lets `doctor` report that two methods disagree. Writing a MusicBrainz genre into the `genre` field would cost three things at once: saying where the value came from, noticing that MusicBrainz and the tag differ, and undoing it. And it would not even survive: a scan rebuilds the catalog from the files, so the tag would overwrite it on the next run — the same fault the `analysis` table was designed around, and the same one the scan exclusions hit on their first version. So M1 gets its own layer, attributed, carried across a rescan, removable, with the display choosing which to show.
+
+**And the layer is kept whole, including where it agrees.** The tempting saving is to store nothing when MusicBrainz says what the tag already says. It is the wrong trade, for one reason: _agreement is information_. "Checked against MusicBrainz and it matches" and "never checked" are two different states, and a layer that only records disagreements cannot tell them apart — the same distinction the catalog already draws between a genre that exists and holds nothing and a genre nobody ever heard of. Keeping the answer whole also means the question "does my tag still match?" is answered **offline**, from the catalog, the day after you re-tag a file — where storing only divergences would send you back to the network to re-derive something you had already been told. The precedent is again in the codebase: raw tags are kept per file for exactly this reason, so the graph can be rebuilt without touching the disk. A few hundred bytes per release buys all of it.
 
 **M2 — the API.** HTTP server, JSON and WebSocket. To be frozen early: it is the contract between the core and every future client. This is where `serde` becomes worth its place: hand-written serialization is fine for one internal format, but not for an HTTP contract with a dozen types on it. The current `json` module was written for the catalog file, and the move is meant to be mechanical.
 
@@ -1293,6 +1344,22 @@ when someone asks for it, which is what a total should always be.
 `completed` matters more than it looks: a track skipped after eight seconds is
 evidence _against_ it, and a rating system that cannot tell a skip from a listen
 is measuring the wrong thing.
+
+**And it can be taken back**, which every other thing the user writes could
+already do:
+
+```sh
+aede played "So What" --remove     # undo the last listen, log and counter together
+aede history --remove              # forget the lot, after confirmation
+```
+
+The two structures move together or not at all. The log is bounded and the
+counter is not, so a removal touching one only would leave a track "played
+three times" with two plays behind it and nothing on screen to say which was
+right. Clearing the whole history is confirmed like `reset` — nothing on disk
+remembers what was played, so there is no undo — and it reports how many
+listens and how many counters went, because "your history is cleared" is a
+claim nobody can check and a number is.
 
 ### Commands
 

@@ -257,6 +257,33 @@ pub fn folder(path: &str) -> &str {
     }
 }
 
+/// The disc a folder name announces, when it announces one.
+///
+/// A box set is very often laid out as `Album/Disc 1`, `Album/CD2`,
+/// `Album/Disque 3`. Those folders are **not** separate albums, and treating
+/// them as such splits one release into three — which is what happened: a
+/// Final Fantasy VII soundtrack came back as two albums of the same name, each
+/// numbering its tracks from one, with nothing on screen saying which disc was
+/// which except the path.
+///
+/// Recognised: `disc`, `disk`, `cd`, `disque`, followed by digits, with or
+/// without a space or a dash. Anything else is a folder like any other — a
+/// name that merely *contains* the word is left alone, because `CD Singles` is
+/// a collection and not a disc of one.
+pub fn disc_folder(name: &str) -> Option<u32> {
+    let lowered = name.trim().to_lowercase();
+    let rest = ["disque", "disc", "disk", "cd"]
+        .iter()
+        .find_map(|word| lowered.strip_prefix(word))?;
+    let digits = rest.trim_start_matches([' ', '-', '_', '.', '#']);
+    // The whole remainder must be the number: `cd2` yes, `cd2 bonus` no, and
+    // `disc one` no — a word this cannot read is a folder it must not claim.
+    match digits.parse::<u32>() {
+        Ok(number) if number > 0 => Some(number),
+        _ => None,
+    }
+}
+
 /// `true` when a path is the folder itself or something inside it.
 ///
 /// Written out because the obvious `path.starts_with(folder)` is wrong on
@@ -277,6 +304,36 @@ pub fn is_under(path: &str, folder: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_disc_folder_is_recognised_and_nothing_else_is() {
+        // A box set laid out as Album/Disc 1, Album/Disc 2 is one album, not
+        // two. Reading the folder wrongly in either direction is expensive:
+        // missing it splits a release, claiming it merges two.
+        for (name, number) in [
+            ("Disc 1", 1),
+            ("disc1", 1),
+            ("CD2", 2),
+            ("cd 2", 2),
+            ("Disque 3", 3),
+            ("Disk-4", 4),
+            ("DISC_10", 10),
+        ] {
+            assert_eq!(disc_folder(name), Some(number), "{name}");
+        }
+        for name in [
+            "CD Singles",
+            "Discography",
+            "disc one",
+            "Bonus",
+            "cd2 bonus",
+            "Disc",
+            "1",
+            "Disc 0",
+        ] {
+            assert_eq!(disc_folder(name), None, "{name} is not a disc folder");
+        }
+    }
 
     #[test]
     fn a_folder_is_not_a_prefix_of_its_name() {

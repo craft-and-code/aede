@@ -43,6 +43,12 @@ pub fn scan(args: &Args) -> Res {
         threads: args.number_or("threads", 0)?,
         follow_symlinks: args.has("follow-symlinks"),
         skip_hidden: !args.has("include-hidden"),
+        // Read from the catalog rather than from this command line: a plain
+        // `aede scan` re-reads every root, and an exclusion that had to be
+        // retyped would be forgotten exactly when it mattered.
+        excluded: previous
+            .map(|c| c.excluded.iter().map(PathBuf::from).collect())
+            .unwrap_or_default(),
     };
 
     println!("{}", ui::bold("Scanning folders…"));
@@ -204,6 +210,42 @@ pub fn roots(args: &Args) -> Res {
     let catalog_file = store::catalog_path(&dir);
     let mut catalog = load(args)?;
 
+    // Exclusions live here rather than in a command of their own: what is
+    // watched and what is deliberately not watched are one question, and a
+    // user asking "what does Aède look at" should get one screen.
+    if let Some(folder) = args.value("exclude") {
+        let wanted = super::canonical(Path::new(folder))
+            .to_string_lossy()
+            .to_string();
+        if args.has("remove") {
+            let before = catalog.excluded.len();
+            catalog.excluded.retain(|f| f != &wanted && f != folder);
+            if catalog.excluded.len() == before {
+                return Err(format!("\"{folder}\" is not excluded").into());
+            }
+            store::save(&catalog, &catalog_file)?;
+            println!("{} {folder} will be read again", ui::green("->"));
+            println!("{}", ui::dim("  run `aede scan` to take it in"));
+            return Ok(());
+        }
+        if catalog.excluded.contains(&wanted) {
+            return Err(format!("\"{folder}\" is already excluded").into());
+        }
+        catalog.excluded.push(wanted);
+        catalog.excluded.sort();
+        store::save(&catalog, &catalog_file)?;
+        println!("{} {folder} will not be read", ui::green("->"));
+        // The files already in the catalog do not vanish because the folder
+        // stopped being read: the same promise `--remove` on a root makes, and
+        // the same way of keeping it.
+        println!(
+            "{}",
+            ui::dim("  its files stay in the catalog until the next scan")
+        );
+        println!("{}", ui::dim("  run `aede scan` to drop them"));
+        return Ok(());
+    }
+
     // `--remove` is a flag, and the folder is the argument. It used to take
     // its value, which made one option mean two things — a flag on `love`, a
     // value here — and an option with two meanings is one nobody can predict.
@@ -296,6 +338,22 @@ pub fn roots(args: &Args) -> Res {
         println!(
             "  {}",
             ui::dim("run `aede scan` to drop what is no longer watched")
+        );
+    }
+
+    // Shown on the same screen as the roots, because "what does Aède read" is
+    // one question and an exclusion nobody can see is one nobody remembers
+    // setting — which is how a folder goes missing from a library for months.
+    if !catalog.excluded.is_empty() {
+        println!("{}", ui::section("Never read"));
+        let mut t = Table::new(&["Folder"]).path_limit(0, 70);
+        for folder in &catalog.excluded {
+            t.push(vec![folder.clone()]);
+        }
+        print!("{}", t.render());
+        println!(
+            "  {}",
+            ui::dim("aede roots --exclude <folder> --remove reads it again")
         );
     }
     // Where the answers themselves are kept. `roots` is the command someone

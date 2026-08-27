@@ -132,6 +132,16 @@ pub fn to_json(catalog: &Catalog) -> Json {
     root.set("relation_rules", model::RELATION_RULES.into());
     root.set("scanned_at", catalog.scanned_at.into());
     root.set(
+        "excluded",
+        Json::Arr(
+            catalog
+                .excluded
+                .iter()
+                .map(|f| Json::from(f.as_str()))
+                .collect(),
+        ),
+    );
+    root.set(
         "roots",
         Json::Arr(catalog.roots.iter().map(|r| Json::Str(r.clone())).collect()),
     );
@@ -416,6 +426,9 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     let mut catalog = Catalog {
         scanned_at: value.field_u64("scanned_at").unwrap_or(0),
         roots: string_list(value.get("roots")),
+        // Absent from a file written before exclusions existed, which reads as
+        // "nothing excluded" — the behaviour that file was saved with.
+        excluded: string_list(value.get("excluded")),
         ..Default::default()
     };
     // Relations inferred under older rules are stale, not wrong: they are

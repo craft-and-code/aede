@@ -31,6 +31,17 @@ pub struct ScanOptions {
     pub follow_symlinks: bool,
     /// Skip files and folders starting with a dot.
     pub skip_hidden: bool,
+    /// Folders never to walk into, canonical, whatever a root says.
+    ///
+    /// A music folder is rarely only music: `Audiobooks`, `Podcasts`,
+    /// `_incoming`, a `Samples` folder for a DAW. Without this the only way to
+    /// keep them out of the catalog is to reorganise the disk to suit the
+    /// program, which is the wrong way round.
+    ///
+    /// They live in the **catalog**, not in this run's options, because a
+    /// plain `aede scan` re-reads every watched root: an exclusion that had to
+    /// be retyped would be forgotten exactly when it mattered.
+    pub excluded: Vec<PathBuf>,
 }
 
 impl Default for ScanOptions {
@@ -39,6 +50,7 @@ impl Default for ScanOptions {
             threads: 0,
             follow_symlinks: false,
             skip_hidden: true,
+            excluded: Vec::new(),
         }
     }
 }
@@ -246,8 +258,16 @@ pub fn scan(
     // Analyses are keyed by path, so they simply travel: nothing to remap, and
     // nothing to lose. They are the one thing in a catalog that reading the
     // files again cannot recompute.
+    //
+    // Exclusions travel for the same reason and it is the same rule — **a scan
+    // may not destroy what it cannot recompute**. They are typed by the user
+    // and derived from nothing, so a rebuild that dropped them would forget
+    // them on the very run they were meant to shape. That is not theory: the
+    // first version of this feature lost them exactly here, and the symptom
+    // was an exclusion that worked once and then vanished.
     if let Some(previous) = previous {
         catalog.analyses = previous.analyses.clone();
+        catalog.excluded = previous.excluded.clone();
     }
     // Reports lying in the library are taken in, so that analysing a folder and
     // then scanning it works as well as the other way round.
@@ -325,8 +345,24 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// `true` when a folder is one the user asked never to read, or sits
+    /// inside one.
+    fn is_excluded(&self, canonical: &Path) -> bool {
+        let path = canonical.to_string_lossy();
+        self.options
+            .excluded
+            .iter()
+            .any(|folder| crate::text::is_under(&path, &folder.to_string_lossy()))
+    }
+
     fn walk(&mut self, dir: &Path) -> std::io::Result<()> {
         let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        // Tested on the canonical path, so a folder reached through a symbolic
+        // link is excluded too — the same reason every comparison against a
+        // stored path in this program is made on a resolved one.
+        if self.is_excluded(&canonical) {
+            return Ok(());
+        }
         if !self.visited.insert(canonical) {
             return Ok(()); // already seen: symlink loop
         }

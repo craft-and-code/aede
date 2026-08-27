@@ -331,6 +331,14 @@ pub fn is_performing_role(role: &str) -> bool {
 pub struct Catalog {
     /// Scanned root folders.
     pub roots: Vec<String>,
+    /// Folders never read, however deep under a root they sit.
+    ///
+    /// Kept beside the roots rather than passed to each scan, because a plain
+    /// `aede scan` re-reads every root: an exclusion that had to be retyped
+    /// would be forgotten precisely when it mattered. Canonical, like the
+    /// roots, so the comparison against a walked path is the same string
+    /// comparison everywhere else in the program makes.
+    pub excluded: Vec<String>,
     /// Date of the last scan (Unix epoch, seconds).
     pub scanned_at: u64,
     /// The files that were read, in the order the scan settled on.

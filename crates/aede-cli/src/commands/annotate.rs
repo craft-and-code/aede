@@ -695,6 +695,28 @@ pub fn played(args: &Args) -> Res {
         .unwrap_or(0);
 
     let mut data = read(args, &catalog)?;
+
+    // The one thing the user writes that had no way back. Every other mark —
+    // a favourite, a rating, a note, a tag, a collection — takes `--remove`,
+    // and a listen recorded by mistake was permanent.
+    if args.has("remove") {
+        let taken = data.forget_last_play(&owner(args), &reference);
+        write(args, &mut data)?;
+        println!(
+            "{} {} {}",
+            match taken {
+                true => ui::green("→"),
+                false => ui::dim("—"),
+            },
+            reference.display_name(&catalog),
+            match taken {
+                true => "— its most recent listen is forgotten",
+                false => "has no listen on record to forget",
+            }
+        );
+        return Ok(());
+    }
+
     data.record_play(Play {
         owner: owner(args),
         track: reference.clone(),
@@ -1004,9 +1026,46 @@ pub fn notes(args: &Args) -> Res {
 /// `aede history` — what was played, most recent first.
 pub fn history(args: &Args) -> Res {
     let catalog = load(args)?;
-    let data = read(args, &catalog)?;
     let window = args.window(DEFAULT_LIMIT)?;
     let owner = owner(args);
+
+    // Clearing a history is not undoable and not rebuildable — nothing on disk
+    // remembers what was played — so it is confirmed like `reset`, and it says
+    // what went rather than claiming success nobody can check.
+    if args.has("remove") {
+        let mut data = read(args, &catalog)?;
+        let (plays, counts) = (
+            data.plays.iter().filter(|p| p.owner == owner).count(),
+            data.counts.iter().filter(|c| c.owner == owner).count(),
+        );
+        if plays == 0 && counts == 0 {
+            println!("{}", ui::dim("there is no history to forget"));
+            return Ok(());
+        }
+        println!(
+            "  {}",
+            ui::yellow(&format!(
+                "Forget {} and {}? Nothing on disk remembers this.",
+                ui::plural(plays, "listen"),
+                ui::plural(counts, "play count")
+            ))
+        );
+        if !super::confirmed(args, "forget the history")? {
+            println!("{}", ui::dim("left alone"));
+            return Ok(());
+        }
+        let (plays, counts) = data.forget_history(&owner);
+        write(args, &mut data)?;
+        println!(
+            "{} {} and {} forgotten",
+            ui::green("→"),
+            ui::plural(plays, "listen"),
+            ui::plural(counts, "play count")
+        );
+        return Ok(());
+    }
+
+    let data = read(args, &catalog)?;
 
     let mut plays: Vec<&Play> = data.plays.iter().filter(|p| p.owner == owner).collect();
     plays.reverse();

@@ -7,8 +7,6 @@
 //! confirmation says what is at stake rather than asking a bare "are you sure",
 //! and the command prints the scan that rebuilds what it removed.
 
-use std::io::{IsTerminal, Write};
-
 use aede_core::store;
 use aede_core::text;
 
@@ -88,7 +86,7 @@ pub fn reset(args: &Args) -> Res {
         );
     }
 
-    if !confirmed(args)? {
+    if !super::confirmed(args, "remove the catalog")? {
         println!("  {}", ui::green("nothing was removed"));
         return Ok(());
     }
@@ -104,23 +102,4 @@ pub fn reset(args: &Args) -> Res {
         println!("  aede scan {}", quoted.join(" "));
     }
     Ok(())
-}
-
-/// Asks, unless `--yes` was given.
-///
-/// With no terminal to ask — a script, a pipe — the command refuses rather than
-/// assuming an answer. Assuming "no" would make a scripted reset fail silently;
-/// assuming "yes" would delete a catalog nobody agreed to lose.
-fn confirmed(args: &Args) -> Result<bool, Box<dyn std::error::Error>> {
-    if args.has("yes") {
-        return Ok(true);
-    }
-    if !std::io::stdin().is_terminal() {
-        return Err("no terminal to confirm on: add --yes to remove the catalog".into());
-    }
-    print!("  Type \"yes\" to confirm: ");
-    std::io::stdout().flush()?;
-    let mut answer = String::new();
-    std::io::stdin().read_line(&mut answer)?;
-    Ok(answer.trim().eq_ignore_ascii_case("yes"))
 }

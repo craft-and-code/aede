@@ -61,6 +61,7 @@ const VALUED_WORD: &[&str] = &[
     "file",
     "import",
     "extras",
+    "exclude",
     "compress",
     "quality",
 ];

@@ -10,19 +10,141 @@ use super::{
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
+/// What a listing can be put in order by.
+///
+/// **One vocabulary across every listing**, rather than one per command:
+/// `--sort tracks` means the same thing on artists, genres, labels and years,
+/// and somebody who learnt it on one does not relearn it on the next. It is
+/// also the same spelling the query grammar uses, down to the trailing `-`
+/// that reverses — `aede query --sort size-` and `aede albums --sort size-`
+/// are one thing to remember.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Order {
+    /// The name the row is filed under.
+    Name,
+    /// The main artist, by filing name.
+    Artist,
+    /// How many tracks.
+    Tracks,
+    /// How many albums.
+    Albums,
+    /// Playing time.
+    Duration,
+    /// Size on disk.
+    Size,
+    /// Year.
+    Year,
+}
+
+/// Every spelling, and what it means.
+const ORDERS: &[(&str, Order)] = &[
+    ("name", Order::Name),
+    ("title", Order::Name),
+    ("artist", Order::Artist),
+    ("tracks", Order::Tracks),
+    ("albums", Order::Albums),
+    ("duration", Order::Duration),
+    ("length", Order::Duration),
+    ("size", Order::Size),
+    ("year", Order::Year),
+];
+
+/// The order asked for, or `None` when `--sort` was not given.
+///
+/// `None` rather than a default, deliberately: every listing already has an
+/// order that was chosen for it — genres by how much of the library they hold,
+/// albums by year — and replacing those with one generic default would be a
+/// regression dressed as a feature. `--sort` overrides; its absence changes
+/// nothing.
+///
+/// Read strictly, and refused against the keys **this** listing has: sorting
+/// genres by year would be sorting on a column that is not there, and a value
+/// silently ignored is the fault this whole class of guard exists to prevent.
+fn order(
+    args: &Args,
+    allowed: &[Order],
+) -> Result<Option<(Order, bool)>, Box<dyn std::error::Error>> {
+    let Some(raw) = args.value("sort") else {
+        return Ok(None);
+    };
+    let raw = raw.trim();
+    let (name, descending) = match raw.strip_suffix('-').or_else(|| raw.strip_prefix('-')) {
+        Some(rest) => (rest.trim(), true),
+        None => (raw, false),
+    };
+    let wanted = name.to_lowercase();
+    let offered = |allowed: &[Order]| {
+        let mut names: Vec<&str> = ORDERS
+            .iter()
+            .filter(|(_, order)| allowed.contains(order))
+            .map(|(name, _)| *name)
+            .collect();
+        names.dedup();
+        names.join(", ")
+    };
+    let Some((_, key)) = ORDERS.iter().find(|(n, _)| *n == wanted) else {
+        return Err(format!(
+            "\"{name}\" is not something to sort on.\nTry: {}",
+            offered(allowed)
+        )
+        .into());
+    };
+    if !allowed.contains(key) {
+        return Err(format!(
+            "this listing has no {wanted} to sort on.\nTry: {}",
+            offered(allowed)
+        )
+        .into());
+    }
+    Ok(Some((*key, descending)))
+}
+
+/// Applies an order to rows already reduced to their measures.
+///
+/// The tuple is `(name, artist, tracks, albums, duration, size, year)` — what
+/// every listing has some of. Ties fall back on the name, so two genres of the
+/// same size come back in the same places twice running; without that,
+/// `--offset` would show one row twice and hide another.
+fn put_in_order<T>(
+    rows: &mut [T],
+    ordering: (Order, bool),
+    measures: impl Fn(&T) -> (String, String, usize, usize, u64, u64, u32),
+) {
+    let (key, descending) = ordering;
+    rows.sort_by(|a, b| {
+        let (a, b) = (measures(a), measures(b));
+        let ordered = match key {
+            Order::Name => a.0.cmp(&b.0),
+            Order::Artist => a.1.cmp(&b.1),
+            Order::Tracks => a.2.cmp(&b.2),
+            Order::Albums => a.3.cmp(&b.3),
+            Order::Duration => a.4.cmp(&b.4),
+            Order::Size => a.5.cmp(&b.5),
+            Order::Year => a.6.cmp(&b.6),
+        };
+        match descending {
+            true => ordered.reverse().then_with(|| a.0.cmp(&b.0)),
+            false => ordered.then_with(|| a.0.cmp(&b.0)),
+        }
+    });
+}
+
 pub fn list_artists(args: &Args) -> Res {
     let catalog = load(args)?;
     let window = args.window(50)?;
     // Read strictly, like the window: `--sort banana` used to fall through to
     // sorting by name, which is an answer to a question nobody asked and looks
-    // exactly like a correct one.
-    let by_tracks = match args.value("sort") {
-        None | Some("tracks") => true,
-        Some("name") => false,
-        Some(other) => {
-            return Err(format!("--sort takes \"tracks\" or \"name\": got \"{other}\"").into());
-        }
-    };
+    // exactly like a correct one. It used to accept two words of its own;
+    // it now reads the vocabulary every listing shares, and `tracks` and
+    // `name` still mean what they always did.
+    const ARTIST_ORDERS: &[Order] = &[
+        Order::Name,
+        Order::Tracks,
+        Order::Albums,
+        Order::Duration,
+        Order::Size,
+    ];
+    let ordering = order(args, ARTIST_ORDERS)?;
 
     // Who does *this* in my library — the inverse of the artist page, and the
     // whole reason credits carry a role rather than being a bare artist
@@ -63,10 +185,45 @@ pub fn list_artists(args: &Args) -> Res {
         None => None,
     };
 
+    // Whatever the options cannot say, the grammar can — the same addition
+    // `albums` received, and the same rule: an artist is kept when any track
+    // the expression matches is credited to them. The coarser question is a
+    // fold of the finer one, which is why the grammar evaluates over tracks.
+    let matched: Option<std::collections::BTreeSet<Id>> = match args.value("query") {
+        None => None,
+        Some(expression) => {
+            let parsed = aede_core::query::parse(expression)?;
+            let data = super::user_data(args, &catalog)?;
+            let context = aede_core::query::Context {
+                catalog: &catalog,
+                data: &data,
+                owner: aede_core::user::LOCAL_USER,
+            };
+            if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first()
+            {
+                return Err(format!(
+                    "no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list."
+                )
+                .into());
+            }
+            let mut artists: std::collections::BTreeSet<Id> = Default::default();
+            for track in aede_core::query::run(&parsed, &context) {
+                for (artist, _) in catalog.credits_on(aede_core::model::EntityKind::Track, track) {
+                    artists.insert(artist.id);
+                }
+            }
+            Some(artists)
+        }
+    };
+
     let mut rows: Vec<(Id, usize, usize, u64, u64)> = catalog
         .artists
         .iter()
         .filter(|a| match &in_role {
+            Some(ids) => ids.contains(&a.id),
+            None => true,
+        })
+        .filter(|a| match &matched {
             Some(ids) => ids.contains(&a.id),
             None => true,
         })
@@ -78,19 +235,23 @@ pub fn list_artists(args: &Args) -> Res {
         })
         .collect();
 
-    if by_tracks {
-        rows.sort_by(|a, b| {
-            b.1.cmp(&a.1).then_with(|| {
-                catalog.artists[a.0 as usize]
-                    .sort_name
-                    .cmp(&catalog.artists[b.0 as usize].sort_name)
-            })
-        });
-    } else {
-        rows.sort_by(|a, b| {
+    // The order that was chosen for this listing before `--sort` existed: most
+    // heard first, which is what "who is in my library" means.
+    rows.sort_by(|a, b| {
+        b.1.cmp(&a.1).then_with(|| {
             catalog.artists[a.0 as usize]
                 .sort_name
                 .cmp(&catalog.artists[b.0 as usize].sort_name)
+        })
+    });
+    if let Some(ordering) = ordering {
+        put_in_order(&mut rows, ordering, |row| {
+            let name = catalog
+                .artists
+                .get(row.0 as usize)
+                .map(|a| a.sort_name.clone())
+                .unwrap_or_default();
+            (name.clone(), name, row.1, row.2, row.3, row.4, 0)
         });
     }
 
@@ -127,9 +288,15 @@ pub fn list_artists(args: &Args) -> Res {
         );
     }
 
-    let heading = match &role {
-        Some(role) => format!("Artists credited as {} ({})", role_label(role), rows.len()),
-        None => format!("Artists ({} in total)", catalog.artists.len()),
+    // "3 in total" over one row is a count contradicting the rows under it.
+    // The unfiltered listing can say how many the library holds, because that
+    // is what it is showing; the moment anything narrows it, the number has to
+    // be the number of rows.
+    let narrowed = role.is_some() || matched.is_some();
+    let heading = match (&role, narrowed) {
+        (Some(role), _) => format!("Artists credited as {} ({})", role_label(role), rows.len()),
+        (None, true) => format!("Artists ({} matching)", rows.len()),
+        (None, false) => format!("Artists ({} in total)", catalog.artists.len()),
     };
     println!("{}", ui::section(&heading));
     let mut t = Table::new(&["Artist", "Tracks", "Albums", "Duration", "Size"])
@@ -256,12 +423,41 @@ pub fn list_albums(args: &Args) -> Res {
     let compilations_only = args.has("compilations");
     let albums_only = args.has("no-compilations");
 
+    // The order chosen for this listing before `--sort` existed: chronological,
+    // which is how a discography reads.
     rows.sort_by(|a, b| {
         a.year
             .unwrap_or(u32::MAX)
             .cmp(&b.year.unwrap_or(u32::MAX))
             .then_with(|| a.title.cmp(&b.title))
     });
+    const ALBUM_ORDERS: &[Order] = &[
+        Order::Name,
+        Order::Artist,
+        Order::Year,
+        Order::Tracks,
+        Order::Duration,
+        Order::Size,
+    ];
+    if let Some(ordering) = order(args, ALBUM_ORDERS)? {
+        put_in_order(&mut rows, ordering, |release| {
+            let (duration, size) = totals(&catalog, &release.track_ids);
+            let artist = release
+                .album_artist_id
+                .and_then(|id| catalog.artist(id))
+                .map(|a| a.sort_name.clone())
+                .unwrap_or_default();
+            (
+                release.title.clone(),
+                artist,
+                release.track_ids.len(),
+                0,
+                duration,
+                size,
+                release.year.unwrap_or(0),
+            )
+        });
+    }
 
     if args.has("csv") || args.has("json") {
         // The same table as `export --csv`, restricted to what the filters kept:
@@ -354,7 +550,18 @@ pub fn list_genres(args: &Args) -> Res {
     let window = args.window(50)?;
     // Ranked in full, cut at display: the notice below can only be honest if
     // the count of what was left out is known.
-    let top = stats::top_genres(&catalog, usize::MAX);
+    let mut top = stats::top_genres(&catalog, usize::MAX);
+    const GENRE_ORDERS: &[Order] = &[Order::Name, Order::Tracks, Order::Duration, Order::Size];
+    if let Some(ordering) = order(args, GENRE_ORDERS)? {
+        put_in_order(&mut top, ordering, |&(id, count)| {
+            let (duration, size) = totals(&catalog, &tracks_of_genre(&catalog, id));
+            let name = catalog
+                .genre(id)
+                .map(|g| g.name.clone())
+                .unwrap_or_default();
+            (name.clone(), name, count, 0, duration, size, 0)
+        });
+    }
     if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = top
             .iter()
@@ -411,7 +618,30 @@ pub fn list_genres(args: &Args) -> Res {
 pub fn list_labels(args: &Args) -> Res {
     let catalog = load(args)?;
     let window = args.window(50)?;
-    let top = stats::top_labels(&catalog, usize::MAX);
+    let mut top = stats::top_labels(&catalog, usize::MAX);
+    const LABEL_ORDERS: &[Order] = &[
+        Order::Name,
+        Order::Albums,
+        Order::Tracks,
+        Order::Duration,
+        Order::Size,
+    ];
+    if let Some(ordering) = order(args, LABEL_ORDERS)? {
+        put_in_order(&mut top, ordering, |&(id, count)| {
+            let tracks = tracks_of_label(&catalog, id);
+            let (duration, size) = totals(&catalog, &tracks);
+            let albums = catalog
+                .releases
+                .iter()
+                .filter(|r| r.label_ids.contains(&id))
+                .count();
+            let name = catalog
+                .label(id)
+                .map(|l| l.name.clone())
+                .unwrap_or_default();
+            (name.clone(), name, count, albums, duration, size, 0)
+        });
+    }
     if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = top
             .iter()
@@ -500,7 +730,33 @@ pub fn list_years(args: &Args) -> Res {
     }
 
     println!("{}", ui::section("Years"));
+    // A BTreeMap is already in year order, which is the order chosen for this
+    // listing. `--sort` turns it into a list so another order can be given.
+    const YEAR_ORDERS: &[Order] = &[
+        Order::Year,
+        Order::Albums,
+        Order::Tracks,
+        Order::Duration,
+        Order::Size,
+    ];
+    let ordering = order(args, YEAR_ORDERS)?;
     let max = by_year.values().map(|(a, _)| *a).max().unwrap_or(0);
+    let mut by_year: Vec<(u32, (usize, Vec<Id>))> = by_year.into_iter().collect();
+    if let Some(ordering) = ordering {
+        put_in_order(&mut by_year, ordering, |(year, (albums, tracks))| {
+            let (duration, size) = totals(&catalog, tracks);
+            let name = year.to_string();
+            (
+                name.clone(),
+                name,
+                tracks.len(),
+                *albums,
+                duration,
+                size,
+                *year,
+            )
+        });
+    }
     let mut t = Table::new(&["Year", "Albums", "Tracks", "Duration", "Size", ""])
         .align(1, Align::Right)
         .align(2, Align::Right)

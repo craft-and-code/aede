@@ -56,6 +56,32 @@ use crate::ui::{self, Table};
 /// the user.
 pub type Res = Result<(), Box<dyn Error>>;
 
+/// Asks before something irreversible, unless `--yes` was given.
+///
+/// With no terminal to ask on — a script, a pipe — it refuses rather than
+/// assuming an answer. Assuming "no" would make a scripted run fail silently;
+/// assuming "yes" would destroy something nobody agreed to lose.
+///
+/// `what` completes both the question and the refusal, so a message names the
+/// act rather than talking about "the operation". Shared rather than copied:
+/// it lived in `reset` alone until `history --remove` needed the same
+/// question, and a second confirmation prompt worded slightly differently is
+/// how a user learns to stop reading them.
+pub fn confirmed(args: &Args, what: &str) -> Result<bool, Box<dyn Error>> {
+    use std::io::{IsTerminal, Write};
+    if args.has("yes") {
+        return Ok(true);
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(format!("no terminal to confirm on: add --yes to {what}").into());
+    }
+    print!("  Type \"yes\" to confirm: ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    Ok(answer.trim().eq_ignore_ascii_case("yes"))
+}
+
 /// A folder the user named, resolved the way the catalog stores folders.
 ///
 /// **Every path that arrives from the command line and will be compared against
@@ -276,14 +302,22 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
 /// something.
 fn announce_window(window: Window, total: usize, what: &str) {
     let Some((first, last)) = window.shown(total) else {
-        println!(
-            "  {}",
-            ui::yellow(&format!(
+        // Two different emptinesses, and naming the wrong one sends the reader
+        // looking for a page that was never there. `--offset` explains an empty
+        // screen only when there was something to page through; a listing that
+        // matched nothing at all is not a paging accident. The confusion became
+        // easy to meet the day the listings learned `--query`: `aede artists
+        // --query "year:2050"` answered "0 artist in all, and --offset=0 starts
+        // past the end", which blames a page number nobody typed.
+        let reason = match total {
+            0 => format!("nothing here: no {what} to show"),
+            _ => format!(
                 "nothing here: {} in all, and --offset={} starts past the end",
                 ui::plural(total, what),
                 window.offset
-            ))
-        );
+            ),
+        };
+        println!("  {}", ui::yellow(&reason));
         return;
     };
     if first == 1 && last == total {

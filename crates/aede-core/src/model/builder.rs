@@ -80,6 +80,10 @@ struct FileEntities {
     album_artist_ids: Vec<Id>,
     release_id: Option<Id>,
     is_compilation: bool,
+    /// The disc the file's own folder announces, when it announces one, so
+    /// that a rip which put each disc in its own folder and left the tag
+    /// empty still knows which disc a track is on.
+    disc_from_folder: Option<u32>,
 }
 
 impl Builder {
@@ -123,7 +127,17 @@ impl Builder {
             tags: tags.fields.clone(),
             integrity: item.integrity.clone(),
         };
-        let folder = file.folder().to_string();
+        // Where the *release* lives, which is not always where the file does.
+        // A box set laid out as `Album/Disc 1`, `Album/Disc 2` is one album:
+        // the disc folder is a subdivision of the release, not another edition
+        // of it, and keying the release on it split one soundtrack into two
+        // albums of the same name each numbering its tracks from one.
+        let file_folder = file.folder().to_string();
+        let disc_from_folder = text::disc_folder(text::file_name(&file_folder));
+        let folder = match disc_from_folder {
+            Some(_) => text::folder(&file_folder).to_string(),
+            None => file_folder.clone(),
+        };
         self.catalog.files.push(file);
 
         let artist_names = split_all(tags.all("artist"));
@@ -159,6 +173,7 @@ impl Builder {
             album_artist_ids,
             release_id,
             is_compilation,
+            disc_from_folder,
         }
     }
 
@@ -252,6 +267,12 @@ impl Builder {
             .first("discnumber")
             .map(text::parse_track_number)
             .unwrap_or((None, None));
+        // A rip that put each disc in its own folder and left the tag empty is
+        // common, and without this the two discs would both be disc one — two
+        // track 1s in one release, which is worse than the split it replaces.
+        // The tag still wins where there is one: it is what the person who
+        // made the file said.
+        let disc_no = disc_no.or(entities.disc_from_folder);
 
         let track_id = self.catalog.tracks.len() as Id;
         self.catalog.tracks.push(Track {
@@ -556,6 +577,101 @@ mod tests {
         let hits = first_release(&c, "Hits").unwrap();
         assert!(hits.is_compilation);
         assert_eq!(hits.album_artist_id, None);
+    }
+
+    #[test]
+    fn a_box_set_in_disc_folders_is_one_album() {
+        // The layout every box set and every game soundtrack uses:
+        // `Album/Disc 1`, `Album/Disc 2`. Keyed on the folder they landed in,
+        // one release became two of the same name, each numbering its tracks
+        // from one — and nothing on screen said which disc was which except
+        // the path. A disc folder is a subdivision of a release, not another
+        // edition of it.
+        let mut files = Vec::new();
+        for disc in 1..=2 {
+            for track in 1..=2 {
+                let mut tags = RawTags::default();
+                tags.insert("title", format!("D{disc} T{track}"));
+                tags.insert("artist", "Nobuo Uematsu");
+                tags.insert("albumartist", "Nobuo Uematsu");
+                tags.insert("album", "FINAL FANTASY VII");
+                tags.insert("date", "1997");
+                tags.insert("tracknumber", track.to_string());
+                tags.insert("discnumber", disc.to_string());
+                files.push(ScannedFile {
+                    path: format!("/m/Uematsu/FF7/Disc {disc}/{track:02}.flac"),
+                    size: 100,
+                    mtime: 0,
+                    tags,
+                    folder_cover: None,
+                    integrity: None,
+                });
+            }
+        }
+        let c = build(files, vec!["/m".into()], 0);
+        assert_eq!(c.releases.len(), 1, "one album, not one per disc");
+        assert_eq!(c.releases[0].track_ids.len(), 4);
+        // The release lives where the album does, not in one of its discs —
+        // which is also what `copy` reproduces and what `doctor` names.
+        assert_eq!(c.releases[0].folder, "/m/Uematsu/FF7");
+        let discs: Vec<Option<u32>> = c.tracks.iter().map(|t| t.disc_no).collect();
+        assert_eq!(discs, vec![Some(1), Some(1), Some(2), Some(2)]);
+    }
+
+    #[test]
+    fn a_disc_folder_supplies_the_number_the_tags_forgot() {
+        // A rip that split the discs into folders and left `discnumber` empty
+        // is common. Merged without this, both discs would be disc one and the
+        // release would hold two track 1s — worse than the split it replaces.
+        let mut files = Vec::new();
+        for disc in 1..=2 {
+            let mut tags = RawTags::default();
+            tags.insert("title", format!("D{disc}"));
+            tags.insert("artist", "A");
+            tags.insert("albumartist", "A");
+            tags.insert("album", "Box");
+            tags.insert("tracknumber", "1");
+            files.push(ScannedFile {
+                path: format!("/m/A/Box/CD{disc}/01.flac"),
+                size: 100,
+                mtime: 0,
+                tags,
+                folder_cover: None,
+                integrity: None,
+            });
+        }
+        let c = build(files, vec!["/m".into()], 0);
+        assert_eq!(c.releases.len(), 1);
+        let discs: Vec<Option<u32>> = c.tracks.iter().map(|t| t.disc_no).collect();
+        assert_eq!(discs, vec![Some(1), Some(2)], "read from the folder");
+    }
+
+    #[test]
+    fn two_editions_in_two_folders_are_still_two_albums() {
+        // The folder is in the release key to tell two editions apart — a CD
+        // rip beside a vinyl rip. Folding disc folders in must not fold those.
+        let edition = |folder: &str| {
+            let mut tags = RawTags::default();
+            tags.insert("title", "T");
+            tags.insert("artist", "A");
+            tags.insert("albumartist", "A");
+            tags.insert("album", "Album");
+            tags.insert("tracknumber", "1");
+            ScannedFile {
+                path: format!("/m/A/{folder}/01.flac"),
+                size: 100,
+                mtime: 0,
+                tags,
+                folder_cover: None,
+                integrity: None,
+            }
+        };
+        let c = build(
+            vec![edition("Album (CD rip)"), edition("Album (vinyl rip)")],
+            vec!["/m".into()],
+            0,
+        );
+        assert_eq!(c.releases.len(), 2, "two editions stay two");
     }
 
     #[test]

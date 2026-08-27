@@ -361,6 +361,66 @@ impl UserData {
     }
 
     /// Records a play: one event in the log, one more on the counter.
+    /// Takes back the most recent play of a track, log and counter together.
+    ///
+    /// The counter is not a summary of the log — the log is bounded at
+    /// [`HISTORY_LIMIT`] and the counter is not — so a removal that touched one
+    /// and not the other would leave a track played "three times" with two
+    /// plays behind it, and nothing on screen to say which was right. They are
+    /// written together by [`UserData::record_play`] and they are taken back
+    /// together here.
+    ///
+    /// Returns `false` when there was nothing to take back, which the caller
+    /// says rather than reporting a removal that did not happen.
+    pub fn forget_last_play(&mut self, owner: &str, track: &EntityRef) -> bool {
+        let Some(index) = self
+            .plays
+            .iter()
+            .rposition(|p| p.owner == owner && &p.track == track)
+        else {
+            // The log may have rolled the play off its front while the counter
+            // still holds it. Decrementing on a play nobody can point at would
+            // be guessing, so it is refused.
+            return false;
+        };
+        self.plays.remove(index);
+        if let Some(counter) = self
+            .counts
+            .iter_mut()
+            .find(|c| c.owner == owner && &c.track == track)
+        {
+            counter.count = counter.count.saturating_sub(1);
+            // The last-played date now belongs to whatever play is newest of
+            // those left, and to nothing at all when none is.
+            counter.last_played = self
+                .plays
+                .iter()
+                .filter(|p| p.owner == owner && &p.track == track)
+                .map(|p| p.at)
+                .max()
+                .unwrap_or(0);
+        }
+        self.counts.retain(|c| c.count > 0);
+        true
+    }
+
+    /// Forgets everything an owner ever played.
+    ///
+    /// Both structures, for the reason above. Returns how many plays and how
+    /// many counters went, because "your history is cleared" is a claim nobody
+    /// can check and a number is.
+    pub fn forget_history(&mut self, owner: &str) -> (usize, usize) {
+        let plays = self.plays.iter().filter(|p| p.owner == owner).count();
+        let counts = self.counts.iter().filter(|c| c.owner == owner).count();
+        self.plays.retain(|p| p.owner != owner);
+        self.counts.retain(|c| c.owner != owner);
+        (plays, counts)
+    }
+
+    /// Records one listen: the bounded log and the all-time counter together.
+    ///
+    /// Both, always — see [`UserData::forget_last_play`] for why the two must
+    /// never be written apart.
     pub fn record_play(&mut self, play: Play) {
         match self
             .counts
