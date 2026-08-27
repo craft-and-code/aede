@@ -349,9 +349,15 @@ fn print_analyses(catalog: &Catalog, file: &aede_core::model::AudioFile) {
             record.real_bit_depth.map(|b| format!("{b} bits")),
         );
         row("Fake stereo", record.fake_stereo.map(yes_no));
-        row("Transcoding", record.transcoding.clone());
-        row("Upscaled", record.upscaling.map(yes_no));
-        row("Upsampled", record.upsampling.map(yes_no));
+        // Transcoding, upscaling, upsampling and the sentence that words them
+        // are read from the report and stored, and shown nowhere — the three
+        // are inferences drawn from the spectrum rather than measurements, and
+        // they are not being trusted yet. What they are inferred *from* stays
+        // right below: the cutoff is a number anybody can check, and a reader
+        // who knows that a 1988 analogue master holds nothing above 30 kHz can
+        // draw their own conclusion from it. Restore these three rows the day
+        // the tool's verdicts are trusted; nothing else has to change, because
+        // the values never stopped being imported.
         row(
             "Cutoff",
             record.cutoff_hz.map(|hz| format!("{:.1} kHz", hz / 1000.0)),
@@ -369,7 +375,9 @@ fn print_analyses(catalog: &Catalog, file: &aede_core::model::AudioFile) {
             "Clipped samples",
             record.clipped_samples.map(|n| n.to_string()),
         );
-        row("Verdict", record.detail.clone().or(record.summary.clone()));
+        // `summary` and `detail` are that same verdict in a word and in a
+        // sentence — "Possible transcoding: early roll-off at ~33.1 kHz" — so
+        // they go with it rather than surviving it under another name.
         row("Error", record.error.clone());
         print!("{}", t.render());
     }

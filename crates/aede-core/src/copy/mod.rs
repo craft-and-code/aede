@@ -167,8 +167,9 @@ pub struct Recipe {
 /// - it is an MP3 and Opus was asked for — a second lossy pass over a first one
 ///   is audible, and the file is already small, which was the point;
 /// - it is an MP3 and FLAC was asked for — the result would be *larger* than
-///   the source and no better, and it is exactly what `doctor` reports as
-///   "made from a lossy source". Producing that deliberately would be absurd.
+///   the source and no better: lossless in name, lossy in substance, which is
+///   the one thing nobody rips on purpose. Producing it deliberately would be
+///   absurd.
 ///
 /// So a mixed library converted for a phone comes out with its lossless half
 /// encoded and its lossy half untouched, which is what somebody filling a phone
@@ -861,8 +862,8 @@ mod tests {
         );
 
         // Already lossy, lossless asked for: the result would be larger than
-        // the source and no better, and it is what `doctor` reports as made
-        // from a lossy source. Producing it deliberately would be absurd.
+        // the source and no better — lossless in name only. Producing it
+        // deliberately would be absurd.
         assert_eq!(converted_to(&mp3, Target::Flac), None);
 
         // Already in the target format: nothing to do.

@@ -661,12 +661,12 @@ Targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `
 
 **Only lossless sources are encoded.** Everything else is copied exactly as it stands, and that one rule settles three cases at once:
 
-| Source          | `--compress mp3` asks for | What happens                                                                                                         |
-| --------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| FLAC, WAV, ALAC | MP3                       | encoded                                                                                                              |
-| MP3             | MP3                       | copied — re-encoding loses quality to produce the same thing                                                         |
-| MP3             | Opus                      | copied — a second lossy pass over a first one is audible, and the file was already small                             |
-| MP3             | FLAC                      | copied — the result would be _larger_, no better, and is exactly what `doctor` reports as "made from a lossy source" |
+| Source          | `--compress mp3` asks for | What happens                                                                              |
+| --------------- | ------------------------- | ----------------------------------------------------------------------------------------- |
+| FLAC, WAV, ALAC | MP3                       | encoded                                                                                   |
+| MP3             | MP3                       | copied — re-encoding loses quality to produce the same thing                              |
+| MP3             | Opus                      | copied — a second lossy pass over a first one is audible, and the file was already small  |
+| MP3             | FLAC                      | copied — the result would be _larger_ and no better: lossless in name, lossy in substance |
 
 So a mixed library converted for a phone comes out with its lossless half encoded and its lossy half untouched, which is what you wanted and never had to ask for. The report says how many of each, because a silent skip looks like lost files.
 
@@ -784,7 +784,11 @@ error  audio does not match its MD5
        although the frame checksums are valid: the stream was re-encoded
 ```
 
-The frame checksums prove the _container_ was not corrupted; the MD5 proves the _audio_ is the audio that was encoded. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but kept the old signature — exactly the case Aède cannot see before it decodes anything itself. A lossy ancestry — transcoded, upscaled, upsampled — is reported as a warning, with the reason and the source named.
+The frame checksums prove the _container_ was not corrupted; the MD5 proves the _audio_ is the audio that was encoded. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but kept the old signature — exactly the case Aède cannot see before it decodes anything itself.
+
+**And that is the only thing `doctor` says about an imported report.** The spectral verdicts — transcoded, upscaled, upsampled — are imported, stored, kept up to date, and reported nowhere. The distinction is not about which tool is better; it is about what kind of statement each verdict is. A failed MD5 is a _fact_: two methods compared a checksum and disagreed, and `aede check` can be pointed at the file to settle it. "Early roll-off at 33 kHz, possible transcoding" is an _inference_, hedged by the tool that made it — and rightly, since a 1988 analogue master genuinely holds nothing above 30 kHz, so a faithful 24/96 transfer of one looks exactly like an upsample. A report that turns another program's "possibly" into a warning of its own has stopped describing the library and started arguing about it.
+
+What the inference was drawn _from_ stays on the file's page, attributed: the cutoff frequency, the real bit depth, the dynamic range, the peaks. Those are measurements, and a reader who knows their master can conclude what they like from them.
 
 ### Where it is all stored
 

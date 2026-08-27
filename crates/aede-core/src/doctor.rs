@@ -58,8 +58,6 @@ pub enum IssueKind {
     OtherEdition,
     /// A decoder found the audio no longer matches the MD5 the file carries.
     Md5Mismatch,
-    /// An imported analysis suspects the file was built from a lossy source.
-    SuspectEncoding,
     /// Tracks missing from a disc, the sign of a rip left unfinished — whether
     /// they are gaps in the numbering or a tail short of the announced total.
     IncompleteAlbum,
@@ -89,8 +87,7 @@ impl IssueKind {
             | IssueKind::DuplicateAlbum
             | IssueKind::IncompleteAlbum
             | IssueKind::MixedQuality
-            | IssueKind::SuspiciousYear
-            | IssueKind::SuspectEncoding => Severity::Warning,
+            | IssueKind::SuspiciousYear => Severity::Warning,
             IssueKind::MissingDate
             | IssueKind::MissingTrackNumber
             | IssueKind::MissingCover
@@ -111,7 +108,6 @@ impl IssueKind {
             IssueKind::DuplicateAlbum => "album present twice",
             IssueKind::OtherEdition => "album kept in two encodings",
             IssueKind::Md5Mismatch => "audio does not match its MD5",
-            IssueKind::SuspectEncoding => "made from a lossy source",
             IssueKind::IncompleteAlbum => "incomplete album",
             IssueKind::MixedQuality => "mixed quality within an album",
             IssueKind::MissingCover => "missing cover art",
@@ -335,32 +331,10 @@ fn check_imported_analyses(catalog: &Catalog, issues: &mut Vec<Issue>) {
             });
         }
 
-        if record.suspect_encoding() {
-            // The reason comes from the flags, not from the sentence: the
-            // sentence describes the spectrum, and only the flags say what the
-            // tool concluded from it.
-            let mut reasons: Vec<&str> = Vec::new();
-            match record.transcoding.as_deref() {
-                Some("detected") => reasons.push("transcoded from a lossy source"),
-                Some("suspected") => reasons.push("possibly transcoded from a lossy source"),
-                _ => {}
-            }
-            if record.upscaling == Some(true) {
-                reasons.push("upscaled");
-            }
-            if record.upsampling == Some(true) {
-                reasons.push("upsampled");
-            }
-            let mut detail = reasons.join(", ");
-            if let Some(said) = record.detail.as_ref().or(record.summary.as_ref()) {
-                detail.push_str(&format!(" — {said}"));
-            }
-            issues.push(Issue {
-                kind: IssueKind::SuspectEncoding,
-                detail: format!("{detail} (reported by {})", record.source),
-                files: vec![file.path.clone()],
-            });
-        }
+        // The spectral verdicts — transcoding, upscaling, upsampling — are read
+        // from the report, stored and kept up to date, and deliberately not
+        // reported here. See `analysis::FileAnalysis::suspect_encoding`, which
+        // nothing calls on purpose.
     }
 }
 
@@ -1247,26 +1221,39 @@ mod tests {
         c.analyses.push(stale);
         let issues = diagnose(&c);
         assert_eq!(count(&issues, IssueKind::Md5Mismatch), 0);
-        assert_eq!(count(&issues, IssueKind::SuspectEncoding), 0);
     }
 
     #[test]
-    fn a_lossy_ancestry_is_a_warning_and_says_who_found_it() {
+    fn a_spectral_verdict_is_stored_and_never_reported() {
+        // The three detections another tool makes from the spectrum —
+        // transcoding, upscaling, upsampling — are read, kept, and said
+        // nowhere. They are heuristics whose own author hedges them ("could be
+        // a naturally dark master"), and a report that restates a hedge as a
+        // warning of its own has stopped describing the library and started
+        // arguing about it. The measurements behind them stay on the file's
+        // page, attributed, where the person who ran the tool can read them.
         let mut c = catalog_of_one();
         c.analyses.push(crate::analysis::FileAnalysis {
             transcoding: Some("detected".into()),
+            upscaling: Some(true),
+            upsampling: Some(true),
             detail: Some("cut at 16 kHz".into()),
             ..analysis_of(&c)
         });
         let issues = diagnose(&c);
-        let issue = issues
-            .iter()
-            .find(|i| i.kind == IssueKind::SuspectEncoding)
-            .expect("reported");
-        assert_eq!(issue.kind.severity(), Severity::Warning);
-        assert!(issue.detail.contains("transcoded"), "{}", issue.detail);
-        assert!(issue.detail.contains("cut at 16 kHz"), "{}", issue.detail);
-        assert!(issue.detail.contains("flaccompagnon"), "{}", issue.detail);
+        assert!(
+            issues.iter().all(|i| !i.detail.contains("cut at 16 kHz")),
+            "no line may carry the verdict: {issues:#?}"
+        );
+        for word in ["transcod", "upscal", "upsampl", "lossy"] {
+            assert!(
+                issues.iter().all(|i| !i.detail.contains(word)),
+                "\"{word}\" must not appear in the report: {issues:#?}"
+            );
+        }
+        // And the record itself is untouched, so the day the tool is trusted
+        // the display is all there is to write back.
+        assert!(c.analyses[0].suspect_encoding(), "still stored, still true");
     }
 
     #[test]

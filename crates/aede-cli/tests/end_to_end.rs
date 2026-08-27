@@ -2425,10 +2425,29 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
         "a failed MD5 is an error even when the checksums passed:\n{out}"
     );
     assert!(out.contains("re-encoded"), "and it says why:\n{out}");
-    assert!(
-        out.contains("made from a lossy source"),
-        "the lossy ancestry is reported too:\n{out}"
-    );
+    // The same report declares `transcoding: detected`, and that is said
+    // nowhere. A failed MD5 is a fact — two methods compared a checksum and
+    // disagreed, and `check` can be pointed at the file to settle it. A
+    // spectral verdict is an inference from a heuristic, and this report only
+    // relays facts. Both come from the same import, which is the point: what
+    // was stored and what is reported are two different questions.
+    for word in ["transcod", "upscal", "upsampl", "lossy"] {
+        assert!(
+            !out.contains(word),
+            "\"{word}\" must not appear in the report:\n{out}"
+        );
+    }
+    // And the file's own page keeps the measurement the verdict was drawn
+    // from, so nothing is hidden from whoever wants to judge for themselves.
+    let (page, _, _) = sandbox.run(&["track", "So What"]);
+    assert!(page.contains("Analysed by flaccompagnon"), "page: {page}");
+    assert!(page.contains("Cutoff"), "the cutoff is a number: {page}");
+    for word in ["Transcoding", "Upscaled", "Upsampled", "Verdict"] {
+        assert!(
+            !page.contains(word),
+            "\"{word}\" is an inference, not a measurement:\n{page}"
+        );
+    }
 
     // --- A report about other bytes -----------------------------------------
     // Once the file has been touched and read again, every imported verdict
@@ -2915,8 +2934,8 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
     // A library is mixed, and that is the case worth getting right: the FLACs
     // and WAVs are encoded, the MP3s are copied as they stand. Re-encoding an
     // MP3 into an MP3 loses quality to produce the same thing; into a FLAC it
-    // produces something *larger* and no better, which is exactly what
-    // `doctor` reports as made from a lossy source.
+    // produces something *larger* and no better: a lossless container with a
+    // lossy ancestry, which is the one thing nobody rips on purpose.
     if !ffmpeg_is_installed() {
         return;
     }
@@ -2998,8 +3017,7 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
     // above. The question the rule actually answers is what happens to an MP3
     // when a *different* format is asked for, and the answer must be the same:
     // a second lossy pass over a first one is audible, and an MP3 grown into a
-    // FLAC is larger, no better, and precisely what `doctor` calls made from a
-    // lossy source.
+    // FLAC is larger, no better, and lossless in name only.
     for (format, extension) in [("opus", "opus"), ("flac", "flac")] {
         let other = std::env::temp_dir().join(format!("aede_e2e_compress_{format}"));
         let _ = std::fs::remove_dir_all(&other);
