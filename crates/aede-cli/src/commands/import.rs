@@ -284,6 +284,15 @@ fn forget(catalog: &mut Catalog, catalog_file: &Path, args: &Args) -> Res {
         ui::plural(removed, "analysis"),
         catalog.analyses.len()
     );
+    // Which catalog, because "311 removed" and a report that still shows them
+    // is a contradiction the user cannot investigate without knowing what was
+    // written. `scan` ends this way for the same reason; a command that
+    // *destroys* something has more need of it, not less. `--data` and
+    // `$AEDE_HOME` both move this file, and the second is easy to forget.
+    println!(
+        "{}",
+        ui::dim(&format!("  catalog: {}", catalog_file.display()))
+    );
     Ok(())
 }
 

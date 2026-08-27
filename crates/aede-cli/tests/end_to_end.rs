@@ -2482,8 +2482,22 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
     // --- Forgetting ---------------------------------------------------------
     let (out, _, ok) = sandbox.run(&["import", "--forget"]);
     assert!(ok, "output: {out}");
+    // And it names the file it just wrote. "311 removed" over a report that
+    // still shows them is a contradiction nobody can investigate without
+    // knowing which catalog was emptied — `$AEDE_HOME` and `--data` both move
+    // it, and the first is easy to forget.
+    assert!(
+        out.contains("catalog:") && out.contains("catalog.json"),
+        "the destructive summary must name the file it wrote:\n{out}"
+    );
     let (out, _, _) = sandbox.run(&["track", "So What"]);
     assert!(!out.contains("Analysed by"), "nothing is left: {out}");
+
+    // Emptied means emptied: a second run finds nothing left to remove, which
+    // is the assertion that a summary printed without a save would fail.
+    let (out, _, ok) = sandbox.run(&["import", "--forget"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("0 analysis removed"), "output: {out}");
 
     // --- Refusals -----------------------------------------------------------
     let foreign = root.join("foreign.json");
