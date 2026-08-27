@@ -43,6 +43,10 @@ pub fn import(args: &Args) -> Res {
         return list_pending(&catalog, args);
     }
 
+    if args.has("list") {
+        return list_all(&catalog, args);
+    }
+
     if args.positionals.is_empty() {
         return Err("give a report, or a folder holding some: aede import report.json".into());
     }
@@ -237,6 +241,112 @@ fn list_pending(catalog: &Catalog, args: &Args) -> Res {
 /// Folders the run is restricted to, exactly as they were typed.
 fn scope(args: &Args) -> Vec<String> {
     args.positionals.clone()
+}
+
+/// What became of the analyses that name one folder.
+#[derive(Default)]
+struct Fate {
+    /// Attached to a file the catalog holds, and still describing its bytes.
+    attached: usize,
+    /// Attached to a file that has changed since the report was written.
+    stale: usize,
+    /// Naming a path the catalog does not hold.
+    waiting: usize,
+}
+
+impl Fate {
+    /// `21 attached`, `19 attached, 2 stale`, `4 waiting`.
+    fn wording(&self) -> String {
+        let mut parts = Vec::new();
+        for (count, word) in [
+            (self.attached, "attached"),
+            (self.stale, "stale"),
+            (self.waiting, "waiting"),
+        ] {
+            if count > 0 {
+                parts.push(format!("{count} {word}"));
+            }
+        }
+        parts.join(", ")
+    }
+}
+
+/// Lists every analysis held, grouped by the folder it names, and says what
+/// became of each group.
+///
+/// The counterpart of `--pending`, and it was missing: the catalog could say
+/// what had *failed* to attach and nothing at all about what had succeeded. So
+/// a report imported over an artist whose files are clean produced 311 records,
+/// no waiting line, no `doctor` entry — every symptom of having done nothing —
+/// and the only way to see otherwise was to open a track page and hope to land
+/// on a file the report covered. **A store that can only show its failures
+/// cannot be trusted about its successes**, which is the whole reason to look.
+///
+/// Three fates rather than two: attached, waiting, and *stale* — attached to a
+/// file whose bytes have changed since. The third is invisible everywhere else
+/// and is the one that silently voids a verdict.
+fn list_all(catalog: &Catalog, args: &Args) -> Res {
+    let source = args.value("source");
+    let folders = scope(args);
+    let held: BTreeMap<&str, &aede_core::model::AudioFile> =
+        catalog.files.iter().map(|f| (f.path.as_str(), f)).collect();
+
+    let mut by_folder: BTreeMap<(&str, &str), Fate> = BTreeMap::new();
+    let mut total = Fate::default();
+    for record in catalog
+        .analyses
+        .iter()
+        .filter(|a| selected(a, source, &folders))
+    {
+        let fate = by_folder
+            .entry((
+                aede_core::text::folder(&record.path),
+                record.source.as_str(),
+            ))
+            .or_default();
+        let (here, whole) = match held.get(record.path.as_str()) {
+            None => (&mut fate.waiting, &mut total.waiting),
+            Some(file) if record.still_applies(file.size, file.mtime) => {
+                (&mut fate.attached, &mut total.attached)
+            }
+            Some(_) => (&mut fate.stale, &mut total.stale),
+        };
+        *here += 1;
+        *whole += 1;
+    }
+
+    println!("{}", ui::section("Imported analyses"));
+    if by_folder.is_empty() {
+        // Holding nothing and being narrowed to nothing are different answers.
+        let narrowed = source.is_some() || !folders.is_empty();
+        println!(
+            "  {}",
+            match narrowed {
+                true => ui::yellow("nothing imported matches that"),
+                false => ui::dim("nothing imported — aede import <report.json>"),
+            }
+        );
+        return Ok(());
+    }
+
+    let window = args.window(25)?;
+    let mut t = Table::new(&["Folder", "Analyses", "State", "Source"]).align(1, Align::Right);
+    for ((folder, source), fate) in by_folder.iter().skip(window.offset).take(window.limit) {
+        t.push(vec![
+            folder.to_string(),
+            (fate.attached + fate.stale + fate.waiting).to_string(),
+            fate.wording(),
+            (*source).to_string(),
+        ]);
+    }
+    print!("{}", t.render());
+    announce_window(window, by_folder.len(), "folder");
+    println!("  {}", ui::dim(&format!("in all: {}", total.wording())));
+    println!(
+        "  {}",
+        ui::dim("what one of them holds: aede track \"<title>\"")
+    );
+    Ok(())
 }
 
 /// Removes imported analyses: all of them, one source's, only the ones still

@@ -122,6 +122,17 @@ fn print_album(catalog: &Catalog, release: &Release) {
     }
     println!("  {}", ui::dim(&release.folder));
 
+    // What is known about these files beyond their tags, in one line.
+    //
+    // Both answers lived on the track page only, which meant that verifying an
+    // album — the unit anybody actually verifies — took one command per track,
+    // and that a whole report imported for an artist could look like it had
+    // done nothing at all. An album page that says nothing about integrity
+    // reads as an album about which nothing is known.
+    if let Some(line) = verification(catalog, release) {
+        println!("  {}", ui::dim(&line));
+    }
+
     // The same album elsewhere on disk: a copy to remove, or another encoding
     // kept on purpose. Either way the folder is what one needs.
     for (kind, wording) in [
@@ -257,6 +268,113 @@ fn track_number(track: &aede_core::model::Track, discs: usize) -> String {
     }
 }
 
+/// How many of an album's tracks were read by a method, and what came of it.
+#[derive(Default, PartialEq, Debug)]
+struct Reading {
+    /// Files the method has an answer about.
+    seen: usize,
+    /// Files it found in order.
+    good: usize,
+    /// Files it found damaged, or whose checksum disagreed.
+    bad: usize,
+    /// Files whose answer no longer describes the bytes on disk.
+    stale: usize,
+}
+
+/// One line saying what has been verified about this album, or nothing.
+///
+/// Two independent methods can speak here and both are named, because they do
+/// not prove the same thing: Aède's own `check` reads the container checksums,
+/// an imported report decoded the audio. When they disagree that is the most
+/// interesting fact on the page, and it cannot show up at all if only one of
+/// them is displayed.
+fn verification(catalog: &Catalog, release: &Release) -> Option<String> {
+    let files: Vec<&aede_core::model::AudioFile> = release
+        .track_ids
+        .iter()
+        .filter_map(|&id| catalog.track(id))
+        .filter_map(|t| catalog.file(t.file_id))
+        .collect();
+    let total = files.len();
+
+    let mut checked = Reading::default();
+    for record in files.iter().filter_map(|f| f.integrity.as_ref()) {
+        use aede_core::audit::integrity::Verdict;
+        match &record.verdict {
+            // "Nothing to check" is not a reading: a WAV carries no checksum,
+            // and counting it as verified would promise something the format
+            // cannot give.
+            Verdict::NothingToCheck => continue,
+            Verdict::Intact => checked.good += 1,
+            Verdict::Damaged { .. } => checked.bad += 1,
+        }
+        checked.seen += 1;
+    }
+
+    let mut by_source: std::collections::BTreeMap<&str, Reading> = Default::default();
+    for file in &files {
+        for record in catalog.analyses_of(file) {
+            let reading = by_source.entry(record.source.as_str()).or_default();
+            reading.seen += 1;
+            if !record.still_applies(file.size, file.mtime) {
+                reading.stale += 1;
+            } else if record.md5_failed() {
+                reading.bad += 1;
+            } else if record.md5_state.is_some() {
+                reading.good += 1;
+            }
+        }
+    }
+
+    let mut parts = Vec::new();
+    if checked.seen > 0 {
+        parts.push(format!(
+            "checked: {}",
+            wording(&checked, total, "intact", "damaged")
+        ));
+    }
+    for (source, reading) in &by_source {
+        parts.push(format!(
+            "{source}: {}",
+            wording(reading, total, "MD5 matches", "MD5 failed")
+        ));
+    }
+    match parts.is_empty() {
+        true => None,
+        false => Some(parts.join(" · ")),
+    }
+}
+
+/// `12 intact`, `9 of 12 intact`, `11 intact, 1 damaged`, `2 stale`.
+///
+/// The denominator appears only when the method did not cover the whole album,
+/// because "12 of 12" on every page is a fraction nobody reads twice — and its
+/// absence is what makes the one page saying "9 of 12" visible. A count of zero
+/// is never printed either: "0 MD5 matches, 1 failed" says the same thing twice
+/// and buries the half that matters.
+fn wording(reading: &Reading, total: usize, good: &str, bad: &str) -> String {
+    // A report that measured the spectrum but never opened the checksum has
+    // said nothing about matching, and "0 of 12 MD5 matches" would read as
+    // twelve failures.
+    if reading.good == 0 && reading.bad == 0 && reading.stale == 0 {
+        return format!("{} analysed", reading.seen);
+    }
+    let mut parts = Vec::new();
+    if reading.good > 0 {
+        parts.push(match reading.seen == total {
+            true => format!("{} {good}", reading.good),
+            false => format!("{} of {total} {good}", reading.good),
+        });
+    }
+    if reading.bad > 0 {
+        parts.push(format!("{} {bad}", reading.bad));
+    }
+    if reading.stale > 0 {
+        parts.push(format!("{} stale", reading.stale));
+    }
+    parts.join(", ")
+}
+
 /// The line under the tracks: what the object is, in one breath.
 ///
 /// The disc count leads it, and only when there is more than one — the same
@@ -314,6 +432,50 @@ mod tests {
         // where the model orders it.
         assert_eq!(track_number(&track(None, Some(3)), 2), "1-03");
         assert_eq!(track_number(&track(Some(2), None), 2), "—");
+    }
+
+    #[test]
+    fn what_was_verified_is_said_in_a_fraction_only_when_it_needs_one() {
+        let reading = |seen, good, bad, stale| Reading {
+            seen,
+            good,
+            bad,
+            stale,
+        };
+        // The whole album, and nothing went wrong: no denominator, because
+        // "12 of 12" on every page is a fraction nobody reads twice.
+        assert_eq!(
+            wording(&reading(12, 12, 0, 0), 12, "intact", "damaged"),
+            "12 intact"
+        );
+        // Part of it, which is exactly the case the denominator exists for.
+        assert_eq!(
+            wording(&reading(9, 9, 0, 0), 12, "intact", "damaged"),
+            "9 of 12 intact"
+        );
+        // A failure is never folded into the good count.
+        assert_eq!(
+            wording(&reading(12, 11, 1, 0), 12, "MD5 matches", "MD5 failed"),
+            "11 MD5 matches, 1 MD5 failed"
+        );
+        // An answer about bytes that have changed since is neither good nor
+        // bad — it is void, and says so.
+        assert_eq!(
+            wording(&reading(12, 10, 0, 2), 12, "MD5 matches", "MD5 failed"),
+            "10 MD5 matches, 2 stale"
+        );
+        // A report that never opened the checksum has said nothing about
+        // matching, and "0 of 12 MD5 matches" would read as twelve failures.
+        assert_eq!(
+            wording(&reading(12, 0, 0, 0), 12, "MD5 matches", "MD5 failed"),
+            "12 analysed"
+        );
+        // And a count of zero is never printed: "0 MD5 matches, 1 failed" says
+        // the same thing twice and buries the half that matters.
+        assert_eq!(
+            wording(&reading(1, 0, 1, 0), 1, "MD5 matches", "MD5 failed"),
+            "1 MD5 failed"
+        );
     }
 
     #[test]

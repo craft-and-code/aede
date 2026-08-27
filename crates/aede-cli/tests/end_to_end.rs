@@ -2415,6 +2415,21 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
     // --- Two methods disagreeing --------------------------------------------
     let (_, _, ok) = sandbox.run(&["check"]);
     assert!(ok);
+
+    // The album page says what has been read about it, by both methods and
+    // naming both: verifying an album is what a person actually does, and it
+    // used to take one `track` command per track to find out.
+    let (out, _, ok) = sandbox.run(&["album", "Kind of Blue"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("checked: 1 intact"),
+        "aède's own reading: {out}"
+    );
+    assert!(
+        out.contains("flaccompagnon: 1 MD5 matches"),
+        "and the imported one, named:\n{out}"
+    );
+
     write_report(&report, &flac, "Mismatch", "detected");
     let (_, _, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
     assert!(ok);
@@ -2478,6 +2493,24 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
     let (out, _, ok) = sandbox.run(&["import", report.to_str().unwrap()]);
     assert!(ok);
     assert!(out.contains("Changed since the report"), "output: {out}");
+
+    // --- What is held, and what became of it --------------------------------
+    // The counterpart of --pending, and it was missing: the catalog could say
+    // what had failed to attach and nothing at all about what had succeeded.
+    // A report imported over clean files then showed every symptom of having
+    // done nothing — no waiting line, no doctor entry, no page saying so.
+    let (out, _, ok) = sandbox.run(&["import", "--list"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("flaccompagnon"), "the source is named: {out}");
+    assert!(
+        out.contains("stale"),
+        "this one was voided by the file changing: {out}"
+    );
+    // Narrowed to a source nobody imported, the answer is "nothing matches
+    // that" rather than "nothing is held", which would read as an empty store.
+    let (out, _, ok) = sandbox.run(&["import", "--list", "--source", "nobody"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("matches that"), "output: {out}");
 
     // --- Forgetting ---------------------------------------------------------
     let (out, _, ok) = sandbox.run(&["import", "--forget"]);

@@ -65,6 +65,7 @@ fn main() {
         "yes",
         "forget",
         "pending",
+        "list",
         "extras",
         "dry-run",
         "verify",
@@ -203,6 +204,7 @@ fn main() {
             IMPORT_COMMANDS,
             "list or restrict to what is waiting",
         ),
+        ("list", IMPORT_COMMANDS, "list what was imported"),
         ("source", IMPORT_COMMANDS, "select a source"),
         (
             "compilations",
@@ -673,7 +675,8 @@ fn print_help() {
   search <text>        Search the whole catalog. --comments also looks in the
                        comment tag, --notes in what you wrote yourself
   file <path>          Inspect a single file, outside the catalog
-  import <report…>     Take in FlacCompagnon reports. --pending lists the
+  import <report…>     Take in FlacCompagnon reports. --list says what is
+                       held and what became of it, --pending lists the
                        folders whose analyses match no file yet, --forget
                        removes analyses; --forget --pending [folder…] drops
                        only what is waiting, and keeps what did attach
@@ -813,11 +816,14 @@ fn print_help() {
                        wav keep every sample, so there is nothing to choose
 
 {}
+  --list               List every analysis held, by folder, and say what
+                       became of each: attached, waiting for a scan, or
+                       stale because the file changed since
   --forget             Remove the imported analyses instead of adding any
   --pending            List the folders whose analyses match no file yet;
                        with --forget, remove only those. Both accept
                        folders, to act on one rather than on all of them
-  --source <name>      Restrict to one tool (--forget, --pending)
+  --source <name>      Restrict to one tool (--list, --forget, --pending)
 
 {}
   aede scan ~/Music

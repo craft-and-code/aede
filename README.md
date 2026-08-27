@@ -698,6 +698,7 @@ Aède reads the _structure_ of a file. It does not decode, so there are question
 ```sh
 aede import ~/Desktop/danzig-report.json
 aede import ~/Desktop/reports/            # every .json underneath, at any depth
+aede import --list                        # everything held, and what became of it
 aede import --pending                     # which folders have no matching file yet
 aede import --forget                      # remove them all
 aede import --forget --source=flaccompagnon
@@ -767,7 +768,6 @@ Analysed by flaccompagnon
   Cutoff           22.1 kHz
   Dynamic range    9.3 dB
   True peak        0.28 dBTP
-  Verdict          Clean — full-band content to ~22.1 kHz, no lossy signature.
 ```
 
 Three rules govern what happens to those numbers.
@@ -789,6 +789,41 @@ The frame checksums prove the _container_ was not corrupted; the MD5 proves the 
 **And that is the only thing `doctor` says about an imported report.** The spectral verdicts — transcoded, upscaled, upsampled — are imported, stored, kept up to date, and reported nowhere. The distinction is not about which tool is better; it is about what kind of statement each verdict is. A failed MD5 is a _fact_: two methods compared a checksum and disagreed, and `aede check` can be pointed at the file to settle it. "Early roll-off at 33 kHz, possible transcoding" is an _inference_, hedged by the tool that made it — and rightly, since a 1988 analogue master genuinely holds nothing above 30 kHz, so a faithful 24/96 transfer of one looks exactly like an upsample. A report that turns another program's "possibly" into a warning of its own has stopped describing the library and started arguing about it.
 
 What the inference was drawn _from_ stays on the file's page, attributed: the cutoff frequency, the real bit depth, the dynamic range, the peaks. Those are measurements, and a reader who knows their master can conclude what they like from them.
+
+### Seeing what is held
+
+`--pending` answers what failed to attach. For a long time nothing answered the other half, and the asymmetry was worse than it sounds: a report imported over an artist whose files are all clean produces no waiting line, no `doctor` entry and no message of any kind — every symptom of having done nothing at all. The only way to see otherwise was to open a track page and hope to land on a file the report covered.
+
+```
+$ aede import --list
+
+Imported analyses
+
+  Folder                                          Analyses  State                 Source
+  /Users/…/Marilyn Manson/1994 Portrait of an…          21  21 attached           flaccompagnon
+  /Users/…/Ozzy Osbourne/1988 No Rest for the…          12  10 attached, 2 stale  flaccompagnon
+  /Volumes/OldDrive/…                                    4  4 waiting             flaccompagnon
+  in all: 305 attached, 2 stale, 4 waiting
+```
+
+Three fates, not two. **Stale** — attached to a file whose bytes have changed since the report was written — is the one that shows up nowhere else, and it is the one that silently voids a verdict.
+
+A store that can only show its failures cannot be trusted about its successes, which is the whole reason to look.
+
+### What an album page says about it
+
+The same asymmetry, one level up: both readings lived on the track page alone, so verifying an album — the unit anybody actually verifies — took one command per track. An album page now carries one line, and only when there is something to say:
+
+```
+Antichrist Superstar
+
+  Marilyn Manson
+  1996
+  /Users/…/Marilyn Manson/1996 Antichrist Superstar [FLAC] [16B-44kHz]
+  checked: 16 intact · flaccompagnon: 16 MD5 matches
+```
+
+Both methods are named because they do not prove the same thing — one read the container checksums, the other decoded the audio — and when they disagree, that is the most interesting fact on the page. The denominator appears only when a method did not cover the whole album (`9 of 12 intact`), because "12 of 12" on every page is a fraction nobody reads twice, and its absence is what makes the one page saying `9 of 12` visible.
 
 ### Where it is all stored
 
@@ -935,7 +970,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-336 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+337 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
