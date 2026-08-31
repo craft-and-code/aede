@@ -14,6 +14,31 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn scan(args: &Args) -> Res {
+    run_scan(args, Watched::AndWhateverWasNamed)
+}
+
+/// Rescans the watched folders on the user's behalf, after a command changed
+/// what "watched" means.
+///
+/// Same scan a bare `aede scan` runs, with one difference that is the whole
+/// reason this exists rather than a call to [`scan()`]: the folders named on the
+/// command line are **not** taken as roots. `aede roots --remove ~/Music` has
+/// `~/Music` as its positional, and feeding that to the scan would add back the
+/// folder that was just dropped.
+pub fn rescan(args: &Args) -> Res {
+    run_scan(args, Watched::Only)
+}
+
+/// Where the roots of a run come from.
+#[derive(PartialEq)]
+enum Watched {
+    /// A user typing `aede scan <folder>` is also asking for it to be watched.
+    AndWhateverWasNamed,
+    /// A scan nobody typed: the catalog's own list, and nothing else.
+    Only,
+}
+
+fn run_scan(args: &Args, watched: Watched) -> Res {
     let dir = data_dir(args);
     let catalog_file = store::catalog_path(&dir);
 
@@ -31,7 +56,13 @@ pub fn scan(args: &Args) -> Res {
         Err(e) => return Err(e.into()),
     };
 
-    let roots = resolve_roots(args, stored.as_ref())?;
+    let roots = match watched {
+        Watched::AndWhateverWasNamed => resolve_roots(args, stored.as_ref())?,
+        Watched::Only => stored
+            .as_ref()
+            .map(|c| c.roots.iter().map(PathBuf::from).collect())
+            .unwrap_or_default(),
+    };
     // `--full` only disables the tag cache; the watched folders are kept.
     let previous = if args.has("full") {
         None
@@ -205,6 +236,34 @@ fn dedupe_roots(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 /// Lists the watched folders, or drops one from the list.
+/// Finishes a command that changed what the library *is*, by running the scan
+/// it just made necessary.
+///
+/// Three lines of every such command used to be an instruction: "run `aede
+/// scan` to drop them". An instruction the program could carry out itself is a
+/// chore handed back to the user, and one they can forget — leaving a catalog
+/// that describes a library nobody has any more, with nothing on screen saying
+/// so. The command that creates the need is the command that satisfies it.
+///
+/// `--no-scan` keeps the old behaviour, and it is not decoration: dropping four
+/// folders one after another would otherwise rescan four times, and a library
+/// on a slow drive makes that minutes. The message then says what is pending,
+/// so the state is never silent.
+///
+/// **`reset` deliberately does not come through here.** It destroys what a scan
+/// cannot rebuild, it is the one command that asks for confirmation, and
+/// rebuilding a catalog somebody has just chosen to throw away would answer a
+/// question they did not ask.
+fn take_effect(args: &Args, pending: &str) -> Res {
+    if args.has("no-scan") {
+        println!("{}", ui::dim(&format!("  {pending}")));
+        println!("{}", ui::dim("  run `aede scan` when you want it applied"));
+        return Ok(());
+    }
+    println!("{}", ui::dim("  rescanning so that it takes effect…"));
+    rescan(args)
+}
+
 pub fn roots(args: &Args) -> Res {
     let dir = data_dir(args);
     let catalog_file = store::catalog_path(&dir);
@@ -225,8 +284,7 @@ pub fn roots(args: &Args) -> Res {
             }
             store::save(&catalog, &catalog_file)?;
             println!("{} {folder} will be read again", ui::green("->"));
-            println!("{}", ui::dim("  run `aede scan` to take it in"));
-            return Ok(());
+            return take_effect(args, "it will be read again at the next scan");
         }
         if catalog.excluded.contains(&wanted) {
             return Err(format!("\"{folder}\" is already excluded").into());
@@ -238,12 +296,7 @@ pub fn roots(args: &Args) -> Res {
         // The files already in the catalog do not vanish because the folder
         // stopped being read: the same promise `--remove` on a root makes, and
         // the same way of keeping it.
-        println!(
-            "{}",
-            ui::dim("  its files stay in the catalog until the next scan")
-        );
-        println!("{}", ui::dim("  run `aede scan` to drop them"));
-        return Ok(());
+        return take_effect(args, "its files stay in the catalog until the next scan");
     }
 
     // `--remove` is a flag, and the folder is the argument. It used to take
@@ -264,18 +317,17 @@ pub fn roots(args: &Args) -> Res {
         }
         store::save(&catalog, &catalog_file)?;
         println!("{} no longer watching {target}", ui::green("->"));
-        // Removing a folder from the list does not empty the catalog: the
-        // files stay until a scan rebuilds it from the folders still watched.
-        // Naming this one again on that scan would simply watch it anew.
-        println!(
-            "{}",
-            ui::dim("  its files stay in the catalog until the next scan")
-        );
-        println!(
-            "{}",
-            ui::dim("  run `aede scan` with no folder to drop them")
-        );
-        return Ok(());
+        if catalog.roots.is_empty() && !args.has("no-scan") {
+            println!(
+                "{}",
+                ui::yellow("  no folder is watched any more: the catalog will be emptied")
+            );
+        }
+        // Removing a folder from the list does not empty the catalog by
+        // itself: the files stay until a scan rebuilds it from the folders
+        // still watched. Naming this one again on that scan would simply watch
+        // it anew.
+        return take_effect(args, "its files stay in the catalog until the next scan");
     }
 
     println!("{}", ui::section("Watched folders"));

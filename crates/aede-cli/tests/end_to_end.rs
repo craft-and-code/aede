@@ -1694,7 +1694,14 @@ fn a_watched_folder_is_weighed_and_not_confused_with_its_neighbour() {
     // Dropping a folder leaves its files in the catalog until a rescan, and
     // the table has to show them: the removal message promises they are still
     // there, and a table that hides them makes that promise unverifiable.
-    let (_, _, ok) = sandbox.run(&["roots", "--remove", rockabilly.to_str().unwrap()]);
+    // `--no-scan` is what produces that state now — a plain removal rescans on
+    // the spot and there is nothing left to display.
+    let (_, _, ok) = sandbox.run(&[
+        "roots",
+        "--remove",
+        "--no-scan",
+        rockabilly.to_str().unwrap(),
+    ]);
     assert!(ok);
     let (out, _, ok) = sandbox.run(&["roots"]);
     assert!(ok);
@@ -1826,9 +1833,9 @@ fn a_name_given_to_an_option_may_be_typed_without_quotes() {
 
 #[test]
 fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
-    // `roots --remove` says to run `aede scan` to drop the files. When the
-    // folder removed was the only one, that scan used to fail for want of a
-    // folder, and the files had no way out of the catalog.
+    // `roots --remove` runs the scan it makes necessary. When the folder
+    // removed was the only one, that scan used to fail for want of a folder,
+    // and the files had no way out of the catalog.
     let sandbox = Sandbox::new("last_root");
     let scratch = std::env::temp_dir().join("aede_e2e_last_root_src");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -1837,11 +1844,10 @@ fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
 
     let (_, _, ok) = sandbox.run(&["scan", scratch.to_str().unwrap()]);
     assert!(ok);
-    let (_, _, ok) = sandbox.run(&["roots", "--remove", scratch.to_str().unwrap()]);
-    assert!(ok);
-
-    let (out, err, ok) = sandbox.run(&["scan"]);
+    let (out, err, ok) = sandbox.run(&["roots", "--remove", scratch.to_str().unwrap()]);
     assert!(ok, "the scan must run with no folder left. stderr: {err}");
+    // The removal carries out the scan itself: no second command, and the file
+    // leaves the catalog in the same breath.
     assert!(
         out.lines()
             .any(|l| l.trim_start().starts_with("Gone since") && l.trim_end().ends_with('1')),
@@ -1857,6 +1863,56 @@ fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
     );
 
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[test]
+fn a_change_to_what_is_watched_takes_effect_at_once() {
+    // "run `aede scan` to drop them" was an instruction the program could
+    // carry out itself, and one a user can forget — leaving a catalog that
+    // describes a library nobody has any more, with nothing on screen saying
+    // so. The command that creates the need now satisfies it.
+    let sandbox = Sandbox::new("takes_effect");
+    let root = std::env::temp_dir().join("aede_e2e_takes_effect_src");
+    let keep = root.join("Keep");
+    let drop = root.join("Drop");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::create_dir_all(&drop).unwrap();
+    std::fs::copy(library().join("track.flac"), keep.join("1.flac")).unwrap();
+    std::fs::copy(library().join("hires.flac"), drop.join("2.flac")).unwrap();
+
+    let (_, _, ok) = sandbox.run(&["scan", keep.to_str().unwrap(), drop.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["roots", "--remove", drop.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Scan complete"), "the scan ran here:\n{out}");
+    let (out, _, _) = sandbox.run(&["query", "path:Drop"]);
+    assert!(
+        out.contains("nothing matches"),
+        "and its files are already gone:\n{out}"
+    );
+
+    // --no-scan is not decoration: dropping four folders one after another
+    // would otherwise rescan four times. It says what is pending rather than
+    // leaving the state silent.
+    let (out, _, ok) = sandbox.run(&["roots", "--remove", "--no-scan", keep.to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+    assert!(!out.contains("Scan complete"), "no scan here:\n{out}");
+    assert!(out.contains("stay in the catalog"), "output: {out}");
+    assert!(out.contains("aede scan"), "and how to apply it: {out}");
+    let (out, _, _) = sandbox.run(&["query", "path:Keep"]);
+    assert!(
+        !out.contains("nothing matches"),
+        "its files are still there until then:\n{out}"
+    );
+
+    // And the option means nothing anywhere else, so it is refused there.
+    let (_, err, ok) = sandbox.run(&["scan", "--no-scan"]);
+    assert!(!ok, "stderr: {err}");
+    assert!(err.contains("cannot"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -3404,13 +3460,11 @@ fn a_folder_can_be_kept_out_of_the_library_for_good() {
     let (out, err, ok) = sandbox.run(&["roots", "--exclude", books.to_str().unwrap()]);
     assert!(ok, "stderr: {err}");
     assert!(out.contains("will not be read"), "output: {out}");
-    // The same promise `--remove` on a root makes, and it must be kept.
-    assert!(out.contains("stay in the catalog"), "output: {out}");
-
-    // A plain rescan honours it — this is the whole point. An exclusion that
-    // had to be retyped would be forgotten exactly when it mattered.
-    let (_, _, ok) = sandbox.run(&["scan"]);
-    assert!(ok);
+    // And it is read no more *now*: the exclusion runs the scan it makes
+    // necessary rather than printing an instruction to run one. An exclusion
+    // that had to be applied by hand would be forgotten exactly when it
+    // mattered.
+    assert!(out.contains("Scan complete"), "output: {out}");
     let (out, _, ok) = sandbox.run(&["query", "path:Audiobooks"]);
     assert!(ok);
     assert!(out.contains("nothing matches"), "output: {out}");

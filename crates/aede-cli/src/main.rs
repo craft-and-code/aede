@@ -66,6 +66,7 @@ fn main() {
         "forget",
         "pending",
         "list",
+        "no-scan",
         "extras",
         "dry-run",
         "verify",
@@ -253,6 +254,11 @@ fn main() {
         ("threads", &["scan", "check"], "read on several threads"),
         ("replace", &["scan", "copy"], "forget the watched folders"),
         ("exclude", &["roots"], "keep a folder out of the catalog"),
+        (
+            "no-scan",
+            &["roots"],
+            "leave the catalog untouched until the next scan",
+        ),
         ("follow-symlinks", &["scan"], "follow symbolic links"),
         ("include-hidden", &["scan"], "walk hidden files"),
         ("stars", &["rate"], "carry a rating"),
@@ -640,7 +646,9 @@ fn print_help() {
   roots                List the watched folders and the ones never read
                        (--remove <folder> drops a watched folder;
                        --exclude <folder> keeps one out of the catalog for
-                       good, --exclude <folder> --remove reads it again)
+                       good, --exclude <folder> --remove reads it again).
+                       Any of the three rescans straight away so the change
+                       takes effect; --no-scan leaves that for later
   stats                Library statistics
   doctor               Diagnosis: missing tags, duplicates, incomplete albums
                        (--severity=error|warning|info)
