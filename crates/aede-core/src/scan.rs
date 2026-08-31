@@ -304,7 +304,13 @@ fn import_reports(found: &[PathBuf], catalog: &mut Catalog) -> usize {
     count
 }
 
-fn resolve_threads(requested: usize) -> usize {
+/// How many threads a run should use: what was asked for, or what the machine
+/// offers.
+///
+/// Shared with `spectrum`, which spawns one ffmpeg per track and has exactly
+/// the same question to answer. Two defaults that could disagree about what
+/// `--threads` with no value means is one too many.
+pub fn resolve_threads(requested: usize) -> usize {
     if requested > 0 {
         return requested;
     }

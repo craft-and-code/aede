@@ -3120,10 +3120,10 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
     // test runs on a machine that has none.
     let (out, _, ok) = sandbox.run(&["spectrum", "--dry-run"]);
     assert!(ok, "output: {out}");
-    assert!(out.contains("spectres"), "the folder is named: {out}");
+    assert!(out.contains("spectrograms"), "the folder is named: {out}");
     assert!(out.contains("1 to draw"), "output: {out}");
     assert!(
-        !album.join("spectres").exists(),
+        !album.join("spectrograms").exists(),
         "a dry run writes nothing at all"
     );
 
@@ -3134,7 +3134,7 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
 
     let (out, err, ok) = sandbox.run(&["spectrum"]);
     assert!(ok, "stderr: {err}");
-    let picture = album.join("spectres").join("01.png");
+    let picture = album.join("spectrograms").join("01.png");
     assert!(picture.is_file(), "the picture must be there:\n{out}");
     let drawn = std::fs::metadata(&picture).unwrap().len();
     assert!(drawn > 1000, "and be a real image: {drawn} bytes");

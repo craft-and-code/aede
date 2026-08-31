@@ -704,7 +704,9 @@ aede spectrum --dry-run             # say what it would draw, write nothing
 aede spectrum --full                # redraw everything, even what is current
 ```
 
-One PNG per track, in a `spectres/` folder beside the music — **the same folder, the same ffmpeg filter, the same size and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**, deliberately and to the character. The two are used on the same library, and pictures that differed in scale or gain from one tool to the other would be unreadable _as a pair_, which is the whole reason to look at two.
+One PNG per track, in a `spectrograms/` folder beside the music, **drawn with the same ffmpeg filter, size, gain and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)** — deliberately and to the character. The two are used on the same library, and pictures that differed in scale or gain from one tool to the other would be unreadable _as a pair_, which is the whole reason to look at two. The folder name is the one thing that does not match: FlacCompagnon writes `spectres`, and a French word in an otherwise English program is a seam nobody would guess at. Matching a picture matters; matching a folder name does not.
+
+Several run at once — drawing a spectrogram decodes the whole file and runs an FFT over it, and no two pictures share anything. `--threads` sets how many, and means what it means on `aede scan`.
 
 Aède does not decode: it hands the file to ffmpeg, which must be installed (`brew install ffmpeg`, `apt install ffmpeg`). It is looked for once, before the first file, so a missing install is one sentence rather than one per track.
 

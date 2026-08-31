@@ -257,7 +257,11 @@ fn main() {
             &["scan", "check", "spectrum"],
             "ignore what was already done",
         ),
-        ("threads", &["scan", "check"], "read on several threads"),
+        (
+            "threads",
+            &["scan", "check", "spectrum"],
+            "read on several threads",
+        ),
         ("replace", &["scan", "copy"], "forget the watched folders"),
         ("exclude", &["roots"], "keep a folder out of the catalog"),
         (
@@ -677,11 +681,12 @@ fn print_help() {
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
-  spectrum [folder…]   Draw a spectrogram of every track into a spectres/
-                       folder beside it, through ffmpeg. Only what is missing
-                       or older than its track is drawn, so a second run over
-                       an unchanged library draws nothing (--full redraws
-                       everything, --dry-run only says what it would draw)
+  spectrum [folder…]   Draw a spectrogram of every track into a spectrograms/
+                       folder beside it, through ffmpeg, several at a time.
+                       Only what is missing or older than its track is drawn,
+                       so a second run over an unchanged library draws nothing
+                       (--full redraws everything, --dry-run only says what it
+                       would draw, --threads sets how many run at once)
   playlist [folder…]   Write an .m3u in every album folder, in album order and
                        with relative paths. --simple leaves out the #EXTINF
                        lines for players that choke on them, --artists adds one

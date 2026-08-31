@@ -10,9 +10,10 @@
 //! and to the character. The two programs are used together on the same
 //! library, and a spectrogram that differed in scale, gain or colour map from
 //! one tool to the other would be unreadable *as a pair* — the whole point of
-//! looking at two is to compare them. That is also why the folder is called
-//! `spectres` rather than an English name: it is the same folder, and a second
-//! spelling would leave a library with two of them.
+//! The folder itself is `spectrograms`, in English like everything else here.
+//! FlacCompagnon writes `spectres`; matching a *picture* matters because the
+//! two are read side by side, matching a *folder name* does not, and a French
+//! word in an otherwise English codebase is a seam nobody would guess at.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,7 +21,7 @@ use std::process::Command;
 use crate::tags::AudioProperties;
 
 /// Folder written beside the audio, holding one picture per track.
-pub const FOLDER: &str = "spectres";
+pub const FOLDER: &str = "spectrograms";
 
 /// The ffmpeg filter, character for character as FlacCompagnon draws it.
 ///
@@ -30,7 +31,7 @@ pub const FOLDER: &str = "spectres";
 const FILTER: &str =
     "showspectrumpic=s=1800x940:mode=combined:legend=1:color=intensity:scale=log:gain=3";
 
-/// Where the picture of a file belongs: `<its folder>/spectres/<its name>.png`.
+/// Where the picture of a file belongs: `<its folder>/spectrograms/<name>.png`.
 pub fn picture_for(audio: &Path) -> PathBuf {
     let folder = audio.parent().unwrap_or_else(|| Path::new("."));
     let stem = audio
@@ -172,13 +173,13 @@ mod tests {
     }
 
     #[test]
-    fn a_picture_sits_in_a_spectres_folder_beside_its_track() {
+    fn a_picture_sits_in_a_folder_of_its_own_beside_its_track() {
         let got = picture_for(Path::new("/m/Album/01 So What.flac"));
-        assert_eq!(got, Path::new("/m/Album/spectres/01 So What.png"));
+        assert_eq!(got, Path::new("/m/Album/spectrograms/01 So What.png"));
         // A name with no extension still gets a picture rather than a panic.
         assert_eq!(
             picture_for(Path::new("/m/Album/oddity")),
-            Path::new("/m/Album/spectres/oddity.png")
+            Path::new("/m/Album/spectrograms/oddity.png")
         );
     }
 

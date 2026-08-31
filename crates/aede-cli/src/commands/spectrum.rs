@@ -6,6 +6,8 @@
 //! answer to a question already answered, and the two would drift.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use aede_core::model::Catalog;
 use aede_core::{ffmpeg, spectrum};
@@ -60,19 +62,57 @@ pub fn spectrum(args: &Args) -> Res {
     // mean a thousand failed lookups before the first picture.
     let program = ffmpeg::find().ok_or_else(|| ffmpeg::missing("spectrum"))?;
 
+    // One ffmpeg per track, several at a time. Drawing a spectrogram decodes
+    // the whole file and runs an FFT over it — seconds per track, hours over a
+    // library — and the work is embarrassingly parallel because no two
+    // pictures share anything. The same answer the scan gives to the same
+    // question, down to `--threads` meaning the same thing.
     let total = work.len();
-    let mut drawn = 0usize;
-    let mut failures: Vec<(String, String)> = Vec::new();
-    for (index, (audio, picture, caption)) in work.iter().enumerate() {
-        print!("\r  drawing: {}/{total}   ", index + 1);
-        use std::io::Write;
-        let _ = std::io::stdout().flush();
-        match spectrum::render(&program, audio, picture, Some(caption.as_str())) {
-            Ok(()) => drawn += 1,
-            Err(said) => failures.push((audio.display().to_string(), said)),
+    let threads = aede_core::scan::resolve_threads(args.number_or("threads", 0)?).min(total.max(1));
+    let queue = Mutex::new(work);
+    let failures: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    let done = AtomicUsize::new(0);
+
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    // A poisoned lock must not abandon the rest of the work:
+                    // one ffmpeg that panicked is not a reason to stop drawing.
+                    let Some((audio, picture, caption)) =
+                        queue.lock().unwrap_or_else(|e| e.into_inner()).pop()
+                    else {
+                        break;
+                    };
+                    if let Err(said) =
+                        spectrum::render(&program, &audio, &picture, Some(caption.as_str()))
+                    {
+                        failures
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push((audio.display().to_string(), said));
+                    }
+                    done.fetch_add(1, Ordering::Relaxed);
+                }
+            });
         }
-    }
-    println!();
+        // The main thread only reports progress, so no picture waits on a
+        // terminal write.
+        let mut last = usize::MAX;
+        while done.load(Ordering::Relaxed) < total {
+            let current = done.load(Ordering::Relaxed);
+            if current != last {
+                last = current;
+                print!("\r  drawing: {current}/{total}   ");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
+    });
+    println!("\r  drawing: {total}/{total}   ");
+
+    let failures = failures.into_inner().unwrap_or_else(|e| e.into_inner());
+    let drawn = total - failures.len();
 
     let mut t = Table::plain(2).align(1, Align::Right);
     t.push(vec!["Drawn".into(), drawn.to_string()]);
