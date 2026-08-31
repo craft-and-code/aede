@@ -3020,6 +3020,92 @@ fn a_selection_is_copied_out_keeping_its_tree() {
 /// tests green. The skip says so out loud, so a suite that silently stopped
 /// testing conversion cannot pass for a suite that tested it.
 #[test]
+fn a_playlist_is_written_beside_the_music_and_only_when_it_has_changed() {
+    let sandbox = Sandbox::new("playlist");
+    let root = std::env::temp_dir().join("aede_e2e_playlist_src");
+    let artist = root.join("Miles Davis");
+    let album = artist.join("1959 Kind of Blue");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::copy(library().join("track.flac"), album.join("01.flac")).unwrap();
+    std::fs::copy(library().join("hires.flac"), album.join("02.flac")).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["playlist"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Written"), "output: {out}");
+    // Named after its folder rather than after the album title: two folders
+    // can hold the same title, and a title carries characters a filesystem
+    // will not.
+    let file = album.join("1959 Kind of Blue.m3u");
+    let text = std::fs::read_to_string(&file).expect("the playlist must be there");
+    assert!(text.starts_with("#EXTM3U\n"), "text: {text}");
+    assert!(text.contains("#EXTINF:"), "text: {text}");
+    // Relative, so the folder can be moved or copied to a card and still play.
+    assert!(text.contains("\n01.flac\n"), "relative paths: {text}");
+    assert!(!text.contains(album.to_str().unwrap()), "text: {text}");
+
+    // Repeating the command is the ordinary case and must write nothing —
+    // said out loud, because an empty screen there reads as a failure.
+    let (out, _, ok) = sandbox.run(&["playlist"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("Already up to date"), "output: {out}");
+    assert!(
+        out.lines()
+            .any(|l| l.trim_start().starts_with("Written") && l.trim_end().ends_with('0')),
+        "nothing rewritten:\n{out}"
+    );
+
+    // A track added to the album changes what the playlist should say without
+    // touching any file it already names — which is why the test is on the
+    // text and not on a modification date.
+    std::fs::copy(library().join("track.mp3"), album.join("03.mp3")).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["playlist"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.lines()
+            .any(|l| l.trim_start().starts_with("Written") && l.trim_end().ends_with('1')),
+        "the album grew:\n{out}"
+    );
+    assert!(std::fs::read_to_string(&file).unwrap().contains("03.mp3"));
+
+    // --simple is for players that stop at the first # they do not know.
+    let (_, _, ok) = sandbox.run(&["playlist", "--simple"]);
+    assert!(ok);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains('#'), "no directives at all: {text}");
+    // Three tracks, in the order the album is in — which is the order the tags
+    // give, not the order the file names happen to sort in.
+    let rows: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(rows.len(), 3, "text: {text}");
+    for name in ["01.flac", "02.flac", "03.mp3"] {
+        assert!(rows.contains(&name), "{name} missing from {text}");
+    }
+
+    // --artists gathers the discography one folder up.
+    let (out, _, ok) = sandbox.run(&["playlist", "--artists"]);
+    assert!(ok, "output: {out}");
+    let disco = artist.join("Miles Davis.m3u");
+    let text = std::fs::read_to_string(&disco).expect("the discography must be there");
+    assert!(
+        text.contains("1959 Kind of Blue/01.flac"),
+        "relative to the artist folder: {text}"
+    );
+
+    // And nothing is ever written into a watched root: a library laid out flat
+    // would otherwise get one playlist per artist dumped at its top.
+    assert!(
+        !root.join("aede_e2e_playlist_src.m3u").exists(),
+        "the root is not an artist folder"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn a_spectrogram_is_drawn_once_and_only_once() {
     let sandbox = Sandbox::new("spectrum");
     let root = std::env::temp_dir().join("aede_e2e_spectrum_src");

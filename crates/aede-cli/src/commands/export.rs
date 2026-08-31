@@ -430,37 +430,12 @@ fn escape(value: &str, separator: char) -> String {
 /// Renders a track list as an extended M3U playlist.
 ///
 /// Paths are absolute, which is what makes the file work wherever it is saved.
-/// `#EXTM3U` and the `#EXTINF` lines are what a player reads to show a title
-/// without opening every file.
+/// The rendering itself lives in [`aede_core::playlist`], shared with `aede
+/// playlist` — that one writes into the album folder and therefore names its
+/// tracks relatively, and two writers agreeing about `#EXTINF` today would
+/// disagree about it in six months.
 pub fn m3u(catalog: &Catalog, tracks: &[Id]) -> String {
-    let mut out = String::from("#EXTM3U\n");
-    for &id in tracks {
-        let Some(track) = catalog.track(id) else {
-            continue;
-        };
-        let Some(file) = catalog.file(track.file_id) else {
-            continue;
-        };
-        let artist = catalog
-            .credits_on(EntityKind::Track, id)
-            .into_iter()
-            .find(|(_, role)| *role == "main")
-            .map(|(a, _)| a.name.clone())
-            .unwrap_or_default();
-        // Seconds, rounded, and -1 when unknown: that is what the format says.
-        let seconds = match track.duration_ms {
-            Some(ms) => ((ms + 500) / 1000) as i64,
-            None => -1,
-        };
-        if artist.is_empty() {
-            out.push_str(&format!("#EXTINF:{seconds},{}\n", track.title));
-        } else {
-            out.push_str(&format!("#EXTINF:{seconds},{artist} - {}\n", track.title));
-        }
-        out.push_str(&file.path);
-        out.push('\n');
-    }
-    out
+    aede_core::playlist::render(catalog, tracks, None, aede_core::playlist::Style::Extended)
 }
 
 #[cfg(test)]

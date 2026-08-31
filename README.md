@@ -712,6 +712,26 @@ Aède does not decode: it hands the file to ffmpeg, which must be installed (`br
 
 A caption across the top says what the file claims to be — sample rate, depth or bitrate, channels, codec, Nyquist — so that a picture kept on its own still answers "at what sample rate?". It is drawn with ffmpeg's `drawtext`, which needs a font; where there is none the picture is drawn without it rather than not at all. The caption is built from values read out of the file, so it is restricted to a character set that cannot escape the filter expression: a file declaring a codec of `x'a,b` would otherwise inject into the command ffmpeg is handed.
 
+## Playlists in the folders
+
+```sh
+aede playlist                       # an .m3u in every album folder
+aede playlist ~/Music/Ozzy          # only under that folder
+aede playlist --simple              # paths only, no #EXTINF
+aede playlist --artists             # and one per artist, their whole discography
+aede playlist --dry-run             # say what it would write, write nothing
+```
+
+The file is named after its **folder** — `1959 Kind of Blue [FLAC].m3u` — not after the album title. Two folders can hold the same title (a rip and a remaster), and a title carries `/` and `:` on records named by people rather than by filesystems; the folder name is unique where the file goes and already legal there.
+
+Paths are **relative**, which is the whole point of a playlist that lives beside its music: the folder can be moved, copied to a card or read on another machine and the playlist still plays. (`--m3u` on a selection keeps absolute paths — that file may be saved anywhere and has no folder to be relative to. Both go through the same renderer, so they cannot drift apart on what an `#EXTINF` line looks like.)
+
+The order is the album's own — disc, then track number, from the tags. **A box set laid out as `Disc 1`, `Disc 2` gets one playlist in the parent folder, spanning the discs**, which is exactly the file wanted when the tracks are numbered 1..17 twice over.
+
+`--artists` infers the artist folder as the one every album of that artist sits in. Where they do not share one, or share only a watched root, nothing is written: a library laid out flat would otherwise get one playlist per artist dumped at its top, which is littering rather than tidying.
+
+**A second run writes nothing.** The test is on the _text_: a playlist is derived from the set of tracks, not from their bytes, so adding a track changes what it should say without touching any file it already names. Comparing the rendered text answers both questions at once, and leaves the file's date alone when nothing changed — which matters to whatever syncs the folder afterwards.
+
 ## What another tool found
 
 Entirely optional, and it changes nothing if you never use it.
@@ -995,7 +1015,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-345 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+349 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 

@@ -67,6 +67,8 @@ fn main() {
         "pending",
         "list",
         "no-scan",
+        "simple",
+        "artists",
         "extras",
         "dry-run",
         "verify",
@@ -277,8 +279,14 @@ fn main() {
         ("extras", &["copy"], "choose what travels beside the audio"),
         (
             "dry-run",
-            &["copy", "spectrum"],
+            &["copy", "spectrum", "playlist"],
             "say what it would do without doing it",
+        ),
+        ("simple", &["playlist"], "leave out the #EXTINF lines"),
+        (
+            "artists",
+            &["playlist"],
+            "write one playlist per artist too",
         ),
         ("verify", &["copy"], "read back what it wrote"),
         ("safe-names", &["copy"], "adapt names to the destination"),
@@ -443,6 +451,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("check", None, commands::check),
     ("copy", None, commands::copy),
     ("spectrum", None, commands::spectrum),
+    ("playlist", None, commands::playlist),
     ("reset", None, commands::reset),
     ("import", None, commands::import),
     ("query", Some("find"), commands::query),
@@ -673,6 +682,11 @@ fn print_help() {
                        or older than its track is drawn, so a second run over
                        an unchanged library draws nothing (--full redraws
                        everything, --dry-run only says what it would draw)
+  playlist [folder…]   Write an .m3u in every album folder, in album order and
+                       with relative paths. --simple leaves out the #EXTINF
+                       lines for players that choke on them, --artists adds one
+                       per artist folder covering their whole discography,
+                       --dry-run only says what it would write
 
   artists              List of artists (--role composer, producer…,
                        --sort tracks|name)

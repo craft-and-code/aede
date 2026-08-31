@@ -20,6 +20,7 @@ pub mod copy;
 pub mod doctor;
 pub mod ffmpeg;
 pub mod model;
+pub mod playlist;
 pub mod query;
 pub mod scan;
 pub mod spectrum;
