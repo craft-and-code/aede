@@ -2932,6 +2932,31 @@ fn a_selection_is_copied_out_keeping_its_tree() {
             .exists()
     );
 
+    // --- Several at a time -------------------------------------------------
+    // A plain copy writes one file at a time by default — one card is one
+    // queue, and several writers on it seek against each other — but the pool
+    // is what --compress runs on, so it has to be exercised without an encoder
+    // in reach. Every file must arrive, and the run must still be a success.
+    let many = std::env::temp_dir().join("aede_e2e_copy_dest_threads");
+    let _ = std::fs::remove_dir_all(&many);
+    std::fs::create_dir_all(&many).unwrap();
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        many.to_str().unwrap(),
+        "--threads=4",
+        "--verify",
+        "--extras=all",
+    ]);
+    assert!(ok, "stderr: {err}");
+    assert!(report.contains("Written"), "output: {report}");
+    for name in ["04 Where Is My Mind?.flac", "cover.jpg", "rip.log"] {
+        assert!(
+            many.join("Pixies/Surfer Rosa").join(name).is_file(),
+            "{name} must have arrived:\n{report}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&many);
+
     // --- Running it again costs nothing ------------------------------------
     let (report, _, ok) = sandbox.run(&["copy", out.to_str().unwrap()]);
     assert!(ok);

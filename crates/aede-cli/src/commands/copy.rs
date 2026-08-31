@@ -11,6 +11,8 @@
 //! rating:>=4"` reuses, exactly, what `aede query` would have shown.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use aede_core::copy::transcode::{self, Quality, Target};
 use aede_core::copy::{self, Extras, Item, ItemKind, Plan, Recipe};
@@ -366,34 +368,104 @@ fn free_space(destination: &Path) -> Option<u64> {
     Some(available * 1024)
 }
 
+/// How many files to work on at once, which is not the same question when the
+/// run is encoding as when it is only copying.
+///
+/// **Encoding is arithmetic; copying is a queue at a device.** With
+/// `--compress`, each file is an ffmpeg encode — seconds of CPU that no other
+/// file waits on, and running one at a time leaves most of the machine idle.
+/// A plain copy is the opposite: the destination is usually *one* card, one
+/// stick, one slow drive, and several writers on it do not go faster — they
+/// seek against each other, and on cheap flash they go markedly slower.
+/// `--verify` makes that worse still by reading back what was just written.
+///
+/// So the default follows the work: parallel when there is something to encode,
+/// one at a time when there is not. `--threads` overrides it in both
+/// directions, for the person copying to an NVMe or encoding on a laptop they
+/// still want to use.
+fn workers(
+    args: &Args,
+    recipe: &Recipe,
+    total: usize,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let asked = args.number_or("threads", 0)?;
+    if asked > 0 {
+        return Ok(asked.min(total.max(1)));
+    }
+    match recipe.convert.is_some() {
+        true => Ok(aede_core::scan::resolve_threads(0).min(total.max(1))),
+        false => Ok(1),
+    }
+}
+
 /// Writes the plan, saying where it is as it goes.
 fn run(plan: &Plan, destination: &Path, args: &Args, recipe: &Recipe, ffmpeg: Option<&str>) -> Res {
     let verify = args.has("verify");
     let replace = args.has("replace");
     let interactive = ui::is_interactive();
     let total = plan.items.len();
+    let threads = workers(args, recipe, total)?;
 
-    let mut copied = 0usize;
-    let mut skipped = 0usize;
-    let mut failures: Vec<(PathBuf, String)> = Vec::new();
+    // Taken in reverse so that popping from the back walks the plan forwards,
+    // which is what makes the progress line agree with the folder tree being
+    // filled — a run that jumps about looks like it is doing something else.
+    let queue: Mutex<Vec<&Item>> = Mutex::new(plan.items.iter().rev().collect());
+    let counts = Mutex::new((0usize, 0usize)); // copied, skipped
+    let failures: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+    let done = AtomicUsize::new(0);
 
-    for (done, item) in plan.items.iter().enumerate() {
-        match write_one(item, destination, verify, replace, recipe, ffmpeg) {
-            Ok(copy::Wrote::Copied) => copied += 1,
-            Ok(copy::Wrote::Skipped) => skipped += 1,
-            // One unreadable file does not end the run: the other nine hundred
-            // are still worth copying, and the report names every failure.
-            Err(reason) => failures.push((item.source.clone(), reason)),
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    // A poisoned lock must not strand the rest of the plan:
+                    // one file that panicked is not a reason to stop copying.
+                    let Some(item) = queue.lock().unwrap_or_else(|e| e.into_inner()).pop() else {
+                        break;
+                    };
+                    match write_one(item, destination, verify, replace, recipe, ffmpeg) {
+                        Ok(copy::Wrote::Copied) => {
+                            counts.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
+                        }
+                        Ok(copy::Wrote::Skipped) => {
+                            counts.lock().unwrap_or_else(|e| e.into_inner()).1 += 1;
+                        }
+                        // One unreadable file does not end the run: the other
+                        // nine hundred are still worth copying, and the report
+                        // names every failure.
+                        Err(reason) => failures
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push((item.source.clone(), reason)),
+                    }
+                    done.fetch_add(1, Ordering::Relaxed);
+                }
+            });
         }
-        if interactive && ((done + 1).is_multiple_of(REDRAW_EVERY) || done + 1 == total) {
-            print!("\r  {}/{total}   ", done + 1);
-            use std::io::Write;
-            let _ = std::io::stdout().flush();
+        if !interactive {
+            return;
         }
-    }
+        let mut last = usize::MAX;
+        while done.load(Ordering::Relaxed) < total {
+            let current = done.load(Ordering::Relaxed);
+            if current != last && current.is_multiple_of(REDRAW_EVERY) {
+                last = current;
+                print!("\r  {current}/{total}   ");
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(60));
+        }
+    });
     if interactive {
         println!("\r  {total}/{total}   ");
     }
+
+    let (copied, skipped) = counts.into_inner().unwrap_or_else(|e| e.into_inner());
+    let mut failures = failures.into_inner().unwrap_or_else(|e| e.into_inner());
+    // Sorted, because the order several threads finish in is not an order:
+    // the same run twice must report the same list in the same sequence.
+    failures.sort();
 
     println!("{}", ui::section("Copied"));
     let mut table = Table::plain(2).align(1, Align::Right);
@@ -496,4 +568,72 @@ fn source_duration(source: &Path) -> Option<u64> {
     aede_core::tags::read(source)
         .ok()
         .and_then(|tags| tags.properties.duration_ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Args {
+        Args::parse(words.iter().map(|w| w.to_string()))
+    }
+
+    fn recipe(convert: Option<Target>) -> Recipe {
+        Recipe {
+            extras: Extras::default(),
+            restrict_names: false,
+            convert,
+            quality: None,
+        }
+    }
+
+    #[test]
+    fn how_many_files_at_once_follows_the_work_and_not_the_machine() {
+        // A plain copy is a queue at one device — one card, one stick, one slow
+        // drive — and several writers on it seek against each other rather than
+        // going faster. `--verify`, which reads back what it just wrote, makes
+        // that worse still.
+        assert_eq!(
+            workers(&args(&["copy", "/out"]), &recipe(None), 900).unwrap(),
+            1
+        );
+
+        // Encoding is arithmetic: each file is an ffmpeg run that no other file
+        // waits on, and one at a time leaves most of the machine idle.
+        let encoding = workers(&args(&["copy", "/out"]), &recipe(Some(Target::Mp3)), 900).unwrap();
+        assert!(encoding >= 1, "at least one");
+        assert_eq!(
+            encoding,
+            aede_core::scan::resolve_threads(0),
+            "as many as the machine offers"
+        );
+
+        // And the person copying to an NVMe, or encoding on a laptop they still
+        // want to use, overrides it in either direction.
+        assert_eq!(
+            workers(&args(&["copy", "/out", "--threads=6"]), &recipe(None), 900).unwrap(),
+            6
+        );
+        assert_eq!(
+            workers(
+                &args(&["copy", "/out", "--threads=1"]),
+                &recipe(Some(Target::Mp3)),
+                900
+            )
+            .unwrap(),
+            1
+        );
+
+        // Never more workers than there is work: eight threads over three files
+        // is five threads spawned to find an empty queue.
+        assert_eq!(
+            workers(&args(&["copy", "/out", "--threads=8"]), &recipe(None), 3).unwrap(),
+            3
+        );
+        // And an empty plan still asks for one, rather than for none.
+        assert_eq!(
+            workers(&args(&["copy", "/out", "--threads=8"]), &recipe(None), 0).unwrap(),
+            1
+        );
+    }
 }

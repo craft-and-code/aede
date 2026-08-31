@@ -259,7 +259,7 @@ fn main() {
         ),
         (
             "threads",
-            &["scan", "check", "spectrum"],
+            &["scan", "check", "spectrum", "copy"],
             "read on several threads",
         ),
         ("replace", &["scan", "copy"], "forget the watched folders"),
@@ -677,7 +677,10 @@ fn print_help() {
                        (default: cover), --verify reads back what it wrote,
                        --dry-run says what it would do and writes nothing.
                        --compress <format> encodes on the way out, through
-                       ffmpeg; what is already compressed is copied as it is
+                       ffmpeg, several files at a time; what is already
+                       compressed is copied as it is. A plain copy writes one
+                       file at a time — one card is one queue — and --threads
+                       overrides that either way
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead

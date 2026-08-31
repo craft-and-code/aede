@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 349 tests
+cargo test                       # 350 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -215,6 +215,8 @@ The two lines are **not a partition**, and must not be made into one. Someone wh
 **A freshness test asks the disk, not the catalog.** `spectrum::out_of_date` compares the picture's date with the **track's date on disk**, never with the `mtime` the catalog recorded at the last scan. Those are two different facts, and the catalog's is the wrong one: a library edited since would keep pictures of bytes nobody has any more, and the first version of the end-to-end test caught exactly that by touching a file without rescanning. Whenever a derived artifact is kept beside a source, the question is "was this made from what is there now", and only the source can answer it.
 
 **Freshness is asked of whatever the artifact is derived _from_.** Two commands write files beside the music and must do nothing on a second run, and they answer the question differently because they are derived from different things. A spectrogram is derived from one file's **bytes**, so `spectrum` compares modification dates. A playlist is derived from the **set** of tracks — adding one changes what the playlist should say without touching any file it already names — so `playlist` renders the text and compares it with what is on disk. Using a date there would miss the added track; using content for a PNG would mean drawing it to find out whether to draw it. Match the test to the derivation, not to the habit. Comparing the text has a second virtue: an unchanged playlist keeps its own modification date, which matters to whatever syncs the folder next.
+
+**Parallelism follows the work, not the machine.** Three commands do many small jobs and they do not get the same answer. `scan` and `spectrum` are arithmetic — reading tags, decoding and running an FFT — so they take every core. `copy` is two kinds of work in one command: `--compress` is an ffmpeg run per file and parallel, a plain copy is a queue at _one_ device where extra writers seek against each other (markedly so on cheap flash, and `--verify` doubles the traffic), so it stays at one. `playlist` renders a few kilobytes per album and threads would buy nothing but a mutex to reason about. `copy::workers` is where that decision lives, with a unit test on the decision itself — the end-to-end test can prove the pool copies everything correctly, never that it was faster, so the checkable part is _how many_, and that is what is asserted. `--threads` means the same thing everywhere and overrides all of it, which is why `scan::resolve_threads` is public rather than copied.
 
 **A comment and a note are not the same field.** The comment tag lives inside the audio file, put there by whoever tagged it; a note lives in `user.json`, put there by the person using Aède. `search --comments` and `search --notes` therefore stay two options with two sections, and must never be folded into one "free text" search: searching one is searching the library, searching the other is searching yourself, and a hit has to say by which route it was found.
 

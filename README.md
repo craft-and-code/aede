@@ -676,6 +676,8 @@ Targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `
 
 So a mixed library converted for a phone comes out with its lossless half encoded and its lossy half untouched, which is what you wanted and never had to ask for. The report says how many of each, because a silent skip looks like lost files.
 
+**Encoding runs several files at a time; a plain copy does not.** The two are different kinds of work and the default follows the work rather than the machine. With `--compress`, each file is an ffmpeg run that no other file waits on, so one at a time would leave most of the processor idle. A plain copy is a queue at a single device — one card, one stick, one slow drive — where several writers do not go faster but seek against each other, markedly so on cheap flash, and `--verify` reads back everything just written on the same device. `--threads` overrides it in either direction, for the person copying to an NVMe or encoding on a laptop they still want to use.
+
 **ffmpeg does the encoding, and it is an external program — not a dependency.** Nothing is linked or vendored; a checkout without ffmpeg builds fine and every other command works. `--compress` looks for it once, before the first byte is written, and says how to install it if it is missing. This is how beets drives its `convert` plugin, and for the same reason.
 
 ```
@@ -1017,7 +1019,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-349 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+350 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
