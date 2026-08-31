@@ -2,7 +2,7 @@
 
 A local music library, written in Rust.
 
-An *aède* (Greek ἀοιδός, *aoidos*) was the poet-singer of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and playing, in one word — which is exactly what this program is for.
+An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and playing, in one word — which is exactly what this program is for.
 
 This repository is **milestone M0.5**: read folders, turn them into a catalog of linked entities, answer questions about it, and keep what you think of it. No audio playback and no network access yet — that is deliberate, see the roadmap at the end.
 
@@ -18,32 +18,32 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `aede scan [folder…]` | Scan the watched folders; any folder given is added to them |
-| `aede roots` | List the watched folders (`--remove <folder>` to drop one) |
-| `aede stats` | Tracks, albums, formats, quality, decades, completeness |
-| `aede doctor` | Missing tags, duplicates, incomplete albums, mixed formats |
-| `aede check [folder…]` | Verify the checksums the files carry (`--full` re-verifies everything) |
-| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings (`artists --role producer`, `albums --compilations`) |
-| `aede artist "<name>"` | Discography, collaborations, roles (`--with <other>` lists the tracks two artists share) |
-| `aede album "<title>"` | Tracks, durations, formats, credits |
-| `aede track "<title>"` | Every track carrying this title: album, credits, technical details, tags |
-| `aede genre <name>` | What is in a genre: albums and the artists audible on them |
-| `aede label <name>` | A label's catalogue and its artists |
-| `aede search <text>` | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes) |
-| `aede file <path>` | Inspect a single file, outside the catalog |
-| `aede export` | Export the catalog as JSON, or as CSV with `--csv` |
-| `aede copy <destination>` | Copy a selection to a player, a card or a drive, keeping its folder tree |
-| `aede import <report…>` | Take in a FlacCompagnon report (`--pending` lists the folders whose analyses match no file yet, `--forget` removes analyses) |
-| `aede reset` | Remove the catalog, after confirmation (`--yes` skips it) |
-| `aede love\|rate\|note\|tag <kind> <name>` | What you think of it: a favourite, 1–5 stars, a note, free labels (`tag` takes a comma-separated list) |
-| `aede favourites` / `notes` / `history` | What you wrote, and what you played |
-| `aede played <track>` | Record a listen, until playback records its own (`--remove` undoes the last one) |
-| `aede query <expression>` | Every track an expression matches, as a selection |
-| `aede collection <name>` | Save a query under a name, run it, or drop it |
-| `aede collections` | The saved queries, and how much each holds now |
-| `aede help` | Every command and every option, which is the contract |
+| Command                                                   | What it does                                                                                                                 |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them                                                                  |
+| `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)                                                                   |
+| `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                                                      |
+| `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats                                                                   |
+| `aede check [folder…]`                                    | Verify the checksums the files carry (`--full` re-verifies everything)                                                       |
+| `aede artists` / `albums` / `genres` / `labels` / `years` | Listings (`artists --role producer`, `albums --compilations`)                                                                |
+| `aede artist "<name>"`                                    | Discography, collaborations, roles (`--with <other>` lists the tracks two artists share)                                     |
+| `aede album "<title>"`                                    | Tracks, durations, formats, credits                                                                                          |
+| `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                                                     |
+| `aede genre <name>`                                       | What is in a genre: albums and the artists audible on them                                                                   |
+| `aede label <name>`                                       | A label's catalogue and its artists                                                                                          |
+| `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes)                         |
+| `aede file <path>`                                        | Inspect a single file, outside the catalog                                                                                   |
+| `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                                                           |
+| `aede copy <destination>`                                 | Copy a selection to a player, a card or a drive, keeping its folder tree                                                     |
+| `aede import <report…>`                                   | Take in a FlacCompagnon report (`--pending` lists the folders whose analyses match no file yet, `--forget` removes analyses) |
+| `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                                                    |
+| `aede love\|rate\|note\|tag <kind> <name>`                | What you think of it: a favourite, 1–5 stars, a note, free labels (`tag` takes a comma-separated list)                       |
+| `aede favourites` / `notes` / `history`                   | What you wrote, and what you played                                                                                          |
+| `aede played <track>`                                     | Record a listen, until playback records its own (`--remove` undoes the last one)                                             |
+| `aede query <expression>`                                 | Every track an expression matches, as a selection                                                                            |
+| `aede collection <name>`                                  | Save a query under a name, run it, or drop it                                                                                |
+| `aede collections`                                        | The saved queries, and how much each holds now                                                                               |
+| `aede help`                                               | Every command and every option, which is the contract                                                                        |
 
 `--json` produces machine-readable output wherever `--csv` does — the same rows, typed — plus `stats`, `doctor`, `search` and `track`, which have shapes of their own. `aede help` lists every option.
 
@@ -144,7 +144,7 @@ aede note artist "Miles Davis" --remove
 aede note album "Legion" --from album:"Once Upon the Cross"
 ```
 
-`--file` is what makes a note a *written* thing rather than a command-line
+`--file` is what makes a note a _written_ thing rather than a command-line
 argument: write it in a real editor, pipe it in with `-`. `--append` adds to
 what is there, separated by a blank line, because two thoughts a month apart
 are not one paragraph.
@@ -258,7 +258,7 @@ could never say which was meant.
 
 ### Searching what you wrote
 
-Everything you write is queryable, and searching *inside* a note or a tag is
+Everything you write is queryable, and searching _inside_ a note or a tag is
 the same field with a value:
 
 ```sh
@@ -271,7 +271,7 @@ aede query "album.rating:>=4 -played"
 
 **The scope is part of the question, and it is the one thing that surprises
 people.** A bare `loved`, `rating`, `tag` or `note` asks about the **track**. If
-you marked an *album* a favourite, `aede query "loved"` finds nothing — you
+you marked an _album_ a favourite, `aede query "loved"` finds nothing — you
 asked a different question from the one you meant. So an empty answer says
 where what you wrote actually is, and offers the expression that finds it:
 
@@ -288,7 +288,7 @@ an artist is not five stars on a track, and a field that merged them could
 never say which was meant.
 
 **A field written alone asks whether there is one at all**, and `-field` asks
-the opposite — which is how a library is combed for what has *not* been
+the opposite — which is how a library is combed for what has _not_ been
 annotated yet:
 
 ```sh
@@ -307,7 +307,7 @@ words; written with a field they still are, as `title:note`.
 ### Listing albums rather than tracks
 
 The grammar evaluates over **tracks**, because that is the finer question and
-the coarser one is a fold of it. When what you want back is a list of *albums*,
+the coarser one is a fold of it. When what you want back is a list of _albums_,
 `aede albums` takes the same expression:
 
 ```sh
@@ -366,7 +366,7 @@ It needs a person, so `aede album "<title>" --role performer` is refused: a role
 
 A role is typed the way it is **shown**: `--role "album artist"` as well as `--role album`, in either case, with or without quotes. What a screen displays must be what the parser accepts, or the program contradicts itself — as it did, denying a role and listing it among the artist's credits in the same message.
 
-Three different answers, because they are three different situations: a word that names no role at all lists the ones that do; a real role this library happens not to hold says so; and a role the *person* does not hold names the ones they do. `aede stats` shows the whole vocabulary **this** library holds, with counts — so a role that returns nothing can be told apart from a bug: your files simply never carried that tag.
+Three different answers, because they are three different situations: a word that names no role at all lists the ones that do; a real role this library happens not to hold says so; and a role the _person_ does not hold names the ones they do. `aede stats` shows the whole vocabulary **this** library holds, with counts — so a role that returns nothing can be told apart from a bug: your files simply never carried that tag.
 
 ```
 Roles
@@ -411,7 +411,7 @@ Matching is on the canonical path, so a folder reached through a symbolic link i
 
 ### Comments
 
-The `comment` tag is the one field *you* write: where a rip came from, which pressing this is, what still needs replacing. It is read from every format and it is searchable, but only when asked:
+The `comment` tag is the one field _you_ write: where a rip came from, which pressing this is, what still needs replacing. It is read from every format and it is searchable, but only when asked:
 
 ```sh
 aede search --comments "vinyl rip"
@@ -422,7 +422,7 @@ aede albums --comment "vinyl"
 
 Off by default on `search`, because a comment is free prose: a common word in one would bury the album that actually bears the name. Comment hits are shown in **their own section** and marked `found_in: comment` in the JSON — a hit says by which route it was found, the same rule that keeps an imported analysis in its own panel.
 
-`--notes` does the same for what *you* wrote:
+`--notes` does the same for what _you_ wrote:
 
 ```sh
 aede search "vinyle" --notes
@@ -500,15 +500,15 @@ The demo library is deliberately damaged: untagged files, a duplicate, an album 
 
 ### Reading the scan report
 
-| Line | What it counts |
-|---|---|
-| Files found | Audio files seen while walking the folders, duplicates removed |
-| Read from disk | Files whose tags were parsed: new ones, and those changed since the last scan |
-| Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk |
-| Gone since last scan | Files the catalog knew and that are no longer there; they leave the catalog |
-| Analyses imported | [FlacCompagnon reports](#what-another-tool-found) found in the folders and taken in; only shown when there were any |
-| Analyses now attached | Imported analyses that were waiting for a file and found it this time |
-| Elapsed | Wall-clock time of the whole scan, folder walk included |
+| Line                      | What it counts                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Files found               | Audio files seen while walking the folders, duplicates removed                                                      |
+| Read from disk            | Files whose tags were parsed: new ones, and those changed since the last scan                                       |
+| Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk            |
+| Gone since last scan      | Files the catalog knew and that are no longer there; they leave the catalog                                         |
+| Analyses imported         | [FlacCompagnon reports](#what-another-tool-found) found in the folders and taken in; only shown when there were any |
+| Analyses now attached     | Imported analyses that were waiting for a file and found it this time                                               |
+| Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                             |
 
 `Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
 
@@ -552,11 +552,11 @@ About to remove the catalog
 
 `aede check` answers the one question the tags cannot: has the audio been damaged since it was written? It reads no reference copy and decodes nothing — it verifies the checksums the containers already carry.
 
-| Container | What is verified |
-|---|---|
-| FLAC | The CRC-16 of every frame and the CRC-8 of every frame header |
-| Ogg (Vorbis, Opus, Speex) | The CRC-32 of every page |
-| MP3, MP4, WAV, AIFF | Nothing: these formats carry no checksum |
+| Container                 | What is verified                                              |
+| ------------------------- | ------------------------------------------------------------- |
+| FLAC                      | The CRC-16 of every frame and the CRC-8 of every frame header |
+| Ogg (Vorbis, Opus, Speex) | The CRC-32 of every page                                      |
+| MP3, MP4, WAV, AIFF       | Nothing: these formats carry no checksum                      |
 
 That catches what actually happens to stored files — a flipped bit, a bad sector, a truncated copy. A truncated file is caught even though every frame it still holds is valid, because the last one has to end where the file does.
 
@@ -602,7 +602,7 @@ Two things make it manageable:
 
 **Interrupting is safe.** Verdicts are written to the catalog every 250 files rather than at the end, so a `Ctrl-C` — or a laptop closing, or a drive going away — costs at most the batch in progress. Everything already verified is kept, and the next run picks up exactly where the last one stopped, since a file that has a verdict is no longer in the queue. A second full run therefore has nothing left to read.
 
-What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the *decoded* audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it. Until then, [taking in another tool's analysis](#what-another-tool-found) fills the gap for whoever already has one.
+What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the _decoded_ audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it. Until then, [taking in another tool's analysis](#what-another-tool-found) fills the gap for whoever already has one.
 
 ## Copying to a player
 
@@ -621,12 +621,12 @@ aede copy /Volumes/Player --dry-run                         # what it would do, 
 
 ### What travels beside the audio
 
-| `--extras` | What comes |
-|---|---|
-| `none` | Audio only. Cover art embedded in the tags travels anyway: it is inside the file |
-| `cover` *(default)* | The one cover the catalog identified for the release |
-| `images` | Every image in the folder |
-| `all` | Everything beside the audio: logs, cue sheets, reports |
+| `--extras`          | What comes                                                                       |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `none`              | Audio only. Cover art embedded in the tags travels anyway: it is inside the file |
+| `cover` _(default)_ | The one cover the catalog identified for the release                             |
+| `images`            | Every image in the folder                                                        |
+| `all`               | Everything beside the audio: logs, cue sheets, reports                           |
 
 The default is `cover` rather than `images` for a reason worth spelling out: **a rip folder's spectrograms and booklet scans are PNGs too.** Filtering on the extension copies exactly what you were trying to leave behind. The catalog already knows which file is the cover — the scan picked it by rank and stored it on the release — so `cover` is an exact answer where `images` can only be a guess.
 
@@ -667,12 +667,12 @@ Targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `
 
 **Only lossless sources are encoded.** Everything else is copied exactly as it stands, and that one rule settles three cases at once:
 
-| Source | `--compress mp3` asks for | What happens |
-|---|---|---|
-| FLAC, WAV, ALAC | MP3 | encoded |
-| MP3 | MP3 | copied — re-encoding loses quality to produce the same thing |
-| MP3 | Opus | copied — a second lossy pass over a first one is audible, and the file was already small |
-| MP3 | FLAC | copied — the result would be *larger* and no better: lossless in name, lossy in substance |
+| Source          | `--compress mp3` asks for | What happens                                                                              |
+| --------------- | ------------------------- | ----------------------------------------------------------------------------------------- |
+| FLAC, WAV, ALAC | MP3                       | encoded                                                                                   |
+| MP3             | MP3                       | copied — re-encoding loses quality to produce the same thing                              |
+| MP3             | Opus                      | copied — a second lossy pass over a first one is audible, and the file was already small  |
+| MP3             | FLAC                      | copied — the result would be _larger_ and no better: lossless in name, lossy in substance |
 
 So a mixed library converted for a phone comes out with its lossless half encoded and its lossy half untouched, which is what you wanted and never had to ask for. The report says how many of each, because a silent skip looks like lost files.
 
@@ -691,13 +691,32 @@ Sizes shown before a conversion are **estimates**, and labelled as such: what an
 
 `--verify` cannot compare checksums here — the bytes differ by construction, which is the point. It instead reads the result back **with Aède's own parsers** and checks that it holds audio of the right length, which catches the failure that actually happens: an encode cut short by a full disk or a killed process. A verification that asked ffmpeg whether ffmpeg had done its job would not be one.
 
-Note that writing tags into a *derived copy* is not the same act as rewriting the tags of your library, which this project refuses to do. That refusal protects **your** files, whose modification date, integrity verdict and scan state all depend on not being touched; a file that did not exist a second ago has none of those. The distinction is deliberate, and recorded as such.
+Note that writing tags into a _derived copy_ is not the same act as rewriting the tags of your library, which this project refuses to do. That refusal protects **your** files, whose modification date, integrity verdict and scan state all depend on not being touched; a file that did not exist a second ago has none of those. The distinction is deliberate, and recorded as such.
+
+## Spectrograms
+
+A spectrogram is the last arbiter when the provenance of a file is in doubt: a lossless container filled from an MP3 shows a wall at 16 kHz that no tag will ever mention.
+
+```sh
+aede spectrum                       # every track the catalog holds
+aede spectrum ~/Music/Ozzy          # only what is under that folder
+aede spectrum --dry-run             # say what it would draw, write nothing
+aede spectrum --full                # redraw everything, even what is current
+```
+
+One PNG per track, in a `spectres/` folder beside the music — **the same folder, the same ffmpeg filter, the same size and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**, deliberately and to the character. The two are used on the same library, and pictures that differed in scale or gain from one tool to the other would be unreadable _as a pair_, which is the whole reason to look at two.
+
+Aède does not decode: it hands the file to ffmpeg, which must be installed (`brew install ffmpeg`, `apt install ffmpeg`). It is looked for once, before the first file, so a missing install is one sentence rather than one per track.
+
+**A second run over an unchanged library draws nothing.** A picture is redrawn only when it is missing, or when the track's modification date has moved past the picture's — both read from the disk rather than from the catalog, because the question is whether this picture was drawn from the bytes that are there _now_.
+
+A caption across the top says what the file claims to be — sample rate, depth or bitrate, channels, codec, Nyquist — so that a picture kept on its own still answers "at what sample rate?". It is drawn with ffmpeg's `drawtext`, which needs a font; where there is none the picture is drawn without it rather than not at all. The caption is built from values read out of the file, so it is restricted to a character set that cannot escape the filter expression: a file declaring a codec of `x'a,b` would otherwise inject into the command ffmpeg is handed.
 
 ## What another tool found
 
 Entirely optional, and it changes nothing if you never use it.
 
-Aède reads the *structure* of a file. It does not decode, so there are questions it cannot answer yet: is this FLAC a re-encoded MP3, was it upsampled, where does the spectrum stop, how loud is it really — and the decisive one, does the decoded audio still match the MD5 the encoder wrote into the file.
+Aède reads the _structure_ of a file. It does not decode, so there are questions it cannot answer yet: is this FLAC a re-encoded MP3, was it upsampled, where does the spectrum stop, how loud is it really — and the decisive one, does the decoded audio still match the MD5 the encoder wrote into the file.
 
 [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) already does that pass. If you have run it, `aede import` puts the results into the catalog:
 
@@ -716,7 +735,7 @@ A folder is walked **recursively**, because reports are kept the way the albums 
 
 ### The order does not matter
 
-An analysis is filed under the **path** it describes, not under a catalog entry. So the two operations can be done either way round, which matters because analysing a folder and *then* building the library from it is the natural order for someone who already owns the other tool.
+An analysis is filed under the **path** it describes, not under a catalog entry. So the two operations can be done either way round, which matters because analysing a folder and _then_ building the library from it is the natural order for someone who already owns the other tool.
 
 - **Import first.** The records are stored and reported as `Waiting for a scan`. The scan that brings those files in makes them attach by themselves, and says so (`Analyses now attached`). `doctor` says how many are still waiting rather than letting them sit there unmentioned.
 - **Scan first.** Files are matched by path, then by name and size for a library that has moved since — a name and a byte count together are very nearly unique.
@@ -749,7 +768,7 @@ Waiting for a scan
   aede import --forget --pending <folder>
 ```
 
-Grouped by folder because that is the unit you act on: a report covering a fourteen-track album is *one* decision — scan that folder, or decide it is gone — and fourteen rows bury it. And the folder is written out **whole**, never cut to a column width: a path trimmed to fit loses its head, which is exactly the half that distinguishes a drive merely unplugged from a folder that was renamed.
+Grouped by folder because that is the unit you act on: a report covering a fourteen-track album is _one_ decision — scan that folder, or decide it is gone — and fourteen rows bury it. And the folder is written out **whole**, never cut to a column width: a path trimmed to fit loses its head, which is exactly the half that distinguishes a drive merely unplugged from a folder that was renamed.
 
 Once a folder is confirmed to be dead weight, `--forget --pending` removes exactly what waits in it, leaving every analysis that did attach untouched:
 
@@ -760,7 +779,7 @@ aede import --forget --pending                             # everything waiting
 
 Both `--pending` and `--forget --pending` accept folders, and `--source` narrows either to one tool. A folder given to a plain `--forget` is refused rather than silently ignored — on a command that deletes, a swallowed argument is the worst kind.
 
-Being *about* a file is not the same as *describing* it: a record that matches by name and size is still checked against that file's modification date, and dropped if the file was written to since.
+Being _about_ a file is not the same as _describing_ it: a record that matches by name and size is still checked against that file's modification date, and dropped if the file was written to since.
 
 Imported analyses survive a scan — they are the one thing in the catalog that reading the files again cannot recompute.
 
@@ -790,11 +809,11 @@ error  audio does not match its MD5
        although the frame checksums are valid: the stream was re-encoded
 ```
 
-The frame checksums prove the *container* was not corrupted; the MD5 proves the *audio* is the audio that was encoded. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but kept the old signature — exactly the case Aède cannot see before it decodes anything itself.
+The frame checksums prove the _container_ was not corrupted; the MD5 proves the _audio_ is the audio that was encoded. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but kept the old signature — exactly the case Aède cannot see before it decodes anything itself.
 
-**And that is the only thing `doctor` says about an imported report.** The spectral verdicts — transcoded, upscaled, upsampled — are imported, stored, kept up to date, and reported nowhere. The distinction is not about which tool is better; it is about what kind of statement each verdict is. A failed MD5 is a *fact*: two methods compared a checksum and disagreed, and `aede check` can be pointed at the file to settle it. "Early roll-off at 33 kHz, possible transcoding" is an *inference*, hedged by the tool that made it — and rightly, since a 1988 analogue master genuinely holds nothing above 30 kHz, so a faithful 24/96 transfer of one looks exactly like an upsample. A report that turns another program's "possibly" into a warning of its own has stopped describing the library and started arguing about it.
+**And that is the only thing `doctor` says about an imported report.** The spectral verdicts — transcoded, upscaled, upsampled — are imported, stored, kept up to date, and reported nowhere. The distinction is not about which tool is better; it is about what kind of statement each verdict is. A failed MD5 is a _fact_: two methods compared a checksum and disagreed, and `aede check` can be pointed at the file to settle it. "Early roll-off at 33 kHz, possible transcoding" is an _inference_, hedged by the tool that made it — and rightly, since a 1988 analogue master genuinely holds nothing above 30 kHz, so a faithful 24/96 transfer of one looks exactly like an upsample. A report that turns another program's "possibly" into a warning of its own has stopped describing the library and started arguing about it.
 
-What the inference was drawn *from* stays on the file's page, attributed: the cutoff frequency, the real bit depth, the dynamic range, the peaks. Those are measurements, and a reader who knows their master can conclude what they like from them.
+What the inference was drawn _from_ stays on the file's page, attributed: the cutoff frequency, the real bit depth, the dynamic range, the peaks. Those are measurements, and a reader who knows their master can conclude what they like from them.
 
 ### Seeing what is held
 
@@ -839,26 +858,26 @@ In the catalog, and nowhere else: `~/.local/share/aede/catalog.json` grows one m
 
 ## Supported formats
 
-| Container | Codecs | Tags | Duration from |
-|---|---|---|---|
-| FLAC | FLAC | Vorbis Comment, leading ID3v2 | STREAMINFO |
-| MP3 | MPEG 1/2/2.5 layers I–III | ID3v2.2/2.3/2.4, ID3v1 | Xing / VBRI / constant bitrate |
-| MP4 | ALAC, AAC | iTunes atoms, freeform `----` | `mvhd` |
-| Ogg | Vorbis, Opus | Vorbis Comment | Granule position |
-| WAV | PCM | `LIST/INFO`, `id3 ` chunk | `fmt ` + `data` |
-| AIFF / AIFC | PCM | `NAME`/`AUTH`, `ID3 ` chunk | `COMM` |
+| Container   | Codecs                    | Tags                          | Duration from                  |
+| ----------- | ------------------------- | ----------------------------- | ------------------------------ |
+| FLAC        | FLAC                      | Vorbis Comment, leading ID3v2 | STREAMINFO                     |
+| MP3         | MPEG 1/2/2.5 layers I–III | ID3v2.2/2.3/2.4, ID3v1        | Xing / VBRI / constant bitrate |
+| MP4         | ALAC, AAC                 | iTunes atoms, freeform `----` | `mvhd`                         |
+| Ogg         | Vorbis, Opus              | Vorbis Comment                | Granule position               |
+| WAV         | PCM                       | `LIST/INFO`, `id3 ` chunk     | `fmt ` + `data`                |
+| AIFF / AIFC | PCM                       | `NAME`/`AUTH`, `ID3 ` chunk   | `COMM`                         |
 
 Extensions: `.flac` `.mp3` `.m4a` `.m4b` `.mp4` `.alac` `.ogg` `.oga` `.opus` `.wav` `.wave` `.aif` `.aiff` `.aifc`
 
 The formats below are read through [`lofty`](https://crates.io/crates/lofty), which takes over whenever the signature matches none of the parsers above:
 
-| Container | Codecs | Tags | Duration from |
-|---|---|---|---|
-| AAC | AAC | ID3v2, ID3v1 | ADTS frame headers |
-| WavPack | WavPack | APEv2, ID3v1 | Block headers |
-| Monkey's Audio | APE | APEv2, ID3v1 | Descriptor |
-| Musepack | Musepack SV7/SV8 | APEv2, ID3v1 | Stream header |
-| Speex | Speex | Vorbis Comment | Granule position |
+| Container      | Codecs           | Tags           | Duration from      |
+| -------------- | ---------------- | -------------- | ------------------ |
+| AAC            | AAC              | ID3v2, ID3v1   | ADTS frame headers |
+| WavPack        | WavPack          | APEv2, ID3v1   | Block headers      |
+| Monkey's Audio | APE              | APEv2, ID3v1   | Descriptor         |
+| Musepack       | Musepack SV7/SV8 | APEv2, ID3v1   | Stream header      |
+| Speex          | Speex            | Vorbis Comment | Granule position   |
 
 Extensions: `.aac` `.ape` `.wv` `.mpc` `.mp+` `.mpp` `.spx`
 
@@ -907,8 +926,8 @@ CLAUDE.md           project conventions and invariants
 
 The model is not "an album belongs to an artist" but **entities carrying roles towards one another**. Two tables do all the work:
 
-- `credit` — *who does what, on what*: performer, composer, conductor, producer, engineer…
-- `relation` — *typed links between entities*, with a weight and a source.
+- `credit` — _who does what, on what_: performer, composer, conductor, producer, engineer…
+- `relation` — _typed links between entities_, with a weight and a source.
 
 This is what will let you click a drummer and see their forty appearances. A flat schema would have to be thrown away the day MusicBrainz arrives.
 
@@ -928,22 +947,22 @@ It is also what makes an upgrade painless. The `relation` table is **inferred** 
 
 Dropping a folder from the list does not empty the catalog on its own: its files stay until the next `aede scan` rebuilds the catalog from the folders still watched. Run that scan **without naming a folder** — naming the one just dropped would simply watch it again.
 
-**A row measures what it counts.** In *Appears on*, the duration and the size cover the tracks the artist is on, not the whole album: one guest song is one guest song, not forty minutes of somebody else's record.
+**A row measures what it counts.** In _Appears on_, the duration and the size cover the tracks the artist is on, not the whole album: one guest song is one guest song, not forty minutes of somebody else's record.
 
 **The same album twice is two albums, and the model says why.** A library holds the same record more than once for two opposite reasons: a hi-res copy kept beside the CD rip, or a folder copied and forgotten. Aède keeps both as separate releases — they are two sets of files, in two folders, and the folder is what you act on — and links them with a typed relation:
 
-| Same title, same album artist, same track list | Link | What it means |
-|---|---|---|
-| Same encoding on both sides | `duplicate` | Nothing tells the copies apart: one is dead weight |
-| Different encoding | `other_edition` | The second copy is there on purpose |
+| Same title, same album artist, same track list | Link            | What it means                                      |
+| ---------------------------------------------- | --------------- | -------------------------------------------------- |
+| Same encoding on both sides                    | `duplicate`     | Nothing tells the copies apart: one is dead weight |
+| Different encoding                             | `other_edition` | The second copy is there on purpose                |
 
 Track positions and titles must match exactly; durations only have to be within three seconds, since two rips of one disc never agree to the millisecond. Two albums merely sharing a name are left unlinked — without MusicBrainz there is nothing reliable to say about them.
 
 `doctor` reports a `duplicate` once, as a warning naming both folders and the space to be recovered, instead of once per track — a copied album used to produce thirteen identical lines. An `other_edition` is reported too, as information: it is a choice, not a defect. The artist page and the album listing mark the rows, and `aede album` names the other folders.
 
-**A guest appearance is not part of a discography.** Singing one track on somebody else's album puts it under *Appears on*, never under *Discography*, and writing or production credits go in a third section. The performer rankings count performing credits only.
+**A guest appearance is not part of a discography.** Singing one track on somebody else's album puts it under _Appears on_, never under _Discography_, and writing or production credits go in a third section. The performer rankings count performing credits only.
 
-*Performing* means credited in a role that makes the artist audible on the recording: `artist`, `albumartist`, `performer`, `featured`, `conductor`, `remixer`. A composer or a lyricist is not audible, so an artist page states its figures on two labelled lines — `performing:` and `writing:` — rather than one unlabelled count. A band's lyricist genuinely has no performing credit: what the files say is that the band played, not who in it.
+_Performing_ means credited in a role that makes the artist audible on the recording: `artist`, `albumartist`, `performer`, `featured`, `conductor`, `remixer`. A composer or a lyricist is not audible, so an artist page states its figures on two labelled lines — `performing:` and `writing:` — rather than one unlabelled count. A band's lyricist genuinely has no performing credit: what the files say is that the band played, not who in it.
 
 **A name is matched exactly first.** `aede album "Danzig"` shows the 1988 record, not whichever of `Danzig 4` or `Danzig II` the catalog holds first — an exact title ends the search. Only when nothing matches exactly does it widen to the titles containing the text, and then it shows **all** of them, saying that it widened. `aede track` follows the same rule.
 
@@ -976,7 +995,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON an
 cargo test
 ```
 
-338 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+345 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, and an end-to-end test that runs the binary. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
 
 ## Roadmap
 
@@ -988,9 +1007,9 @@ cargo test
 
 **M1 — identification.** MusicBrainz for relations and credits, AcoustID/Chromaprint for badly tagged files, Cover Art Archive for artwork, Wikidata to reach the Wikipedia article in the user's language — in the vast majority of cases it already exists, written by humans, so no machine translation is needed. Move to SQLite. Also: country and formation dates, band line-ups as dated relations, release types, and the completeness report that says which albums are missing from the shelf. The hard part will be matching files to releases: plan for a confidence score and manual correction, never a blind rewrite. See [Identification](#identification-m1).
 
-**Decided before a line of it is written: a value from MusicBrainz sits *beside* the tag, never on top of it.** The precedent is already in the codebase — an imported analysis is attributed to its source and never merged into Aède's own fields, which is exactly what lets `doctor` report that two methods disagree. Writing a MusicBrainz genre into the `genre` field would cost three things at once: saying where the value came from, noticing that MusicBrainz and the tag differ, and undoing it. And it would not even survive: a scan rebuilds the catalog from the files, so the tag would overwrite it on the next run — the same fault the `analysis` table was designed around, and the same one the scan exclusions hit on their first version. So M1 gets its own layer, attributed, carried across a rescan, removable, with the display choosing which to show.
+**Decided before a line of it is written: a value from MusicBrainz sits _beside_ the tag, never on top of it.** The precedent is already in the codebase — an imported analysis is attributed to its source and never merged into Aède's own fields, which is exactly what lets `doctor` report that two methods disagree. Writing a MusicBrainz genre into the `genre` field would cost three things at once: saying where the value came from, noticing that MusicBrainz and the tag differ, and undoing it. And it would not even survive: a scan rebuilds the catalog from the files, so the tag would overwrite it on the next run — the same fault the `analysis` table was designed around, and the same one the scan exclusions hit on their first version. So M1 gets its own layer, attributed, carried across a rescan, removable, with the display choosing which to show.
 
-**And the layer is kept whole, including where it agrees.** The tempting saving is to store nothing when MusicBrainz says what the tag already says. It is the wrong trade, for one reason: *agreement is information*. "Checked against MusicBrainz and it matches" and "never checked" are two different states, and a layer that only records disagreements cannot tell them apart — the same distinction the catalog already draws between a genre that exists and holds nothing and a genre nobody ever heard of. Keeping the answer whole also means the question "does my tag still match?" is answered **offline**, from the catalog, the day after you re-tag a file — where storing only divergences would send you back to the network to re-derive something you had already been told. The precedent is again in the codebase: raw tags are kept per file for exactly this reason, so the graph can be rebuilt without touching the disk. A few hundred bytes per release buys all of it.
+**And the layer is kept whole, including where it agrees.** The tempting saving is to store nothing when MusicBrainz says what the tag already says. It is the wrong trade, for one reason: _agreement is information_. "Checked against MusicBrainz and it matches" and "never checked" are two different states, and a layer that only records disagreements cannot tell them apart — the same distinction the catalog already draws between a genre that exists and holds nothing and a genre nobody ever heard of. Keeping the answer whole also means the question "does my tag still match?" is answered **offline**, from the catalog, the day after you re-tag a file — where storing only divergences would send you back to the network to re-derive something you had already been told. The precedent is again in the codebase: raw tags are kept per file for exactly this reason, so the graph can be rebuilt without touching the disk. A few hundred bytes per release buys all of it.
 
 **M2 — the API.** HTTP server, JSON and WebSocket. To be frozen early: it is the contract between the core and every future client. This is where `serde` becomes worth its place: hand-written serialization is fine for one internal format, but not for an HTTP contract with a dozen types on it. The current `json` module was written for the catalog file, and the move is meant to be mechanical.
 
@@ -1037,7 +1056,7 @@ unusable for its actual purpose, which is "wait, play that again".
 
 ### Order is a permutation, not a coin flip
 
-Repeat (one track, the whole queue) and shuffle are properties of the *order*,
+Repeat (one track, the whole queue) and shuffle are properties of the _order_,
 not of the queue. This distinction is load-bearing:
 
 **A shuffle produces an order, once, and the queue then holds that order.** It
@@ -1057,17 +1076,17 @@ one again.
 
 ### Styles of shuffle
 
-Several are worth having, and they should be *one* algorithm with two knobs
+Several are worth having, and they should be _one_ algorithm with two knobs
 rather than six algorithms:
 
-| Style | What it does |
-|---|---|
-| `uniform` | The classic. A seeded Fisher–Yates over the queue. |
-| `by-album` | Shuffles albums, keeps each album in its own order. An album is a sequence somebody intended. |
-| `spread` | Uniform, but never two tracks of the same artist within *n*. Fixes "it played four Deicides in a row" without pretending that is not what uniform randomness does. |
-| `similar` | Stays close to the track it started from. |
-| `journey` | Deliberately drifts: ends somewhere else, having got there by walking. |
-| `discover` | Weighted towards what has never been played, or not for a long time. |
+| Style      | What it does                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `uniform`  | The classic. A seeded Fisher–Yates over the queue.                                                                                                                 |
+| `by-album` | Shuffles albums, keeps each album in its own order. An album is a sequence somebody intended.                                                                      |
+| `spread`   | Uniform, but never two tracks of the same artist within _n_. Fixes "it played four Deicides in a row" without pretending that is not what uniform randomness does. |
+| `similar`  | Stays close to the track it started from.                                                                                                                          |
+| `journey`  | Deliberately drifts: ends somewhere else, having got there by walking.                                                                                             |
+| `discover` | Weighted towards what has never been played, or not for a long time.                                                                                               |
 
 ### The smart shuffle, without a language model
 
@@ -1084,7 +1103,7 @@ graph rather than a hierarchy:
   hand-written taxonomy in it and no external ontology to argue with. In a
   library like this one, Black Metal and Death Metal will sit next to each
   other because they genuinely do; Black Metal and Pop will have no edge at all,
-  because nothing in the library connects them. The graph fits *this* library
+  because nothing in the library connects them. The graph fits _this_ library
   rather than someone's idea of how music is organised, which is both the
   strength and the limit: a library of two genres has nothing to walk on.
 - **The artist relation graph**, which `relations.rs` already builds from shared
@@ -1102,7 +1121,7 @@ walk:
 4. **never take a step longer than `d_max`.**
 
 Rule 4 is the whole guarantee, and it is worth stating on its own: the style may
-change only by *walking*, never by jumping. Black Metal reaches Pop only through
+change only by _walking_, never by jumping. Black Metal reaches Pop only through
 whatever lies between them in this library, one bounded step at a time, which is
 to say it will usually not get there at all — and that is the desired behaviour,
 not a limitation. The rule is local, cheap, and easy to test.
@@ -1112,8 +1131,8 @@ played and resets when the user intervenes. `similar` keeps it low, `journey`
 lets it climb, and `uniform` is the same walk with `r` unbounded. Two knobs,
 six behaviours.
 
-Plus memory, which every shuffle needs: no track twice within *m*, no artist
-within *n*.
+Plus memory, which every shuffle needs: no track twice within _m_, no artist
+within _n_.
 
 **All of this is pure computation over the catalog.** It belongs in
 `aede-core`, it is unit-testable with no sound card and no audio at all, and it
@@ -1198,7 +1217,7 @@ albums — a note on a label ("great remasters, bad pressings") is exactly the
 kind of thing that gets lost otherwise.
 
 **Tags are the one annotation that is naturally plural**, and the command reads
-that way. A record is vinyl *and* rare *and* to-rip-again, so all three go on in
+that way. A record is vinyl _and_ rare _and_ to-rip-again, so all three go on in
 one go, and come off the same way:
 
 ```sh
@@ -1266,12 +1285,12 @@ Annotations must therefore never be keyed by them — the same lesson the import
 FlacCompagnon analyses already taught, and it cost a rewrite to learn. An
 `EntityRef` is a kind plus a **stable key**:
 
-| Kind | Stable key |
-|---|---|
-| Track | the file path, with name + size as a fallback |
-| Release | album artist + title + folder, the key it is already built on |
-| Artist | the normalized name key, until M1 brings MBIDs |
-| Genre, label | the normalized key |
+| Kind         | Stable key                                                    |
+| ------------ | ------------------------------------------------------------- |
+| Track        | the file path, with name + size as a fallback                 |
+| Release      | album artist + title + folder, the key it is already built on |
+| Artist       | the normalized name key, until M1 brings MBIDs                |
+| Genre, label | the normalized key                                            |
 
 And the same reconciliation as the analyses: an annotation whose target is not
 in the catalog is **kept waiting, never dropped.** Rename a folder, rescan, and
@@ -1303,20 +1322,20 @@ own front end will want them. That sounds like a separate, large subject. It is
 not — it is **this** subject, seen from the other side, and the boundary drawn
 above is already the answer:
 
-| | Belongs to | Same for everyone? |
-|---|---|---|
-| Files, tracks, releases, artists, credits, relations, genres, labels | the catalog | yes |
-| Integrity verdicts, imported analyses | the catalog | yes — a measurement, not an opinion |
-| Favourites, ratings, notes, tags | a person | no |
-| Play history and counts, queues, saved queries | a person | no |
+|                                                                      | Belongs to  | Same for everyone?                  |
+| -------------------------------------------------------------------- | ----------- | ----------------------------------- |
+| Files, tracks, releases, artists, credits, relations, genres, labels | the catalog | yes                                 |
+| Integrity verdicts, imported analyses                                | the catalog | yes — a measurement, not an opinion |
+| Favourites, ratings, notes, tags                                     | a person    | no                                  |
+| Play history and counts, queues, saved queries                       | a person    | no                                  |
 
 Facts about the files are read from the disk or measured on it: two people
-looking at the same library see the same ones. Everything a person *said or
-did* is theirs, always — including when there is exactly one of them.
+looking at the same library see the same ones. Everything a person _said or
+did_ is theirs, always — including when there is exactly one of them.
 
 **So the rule is: no per-user field ever lands on a catalog entity.** A
 `rating` on a release, or a `play_count` on a track, looks harmless while there
-is one user and becomes a question with no answer — *whose?* — the day there are
+is one user and becomes a question with no answer — _whose?_ — the day there are
 two, by which time every read in the program assumes the single answer. As of
 M0 that boundary is intact: every table in the catalog is a fact. It stayed that
 way by luck rather than by intent, which is exactly why it is written down now.
@@ -1349,7 +1368,7 @@ it in a minute; rescanning is a perfectly good migration path for anything
 reproducible.
 
 What is not reproducible has to be carried across, and `aede reset` already
-names the list, since it is the same one — what a rescan does *not* bring back:
+names the list, since it is the same one — what a rescan does _not_ bring back:
 
 - the **integrity verdicts**, which can cost an hour of reading;
 - the **imported analyses**, which cost a run of another program entirely;
@@ -1387,7 +1406,7 @@ history drive another's shuffle. The library-wide figure is then a sum, computed
 when someone asks for it, which is what a total should always be.
 
 `completed` matters more than it looks: a track skipped after eight seconds is
-evidence *against* it, and a rating system that cannot tell a skip from a listen
+evidence _against_ it, and a rating system that cannot tell a skip from a listen
 is measuring the wrong thing.
 
 **And it can be taken back**, which every other thing the user writes could
@@ -1440,18 +1459,18 @@ and shaped by the wrong concerns.
 
 Where things actually stand:
 
-| Capability | Today |
-|---|---|
-| Several criteria at once | Yes, and any depth of them |
-| Filters | Yes, per command, each refused where it means nothing |
-| Numeric and date ranges | Yes: `year:1990..1999`, `duration:..3:30`, `rating:>=4` |
-| Sorting | Yes on `query` and `collection`; `artists` still has its own two keys |
-| Pagination | Yes: `--limit`, `--offset`, `--all`, through one `Window` |
-| Aggregation and statistics | Yes: `stats`, `years`, and counts, durations and sizes on every listing |
-| Search on user tags | Yes: `tag:`, `rating:`, `loved`, `note:`, and their `album.`/`artist.` forms; `aede search <text> --notes` reads the notes as prose |
-| Search on relations | Yes: `artist:` is any credit, and `composer:`, `producer:`, `performer:`… ask who did what |
-| `AND` / `OR` / `NOT` | Yes |
-| Saved queries, smart collections | Yes: `aede collection <name> --query "…"` |
+| Capability                       | Today                                                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Several criteria at once         | Yes, and any depth of them                                                                                                          |
+| Filters                          | Yes, per command, each refused where it means nothing                                                                               |
+| Numeric and date ranges          | Yes: `year:1990..1999`, `duration:..3:30`, `rating:>=4`                                                                             |
+| Sorting                          | Yes on `query` and `collection`; `artists` still has its own two keys                                                               |
+| Pagination                       | Yes: `--limit`, `--offset`, `--all`, through one `Window`                                                                           |
+| Aggregation and statistics       | Yes: `stats`, `years`, and counts, durations and sizes on every listing                                                             |
+| Search on user tags              | Yes: `tag:`, `rating:`, `loved`, `note:`, and their `album.`/`artist.` forms; `aede search <text> --notes` reads the notes as prose |
+| Search on relations              | Yes: `artist:` is any credit, and `composer:`, `producer:`, `performer:`… ask who did what                                          |
+| `AND` / `OR` / `NOT`             | Yes                                                                                                                                 |
+| Saved queries, smart collections | Yes: `aede collection <name> --query "…"`                                                                                           |
 
 **The options are shorthand for the grammar, not a second implementation.**
 `aede albums --genre metal` builds `genre:metal` and hands it to the one
@@ -1473,7 +1492,7 @@ album whether or not he is credited on that particular piece. That is an `OR`,
 which is exactly what no pile of options could ever say.
 
 Two things stay outside the grammar, on purpose rather than for want of time.
-**`artists --role`** answers about *artists*, and the grammar answers about
+**`artists --role`** answers about _artists_, and the grammar answers about
 tracks; folding one into the other would lose the question, since "who is
 credited as a producer" is not "who appears on the tracks that have a
 producer". A second domain would need its own fields, and inventing it for one
@@ -1510,7 +1529,7 @@ What MusicBrainz brings, beyond what is already planned.
 ### Country, formation, membership
 
 There is no widely-used tag for an artist's country of origin — `RELEASECOUNTRY`
-exists but that is the country a *release* came out in, which is a different
+exists but that is the country a _release_ came out in, which is a different
 question and answers it wrongly (an American pressing of a French band). So this
 waits for M1 and comes from the artist entity: its **area**, its **begin and end
 dates** (formation and split, with an explicit "ended" flag), and its type
@@ -1530,18 +1549,18 @@ band page that shows a line-up rather than a list of names.
 
 Half of this is cleaner than expected and half is messier.
 
-**Clean:** MusicBrainz release *groups* carry a primary type — Album, Single,
+**Clean:** MusicBrainz release _groups_ carry a primary type — Album, Single,
 EP, Broadcast, Other — and secondary types: Compilation, Soundtrack, Live,
 Remix, DJ-mix, Demo, Mixtape, Spokenword, Interview, Audiobook, Audio drama,
 Field recording. That is the vocabulary, it is stable, and it is exactly what an
 interface needs for its icons.
 
-**Messy:** *remaster* and *deluxe edition* are **not types.** MusicBrainz keeps
+**Messy:** _remaster_ and _deluxe edition_ are **not types.** MusicBrainz keeps
 a remaster in the same release group as the original and distinguishes it at
 release level — by date, label, catalogue number, barcode, and a disambiguation
 comment such as "2011 remaster" — plus an explicit release-to-release "remaster
-of" link. So a remaster is not a category to display; it is *another release of
-the same thing*, which is a better model anyway and one this catalog can already
+of" link. So a remaster is not a category to display; it is _another release of
+the same thing_, which is a better model anyway and one this catalog can already
 express.
 
 Partly available before M1: Picard writes `RELEASETYPE` and `RELEASESTATUS`
@@ -1570,7 +1589,7 @@ Albums:
 
 Three things decide whether this is useful or infuriating:
 
-- **Compare release groups, not releases.** Otherwise every reissue of *Animals*
+- **Compare release groups, not releases.** Otherwise every reissue of _Animals_
   counts as an album you are missing, and the figure is noise.
 - **Say what the percentage is of.** 82% of studio albums is a fact; 82% of
   everything MusicBrainz holds, bootlegs and DJ-mixes included, is a number that
@@ -1589,7 +1608,7 @@ before MusicBrainz is working.
 
 **Done, without any of the above:** completeness at the level of one album needs
 no network at all, because the files say what they belong to. `doctor` reported
-an incomplete album by finding *gaps* — 2 missing between 1 and 3 — which left
+an incomplete album by finding _gaps_ — 2 missing between 1 and 3 — which left
 two shapes invisible, and both are the ordinary ones:
 
 - an album **cut short at the end**: truncated after track 9 of 12, there is
@@ -1610,7 +1629,7 @@ rather than a common parent, which the disc-folder rule does not recognise —
 arrives as two releases, and each would otherwise report the other as missing
 while it sits right there.
 
-What still waits for MusicBrainz is the *other* completeness question — which
+What still waits for MusicBrainz is the _other_ completeness question — which
 albums are missing from an artist's discography — because nothing in your files
 can know what was released.
 
@@ -1628,7 +1647,7 @@ has collected yet, and the first thing to do.
 
 Two consequences for the model, both of which the existing rules already
 decide. Lyrics **read from a file are a fact about it**, so they belong to the
-catalog beside the tags — while a lyric the *user* typed or corrected is
+catalog beside the tags — while a lyric the _user_ typed or corrected is
 something they wrote, and belongs to the annotation store. Same boundary as
 everywhere else: read versus written. And they are **large text**, which is a
 reason to think before pouring them into a file that is rewritten whole on
@@ -1638,7 +1657,7 @@ Then `lyrics:` becomes a query field, and "that song that goes something about
 a train" stops being unanswerable.
 
 **Fetching them is M1 work, and comes with a caveat that is not technical.**
-Lyrics are the *composition* copyright, which owning a FLAC grants no rights
+Lyrics are the _composition_ copyright, which owning a FLAC grants no rights
 in — they are legally a different object from the recording. In practice every
 comparable open-source project keeps online fetching out of its core: Navidrome
 and Jellyfin read files and leave the network to plugins, beets ships a
@@ -1679,13 +1698,13 @@ enormous polymorphic item type, an Emby-era composite authorization header, and
 enough undocumented behaviour that real integrations proceed by watching the
 official web client's traffic. Clients emulate it routinely; servers emulating
 it appear to be rare, which is itself a signal. Worth doing for the clients it
-unlocks, worth doing *after* Subsonic, and worth timeboxing.
+unlocks, worth doing _after_ Subsonic, and worth timeboxing.
 
-*(One correction to the note that prompted this: no evidence could be found that
+_(One correction to the note that prompted this: no evidence could be found that
 Navidrome exposes any part of the Jellyfin API. Its documentation and releases
 mention only Subsonic 1.16.1 plus OpenSubsonic extensions, and its own private
 API for its web interface. The bridges that exist run the other way — Jellyfin
-plugins that read from Navidrome.)*
+plugins that read from Navidrome.)_
 
 ## Converting files
 

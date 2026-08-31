@@ -10,7 +10,7 @@
 //! It is also saved as the work goes, so an interrupted run keeps what it
 //! established and the next one carries on where it stopped.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -42,7 +42,7 @@ pub fn check(args: &Args) -> Res {
     // A folder given on the command line restricts the work to it. Verifying a
     // whole library at once is the kind of thing one wants to try on a corner
     // first.
-    let scope = resolve_scope(args)?;
+    let scope = super::scope_of(args)?;
     let queue = to_verify(&catalog, &scope, args.has("full"));
 
     // Nothing to read is not nothing to say. The command answers "are my files
@@ -138,36 +138,11 @@ pub fn check(args: &Args) -> Res {
     Ok(())
 }
 
-/// Folders or files the run is restricted to, canonicalized.
-///
-/// Empty means the whole catalog.
-fn resolve_scope(args: &Args) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let mut scope = Vec::new();
-    for raw in &args.positionals {
-        let path = Path::new(raw);
-        if !path.exists() {
-            return Err(format!("\"{raw}\" does not exist").into());
-        }
-        scope.push(super::canonical(path).to_string_lossy().to_string());
-    }
-    Ok(scope)
-}
-
-/// `true` when the path is inside one of the folders given, or is one of them.
-fn is_in_scope(path: &str, scope: &[String]) -> bool {
-    if scope.is_empty() {
-        return true;
-    }
-    scope
-        .iter()
-        .any(|root| aede_core::text::is_under(path, root))
-}
-
 fn to_verify(catalog: &Catalog, scope: &[String], full: bool) -> Vec<(Id, PathBuf)> {
     catalog
         .files
         .iter()
-        .filter(|file| is_in_scope(&file.path, scope))
+        .filter(|file| super::in_scope(&file.path, scope))
         // By default only what has no verdict yet, which is what makes a second
         // run cheap. `--full` re-reads everything, for a disk under suspicion.
         .filter(|file| full || file.integrity.is_none())
@@ -220,7 +195,11 @@ fn report(
     failures: &[(String, String)],
 ) {
     let (mut intact, mut damaged, mut nothing, mut unchecked) = (0usize, 0usize, 0usize, 0usize);
-    for file in catalog.files.iter().filter(|f| is_in_scope(&f.path, scope)) {
+    for file in catalog
+        .files
+        .iter()
+        .filter(|f| super::in_scope(&f.path, scope))
+    {
         match file.integrity.as_ref().map(|r| &r.verdict) {
             Some(Verdict::Intact) => intact += 1,
             Some(Verdict::Damaged { .. }) => damaged += 1,
@@ -268,7 +247,11 @@ fn report(
     if damaged > 0 {
         println!("{}", ui::section("Damaged files"));
         let mut t = Table::new(&["File", "Problem"]).path_limit(0, 60);
-        for file in catalog.files.iter().filter(|f| is_in_scope(&f.path, scope)) {
+        for file in catalog
+            .files
+            .iter()
+            .filter(|f| super::in_scope(&f.path, scope))
+        {
             if let Some(record) = &file.integrity
                 && let Verdict::Damaged { detail } = &record.verdict
             {

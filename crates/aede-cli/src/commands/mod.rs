@@ -17,6 +17,7 @@ mod inspect;
 mod reset;
 mod scan;
 mod search;
+mod spectrum;
 mod stats;
 mod track;
 
@@ -37,6 +38,7 @@ pub use inspect::inspect;
 pub use reset::reset;
 pub use scan::{roots, scan};
 pub use search::search;
+pub use spectrum::spectrum;
 pub use stats::show_stats;
 pub use track::show_track;
 
@@ -106,6 +108,31 @@ pub fn confirmed(args: &Args, what: &str) -> Result<bool, Box<dyn Error>> {
 /// name given is better than refusing outright.
 pub fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Folders or files a run is restricted to, canonicalized. Empty means the
+/// whole catalog.
+///
+/// Shared by every command that takes `[folder…]` and acts on the files under
+/// it — `check`, `spectrum`, `playlist`. They must agree on what "under this
+/// folder" means, and on macOS that agreement is not free: `/var` and
+/// `/private/var` name the same place by two strings that never compare equal,
+/// which is what [`canonical`] exists for.
+pub fn scope_of(args: &Args) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut scope = Vec::new();
+    for raw in &args.positionals {
+        let path = Path::new(raw);
+        if !path.exists() {
+            return Err(format!("\"{raw}\" does not exist").into());
+        }
+        scope.push(canonical(path).to_string_lossy().to_string());
+    }
+    Ok(scope)
+}
+
+/// `true` when the path is inside one of the folders given, or is one of them.
+pub fn in_scope(path: &str, scope: &[String]) -> bool {
+    scope.is_empty() || scope.iter().any(|root| text::is_under(path, root))
 }
 
 /// Where the catalog lives: what `--data` names, or the default location.

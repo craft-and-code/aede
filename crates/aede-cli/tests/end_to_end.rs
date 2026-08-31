@@ -3019,6 +3019,63 @@ fn a_selection_is_copied_out_keeping_its_tree() {
 /// program by design, and a checkout without it must still be able to run its
 /// tests green. The skip says so out loud, so a suite that silently stopped
 /// testing conversion cannot pass for a suite that tested it.
+#[test]
+fn a_spectrogram_is_drawn_once_and_only_once() {
+    let sandbox = Sandbox::new("spectrum");
+    let root = std::env::temp_dir().join("aede_e2e_spectrum_src");
+    let album = root.join("Album");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::copy(library().join("track.flac"), album.join("01.flac")).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // --dry-run answers before ffmpeg is even looked for, so this half of the
+    // test runs on a machine that has none.
+    let (out, _, ok) = sandbox.run(&["spectrum", "--dry-run"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("spectres"), "the folder is named: {out}");
+    assert!(out.contains("1 to draw"), "output: {out}");
+    assert!(
+        !album.join("spectres").exists(),
+        "a dry run writes nothing at all"
+    );
+
+    if !ffmpeg_is_installed() {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+
+    let (out, err, ok) = sandbox.run(&["spectrum"]);
+    assert!(ok, "stderr: {err}");
+    let picture = album.join("spectres").join("01.png");
+    assert!(picture.is_file(), "the picture must be there:\n{out}");
+    let drawn = std::fs::metadata(&picture).unwrap().len();
+    assert!(drawn > 1000, "and be a real image: {drawn} bytes");
+
+    // Repeating the command is the ordinary case, and it must cost nothing:
+    // the answer is a result — "already up to date" — not an empty screen.
+    let (out, _, ok) = sandbox.run(&["spectrum"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("up to date"), "output: {out}");
+    assert!(!out.contains("drawing:"), "nothing was redrawn:\n{out}");
+
+    // Unless the music itself has changed since, which is exactly when a
+    // picture drawn from the old bytes becomes a lie.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(120);
+    std::fs::File::options()
+        .write(true)
+        .open(album.join("01.flac"))
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    let (out, _, ok) = sandbox.run(&["spectrum", "--dry-run"]);
+    assert!(ok);
+    assert!(out.contains("1 to draw"), "the track moved on:\n{out}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn ffmpeg_is_installed() -> bool {
     let there = std::process::Command::new("ffmpeg")
         .arg("-version")

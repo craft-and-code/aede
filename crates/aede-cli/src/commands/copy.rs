@@ -87,7 +87,7 @@ pub fn copy(args: &Args) -> Res {
     // an error at the start rather than half a copy.
     let ffmpeg = match plan.converted() > 0 {
         false => None,
-        true => Some(transcode::find_ffmpeg().ok_or(transcode::MISSING_FFMPEG)?),
+        true => Some(transcode::find_ffmpeg().ok_or_else(transcode::missing_ffmpeg)?),
     };
     room_for(&plan, &destination)?;
     run(&plan, &destination, args, &recipe, ffmpeg.as_deref())

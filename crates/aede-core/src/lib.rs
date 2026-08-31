@@ -18,9 +18,11 @@ pub mod text;
 
 pub mod copy;
 pub mod doctor;
+pub mod ffmpeg;
 pub mod model;
 pub mod query;
 pub mod scan;
+pub mod spectrum;
 pub mod stats;
 pub mod store;
 pub mod user;

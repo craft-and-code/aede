@@ -250,7 +250,11 @@ fn main() {
             ],
             "take something back",
         ),
-        ("full", &["scan", "check"], "ignore what was already done"),
+        (
+            "full",
+            &["scan", "check", "spectrum"],
+            "ignore what was already done",
+        ),
         ("threads", &["scan", "check"], "read on several threads"),
         ("replace", &["scan", "copy"], "forget the watched folders"),
         ("exclude", &["roots"], "keep a folder out of the catalog"),
@@ -273,7 +277,7 @@ fn main() {
         ("extras", &["copy"], "choose what travels beside the audio"),
         (
             "dry-run",
-            &["copy"],
+            &["copy", "spectrum"],
             "say what it would do without doing it",
         ),
         ("verify", &["copy"], "read back what it wrote"),
@@ -438,6 +442,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("doctor", None, commands::show_doctor),
     ("check", None, commands::check),
     ("copy", None, commands::copy),
+    ("spectrum", None, commands::spectrum),
     ("reset", None, commands::reset),
     ("import", None, commands::import),
     ("query", Some("find"), commands::query),
@@ -663,6 +668,11 @@ fn print_help() {
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
+  spectrum [folder…]   Draw a spectrogram of every track into a spectres/
+                       folder beside it, through ffmpeg. Only what is missing
+                       or older than its track is drawn, so a second run over
+                       an unchanged library draws nothing (--full redraws
+                       everything, --dry-run only says what it would draw)
 
   artists              List of artists (--role composer, producer…,
                        --sort tracks|name)

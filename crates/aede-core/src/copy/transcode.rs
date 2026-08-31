@@ -209,35 +209,19 @@ pub fn estimated_size(
 
 /// Where ffmpeg is, or `None` when it is not installed.
 ///
-/// Looked for once per run by the caller, not once per file: a thousand tracks
-/// would otherwise mean a thousand failed lookups before the first note.
+/// Kept as a name here, and answered in [`crate::ffmpeg`]: `spectrum` drives
+/// the same program for another purpose, and two searches that could disagree
+/// about which ffmpeg is "the" ffmpeg is one too many.
 pub fn find_ffmpeg() -> Option<String> {
-    for name in ["ffmpeg"] {
-        if Command::new(name)
-            .arg("-version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-        {
-            return Some(name.to_string());
-        }
-    }
-    None
+    crate::ffmpeg::find()
 }
 
 /// What to tell somebody who has no ffmpeg, worded so they can act on it.
-pub const MISSING_FFMPEG: &str = "\
---compress needs ffmpeg, and it was not found.
-
-ffmpeg is an external program, not something Aède ships: it does the encoding,
-Aède decides what to encode and where to put it. Everything else works without
-it.
-
-  macOS          brew install ffmpeg
-  Debian/Ubuntu  sudo apt install ffmpeg
-  Arch           sudo pacman -S ffmpeg
-  Fedora         sudo dnf install ffmpeg";
+///
+/// One wording for every feature that needs it: see [`crate::ffmpeg::missing`].
+pub fn missing_ffmpeg() -> String {
+    crate::ffmpeg::missing("--compress")
+}
 
 /// Converts one file, and reports what went wrong in words rather than in an
 /// exit status.
