@@ -10,10 +10,13 @@
 //! and to the character. The two programs are used together on the same
 //! library, and a spectrogram that differed in scale, gain or colour map from
 //! one tool to the other would be unreadable *as a pair* — the whole point of
-//! The folder itself is `spectrograms`, in English like everything else here.
-//! FlacCompagnon writes `spectres`; matching a *picture* matters because the
-//! two are read side by side, matching a *folder name* does not, and a French
-//! word in an otherwise English codebase is a seam nobody would guess at.
+//! looking at two is to compare them.
+//!
+//! The folder is the one thing that does not match: it is `spectrograms`, in
+//! English like everything else here, where FlacCompagnon writes `spectres`.
+//! Matching a *picture* is what makes the pair comparable; matching a *folder
+//! name* buys nothing, and a French word in an otherwise English codebase is a
+//! seam nobody would guess at.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

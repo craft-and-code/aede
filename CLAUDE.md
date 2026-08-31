@@ -12,7 +12,7 @@ Aède is a local music library: give it folders, it builds a navigable catalog. 
 
 **Current state: milestone M0.6.** Folder scanning, native tag reading, graph model, statistics, diagnostics, command-line navigation — what the user writes about it — favourites, ratings, notes, free tags, listening history — and `copy`, which puts a selection on a player or a card.
 
-**Deliberately out of scope for now:** any audio playback, any network access, any external database. Do not introduce them "while passing by" — each is a milestone of its own (see the roadmap in the README).
+**Deliberately out of scope for now:** any audio playback, any network access, any external database. Do not introduce them "while passing by" — each is a milestone of its own (see [the roadmap](docs/design/roadmap.md)).
 
 Rust 1.89 or later (`rust-version` in the workspace manifest, `msrv` in `clippy.toml` — the two must stay in step).
 
@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 350 tests
+cargo test                       # 352 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -217,6 +217,8 @@ The two lines are **not a partition**, and must not be made into one. Someone wh
 **Freshness is asked of whatever the artifact is derived _from_.** Two commands write files beside the music and must do nothing on a second run, and they answer the question differently because they are derived from different things. A spectrogram is derived from one file's **bytes**, so `spectrum` compares modification dates. A playlist is derived from the **set** of tracks — adding one changes what the playlist should say without touching any file it already names — so `playlist` renders the text and compares it with what is on disk. Using a date there would miss the added track; using content for a PNG would mean drawing it to find out whether to draw it. Match the test to the derivation, not to the habit. Comparing the text has a second virtue: an unchanged playlist keeps its own modification date, which matters to whatever syncs the folder next.
 
 **Parallelism follows the work, not the machine.** Three commands do many small jobs and they do not get the same answer. `scan` and `spectrum` are arithmetic — reading tags, decoding and running an FFT — so they take every core. `copy` is two kinds of work in one command: `--compress` is an ffmpeg run per file and parallel, a plain copy is a queue at _one_ device where extra writers seek against each other (markedly so on cheap flash, and `--verify` doubles the traffic), so it stays at one. `playlist` renders a few kilobytes per album and threads would buy nothing but a mutex to reason about. `copy::workers` is where that decision lives, with a unit test on the decision itself — the end-to-end test can prove the pool copies everything correctly, never that it was faster, so the checkable part is _how many_, and that is what is asserted. `--threads` means the same thing everywhere and overrides all of it, which is why `scan::resolve_threads` is public rather than copied.
+
+**The manual is a folder, and its links are tested.** The README passed a hundred kilobytes doing two jobs at once — a manual for someone using the program and a notebook of why it is built this way — and it was relivered whole for every line that changed. It is now a front page (what this is, how to build it, the command table, an index) plus `docs/` for using it and `docs/design/` for the reasoning. The move turned every cross-reference from an anchor inside one document into a **path between files**, and those fail differently: a dead anchor sends the reader nowhere and they notice, a renamed page leaves a link that looks right in the source and 404s on the web. So `crates/aede-cli/tests/docs.rs` walks every `.md` in the repository and fails on a link that leads nowhere, plus a second test that fails on a page the README does not name — because the moment a document is split is the moment a page quietly leaves the manual with all its content intact. Adding a page means adding a row to the index; the test says so.
 
 **A comment and a note are not the same field.** The comment tag lives inside the audio file, put there by whoever tagged it; a note lives in `user.json`, put there by the person using Aède. `search --comments` and `search --notes` therefore stay two options with two sections, and must never be folded into one "free text" search: searching one is searching the library, searching the other is searching yourself, and a hit has to say by which route it was found.
 
