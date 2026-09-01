@@ -78,6 +78,27 @@ Asking for both is refused — they are opposites, and an empty answer would loo
 
 `Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
 
+## Where your files are, and how big it gets
+
+Everything Aède keeps sits in one folder, and you decide which:
+
+```sh
+aede --data=/volume1/aede stats     # for this command only
+export AEDE_HOME=/volume1/aede      # for good
+```
+
+`XDG_DATA_HOME` is honoured too; failing all three, it is `~/.local/share/aede`. On a NAS, or anywhere the home directory is not where you want megabytes to accumulate, `AEDE_HOME` is the answer. The whole group moves together — the catalog and the file holding what you wrote stay side by side, because a backup that catches one and misses the other is worse than no backup.
+
+The catalog is one JSON file, read whole into memory by every command. That is a deliberate choice and it has a ceiling, so here is where the ceiling actually sits — measured, on a synthetic library of twelve tracks an album:
+
+| tracks  | catalog.json | scan: save | load    | memory while loading |
+| ------- | ------------ | ---------- | ------- | -------------------- |
+| 10 000  | 12.4 MB      | 0.79 s     | 0.41 s  | 181 MB               |
+| 50 000  | 62.5 MB      | 3.88 s     | 2.17 s  | 897 MB               |
+| 200 000 | 252.0 MB     | 16.37 s    | 13.42 s | 3 586 MB             |
+
+Fifty thousand tracks is roughly four thousand albums, and up to there the catalog costs two seconds and under a gigabyte — you will not notice it. Past a hundred thousand you will, and it is the memory you will notice first, not the wait. If that is your library, say so: the reasoning, and what would have to change, is in [Architecture](design/architecture.md#when-this-becomes-a-database).
+
 ## Starting over
 
 `aede roots` weighs each watched folder, so the list answers "what is on this drive" and not merely "which drives":

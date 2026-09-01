@@ -111,6 +111,7 @@ most of them exist to explain a refusal.
 | [Identification (M1)](docs/design/identification.md)               | MusicBrainz, editions, band membership, what is missing from the shelf          |
 | [Lyrics](docs/design/lyrics.md)                                    | Three problems that share a word                                                |
 | [Paths](docs/design/paths.md)                                      | Why a catalog path is a `/`-separated string, and why Windows is not published  |
+| [Plugins, if there are any](docs/design/plugins.md)                | Why a plugin would be a program and not a library, and what it could not be     |
 | [Speaking other tools' languages](docs/design/interoperability.md) | Beets, MPD, Picard: what is borrowed and what is refused                        |
 | [Roadmap](docs/design/roadmap.md)                                  | M0 to M3, and what is deliberately left out                                     |
 

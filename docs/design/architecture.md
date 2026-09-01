@@ -94,6 +94,35 @@ Every public item of `aede-core` is documented: the crate sets `#![warn(missing_
 
 Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON, YAML, HTML and CSS (`.prettierrc`). The project targets **zero clippy warnings**.
 
+## When this becomes a database
+
+The catalog is one JSON file, loaded whole into memory by every command and rewritten whole by every scan. The roadmap put "move to SQLite" inside M1. Measurement moved it back out, and the figures are worth keeping because they say something other than what was expected.
+
+A synthetic library — twelve tracks an album, ten albums an artist, the thirteen tags a well-tagged file carries — built through the real `builder` and saved through the real `store`. Each figure comes from a **fresh process**, because a first attempt that built and loaded in one run held two catalogs at once and overstated the memory by a third:
+
+| tracks  | catalog.json | scan: save | peak while scanning | load    | peak while loading |
+| ------- | ------------ | ---------- | ------------------- | ------- | ------------------ |
+| 10 000  | 12.4 MB      | 0.79 s     | 160 MB              | 0.41 s  | 181 MB             |
+| 50 000  | 62.5 MB      | 3.88 s     | 787 MB              | 2.17 s  | 897 MB             |
+| 200 000 | 252.0 MB     | 16.37 s    | 3 127 MB            | 13.42 s | 3 586 MB           |
+
+About 1.25 kB on disk per track — linear, no surprise. Two things in there are surprises.
+
+**The disk is not the cost.** Reading those 252 MB takes 0.25 s; turning them into a catalog takes 13.2 s. That is this repository's hand-written parser at some 19 MB/s, where a serious one does thirty to fifty times better.
+
+**The memory is the real ceiling.** Roughly 18 kB of resident memory per track, about fourteen times the file it came from — the whole graph, plus the complete JSON tree the parser materialises before converting it. At 200 000 tracks, `aede stats` wants three and a half gigabytes and thirteen seconds before it can print a single line.
+
+So: **can this project do without SQLite?** For as long as "load the whole graph into memory" is an acceptable design — and the measurements say that holds comfortably to about 50 000 tracks, becomes uncomfortable somewhere past 100 000, and is untenable at 200 000. Which is an _architecture_ question, not a storage one, and it is worth being precise about what changes it:
+
+- A **faster parser** and a parse that does not build the whole JSON tree first would take most of the thirteen seconds and a good part of the memory. It changes nothing about the ceiling itself.
+- **SQLite** is the only thing that removes the ceiling, because it is the only one that stops requiring the whole graph to be resident.
+
+The cheap lever comes first, and the roadmap already earmarks the moment: M2 brings `serde` in for the HTTP contract, and the `json` module was written to make that move mechanical.
+
+There is also a second trigger that has nothing to do with size. `store::save` writes to a temporary file and renames, so a reader never sees a torn catalog — but two **writers** still clobber each other, and M2 puts a long-running server beside a CLI the user keeps using. That is a design decision to take at M2 (most simply: while the server runs, it owns the catalog and the CLI talks to it), and it does not by itself require a database either.
+
+Two facts settle the shape of it when the time comes. `rusqlite` is not Rust: it compiles SQLite's C amalgamation with `cc`, and on musl the `bundled` feature is not optional — without it the crate links against a host SQLite and the static binary segfaults on startup. And there is no pure-Rust replacement worth the risk: the SQLite rewrite (Turso, formerly `limbo`) is at 0.7, labelled BETA by its own README, still missing `WITH RECURSIVE`, most window functions and custom collations — and its maintainers advise caution for anything mission-critical. The C-compiler objection, which is what made this look expensive a milestone ago, has meanwhile evaporated on its own: `rustls` already brings one.
+
 ## Dependencies
 
 One, today: `lofty`, and only for the tag formats whose parsers are not worth writing twice. Everything else — the binary parsers, the JSON store, the query grammar, the table layout — is written here, and `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
