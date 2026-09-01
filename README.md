@@ -6,15 +6,35 @@ An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece
 
 This repository is **milestone M0.5**: read folders, turn them into a catalog of linked entities, answer questions about it, and keep what you think of it. No audio playback and no network access yet — that is deliberate, and the [roadmap](docs/design/roadmap.md) says when each arrives.
 
+The project has a page of its own: **<https://craft-and-code.github.io/aede/>** — what it does, and the roadmap.
+
 ## Getting started
+
+`aede` is one executable. Unpack it, put it somewhere on your `PATH`, run it — nothing is installed and nothing runs in the background.
+
+| Your system                         | Download                                                            |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| **macOS** (M1 and later)            | `aede-*-macOS-AppleSilicon.tar.gz`                                  |
+| **macOS** (Intel)                   | `aede-*-macOS-Intel.tar.gz`                                         |
+| **Linux** (any 64-bit distribution) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
+| **Windows** (64-bit)                | `aede-*-Windows-x64.zip`                                            |
+
+The builds are on the [releases page](https://github.com/craft-and-code/aede/releases), each with a `.sha256` beside it so a download can be checked before it is trusted. On macOS they are not signed with an Apple Developer ID, so Gatekeeper refuses the first run; `xattr -dr com.apple.quarantine ./aede`, once, settles it.
+
+```sh
+tar xzf aede-0.1.0-macOS-AppleSilicon.tar.gz
+./aede scan ~/Music
+./aede stats
+```
+
+Or build it yourself. Rust 1.89 or later; the build downloads one dependency, `lofty`, and everything after the first build works offline:
 
 ```sh
 cargo build --release
 ./target/release/aede scan ~/Music
-./target/release/aede stats
 ```
 
-Rust 1.89 or later. The build downloads one dependency, `lofty`; everything after the first build works offline.
+Two commands want `ffmpeg` on the `PATH` — `aede copy --compress` and `aede spectrum` — and both say so if it is missing. Nothing else needs it.
 
 ## Commands
 

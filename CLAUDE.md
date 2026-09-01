@@ -248,6 +248,18 @@ The two lines are **not a partition**, and must not be made into one. Someone wh
 
 **`Various Artists` is not an artist**, it is the absence of an album artist. The same reasoning applies to any placeholder name: do not pollute the catalog with entities that are not entities.
 
+**One gate, not two.** `ci.yml` runs `tools/check.sh`; it does not restate what the script does. A CI that listed formatting, clippy, the tests and the build a second time would drift from the script contributors actually run, and "green here, red there" would become a normal state instead of a bug. Anything that must pass before a commit goes into the script, and the workflow inherits it. The same rule fixes the toolchain: `dtolnay/rust-toolchain@1.89`, not `stable`, because `rust-version = "1.89"` in the manifest is a promise to whoever builds this and a CI on a newer compiler would let a feature slip in that breaks it.
+
+**A version is written in one place, and the tag is checked against it.** `release.yml` compares `${GITHUB_REF_NAME#v}` with `Cargo.toml` before compiling anything and fails the run when they differ. Otherwise `v0.2.0` publishes a program that answers `0.1.0` to `--version` — and `--version` is what a bug report quotes, so the mistake outlives the release by a year. The general shape is the one above: a fact stated twice will eventually be stated wrongly, so either state it once or make the machine compare the two.
+
+**What is published has been tested on the machine that built it.** The tests run inside the release job, per target, before the archive is made. A tag that does not build is worse than no tag: it is downloaded, and the failure is discovered by somebody who cannot fix it.
+
+**A downloaded binary must start on a machine older than the one that built it.** The Linux target is `x86_64-unknown-linux-musl`, not `gnu`: a glibc build made on Ubuntu 22.04 refuses to run on Debian 11 or a NAS with a `GLIBC_2.34` message that means nothing to the person reading it. Everything here is pure Rust, so a static build costs nothing — the general rule being that the build environment must not leak into the artifact's requirements.
+
+**Generated release notes are a draft, never the release.** The workflow assembles the commit list and publishes the release as a **draft**, with a `<!-- TODO -->` where the highlights go. A body that wrote itself entirely would be a commit list, and a commit list is not release notes; the draft is what forces one deliberate pass over "what changed" before anyone reads it.
+
+**The page has no third party.** `site/` is one HTML file, one stylesheet and a few images, with the system font stack: no font service, no analytics, no CDN. A project whose first claim is that it never touches your files and never reaches the network cannot have a landing page that phones somewhere to render a heading. The palette is shared with the Open Graph card so the link preview and the page it opens are visibly the same project.
+
 ## 4. Writing Rust here
 
 ### Language

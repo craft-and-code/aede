@@ -1,0 +1,54 @@
+name: CI
+
+# The same gate the project uses locally, run on every push.
+#
+# It calls `tools/check.sh` rather than listing the steps again: formatting,
+# clippy with no warning tolerated, the tests, the documentation links and a
+# release build are already written down there, and a CI that spelled them out
+# a second time would drift from the script contributors actually run. One
+# gate, not two.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the MSRV the manifest declares rather than floating on
+      # stable: `rust-version = "1.89"` is a promise to whoever builds this,
+      # and a CI running something newer would let a feature slip in that
+      # breaks it without anybody noticing.
+      - name: Install Rust 1.89 (the declared MSRV)
+        uses: dtolnay/rust-toolchain@1.89
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache the build
+        uses: Swatinem/rust-cache@v2
+
+      # `check.sh` runs with `--offline`, which is deliberate: the dependencies
+      # are fetched once here, and a step that then needs the network means one
+      # was added without being discussed.
+      - name: Fetch dependencies
+        run: cargo fetch
+
+      - name: Everything that must pass before a commit
+        if: runner.os != 'Windows'
+        run: bash tools/check.sh
+
+      # No bash script on Windows, and no `--offline` subtleties either: the
+      # point of this leg is that the parsers and the path handling work on a
+      # system where a separator is a backslash.
+      - name: Tests (Windows)
+        if: runner.os == 'Windows'
+        run: cargo test

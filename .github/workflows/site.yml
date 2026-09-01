@@ -1,0 +1,42 @@
+name: Site
+
+# Publishes the landing page (site/) to the root of the gh-pages branch, which
+# GitHub then serves at https://craft-and-code.github.io/aede/.
+#
+# `keep_files: true` so that anything else ever published under that branch —
+# generated API documentation, for instance — survives a site deploy.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The page is one HTML file and one stylesheet, with the system font
+      # stack and no third-party request of any kind — nothing to build, and
+      # nothing for a visitor's browser to fetch from anywhere but here.
+      - name: Publish site to the gh-pages root
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          keep_files: true
+          # Without this, a run whose content already matches gh-pages pushes
+          # nothing, GitHub starts no new deployment, and a manual re-run looks
+          # like it did nothing at all.
+          allow_empty_commit: ${{ github.event_name == 'workflow_dispatch' }}

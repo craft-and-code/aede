@@ -1,0 +1,238 @@
+name: Release
+
+# Builds the command-line tool for every platform and publishes them as a
+# GitHub Release. Trigger by pushing a version tag:
+#
+#     git tag v0.1.0
+#     git push origin v0.1.0
+#
+# or run it manually from the Actions tab (workflow_dispatch), which builds the
+# binaries without publishing anything.
+#
+# There is nothing to install and nothing to link: `aede` is one static-ish
+# executable with a single Rust dependency, so a release is an archive holding
+# the binary, the licence and the manual's front page. No installer, no bundle,
+# no code signing to arrange.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            label: macOS-AppleSilicon
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            label: macOS-Intel
+          # musl rather than glibc, and it matters for a downloaded binary: a
+          # gnu build made on Ubuntu 22.04 refuses to start on anything with an
+          # older glibc — Debian 11, an LTS server, a NAS — with a message
+          # about `GLIBC_2.34` that means nothing to the person who downloaded
+          # it. Everything here is pure Rust, so a static build costs nothing.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            label: Linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: Windows-x64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.89 (the declared MSRV)
+        uses: dtolnay/rust-toolchain@1.89
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache the build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install the musl toolchain
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      # A tag says which version this is; so does the manifest. When the two
+      # disagree, somebody is about to publish `v0.2.0` of a program that
+      # reports `0.1.0` when asked — and `aede --version` is what a bug report
+      # quotes. Cheap to check here, confusing for a year if it slips.
+      - name: The tag and the manifest must agree
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${manifest}"
+            echo "Set the version in Cargo.toml, commit, then move the tag."
+            exit 1
+          fi
+          echo "version ${manifest}, tagged ${GITHUB_REF_NAME}"
+
+      # A tag that does not build is worse than no tag: it is published, people
+      # download it, and the failure is theirs to discover. The tests run before
+      # the archive is made rather than in a separate workflow nobody waits for.
+      - name: Tests
+        run: cargo test --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # One archive per platform, named so the Releases page needs no legend,
+      # holding the binary and the two files somebody unpacking it will want:
+      # what it is allowed to do, and where the manual is.
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [ "${{ github.ref_type }}" = "tag" ] || version="$(git rev-parse --short HEAD)"
+          name="aede-${version}-${{ matrix.label }}"
+          mkdir -p "dist/${name}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/aede.exe" "dist/${name}/"
+          else
+            cp "target/${{ matrix.target }}/release/aede" "dist/${name}/"
+          fi
+          cp LICENSE README.md "dist/${name}/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "${name}.zip" "${name}" > /dev/null
+          else
+            tar czf "${name}.tar.gz" "${name}"
+          fi
+          # A checksum beside each archive, because a binary downloaded from
+          # the internet deserves one and because it costs a line.
+          for archive in *.tar.gz *.zip; do
+            [ -e "$archive" ] || continue
+            if command -v sha256sum > /dev/null; then
+              sha256sum "$archive" > "${archive}.sha256"
+            else
+              shasum -a 256 "$archive" > "${archive}.sha256"
+            fi
+          done
+          ls -lh
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: aede-${{ matrix.label }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    steps:
+      # The changelog below walks the commits since the previous tag, which
+      # needs the actual history: this job would otherwise only download build
+      # artifacts, with no checkout at all.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect every platform's archive
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -lh dist
+
+      # A release body that writes itself entirely would be a commit list, and
+      # a commit list is not release notes. This generates the list — real, and
+      # useful — under a placeholder that has to be replaced by hand, so that
+      # publishing the draft forces one deliberate pass over "what changed"
+      # rather than that section quietly never existing.
+      - name: Draft the notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous=$(git tag --sort=-v:refname | grep -A1 "^${GITHUB_REF_NAME}$" | tail -n1 || true)
+          {
+            echo "## What's new in ${GITHUB_REF_NAME}"
+            echo
+            echo "<!-- TODO before publishing: two to four real highlights, in plain words. -->"
+            echo
+            if [ -n "$previous" ] && [ "$previous" != "$GITHUB_REF_NAME" ]; then
+              echo "<details><summary>Commits since ${previous}</summary>"
+              echo
+              git log --no-merges --pretty=format:'- %s (%h)' "${previous}..${GITHUB_REF_NAME}"
+              echo
+              echo
+              echo "</details>"
+            else
+              echo "_First tagged release — no previous tag to compare against._"
+            fi
+          } > notes.md
+
+      - name: Append what to download and how to run it
+        shell: bash
+        run: |
+          cat >> notes.md <<'EOF'
+
+          ---
+
+          `aede` is a single executable: unpack it, put it somewhere on your
+          `PATH`, and run it. Nothing is installed, nothing runs in the
+          background, and it never writes to your music files.
+
+          | Your system | Download |
+          | --- | --- |
+          | **macOS** (M1 and later) | `aede-*-macOS-AppleSilicon.tar.gz` |
+          | **macOS** (Intel) | `aede-*-macOS-Intel.tar.gz` |
+          | **Linux** (any 64-bit distribution) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
+          | **Windows** (64-bit) | `aede-*-Windows-x64.zip` |
+
+          ```sh
+          tar xzf aede-*-macOS-AppleSilicon.tar.gz
+          cd aede-*-macOS-AppleSilicon
+          ./aede scan ~/Music
+          ./aede stats
+          ```
+
+          Each archive ships with a `.sha256` file beside it, so a download can
+          be checked before it is trusted.
+
+          **macOS — first launch.** These builds are not signed with an Apple
+          Developer ID, so Gatekeeper refuses them on the first run. Once, in a
+          terminal:
+
+          ```sh
+          xattr -dr com.apple.quarantine ./aede
+          ```
+
+          **ffmpeg** is not bundled and is not needed by most of the program.
+          Two commands use it — `aede copy --compress` and `aede spectrum` —
+          and both say so if it is missing (macOS: `brew install ffmpeg`,
+          Debian/Ubuntu: `sudo apt install ffmpeg`).
+          EOF
+
+      - name: Publish the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Aède ${{ github.ref_name }}"
+          draft: true
+          prerelease: false
+          files: dist/*
+          body_path: notes.md

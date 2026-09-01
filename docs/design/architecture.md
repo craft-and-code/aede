@@ -92,7 +92,23 @@ cargo doc --no-deps --open   # the API documentation
 
 Every public item of `aede-core` is documented: the crate sets `#![warn(missing_docs)]`, so a gap is a warning and `tools/check.sh` fails on it. The check also builds the documentation with `RUSTDOCFLAGS="-D warnings"`, which makes a **broken link** an error too — nothing else reads doc comments, so moving an item between modules would otherwise leave dead references behind in silence.
 
-Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON and YAML (`.prettierrc`). The project targets **zero clippy warnings**.
+Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON, YAML, HTML and CSS (`.prettierrc`). The project targets **zero clippy warnings**.
+
+## What GitHub does
+
+Three workflows, and each does one thing.
+
+`ci.yml` runs `tools/check.sh` on every push and pull request, on Linux, macOS and Windows. It calls the script rather than restating its steps: a CI that listed formatting, clippy, the tests and the build a second time would drift from the script contributors actually run, and then "green here, red there" becomes a normal state. One gate, not two. Windows has no bash script and runs `cargo test` instead, which is the point of that leg anyway — the parsers and the path handling on a system where a separator is a backslash. The toolchain is pinned to **1.89**, the MSRV the manifest declares: a CI floating on stable would let a newer feature slip in and break the promise without anybody noticing.
+
+`release.yml` fires on a tag matching `v*` and builds four archives — macOS on Apple Silicon and Intel, Linux, Windows — each holding the binary, the licence and the manual's front page, with a `.sha256` beside it. Three decisions are worth keeping:
+
+- **Linux is built against musl, not glibc.** A `gnu` build made on Ubuntu 22.04 refuses to start on anything older — a Debian 11 server, a NAS — with a message about `GLIBC_2.34` that means nothing to whoever downloaded it. Everything here is pure Rust, so a static build costs nothing.
+- **The tag and `Cargo.toml` must agree**, checked before anything is compiled. Otherwise `v0.2.0` publishes a program that answers `0.1.0` to `--version`, and `--version` is what a bug report quotes.
+- **The tests run before the archive is made.** A tag that does not build is worse than no tag: it is published, people download it, and the failure is theirs to discover.
+
+The release is published as a **draft**, with the commit list generated under a `<!-- TODO -->` placeholder. A body that wrote itself entirely would be a commit list, and a commit list is not release notes; the draft forces one deliberate pass over "what changed" before anyone sees it.
+
+`site.yml` publishes `site/` to the root of `gh-pages` whenever that folder changes. The page is one HTML file, one stylesheet and a few images, with the system font stack and no third-party request of any kind — nothing to build, and nothing for a visitor's browser to fetch from anywhere but the project's own domain. `keep_files: true`, so that anything else ever published under that branch survives a site deploy.
 
 ## Tests
 
