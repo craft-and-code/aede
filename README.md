@@ -4,7 +4,9 @@ A local music library, written in Rust.
 
 An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and playing, in one word — which is exactly what this program is for.
 
-This repository is **milestone M0.5**: read folders, turn them into a catalog of linked entities, answer questions about it, and keep what you think of it. No audio playback and no network access yet — that is deliberate, and the [roadmap](docs/design/roadmap.md) says when each arrives.
+**M0.6 is done**: read folders, turn them into a catalog of linked entities, answer questions about it, keep what you think of it, and get it back out to a player. No audio playback and no network access — that is deliberate, and the [roadmap](docs/design/roadmap.md) says when each arrives.
+
+**M1 — identification — has started**, with the layer that receives it: a value fetched from MusicBrainz will sit _beside_ the tag, attributed and removable, never on top of it. The reasoning is in [The attributed layer](docs/design/attribution.md), and nothing in this first step touches the network.
 
 The project has a page of its own: **<https://craft-and-code.github.io/aede/>** — what it does, and the roadmap.
 
@@ -103,6 +105,7 @@ most of them exist to explain a refusal.
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | [Architecture](docs/design/architecture.md)                        | The graph model, the crates, the tooling, the tests                             |
 | [What the user writes](docs/design/annotations.md)                 | Why annotations live in a file of their own, and the identity problem behind it |
+| [The attributed layer (M1.0)](docs/design/attribution.md)          | Where a fetched value is kept, and why it never lands on top of a tag           |
 | [Querying](docs/design/querying.md)                                | Why a query language is an interface and not a storage engine                   |
 | [Playback (M3)](docs/design/playback.md)                           | The queue, shuffle, loudness, gapless                                           |
 | [Identification (M1)](docs/design/identification.md)               | MusicBrainz, editions, band membership, what is missing from the shelf          |

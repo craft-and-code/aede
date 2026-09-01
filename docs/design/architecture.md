@@ -94,6 +94,16 @@ Every public item of `aede-core` is documented: the crate sets `#![warn(missing_
 
 Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON, YAML, HTML and CSS (`.prettierrc`). The project targets **zero clippy warnings**.
 
+## Dependencies
+
+One, today: `lofty`, and only for the tag formats whose parsers are not worth writing twice. Everything else — the binary parsers, the JSON store, the query grammar, the table layout — is written here, and `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
+
+Where a program can do the job instead of a crate, the program wins: **ffmpeg is driven as an external process** (`core/ffmpeg.rs`, `find()` and `missing(what)`), never linked. Two commands use it, both say so when it is absent, and the other twenty-three do not care.
+
+**M1 adds `ureq` with `rustls`**, and that is a deliberate departure worth writing down. The alternative considered was spawning `curl` the way ffmpeg is spawned — zero crates, same precedent — and it was refused on one asymmetry: ffmpeg is optional and covers two commands, whereas identification _is_ M1. Making the milestone's whole purpose depend on a program that may not be on the machine is a different promise from making `--compress` depend on one. What that costs, stated plainly: about twenty-seven transitive crates, and the project's first requirement of a **C compiler** at build time — `rustls`' crypto providers all carry C or assembly, and no pure-Rust provider is production-recommended today. The release workflow already installs `musl-tools`, so the cost on CI is nil.
+
+Two precautions come with it. `ureq` reserves the right to change its crypto provider in a minor release, so the version is pinned and the provider named explicitly rather than inherited from `default`. And the "one dependency" line disappears from the README and the site the day it lands — a claim that is no longer true is worse than no claim.
+
 ## What GitHub does
 
 Three workflows, and each does one thing.
