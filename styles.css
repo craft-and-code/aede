@@ -1,0 +1,445 @@
+/* One stylesheet, no import, no web font: the page must render identically
+   whether or not anything outside this repository answers. The palette is the
+   one the OG card is drawn with — ink #0d0e13, brass #b0945c — so the link
+   preview and the page it opens look like the same project. */
+
+:root {
+  --ink: #0d0e13;
+  --raised: #14161d;
+  --line: #23262f;
+  --text: #e9eaf0;
+  --dim: #8c92a6;
+  --brass: #b0945c;
+  --brass-bright: #cfae6f;
+
+  --measure: 68ch;
+  --wrap: 62rem;
+
+  /* The system stack: what the reader already has, drawn the way their
+     platform draws it. Nothing to download, nothing to wait for. */
+  --sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* Reading measure: a paragraph that runs the full width of a desktop window
+   is a paragraph nobody finishes. */
+p,
+li > p {
+  max-width: var(--measure);
+}
+
+a {
+  color: var(--brass-bright);
+  text-decoration-color: rgba(176, 148, 92, 0.45);
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  text-decoration-color: var(--brass-bright);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass-bright);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 10;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+}
+
+/* ---------------------------------------------------------------- hero -- */
+
+.hero {
+  padding: 5rem 0 3.5rem;
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(60rem 28rem at 20% -10%, rgba(176, 148, 92, 0.13), transparent 65%),
+    var(--ink);
+}
+
+.eyebrow {
+  margin: 0 0 1.25rem;
+  color: var(--dim);
+  font-size: 0.82rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(3rem, 11vw, 5.5rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.lead {
+  margin: 0.75rem 0 1.5rem;
+  font-size: clamp(1.15rem, 3.2vw, 1.5rem);
+  color: var(--brass);
+  font-weight: 500;
+}
+
+.blurb {
+  margin: 0 0 2rem;
+  color: var(--dim);
+  font-size: 1.02rem;
+}
+
+.blurb em {
+  color: var(--text);
+  font-style: italic;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0 0 2rem;
+  max-width: none;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.7rem 1.4rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.button:hover {
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+
+.button.primary {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #17130b;
+}
+
+.button.primary:hover {
+  background: var(--brass-bright);
+  border-color: var(--brass-bright);
+  color: #17130b;
+}
+
+.note {
+  margin: 0;
+  padding: 0.9rem 1.1rem;
+  border-left: 3px solid var(--brass);
+  border-radius: 0 6px 6px 0;
+  background: rgba(176, 148, 92, 0.07);
+  color: var(--dim);
+  font-size: 0.94rem;
+}
+
+.note strong {
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------ sections -- */
+
+main section {
+  padding: 4rem 0 1rem;
+}
+
+main section + section {
+  border-top: 1px solid var(--line);
+}
+
+h2 {
+  margin: 0 0 1.25rem;
+  font-size: clamp(1.6rem, 4.5vw, 2.1rem);
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  letter-spacing: 0;
+}
+
+.intro {
+  color: var(--dim);
+  margin-top: 0;
+}
+
+/* --------------------------------------------------------------- code --- */
+
+pre {
+  margin: 1.75rem 0;
+  padding: 1.25rem 1.4rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  overflow-x: auto;
+  font-size: 0.9rem;
+  line-height: 1.75;
+}
+
+pre code {
+  font-family: var(--mono);
+  color: var(--text);
+  white-space: pre;
+}
+
+/* The trailing explanations in the sample session are commentary, not
+   something to be typed. They read as such. */
+pre .c {
+  color: var(--dim);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  color: var(--brass-bright);
+}
+
+/* ---------------------------------------------------------------- grid -- */
+
+.grid {
+  list-style: none;
+  margin: 2rem 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+.grid li {
+  padding: 1.3rem 1.4rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+}
+
+.grid h3 {
+  color: var(--brass);
+}
+
+.grid p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 0.94rem;
+  max-width: none;
+}
+
+/* ------------------------------------------------------------ timeline -- */
+
+.timeline {
+  list-style: none;
+  margin: 2rem 0 2.5rem;
+  padding: 0 0 0 1.75rem;
+  border-left: 1px solid var(--line);
+  counter-reset: milestone;
+}
+
+.timeline li {
+  position: relative;
+  padding: 0 0 2rem;
+}
+
+.timeline li:last-child {
+  padding-bottom: 0;
+}
+
+/* The dot on the line. Hollow for what is still ahead, filled for what is
+   done, brass and ringed for the one being worked on — the state of the
+   project readable without reading a word. */
+.timeline li::before {
+  content: "";
+  position: absolute;
+  left: calc(-1.75rem - 5px);
+  top: 0.55rem;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid var(--line);
+}
+
+.timeline li.done::before {
+  background: var(--dim);
+  border-color: var(--dim);
+}
+
+.timeline li.next::before {
+  background: var(--brass);
+  border-color: var(--brass);
+  box-shadow: 0 0 0 4px rgba(176, 148, 92, 0.18);
+}
+
+.timeline h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+  font-size: 1.1rem;
+  color: var(--dim);
+}
+
+.timeline li.done h3,
+.timeline li.next h3 {
+  color: var(--text);
+}
+
+.tag {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--brass);
+  border: 1px solid rgba(176, 148, 92, 0.4);
+  border-radius: 5px;
+  padding: 0.1rem 0.45rem;
+}
+
+.state {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+}
+
+.timeline li.next .state {
+  color: var(--brass);
+  border-color: rgba(176, 148, 92, 0.4);
+}
+
+.timeline p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 0.96rem;
+}
+
+.timeline strong {
+  color: var(--text);
+}
+
+/* -------------------------------------------------------------- footer -- */
+
+footer {
+  margin-top: 3rem;
+  padding: 2.5rem 0 3.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 0.9rem;
+}
+
+footer p {
+  margin: 0 0 0.5rem;
+}
+
+.quiet {
+  color: #5f6478;
+  font-size: 0.85rem;
+}
+
+/* --------------------------------------------------------------- small -- */
+
+@media (max-width: 40rem) {
+  body {
+    font-size: 16px;
+  }
+
+  .hero {
+    padding: 3.5rem 0 2.5rem;
+  }
+
+  main section {
+    padding: 3rem 0 0.5rem;
+  }
+
+  pre {
+    font-size: 0.82rem;
+    padding: 1rem;
+  }
+}
+
+/* A light-mode reader gets the dark page anyway: it is one deliberate design,
+   the OG card matches it, and a second palette is a second thing to keep
+   right. Only the print sheet inverts, so a printed page is not a black
+   rectangle. */
+@media print {
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .hero,
+  .grid li,
+  pre {
+    background: #fff;
+    border-color: #ccc;
+  }
+
+  .blurb,
+  .grid p,
+  .timeline p,
+  .intro,
+  footer,
+  .quiet {
+    color: #333;
+  }
+
+  .actions,
+  .skip {
+    display: none;
+  }
+}
