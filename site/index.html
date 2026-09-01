@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aède — a local music library, in one command</title>
+    <meta
+      name="description"
+      content="Aède reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Free and open source, written in Rust, for macOS, Linux and Windows. It never writes to your files."
+    />
+    <meta
+      name="keywords"
+      content="music library, command line music library, FLAC library, music catalog, music collection manager, beets alternative, Rust music library, audio integrity check, FLAC checksum, music tags, MusicBrainz, M3U playlist, spectrogram, local music, self-hosted music, terminal music library"
+    />
+    <meta name="author" content="craft-and-code" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://craft-and-code.github.io/aede/" />
+
+    <!-- Open Graph: Mastodon, Discord, LinkedIn, Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://craft-and-code.github.io/aede/" />
+    <meta property="og:site_name" content="Aède" />
+    <meta property="og:title" content="Aède — a local music library, in one command" />
+    <meta
+      property="og:description"
+      content="Reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Written in Rust, one dependency, no network, and it never writes to your files."
+    />
+    <meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_GB" />
+
+    <!-- X / Twitter card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Aède — a local music library, in one command" />
+    <meta
+      name="twitter:description"
+      content="A catalog of your music folders you can actually question. Rust, one dependency, no network, and it never writes to your files."
+    />
+    <meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png" />
+
+    <meta name="theme-color" content="#0d0e13" />
+    <link rel="icon" href="assets/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
+    <link rel="apple-touch-icon" href="assets/favicon-180.png" />
+    <link rel="stylesheet" href="styles.css" />
+
+    <!-- Structured data, so a search engine can show this as what it is: a
+         free, open-source application, and a project with a roadmap. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Aède",
+        "url": "https://craft-and-code.github.io/aede/",
+        "description": "A local music library for the command line: it reads your music folders, builds a catalog of linked artists, albums, tracks and labels, and answers questions about it — statistics, diagnostics, checksum verification, a query language, favourites, ratings and notes. It never writes to your audio files.",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "Music library manager",
+        "operatingSystem": "macOS, Linux, Windows",
+        "softwareVersion": "0.1.0",
+        "programmingLanguage": "Rust",
+        "downloadUrl": "https://github.com/craft-and-code/aede/releases",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+        "author": {
+          "@type": "Organization",
+          "name": "craft-and-code",
+          "url": "https://github.com/craft-and-code"
+        },
+        "license": "https://github.com/craft-and-code/aede/blob/main/LICENSE",
+        "isAccessibleForFree": true
+      }
+    </script>
+  </head>
+
+  <body>
+    <a class="skip" href="#roadmap">Skip to the roadmap</a>
+
+    <header class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Free and open source · Rust · macOS, Linux, Windows</p>
+        <h1>Aède</h1>
+        <p class="lead">A local music library, in one command.</p>
+        <p class="blurb">
+          It reads your music folders and turns them into a catalog you can actually question — not
+          a player, not a tagger, not a cloud. An <em>aède</em> (Greek ἀοιδός) was the poet-singer
+          of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and
+          playing, in one word.
+        </p>
+        <p class="actions">
+          <a class="button primary" href="https://github.com/craft-and-code/aede/releases"
+            >Download</a
+          >
+          <a class="button" href="https://github.com/craft-and-code/aede">Source on GitHub</a>
+        </p>
+        <p class="note">
+          Milestone <strong>M0.6</strong>: the catalog, the questions, what you write about your
+          music, and getting it back out to a player. No playback and no network access yet —
+          deliberately, and the <a href="#roadmap">roadmap</a> says when each arrives.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section class="wrap" aria-labelledby="what">
+        <h2 id="what">What it does</h2>
+        <pre><code>$ aede scan ~/Music
+→ 18 402 tracks · 1 512 albums · 604 artists · 52 days
+
+$ aede query "genre:metal year:1990..1999 -label:earache"
+$ aede doctor              <span class="c">— missing tags, duplicates, incomplete albums</span>
+$ aede check               <span class="c">— has anything been damaged since it was written?</span>
+$ aede copy /Volumes/Card --query "loved" --compress opus
+</code></pre>
+
+        <ul class="grid">
+          <li>
+            <h3>A graph, not a table</h3>
+            <p>
+              Artists, albums, tracks, labels and genres, linked by who did what on what. Click a
+              drummer and see their forty appearances — the model was built for that from the first
+              line.
+            </p>
+          </li>
+          <li>
+            <h3>A real query language</h3>
+            <p>
+              Ranges, negation, <code>OR</code>, any depth of them:
+              <code>(artist:ozzy OR artist:dio) album.rating:&gt;=4 played:0</code>. Every result is
+              a selection, so CSV, JSON and M3U all apply to it.
+            </p>
+          </li>
+          <li>
+            <h3>Is it still intact?</h3>
+            <p>
+              <code>aede check</code> verifies the checksums your files already carry — FLAC frame
+              CRCs, Ogg page CRCs — and remembers the verdict, so the hour it costs is paid once.
+            </p>
+          </li>
+          <li>
+            <h3>What you think of it</h3>
+            <p>
+              Favourites, one to five stars, free-form tags and notes kept exactly as typed, in a
+              file of their own that no rescan can destroy — and searchable like everything else.
+            </p>
+          </li>
+          <li>
+            <h3>Out to a player</h3>
+            <p>
+              <code>aede copy</code> writes a selection to a card or a phone, keeping the folder
+              tree, adapting names the filesystem refuses, and encoding on the way out when a
+              64&nbsp;GB card will not hold a FLAC library.
+            </p>
+          </li>
+          <li>
+            <h3>It never writes to your files</h3>
+            <p>
+              Not a tag, not a name, not a folder. Tagging is Picard's job and it does it well; this
+              reads what is there. One dependency, no network, no database daemon.
+            </p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="wrap" id="roadmap" aria-labelledby="roadmap-title">
+        <h2 id="roadmap-title">Roadmap</h2>
+        <p class="intro">
+          Each milestone is a position, not a promise of a date. The reasoning behind every one of
+          them is written down in the
+          <a href="https://github.com/craft-and-code/aede/tree/main/docs/design">design notes</a> —
+          most of it exists to explain a refusal.
+        </p>
+
+        <ol class="timeline">
+          <li class="done">
+            <h3><span class="tag">M0</span> The catalog <span class="state">done</span></h3>
+            <p>
+              Scanning, the graph model, statistics, diagnostics, and command-line navigation of the
+              lot. Eleven formats read by hand-written parsers, so a truncated file is a message
+              rather than a panic.
+            </p>
+          </li>
+          <li class="done">
+            <h3><span class="tag">M0.5</span> What you write <span class="state">done</span></h3>
+            <p>
+              Favourites, ratings, notes and tags in an annotation store keyed so that a scan can
+              never destroy them; play history; the query grammar with ranges, negation and
+              <code>OR</code>; saved queries; import and export of all of it.
+            </p>
+          </li>
+          <li class="done">
+            <h3><span class="tag">M0.6</span> Getting music out <span class="state">done</span></h3>
+            <p>
+              <code>aede copy</code> to a player, a card or a drive, keeping the tree; companion
+              files chosen by the catalog rather than by extension; names adapted to what the volume
+              actually accepts, probed rather than guessed; verification and resume; encoding
+              through ffmpeg on the way out. Plus spectrograms, playlists written into the album
+              folders, and lyrics read from tags and <code>.lrc</code> files.
+            </p>
+          </li>
+          <li class="next">
+            <h3><span class="tag">M1</span> Identification <span class="state">next</span></h3>
+            <p>
+              MusicBrainz for relations and credits, AcoustID for badly tagged files, Cover Art
+              Archive for artwork. Band line-ups as dated relations, release types, and the
+              completeness report that says which albums are missing from the shelf. Decided before
+              a line of it is written: <strong>a fetched value sits beside the tag, never on top of
+              it</strong> — attributed, removable, and able to say that two sources disagree.
+            </p>
+          </li>
+          <li>
+            <h3><span class="tag">M2</span> The API</h3>
+            <p>
+              An HTTP server with JSON and WebSocket, frozen early because it is the contract
+              between the core and every future client.
+            </p>
+          </li>
+          <li>
+            <h3><span class="tag">M2.5</span> Other servers' languages</h3>
+            <p>
+              Subsonic and OpenSubsonic first — eighty-odd existing clients on every platform, which
+              is the shortest path from no mobile client to thirty of them. Jellyfin afterwards, and
+              timeboxed. Both as translations over the API, never as a second core.
+            </p>
+          </li>
+          <li>
+            <h3><span class="tag">M3</span> Playback</h3>
+            <p>
+              Local output, a queue, gapless playback and loudness normalisation (EBU R128). The
+              decoder it needs also brings the FLAC MD5 check, which verifies the audio itself
+              rather than the container.
+            </p>
+          </li>
+          <li>
+            <h3><span class="tag">M4</span> The network</h3>
+            <p>
+              Remote playback endpoints: <code>slimproto</code> first, since it opens a fleet of
+              existing devices without inventing anything, then UPnP/OpenHome for commercial
+              streamers.
+            </p>
+          </li>
+        </ol>
+
+        <p class="intro">
+          Explicitly out of scope: RAAT and “Roon Ready” certification are proprietary and licensed
+          — there is no technical path to them.
+        </p>
+      </section>
+
+      <section class="wrap" aria-labelledby="get">
+        <h2 id="get">Getting it</h2>
+        <p class="intro">
+          One executable. Unpack it, put it on your <code>PATH</code>, run it. Nothing is installed
+          and nothing runs in the background.
+        </p>
+        <pre><code>$ tar xzf aede-0.1.0-macOS-AppleSilicon.tar.gz
+$ ./aede scan ~/Music
+$ ./aede stats</code></pre>
+        <p>
+          Builds for macOS (Apple Silicon and Intel), Linux and Windows are on the
+          <a href="https://github.com/craft-and-code/aede/releases">releases page</a>, each with a
+          checksum beside it. Or build it yourself — Rust 1.89, one dependency, and the first build
+          is the only step that needs the network:
+        </p>
+        <pre><code>$ git clone https://github.com/craft-and-code/aede.git
+$ cd aede &amp;&amp; cargo build --release</code></pre>
+        <p>
+          The manual lives in the repository:
+          <a href="https://github.com/craft-and-code/aede#documentation">documentation</a>,
+          <a href="https://github.com/craft-and-code/aede/blob/main/docs/querying.md"
+            >the query language</a
+          >,
+          <a href="https://github.com/craft-and-code/aede/blob/main/docs/design/architecture.md"
+            >the architecture</a
+          >.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <p>
+          MIT licensed · built by
+          <a href="https://github.com/craft-and-code">craft-and-code</a> ·
+          <a href="https://github.com/craft-and-code/aede/issues">report something</a>
+        </p>
+        <p class="quiet">
+          No tracker, no analytics, no third-party request: this page is one HTML file and one
+          stylesheet.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

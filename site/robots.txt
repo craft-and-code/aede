@@ -1,0 +1,6 @@
+# Everything here is meant to be found: one page, no private area, no
+# search-result pages to keep a crawler out of.
+User-agent: *
+Allow: /
+
+Sitemap: https://craft-and-code.github.io/aede/sitemap.xml
