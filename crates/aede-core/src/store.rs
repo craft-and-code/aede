@@ -201,6 +201,7 @@ fn file_to_json(file: &AudioFile) -> Json {
     o.set("bitrate_kbps", opt_num(&file.properties.bitrate_kbps));
     o.set("lossless", file.properties.lossless.into());
     o.set("has_embedded_art", file.has_embedded_art.into());
+    o.set("lyrics_path", opt_str(&file.lyrics_path));
 
     let mut tags = Json::obj();
     for (key, values) in &file.tags {
@@ -603,6 +604,7 @@ fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
         }
     }
     Ok(AudioFile {
+        lyrics_path: item.field_str("lyrics_path"),
         id: item
             .field_u32("id")
             .ok_or(StoreError::Invalid("file without identifier"))?,
@@ -693,6 +695,7 @@ mod tests {
                 mtime: 1_700_000_000,
                 tags,
                 folder_cover: Some("/music/Miles Davis/Kind of Blue/cover.jpg".into()),
+                sidecar: Some("/music/Miles Davis/Kind of Blue/01 So What.lrc".into()),
                 integrity: None,
             }],
             vec!["/music".into()],
@@ -724,6 +727,12 @@ mod tests {
         let album = albums.first().expect("album");
         assert_eq!(album.year, Some(1959));
         assert!(album.cover_path.is_some());
+        // The sidecar is a path the walk found, not a fact the file states, so
+        // nothing recomputes it on load: it has to survive the round trip.
+        assert_eq!(
+            decoded.files[0].lyrics_path.as_deref(),
+            Some("/music/Miles Davis/Kind of Blue/01 So What.lrc")
+        );
     }
 
     #[test]
@@ -788,6 +797,7 @@ mod tests {
                 mtime: 0,
                 tags,
                 folder_cover: None,
+                sidecar: None,
                 integrity: None,
             }],
             vec!["/music".into()],

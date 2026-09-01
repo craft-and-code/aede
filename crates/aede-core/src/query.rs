@@ -105,6 +105,9 @@ pub enum Field {
     Label,
     /// The comment tag, as the tagger wrote it.
     Comment,
+    /// The words: from the tag that carries them, or from the `.lrc` beside
+    /// the file.
+    Lyrics,
     /// The file's path.
     Path,
     /// The codec: flac, mp3, opus…
@@ -427,6 +430,7 @@ const FIELD_NAMES: &[(&str, Field)] = &[
     ("genre", Field::Genre),
     ("label", Field::Label),
     ("comment", Field::Comment),
+    ("lyrics", Field::Lyrics),
     ("path", Field::Path),
     ("codec", Field::Codec),
     ("format", Field::Codec),
@@ -1042,6 +1046,14 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
         Field::Comment => file
             .and_then(|f| f.tags.get("comment"))
             .cloned()
+            .unwrap_or_default(),
+        // The tag first, because it costs nothing — raw tags are in the
+        // catalog. The sidecar is only opened when the tag holds nothing, and
+        // only for the tracks that have one, which is what keeps a search
+        // across a library from being ten thousand file reads.
+        Field::Lyrics => catalog
+            .lyrics_of_track(track)
+            .map(|lyrics| vec![lyrics.text()])
             .unwrap_or_default(),
         Field::Path => file.map(|f| vec![f.path.clone()]).unwrap_or_default(),
         Field::Codec => file

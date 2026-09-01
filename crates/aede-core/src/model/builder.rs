@@ -38,6 +38,8 @@ pub struct ScannedFile {
     pub tags: RawTags,
     /// Cover art found in the folder (`cover.jpg`, `folder.png`…).
     pub folder_cover: Option<String>,
+    /// A `.lrc` file sitting beside this one, when the walk saw one.
+    pub sidecar: Option<String>,
     /// Integrity verdict carried over from the previous catalog, when the file
     /// was reused unchanged. A freshly read file has none: it has to be checked
     /// again.
@@ -125,6 +127,7 @@ impl Builder {
             properties: tags.properties.clone(),
             has_embedded_art: tags.has_embedded_art,
             tags: tags.fields.clone(),
+            lyrics_path: item.sidecar.clone(),
             integrity: item.integrity.clone(),
         };
         // Where the *release* lives, which is not always where the file does.
@@ -604,6 +607,7 @@ mod tests {
                     mtime: 0,
                     tags,
                     folder_cover: None,
+                    sidecar: None,
                     integrity: None,
                 });
             }
@@ -637,6 +641,7 @@ mod tests {
                 mtime: 0,
                 tags,
                 folder_cover: None,
+                sidecar: None,
                 integrity: None,
             });
         }
@@ -663,6 +668,7 @@ mod tests {
                 mtime: 0,
                 tags,
                 folder_cover: None,
+                sidecar: None,
                 integrity: None,
             }
         };

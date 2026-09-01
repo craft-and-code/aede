@@ -67,6 +67,7 @@ fn main() {
         "pending",
         "list",
         "no-scan",
+        "lyrics",
         "simple",
         "artists",
         "extras",
@@ -285,6 +286,11 @@ fn main() {
             "dry-run",
             &["copy", "spectrum", "playlist"],
             "say what it would do without doing it",
+        ),
+        (
+            "lyrics",
+            &["track", "search"],
+            "show the words, or look in them",
         ),
         ("simple", &["playlist"], "leave out the #EXTINF lines"),
         (
@@ -710,10 +716,13 @@ fn print_help() {
                        (--with=<other> lists the tracks the two share)
   album <title>        Album card: tracks and credits
   track <title>        Track card: album, credits, technical details, tags
+                       (--lyrics adds the words, from the tags or from a .lrc
+                       file sitting beside the track)
   genre <name>         Genre page: albums and artists carrying it
   label <name>         Label page: its catalogue and its artists
   search <text>        Search the whole catalog. --comments also looks in the
-                       comment tag, --notes in what you wrote yourself
+                       comment tag, --notes in what you wrote yourself,
+                       --lyrics in the words of the songs
   file <path>          Inspect a single file, outside the catalog
   import <report…>     Take in FlacCompagnon reports. --list says what is
                        held and what became of it, --pending lists the

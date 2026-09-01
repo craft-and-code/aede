@@ -119,6 +119,7 @@ pub fn scan(
         mut audio_files,
         reports: mut reports_found,
         folder_covers,
+        sidecars,
         ..
     } = walker;
     reports_found.sort();
@@ -162,6 +163,11 @@ pub fn scan(
                     mtime,
                     tags,
                     folder_cover: cover_for(&folder_covers, path),
+                    // Read from the fresh walk rather than carried over: a
+                    // `.lrc` dropped beside a track nobody touched must attach
+                    // on the next scan, and the track's own bytes have not
+                    // changed to say so.
+                    sidecar: sidecar_for(&sidecars, path),
                     // The file has not moved and has not changed, so what was
                     // concluded about it still holds.
                     integrity: old.integrity.clone(),
@@ -209,6 +215,7 @@ pub fn scan(
                                 mtime: meta.as_ref().map(mtime_seconds).unwrap_or(0),
                                 tags,
                                 folder_cover: cover_for(&folder_covers, &path),
+                                sidecar: sidecar_for(&sidecars, &path),
                                 // A file read again is a file that changed:
                                 // any earlier verdict is about other bytes.
                                 integrity: None,
@@ -319,6 +326,14 @@ pub fn resolve_threads(requested: usize) -> usize {
         .unwrap_or(4)
 }
 
+/// The `.lrc` beside this file, if the walk saw one.
+fn sidecar_for(sidecars: &HashSet<PathBuf>, file: &Path) -> Option<String> {
+    let expected = crate::lyrics::sidecar_of(file);
+    sidecars
+        .contains(&expected)
+        .then(|| expected.to_string_lossy().to_string())
+}
+
 fn cover_for(covers: &HashMap<PathBuf, PathBuf>, file: &Path) -> Option<String> {
     let folder = file.parent()?;
     covers.get(folder).map(|p| p.to_string_lossy().to_string())
@@ -335,6 +350,7 @@ struct Walker<'a> {
     reports: Vec<PathBuf>,
     /// Best cover art found per folder.
     folder_covers: HashMap<PathBuf, PathBuf>,
+    sidecars: HashSet<PathBuf>,
     /// Folders already visited, so as not to go round in circles on a
     /// circular symbolic link.
     visited: HashSet<PathBuf>,
@@ -347,6 +363,7 @@ impl<'a> Walker<'a> {
             audio_files: Vec::new(),
             reports: Vec::new(),
             folder_covers: HashMap::new(),
+            sidecars: HashSet::new(),
             visited: HashSet::new(),
         }
     }
@@ -413,6 +430,12 @@ impl<'a> Walker<'a> {
                 // leave the report sitting in it. Picking it up here is what
                 // makes the order of the two operations irrelevant.
                 self.reports.push(path);
+            } else if crate::lyrics::is_sidecar(&name) {
+                // Noted while the folder is open rather than looked for later:
+                // the walk already has the names in hand, and asking the
+                // filesystem again once per track would be ten thousand
+                // questions with the answers already on the table.
+                self.sidecars.insert(path);
             } else if let Some(rank) = cover_rank(&name)
                 && best_cover.as_ref().map(|(r, _)| rank < *r).unwrap_or(true)
             {

@@ -1,17 +1,18 @@
 //! The `search` command: one query across every entity.
 //!
-//! Names only, by default. `--comments` widens it to the **comment** tag — where
-//! a rip came from, which pressing this is — and `--notes` to what the user
-//! wrote themselves. Both are free prose, and a common word in either would
-//! bury the entity that actually bears the name, which is why neither joins an
-//! ordinary search and why each keeps a section of its own: a hit found in a
-//! note was found by another route, and the reader has to be able to tell
-//! which.
+//! Names only, by default. `--comments` widens it to the **comment** tag —
+//! where a rip came from, which pressing this is — `--notes` to what the user
+//! wrote themselves, and `--lyrics` to the words of the songs. All three are
+//! free prose, and a common word in any of them would bury the entity that
+//! actually bears the name, which is why none joins an ordinary search and why
+//! each keeps a section of its own: a hit found in a note was found by another
+//! route, and the reader has to be able to tell which.
 //!
-//! The two are not the same field and must not be folded together. A comment
+//! The three are not the same field and must not be folded together. A comment
 //! lives **inside the audio file**, put there by whoever tagged it; a note
-//! lives in `user.json`, put there by the person using Aède. Searching one is
-//! searching the library, searching the other is searching yourself.
+//! lives in `user.json`, put there by the person using Aède; the words are the
+//! song itself, and belong to nobody here. Searching one is searching the
+//! library, searching another is searching yourself.
 
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
@@ -45,6 +46,15 @@ pub fn search(args: &Args) -> Res {
         Vec::new()
     };
 
+    // The words, with the line that carried the text rather than the song:
+    // "that one that goes something about a train" is answered by showing the
+    // line, in the shape it was half-remembered.
+    let in_lyrics: Vec<(Id, String)> = if args.has("lyrics") {
+        catalog.tracks_with_lyric(&query)
+    } else {
+        Vec::new()
+    };
+
     // A note can be about anything — a label, a genre, an artist — so what
     // comes back is not a list of tracks the way a comment hit is. It is shown
     // as what it is.
@@ -61,7 +71,7 @@ pub fn search(args: &Args) -> Res {
         .filter(|h| h.kind == EntityKind::Track)
         .map(|h| h.id)
         .collect();
-    for &id in &in_comments {
+    for &id in in_comments.iter().chain(in_lyrics.iter().map(|(id, _)| id)) {
         if !ids.contains(&id) {
             ids.push(id);
         }
@@ -70,7 +80,7 @@ pub fn search(args: &Args) -> Res {
     // reports the hits — artists and albums included — which is a better answer
     // than the flat track table the shared selection path would give.
     if args.has("json") {
-        return print_json(&catalog, &hits, &in_comments, window);
+        return print_json(&catalog, &hits, &in_comments, &in_lyrics, window);
     }
     if let Some(result) = selection_output(&catalog, &ids, args) {
         return result;
@@ -97,6 +107,9 @@ pub fn search(args: &Args) -> Res {
 
     if args.has("comments") {
         print_comment_hits(&catalog, &in_comments, window);
+    }
+    if args.has("lyrics") {
+        print_lyric_hits(&catalog, &in_lyrics, window);
     }
     if args.has("notes") {
         print_note_hits(&catalog, &in_notes, window);
@@ -162,6 +175,7 @@ fn print_json(
     catalog: &Catalog,
     hits: &[aede_core::model::SearchHit],
     in_comments: &[Id],
+    in_lyrics: &[(Id, String)],
     window: Window,
 ) -> Res {
     let mut rows: Vec<Json> = hits
@@ -195,11 +209,54 @@ fn print_json(
         o.set("found_in", "comment".to_string().into());
         rows.push(o);
     }
+    for (id, line) in in_lyrics.iter().skip(window.offset).take(window.limit) {
+        let Some(track) = catalog.track(*id) else {
+            continue;
+        };
+        let mut o = Json::obj();
+        o.set("type", EntityKind::Track.as_str().into());
+        o.set("id", (*id).into());
+        o.set("name", track.title.clone().into());
+        // The line that matched, as on screen: a client that wanted the whole
+        // song would ask for the track, not for a search result.
+        o.set("context", line.clone().into());
+        o.set("found_in", "lyrics".to_string().into());
+        rows.push(o);
+    }
     println!("{}", Json::Arr(rows).to_string_pretty());
     Ok(())
 }
 
 /// The tracks whose comment carries the text, in their own section.
+/// The tracks whose words carry the text, in their own section.
+///
+/// One line per hit, not one song: a cell holding four hundred lines is a table
+/// nobody can read, and the line is what was being looked for.
+fn print_lyric_hits(catalog: &Catalog, found: &[(Id, String)], window: Window) {
+    if found.is_empty() {
+        println!("  {}", ui::dim("nothing in the lyrics"));
+        return;
+    }
+    println!("{}", ui::section("In lyrics"));
+    let mut t = Table::new(&["Track", "Album", "Line"])
+        .limit(0, 30)
+        .limit(1, 25)
+        .limit(2, 45);
+    for (id, line) in found.iter().skip(window.offset).take(window.limit) {
+        let Some(track) = catalog.track(*id) else {
+            continue;
+        };
+        let album = track
+            .release_id
+            .and_then(|r| catalog.release(r))
+            .map(|r| r.title.clone())
+            .unwrap_or_default();
+        t.push(vec![track.title.clone(), album, line.clone()]);
+    }
+    print!("{}", t.render());
+    announce_window(window, found.len(), "line");
+}
+
 fn print_comment_hits(catalog: &Catalog, tracks: &[Id], window: Window) {
     if tracks.is_empty() {
         println!("  {}", ui::dim("nothing in the comments"));

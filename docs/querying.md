@@ -14,9 +14,16 @@ aede query "lossless:false size:>50000000" # big, and not lossless
 ```
 
 Fields: `title`, `artist`, `album`, `albumartist`, `genre`, `label`, `comment`,
-`path`, `codec`, `year`, `duration`, `size`, `bitrate`, `samplerate`,
+`lyrics`, `path`, `codec`, `year`, `duration`, `size`, `bitrate`, `samplerate`,
 `lossless`, `compilation`, `played`, and what you wrote — `rating`, `loved`,
 `tag`, `note`.
+
+`lyrics:` looks in the words the file carries — the `LYRICS`/`USLT`/`©lyr` tag,
+or a `.lrc` sitting beside the track — which is what makes "that song that goes
+something about a train" answerable: `aede query "lyrics:train"`. The tag costs
+nothing, since raw tags are in the catalog; a sidecar is opened only for the
+tracks that have one. `aede track "<title>" --lyrics` shows them in full, timed
+where the file gives times.
 
 **And who did what**, which is what a graph is for: `composer`, `lyricist`,
 `producer`, `engineer`, `performer`, `conductor`, `remixer`, `featured`,
@@ -111,7 +118,15 @@ aede search "vinyle" --notes
 aede search "remaster" --notes
 ```
 
-The two are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you. Searching one is searching the library, searching the other is searching yourself — so they keep separate sections and separate options. A note can be about anything, so the results name the kind: an artist, an album, a label.
+And `--lyrics` searches the words themselves, from the tag that carries them or from a `.lrc` beside the track:
+
+```sh
+aede search "all aboard" --lyrics
+```
+
+It shows **the line that matched**, not the song: a table cell holding four hundred lines is one nobody can read, and the line is what was half-remembered in the first place.
+
+The three are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you; the **words are the song**, and belong to nobody here. Searching one is searching the library, searching another is searching yourself — so they keep separate sections and separate options, and a hit says by which route it was found (`found_in: comment`, `lyrics` in the JSON). A note can be about anything, so its results name the kind: an artist, an album, a label.
 
 ## Saving a question
 

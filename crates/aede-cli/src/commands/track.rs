@@ -11,6 +11,7 @@
 
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id, TitleMatch, Track};
+use aede_core::{lyrics, text};
 
 use super::{
     Res, announce_window, load, properties_table, role_label, selection_output, tags_table,
@@ -94,8 +95,12 @@ pub fn show_track(args: &Args) -> Res {
             ))
         );
     }
+    let words = args.has("lyrics");
     for track in &matches {
         print_track(&catalog, track);
+        if words {
+            print_lyrics(&catalog, track);
+        }
     }
 
     // A truncated list must say so: a silent cut reads as "that is all there
@@ -224,6 +229,51 @@ fn print_track(catalog: &Catalog, track: &Track) {
             println!("  {}", ui::yellow("no tag in this file"));
         } else {
             print!("{}", tags_table(&file.tags).render());
+        }
+    }
+}
+
+/// Shows the words, when they are asked for.
+///
+/// Behind `--lyrics` rather than on the page by default, and that is the whole
+/// design decision here: a track page is read to learn what a file *is*, and
+/// four hundred lines of text would bury the twelve that answer it. A song is
+/// longer than everything else the page says put together.
+///
+/// The tag is preferred to the sidecar when a file has both — the tag travels
+/// with the file, and whoever wrote it into the file meant it to.
+fn print_lyrics(catalog: &Catalog, track: &Track) {
+    let Some(found) = catalog.lyrics_of_track(track.id) else {
+        println!("{}", ui::section("Lyrics"));
+        println!(
+            "  {}",
+            ui::dim("none in the tags, and no .lrc beside the file")
+        );
+        return;
+    };
+
+    // Named after where they came from, and whether they carry timings —
+    // `.lrc` and plain text are two different things to whoever is about to
+    // use them, and M3 will care about exactly this distinction.
+    let origin = match found.source {
+        lyrics::Source::Tag => "from the tags".to_string(),
+        lyrics::Source::Sidecar => format!("from {}", text::file_name(&found.origin)),
+    };
+    let timing = match found.synced() {
+        true => ", timed",
+        false => "",
+    };
+    println!("{}", ui::section(&format!("Lyrics ({origin}{timing})")));
+    for line in &found.lines {
+        match line.at_ms {
+            // Floored to the second rather than rounded: the line *starts*
+            // at 12.5 s, and "0:13" would put it after a moment it precedes.
+            Some(at) => println!(
+                "  {}  {}",
+                ui::dim(&format!("{}:{:02}", at / 60_000, at / 1000 % 60)),
+                line.text
+            ),
+            None => println!("  {}", line.text),
         }
     }
 }

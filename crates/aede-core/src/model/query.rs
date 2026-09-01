@@ -646,6 +646,46 @@ impl Catalog {
             .collect()
     }
 
+    /// The words of a track: the tag that carries them, or the `.lrc` beside
+    /// the file.
+    ///
+    /// **The one place that decides which of the two wins.** The tag is
+    /// preferred, and costs nothing since raw tags are in the catalog; the
+    /// sidecar is opened only when the tag holds none, and only for the tracks
+    /// that have one. Three callers ask this question — the track page, the
+    /// `lyrics:` field of the grammar, `search --lyrics` — and three answers
+    /// that could disagree about precedence is two too many.
+    pub fn lyrics_of_track(&self, track_id: Id) -> Option<crate::lyrics::Lyrics> {
+        let file = self.file(self.track(track_id)?.file_id)?;
+        file.first_tag("lyrics")
+            .and_then(|text| crate::lyrics::from_tag(&file.path, text))
+            .or_else(|| crate::lyrics::read(std::path::Path::new(file.lyrics_path.as_ref()?)))
+    }
+
+    /// The tracks whose words carry this text, with the line that carries it.
+    ///
+    /// The **line**, not the song: a table cell holding four hundred lines is a
+    /// table nobody can read, and what somebody searching for "all aboard"
+    /// wants to see is the line they half-remembered, in the shape they
+    /// half-remembered it.
+    pub fn tracks_with_lyric(&self, text: &str) -> Vec<(Id, String)> {
+        let needle = text::normalize(text);
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        self.tracks
+            .iter()
+            .filter_map(|track| {
+                let lyrics = self.lyrics_of_track(track.id)?;
+                let line = lyrics
+                    .lines
+                    .iter()
+                    .find(|line| text::normalize(&line.text).contains(&needle))?;
+                Some((track.id, line.text.clone()))
+            })
+            .collect()
+    }
+
     /// The comment carried by the file behind a track, when there is one.
     pub fn comment_of_track(&self, track_id: Id) -> Option<&str> {
         let track = self.track(track_id)?;

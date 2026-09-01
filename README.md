@@ -42,10 +42,10 @@ Rust 1.89 or later. The build downloads one dependency, `lofty`; everything afte
 | `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                                                                                                      |
 | `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)                                                                                                                     |
 | `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them                                                                                                                    |
-| `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes)                                                                           |
+| `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes, `--lyrics` in the words)                                                  |
 | `aede spectrum [folder…]`                                 | Draw a spectrogram of every track into a `spectrograms/` folder beside it, through ffmpeg                                                                                      |
 | `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                                                                                                        |
-| `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags                                                                                                       |
+| `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags (`--lyrics` adds the words)                                                                           |
 
 `--json` produces machine-readable output wherever `--csv` does — the same rows, typed — plus `stats`, `doctor`, `search` and `track`, which have shapes of their own. `aede help` lists every option.
 

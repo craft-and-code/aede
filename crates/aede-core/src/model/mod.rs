@@ -111,6 +111,15 @@ pub struct AudioFile {
     /// Tags as read, lowercase name to values, kept so that the whole graph
     /// can be rebuilt without touching the disk again.
     pub tags: BTreeMap<String, Vec<String>>,
+    /// A `.lrc` sitting beside the file, when there is one.
+    ///
+    /// The **path**, not the text. Lyrics carried by a tag are already in the
+    /// catalog — raw tags are kept per file — but a sidecar is not in the file,
+    /// and storing its contents as though it were a tag would make the catalog
+    /// lie about what the file says. It is one small text file next to the
+    /// music; reading it when somebody asks costs nothing and is always
+    /// current.
+    pub lyrics_path: Option<String>,
     /// What the last integrity check concluded, if one was ever run.
     ///
     /// `None` means "not checked", which is deliberately distinct from
@@ -406,6 +415,7 @@ pub(crate) mod tests {
             mtime: 0,
             tags,
             folder_cover: None,
+            sidecar: None,
             integrity: None,
         }
     }

@@ -3045,6 +3045,90 @@ fn a_selection_is_copied_out_keeping_its_tree() {
 /// tests green. The skip says so out loud, so a suite that silently stopped
 /// testing conversion cannot pass for a suite that tested it.
 #[test]
+fn the_words_are_read_from_the_tags_and_from_the_lrc_beside_the_file() {
+    // Lyrics sit in libraries already, in two places, and the parsers walked
+    // past both. No network is involved in reading what is on the disk.
+    let sandbox = Sandbox::new("lyrics");
+    let root = std::env::temp_dir().join("aede_e2e_lyrics_src");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::copy(library().join("track.flac"), root.join("01.flac")).unwrap();
+    std::fs::write(
+        root.join("01.lrc"),
+        "[ar:Miles Davis]\n[00:10.00]all aboard\n[00:12.50]ha ha ha\n",
+    )
+    .unwrap();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // Not on the page by default: a song is longer than everything else the
+    // page says put together, and the page is read to learn what a file is.
+    let (out, _, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok, "output: {out}");
+    assert!(!out.contains("all aboard"), "not unless asked:\n{out}");
+
+    let (out, err, ok) = sandbox.run(&["track", "So What", "--lyrics"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("all aboard"), "output: {out}");
+    // Named after where they came from, and whether they carry timings — the
+    // distinction M3 will need, and the one a reader wants now.
+    assert!(out.contains("01.lrc"), "output: {out}");
+    assert!(out.contains("timed"), "output: {out}");
+    // The metadata headers of a .lrc repeat what the tags already say.
+    assert!(!out.contains("[ar:"), "output: {out}");
+    // Floored, not rounded: the line starts at 12.5 s and "0:13" would put it
+    // after a moment it precedes.
+    assert!(out.contains("0:12"), "output: {out}");
+
+    // `search --lyrics` puts them beside the other two free-prose searches,
+    // in a section of its own — a hit found in a song was found by another
+    // route than a hit on a name, and the reader has to be able to tell.
+    let (out, _, ok) = sandbox.run(&["search", "aboard", "--lyrics"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("In lyrics"), "output: {out}");
+    // The line, not the song: a cell holding four hundred lines is a table
+    // nobody can read, and the line is what was being looked for.
+    assert!(out.contains("all aboard"), "output: {out}");
+    assert!(
+        !out.contains("ha ha ha"),
+        "only the line that matched:\n{out}"
+    );
+    // And without the option, the words are not searched at all: a common word
+    // in a song would otherwise bury the entity that bears the name.
+    let (out, _, ok) = sandbox.run(&["search", "aboard"]);
+    assert!(ok);
+    assert!(!out.contains("In lyrics"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["search", "nothinglikethat", "--lyrics"]);
+    assert!(ok);
+    assert!(out.contains("nothing in the lyrics"), "output: {out}");
+
+    // And the words are a field of the grammar, which is what makes "that song
+    // about a train" answerable at all.
+    let (out, _, ok) = sandbox.run(&["query", "lyrics:aboard"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("So What"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["query", "lyrics:nothinglikethat"]);
+    assert!(ok);
+    assert!(out.contains("nothing matches"), "output: {out}");
+
+    // A sidecar dropped beside a track nobody touched attaches on the next
+    // scan: the track's own bytes have not changed to announce it, so the
+    // sidecar has to be read from the walk rather than carried over.
+    std::fs::remove_file(root.join("01.lrc")).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, _) = sandbox.run(&["track", "So What", "--lyrics"]);
+    assert!(out.contains("no .lrc"), "gone with its file:\n{out}");
+
+    // The option means nothing anywhere else, so it is refused there.
+    let (_, err, ok) = sandbox.run(&["albums", "--lyrics"]);
+    assert!(!ok, "stderr: {err}");
+    assert!(err.contains("cannot"), "stderr: {err}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn a_playlist_is_written_beside_the_music_and_only_when_it_has_changed() {
     let sandbox = Sandbox::new("playlist");
     let root = std::env::temp_dir().join("aede_e2e_playlist_src");
