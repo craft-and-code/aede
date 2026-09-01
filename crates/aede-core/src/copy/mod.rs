@@ -638,6 +638,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+    )]
     fn the_tree_is_kept_relative_to_the_root_that_holds_it() {
         // The whole promise of the command: what sat under the watched folder
         // arrives under the destination in the same shape.

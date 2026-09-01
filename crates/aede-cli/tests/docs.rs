@@ -157,29 +157,71 @@ fn every_link_in_the_documentation_leads_somewhere() {
     assert!(broken.is_empty(), "dead links:\n  {}", broken.join("\n  "));
 }
 
+/// The file a path denotes, symlinks and `..` resolved away.
+///
+/// Two spellings of one file compare equal here and nowhere else: this is what
+/// lets a link written `docs/library.md` be recognised as the page the walk
+/// found, on a system whose own spelling of it is `docs\library.md`.
+fn resolved(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
 #[test]
 fn the_front_page_names_every_page_of_the_manual() {
     // A page nobody links to is a page nobody reads, and splitting a document
     // is exactly the moment one gets orphaned: it survives the split, keeps
     // its content, and quietly leaves the manual.
+    //
+    // The comparison is between *files*, not between the texts that name them.
+    // It used to render each page's path and look that string up among the
+    // README's links, which held on Unix by luck: `Path::display` spells a
+    // separator the way the platform does, so on Windows every page of the
+    // manual read as an orphan — `docs\library.md` is not the string
+    // `docs/library.md`, though both name the same file. A link is a path, and
+    // paths are compared as paths.
+    //
+    // What guards that is the Windows leg of CI, and only it: the defect is
+    // conditional on the platform, and it cannot be staged on another one.
+    // An attempt to reproduce it here through `..` instead of a separator was
+    // written and removed — `PathBuf::join` folds `..` away on Windows and not
+    // on Unix, so the reproduction had a platform in it too, and asserting how
+    // a path *renders* is the very habit that caused this.
     let root = root();
     let readme = std::fs::read_to_string(root.join("README.md")).expect("a README");
-    let named: BTreeSet<String> = links(&readme)
+    let named: BTreeSet<PathBuf> = links(&readme)
         .into_iter()
-        .map(|l| l.split('#').next().unwrap_or_default().to_string())
+        .map(|l| l.split('#').next().unwrap_or_default().trim().to_string())
+        .filter(|l| !l.is_empty() && !l.starts_with("http://") && !l.starts_with("https://"))
+        .map(|l| resolved(&root.join(l)))
         .collect();
+
+    // A check whose two sides are both empty passes and proves nothing, and
+    // resolving is exactly what could empty one of them — a link that resolves
+    // nowhere is dropped silently by `canonicalize`. Both sides are therefore
+    // required to hold something first.
+    assert!(
+        named.len() > 15,
+        "the README names {} local files: the links stopped being read",
+        named.len()
+    );
 
     let mut pages = Vec::new();
     markdown_files(&root.join("docs"), &mut pages);
+    assert!(
+        pages.len() > 15,
+        "the manual is a folder of pages: {} found",
+        pages.len()
+    );
+
     let mut orphans: Vec<String> = Vec::new();
     for page in pages {
-        let relative = page
-            .strip_prefix(&root)
-            .unwrap_or(&page)
-            .display()
-            .to_string();
-        if !named.contains(&relative) {
-            orphans.push(relative);
+        if !named.contains(&resolved(&page)) {
+            orphans.push(
+                page.strip_prefix(&root)
+                    .unwrap_or(&page)
+                    .display()
+                    .to_string(),
+            );
         }
     }
     orphans.sort();

@@ -6,7 +6,7 @@
     <title>Aède — a local music library, in one command</title>
     <meta
       name="description"
-      content="Aède reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Free and open source, written in Rust, for macOS, Linux and Windows. It never writes to your files."
+      content="Aède reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Free and open source, written in Rust, for macOS and Linux. It never writes to your files."
     />
     <meta
       name="keywords"
@@ -57,7 +57,7 @@
         "description": "A local music library for the command line: it reads your music folders, builds a catalog of linked artists, albums, tracks and labels, and answers questions about it — statistics, diagnostics, checksum verification, a query language, favourites, ratings and notes. It never writes to your audio files.",
         "applicationCategory": "MultimediaApplication",
         "applicationSubCategory": "Music library manager",
-        "operatingSystem": "macOS, Linux, Windows",
+        "operatingSystem": "macOS, Linux",
         "softwareVersion": "0.1.0",
         "programmingLanguage": "Rust",
         "downloadUrl": "https://github.com/craft-and-code/aede/releases",
@@ -78,7 +78,7 @@
 
     <header class="hero">
       <div class="wrap">
-        <p class="eyebrow">Free and open source · Rust · macOS, Linux, Windows</p>
+        <p class="eyebrow">Free and open source · Rust · macOS, Linux</p>
         <h1>Aède</h1>
         <p class="lead">A local music library, in one command.</p>
         <p class="blurb">
@@ -257,13 +257,24 @@ $ aede copy /Volumes/Card --query "loved" --compress opus
 $ ./aede scan ~/Music
 $ ./aede stats</code></pre>
         <p>
-          Builds for macOS (Apple Silicon and Intel), Linux and Windows are on the
+          Builds for macOS (Apple Silicon and Intel) and Linux are on the
           <a href="https://github.com/craft-and-code/aede/releases">releases page</a>, each with a
           checksum beside it. Or build it yourself — Rust 1.89, one dependency, and the first build
           is the only step that needs the network:
         </p>
         <pre><code>$ git clone https://github.com/craft-and-code/aede.git
 $ cd aede &amp;&amp; cargo build --release</code></pre>
+        <p class="note">
+          <strong>No Windows build yet.</strong> It compiles there, but catalog paths are
+          <code>/</code>-separated by design while the scanner stores the platform's own spelling,
+          which makes everything folder-shaped wrong — album grouping, folder restrictions,
+          playlists. Twelve tests say so, and
+          <a href="https://github.com/craft-and-code/aede/blob/main/docs/design/paths.md"
+            >the design note</a
+          >
+          has the reasoning and the fix. Shipping a binary that builds the catalog wrongly, on the
+          platform where nobody would think to check, is worse than shipping none.
+        </p>
         <p>
           The manual lives in the repository:
           <a href="https://github.com/craft-and-code/aede#documentation">documentation</a>,

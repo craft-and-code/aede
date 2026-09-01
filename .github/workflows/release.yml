@@ -42,9 +42,17 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             label: Linux-x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: Windows-x64
+          # Windows is deliberately absent. It compiles, and CI still runs its
+          # tests, but catalog paths are `/`-separated by design while the
+          # scanner stores the platform's own spelling — so everything
+          # folder-shaped is wrong there. Twelve end-to-end tests say so and
+          # carry `#[cfg_attr(windows, ignore)]`; docs/design/paths.md has the
+          # reasoning and the shape of the fix. Re-adding it is this one entry,
+          # once that work lands:
+          #
+          #     - os: windows-latest
+          #       target: x86_64-pc-windows-msvc
+          #       label: Windows-x64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -201,7 +209,11 @@ jobs:
           | **macOS** (M1 and later) | `aede-*-macOS-AppleSilicon.tar.gz` |
           | **macOS** (Intel) | `aede-*-macOS-Intel.tar.gz` |
           | **Linux** (any 64-bit distribution) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
-          | **Windows** (64-bit) | `aede-*-Windows-x64.zip` |
+
+          There is no Windows build yet: catalog paths are `/`-separated by
+          design and the scanner stores the platform's own spelling, which
+          makes everything folder-shaped wrong there. See
+          [Paths](https://github.com/craft-and-code/aede/blob/main/docs/design/paths.md).
 
           ```sh
           tar xzf aede-*-macOS-AppleSilicon.tar.gz

@@ -17,9 +17,10 @@ The project has a page of its own: **<https://craft-and-code.github.io/aede/>** 
 | **macOS** (M1 and later)            | `aede-*-macOS-AppleSilicon.tar.gz`                                  |
 | **macOS** (Intel)                   | `aede-*-macOS-Intel.tar.gz`                                         |
 | **Linux** (any 64-bit distribution) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
-| **Windows** (64-bit)                | `aede-*-Windows-x64.zip`                                            |
 
 The builds are on the [releases page](https://github.com/craft-and-code/aede/releases), each with a `.sha256` beside it so a download can be checked before it is trusted. On macOS they are not signed with an Apple Developer ID, so Gatekeeper refuses the first run; `xattr -dr com.apple.quarantine ./aede`, once, settles it.
+
+**Windows is not published yet.** It compiles and most of it works, but catalog paths are `/`-separated by design and the scanner stores the platform's own spelling, which makes everything folder-shaped — album grouping, `--folder`, imports, playlists — wrong on Windows. The reasoning, the twelve tests that prove it and the shape of the fix are in [Paths](docs/design/paths.md). Shipping a binary that builds the catalog wrongly, on the platform where nobody would think to check, is worse than shipping none.
 
 ```sh
 tar xzf aede-0.1.0-macOS-AppleSilicon.tar.gz
@@ -106,6 +107,7 @@ most of them exist to explain a refusal.
 | [Playback (M3)](docs/design/playback.md)                           | The queue, shuffle, loudness, gapless                                           |
 | [Identification (M1)](docs/design/identification.md)               | MusicBrainz, editions, band membership, what is missing from the shelf          |
 | [Lyrics](docs/design/lyrics.md)                                    | Three problems that share a word                                                |
+| [Paths](docs/design/paths.md)                                      | Why a catalog path is a `/`-separated string, and why Windows is not published  |
 | [Speaking other tools' languages](docs/design/interoperability.md) | Beets, MPD, Picard: what is borrowed and what is refused                        |
 | [Roadmap](docs/design/roadmap.md)                                  | M0 to M3, and what is deliberately left out                                     |
 

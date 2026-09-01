@@ -1550,6 +1550,10 @@ fn what_a_user_wrote_in_a_comment_can_be_found_again() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_listing_never_stops_without_saying_so() {
     // A listing shows fifty rows by default and used to stop there in silence.
     // Sorted by year, that meant the most recent albums of a real library
@@ -1656,6 +1660,10 @@ fn row_for_folder<'a>(out: &'a str, ending: &str) -> &'a str {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_watched_folder_is_weighed_and_not_confused_with_its_neighbour() {
     // `path.starts_with(root)` on the bare string made "/music/Rock" claim
     // every file of "/music/Rockabilly": one folder counting a neighbour's
@@ -2107,6 +2115,10 @@ fn checking_a_library_finds_a_damaged_file() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn checking_can_be_restricted_to_one_folder() {
     // Verifying a whole library is a long job; being able to try it on a corner
     // first is what makes it approachable.
@@ -2430,6 +2442,10 @@ fn write_report_naming(
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn another_tools_analysis_can_be_taken_in_and_given_back() {
     let sandbox = Sandbox::new("import");
     let root = std::env::temp_dir().join("aede_e2e_import_src");
@@ -2607,6 +2623,10 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn an_analysis_can_arrive_before_the_library_does() {
     // Analysing a folder and then building the library from it is the natural
     // order for someone who already owns the other tool. The import must
@@ -2657,6 +2677,10 @@ fn an_analysis_can_arrive_before_the_library_does() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
     // A scan only ever attaches a waiting analysis by matching name and size —
     // never by the mere fact that a scan happened. A report naming a file
@@ -2800,6 +2824,10 @@ fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
     // The report may equally well be sitting in the album folder. A scan walks
     // over it anyway, so it costs nothing to notice it.
@@ -2826,6 +2854,10 @@ fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn reports_are_looked_for_in_every_folder_underneath() {
     // Reports are kept the way albums are: one folder per artist, one per
     // album. Only looking at the top level would find nothing.
@@ -2858,6 +2890,10 @@ fn reports_are_looked_for_in_every_folder_underneath() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_selection_is_copied_out_keeping_its_tree() {
     // The one command that writes files, and it writes them outside the
     // library. Everything it can get wrong is expensive: a tree that does not
@@ -3129,6 +3165,10 @@ fn the_words_are_read_from_the_tags_and_from_the_lrc_beside_the_file() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_playlist_is_written_beside_the_music_and_only_when_it_has_changed() {
     let sandbox = Sandbox::new("playlist");
     let root = std::env::temp_dir().join("aede_e2e_playlist_src");
@@ -3285,6 +3325,10 @@ fn ffmpeg_is_installed() -> bool {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn only_what_is_lossless_is_encoded_on_the_way_out() {
     // A library is mixed, and that is the case worth getting right: the FLACs
     // and WAVs are encoded, the MP3s are copied as they stand. Re-encoding an
@@ -3467,6 +3511,10 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_conversion_with_nothing_to_convert_says_so() {
     // The same silence as a swallowed option, seen from the other side:
     // `--compress mp3` over a selection that is already MP3 did exactly what
@@ -3926,6 +3974,10 @@ fn an_artist_listing_answers_the_grammar_too() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_copy_takes_its_selection_from_the_grammar() {
     // `copy` has no filters of its own: the selection is the one `query`
     // answers, which is the rule every listing already follows.
