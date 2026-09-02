@@ -335,7 +335,8 @@ Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/):
 ## 5. Tests
 
 - unit tests live in the module, under `#[cfg(test)] mod tests` — beside what they test, and reaching its private items;
-- when that section grows past roughly the size of the code it tests, it moves to a sibling `<module>_tests.rs` declared with `#[cfg(test)] #[path = "…"] mod tests;`. It is still the same child module and still sees the same private items: what changes is the length of a file somebody has to scroll, not what a test may reach. `commands/fetch.rs` was the first, at 759 lines of which 379 were tests;
+- **past 200 lines**, that section moves to a sibling `<module>_tests.rs`, declared with `#[cfg(test)] #[path = "…"] mod tests;`. It is still the same child module and still sees the same private items: what changes is the length of a file somebody has to scroll, not what a test may reach. A number rather than "when it feels long", because a judgement call at every file is a judgement made differently at every file. Thirteen files are split; the rest keep their tests in place, and the smallest of those is a dozen lines that belong exactly where they are;
+- the proof a split changed nothing is the count: it was 264 and 151 before, and 264 and 151 after;
 - integration tests live in `tests/`, and run against **real files** — the audio fixtures were produced with ffmpeg and cross-checked with ffprobe;
 - a new format means a new fixture: reading it correctly is not something a unit test can claim;
 - test names describe the behaviour: `truncated_vorbis_comments`, `various_artists_is_not_an_artist`;
