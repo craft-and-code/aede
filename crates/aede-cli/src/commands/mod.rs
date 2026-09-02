@@ -16,12 +16,14 @@ mod fetch;
 mod import;
 mod inspect;
 mod playlist;
+mod releases;
 mod reset;
 mod scan;
 mod search;
 mod sources;
 mod spectrum;
 mod stats;
+mod summaries;
 mod track;
 
 pub use album::show_album;

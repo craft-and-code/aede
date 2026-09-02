@@ -193,6 +193,13 @@ fn says(facts: &Facts) -> String {
                     false => "ended".to_string(),
                 });
             }
+            // Last, and left to the column's own limit. A truncated opening
+            // line says more about what was stored than the word "summary"
+            // would, and the whole of it is on the artist's own card, where it
+            // is wrapped and credited.
+            if let Some(prose) = &a.summary {
+                parts.push(prose.text.clone());
+            }
         }
         Facts::Release(r) => {
             if let Some(primary) = &r.primary_type {
@@ -409,6 +416,27 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
 
     println!("{}", ui::section("What sources say"));
     let now = aede_core::clock::now_seconds();
+
+    // Prose first, and outside the table. A paragraph does not fit a column,
+    // and it is the one thing here meant to be read rather than compared with
+    // a tag — there is nothing in a file to compare it against.
+    for record in &records {
+        if let Facts::Artist(artist) = &record.facts
+            && let Some(prose) = &artist.summary
+        {
+            for line in ui::wrap(&prose.text, 72) {
+                println!("  {line}");
+            }
+            // The credit is not a nicety: this text is CC BY-SA, and reusing
+            // it obliges naming where it came from and under what terms. It is
+            // printed every time the text is, because that is what the licence
+            // asks and because a reader deserves to know they are reading an
+            // encyclopaedia rather than the program's own opinion.
+            println!("  {}", ui::dim(&prose.credit()));
+            println!();
+        }
+    }
+
     let mut table = Table::new(&["Source", "Field", "Says", "Your tags"]).limit(2, 34);
 
     for record in &records {
@@ -445,6 +473,12 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
     // "(no results)" says neither of them.
     if table.is_empty() {
         for record in &records {
+            // A record whose only content is the paragraph just printed has
+            // no row here, and saying it "holds nothing" directly under its
+            // own text would be plainly false.
+            if matches!(&record.facts, Facts::Artist(a) if a.summary.is_some()) {
+                continue;
+            }
             println!(
                 "  {}",
                 ui::dim(&format!(

@@ -210,12 +210,62 @@ fn a_round_trip_keeps_every_field() {
             wikidata: Some("https://www.wikidata.org/wiki/Q93341".to_string()),
             discogs: None,
             homepage: None,
+            summary: Some(Prose {
+                text: "An American trumpeter and bandleader.".to_string(),
+                url: "https://en.wikipedia.org/wiki/Miles_Davis".to_string(),
+                lang: "en".to_string(),
+                licence: "CC BY-SA 4.0".to_string(),
+            }),
         }),
     });
 
     let text = to_json(&sources).to_string_pretty();
     let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("a layer");
     assert_eq!(back, sources, "written and read back are the same layer");
+}
+
+#[test]
+fn a_summary_without_its_attribution_is_not_read_back() {
+    // The type makes it impossible to hold the words without the credit; a
+    // document written by another build, or edited by hand, can still try.
+    // Dropping the summary is the only answer that keeps the promise: the
+    // alternative is prose on screen with nothing to attribute it to.
+    let text = format!(
+        r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+             {{"entity":"artist:miles davis","source":"wikipedia",
+               "confidence":"identified","fetched_at":1,
+               "facts":{{"summary":{{"text":"A trumpeter.","lang":"en"}}}}}}
+           ]}}"#
+    );
+    let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("a layer");
+    assert_eq!(back.records.len(), 1, "the row itself survives");
+    let Facts::Artist(artist) = &back.records[0].facts else {
+        panic!("an artist row");
+    };
+    assert_eq!(
+        artist.summary, None,
+        "prose with no url and no licence is dropped, not shown uncredited"
+    );
+    assert!(
+        back.records[0].facts.is_empty(),
+        "and the row then says the source held nothing, which is true of what \
+         this build may repeat"
+    );
+}
+
+#[test]
+fn the_credit_line_names_the_page_and_the_terms() {
+    let prose = Prose {
+        text: "A trumpeter.".to_string(),
+        url: "https://en.wikipedia.org/wiki/Miles_Davis".to_string(),
+        lang: "en".to_string(),
+        licence: "CC BY-SA 4.0".to_string(),
+    };
+    let credit = prose.credit();
+    assert!(
+        credit.contains("en.wikipedia.org/wiki/Miles_Davis") && credit.contains("CC BY-SA 4.0"),
+        "the two things CC BY-SA asks for, in one line: {credit}"
+    );
 }
 
 #[test]

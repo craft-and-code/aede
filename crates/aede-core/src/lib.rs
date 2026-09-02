@@ -32,3 +32,4 @@ pub mod spectrum;
 pub mod stats;
 pub mod store;
 pub mod user;
+pub mod wikipedia;

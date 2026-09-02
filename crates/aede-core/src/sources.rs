@@ -68,6 +68,54 @@ impl Confidence {
 // What a source says
 // --------------------------------------------------------------------------
 
+/// A piece of prose taken from somewhere, with what its licence obliges.
+///
+/// **One value, not four fields.** Wikipedia is CC BY-SA: the text may be
+/// reused, and attribution has to travel with it. A `text` field beside a
+/// separate optional `url` would make it possible — and therefore eventually
+/// certain — to hold the words without the credit: one code path that fills
+/// the first and forgets the second, one export that copies one and not the
+/// other, and the project is quietly out of compliance.
+///
+/// So they are the same value. There is no way to store the sentence without
+/// storing where it came from, in which language, and under what terms,
+/// because the type does not offer one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prose {
+    /// The words themselves.
+    pub text: String,
+    /// The page they came from, which is the attribution a reader can follow.
+    pub url: String,
+    /// Language code of that page, so a reader knows what they are getting.
+    pub lang: String,
+    /// The licence, named as the source names it — `CC BY-SA 4.0`.
+    ///
+    /// **Stored per record, not looked up from a constant.** It is the same
+    /// string for every Wikipedia article today, so carrying a copy on each row
+    /// looks like waste — about twenty-four bytes, ten kilobytes over a large
+    /// library. It buys two things that a constant read at display time cannot.
+    ///
+    /// It is a **fact about the fetch**, like [`SourceRecord::fetched_at`]: it
+    /// says what these words were taken under, not what the current build
+    /// believes they would be taken under now. Wikimedia has already moved once
+    /// — CC BY-SA 3.0 to 4.0 — and with a constant that upgrade silently
+    /// relabels every paragraph fetched before it.
+    ///
+    /// And `Prose` is not Wikipedia's. It is prose with its terms, so the next
+    /// source of a biography — a plugin, a label, a discography site under
+    /// quite different terms — files it in this same field, and the record says
+    /// which. Moving the licence out to the source that usually supplies it
+    /// would make the second source a special case of the first.
+    pub licence: String,
+}
+
+impl Prose {
+    /// The line that has to appear wherever the text does.
+    pub fn credit(&self) -> String {
+        format!("{} — {}", self.url, self.licence)
+    }
+}
+
 /// What a source says about one artist.
 ///
 /// Every field is optional: a source may not hold it, and an empty answer is
@@ -118,6 +166,13 @@ pub struct ArtistFacts {
     pub discogs: Option<String>,
     /// The artist's own site, when they have one the source knows about.
     pub homepage: Option<String>,
+    /// A few sentences about the artist, with the attribution its licence
+    /// requires — see [`Prose`].
+    ///
+    /// MusicBrainz never fills this: it holds identifiers and relationships,
+    /// not prose. It comes from an encyclopaedia, and it is stored as one
+    /// inseparable value for the reason written on the type.
+    pub summary: Option<Prose>,
 }
 
 /// What a source says about one release.
@@ -144,6 +199,17 @@ pub struct ReleaseFacts {
 /// the query grammar and `doctor` all have to know what a field *means*, and a
 /// generic bag pushes that knowledge into string literals scattered through
 /// the program. [`crate::analysis::FileAnalysis`] made the same choice.
+///
+/// # The two variants are not the same size, on purpose
+///
+/// An artist carries twelve fields, one of them a paragraph; a release carries
+/// four. Clippy points out that a `Facts` is therefore as large as its larger
+/// variant, and the usual remedy is to box that one. It is the wrong remedy
+/// here: artist records are the majority of this layer, so boxing them puts a
+/// heap allocation and a pointer chase on the common path in order to shrink
+/// the rare one. The whole store is a few hundred rows of a few hundred bytes
+/// — under a hundred kilobytes — and it is read once at start-up.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Facts {
     /// About an artist.
@@ -517,6 +583,23 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("wikidata", opt_str(&a.wikidata));
                     facts.set("discogs", opt_str(&a.discogs));
                     facts.set("homepage", opt_str(&a.homepage));
+                    facts.set(
+                        "summary",
+                        match &a.summary {
+                            // Written as one object for the same reason it is
+                            // read as one: a document cannot carry the words
+                            // without the credit either.
+                            Some(prose) => {
+                                let mut o = Json::obj();
+                                o.set("text", prose.text.clone().into());
+                                o.set("url", prose.url.clone().into());
+                                o.set("lang", prose.lang.clone().into());
+                                o.set("licence", prose.licence.clone().into());
+                                o
+                            }
+                            None => Json::Null,
+                        },
+                    );
                 }
                 Facts::Release(rel) => {
                     facts.set("primary_type", opt_str(&rel.primary_type));
@@ -584,6 +667,16 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 wikidata: facts.and_then(|f| f.field_str("wikidata")),
                 discogs: facts.and_then(|f| f.field_str("discogs")),
                 homepage: facts.and_then(|f| f.field_str("homepage")),
+                // All four or none: a row that lost its attribution somewhere
+                // is a row this build will not repeat.
+                summary: facts.and_then(|f| f.get("summary")).and_then(|p| {
+                    Some(Prose {
+                        text: p.field_str("text")?,
+                        url: p.field_str("url")?,
+                        lang: p.field_str("lang")?,
+                        licence: p.field_str("licence")?,
+                    })
+                }),
             }),
             EntityKind::Release => Facts::Release(ReleaseFacts {
                 primary_type: facts.and_then(|f| f.field_str("primary_type")),

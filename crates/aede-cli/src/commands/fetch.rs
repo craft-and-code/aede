@@ -124,9 +124,34 @@ pub fn run(args: &Args, transport: &mut dyn Ask) -> Res {
 /// [`run`], with the waits made explicit so a test does not have to sit
 /// through them.
 pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Duration]) -> Res {
-    let catalog = super::load(args)?;
     let path = sources::sources_path(&super::data_dir(args));
     let mut held = sources::load(&path)?.unwrap_or_default();
+
+    // The second pass is a different question asked of a different service, so
+    // it is its own run rather than a stage of this one: `--summaries` alone
+    // does not re-ask MusicBrainz about a library it has already answered on.
+    //
+    // Before the catalog is loaded, because it does not need one: its input is
+    // the wikidata link already in the layer, and failing on a missing catalog
+    // would be a refusal with no reason behind it.
+    if args.has("summaries") {
+        let langs = super::summaries::preferred_langs(
+            std::env::var("LC_ALL")
+                .or_else(|_| std::env::var("LANG"))
+                .ok()
+                .as_deref(),
+        );
+        return super::summaries::run(
+            transport,
+            backoff,
+            &langs,
+            &mut held,
+            &path,
+            args.has("full"),
+        );
+    }
+
+    let catalog = super::load(args)?;
 
     // What to ask about: the names given, or every artist in the library.
     let wanted: Vec<String> = args
@@ -159,31 +184,49 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             targets.push((entity, artist.name.clone(), artist.mbid.clone()));
         }
     }
-    if targets.is_empty() {
+    // The albums, decided before anything is asked, so that one estimate and
+    // one confirmation cover the whole run. Two prompts for one question is
+    // how a confirmation becomes something a reader clicks through.
+    let albums = super::releases::targets(&catalog, &held, &wanted, args.has("full"));
+
+    if targets.is_empty() && albums.is_empty() {
         println!("{}", ui::section("Fetch"));
         println!(
             "  {}",
             ui::dim(match wanted.is_empty() {
-                true => "every artist has already been asked about (--full asks again)",
+                true => "every artist and album has already been asked about (--full asks again)",
                 false => "nothing in this catalog matches, or it was already asked about",
             })
         );
+        // Offered here too, and this is the exit that matters most: a reader
+        // who fetched their library before this existed reaches *this* branch
+        // every time, never the one below, and would never be told the second
+        // pass is available. An announcement made only on the path that has
+        // just done work is an announcement nobody who finished first ever
+        // sees.
+        offer_summaries(&held);
         return Ok(());
     }
 
     // How long this will take, before it starts. A predicted duration is
     // usually a bad idea here — how long a read takes depends on the disk —
-    // but this one is not a guess: the rate is fixed by the service.
-    let total_ms = targets.len() as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
+    // but this one is not a guess: the rate is fixed by the service, and every
+    // album costs exactly one request whatever route it takes in.
+    let asks = targets.len() + albums.len();
+    let total_ms = asks as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
     println!("{}", ui::section("Fetch"));
     println!(
-        "  {} at one request per second, about {}",
+        "  {} and {} at one request per second, about {}",
         ui::plural(targets.len(), "artist"),
+        ui::plural(albums.len(), "album"),
         ui::long_duration(total_ms)
     );
     if args.has("dry-run") {
         for (_, name, _) in &targets {
             println!("  {}", ui::dim(name));
+        }
+        for title in super::releases::names(&albums) {
+            println!("  {}", ui::dim(title));
         }
         println!("  {}", ui::dim("nothing was asked: --dry-run"));
         return Ok(());
@@ -192,14 +235,14 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     // A run of ten minutes is something to agree to, not something to
     // discover. Short ones are not worth a question — a confirmation asked
     // every time is a confirmation nobody reads.
-    if targets.len() > CONFIRM_ABOVE && !super::confirmed(args, "ask about all of them")? {
+    if asks > CONFIRM_ABOVE && !super::confirmed(args, "ask about all of them")? {
         println!("  {}", ui::dim("nothing was asked"));
         return Ok(());
     }
 
     let (mut stored, mut refused, mut failed) = (0usize, 0usize, 0usize);
     for (done, (entity, name, mbid)) in targets.iter().enumerate() {
-        print!("\r  asking: {}/{}", done + 1, targets.len());
+        print!("\r  asking: {}/{asks}", done + 1);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         // Ask by identifier when the tags carry one — Picard writes it, and a
@@ -277,6 +320,22 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             }
         }
     }
+
+    // The albums, in the same run and counted into the same report: they are
+    // the same question asked of the same service, and splitting the totals
+    // would leave the reader adding two lines up by eye.
+    let (albums_stored, albums_refused, albums_failed) = super::releases::run(
+        transport,
+        backoff,
+        &albums,
+        &mut held,
+        &path,
+        targets.len(),
+        asks,
+    )?;
+    stored += albums_stored;
+    refused += albums_refused;
+    failed += albums_failed;
     println!();
 
     println!(
@@ -293,8 +352,39 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             )
         );
     }
+    offer_summaries(&held);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
+}
+
+/// Names the second pass, when there is something for it to do.
+///
+/// Printed on **both** ways out of the command, which is the whole point. A
+/// flag that only `--help` mentions is a flag nobody finds, and a reader whose
+/// library was already fetched leaves through the early return every time — so
+/// announcing it only after a run that did work would hide it from exactly the
+/// people who are ready for it.
+///
+/// The count comes from the pass's own `targets`, counted rather than derived a
+/// second time: an offer that disagreed with the run it offers would be worse
+/// than no offer.
+fn offer_summaries(held: &sources::Sources) {
+    let door = super::summaries::waiting(held);
+    if door == 0 {
+        return;
+    }
+    // `ui::plural` is no help here: the verb has to agree with the count too,
+    // and it is irregular. Written out rather than assembled.
+    let (them, have) = match door {
+        1 => ("1 of them".to_string(), "has"),
+        _ => (format!("{door} of them"), "have"),
+    };
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{them} {have} a wikidata link — aede fetch --summaries reads the article"
+        ))
+    );
 }
 
 /// Above this many requests, the run is long enough to be worth agreeing to.
@@ -329,7 +419,7 @@ fn identity(version: &str, contact: &str) -> Result<String, Box<dyn std::error::
 /// Only `503` is retried. A failure to reach the service at all, or an answer
 /// that is not JSON, will not be cured by waiting — retrying those would only
 /// take three times as long to report the same thing.
-fn ask_with_backoff(
+pub(super) fn ask_with_backoff(
     transport: &mut dyn Ask,
     url: &str,
     backoff: &[std::time::Duration],
@@ -347,7 +437,7 @@ fn ask_with_backoff(
 }
 
 /// Says why an answer was not taken, in words rather than a variant name.
-fn refusal(why: &aede_core::musicbrainz::NoMatch) -> String {
+pub(super) fn refusal(why: &aede_core::musicbrainz::NoMatch) -> String {
     use aede_core::musicbrainz::NoMatch;
     match why {
         NoMatch::Nothing => "MusicBrainz knows nobody by that name".to_string(),
@@ -364,7 +454,7 @@ fn refusal(why: &aede_core::musicbrainz::NoMatch) -> String {
 ///
 /// Written by hand for the same reason the JSON reader is: one dependency, and
 /// this is thirty lines. The unreserved set is RFC 3986's.
-fn encode(text: &str) -> String {
+pub(super) fn encode(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.as_bytes() {
         match byte {

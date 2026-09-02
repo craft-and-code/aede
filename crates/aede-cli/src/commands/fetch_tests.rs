@@ -18,6 +18,12 @@ struct Canned {
 impl Ask for Canned {
     fn get_json(&mut self, url: &str) -> Result<Json, Refusal> {
         self.asked.push(url.to_string());
+        // Running out is a refusal, not a panic. A run asks about artists and
+        // then about albums, so a test interested in only one half would
+        // otherwise die three frames from anything it was asserting.
+        if self.answers.is_empty() {
+            return Err(Refusal::Failed("nothing canned for this".to_string()));
+        }
         match self.answers.remove(0) {
             Ok(text) => Ok(aede_core::json::parse(&text).expect("valid fixture")),
             Err(why) => Err(why),
@@ -63,6 +69,15 @@ fn args(dir: &std::path::Path, extra: &[&str]) -> Args {
     Args::parse(raw)
 }
 
+/// The album in the reference library, as a release-group search answers.
+const ONE_ALBUM: &str = r#"{"release-groups":[
+    {"id":"c9fdb94c","score":100,"title":"Kind of Blue",
+     "primary-type":"Album","first-release-date":"1959-08-17"}]}"#;
+
+/// A search that found nothing — for the tests whose subject is the artist
+/// half, where the album still has to be answered because the run asks.
+const NO_ALBUM: &str = r#"{"release-groups":[]}"#;
+
 const ONE_ARTIST: &str = r#"{"artists":[
     {"id":"561d854a","score":100,"name":"Miles Davis","type":"Person",
      "area":{"name":"United States"},
@@ -72,24 +87,36 @@ const ONE_ARTIST: &str = r#"{"artists":[
 fn an_answer_is_stored_attributed_and_never_as_a_certainty() {
     let dir = sandbox("stored");
     let mut transport = Canned {
-        answers: vec![Ok(ONE_ARTIST.to_string())],
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(ONE_ALBUM.to_string())],
         asked: Vec::new(),
     };
     run(&args(&dir, &[]), &mut transport).expect("a run");
 
+    // One run, both halves: the artist, then the album. They are the same
+    // question asked of the same service, and a library gets no report of what
+    // its tags say until the albums have been asked about.
+    assert_eq!(transport.asked.len(), 2, "asked: {:?}", transport.asked);
     // The name went into the query encoded, not raw.
-    assert_eq!(transport.asked.len(), 1);
     assert!(
         transport.asked[0].contains("query=Miles%20Davis"),
         "asked: {}",
         transport.asked[0]
     );
+    assert!(
+        transport.asked[1].contains("/release-group/"),
+        "and the album followed: {}",
+        transport.asked[1]
+    );
 
     let held = sources::load(&sources::sources_path(&dir))
         .expect("readable")
         .expect("a layer");
-    assert_eq!(held.records.len(), 1);
-    let record = &held.records[0];
+    assert_eq!(held.records.len(), 2, "one artist, one album");
+    let record = held
+        .records
+        .iter()
+        .find(|r| matches!(r.facts, Facts::Artist(_)))
+        .expect("the artist row");
     assert_eq!(record.source, sources::MUSICBRAINZ);
     assert_eq!(record.source_id.as_deref(), Some("561d854a"));
     assert!(
@@ -103,6 +130,22 @@ fn an_answer_is_stored_attributed_and_never_as_a_certainty() {
             assert_eq!(a.ended.as_deref(), Some("1991-09-28"));
         }
         other => panic!("expected artist facts, got {other:?}"),
+    }
+
+    // And the album row, which is the one with something to compare: the
+    // catalog's date comes from the tags, `first_released` from MusicBrainz,
+    // and a reissue is where they part company.
+    let album = held
+        .records
+        .iter()
+        .find(|r| matches!(r.facts, Facts::Release(_)))
+        .expect("the album row");
+    match &album.facts {
+        Facts::Release(r) => {
+            assert_eq!(r.primary_type.as_deref(), Some("Album"));
+            assert_eq!(r.first_released.as_deref(), Some("1959-08-17"));
+        }
+        other => panic!("expected release facts, got {other:?}"),
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -186,10 +229,13 @@ fn an_ambiguous_answer_stores_nothing_at_all() {
     // prevent, and a test that only read the output would not see it.
     let dir = sandbox("ambiguous");
     let mut transport = Canned {
-        answers: vec![Ok(r#"{"artists":[
+        answers: vec![
+            Ok(r#"{"artists":[
             {"id":"a","score":90,"name":"Someone"},
             {"id":"b","score":90,"name":"Someone Else"}]}"#
-            .to_string())],
+                .to_string()),
+            Ok(NO_ALBUM.to_string()),
+        ],
         asked: Vec::new(),
     };
     run(&args(&dir, &[]), &mut transport).expect("a run");
@@ -213,12 +259,20 @@ fn a_hiccup_is_waited_out_rather_than_ending_the_run() {
     // through, which is exactly what tells it apart from a ban.
     let dir = sandbox("hiccup");
     let mut transport = Canned {
-        answers: vec![Err(Refusal::RateLimited), Ok(ONE_ARTIST.to_string())],
+        answers: vec![
+            Err(Refusal::RateLimited),
+            Ok(ONE_ARTIST.to_string()),
+            Ok(NO_ALBUM.to_string()),
+        ],
         asked: Vec::new(),
     };
     run_with(&args(&dir, &[]), &mut transport, &NO_WAIT).expect("a run");
 
-    assert_eq!(transport.asked.len(), 2, "it asked again");
+    assert_eq!(
+        transport.asked.len(),
+        3,
+        "the refused request, the one that worked, then the album"
+    );
     let held = sources::load(&sources::sources_path(&dir))
         .expect("readable")
         .expect("a layer");
@@ -254,7 +308,7 @@ fn being_told_to_slow_down_stops_the_run_and_keeps_what_was_stored() {
 fn a_second_run_asks_again_only_when_told_to() {
     let dir = sandbox("again");
     let mut first = Canned {
-        answers: vec![Ok(ONE_ARTIST.to_string())],
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(ONE_ALBUM.to_string())],
         asked: Vec::new(),
     };
     run(&args(&dir, &[]), &mut first).expect("a run");
@@ -269,11 +323,15 @@ fn a_second_run_asks_again_only_when_told_to() {
 
     // Unless asked again explicitly.
     let mut third = Canned {
-        answers: vec![Ok(ONE_ARTIST.to_string())],
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(ONE_ALBUM.to_string())],
         asked: Vec::new(),
     };
     run(&args(&dir, &["--full"]), &mut third).expect("a run");
-    assert_eq!(third.asked.len(), 1);
+    assert_eq!(
+        third.asked.len(),
+        2,
+        "both halves again, not just the artist"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -313,7 +371,7 @@ fn what_you_corrected_by_hand_survives_a_fetch() {
     sources::save(&held, &sources::sources_path(&dir)).expect("saved");
 
     let mut transport = Canned {
-        answers: vec![Ok(ONE_ARTIST.to_string())],
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(NO_ALBUM.to_string())],
         asked: Vec::new(),
     };
     run(&args(&dir, &["--full"]), &mut transport).expect("a run");

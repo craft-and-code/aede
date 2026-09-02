@@ -99,6 +99,43 @@ pub fn truncate(text: &str, max: usize) -> String {
     out
 }
 
+/// Breaks a paragraph into lines of at most `max` columns.
+///
+/// Everything else in this file shortens text to fit a column, because a table
+/// cell that grows breaks the table. A paragraph is the one thing here that is
+/// meant to be *read* rather than scanned, and shortening it to 34 characters
+/// would not be a summary but a tease — so it is wrapped instead.
+///
+/// A word longer than the width is left alone rather than cut: a URL split
+/// across two lines is a URL nobody can click, and one long line is the lesser
+/// harm.
+pub fn wrap(text: &str, max: usize) -> Vec<String> {
+    if max == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut width = 0;
+    for word in text.split_whitespace() {
+        let w = display_width(word);
+        // `+ 1` for the space this word would need after a non-empty line.
+        if width > 0 && width + 1 + w > max {
+            lines.push(std::mem::take(&mut line));
+            width = 0;
+        }
+        if width > 0 {
+            line.push(' ');
+            width += 1;
+        }
+        line.push_str(word);
+        width += w;
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 /// Truncates to `max` columns by dropping the **start** of the text.
 ///
 /// For a file path, the end is what identifies the file. Cutting the tail off
@@ -423,6 +460,34 @@ mod tests {
         // The one that prompted this: 260604 ms made the reader divide.
         assert_eq!(elapsed(260_604), "4 min 21 s");
         assert_eq!(elapsed(7_500_000), "2 h 5 min");
+    }
+
+    #[test]
+    fn a_paragraph_wraps_without_losing_or_splitting_a_word() {
+        let text = "Marilyn Manson is an American rock band formed in Fort \
+                    Lauderdale, Florida, in 1989.";
+        let lines = wrap(text, 30);
+        assert!(
+            lines.iter().all(|l| display_width(l) <= 30),
+            "every line fits: {lines:?}"
+        );
+        assert_eq!(
+            lines.join(" "),
+            text,
+            "and the words come back in order, none dropped and none joined"
+        );
+    }
+
+    #[test]
+    fn a_word_wider_than_the_line_is_left_whole() {
+        // The word this exists for is a URL: split across two lines it is a
+        // URL nobody can click, and one over-long line is the lesser harm.
+        let url = "https://en.wikipedia.org/wiki/Marilyn_Manson_(band)";
+        let lines = wrap(&format!("see {url} for more"), 20);
+        assert!(
+            lines.iter().any(|l| l == url),
+            "the address survives intact: {lines:?}"
+        );
     }
 
     #[test]

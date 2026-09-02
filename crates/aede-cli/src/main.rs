@@ -103,6 +103,7 @@ fn main() {
         "export",
         "import",
         "template",
+        "summaries",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -262,6 +263,11 @@ fn main() {
             "full",
             &["scan", "check", "spectrum", "fetch"],
             "ignore what was already done",
+        ),
+        (
+            "summaries",
+            &["fetch"],
+            "follow the wikidata link to an article",
         ),
         (
             "threads",
@@ -718,12 +724,21 @@ fn print_help() {
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
-  fetch [name…]        Ask MusicBrainz about your artists and store what it
-                       says, beside your tags. One request per second, which
-                       the service requires: a large library takes a while, and
-                       the command says how long before it starts. --dry-run
-                       lists what would be asked, --full asks again about
-                       what is already held. Naming artists narrows it
+  fetch [name…]        Ask MusicBrainz about your artists and albums and store
+                       what it says, beside your tags. The albums are where
+                       your tags can be contradicted: RELEASETYPE, DATE and
+                       LABEL have an answer on both sides. One request per
+                       second, which the service requires, and one request per
+                       album whatever your tags carry: a large library takes a
+                       while, and the command says how long before it starts.
+                       --dry-run lists what would be asked, --full asks again
+                       about what is already held. A name narrows it, and
+                       reaches the records as well as the person.
+                       --summaries is a second pass, over what fetch already
+                       stored: it follows the wikidata link to a Wikipedia
+                       article and keeps its opening paragraph, with the page
+                       and the licence that text is under. Two more requests
+                       per artist, which is why it is asked for
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
@@ -841,7 +856,13 @@ fn print_help() {
 
 {}
   --full               Ignore the tag cache and re-read every file
-                       (scan, check)
+                       (scan, check); on fetch, ask again about what is
+                       already held
+  --summaries          A second pass for fetch: follow the wikidata link
+                       each artist already has to a Wikipedia article, and
+                       keep its opening paragraph with its credit. The
+                       article is looked for in your own language first,
+                       then in English
   --replace            Forget the watched folders and keep only those given
   --threads <n>        Number of reader threads (scan, check;
                        default: available cores)

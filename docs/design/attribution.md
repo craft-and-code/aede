@@ -62,3 +62,37 @@ That is what makes "does my tag still match?" an **offline** question, answerabl
 The layer, `sources.json` and its round trip, the reconciliation across a rescan, the display beside the tag with its source, the disagreement report in `doctor`, and an offline way to load values from a fixture so all of it is tested without a network. No client, no rate limiter, no matching.
 
 M1.1 then adds MusicBrainz — `ureq` with `rustls`, decided ahead of time and recorded in [Architecture](architecture.md#dependencies) — a throttle honouring the **one request per second per IP** MusicBrainz enforces, and the descriptive `User-Agent` it requires. The matching problem and its confidence score belong there, on top of a layer that already exists.
+
+## M1.2 — prose, and the licence that comes with it
+
+MusicBrainz answers with identifiers, dates and relationships. It never answers with a sentence about the artist, because that is not what it is for. The sentence exists on Wikipedia, and the way from one to the other is the `wikidata` relationship MusicBrainz already returns: the entity holds a *sitelink* per language, and the sitelink is the article title.
+
+So reaching a paragraph is two requests on top of the one already made:
+
+```
+MusicBrainz artist  →  wikidata: …/wiki/Q11649
+                       Special:EntityData/Q11649.json   →  sitelinks.enwiki.title
+                       en.wikipedia.org/…/summary/<title>  →  extract
+```
+
+That is why it is `fetch --summaries` rather than part of `fetch`: it triples a run that already takes ten minutes over a large library, and the summary is the one thing here nobody needs in order to file their music. The article is looked for in the reader's own language first — taken from `LANG`, so nobody has to say it twice — and in English after, because for a great many artists that is the only article there is.
+
+### Why the text and its credit are one value, not two fields
+
+Wikipedia text is **CC BY-SA**. It may be reused, and attribution has to travel with it. A `summary` field beside a separate optional `source_url` would make it *possible* — and therefore eventually certain — to hold the words without the credit: one code path that fills the first and forgets the second, one export that copies one and not the other, and the project is quietly out of compliance.
+
+So they are the same value. `Prose { text, url, lang, licence }` cannot be constructed without all four, is written to `sources.json` as one nested object, and is read back only when all four are present — a row that lost its attribution somewhere is a row this build will not repeat. There is deliberately no function anywhere that returns bare article text as a `String`.
+
+### Why the licence is stored on every row
+
+It is the same string for every Wikipedia article, so a copy per record looks like waste — about twenty-four bytes each, ten kilobytes over a large library. Reading it from a constant at display time would save that, and cost two things.
+
+The licence is a **fact about the fetch**, like `fetched_at`: it says what these words were taken under, not what the current build believes they would be taken under now. Wikimedia has already moved once — CC BY-SA 3.0 to 4.0 — and a constant makes that upgrade silently relabel every paragraph fetched before it, which is exactly the class of claim this layer refuses to make.
+
+And `Prose` is not Wikipedia's type. It is prose with its terms, so the next source of a biography — a plugin, a label, a discography site under quite different terms — files it in the same field and the record says which. Putting the licence in the module of the source that usually supplies it would make the second source a special case of the first.
+
+The normalised middle ground — a table of licences at the top of the file, rows pointing at a key — is the one option to avoid outright. It re-creates, at the file level, the very thing the type exists to prevent: a row whose credit is somewhere else and can go missing.
+
+### What a record with no article means
+
+An entity with no Wikipedia article in any language asked for is stored as a record with an empty summary, not skipped. "Asked, and there is no article" is exactly what this layer exists to keep apart from "never asked" — and without it, every run would ask about the same artists forever.

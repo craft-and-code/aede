@@ -4358,3 +4358,95 @@ fn there_is_nothing_to_export_before_anything_is_fetched() {
     );
     assert!(!target.exists(), "and no file was written");
 }
+
+/// The second pass is offered on the exit a finished library actually takes.
+///
+/// `#[cfg(feature = "fetch")]` because a build without it refuses the command
+/// before reaching this branch. No request is made: every artist and album in
+/// this library already has an answer, which is precisely the path under test.
+#[cfg(feature = "fetch")]
+#[test]
+fn a_library_already_fetched_is_still_told_about_the_summaries() {
+    // The defect this pins: the offer was printed only after a run that had
+    // just stored something. A reader who fetched their library before the
+    // second pass existed leaves through the "already asked about" branch
+    // every single time, and would never learn the option was there.
+    let sandbox = Sandbox::new("summaries_offer");
+    answered(&sandbox);
+
+    // One artist answer replaced by one that carries the link. `--import`
+    // files it under the same source, so it is an update rather than a row.
+    let linked = sandbox.dir.join("linked.json");
+    std::fs::write(
+        &linked,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:miles davis","source":"musicbrainz",
+              "source_id":"561d854a","fetched_at":1756600000,
+              "confidence":"identified",
+              "facts":{"wikidata":"https://www.wikidata.org/wiki/Q93341"}}
+           ]}"#,
+    )
+    .unwrap();
+    let (out, err, ok) = sandbox.run(&["sources", "--import", linked.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["fetch"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("already been asked about"),
+        "this is the exit under test — nothing was asked: {out}"
+    );
+    assert!(
+        out.contains("--summaries"),
+        "and it names the pass that can still be run: {out}"
+    );
+    assert!(
+        out.contains("1 of them has a wikidata link"),
+        "the count agrees with the singular verb: {out}"
+    );
+}
+
+/// And an artist with no link is not offered anything.
+#[cfg(feature = "fetch")]
+#[test]
+fn nothing_is_offered_when_there_is_no_link_to_follow() {
+    let sandbox = Sandbox::new("summaries_no_offer");
+    answered(&sandbox);
+
+    let (out, _, ok) = sandbox.run(&["fetch"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("already been asked about"),
+        "the same exit, so the two tests differ only in the link: {out}"
+    );
+    assert!(
+        !out.contains("--summaries"),
+        "an offer with nothing behind it is noise: {out}"
+    );
+}
+
+/// Scans the reference library and files a blank answer for every entity in it.
+///
+/// `sources --template` writes exactly those keys, which is why it is used
+/// rather than a document typed out here: a release key embeds the folder the
+/// album sits in, and that folder is a temporary directory whose name differs
+/// on every machine and every run.
+///
+/// The state it produces is the one under test: a library with nothing left to
+/// ask about, which is what `fetch` finds on every run after the first.
+#[cfg(feature = "fetch")]
+fn answered(sandbox: &Sandbox) {
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    let template = sandbox.dir.join("template.json");
+    let (out, err, ok) = sandbox.run(&[
+        "sources",
+        "--template",
+        "--output",
+        template.to_str().unwrap(),
+    ]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let (out, err, ok) = sandbox.run(&["sources", "--import", template.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+}

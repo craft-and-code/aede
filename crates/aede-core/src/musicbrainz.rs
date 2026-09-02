@@ -45,6 +45,19 @@ pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// store an answer with nowhere to put it.
 pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels";
 
+/// What to ask for alongside a *release*, in one request.
+///
+/// A release is one edition; a release group is the album every edition of it
+/// belongs to. The two facts a library wants sit on opposite sides of that
+/// line — the **label** is the edition's, the **type and first release date**
+/// are the album's — and asking for them separately would be two requests per
+/// album at one request per second.
+///
+/// `release-groups` folds the album into the edition's answer, so a library
+/// tagged by Picard, which writes the edition identifier, gets the whole
+/// record for the price of one lookup.
+pub const RELEASE_INCLUDES: &str = "labels+release-groups";
+
 /// One answer among the several a search returns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate<F> {
@@ -253,6 +266,11 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         discogs: linked(row, "discogs"),
         // MusicBrainz spells this relationship "official homepage".
         homepage: linked(row, "official homepage"),
+        // MusicBrainz holds no prose about an artist: an annotation there is
+        // an editorial note about the data, not a description of the
+        // musician. The summary comes from Wikipedia, reached through the
+        // `wikidata` link above, and carries its own licence with it.
+        summary: None,
     }
 }
 
@@ -353,23 +371,81 @@ pub fn release_groups(response: &Json) -> Vec<Candidate<ReleaseFacts>> {
                 mbid,
                 name: field(row, "title").unwrap_or_default(),
                 score: score_of(row),
-                facts: ReleaseFacts {
-                    primary_type: field(row, "primary-type"),
-                    secondary_types: row
-                        .get("secondary-types")
-                        .and_then(Json::as_arr)
-                        .map(|a| a.iter().filter_map(Json::as_string).collect())
-                        .unwrap_or_default(),
-                    first_released: field(row, "first-release-date"),
-                    // A group has no label — a release does. Left empty here
-                    // rather than filled from whichever edition answered
-                    // first, which would attribute one pressing's label to the
-                    // album itself.
-                    label: None,
-                },
+                facts: release_facts(row),
             })
         })
         .collect()
+}
+
+/// The album, read the same way wherever the group came from.
+///
+/// One extractor for the search result, the group lookup and the group folded
+/// into a release lookup — for the reason [`artist_facts`] is one function:
+/// reading the same entity in three places is how two of them quietly stop
+/// keeping a field.
+///
+/// The label is deliberately **not** read here. A group has none; a release
+/// does. Filling it from whichever edition answered first would attribute one
+/// pressing's label to the album itself.
+fn release_facts(group: &Json) -> ReleaseFacts {
+    ReleaseFacts {
+        primary_type: field(group, "primary-type"),
+        secondary_types: group
+            .get("secondary-types")
+            .and_then(Json::as_arr)
+            .map(|a| a.iter().filter_map(Json::as_string).collect())
+            .unwrap_or_default(),
+        first_released: field(group, "first-release-date"),
+        label: None,
+    }
+}
+
+/// One release group, as a lookup answers: `/ws/2/release-group/<mbid>`.
+///
+/// The counterpart of [`artist`]: an answer about the identifier that was
+/// asked for is a certainty, where a search result is a guess with a score.
+/// Used when the tags carry `MUSICBRAINZ_RELEASEGROUPID` but no edition.
+pub fn release_group(response: &Json) -> Option<Candidate<ReleaseFacts>> {
+    let mbid = field(response, "id")?;
+    Some(Candidate {
+        mbid,
+        name: field(response, "title").unwrap_or_default(),
+        score: 100,
+        facts: release_facts(response),
+    })
+}
+
+/// One release, as a lookup with [`RELEASE_INCLUDES`] answers.
+///
+/// The richest answer this program can get about an album, and the cheapest:
+/// the edition supplies the label, the folded release group supplies the type
+/// and the date the album first appeared — which is the fact a reissue's `DATE`
+/// tag most often contradicts.
+///
+/// The identifier kept is the **release group's**, not the edition's. Two
+/// pressings of one album are one album, and keying the record on the edition
+/// would file a second copy of the same answer the day the user replaces their
+/// CD rip with a vinyl one. The edition is what was asked; the album is what
+/// was learnt.
+pub fn release(response: &Json) -> Option<Candidate<ReleaseFacts>> {
+    let group = response.get("release-group");
+    let mut facts = group.map(release_facts).unwrap_or_default();
+    facts.label = label_of_release(response);
+    // Falling back to the edition's own identifier: an answer with no group is
+    // not one this program has seen, but storing it under the edition is
+    // better than dropping a lookup that succeeded.
+    let mbid = group
+        .and_then(|g| field(g, "id"))
+        .or_else(|| field(response, "id"))?;
+    Some(Candidate {
+        mbid,
+        name: group
+            .and_then(|g| field(g, "title"))
+            .or_else(|| field(response, "title"))
+            .unwrap_or_default(),
+        score: 100,
+        facts,
+    })
 }
 
 /// The label of a release, as a release lookup returns it.

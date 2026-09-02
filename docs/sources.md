@@ -11,11 +11,17 @@ A value from a source **sits beside your tags and never on top of them**. Nothin
 ## Asking MusicBrainz
 
 ```sh
-aede fetch                      # every artist in the library
-aede fetch manson               # only the ones whose name matches
+aede fetch                      # every artist and every album
+aede fetch manson               # only what the name matches — person or record
 aede fetch --dry-run            # say what would be asked, ask nothing
 aede fetch --full               # ask again about what is already held
 ```
+
+**Artists and albums, in one run.** The albums are the half that matters most, and it is worth saying why: there is no tag for where a musician is from, so what MusicBrainz says about an *artist* can only ever be added beside your library. An album is different — Picard writes `RELEASETYPE`, `DATE` and `LABEL`, so your files have an opinion and MusicBrainz has one, and the two can disagree. That disagreement is the whole point of this store, and it lives on the albums.
+
+The most common one is the date. Your `DATE` tag says 1997 because that is the reissue you ripped; MusicBrainz says the album first appeared in 1959. Neither is wrong, and Aède shows both rather than choosing.
+
+**One request per album, whatever your tags carry.** If they hold the MusicBrainz album identifier, the answer comes back as a certainty and brings the label with it in the same request. If they hold only the release-group identifier, it is still a certainty, without the label — a release group has none, and filling it from whichever pressing answered first would attribute one edition's label to the album itself. If they hold neither, the title and the album artist are searched, scored, and refused below 70 rather than guessed.
 
 MusicBrainz allows **one request per second**, so a large library takes a while: the command says how long before it starts, and asks you to confirm past twenty artists. It saves after every single answer, so an interrupted run loses nothing and a second run costs only what is left.
 
@@ -104,6 +110,47 @@ Two labels are worth explaining, because both were wrong at first. **from** is M
 
 A record that waits is not a failure either: it describes something this catalog does not hold yet, and it is kept until it does.
 
+## Asking Wikipedia
+
+MusicBrainz holds no biography, but it holds the link to one. Following it is **an option on `fetch`**, not a command of its own:
+
+```sh
+aede fetch --summaries          # follow it, for every artist already fetched
+aede fetch --summaries --full   # ask again about what is already held
+```
+
+`aede fetch` tells you when there is something to follow, so you do not have to remember the option — including when there is nothing left to fetch and it only has that to say:
+
+```
+→ 402 stored, 3 left alone, 0 failed
+  381 of them have a wikidata link — aede fetch --summaries reads the article
+```
+
+```
+Fetch
+
+  every artist has already been asked about (--full asks again)
+  381 of them have a wikidata link — aede fetch --summaries reads the article
+```
+
+This is a **second pass over what `fetch` already stored**, not a second search. It reads the `wikidata` link MusicBrainz gave for each artist, asks Wikidata which article that entity has, and then asks Wikipedia for that article's opening paragraph. Two requests per artist, on top of the one already made — which is why you ask for it rather than getting it by default.
+
+The article is looked for **in your own language first**, taken from your `LANG` setting, and in English after. For a great many artists English is the only article there is, so it is always the fallback and never the first choice.
+
+Artists MusicBrainz gave no Wikidata link for are not asked about at all. An artist with a link but no article in either language is recorded as *asked, and there is nothing* — so the next run does not ask again.
+
+### The credit is part of the text
+
+Wikipedia articles are **CC BY-SA**. Reusing the text obliges naming where it came from and under what terms, so Aède stores the paragraph, the page, the language and the licence as **one inseparable value**: there is no way to keep the words without the credit, because the program offers none. Wherever the paragraph is shown, the credit is shown under it:
+
+```
+  Marilyn Manson is an American rock band formed in Fort Lauderdale,
+  Florida, in 1989.
+  https://en.wikipedia.org/wiki/Marilyn_Manson_(band) — CC BY-SA 4.0
+```
+
+`aede sources --forget --source=wikipedia` removes all of it, the same as any other source.
+
 ## What MusicBrainz does not have
 
 **No biography.** MusicBrainz is a database of identifiers and relationships, not of prose. What Aède reads today is what an artist lookup answers: type, area, formation and end dates, whether the group is still active, and the short `disambiguation` — "US industrial metal band" — which is written to tell two artists apart rather than to describe one.
@@ -114,6 +161,6 @@ Genres are shown beside your genre tag rather than over it, like everything else
 
 Still not read: **relationships between artists**, which is band membership with instruments and dates. The roadmap wants those as dated links in the graph, a change to the model rather than a field to display, so asking for them now would store an answer with nowhere to put it.
 
-**Wikipedia is the next step, and Wikidata is the door.** An article is written by people, exists in your own language, and is what a biography actually is. It also carries an obligation the rest of this does not: Wikipedia is CC BY-SA, so attribution has to travel with the text — a design question rather than a parsing one, and the reason it is its own step.
+**Wikipedia fills that gap, and Wikidata is the door** — see [Asking Wikipedia](#asking-wikipedia) below.
 
 **No opinion about your files.** Nothing fetched is ever written into a tag, and no fetched value changes what a scan finds. If you delete `sources.json`, you lose only the time it took to ask.

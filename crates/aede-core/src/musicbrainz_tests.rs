@@ -99,6 +99,69 @@ fn a_label_comes_from_a_release_and_not_from_the_group() {
     assert_eq!(label_of_release(&parse(r#"{"id":"x"}"#)), None);
 }
 
+#[test]
+fn a_release_lookup_brings_the_edition_and_the_album_in_one_answer() {
+    // The shape `inc=labels+release-groups` returns: the edition at the top,
+    // the album folded in. Two facts on opposite sides of that line — the
+    // label is the pressing's, the type and the first date are the album's —
+    // and this is what makes them one request instead of two.
+    let response = parse(
+        r#"{
+          "id": "59211ea4", "title": "Kind of Blue", "date": "1997-01-01",
+          "label-info": [ { "label": { "name": "Columbia" } } ],
+          "release-group": {
+            "id": "c9fdb94c", "title": "Kind of Blue",
+            "primary-type": "Album", "secondary-types": [],
+            "first-release-date": "1959-08-17"
+          }
+        }"#,
+    );
+    let found = release(&response).expect("a release");
+    assert_eq!(
+        found.mbid, "c9fdb94c",
+        "keyed on the album, not the pressing: two editions of one album are \
+         one answer, and the edition id would file a second copy the day a CD \
+         rip is replaced by a vinyl one"
+    );
+    assert_eq!(found.facts.label.as_deref(), Some("Columbia"));
+    assert_eq!(found.facts.primary_type.as_deref(), Some("Album"));
+    assert_eq!(
+        found.facts.first_released.as_deref(),
+        Some("1959-08-17"),
+        "the album's date, not the reissue's — which is the fact a DATE tag \
+         most often contradicts"
+    );
+}
+
+#[test]
+fn a_release_that_answers_without_its_group_is_still_kept() {
+    // A lookup that succeeded is an answer. Dropping it because one requested
+    // include did not come back would throw away a label for nothing.
+    let response = parse(r#"{"id":"59211ea4","title":"Kind of Blue"}"#);
+    let found = release(&response).expect("a release");
+    assert_eq!(found.mbid, "59211ea4");
+    assert_eq!(found.facts.primary_type, None);
+    assert!(release(&parse(r#"{"title":"no identifier"}"#)).is_none());
+}
+
+#[test]
+fn a_group_lookup_is_a_certainty_and_a_search_result_is_not() {
+    let lookup = parse(
+        r#"{"id":"c9fdb94c","title":"Kind of Blue","primary-type":"Album",
+            "first-release-date":"1959-08-17"}"#,
+    );
+    let found = release_group(&lookup).expect("a group");
+    assert_eq!(found.mbid, "c9fdb94c");
+    assert_eq!(found.facts.first_released.as_deref(), Some("1959-08-17"));
+    // The same fields, read by the same extractor, whichever request they
+    // arrived in: one album read in two places is how two of them drift.
+    let searched = parse(
+        r#"{"release-groups":[{"id":"c9fdb94c","score":97,"title":"Kind of Blue",
+            "primary-type":"Album","first-release-date":"1959-08-17"}]}"#,
+    );
+    assert_eq!(release_groups(&searched)[0].facts, found.facts);
+}
+
 fn candidate(name: &str, score: u8) -> Candidate<ArtistFacts> {
     Candidate {
         mbid: format!("id-{name}"),
