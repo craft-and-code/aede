@@ -179,6 +179,22 @@ Missing
   singles, live records and compilations are left out
 ```
 
+### When MusicBrainz is wrong about what an album is
+
+A demo, a compilation and a single all arrive typed `Album` until somebody says otherwise on MusicBrainz — so a record you would never call an album can turn up on the list. Aède will not overrule the source: this whole store exists so that what somebody else said stays what they said. It will record that **you** disagree.
+
+```sh
+aede missing --forget "Sweet Dreams"            # stop listing it
+aede missing --list                             # what you set aside
+aede missing --forget "Sweet Dreams" --remove   # put it back
+```
+
+The decision is kept in `user.json` — the file that holds what *you* say — and keyed on the MusicBrainz release-group identifier, which survives a re-fetch and a rescan where a title would not. **What the source said is untouched**: the record stays in `sources.json` exactly as it arrived, and only what you are shown changes. Deleting it would lose one claim in order to record the other, when they are two different claims.
+
+`missing` says how many records are set aside whenever any are, for the same reason it says that singles and live records are left out: a filter you cannot see is a trap, and the day you wonder why an album is not listed the answer should be on screen.
+
+Two records answering to the same words are refused rather than arbitrated — setting aside the wrong one is a decision nobody would see being taken. `--list` shows the address of each, which is where the type is corrected on MusicBrainz itself: fixing it there fixes it for everybody, and `aede fetch --full --discography` picks it up.
+
 **Studio albums only**, and that filter is deliberate. A full discography holds every single, every live recording and every compilation somebody ever assembled; reporting all of them as missing would be true and useless, since nobody's shelf holds every single ever pressed.
 
 An album already here is recognised by its **MusicBrainz release-group identifier** when your tags carry one, and by its **title** otherwise — with the same spelling rules that decide two artists are one name, so "Kind Of Blue" on your shelf is not reported as missing "Kind of Blue".

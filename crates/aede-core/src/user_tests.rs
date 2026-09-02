@@ -304,3 +304,54 @@ fn a_token_survives_a_path_full_of_colons() {
     let back = EntityRef::parse_token(&reference.to_token()).expect("read back");
     assert_eq!(back, reference, "only the first colon separates");
 }
+
+#[test]
+fn a_record_set_aside_survives_the_round_trip_and_a_merge() {
+    let mut data = UserData::default();
+    data.set_aside.push(SetAside {
+        owner: LOCAL_USER.to_string(),
+        release_group: "c9fdb94c".to_string(),
+        title: "Sweet Dreams".to_string(),
+        created_at: 1_700_000_000,
+    });
+    let text = to_json(&data).to_string_pretty();
+    let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("user data");
+    assert_eq!(back.set_aside, data.set_aside);
+
+    // The title is stored beside the identifier so a listing can show
+    // something a person recognises: a decision nobody can read is one nobody
+    // can undo.
+    assert_eq!(back.set_aside[0].title, "Sweet Dreams");
+
+    // Importing the same backup twice must not file the decision twice: it was
+    // taken or it was not, and there are no versions of it to arbitrate.
+    let mut into = back.clone();
+    let report = merge(&mut into, data.clone());
+    assert_eq!(into.set_aside.len(), 1, "still one");
+    assert_eq!(report.added, 0);
+
+    // A different record is a different decision.
+    let mut other = UserData::default();
+    other.set_aside.push(SetAside {
+        release_group: "aa11".to_string(),
+        title: "The Manson Family Album".to_string(),
+        ..data.set_aside[0].clone()
+    });
+    merge(&mut into, other);
+    assert_eq!(into.set_aside.len(), 2);
+}
+
+#[test]
+fn a_set_aside_row_without_an_identifier_is_not_read_back() {
+    // The title alone cannot say which record was meant, and a wish list
+    // quietly shortened by one is worse than one item too long.
+    let text = format!(
+        r#"{{"format_version":{USER_FORMAT_VERSION},"annotations":[],"plays":[],
+             "counts":[],"collections":[],
+             "set_aside":[{{"title":"No identifier"}},
+                          {{"release_group":"aa11","title":"Kept"}}]}}"#
+    );
+    let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("user data");
+    assert_eq!(back.set_aside.len(), 1);
+    assert_eq!(back.set_aside[0].release_group, "aa11");
+}

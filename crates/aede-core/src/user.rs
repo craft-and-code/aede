@@ -288,6 +288,38 @@ pub struct Collection {
 /// small without costing the second anything.
 pub const HISTORY_LIMIT: usize = 500;
 
+/// A record the user has taken off a report, and why that is allowed.
+///
+/// **The one thing in this file that is not keyed on an entity of the
+/// catalog.** Everything else here describes something the library holds; this
+/// describes something it deliberately does *not*. `aede missing` lists albums a
+/// source credits to an artist and the shelf lacks, and sometimes the source is
+/// simply wrong about what an album is — a demo, a compilation and a single all
+/// arrive typed `Album` until somebody says otherwise on MusicBrainz.
+///
+/// Aède will not overrule a source: the whole attributed layer exists so that
+/// what somebody else said stays what they said, correctable only by them. But
+/// it will record that **you** disagree, which is what this file has always
+/// been for, and stop putting the record in front of you.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetAside {
+    /// Whose decision it is.
+    pub owner: UserRef,
+    /// The MusicBrainz release-group identifier, which is the key.
+    ///
+    /// Globally unique, so no artist is needed to tell two apart, and stable
+    /// across a re-fetch and a rescan — where a title is neither.
+    pub release_group: String,
+    /// The title as it read when it was set aside.
+    ///
+    /// Kept so a listing can show something a person recognises. Without it the
+    /// list is a column of identifiers, and a decision nobody can read is one
+    /// nobody can undo.
+    pub title: String,
+    /// When it was set aside.
+    pub created_at: u64,
+}
+
 /// Everything the user wrote, as it sits on disk.
 #[derive(Debug, Clone, Default)]
 pub struct UserData {
@@ -299,6 +331,8 @@ pub struct UserData {
     pub counts: Vec<PlayCount>,
     /// Saved queries, by name.
     pub collections: Vec<Collection>,
+    /// Records taken off the `missing` report — see [`SetAside`].
+    pub set_aside: Vec<SetAside>,
 }
 
 impl UserData {
@@ -699,6 +733,20 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         })
         .collect();
     root.set("collections", Json::Arr(collections));
+
+    let set_aside: Vec<Json> = data
+        .set_aside
+        .iter()
+        .map(|a| {
+            let mut o = Json::obj();
+            o.set("owner", a.owner.as_str().into());
+            o.set("release_group", a.release_group.as_str().into());
+            o.set("title", a.title.as_str().into());
+            o.set("created_at", a.created_at.into());
+            o
+        })
+        .collect();
+    root.set("set_aside", Json::Arr(set_aside));
     root
 }
 
@@ -791,6 +839,26 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             expression,
             created_at: row.field_u64("created_at").unwrap_or(0),
             updated_at: row.field_u64("updated_at").unwrap_or(0),
+        });
+    }
+    for row in value
+        .get("set_aside")
+        .and_then(crate::json::Json::as_arr)
+        .unwrap_or(&[])
+    {
+        // No identifier, no decision: the title alone cannot say which record
+        // was meant, and a wish list quietly shortened by one is worse than
+        // one item too long.
+        let Some(release_group) = row.field_str("release_group") else {
+            continue;
+        };
+        data.set_aside.push(SetAside {
+            owner: row
+                .field_str("owner")
+                .unwrap_or_else(|| LOCAL_USER.to_string()),
+            release_group,
+            title: row.field_str("title").unwrap_or_default(),
+            created_at: row.field_u64("created_at").unwrap_or(0),
         });
     }
     Ok(data)
@@ -889,6 +957,18 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
                 into.collections.push(collection);
                 report.collections += 1;
             }
+        }
+    }
+    // A decision has no versions to arbitrate: it was taken or it was not, so
+    // importing the same backup twice must not file it twice.
+    for aside in incoming.set_aside {
+        let known = into
+            .set_aside
+            .iter()
+            .any(|a| a.owner == aside.owner && a.release_group == aside.release_group);
+        if !known {
+            into.set_aside.push(aside);
+            report.added += 1;
         }
     }
     report

@@ -246,7 +246,11 @@ pub struct Absent<'a> {
 /// Only studio albums are reported — see
 /// [`KnownRelease::is_studio_album`] for why a complete discography would be a
 /// true and useless answer.
-pub fn absent<'a>(catalog: &Catalog, held: &'a sources::Sources) -> Vec<Absent<'a>> {
+pub fn absent<'a>(
+    catalog: &Catalog,
+    held: &'a sources::Sources,
+    aside: &[aede_core::user::SetAside],
+) -> Vec<Absent<'a>> {
     let mut out: Vec<Absent<'a>> = Vec::new();
     for record in &held.records {
         if record.source != sources::MUSICBRAINZ {
@@ -300,6 +304,14 @@ pub fn absent<'a>(catalog: &Catalog, held: &'a sources::Sources) -> Vec<Absent<'
             if !known.is_studio_album() {
                 continue;
             }
+            // Set aside by hand. Filtered here rather than by dropping it from
+            // the layer, because the two are different claims and this program
+            // keeps them apart everywhere else: MusicBrainz still says this is
+            // an album, and the user still says it is not one they want listed.
+            // Deleting the record would lose the first to record the second.
+            if aside.iter().any(|a| a.release_group == known.mbid) {
+                continue;
+            }
             let have = ids.iter().any(|id| *id == known.mbid)
                 || titles.contains(&text::normalize(&known.title));
             if !have {
@@ -323,6 +335,15 @@ pub fn absent<'a>(catalog: &Catalog, held: &'a sources::Sources) -> Vec<Absent<'
 pub fn missing(args: &crate::args::Args) -> Res {
     let catalog = super::load(args)?;
     let held = super::sources_held(args)?;
+    let user_path = aede_core::user::user_path(&super::data_dir(args));
+    let mut user = aede_core::user::load(&user_path)?.unwrap_or_default();
+
+    if args.has("forget") {
+        return set_aside(args, &catalog, &held, &mut user, &user_path);
+    }
+    if args.has("list") {
+        return listed(&user);
+    }
 
     let wanted: Vec<String> = args
         .positionals
@@ -350,18 +371,8 @@ pub fn missing(args: &crate::args::Args) -> Res {
         return Ok(());
     }
 
-    let all = absent(&catalog, &held);
-    let rows: Vec<&Absent> = all
-        .iter()
-        .filter(|a| {
-            let artist = text::normalize(&a.artist);
-            let title = text::normalize(&a.known.title);
-            wanted.is_empty()
-                || wanted
-                    .iter()
-                    .any(|w| artist.contains(w.as_str()) || title.contains(w.as_str()))
-        })
-        .collect();
+    let all = absent(&catalog, &held, &user.set_aside);
+    let rows: Vec<&Absent> = all.iter().filter(|a| matches(a, &wanted)).collect();
 
     println!("{}", ui::section("Missing"));
     if rows.is_empty() {
@@ -372,6 +383,7 @@ pub fn missing(args: &crate::args::Args) -> Res {
                 false => "nothing matching that is missing",
             })
         );
+        aside_note(&user);
         return Ok(());
     }
 
@@ -390,6 +402,154 @@ pub fn missing(args: &crate::args::Args) -> Res {
     println!(
         "  {}",
         ui::dim("singles, live records and compilations are left out")
+    );
+    aside_note(&user);
+    Ok(())
+}
+
+/// `true` when a row answers to one of the words the reader typed.
+fn matches(row: &Absent, wanted: &[String]) -> bool {
+    let artist = text::normalize(&row.artist);
+    let title = text::normalize(&row.known.title);
+    wanted.is_empty()
+        || wanted
+            .iter()
+            .any(|w| artist.contains(w.as_str()) || title.contains(w.as_str()))
+}
+
+/// Says how many records are set aside, whenever any are.
+///
+/// **A filter the reader cannot see is a trap.** Everything else this command
+/// leaves out is stated under the table — singles, live records, compilations —
+/// and a decision the reader took themselves deserves the same treatment: the
+/// day they wonder why an album is not listed, the answer is on screen.
+fn aside_note(user: &aede_core::user::UserData) {
+    if user.set_aside.is_empty() {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} set aside — aede missing --list shows them",
+            ui::plural(user.set_aside.len(), "record")
+        ))
+    );
+}
+
+/// `aede missing --forget <text>`: take a record off the report, or put it back.
+fn set_aside(
+    args: &crate::args::Args,
+    catalog: &Catalog,
+    held: &sources::Sources,
+    user: &mut aede_core::user::UserData,
+    path: &std::path::Path,
+) -> Res {
+    let wanted: Vec<String> = args
+        .positionals
+        .iter()
+        .map(|name| text::normalize(name))
+        .filter(|name| !name.is_empty())
+        .collect();
+    if wanted.is_empty() {
+        return Err("name the album to set aside: aede missing --forget \"<title>\"".into());
+    }
+
+    // Putting one back is answered from the list of decisions, not from the
+    // report: a record that has been set aside is by definition absent from the
+    // report, so looking there would find nothing and say so.
+    if args.has("remove") {
+        let before = user.set_aside.len();
+        let put_back: Vec<String> = user
+            .set_aside
+            .iter()
+            .filter(|a| {
+                let title = text::normalize(&a.title);
+                wanted.iter().any(|w| title.contains(w.as_str()))
+            })
+            .map(|a| a.title.clone())
+            .collect();
+        user.set_aside.retain(|a| {
+            let title = text::normalize(&a.title);
+            !wanted.iter().any(|w| title.contains(w.as_str()))
+        });
+        println!("{}", ui::section("Missing"));
+        if user.set_aside.len() == before {
+            println!("  {}", ui::dim("nothing set aside answers to that"));
+            return Ok(());
+        }
+        aede_core::user::save(user, path)?;
+        for title in &put_back {
+            println!("  {} {title}", ui::green("→"));
+        }
+        println!("  {}", ui::dim("back on the list"));
+        return Ok(());
+    }
+
+    let all = absent(catalog, held, &user.set_aside);
+    let found: Vec<&Absent> = all.iter().filter(|a| matches(a, &wanted)).collect();
+    match found.len() {
+        0 => Err("nothing missing answers to that".into()),
+        // Several equally good answers are refused rather than arbitrated —
+        // the rule `best_match` and `find_releases` both follow. Setting aside
+        // the wrong record is a decision nobody would see being taken.
+        n if n > 1 => {
+            let names: Vec<String> = found
+                .iter()
+                .map(|a| format!("{} — {}", a.artist, a.known.title))
+                .collect();
+            Err(format!(
+                "several records answer to that, so none was set aside:\n  {}",
+                names.join("\n  ")
+            )
+            .into())
+        }
+        _ => {
+            let one = found[0];
+            user.set_aside.push(aede_core::user::SetAside {
+                owner: aede_core::user::LOCAL_USER.to_string(),
+                release_group: one.known.mbid.clone(),
+                title: one.known.title.clone(),
+                created_at: aede_core::clock::now_seconds(),
+            });
+            aede_core::user::save(user, path)?;
+            println!("{}", ui::section("Missing"));
+            println!("  {} {} — {}", ui::green("→"), one.artist, one.known.title);
+            println!(
+                "  {}",
+                ui::dim(
+                    "set aside; --forget --remove puts it back. What MusicBrainz \
+                     says is untouched — only what you are shown changed"
+                )
+            );
+            Ok(())
+        }
+    }
+}
+
+/// `aede missing --list`: the decisions taken, so they can be undone.
+fn listed(user: &aede_core::user::UserData) -> Res {
+    println!("{}", ui::section("Set aside"));
+    if user.set_aside.is_empty() {
+        println!("  {}", ui::dim("nothing has been set aside"));
+        return Ok(());
+    }
+    let mut table = crate::ui::Table::new(&["Album", "Identifier"]).limit(0, 46);
+    for aside in &user.set_aside {
+        table.push(vec![
+            aside.title.clone(),
+            format!(
+                "https://musicbrainz.org/release-group/{}",
+                aside.release_group
+            ),
+        ]);
+    }
+    print!("{}", table.render());
+    println!(
+        "  {}",
+        ui::dim(
+            "aede missing --forget --remove \"<title>\" puts one back; the address \
+             is where its type is corrected for everybody"
+        )
     );
     Ok(())
 }

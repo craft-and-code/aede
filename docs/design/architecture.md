@@ -158,4 +158,4 @@ The release is published as a **draft**, with the commit list generated under a 
 cargo test
 ```
 
-467 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, an end-to-end test that runs the binary, and a check that no link in this manual leads nowhere. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+470 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, an end-to-end test that runs the binary, and a check that no link in this manual leads nowhere. The conversion tests skip themselves, loudly, when ffmpeg is not installed.

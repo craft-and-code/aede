@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 467 tests
+cargo test                       # 470 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -265,6 +265,10 @@ Before touching it, read [Paths](docs/design/paths.md) in full — the obvious f
 **Reused text and its credit are one value, never two fields.** Wikipedia is CC BY-SA, so attribution has to travel with the paragraph. `sources::Prose` holds the text, the page, the language and the licence together; it cannot be built without all four, it is written to `sources.json` as one nested object, and it is read back only when all four are present — a row that lost its attribution is dropped rather than shown uncredited. There is deliberately no function anywhere that returns bare article text as a `String`. A separate optional `url` beside a `text` field would make it *possible* to hold the words without the credit, and possible here means eventually certain: one path that fills the first and forgets the second, one export that copies one and not the other. The licence is stored per record rather than assumed at display time, for the reason `fetched_at` exists.
 
 **Asked-and-empty is a record, not a skip.** An artist Wikidata has no article for is stored with an empty summary. "Asked, and there is nothing" is the state this whole layer exists to keep apart from "never asked", and without the row every run asks about the same artists forever. The same rule already governs an empty MusicBrainz answer, which is why the panel says "was asked and holds nothing about this" instead of rendering an empty table.
+
+**Disagreeing with a source is recorded, never applied to it.** MusicBrainz types a demo or a compilation as `Album` until somebody says otherwise there, so `missing` can list a record nobody would call an album. `missing --forget` writes the release-group identifier into `user.json` — the file that holds what *the user* says — and `absent` filters on it at display time. The record in `sources.json` is left exactly as it arrived. Deleting it would lose one claim in order to record the other, when the two are different claims that every other part of this program keeps apart: **the three voices stay three, even when two of them conflict.** Keyed on the identifier rather than the title, because a title is neither unique nor stable across a re-fetch.
+
+**A filter the reader cannot see is a trap.** `missing` states that singles, live records and compilations are left out, and states how many records the reader set aside themselves. A report that silently omits things trains its reader to distrust it the first time they notice — and they always notice.
 
 **A stored identifier that is never displayed is a dead end.** `source_id` was kept from the layer's first version and shown nowhere, so asked for the MusicBrainz id of an artist there was no way to get it out of this program — and the nearest thing on screen was the `wikidata` link, a different identifier that looks enough like an answer to send somebody off with a query that cannot work. The panel now prints one address per source. It is the *address* rather than the bare id because the id is inside it either way, and the page it opens is where wrong data is corrected at the source. An album's points at its **release group**, matching what `musicbrainz::release` stores — a link that 404s reads as the service's fault, not ours, which is how it stays wrong for a year. The general rule: **anything the program relies on to reach an answer must be reachable by the reader too.**
 

@@ -206,7 +206,7 @@ fn only_what_is_absent_and_a_studio_album_is_reported() {
 
     // One album on the shelf, matched by its release-group identifier.
     let catalog = library(&[("Kind of Blue", Some("g1"))]);
-    let missing = absent(&catalog, &layer);
+    let missing = absent(&catalog, &layer, &[]);
     let titles: Vec<&str> = missing.iter().map(|a| a.known.title.as_str()).collect();
     assert_eq!(
         titles,
@@ -240,7 +240,7 @@ fn a_shelf_is_recognised_by_title_when_the_tags_carry_no_identifier() {
 
     let catalog = library(&[("Kind Of  Blue", None), ("Bitches Brew", None)]);
     assert!(
-        absent(&catalog, &layer).is_empty(),
+        absent(&catalog, &layer, &[]).is_empty(),
         "different spacing and case is the same album"
     );
 }
@@ -293,7 +293,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
         "he is in the catalog — that is the whole point of the test"
     );
     assert!(
-        absent(&compilation, &layer).is_empty(),
+        absent(&compilation, &layer, &[]).is_empty(),
         "and still has no shelf here, so nothing of his is missing from it"
     );
     assert_eq!(
@@ -307,7 +307,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
     // One album of his own, and the report has something to say again.
     let shelf = library(&[("Kind of Blue", None)]);
     assert_eq!(
-        absent(&shelf, &layer).len(),
+        absent(&shelf, &layer, &[]).len(),
         1,
         "a discography that was started is one that can be incomplete"
     );
@@ -356,7 +356,62 @@ fn an_artist_this_catalog_cannot_place_is_not_a_shelf_with_gaps() {
         1,
     );
     assert!(!elsewhere.artists.is_empty());
-    assert!(absent(&other, &layer).is_empty(), "no shelf, no gaps in it");
+    assert!(
+        absent(&other, &layer, &[]).is_empty(),
+        "no shelf, no gaps in it"
+    );
+}
+
+#[test]
+fn a_record_set_aside_leaves_the_report_and_the_source_untouched() {
+    // MusicBrainz types a demo, a compilation and a single as `Album` until
+    // somebody says otherwise there, and this program will not overrule it —
+    // the whole layer exists so that what a source said stays what they said.
+    // What it will do is record that the *user* disagrees, and stop showing it.
+    let mut layer = held();
+    let dir = sandbox("aside");
+    run(
+        &shelf(),
+        &mut Canned {
+            answers: vec![Ok(PAGE_ONE.to_string()), Ok(PAGE_TWO.to_string())],
+            asked: Vec::new(),
+        },
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        false,
+    )
+    .expect("the pass ran");
+
+    let catalog = shelf();
+    assert_eq!(absent(&catalog, &layer, &[]).len(), 1);
+
+    let aside = vec![aede_core::user::SetAside {
+        owner: aede_core::user::LOCAL_USER.to_string(),
+        release_group: "g2".to_string(),
+        title: "Bitches Brew".to_string(),
+        created_at: 1,
+    }];
+    assert!(
+        absent(&catalog, &layer, &aside).is_empty(),
+        "set aside, so no longer reported"
+    );
+
+    // And the answer itself is untouched: deleting the record would lose what
+    // MusicBrainz said in order to record what the user said, when the two are
+    // different claims that this program keeps apart everywhere else.
+    let still = discography_of(&layer);
+    assert!(
+        still.iter().any(|k| k.mbid == "g2"),
+        "what the source said is still held: {still:?}"
+    );
+
+    // A decision about a record nobody set aside changes nothing.
+    let elsewhere = vec![aede_core::user::SetAside {
+        release_group: "nothing-like-it".to_string(),
+        ..aside[0].clone()
+    }];
+    assert_eq!(absent(&catalog, &layer, &elsewhere).len(), 1);
 }
 
 #[test]

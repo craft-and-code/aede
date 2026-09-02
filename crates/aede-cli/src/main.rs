@@ -257,6 +257,7 @@ fn main() {
                 "collection",
                 "played",
                 "history",
+                "missing",
             ],
             "take something back",
         ),
@@ -468,7 +469,7 @@ const IMPORT_COMMANDS: &[&str] = &["import"];
 /// — `--list` says what is held, `--forget` drops it, `--source` narrows to
 /// one — because a user who learned it on one should not have to learn it
 /// again on the other.
-const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources"];
+const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing"];
 
 /// The one command that lists releases and can therefore sort compilations
 /// from the rest.
@@ -756,7 +757,13 @@ fn print_help() {
                        the answer is worked out from what fetch
                        --discography already stored, so an album stops being
                        listed the day you add it. Singles, live records and
-                       compilations are left out
+                       compilations are left out.
+                       MusicBrainz is sometimes wrong about what an album is —
+                       a demo or a compilation nobody has typed as one — so
+                       --forget <title> sets a record aside and stops listing
+                       it, --list shows what you set aside, and --forget
+                       --remove <title> puts it back. What the source said is
+                       never altered: only what you are shown
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
