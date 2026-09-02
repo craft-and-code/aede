@@ -151,13 +151,44 @@ Wikipedia articles are **CC BY-SA**. Reusing the text obliges naming where it ca
 
 `aede sources --forget --source=wikipedia` removes all of it, the same as any other source.
 
+## What is missing from the shelf
+
+MusicBrainz knows what your artists recorded. Comparing that with what you have is a wish list:
+
+```sh
+aede fetch --discography    # browse everything credited to each artist
+aede missing                # what is credited to them and not here
+aede missing davis          # narrowed, by artist or by title
+```
+
+**Nothing is fetched by `missing`.** The answer is worked out, each time you ask, from the discography `fetch --discography` stored — so an album stops being listed the day you add it, with nothing to update and nothing to go stale. That is the same rule this whole store follows: keep the answer, derive the verdict.
+
+```
+Missing
+
+  Artist       Album              Year
+  ───────────  ─────────────────  ────
+  Miles Davis  Sketches of Spain  1960
+  Miles Davis  Bitches Brew       1970
+  2 studio albums
+  singles, live records and compilations are left out
+```
+
+**Studio albums only**, and that filter is deliberate. A full discography holds every single, every live recording and every compilation somebody ever assembled; reporting all of them as missing would be true and useless, since nobody's shelf holds every single ever pressed.
+
+An album already here is recognised by its **MusicBrainz release-group identifier** when your tags carry one, and by its **title** otherwise — with the same spelling rules that decide two artists are one name, so "Kind Of Blue" on your shelf is not reported as missing "Kind of Blue".
+
+**Only artists who have a shelf here.** The catalog holds an artist for every credit it reads — a guest on one track, a composer, one name among fifty on a compilation. Being in the catalog is not the same as having a place in the library, and the first version did not draw that line: one Rolling Stones track on a compilation produced their entire studio discography as *missing*, and it did so for every passing credit at once until the report was mostly that.
+
+So an artist is only considered when at least one album **of their own** is here — when they are the album artist of something on the shelf. What this reports is an *incomplete* discography, which means one that was started. The same rule decides who `fetch --discography` bothers to browse, so the pass does not spend a request a second on answers the report would never show.
+
 ## What MusicBrainz does not have
 
 **No biography.** MusicBrainz is a database of identifiers and relationships, not of prose. What Aède reads today is what an artist lookup answers: type, area, formation and end dates, whether the group is still active, and the short `disambiguation` — "US industrial metal band" — which is written to tell two artists apart rather than to describe one.
 
 A lookup also brings the **genres** its editors voted for, other **names** the artist goes by, and the **links** it holds — official site, Discogs, and Wikidata. All from the same request: `inc=genres+tags+aliases+url-rels` rides on the call already being made, which matters at one request per second.
 
-Genres are shown beside your genre tag rather than over it, like everything else here. Where MusicBrainz has no voted genre it falls back to its free **tags**, which are a different thing — a crowd writes "seen live" there — so the two lists are never merged.
+Genres are shown beside your genre tag rather than over it, like everything else here — and compared as **sets**, not as sentences. MusicBrainz answers `pop, dance-pop, electropop, europop` where your files say `Rock, Pop`; that is not a disagreement. Your tags say the record is pop *and* rock, MusicBrainz says pop and three finer words for it, and nobody is contradicting anybody. A shared name is agreement; only two lists with nothing at all in common are reported as a difference. Where MusicBrainz has no voted genre it falls back to its free **tags**, which are a different thing — a crowd writes "seen live" there — so the two lists are never merged.
 
 Still not read: **relationships between artists**, which is band membership with instruments and dates. The roadmap wants those as dated links in the graph, a change to the model rather than a field to display, so asking for them now would store an answer with nowhere to put it.
 

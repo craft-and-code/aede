@@ -162,6 +162,61 @@ fn a_group_lookup_is_a_certainty_and_a_search_result_is_not() {
     assert_eq!(release_groups(&searched)[0].facts, found.facts);
 }
 
+#[test]
+fn a_discography_page_carries_its_total_so_the_caller_knows_to_ask_again() {
+    let response = parse(
+        r#"{
+          "release-group-count": 142,
+          "release-group-offset": 0,
+          "release-groups": [
+            { "id": "c9fdb94c", "title": "Kind of Blue",
+              "first-release-date": "1959-08-17",
+              "primary-type": "Album", "secondary-types": [] },
+            { "id": "aa11", "title": "Live at the Plugged Nickel",
+              "first-release-date": "1976",
+              "primary-type": "Album", "secondary-types": ["Live"] },
+            { "title": "This row has no identifier" }
+          ]
+        }"#,
+    );
+    let (page, total) = discography(&response);
+    assert_eq!(total, 142, "there is more than this page");
+    assert_eq!(page.len(), 2, "the row with no identifier was dropped");
+    assert!(page[0].is_studio_album());
+    assert!(
+        !page[1].is_studio_album(),
+        "a live record is an Album with a secondary type, and a shelf is not \
+         incomplete for lacking it"
+    );
+    assert_eq!(page[0].year(), Some("1959"));
+    assert_eq!(
+        page[1].year(),
+        Some("1976"),
+        "a bare year is already a year"
+    );
+}
+
+#[test]
+fn a_page_with_no_total_is_taken_to_be_the_whole_answer() {
+    // Paging forever on a field that was never there would be one request a
+    // second with no end. Stopping is the safe reading of a missing count.
+    let response = parse(r#"{"release-groups":[{"id":"a","title":"One"}]}"#);
+    let (page, total) = discography(&response);
+    assert_eq!((page.len(), total), (1, 1));
+}
+
+#[test]
+fn a_browse_asks_by_identifier_and_never_by_name() {
+    let url = discography_url("561d854a", 0);
+    assert!(url.contains("/release-group?artist=561d854a"), "{url}");
+    assert!(!url.contains("query="), "a browse, not a search: {url}");
+    assert!(url.contains("offset=0"), "{url}");
+    assert!(
+        discography_url("561d854a", 100).contains("offset=100"),
+        "the second page asks for the second page"
+    );
+}
+
 fn candidate(name: &str, score: u8) -> Candidate<ArtistFacts> {
     Candidate {
         mbid: format!("id-{name}"),

@@ -4450,3 +4450,92 @@ fn answered(sandbox: &Sandbox) {
     let (out, err, ok) = sandbox.run(&["sources", "--import", template.to_str().unwrap()]);
     assert!(ok, "stdout: {out}\nstderr: {err}");
 }
+
+/// `aede missing` derives its answer and fetches nothing.
+///
+/// No `#[cfg(feature = "fetch")]`: the report reads what is stored, so it works
+/// in a build with no network support at all — which is the point of deriving
+/// it rather than storing a verdict.
+#[test]
+fn what_is_missing_is_worked_out_from_what_was_stored() {
+    let sandbox = Sandbox::new("missing");
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    // Nothing browsed is not an empty shelf, and the two must not print alike.
+    let (out, _, ok) = sandbox.run(&["missing"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("no discography has been fetched"),
+        "and it says how to get one: {out}"
+    );
+    assert!(out.contains("--discography"), "output: {out}");
+
+    let document = sandbox.dir.join("browsed.json");
+    std::fs::write(
+        &document,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:miles davis","source":"musicbrainz",
+              "source_id":"561d854a","fetched_at":1756600000,
+              "confidence":"identified",
+              "facts":{"discography":[
+                {"mbid":"g1","title":"Kind of Blue","first_released":"1959-08-17",
+                 "primary_type":"Album","secondary_types":[]},
+                {"mbid":"g2","title":"Bitches Brew","first_released":"1970-03-30",
+                 "primary_type":"Album","secondary_types":[]},
+                {"mbid":"g3","title":"Live-Evil","first_released":"1971",
+                 "primary_type":"Album","secondary_types":["Live"]}
+              ]}}
+           ]}"#,
+    )
+    .unwrap();
+    let (out, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // Dave Brubeck is in this catalog only as a credit on a compilation: no
+    // album of his own, so no shelf of his to have gaps in. This is the
+    // report's worst failure, reproduced end to end — one Rolling Stones track on a
+    // compilation once produced their entire studio discography as missing.
+    let guest = sandbox.dir.join("guest.json");
+    std::fs::write(
+        &guest,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:dave brubeck","source":"musicbrainz",
+              "source_id":"aa22","fetched_at":1756600000,
+              "confidence":"identified",
+              "facts":{"discography":[
+                {"mbid":"h1","title":"Time Out","first_released":"1959",
+                 "primary_type":"Album","secondary_types":[]},
+                {"mbid":"h2","title":"Time Further Out","first_released":"1961",
+                 "primary_type":"Album","secondary_types":[]}
+              ]}}
+           ]}"#,
+    )
+    .unwrap();
+    let (out, err, ok) = sandbox.run(&["sources", "--import", guest.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["missing"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        !out.contains("Time Further Out"),
+        "an artist with no album of their own has no shelf to be missing from: {out}"
+    );
+    assert!(
+        out.contains("Bitches Brew"),
+        "the album this shelf lacks: {out}"
+    );
+    assert!(
+        !out.contains("Kind of Blue"),
+        "the reference library holds it, matched on the title alone since its \
+         tags carry no release-group identifier: {out}"
+    );
+    assert!(
+        !out.contains("Live-Evil"),
+        "a live record is not a gap in a discography: {out}"
+    );
+    assert!(
+        out.contains("live records and compilations are left out"),
+        "and the filter is stated, or the list reads as everything: {out}"
+    );
+}

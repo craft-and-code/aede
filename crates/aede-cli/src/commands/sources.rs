@@ -502,8 +502,14 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
 ///
 /// A genre lives on the tracks, not on the artist, so "what do my files call
 /// this artist" is answered by the files they appear on.
-fn tag_of_artist(catalog: &Catalog, entity: &EntityRef, tag: &str) -> Option<String> {
-    let id = entity.resolve(catalog)?;
+fn tags_of_artist(catalog: &Catalog, entity: &EntityRef, tag: &str) -> Vec<String> {
+    let Some(id) = entity.resolve(catalog) else {
+        return Vec::new();
+    };
+    // **Every** value, not the first: a genre tag holds a list, whether the
+    // file writes it as several values or as one string with commas in it.
+    // Reading only the first turned "Rock, Pop" into "Rock" on some files and
+    // reported a disagreement with a genre the tags do carry.
     catalog
         .tracks_of_artist(id)
         .into_iter()
@@ -511,8 +517,10 @@ fn tag_of_artist(catalog: &Catalog, entity: &EntityRef, tag: &str) -> Option<Str
         .find_map(|t| {
             catalog
                 .file(t.file_id)
-                .and_then(|f| f.first_tag(tag).map(str::to_string))
+                .map(|f| f.tags.get(tag).cloned().unwrap_or_default())
+                .filter(|values: &Vec<String>| !values.is_empty())
         })
+        .unwrap_or_default()
 }
 
 /// Each field a record carries, with the tag it can be judged against.
@@ -554,12 +562,17 @@ fn compared(
                 // Beside the genre tag, never over it: the last column is what
                 // your files say, and these two answers are both allowed to
                 // exist.
+                //
+                // Compared as **sets**, which the first version did not do: it
+                // took MusicBrainz's top genre and compared it, as a string, to
+                // the whole tag. `pop` against `Rock, Pop` came out as a
+                // disagreement, when the tag plainly says pop. Genres are not
+                // exclusive and the two sides are not answering at the same
+                // granularity — one is what a crowd voted, the other is what
+                // one person typed — so a shared name is agreement.
                 let theirs = a.genres.join(", ");
-                let yours = tag_of_artist(catalog, entity, "genre");
-                let verdict = aede_core::sources::verdict(
-                    a.genres.first().map(String::as_str).unwrap_or_default(),
-                    yours.as_deref(),
-                );
+                let yours = tags_of_artist(catalog, entity, "genre");
+                let verdict = aede_core::sources::verdict_set(&a.genres, &yours);
                 rows.push(("genres", theirs, Some(verdict)));
             }
             if !a.aliases.is_empty() {

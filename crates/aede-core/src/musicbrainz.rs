@@ -266,6 +266,10 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         discogs: linked(row, "discogs"),
         // MusicBrainz spells this relationship "official homepage".
         homepage: linked(row, "official homepage"),
+        // Filled by its own pass, never by this one: a discography is a
+        // browse over release groups, not a field of an artist lookup, and
+        // reading it here would quietly empty it on every ordinary fetch.
+        discography: Vec::new(),
         // MusicBrainz holds no prose about an artist: an annotation there is
         // an editorial note about the data, not a description of the
         // musician. The summary comes from Wikipedia, reached through the
@@ -446,6 +450,71 @@ pub fn release(response: &Json) -> Option<Candidate<ReleaseFacts>> {
         score: 100,
         facts,
     })
+}
+
+/// How many release groups one browse request may return.
+///
+/// The service's own ceiling. A prolific artist has more than this, so the
+/// caller pages — which is the one place in this program where a single entity
+/// can cost more than one request, and the reason [`discography`] hands back
+/// the total alongside the page.
+pub const BROWSE_LIMIT: usize = 100;
+
+/// Where to ask for everything credited to an artist.
+///
+/// A **browse**, not a search: browse answers "what does this identifier have",
+/// which is a question with one right answer, where a search answers "what
+/// resembles these words". Nothing here is scored or matched, because nothing
+/// here is guessed.
+///
+/// `type=album` narrows what travels. It is a saving and not the filter that
+/// matters — [`crate::sources::KnownRelease::is_studio_album`] decides what a
+/// reader is shown, so a parameter the service ignores costs bandwidth and
+/// never correctness.
+pub fn discography_url(artist_mbid: &str, offset: usize) -> String {
+    format!(
+        "{WEB_SERVICE}/release-group?artist={artist_mbid}&type=album\
+         &fmt=json&limit={BROWSE_LIMIT}&offset={offset}"
+    )
+}
+
+/// One page of an artist's discography, and how many there are in all.
+///
+/// The total comes back as `release-group-count` and is what tells the caller
+/// whether to ask for another page. Absent, it is taken to be what arrived:
+/// stopping is the safe reading, since paging forever on a field that was never
+/// there would be a request per second with no end.
+pub fn discography(response: &Json) -> (Vec<crate::sources::KnownRelease>, usize) {
+    use crate::sources::KnownRelease;
+    let rows = response
+        .get("release-groups")
+        .and_then(Json::as_arr)
+        .unwrap_or(&[]);
+    let page: Vec<KnownRelease> = rows
+        .iter()
+        .filter_map(|row| {
+            // No identifier, no row: the only way to tell "you own this one"
+            // from "you are missing it" without an identifier is the title, and
+            // two records share a title often enough that a wish list built on
+            // titles alone is wrong.
+            Some(KnownRelease {
+                mbid: field(row, "id")?,
+                title: field(row, "title").unwrap_or_default(),
+                first_released: field(row, "first-release-date"),
+                primary_type: field(row, "primary-type"),
+                secondary_types: row
+                    .get("secondary-types")
+                    .and_then(Json::as_arr)
+                    .map(|a| a.iter().filter_map(Json::as_string).collect())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect();
+    let total = response
+        .field_u32("release-group-count")
+        .map(|n| n as usize)
+        .unwrap_or(page.len());
+    (page, total)
 }
 
 /// The label of a release, as a release lookup returns it.

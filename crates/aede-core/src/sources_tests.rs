@@ -163,6 +163,52 @@ fn a_year_and_a_full_date_are_not_a_disagreement() {
 }
 
 #[test]
+fn genres_are_compared_as_sets_and_not_as_sentences() {
+    // The first false alarm this layer produced, kept as a test: MusicBrainz
+    // answered `pop, dance-pop, electropop, europop`, the files said
+    // `Rock, Pop`, and the report called it a disagreement. The tags say the
+    // record is pop *and* rock; MusicBrainz says pop and three finer words for
+    // it. Nobody is contradicting anybody.
+    let theirs: Vec<String> = ["pop", "dance-pop", "electropop", "europop"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(
+        verdict_set(&theirs, &["Rock, Pop".to_string()]),
+        Verdict::Agrees,
+        "one value holding a list is a list"
+    );
+    assert_eq!(
+        verdict_set(&theirs, &["Rock".to_string(), "Pop".to_string()]),
+        Verdict::Agrees,
+        "and so are several values"
+    );
+    for written in ["Rock; Pop", "Rock / Pop", "rock,pop"] {
+        assert_eq!(
+            verdict_set(&theirs, &[written.to_string()]),
+            Verdict::Agrees,
+            "a genre tag is written every way there is: {written}"
+        );
+    }
+
+    // Nothing in common is a real difference, and both sides are named.
+    assert_eq!(
+        verdict_set(&theirs, &["Jazz, Blues".to_string()]),
+        Verdict::Differs {
+            theirs: "pop, dance-pop, electropop, europop".to_string(),
+            yours: "Jazz, Blues".to_string(),
+        }
+    );
+
+    // No tag is not a disagreement — the source is adding, not contradicting.
+    assert_eq!(verdict_set(&theirs, &[]), Verdict::NothingToCompare);
+    assert_eq!(
+        verdict_set(&theirs, &["  ".to_string()]),
+        Verdict::NothingToCompare
+    );
+}
+
+#[test]
 fn an_answer_holding_nothing_is_not_the_absence_of_an_answer() {
     // "Asked, and MusicBrainz holds nothing about this artist" and "never
     // asked" are different states, and the layer exists to keep them apart.
@@ -210,6 +256,13 @@ fn a_round_trip_keeps_every_field() {
             wikidata: Some("https://www.wikidata.org/wiki/Q93341".to_string()),
             discogs: None,
             homepage: None,
+            discography: vec![KnownRelease {
+                mbid: "c9fdb94c".to_string(),
+                title: "Kind of Blue".to_string(),
+                first_released: Some("1959-08-17".to_string()),
+                primary_type: Some("Album".to_string()),
+                secondary_types: vec![],
+            }],
             summary: Some(Prose {
                 text: "An American trumpeter and bandleader.".to_string(),
                 url: "https://en.wikipedia.org/wiki/Miles_Davis".to_string(),
@@ -265,6 +318,35 @@ fn the_credit_line_names_the_page_and_the_terms() {
     assert!(
         credit.contains("en.wikipedia.org/wiki/Miles_Davis") && credit.contains("CC BY-SA 4.0"),
         "the two things CC BY-SA asks for, in one line: {credit}"
+    );
+}
+
+#[test]
+fn a_known_release_without_an_identifier_is_not_read_back() {
+    // The identifier is what makes "you own this one" answerable. Without it
+    // the only comparison left is the title, and two records share a title
+    // often enough that a wish list built on titles alone is wrong.
+    let text = format!(
+        r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+             {{"entity":"artist:miles davis","source":"musicbrainz",
+               "confidence":"identified","fetched_at":1,
+               "facts":{{"discography":[
+                  {{"title":"No identifier","primary_type":"Album"}},
+                  {{"mbid":"c9fdb94c","title":"Kind of Blue",
+                    "primary_type":"Album","secondary_types":["Live"]}}
+               ]}}}}
+           ]}}"#
+    );
+    let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("a layer");
+    let Facts::Artist(artist) = &back.records[0].facts else {
+        panic!("an artist row");
+    };
+    assert_eq!(artist.discography.len(), 1, "the nameless row was dropped");
+    assert_eq!(artist.discography[0].mbid, "c9fdb94c");
+    assert_eq!(artist.discography[0].secondary_types, vec!["Live"]);
+    assert!(
+        !artist.discography[0].is_studio_album(),
+        "and what it is survived the round trip"
     );
 }
 

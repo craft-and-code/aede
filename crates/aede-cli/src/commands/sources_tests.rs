@@ -136,28 +136,45 @@ fn a_genre_is_compared_with_the_one_your_files_carry() {
     // call this artist" is answered by the files they appear on.
     let catalog = catalog_with("Jazz", "Columbia");
     let entity = artist_of(&catalog);
+    assert_eq!(tags_of_artist(&catalog, &entity, "genre"), vec!["Jazz"]);
+
+    let genres_of = |theirs: &[&str]| {
+        compared(
+            &catalog,
+            &entity,
+            &Facts::Artist(ArtistFacts {
+                genres: theirs.iter().map(|g| g.to_string()).collect(),
+                ..Default::default()
+            }),
+        )
+        .into_iter()
+        .find(|(field, _, _)| *field == "genres")
+        .expect("a genres row")
+    };
+
+    let agreeing = genres_of(&["jazz", "cool jazz"]);
+    assert_eq!(agreeing.1, "jazz, cool jazz", "all of them are shown");
     assert_eq!(
-        tag_of_artist(&catalog, &entity, "genre").as_deref(),
-        Some("Jazz")
+        agreeing.2,
+        Some(Verdict::Agrees),
+        "case does not matter, and a shared name is agreement"
     );
 
-    let agreeing = compared(
-        &catalog,
-        &entity,
-        &Facts::Artist(ArtistFacts {
-            genres: vec!["jazz".to_string(), "cool jazz".to_string()],
-            ..Default::default()
-        }),
-    );
-    let genres = agreeing
-        .iter()
-        .find(|(field, _, _)| *field == "genres")
-        .expect("a genres row");
-    assert_eq!(genres.1, "jazz, cool jazz", "all of them are shown");
+    // The false alarm this replaced: the top genre was compared, as a string,
+    // against the whole tag. A tag naming two genres, one of which the source
+    // also names, is not a contradiction.
+    let overlapping = genres_of(&["cool jazz", "jazz"]);
     assert_eq!(
-        genres.2,
+        overlapping.2,
         Some(Verdict::Agrees),
-        "the first is what the tag is judged against, and case does not matter"
+        "the shared name need not be first on either side"
+    );
+
+    let disjoint = genres_of(&["techno", "house"]);
+    assert!(
+        matches!(disjoint.2, Some(Verdict::Differs { .. })),
+        "and two sets with nothing in common still differ: {:?}",
+        disjoint.2
     );
 }
 

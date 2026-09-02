@@ -104,6 +104,7 @@ fn main() {
         "import",
         "template",
         "summaries",
+        "discography",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -268,6 +269,11 @@ fn main() {
             "summaries",
             &["fetch"],
             "follow the wikidata link to an article",
+        ),
+        (
+            "discography",
+            &["fetch"],
+            "browse everything credited to an artist",
         ),
         (
             "threads",
@@ -497,6 +503,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("import", None, commands::import),
     ("sources", None, commands::sources),
     ("fetch", None, commands::fetch),
+    ("missing", None, commands::missing),
     ("query", Some("find"), commands::query),
     ("collection", None, commands::collection),
     ("collections", None, commands::collections),
@@ -734,11 +741,22 @@ fn print_help() {
                        --dry-run lists what would be asked, --full asks again
                        about what is already held. A name narrows it, and
                        reaches the records as well as the person.
+                       --discography is a second pass, over what fetch
+                       already stored: it browses everything MusicBrainz
+                       credits to each artist, so that aede missing can say
+                       which studio albums your shelf does not hold. One more
+                       request per artist.
                        --summaries is a second pass, over what fetch already
                        stored: it follows the wikidata link to a Wikipedia
                        article and keeps its opening paragraph, with the page
                        and the licence that text is under. Two more requests
                        per artist, which is why it is asked for
+  missing [name…]      Studio albums MusicBrainz credits to your artists that
+                       this catalog does not hold. Nothing is fetched here:
+                       the answer is worked out from what fetch
+                       --discography already stored, so an album stops being
+                       listed the day you add it. Singles, live records and
+                       compilations are left out
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
@@ -858,6 +876,9 @@ fn print_help() {
   --full               Ignore the tag cache and re-read every file
                        (scan, check); on fetch, ask again about what is
                        already held
+  --discography        A second pass for fetch: browse everything MusicBrainz
+                       credits to each artist, which is what the missing
+                       command then reads
   --summaries          A second pass for fetch: follow the wikidata link
                        each artist already has to a Wikipedia article, and
                        keep its opening paragraph with its credit. The

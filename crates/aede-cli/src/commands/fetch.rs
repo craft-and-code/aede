@@ -153,6 +153,20 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
 
     let catalog = super::load(args)?;
 
+    // After the catalog is loaded, unlike the summaries pass: this one needs to
+    // know who has a shelf here, and that is a question only the catalog can
+    // answer.
+    if args.has("discography") {
+        return super::discography::run(
+            &catalog,
+            transport,
+            backoff,
+            &mut held,
+            &path,
+            args.has("full"),
+        );
+    }
+
     // What to ask about: the names given, or every artist in the library.
     let wanted: Vec<String> = args
         .positionals
@@ -205,6 +219,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         // just done work is an announcement nobody who finished first ever
         // sees.
         offer_summaries(&held);
+        offer_discography(&catalog, &held);
         return Ok(());
     }
 
@@ -353,6 +368,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         );
     }
     offer_summaries(&held);
+    offer_discography(&catalog, &held);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
 }
@@ -383,6 +399,25 @@ fn offer_summaries(held: &sources::Sources) {
         "  {}",
         ui::dim(&format!(
             "{them} {have} a wikidata link — aede fetch --summaries reads the article"
+        ))
+    );
+}
+
+/// Names the discography pass, when there is something for it to browse.
+///
+/// Separate from the summaries offer rather than folded into it: they are two
+/// different passes at two different costs, and one line proposing both would
+/// make the reader work out which count belonged to which.
+fn offer_discography(catalog: &aede_core::model::Catalog, held: &sources::Sources) {
+    let door = super::discography::waiting(catalog, held);
+    if door == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{door} of them can be browsed for what else they recorded — \
+             aede fetch --discography, then aede missing"
         ))
     );
 }

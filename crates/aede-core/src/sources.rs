@@ -173,6 +173,65 @@ pub struct ArtistFacts {
     /// not prose. It comes from an encyclopaedia, and it is stored as one
     /// inseparable value for the reason written on the type.
     pub summary: Option<Prose>,
+    /// Every record the source credits to this artist — see [`KnownRelease`].
+    ///
+    /// **On the artist, and deliberately not on the releases.** A release key
+    /// is `artist|title|folder`, and an album you do not own has no folder, so
+    /// a record you are missing cannot be an entity of this layer at all. It is
+    /// instead a fact *about the artist*: "MusicBrainz credits fourteen albums
+    /// to this name".
+    ///
+    /// Which of them are missing from the shelf is then **derived on read**, by
+    /// comparing that list with the catalog — the same rule the whole layer
+    /// follows for agreement with a tag. Storing "missing" would go stale the
+    /// moment the album is bought, and the catalog would hold a claim it had
+    /// stopped being able to justify.
+    pub discography: Vec<KnownRelease>,
+}
+
+/// One record a source credits to an artist, whether or not you own it.
+///
+/// Enough to recognise it and to show it: the identifier that makes a second
+/// fetch an update, the title, when it first appeared, and what kind of record
+/// it is. Not a [`ReleaseFacts`], which is what a source says about an album
+/// *in the catalog* — this is a name on a list, and the difference matters:
+/// one is attached to files, the other is precisely the one that is not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownRelease {
+    /// Release-group identifier, which is what the catalog's own
+    /// `release_group_mbid` can be compared against without guessing.
+    pub mbid: String,
+    /// Title as the source spells it.
+    pub title: String,
+    /// When the album first appeared — the year a reader recognises it by.
+    pub first_released: Option<String>,
+    /// Album, Single, EP, Broadcast, Other.
+    pub primary_type: Option<String>,
+    /// Compilation, Soundtrack, Live, Remix, Demo…
+    pub secondary_types: Vec<String>,
+}
+
+impl KnownRelease {
+    /// `true` for a studio album: primary type Album, and nothing else.
+    ///
+    /// The filter that makes a completeness report readable rather than a wall.
+    /// A discography holds every single, every live recording, every
+    /// compilation somebody assembled, and reporting all of them as *missing*
+    /// would be true and useless — nobody's shelf holds every single ever
+    /// pressed, and a report that is mostly noise is a report nobody opens.
+    ///
+    /// Applied here, on what came back, rather than trusted to the request: a
+    /// server-side filter narrows what travels, but only this decides what is
+    /// shown, so a parameter the service ignores costs bandwidth and not
+    /// correctness.
+    pub fn is_studio_album(&self) -> bool {
+        self.primary_type.as_deref() == Some("Album") && self.secondary_types.is_empty()
+    }
+
+    /// The year, for a date that may be a year, a month or a full date.
+    pub fn year(&self) -> Option<&str> {
+        self.first_released.as_deref().map(|d| &d[..4.min(d.len())])
+    }
 }
 
 /// What a source says about one release.
@@ -447,6 +506,45 @@ pub fn verdict(theirs: &str, yours: Option<&str>) -> Verdict {
     }
 }
 
+/// The verdict for a field that holds a **set**, not a value: genres.
+///
+/// Comparing sets as strings is what produced the first false alarm of this
+/// layer: MusicBrainz said `pop, dance-pop, electropop, europop`, the files said
+/// `Rock, Pop`, and the report called that a disagreement. It is not. The tags
+/// say the record is pop *and* rock; MusicBrainz says pop and three finer words
+/// for it. Nobody is contradicting anybody.
+///
+/// So the rule is **overlap, not equality**. Genres are not exclusive and the
+/// two sides are not even trying to answer with the same granularity — one is
+/// what a crowd voted, the other is what one person typed. A shared name is
+/// agreement; only two sets with nothing at all in common are a difference
+/// worth showing.
+///
+/// Splitting is done here rather than by the caller because a genre tag is
+/// written in every shape: several tag values, or one value holding
+/// `Rock, Pop`, `Rock; Pop` or `Rock / Pop`. All of them mean a list.
+pub fn verdict_set(theirs: &[String], yours: &[String]) -> Verdict {
+    let split = |values: &[String]| -> Vec<String> {
+        values
+            .iter()
+            .flat_map(|value| value.split([',', ';', '/']))
+            .map(crate::text::normalize)
+            .filter(|name| !name.is_empty())
+            .collect()
+    };
+    let (mine, other) = (split(theirs), split(yours));
+    if other.is_empty() {
+        return Verdict::NothingToCompare;
+    }
+    if mine.iter().any(|name| other.contains(name)) {
+        return Verdict::Agrees;
+    }
+    Verdict::Differs {
+        theirs: theirs.join(", "),
+        yours: yours.join(", "),
+    }
+}
+
 /// Compares two dates written at different precisions.
 ///
 /// The plain [`verdict`] is wrong for dates and would be wrong on nearly every
@@ -583,6 +681,28 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("wikidata", opt_str(&a.wikidata));
                     facts.set("discogs", opt_str(&a.discogs));
                     facts.set("homepage", opt_str(&a.homepage));
+                    // Written as an array of objects rather than a flat list
+                    // of identifiers: a reader shown "you are missing three
+                    // albums" needs their titles and years, and re-fetching
+                    // them from the identifiers would be a request per album
+                    // for something already known.
+                    facts.set(
+                        "discography",
+                        Json::Arr(
+                            a.discography
+                                .iter()
+                                .map(|known| {
+                                    let mut o = Json::obj();
+                                    o.set("mbid", known.mbid.clone().into());
+                                    o.set("title", known.title.clone().into());
+                                    o.set("first_released", opt_str(&known.first_released));
+                                    o.set("primary_type", opt_str(&known.primary_type));
+                                    o.set("secondary_types", strings(&known.secondary_types));
+                                    o
+                                })
+                                .collect(),
+                        ),
+                    );
                     facts.set(
                         "summary",
                         match &a.summary {
@@ -667,6 +787,27 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 wikidata: facts.and_then(|f| f.field_str("wikidata")),
                 discogs: facts.and_then(|f| f.field_str("discogs")),
                 homepage: facts.and_then(|f| f.field_str("homepage")),
+                // A row with no identifier is skipped: without it the only
+                // way to tell "you have this one" from "you are missing it"
+                // is the title, and two records share a title often enough
+                // that a wish list assembled from titles alone is wrong.
+                discography: facts
+                    .and_then(|f| f.get("discography"))
+                    .and_then(Json::as_arr)
+                    .map(|rows| {
+                        rows.iter()
+                            .filter_map(|row| {
+                                Some(KnownRelease {
+                                    mbid: row.field_str("mbid")?,
+                                    title: row.field_str("title").unwrap_or_default(),
+                                    first_released: row.field_str("first_released"),
+                                    primary_type: row.field_str("primary_type"),
+                                    secondary_types: read_strings(row, "secondary_types"),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 // All four or none: a row that lost its attribution somewhere
                 // is a row this build will not repeat.
                 summary: facts.and_then(|f| f.get("summary")).and_then(|p| {
