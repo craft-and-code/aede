@@ -12,12 +12,14 @@ mod copy;
 mod doctor;
 mod export;
 mod facet;
+mod fetch;
 mod import;
 mod inspect;
 mod playlist;
 mod reset;
 mod scan;
 mod search;
+mod sources;
 mod spectrum;
 mod stats;
 mod track;
@@ -34,12 +36,14 @@ pub use copy::copy;
 pub use doctor::show_doctor;
 pub use export::export;
 pub use facet::{show_genre, show_label};
+pub use fetch::fetch;
 pub use import::import;
 pub use inspect::inspect;
 pub use playlist::playlist;
 pub use reset::reset;
 pub use scan::{roots, scan};
 pub use search::search;
+pub use sources::{panel_for as sources_panel_for, sources};
 pub use spectrum::spectrum;
 pub use stats::show_stats;
 pub use track::show_track;
@@ -165,6 +169,16 @@ fn user_data(args: &Args, catalog: &Catalog) -> Result<aede_core::user::UserData
     let mut data = aede_core::user::load(&path)?.unwrap_or_default();
     aede_core::user::reconcile(&mut data, catalog);
     Ok(data)
+}
+
+/// What other sources said, as it sits on disk.
+///
+/// Loaded and not reconciled, unlike the annotations: the layer is keyed on
+/// what an entity calls itself and resolves on read, so a rebuilt catalog
+/// needs nothing rewritten here.
+fn sources_held(args: &Args) -> Result<aede_core::sources::Sources, Box<dyn Error>> {
+    let path = aede_core::sources::sources_path(&data_dir(args));
+    Ok(aede_core::sources::load(&path)?.unwrap_or_default())
 }
 
 /// The role vocabulary, as `(key stored, name shown)`.

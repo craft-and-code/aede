@@ -4,11 +4,21 @@ description = "Command-line interface for Aede."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Inherited, and not decoration: it is the contact address in the
+# User-Agent MusicBrainz requires. Left unset, the header says nothing and
+# the service throttles it as part of an anonymous pool.
+repository.workspace = true
 rust-version.workspace = true
 
 [[bin]]
 name = "aede"
 path = "src/main.rs"
 
+[features]
+default = ["fetch"]
+fetch = ["aede-core/fetch"]
+
 [dependencies]
-aede-core = { path = "../aede-core" }
+# `default-features = false` so that turning this crate's `fetch` off
+# really does leave the library with no network code compiled in.
+aede-core = { path = "../aede-core", default-features = false }

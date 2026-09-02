@@ -6,12 +6,16 @@ members = ["crates/aede-core", "crates/aede-cli"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://example.invalid/aede"
+repository = "https://github.com/craft-and-code/aede"
 rust-version = "1.89"
 
 [workspace.dependencies]
 # Tag reading for the containers Aede has no parser of its own for.
 lofty = "0.25"
+# HTTP for M1, behind aede-core's `fetch` feature. Pinned rather than floating:
+# ureq reserves the right to change its TLS provider in a minor release, and
+# the provider is what decides whether the static musl build still links.
+ureq = "=3.4"
 
 [profile.release]
 opt-level = 3

@@ -4,9 +4,22 @@ description = "Aede core: data model, music library scanner, statistics."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Inherited, and not decoration: it is the contact address in the
+# User-Agent MusicBrainz requires. Left unset, the header says nothing and
+# the service throttles it as part of an anonymous pool.
+repository.workspace = true
 rust-version.workspace = true
+
+[features]
+# On by default, and separable on purpose: without it this library has no way
+# to reach the network at all — not a promise in a README, a fact the compiler
+# enforces. `cargo test --no-default-features` builds and runs the whole suite
+# except the client.
+default = ["fetch"]
+fetch = ["dep:ureq"]
 
 [dependencies]
 lofty = { workspace = true }
+ureq = { workspace = true, optional = true }
 
 [dev-dependencies]

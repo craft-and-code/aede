@@ -20,10 +20,14 @@ pub mod text;
 pub mod copy;
 pub mod doctor;
 pub mod ffmpeg;
+#[cfg(feature = "fetch")]
+pub mod http;
 pub mod model;
+pub mod musicbrainz;
 pub mod playlist;
 pub mod query;
 pub mod scan;
+pub mod sources;
 pub mod spectrum;
 pub mod stats;
 pub mod store;

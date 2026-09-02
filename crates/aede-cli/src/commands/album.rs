@@ -66,6 +66,7 @@ pub fn show_album(args: &Args) -> Res {
     }
     for release in &matches {
         print_album(&catalog, release);
+        super::sources_panel_for(args, &catalog, EntityKind::Release, release.id);
         super::panel_for(args, &catalog, EntityKind::Release, release.id);
     }
     if total > matches.len() {

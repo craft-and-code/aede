@@ -4,7 +4,7 @@ A local music library, written in Rust.
 
 An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and playing, in one word — which is exactly what this program is for.
 
-**M0.6 is done**: read folders, turn them into a catalog of linked entities, answer questions about it, keep what you think of it, and get it back out to a player. No audio playback and no network access — that is deliberate, and the [roadmap](docs/design/roadmap.md) says when each arrives.
+**M0.6 is done**: read folders, turn them into a catalog of linked entities, answer questions about it, keep what you think of it, and get it back out to a player. No audio playback yet — that is deliberate, and the [roadmap](docs/design/roadmap.md) says when it arrives. The network is reached by exactly one command, `aede fetch`, and never on its own.
 
 **M1 — identification — has started**, with the layer that receives it: a value fetched from MusicBrainz will sit _beside_ the tag, attributed and removable, never on top of it. The reasoning is in [The attributed layer](docs/design/attribution.md), and nothing in this first step touches the network.
 
@@ -30,7 +30,7 @@ tar xzf aede-0.1.0-macOS-AppleSilicon.tar.gz
 ./aede stats
 ```
 
-Or build it yourself. Rust 1.89 or later; the build downloads one dependency, `lofty`, and everything after the first build works offline:
+Or build it yourself. Rust 1.89 or later; the build downloads two dependencies — `lofty` for the tag formats, `ureq` for MusicBrainz — and everything after the first build works offline:
 
 ```sh
 cargo build --release
@@ -53,6 +53,7 @@ Two commands want `ffmpeg` on the `PATH` — `aede copy --compress` and `aede sp
 | `aede doctor`                                             | Missing tags, duplicates, incomplete albums, mixed formats                                                                                                                     |
 | `aede export`                                             | Export the catalog as JSON, or as CSV with `--csv`                                                                                                                             |
 | `aede favourites` / `notes` / `history`                   | What you wrote, and what you played                                                                                                                                            |
+| `aede fetch [name…]`                                      | Ask MusicBrainz about your artists and store what it says beside your tags (`--dry-run` lists what would be asked, `--full` asks again, naming artists narrows it). One request per second, as the service requires                          |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                                                                                                                     |
 | `aede genre <name>`                                       | What is in a genre: albums and the artists audible on them                                                                                                                     |
 | `aede help`                                               | Every command and every option, which is the contract                                                                                                                          |
@@ -66,6 +67,7 @@ Two commands want `ffmpeg` on the `PATH` — `aede copy --compress` and `aede sp
 | `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)                                                                                                                     |
 | `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them                                                                                                                    |
 | `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes, `--lyrics` in the words)                                                  |
+| `aede sources`                                            | What other sources say about your library, beside your tags and never on top (`--template` writes a document with the keys and nothing filled in, `--import <file>` takes one back, `--export` writes out what is held, `--list` shows each record, `--forget` drops them, `--source` narrows to one) |
 | `aede spectrum [folder…]`                                 | Draw a spectrogram of every track into a `spectrograms/` folder beside it, through ffmpeg                                                                                      |
 | `aede stats`                                              | Tracks, albums, formats, quality, decades, completeness                                                                                                                        |
 | `aede track "<title>"`                                    | Every track carrying this title: album, credits, technical details, tags (`--lyrics` adds the words)                                                                           |
@@ -91,10 +93,11 @@ a command the help names.
 | [What you think of it](docs/annotating.md)           | Favourites, ratings, notes, tags, and what a backup must keep                        |
 | [Are the files still intact?](docs/integrity.md)     | `aede check`, what a checksum proves and what it does not                            |
 | [What another tool found](docs/imported-analyses.md) | Importing FlacCompagnon reports, and what Aède says about them                       |
+| [What other sources say](docs/sources.md)            | MusicBrainz, correcting it by hand, and what never lands on your tags                |
 | [Copying to a player](docs/copying.md)               | `aede copy`, companion files, safe names, encoding on the way out                    |
 | [Spectrograms](docs/spectrograms.md)                 | `aede spectrum`                                                                      |
 | [Playlists in the folders](docs/playlists.md)        | `aede playlist`                                                                      |
-| [Formats and dependencies](docs/formats.md)          | What is read, by which parser, and the one dependency                                |
+| [Formats and dependencies](docs/formats.md)          | What is read, by which parser, and what is depended on                               |
 
 **Why it is built this way**
 

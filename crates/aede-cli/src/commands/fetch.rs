@@ -1,0 +1,385 @@
+//! The `fetch` command: ask MusicBrainz about what is in the catalog.
+//!
+//! Everything it decides — which answer is about us, how firmly, what to store
+//! — lives in [`aede_core::musicbrainz`] and is tested without a network. What
+//! is here is the walk, the progress, and the saving as it goes.
+//!
+//! **The rate is the shape of this command.** One request per second is not a
+//! detail to tune later: six hundred artists is ten minutes, and a run that
+//! long has to say so before it starts, show where it is, and lose nothing
+//! when it is interrupted. So it saves after every answer rather than at the
+//! end — the same rule `check` follows for a scan that may take an hour.
+
+// Compiled in every build, because the tests below prove it in every build;
+// only `fetch` itself needs the feature, and a build without it would
+// otherwise report this machinery as dead.
+#![cfg_attr(not(feature = "fetch"), allow(dead_code))]
+
+use aede_core::json::Json;
+use aede_core::model::EntityKind;
+use aede_core::sources::{self, Facts, SourceRecord};
+use aede_core::user::EntityRef;
+use aede_core::{clock, musicbrainz, text};
+
+use crate::args::Args;
+use crate::ui;
+
+use super::Res;
+
+/// Whatever can answer a URL with JSON.
+///
+/// A trait for one implementation, which usually earns nothing — here it earns
+/// the only thing that matters: the walk below, the refusals, the counting and
+/// the saving all compile and run **without a network stack**, against a fake
+/// that answers from a fixture. What is left unproven is then the twenty lines
+/// that hand a URL to the client library, instead of this whole command.
+pub trait Ask {
+    /// Fetches a URL and parses the answer, or says why it could not.
+    fn get_json(&mut self, url: &str) -> Result<Json, Refusal>;
+}
+
+/// Why an answer did not arrive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// The service asked us to slow down: stop, do not retry.
+    RateLimited,
+    /// Anything else, already worded for a reader.
+    Failed(String),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refusal::RateLimited => write!(
+                f,
+                "the service is refusing requests because too many were sent \
+                 (one per second is the limit); nothing was lost, try later"
+            ),
+            Refusal::Failed(detail) => write!(f, "{detail}"),
+        }
+    }
+}
+
+#[cfg(not(feature = "fetch"))]
+pub fn fetch(_args: &Args) -> Res {
+    // The command exists in every build so that the help, the dispatch table
+    // and the guards stay one list. A build without the feature says what it
+    // is rather than pretending the command was never there.
+    Err(
+        "this build has no network support: it was compiled without the \
+         \"fetch\" feature, so it cannot reach MusicBrainz"
+            .into(),
+    )
+}
+
+/// The client library, wrapped so that everything below it is testable.
+#[cfg(feature = "fetch")]
+struct Http(aede_core::http::Client);
+
+#[cfg(feature = "fetch")]
+impl Ask for Http {
+    fn get_json(&mut self, url: &str) -> Result<Json, Refusal> {
+        match self.0.get_json(url) {
+            Ok(value) => Ok(value),
+            Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
+            Err(other) => Err(Refusal::Failed(other.to_string())),
+        }
+    }
+}
+
+#[cfg(feature = "fetch")]
+pub fn fetch(args: &Args) -> Res {
+    use aede_core::http::Client;
+    let mut transport = Http(Client::new(
+        identity(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"))?,
+        musicbrainz::REQUEST_INTERVAL,
+    ));
+    run(args, &mut transport)
+}
+
+/// How long to wait before asking again, after a `503`.
+///
+/// Backing off is the polite reaction to a service saying "not now", and it is
+/// also what tells the two meanings of `503` apart. MusicBrainz answers it both
+/// when the rate has been exceeded — a ban that lasts — and when its search
+/// server is momentarily overloaded, which passes. Nothing in the response
+/// distinguishes them, but their *behaviour* does: a transient one lets the
+/// next attempt through, a ban does not. So the client tries three times,
+/// waiting longer each time, and only then gives up.
+///
+/// The first version stopped the whole run on the first `503`, which turned a
+/// hiccup on request 5 of 402 into "come back later" — and looked exactly like
+/// a rate limit that had not been exceeded.
+const RETRY_AFTER: [std::time::Duration; 3] = [
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(15),
+];
+
+/// The whole of the command except reaching the network.
+pub fn run(args: &Args, transport: &mut dyn Ask) -> Res {
+    run_with(args, transport, &RETRY_AFTER)
+}
+
+/// [`run`], with the waits made explicit so a test does not have to sit
+/// through them.
+pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Duration]) -> Res {
+    let catalog = super::load(args)?;
+    let path = sources::sources_path(&super::data_dir(args));
+    let mut held = sources::load(&path)?.unwrap_or_default();
+
+    // What to ask about: the names given, or every artist in the library.
+    let wanted: Vec<String> = args
+        .positionals
+        .iter()
+        .map(|name| text::normalize(name))
+        .filter(|name| !name.is_empty())
+        .collect();
+    // No `--limit` here on purpose: everywhere else in this program it means
+    // "show a window of the result", and bounding how much work is done is a
+    // different thing wearing the same word. Naming artists narrows the run.
+    let mut targets: Vec<(EntityRef, String, Option<String>)> = Vec::new();
+    for artist in &catalog.artists {
+        // A blank name would go out as an empty query, which the search server
+        // does not answer politely: it fails, and the failure looks like a
+        // rate limit three steps from its cause.
+        if artist.name.trim().is_empty() {
+            continue;
+        }
+        let key = text::normalize(&artist.name);
+        if !wanted.is_empty() && !wanted.iter().any(|w| key.contains(w.as_str())) {
+            continue;
+        }
+        if let Some(entity) = EntityRef::of(&catalog, EntityKind::Artist, artist.id) {
+            // Already answered, unless asked to do it again. A second run over
+            // a library should cost what changed, not ten minutes again.
+            if !args.has("full") && held.get(&entity, sources::MUSICBRAINZ).is_some() {
+                continue;
+            }
+            targets.push((entity, artist.name.clone(), artist.mbid.clone()));
+        }
+    }
+    if targets.is_empty() {
+        println!("{}", ui::section("Fetch"));
+        println!(
+            "  {}",
+            ui::dim(match wanted.is_empty() {
+                true => "every artist has already been asked about (--full asks again)",
+                false => "nothing in this catalog matches, or it was already asked about",
+            })
+        );
+        return Ok(());
+    }
+
+    // How long this will take, before it starts. A predicted duration is
+    // usually a bad idea here — how long a read takes depends on the disk —
+    // but this one is not a guess: the rate is fixed by the service.
+    let total_ms = targets.len() as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
+    println!("{}", ui::section("Fetch"));
+    println!(
+        "  {} at one request per second, about {}",
+        ui::plural(targets.len(), "artist"),
+        ui::long_duration(total_ms)
+    );
+    if args.has("dry-run") {
+        for (_, name, _) in &targets {
+            println!("  {}", ui::dim(name));
+        }
+        println!("  {}", ui::dim("nothing was asked: --dry-run"));
+        return Ok(());
+    }
+
+    // A run of ten minutes is something to agree to, not something to
+    // discover. Short ones are not worth a question — a confirmation asked
+    // every time is a confirmation nobody reads.
+    if targets.len() > CONFIRM_ABOVE && !super::confirmed(args, "ask about all of them")? {
+        println!("  {}", ui::dim("nothing was asked"));
+        return Ok(());
+    }
+
+    let (mut stored, mut refused, mut failed) = (0usize, 0usize, 0usize);
+    for (done, (entity, name, mbid)) in targets.iter().enumerate() {
+        print!("\r  asking: {}/{}", done + 1, targets.len());
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+
+        // Ask by identifier when the tags carry one — Picard writes it, and a
+        // library it has been through knows exactly which artist it means.
+        // Searching by name there would replace an answer with a guess, and
+        // it also asks a poorer question: a search result is abbreviated,
+        // while a lookup returns the entity.
+        let url = match mbid {
+            Some(mbid) => format!(
+                "{}/artist/{mbid}?fmt=json&inc={}",
+                musicbrainz::WEB_SERVICE,
+                musicbrainz::ARTIST_INCLUDES
+            ),
+            None => format!(
+                "{}/artist/?query={}&fmt=json&limit=5",
+                musicbrainz::WEB_SERVICE,
+                encode(&musicbrainz::escape_query(name))
+            ),
+        };
+        let answer = match ask_with_backoff(transport, &url, backoff) {
+            Ok(answer) => answer,
+            Err(Refusal::RateLimited) => {
+                // Nothing is lost: what was stored stays stored, and the run
+                // stops rather than hammering a service that has just said no.
+                //
+                // The name and the URL go into the message because the service
+                // answers `503` to two different things — the rate being
+                // exceeded, and its search backend refusing a query it could
+                // not parse — and nothing in the response tells them apart.
+                // Without them, a query this program built badly reads as
+                // "you are going too fast", which is where an hour goes.
+                println!();
+                sources::save(&held, &path)?;
+                return Err(format!(
+                    "the service refused {} times in a row, waiting longer each \
+                     time; that is a rate limit rather than a hiccup, so nothing \
+                     more was asked.\n  it stopped on \"{name}\", asking:\n  {url}",
+                    backoff.len() + 1
+                )
+                .into());
+            }
+            Err(other) => {
+                failed += 1;
+                eprintln!("\r  {} {name}: {other}", ui::red("×"));
+                continue;
+            }
+        };
+
+        // A lookup answered about the identifier it was given: that is a
+        // certainty, and the only thing in this program that produces one.
+        let found = match mbid {
+            Some(_) => musicbrainz::artist(&answer)
+                .map(|c| (c, aede_core::sources::Confidence::Identified))
+                .ok_or(musicbrainz::NoMatch::Nothing),
+            None => musicbrainz::best_match(&musicbrainz::artists(&answer), name),
+        };
+        match found {
+            Ok((candidate, confidence)) => {
+                held.set(SourceRecord {
+                    key: entity.key.clone(),
+                    source: sources::MUSICBRAINZ.to_string(),
+                    source_id: Some(candidate.mbid),
+                    fetched_at: clock::now_seconds(),
+                    confidence,
+                    facts: Facts::Artist(candidate.facts),
+                });
+                stored += 1;
+                // Saved after each answer, not at the end: ten minutes of
+                // waiting must not be undone by one interruption.
+                sources::save(&held, &path)?;
+            }
+            Err(why) => {
+                refused += 1;
+                eprintln!("\r  {} {name}: {}", ui::yellow("?"), refusal(&why));
+            }
+        }
+    }
+    println!();
+
+    println!(
+        "{} {stored} stored, {refused} left alone, {failed} failed",
+        ui::green("→")
+    );
+    if refused > 0 {
+        // A refusal is the design working, not a fault, and a reader who is
+        // not told that will read it as one.
+        println!(
+            "  {}",
+            ui::dim(
+                "left alone means no answer was clearly about that artist — nothing was guessed"
+            )
+        );
+    }
+    println!("  {}", ui::dim(&path.display().to_string()));
+    Ok(())
+}
+
+/// Above this many requests, the run is long enough to be worth agreeing to.
+///
+/// Below it there is nothing to decide — twenty seconds is not a commitment —
+/// and a confirmation asked every time is a confirmation nobody reads.
+const CONFIRM_ABOVE: usize = 20;
+
+/// The `User-Agent`, refused rather than sent empty.
+///
+/// This is the bug that cost the first real run: `repository` was set on the
+/// workspace and not inherited by the crates, so `CARGO_PKG_REPOSITORY` was
+/// the empty string and the header went out as `aede/0.1.0 (  )`. MusicBrainz
+/// throttles callers with no contact as one shared anonymous pool, so the very
+/// first request came back `503` — a symptom pointing at the rate limit, three
+/// steps away from the cause. A build that cannot say who it is now stops
+/// here, where the message can name the manifest.
+fn identity(version: &str, contact: &str) -> Result<String, Box<dyn std::error::Error>> {
+    if contact.trim().is_empty() {
+        return Err(
+            "this build carries no contact address, and MusicBrainz requires \
+                    one in the User-Agent: add `repository.workspace = true` to the \
+                    crate's Cargo.toml and rebuild"
+                .into(),
+        );
+    }
+    Ok(format!("aede/{version} ( {contact} )"))
+}
+
+/// Asks, and asks again after waiting when the service says "not now".
+///
+/// Only `503` is retried. A failure to reach the service at all, or an answer
+/// that is not JSON, will not be cured by waiting — retrying those would only
+/// take three times as long to report the same thing.
+fn ask_with_backoff(
+    transport: &mut dyn Ask,
+    url: &str,
+    backoff: &[std::time::Duration],
+) -> Result<Json, Refusal> {
+    let mut attempt = 0;
+    loop {
+        match transport.get_json(url) {
+            Err(Refusal::RateLimited) if attempt < backoff.len() => {
+                std::thread::sleep(backoff[attempt]);
+                attempt += 1;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// Says why an answer was not taken, in words rather than a variant name.
+fn refusal(why: &aede_core::musicbrainz::NoMatch) -> String {
+    use aede_core::musicbrainz::NoMatch;
+    match why {
+        NoMatch::Nothing => "MusicBrainz knows nobody by that name".to_string(),
+        NoMatch::Ambiguous(names) => {
+            format!("several answers are equally good: {}", names.join(", "))
+        }
+        NoMatch::TooWeak { best, score } => {
+            format!("the closest was \"{best}\" at {score}%, not close enough")
+        }
+    }
+}
+
+/// Percent-encodes a query value.
+///
+/// Written by hand for the same reason the JSON reader is: one dependency, and
+/// this is thirty lines. The unreserved set is RFC 3986's.
+fn encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+// The tests are long enough to be their own file. `#[path]` keeps them a
+// child module of this one, so they still reach what is private here — the
+// split is about the size of a file, not about what a test may see.
+#[cfg(test)]
+#[path = "fetch_tests.rs"]
+mod tests;

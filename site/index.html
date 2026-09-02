@@ -23,7 +23,7 @@
     <meta property="og:title" content="Aède — a local music library, in one command" />
     <meta
       property="og:description"
-      content="Reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Written in Rust, one dependency, no network, and it never writes to your files."
+      content="Reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Written in Rust, almost no dependencies, and it never writes to your files."
     />
     <meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png" />
     <meta property="og:image:width" content="1200" />
@@ -35,7 +35,7 @@
     <meta name="twitter:title" content="Aède — a local music library, in one command" />
     <meta
       name="twitter:description"
-      content="A catalog of your music folders you can actually question. Rust, one dependency, no network, and it never writes to your files."
+      content="A catalog of your music folders you can actually question. Rust, almost no dependencies, and it never writes to your files."
     />
     <meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png" />
 
@@ -96,8 +96,9 @@
         <p class="note">
           <strong>M0.6</strong> is done: the catalog, the questions, what you write about your
           music, and getting it back out to a player. <strong>M1 — identification — has
-          started.</strong> No playback and no network access yet — deliberately, and the
-          <a href="#roadmap">roadmap</a> says when each arrives.
+          started.</strong> No playback yet, and the network is reached by one command and only
+          when you run it — deliberately, and the <a href="#roadmap">roadmap</a> says what comes
+          next.
         </p>
       </div>
     </header>
@@ -157,7 +158,8 @@ $ aede copy /Volumes/Card --query "loved" --compress opus
             <h3>It never writes to your files</h3>
             <p>
               Not a tag, not a name, not a folder. Tagging is Picard's job and it does it well; this
-              reads what is there. One dependency, no network, no database daemon.
+              reads what is there. Two dependencies, no database daemon, and it reaches the
+              network only when you ask it to.
             </p>
           </li>
         </ul>
@@ -263,7 +265,7 @@ $ ./aede stats</code></pre>
         <p>
           Builds for macOS (Apple Silicon and Intel) and Linux are on the
           <a href="https://github.com/craft-and-code/aede/releases">releases page</a>, each with a
-          checksum beside it. Or build it yourself — Rust 1.89, one dependency, and the first build
+          checksum beside it. Or build it yourself — Rust 1.89, two dependencies, and the first build
           is the only step that needs the network:
         </p>
         <pre><code>$ git clone https://github.com/craft-and-code/aede.git

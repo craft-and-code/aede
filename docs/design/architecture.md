@@ -17,10 +17,13 @@ crates/
     src/stats.rs      statistics
     src/doctor.rs     diagnostics
     src/analysis.rs   analyses imported from another tool
+    src/sources.rs    what other sources say, beside the tags
+    src/musicbrainz.rs  reading its answers and matching them, no network
+    src/http.rs       the one place a request is made (feature `fetch`)
     src/text.rs       name normalization (how entities are matched)
     src/json.rs       minimal JSON reader and writer
     src/clock.rs      the one unit of time the catalog stores
-    schema.sql        the SQLite schema targeted by milestone M1
+    schema.sql        a relational mirror of the model, kept as documentation
   aede-cli/         the `aede` binary
     src/commands/     one module per group of commands
 tools/              development scripts
@@ -40,7 +43,7 @@ The graph is already usable at M0, with no network access at all: `aede artist "
 
 ## A few choices worth knowing about
 
-**The catalog is a JSON file whose every key is a table.** Not a stopgap: it mirrors `schema.sql` exactly. Moving to SQLite means rewriting `store.rs` and nothing else.
+**The catalog is a JSON file whose every key is a table.** Not a stopgap: it mirrors `schema.sql` exactly, so if a database is ever wanted it means rewriting `store.rs` and nothing else. Whether it ever will be is answered further down, by measurement rather than by taste.
 
 **Raw tags are kept per file.** The graph can therefore be rebuilt entirely without touching the disk, which is what makes the incremental scan possible and will allow undoing an automatic correction.
 
@@ -125,13 +128,13 @@ Two facts settle the shape of it when the time comes. `rusqlite` is not Rust: it
 
 ## Dependencies
 
-One, today: `lofty`, and only for the tag formats whose parsers are not worth writing twice. Everything else — the binary parsers, the JSON store, the query grammar, the table layout — is written here, and `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
+Two: `lofty`, for the tag formats whose parsers are not worth writing twice, and `ureq`, behind a feature. Everything else — the binary parsers, the JSON store, the query grammar, the table layout — is written here, and `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
 
 Where a program can do the job instead of a crate, the program wins: **ffmpeg is driven as an external process** (`core/ffmpeg.rs`, `find()` and `missing(what)`), never linked. Two commands use it, both say so when it is absent, and the other twenty-three do not care.
 
 **M1 adds `ureq` with `rustls`**, and that is a deliberate departure worth writing down. The alternative considered was spawning `curl` the way ffmpeg is spawned — zero crates, same precedent — and it was refused on one asymmetry: ffmpeg is optional and covers two commands, whereas identification _is_ M1. Making the milestone's whole purpose depend on a program that may not be on the machine is a different promise from making `--compress` depend on one. What that costs, stated plainly: about twenty-seven transitive crates, and the project's first requirement of a **C compiler** at build time — `rustls`' crypto providers all carry C or assembly, and no pure-Rust provider is production-recommended today. The release workflow already installs `musl-tools`, so the cost on CI is nil.
 
-Two precautions come with it. `ureq` reserves the right to change its crypto provider in a minor release, so the version is pinned and the provider named explicitly rather than inherited from `default`. And the "one dependency" line disappears from the README and the site the day it lands — a claim that is no longer true is worse than no claim.
+Two precautions come with it. `ureq` reserves the right to change its crypto provider in a minor release, so the version is pinned and the provider named explicitly rather than inherited from `default`. And the "one dependency" line disappeared from the README and the site the day it landed — a claim that is no longer true is worse than no claim.
 
 ## What GitHub does
 
@@ -155,4 +158,4 @@ The release is published as a **draft**, with the commit list generated under a 
 cargo test
 ```
 
-362 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, an end-to-end test that runs the binary, and a check that no link in this manual leads nowhere. The conversion tests skip themselves, loudly, when ffmpeg is not installed.
+417 tests: binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, an end-to-end test that runs the binary, and a check that no link in this manual leads nowhere. The conversion tests skip themselves, loudly, when ffmpeg is not installed.

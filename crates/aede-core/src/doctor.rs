@@ -71,6 +71,14 @@ pub enum IssueKind {
     /// A checksum carried by the file does not match its contents: the audio
     /// has been damaged since it was written.
     DamagedAudio,
+    /// A source and the tags say different things about the same release.
+    ///
+    /// Reported, never resolved. Which of the two is right is not something
+    /// this program can know — a tag may be wrong, and so may MusicBrainz —
+    /// and the whole reason a fetched value is kept beside the tag rather than
+    /// on top of it is that the disagreement stays visible and the user
+    /// decides.
+    SourceDisagrees,
 }
 
 impl IssueKind {
@@ -91,6 +99,7 @@ impl IssueKind {
             IssueKind::MissingDate
             | IssueKind::MissingTrackNumber
             | IssueKind::MissingCover
+            | IssueKind::SourceDisagrees
             | IssueKind::OtherEdition => Severity::Info,
         }
     }
@@ -98,6 +107,7 @@ impl IssueKind {
     /// Wording of the problem in one short phrase, ready to head a report line.
     pub fn label(self) -> &'static str {
         match self {
+            IssueKind::SourceDisagrees => "source disagrees",
             IssueKind::MissingTitle => "missing title",
             IssueKind::MissingArtist => "missing artist",
             IssueKind::MissingAlbum => "missing album",
@@ -177,11 +187,12 @@ impl Issue {
 
 /// Full analysis. The result is sorted by severity then by kind, for a display
 /// that is stable from one run to the next.
-pub fn diagnose(catalog: &Catalog) -> Vec<Issue> {
+pub fn diagnose(catalog: &Catalog, sources: &crate::sources::Sources) -> Vec<Issue> {
     let mut issues = Vec::new();
     check_tracks(catalog, &mut issues);
     check_integrity(catalog, &mut issues);
     check_imported_analyses(catalog, &mut issues);
+    check_sources(catalog, sources, &mut issues);
     check_duplicate_albums(catalog, &mut issues);
     check_other_editions(catalog, &mut issues);
     check_duplicates(catalog, &mut issues);
@@ -292,6 +303,91 @@ fn check_integrity(catalog: &Catalog, issues: &mut Vec<Issue>) {
 /// that was encoded. A file can pass the first and fail the second — a stream
 /// re-encoded by a non-conforming tool — and that case is exactly what Aède
 /// cannot see before it decodes anything itself.
+/// Where a source and the tags say different things about one release.
+///
+/// Only releases for now, and on purpose: an artist's country has no tag to
+/// disagree with, so a fetched artist fact is an addition rather than a second
+/// opinion. A release is where the two actually meet — Picard writes
+/// `RELEASETYPE`, `DATE` and `LABEL` — and it is therefore the only place this
+/// report has anything to say.
+///
+/// A record the catalog cannot place is skipped rather than reported, exactly
+/// as a waiting analysis is: it is not a defect that MusicBrainz holds
+/// something about an album nobody has scanned yet.
+fn check_sources(catalog: &Catalog, sources: &crate::sources::Sources, issues: &mut Vec<Issue>) {
+    use crate::sources::{Facts, Verdict};
+    use crate::user::EntityRef;
+
+    for record in &sources.records {
+        let Facts::Release(facts) = &record.facts else {
+            continue;
+        };
+        let entity: EntityRef = record.entity();
+        let Some(release) = entity.resolve(catalog).and_then(|id| catalog.release(id)) else {
+            continue;
+        };
+
+        // The first file of the release answers for its tags: `RELEASETYPE`
+        // and `LABEL` belong to the edition, not to one track of it.
+        let tag = |name: &str| -> Option<String> {
+            release
+                .track_ids
+                .first()
+                .and_then(|&t| catalog.track(t))
+                .and_then(|t| catalog.file(t.file_id))
+                .and_then(|f| f.first_tag(name).map(str::to_string))
+        };
+
+        let label_tag = release
+            .label_ids
+            .first()
+            .and_then(|&id| catalog.label(id))
+            .map(|l| l.name.clone());
+
+        let comparisons = [
+            (
+                "release type",
+                facts.primary_type.as_deref(),
+                tag("releasetype"),
+                false,
+            ),
+            (
+                "date",
+                facts.first_released.as_deref(),
+                release.date.clone(),
+                true,
+            ),
+            ("label", facts.label.as_deref(), label_tag, false),
+        ];
+
+        for (what, theirs, yours, is_date) in comparisons {
+            let Some(theirs) = theirs else { continue };
+            let verdict = match is_date {
+                true => crate::sources::verdict_date(theirs, yours.as_deref()),
+                false => crate::sources::verdict(theirs, yours.as_deref()),
+            };
+            let Verdict::Differs { theirs, yours } = verdict else {
+                continue;
+            };
+            issues.push(Issue {
+                kind: IssueKind::SourceDisagrees,
+                detail: format!(
+                    "\"{}\": {} says the {what} is \"{theirs}\", the tags say \"{yours}\"",
+                    release.title, record.source
+                ),
+                files: release
+                    .track_ids
+                    .iter()
+                    .filter_map(|&t| catalog.track(t))
+                    .filter_map(|t| catalog.file(t.file_id))
+                    .map(|f| f.path.clone())
+                    .take(1)
+                    .collect(),
+            });
+        }
+    }
+}
+
 fn check_imported_analyses(catalog: &Catalog, issues: &mut Vec<Issue>) {
     let files: BTreeMap<&str, &model::AudioFile> =
         catalog.files.iter().map(|f| (f.path.as_str(), f)).collect();
@@ -748,7 +844,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         assert_eq!(count(&issues, IssueKind::MissingTitle), 1);
         assert_eq!(count(&issues, IssueKind::MissingArtist), 1);
         assert_eq!(count(&issues, IssueKind::MissingAlbum), 1);
@@ -772,7 +868,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         assert_eq!(count(&issues, IssueKind::MissingDuration), 1);
         assert_eq!(
             issues
@@ -814,7 +910,7 @@ mod tests {
             }
         }
         let c = model::build(files, vec!["/m".into()], 0);
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         assert_eq!(count(&issues, IssueKind::DuplicateAlbum), 1);
         assert_eq!(
             count(&issues, IssueKind::DuplicateTrack),
@@ -855,7 +951,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         let duplicates: Vec<&Issue> = issues
             .iter()
             .filter(|i| i.kind == IssueKind::DuplicateTrack)
@@ -887,7 +983,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let gap = diagnose(&c)
+        let gap = diagnose(&c, &crate::sources::Sources::default())
             .into_iter()
             .find(|i| i.kind == IssueKind::IncompleteAlbum)
             .expect("the missing tail must be seen");
@@ -920,7 +1016,7 @@ mod tests {
             0,
         );
         assert!(
-            !diagnose(&c)
+            !diagnose(&c, &crate::sources::Sources::default())
                 .iter()
                 .any(|i| i.kind == IssueKind::IncompleteAlbum),
             "nothing is missing here"
@@ -960,7 +1056,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issue = diagnose(&c)
+        let issue = diagnose(&c, &crate::sources::Sources::default())
             .into_iter()
             .find(|i| i.kind == IssueKind::IncompleteAlbum)
             .expect("the missing disc must be seen");
@@ -979,7 +1075,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issue = diagnose(&c)
+        let issue = diagnose(&c, &crate::sources::Sources::default())
             .into_iter()
             .find(|i| i.kind == IssueKind::IncompleteAlbum)
             .expect("the hole must be seen");
@@ -1012,7 +1108,7 @@ mod tests {
             0,
         );
         assert!(
-            !diagnose(&c)
+            !diagnose(&c, &crate::sources::Sources::default())
                 .iter()
                 .any(|i| i.kind == IssueKind::IncompleteAlbum),
             "nothing is missing in either"
@@ -1035,11 +1131,11 @@ mod tests {
         );
         assert_eq!(c.releases.len(), 2, "two folders, two releases");
         assert!(
-            !diagnose(&c)
+            !diagnose(&c, &crate::sources::Sources::default())
                 .iter()
                 .any(|i| i.kind == IssueKind::IncompleteAlbum),
             "both discs are in the library: {:#?}",
-            diagnose(&c)
+            diagnose(&c, &crate::sources::Sources::default())
                 .iter()
                 .filter(|i| i.kind == IssueKind::IncompleteAlbum)
                 .map(|i| i.detail.clone())
@@ -1066,7 +1162,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         let gap = issues
             .iter()
             .find(|i| i.kind == IssueKind::IncompleteAlbum)
@@ -1093,7 +1189,13 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        assert_eq!(count(&diagnose(&c), IssueKind::MixedQuality), 1);
+        assert_eq!(
+            count(
+                &diagnose(&c, &crate::sources::Sources::default()),
+                IssueKind::MixedQuality
+            ),
+            1
+        );
     }
 
     #[test]
@@ -1112,7 +1214,11 @@ mod tests {
         a.tags.has_embedded_art = true;
         b.tags.has_embedded_art = true;
         let c = model::build(vec![a, b], vec!["/m".into()], 0);
-        assert!(diagnose(&c).is_empty(), "got: {:?}", diagnose(&c));
+        assert!(
+            diagnose(&c, &crate::sources::Sources::default()).is_empty(),
+            "got: {:?}",
+            diagnose(&c, &crate::sources::Sources::default())
+        );
     }
 
     #[test]
@@ -1133,7 +1239,7 @@ mod tests {
             vec!["/m".into()],
             0,
         );
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         let reported =
             count(&issues, IssueKind::DuplicateTrack) + count(&issues, IssueKind::DuplicateAlbum);
         assert_eq!(reported, 1, "reported once, one way or the other");
@@ -1191,7 +1297,7 @@ mod tests {
             ..analysis_of(&c)
         });
 
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         assert_eq!(count(&issues, IssueKind::Md5Mismatch), 1);
         let issue = issues
             .iter()
@@ -1220,7 +1326,7 @@ mod tests {
             ..analysis_of(&c)
         };
         c.analyses.push(stale);
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         assert_eq!(count(&issues, IssueKind::Md5Mismatch), 0);
     }
 
@@ -1241,7 +1347,7 @@ mod tests {
             detail: Some("cut at 16 kHz".into()),
             ..analysis_of(&c)
         });
-        let issues = diagnose(&c);
+        let issues = diagnose(&c, &crate::sources::Sources::default());
         assert!(
             issues.iter().all(|i| !i.detail.contains("cut at 16 kHz")),
             "no line may carry the verdict: {issues:#?}"
@@ -1269,7 +1375,11 @@ mod tests {
             transcoding: Some("detected".into()),
             ..Default::default()
         });
-        assert!(diagnose(&c).is_empty(), "got: {:?}", diagnose(&c));
+        assert!(
+            diagnose(&c, &crate::sources::Sources::default()).is_empty(),
+            "got: {:?}",
+            diagnose(&c, &crate::sources::Sources::default())
+        );
         assert_eq!(c.pending_analyses(), 1, "but it is counted as waiting");
     }
 
@@ -1283,6 +1393,152 @@ mod tests {
             upsampling: Some(false),
             ..analysis_of(&c)
         });
-        assert!(diagnose(&c).is_empty(), "got: {:?}", diagnose(&c));
+        assert!(
+            diagnose(&c, &crate::sources::Sources::default()).is_empty(),
+            "got: {:?}",
+            diagnose(&c, &crate::sources::Sources::default())
+        );
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    use crate::model::EntityKind;
+    use crate::sources::{Confidence, Facts, ReleaseFacts, SourceRecord, Sources};
+    use crate::user::EntityRef;
+
+    /// A one-album catalog whose tags say what is given.
+    fn catalog_with(label: &str, date: &str) -> Catalog {
+        use crate::model::builder::{ScannedFile, build};
+        use crate::tags::RawTags;
+        let mut tags = RawTags::default();
+        tags.insert("artist", "Miles Davis");
+        tags.insert("albumartist", "Miles Davis");
+        tags.insert("album", "Kind of Blue");
+        tags.insert("title", "So What");
+        tags.insert("tracknumber", "1");
+        tags.insert("label", label);
+        tags.insert("date", date);
+        build(
+            vec![ScannedFile {
+                path: "/music/Miles/Kind of Blue/01.flac".to_string(),
+                size: 10,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+            }],
+            vec!["/music".to_string()],
+            1,
+        )
+    }
+
+    fn said(catalog: &Catalog, facts: ReleaseFacts) -> Sources {
+        let entity = EntityRef::of(catalog, EntityKind::Release, 0).expect("a release");
+        let mut sources = Sources::default();
+        sources.set(SourceRecord {
+            key: entity.key,
+            source: "musicbrainz".to_string(),
+            source_id: None,
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(facts),
+        });
+        sources
+    }
+
+    #[test]
+    fn a_source_contradicting_a_tag_is_reported_and_not_resolved() {
+        let catalog = catalog_with("Columbia", "1959");
+        let sources = said(
+            &catalog,
+            ReleaseFacts {
+                label: Some("Blue Note".to_string()),
+                ..Default::default()
+            },
+        );
+        let issues = diagnose(&catalog, &sources);
+        let found: Vec<&Issue> = issues
+            .iter()
+            .filter(|i| i.kind == IssueKind::SourceDisagrees)
+            .collect();
+        assert_eq!(found.len(), 1, "issues: {issues:?}");
+
+        // Both sides are named, because which of the two is right is not
+        // something this program can decide.
+        assert!(found[0].detail.contains("Blue Note"), "{}", found[0].detail);
+        assert!(found[0].detail.contains("Columbia"), "{}", found[0].detail);
+        assert!(
+            found[0].detail.contains("musicbrainz"),
+            "and who says so: {}",
+            found[0].detail
+        );
+        // Information, not a defect: a tag may be wrong and so may a source.
+        assert_eq!(found[0].severity(), Severity::Info);
+    }
+
+    #[test]
+    fn a_year_against_a_full_date_is_not_reported() {
+        // The false alarm that would otherwise land on nearly every album of a
+        // library the first time anything is fetched.
+        let catalog = catalog_with("Columbia", "1959");
+        let sources = said(
+            &catalog,
+            ReleaseFacts {
+                first_released: Some("1959-08-17".to_string()),
+                label: Some("Columbia".to_string()),
+                ..Default::default()
+            },
+        );
+        let issues = diagnose(&catalog, &sources);
+        assert!(
+            !issues.iter().any(|i| i.kind == IssueKind::SourceDisagrees),
+            "agreement at two precisions is agreement: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn a_field_the_tags_are_silent_about_is_not_a_disagreement() {
+        // The source adds something rather than contradicting anything, and a
+        // report that could not tell the two apart would be unreadable.
+        let catalog = catalog_with("Columbia", "1959");
+        let sources = said(
+            &catalog,
+            ReleaseFacts {
+                primary_type: Some("Album".to_string()),
+                ..Default::default()
+            },
+        );
+        let issues = diagnose(&catalog, &sources);
+        assert!(
+            !issues.iter().any(|i| i.kind == IssueKind::SourceDisagrees),
+            "no RELEASETYPE tag to disagree with: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn nothing_is_said_about_a_release_this_catalog_does_not_hold() {
+        // A record waiting for its album to be scanned is not a defect, and
+        // `doctor` reporting it would make an empty library look broken.
+        let catalog = catalog_with("Columbia", "1959");
+        let mut sources = Sources::default();
+        sources.set(SourceRecord {
+            key: "somebody|an album nobody scanned|/elsewhere".to_string(),
+            source: "musicbrainz".to_string(),
+            source_id: None,
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(ReleaseFacts {
+                label: Some("Blue Note".to_string()),
+                ..Default::default()
+            }),
+        });
+        let issues = diagnose(&catalog, &sources);
+        assert!(
+            !issues.iter().any(|i| i.kind == IssueKind::SourceDisagrees),
+            "issues: {issues:?}"
+        );
     }
 }

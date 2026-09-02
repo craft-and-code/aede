@@ -9,7 +9,8 @@ use crate::ui::{self, Align, Table};
 
 pub fn show_doctor(args: &Args) -> Res {
     let catalog = load(args)?;
-    let mut issues = doctor::diagnose(&catalog);
+    let sources = super::sources_held(args)?;
+    let mut issues = doctor::diagnose(&catalog, &sources);
 
     // A level nobody recognises used to leave the filter off entirely: the
     // whole diagnosis came back under a name that had asked for a third of it,

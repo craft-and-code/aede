@@ -102,6 +102,7 @@ fn main() {
         "query",
         "export",
         "import",
+        "template",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -202,14 +203,14 @@ fn main() {
         ("csv", CSV_COMMANDS, "produce a table"),
         ("m3u", M3U_COMMANDS, "produce a playlist"),
         ("output", OUTPUT_COMMANDS, "write to a file"),
-        ("forget", IMPORT_COMMANDS, "forget an analysis"),
+        ("forget", SAID_ELSEWHERE_COMMANDS, "forget what was stored"),
         (
             "pending",
             IMPORT_COMMANDS,
             "list or restrict to what is waiting",
         ),
-        ("list", IMPORT_COMMANDS, "list what was imported"),
-        ("source", IMPORT_COMMANDS, "select a source"),
+        ("list", SAID_ELSEWHERE_COMMANDS, "list what is held"),
+        ("source", SAID_ELSEWHERE_COMMANDS, "select a source"),
         (
             "compilations",
             ALBUM_LIST_COMMANDS,
@@ -238,7 +239,11 @@ fn main() {
         ("album", &["track"], "narrow to one album"),
         ("with", &["artist"], "cross two artists"),
         ("tracks", &["export"], "switch to one row per track"),
-        ("yes", &["reset", "history"], "skip the confirmation"),
+        (
+            "yes",
+            &["reset", "history", "fetch"],
+            "skip the confirmation",
+        ),
         (
             "remove",
             &[
@@ -255,7 +260,7 @@ fn main() {
         ),
         (
             "full",
-            &["scan", "check", "spectrum"],
+            &["scan", "check", "spectrum", "fetch"],
             "ignore what was already done",
         ),
         (
@@ -284,7 +289,7 @@ fn main() {
         ("extras", &["copy"], "choose what travels beside the audio"),
         (
             "dry-run",
-            &["copy", "spectrum", "playlist"],
+            &["copy", "spectrum", "playlist", "fetch"],
             "say what it would do without doing it",
         ),
         (
@@ -306,8 +311,21 @@ fn main() {
             &["copy"],
             "take its selection from a saved query",
         ),
-        ("export", &["notes"], "write what you wrote to a file"),
-        ("import", &["notes"], "take back in what was exported"),
+        (
+            "export",
+            &["notes", "sources"],
+            "write what is held to a file",
+        ),
+        (
+            "template",
+            &["sources"],
+            "write a document with the keys and nothing filled in",
+        ),
+        (
+            "import",
+            &["notes", "sources"],
+            "take back in what was exported",
+        ),
         ("from", &["note"], "copy what was said elsewhere"),
         ("tag", &["notes"], "filter on a tag"),
     ] {
@@ -433,6 +451,13 @@ const M3U_COMMANDS: &[&str] = &[
 /// Commands that act on what was imported from another tool.
 const IMPORT_COMMANDS: &[&str] = &["import"];
 
+/// Commands that act on a store of what somebody *else* said: another tool's
+/// analyses, and the values fetched from a source. Two stores, one vocabulary
+/// — `--list` says what is held, `--forget` drops it, `--source` narrows to
+/// one — because a user who learned it on one should not have to learn it
+/// again on the other.
+const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources"];
+
 /// The one command that lists releases and can therefore sort compilations
 /// from the rest.
 const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
@@ -464,6 +489,8 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("playlist", None, commands::playlist),
     ("reset", None, commands::reset),
     ("import", None, commands::import),
+    ("sources", None, commands::sources),
+    ("fetch", None, commands::fetch),
     ("query", Some("find"), commands::query),
     ("collection", None, commands::collection),
     ("collections", None, commands::collections),
@@ -638,6 +665,7 @@ const PAGING_COMMANDS: &[&str] = &[
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
     "export",
+    "sources",
     "album",
     "artist",
     "track",
@@ -690,6 +718,18 @@ fn print_help() {
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
+  fetch [name…]        Ask MusicBrainz about your artists and store what it
+                       says, beside your tags. One request per second, which
+                       the service requires: a large library takes a while, and
+                       the command says how long before it starts. --dry-run
+                       lists what would be asked, --full asks again about
+                       what is already held. Naming artists narrows it
+  sources              What other sources say, beside your tags and never on
+                       top of them. --list shows each record, --forget drops
+                       them, --source narrows to one. --template writes a
+                       document with the keys and nothing filled in, --import
+                       <file> takes one back, --export writes out what is held
+                       (both through --output, or to the terminal)
   spectrum [folder…]   Draw a spectrogram of every track into a spectrograms/
                        folder beside it, through ffmpeg, several at a time.
                        Only what is missing or older than its track is drawn,

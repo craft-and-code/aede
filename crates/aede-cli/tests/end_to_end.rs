@@ -4167,3 +4167,194 @@ fn an_alias_is_the_command_and_not_a_lesser_one() {
     assert!(!ok, "stderr: {err}");
     assert!(err.contains("takes no argument"), "stderr: {err}");
 }
+
+// --------------------------------------------------------------------------
+// What other sources say (M1.0)
+// --------------------------------------------------------------------------
+
+#[test]
+fn a_fetched_value_is_taken_in_shown_and_dropped_without_any_network() {
+    // The whole point of building the layer before the client: it can be
+    // filled, read and emptied offline, so the design is testable and a bug
+    // report does not need somebody's MusicBrainz account.
+    let sandbox = Sandbox::new("sources");
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    // Nothing fetched is not the same as no such feature, and the empty case
+    // has to say which of the two it is.
+    let (out, _, ok) = sandbox.run(&["sources"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("nothing has been fetched yet"),
+        "output: {out}"
+    );
+    assert!(out.contains("--import"), "and says how to fill it: {out}");
+
+    let document = sandbox.dir.join("fetched.json");
+    std::fs::write(
+        &document,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:miles davis","source":"musicbrainz",
+              "source_id":"561d854a","fetched_at":1756600000,
+              "confidence":"identified",
+              "facts":{"area":"United States","kind":"person"}},
+             {"entity":"artist:john coltrane","source":"musicbrainz",
+              "fetched_at":1756600000,"confidence":"identified",
+              "facts":{"area":"United States","kind":"person"}}
+           ]}"#,
+    )
+    .unwrap();
+
+    let (out, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("2 added"), "output: {out}");
+    // A command that wrote to a store the user cannot see names the file.
+    assert!(out.contains("sources.json"), "output: {out}");
+
+    // Miles Davis is in this library; John Coltrane is not. Both are kept, and
+    // the difference is reported rather than one of them being dropped.
+    let (out, _, ok) = sandbox.run(&["sources"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("musicbrainz"), "output: {out}");
+    assert!(
+        out.contains("1 record names nothing this catalog holds yet"),
+        "the waiting record is counted, and the sentence agrees with it: {out}"
+    );
+
+    let (out, _, ok) = sandbox.run(&["sources", "--list"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("john coltrane"), "output: {out}");
+    assert!(out.contains("waiting"), "output: {out}");
+    assert!(out.contains("in the catalog"), "output: {out}");
+    assert!(
+        out.contains("United States"),
+        "and what was actually said: {out}"
+    );
+
+    // Attributed means removable, by naming the source.
+    let (out, err, ok) = sandbox.run(&["sources", "--forget", "--source", "musicbrainz"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("2 records removed, 0 left"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["sources"]);
+    assert!(ok, "output: {out}");
+    assert!(
+        out.contains("nothing has been fetched yet"),
+        "output: {out}"
+    );
+}
+
+#[test]
+fn a_source_that_was_never_stored_cannot_be_forgotten() {
+    // An instruction that cannot be honoured is refused, not quietly treated
+    // as a no-op — the same rule `import --forget <folder>` already follows.
+    let sandbox = Sandbox::new("sources_unknown");
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    let document = sandbox.dir.join("fetched.json");
+    std::fs::write(
+        &document,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:miles davis","source":"musicbrainz",
+              "fetched_at":1,"confidence":"identified","facts":{"kind":"person"}}]}"#,
+    )
+    .unwrap();
+    sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+
+    let (_, err, ok) = sandbox.run(&["sources", "--forget", "--source", "discogs"]);
+    assert!(!ok, "an unknown source is an error");
+    assert!(err.contains("no source named"), "stderr: {err}");
+
+    // And nothing was removed on the way to refusing.
+    let (out, _, _) = sandbox.run(&["sources", "--list"]);
+    assert!(out.contains("musicbrainz"), "output: {out}");
+}
+
+#[test]
+fn a_template_gives_the_keys_nobody_could_have_guessed() {
+    // Without this the layer can be read and emptied but never filled by hand:
+    // an entity's key is how it names itself — an album's artist, title and
+    // folder joined — and nothing showed one until something had fetched.
+    let sandbox = Sandbox::new("sources_template");
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    let template = sandbox.dir.join("template.json");
+    let (out, err, ok) = sandbox.run(&[
+        "sources",
+        "--template",
+        "--output",
+        template.to_str().unwrap(),
+        "Kind of Blue",
+    ]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("empty record"), "output: {out}");
+
+    let written = std::fs::read_to_string(&template).expect("a template");
+    assert!(
+        written.contains("\"entity\": \"release:"),
+        "the keys are in it: {written}"
+    );
+    assert!(
+        written.contains("\"primary_type\": null"),
+        "and the fields are empty, ready to fill: {written}"
+    );
+
+    // Naming something the catalog does not hold is refused rather than
+    // silently writing an empty document that looks like an answer.
+    let (_, err, ok) = sandbox.run(&[
+        "sources",
+        "--template",
+        "--output",
+        template.to_str().unwrap(),
+        "an album nobody owns",
+    ]);
+    assert!(!ok, "an empty match is an error");
+    assert!(
+        err.contains("nothing in this catalog matches"),
+        "stderr: {err}"
+    );
+
+    // Filled in and imported, it comes back out identical: the round trip is
+    // what makes the store something you can keep rather than only consult.
+    let filled = written.replace("\"primary_type\": null", "\"primary_type\": \"Album\"");
+    std::fs::write(&template, &filled).unwrap();
+    let (out, err, ok) = sandbox.run(&["sources", "--import", template.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let exported = sandbox.dir.join("out.json");
+    let (out, err, ok) = sandbox.run(&[
+        "sources",
+        "--export",
+        "--output",
+        exported.to_str().unwrap(),
+    ]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let back = std::fs::read_to_string(&exported).expect("an export");
+    assert!(
+        back.contains("\"primary_type\": \"Album\""),
+        "export: {back}"
+    );
+}
+
+#[test]
+fn there_is_nothing_to_export_before_anything_is_fetched() {
+    // Writing an empty document and reporting success would read as "the
+    // export worked and the layer is empty" — which is not what was just
+    // established, and the difference is the point of this store.
+    let sandbox = Sandbox::new("sources_export_empty");
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    let target = sandbox.dir.join("out.json");
+    let (_, err, ok) = sandbox.run(&["sources", "--export", "--output", target.to_str().unwrap()]);
+    assert!(!ok, "an empty export is refused");
+    assert!(err.contains("nothing has been fetched"), "stderr: {err}");
+    assert!(
+        err.contains("--template"),
+        "and says what to do instead: {err}"
+    );
+    assert!(!target.exists(), "and no file was written");
+}
