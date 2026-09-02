@@ -115,6 +115,7 @@ most of them exist to explain a refusal.
 | [Querying](docs/design/querying.md)                                | Why a query language is an interface and not a storage engine                   |
 | [Playback (M3)](docs/design/playback.md)                           | The queue, shuffle, loudness, gapless                                           |
 | [Identification (M1)](docs/design/identification.md)               | MusicBrainz, editions, band membership, what is missing from the shelf          |
+| [Discogs, set aside](docs/design/discogs.md)                        | What it would bring, why it needs no API token, and why it is not built         |
 | [Lyrics](docs/design/lyrics.md)                                    | Three problems that share a word                                                |
 | [Paths](docs/design/paths.md)                                      | Why a catalog path is a `/`-separated string, and why Windows is not published  |
 | [Plugins, if there are any](docs/design/plugins.md)                | Why a plugin would be a program and not a library, and what it could not be     |
