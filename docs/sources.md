@@ -156,6 +156,100 @@ Wikipedia articles are **CC BY-SA**. Reusing the text obliges naming where it ca
 
 `aede sources --forget --source=wikipedia` removes all of it, the same as any other source.
 
+## The picture your files already carry
+
+Before downloading anything, there is a cheaper answer. An album can have no `cover.jpg` in its folder and still not want one, because the artwork is **inside the audio files** — and players and file managers differ on which of the two they read.
+
+```sh
+aede extract                    # write it out, everywhere it is missing
+aede extract ~/Music/Manson     # only under these folders
+aede extract --images           # the back and the booklet too, in artwork/
+aede extract --dry-run          # say which folders, write nothing
+```
+
+It was called `aede extract`, which named the subject and not the act — and a reader who ran it and saw a list of counts took it for a report rather than a command that writes. `artwork` still works as an alias.
+
+No network, no chance of fetching the wrong edition's artwork, instant.
+
+**It reads your files and never writes to them.** Nothing in Aède writes into an audio file — not a cover, not a corrected tag, not ever. It writes *beside* them: an image in the folder, a playlist, a spectrogram. Your tags are yours, edited with your tagger; this program is not one. **And it works on every format**, not on FLAC alone: a FLAC metadata block, an ID3 `APIC` frame, an MP4 `covr` atom, a base64-wrapped block inside an Ogg comment — the picture comes out the same way. Seven container formats are exercised by the tests, on real files rather than on hand-written fixtures.
+
+It works **per folder**, not per album: a double album in `CD1` and `CD2` is one release and two folders, and a cover image belongs to a folder — that is where every player looks. A folder that already holds an image is left alone, and nothing is ever overwritten.
+
+```
+Artwork
+
+  1 folder whose files carry a picture and whose folder has none
+  1 folder already has an image in it
+  1 folder holds no picture inside its files: aede fetch --covers looks for one
+  → /music/Miles Davis/Kind of Blue/cover.png
+```
+
+That last skipped line is the handover: what this command cannot do — because the files hold nothing — is exactly what the next one is for.
+
+### `--images`: everything else the files carry
+
+A tagged file often holds more than the front cover: the back of the sleeve, the pages of a booklet, the label printed on the disc. Without `--images` those are ignored, because the cover is the one image the rest of your library actually reads. With it, they are written out too:
+
+```
+/music/Miles Davis/Kind of Blue/
+    cover.jpg
+    artwork/
+        back.jpg
+        booklet-01.jpg
+        booklet-02.jpg
+        media.jpg
+```
+
+**A subfolder, and not beside the music, on purpose.** Any image sitting next to your tracks is taken for the album's cover — by this program's scanner and by most players. A `back.jpg` there would become the album art: the wrong picture, and one nothing would ever look at again. So the front keeps the name everything looks for and the rest go one level down, into `artwork/`, alongside the `spectrograms/` that `aede spectrum` writes.
+
+`--images` also opens folders that already have a cover, because the cover is not the question there. A folder that already has an `artwork/` in it is not opened again — that folder is the record, the same way `cover.jpg` is. Nothing is ever overwritten, and a picture already on disk is not counted as a failure.
+
+## Cover art
+
+The front image of an album, from the Cover Art Archive — the picture library MusicBrainz keeps.
+
+```sh
+aede fetch --covers                 # albums with no cover, at 1200 px
+aede fetch --covers --size=500      # 250, 500, 1200 or original
+aede fetch --covers --images        # the back and the booklet too, in artwork/
+aede fetch --covers --dry-run       # say which albums, ask nothing
+```
+
+**Run `aede extract` first.** This command downloads and does nothing else. An album whose picture is inside its files needs no download at all, and `--covers` says so on the line where it skips one:
+
+```
+  312 albums carry the image inside their files: aede extract writes it out beside them
+```
+
+For a day it ran the extraction itself before downloading. That was reverted: two commands both writing into music folders, one of them not named for it, cost more to hold in the head than the requests it saved.
+
+**It never touches an album that already has artwork.** The catalog answers that offline and exactly: whether the image sits inside the files, and whether one sits beside them — `cover.jpg`, `folder.jpg` and the other names the scanner recognises. Either of them, and the album is not asked about at all. There is deliberately **no `--replace`**: overwriting a cover you chose is not something this command should be able to do by accident, and the way to change one stays what it always was — put the file there yourself.
+
+**It says what it left alone, and why.** Four quite different states used to print the same sentence, and a reader who deleted a cover to see what would happen had no way to learn that the image was inside the files all along:
+
+```
+Cover art
+
+  nothing to ask about
+  312 albums carry the image inside their files: aede extract writes it out beside them
+  44 albums already have an image in their folder
+  3 albums have no cover and nothing identifying them: aede fetch names them first
+```
+
+That first line is the one that surprises people: **an album can have no `cover.jpg` at all and still not want one**, because the artwork is inside the audio files. Deleting the folder image changes nothing there — the picture is still in every track. The answer is `aede extract`, which writes out what the files already hold, rather than a download of a second copy of it.
+
+The image is written as `cover.jpg` beside the music. Nothing registers it anywhere: the next `aede scan` simply discovers it, exactly as it would one you put there.
+
+**Two requests, and the first one is small.** The archive answers a record with an *index* — a short document naming every image it holds and, for each, the thumbnail widths it has generated. So the sizes come out of the answer rather than being guessed at, and an album with no artwork costs one small request instead of a failed download. An album the archive has nothing for is recorded as asked, so the next run does not ask again.
+
+**A cover you delete comes back.** When the archive answered with an image, the address is kept — so if the file later goes missing, the picture is fetched again straight from it: one request, no index, and nothing to remember. Only "asked, and there was nothing" is a finished question.
+
+**`--images` downloads the rest of what the archive holds.** The back, the booklet, the disc — into the same `artwork/` subfolder `aede extract --images` writes into, under the same names, for the same reason. It widens what is asked about: an album that has a cover is skipped by the ordinary pass and is *not* skipped by this one, so the first run over a whole library asks about most of it, at one request a second. The header says how long that will take before it starts. As above, an existing `artwork/` folder is the record that it has been done.
+
+Nothing is written into your audio files by any of this — not with `--images`, not with anything. Putting a downloaded cover *into* the files that lack one is the obvious symmetrical feature, and it does not exist on purpose: a program that rewrites a music library's audio files is a program that can destroy one.
+
+**What is not an image is not written.** A download that goes wrong — an error page, a redirect gone astray, a truncated transfer — arrives as bytes like any other. Those bytes are checked before anything reaches your folder, and anything that is not a JPEG or a PNG is refused. Writing an error page into a music folder under the name `cover.jpg` is silent corruption that surfaces months later, when something tries to display it.
+
 ## What is missing from the shelf
 
 MusicBrainz knows what your artists recorded. Comparing that with what you have is a wish list:

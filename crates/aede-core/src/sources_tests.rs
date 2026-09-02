@@ -12,6 +12,7 @@ fn release(primary: &str, label: &str) -> Facts {
         secondary_types: vec!["Live".to_string()],
         first_released: Some("1973".to_string()),
         label: Some(label.to_string()),
+        cover_art: None,
     })
 }
 

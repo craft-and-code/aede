@@ -4539,3 +4539,32 @@ fn what_is_missing_is_worked_out_from_what_was_stored() {
         "and the filter is stated, or the list reads as everything: {out}"
     );
 }
+
+/// The two cover commands each name the other, on the exact line where the
+/// reader is stuck.
+///
+/// `aede artwork` was in the help and in the README, and still could not be
+/// found: somebody who deletes a cover reaches for `fetch --covers`, is told
+/// the image is inside the files, and has been handed a fact with no way
+/// forward. A command named only where nobody is looking is a command nobody
+/// has.
+#[cfg(feature = "fetch")]
+#[test]
+fn each_cover_command_points_at_the_other_where_it_gives_up() {
+    let sandbox = Sandbox::new("cover_handover");
+    let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "output: {out}");
+
+    // The reference library carries no artwork inside its files and none
+    // beside them, so this is the "nothing to extract" side of the handover.
+    let (out, err, ok) = sandbox.run(&["artwork"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("fetch --covers"),
+        "artwork names the command that can help when the files hold nothing: {out}"
+    );
+
+    // The other direction — the line naming `aede artwork` — is pinned in the
+    // unit tests, where `covers::reasons` hands back its wording without a
+    // library that carries embedded artwork having to be built here.
+}

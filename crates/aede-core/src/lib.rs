@@ -10,6 +10,7 @@
 //! of containers that do not deserve a parser of their own.
 
 pub mod analysis;
+pub mod artwork;
 pub mod audit;
 pub mod clock;
 pub mod json;
@@ -18,6 +19,7 @@ pub mod tags;
 pub mod text;
 
 pub mod copy;
+pub mod coverart;
 pub mod doctor;
 pub mod ffmpeg;
 #[cfg(feature = "fetch")]

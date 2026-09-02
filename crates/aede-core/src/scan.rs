@@ -452,6 +452,31 @@ impl<'a> Walker<'a> {
 
 /// Preference rank of an image as cover art; `None` if it is not a usable
 /// image.
+/// The image already serving as cover art in a folder, if there is one.
+///
+/// Reads the folder rather than the catalog, and shares its list of cover names with
+/// the scanner so that "does this album have a cover" has one answer in this
+/// program rather than two that drift. Used before anything writes an image
+/// beside music: the catalog is a snapshot and the disk is not.
+pub fn cover_in(folder: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut best: Option<(usize, std::path::PathBuf)> = None;
+    for entry in std::fs::read_dir(folder).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if let Some(rank) = cover_rank(name)
+            && best.as_ref().is_none_or(|(seen, _)| rank < *seen)
+        {
+            best = Some((rank, path));
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
 fn cover_rank(name: &str) -> Option<usize> {
     let lower = name.to_ascii_lowercase();
     let (stem, ext) = lower.rsplit_once('.')?;

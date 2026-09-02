@@ -6,9 +6,11 @@
 mod album;
 mod annotate;
 mod artist;
+mod artwork;
 mod browse;
 mod check;
 mod copy;
+mod covers;
 mod discography;
 mod doctor;
 mod export;
@@ -33,6 +35,7 @@ pub use annotate::{
     collection, collections, favourites, history, love, note, notes, played, query, rate, tag,
 };
 pub use artist::show_artist;
+pub use artwork::artwork;
 pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years};
 pub use check::check;
 pub use copy::copy;

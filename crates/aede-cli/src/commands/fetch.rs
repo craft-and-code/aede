@@ -36,6 +36,15 @@ use super::Res;
 pub trait Ask {
     /// Fetches a URL and parses the answer, or says why it could not.
     fn get_json(&mut self, url: &str) -> Result<Json, Refusal>;
+
+    /// Fetches a URL and hands back what came, unread.
+    ///
+    /// For the one thing this program downloads that is not an answer: an
+    /// image. It sits on the same trait as [`Ask::get_json`] rather than on one
+    /// of its own so that a caller cannot fetch a picture without waiting its
+    /// turn — the throttle belongs to the client, and a second client would be
+    /// a second rate limiter to forget about.
+    fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal>;
 }
 
 /// Why an answer did not arrive.
@@ -81,6 +90,14 @@ impl Ask for Http {
     fn get_json(&mut self, url: &str) -> Result<Json, Refusal> {
         match self.0.get_json(url) {
             Ok(value) => Ok(value),
+            Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
+            Err(other) => Err(Refusal::Failed(other.to_string())),
+        }
+    }
+
+    fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
+        match self.0.get_bytes(url) {
+            Ok(bytes) => Ok(bytes),
             Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
             Err(other) => Err(Refusal::Failed(other.to_string())),
         }
@@ -151,11 +168,46 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         );
     }
 
+    // An option that only means something to another pass, given on its own,
+    // is refused rather than ignored: a reader who typed `--images` and got an
+    // ordinary fetch would conclude the feature does not work.
+    if !args.has("covers") {
+        for option in ["images", "size"] {
+            if args.has(option) {
+                return Err(format!(
+                    "--{option} belongs to the cover art pass: aede fetch --covers --{option}"
+                )
+                .into());
+            }
+        }
+    }
+
     let catalog = super::load(args)?;
 
     // After the catalog is loaded, unlike the summaries pass: this one needs to
     // know who has a shelf here, and that is a question only the catalog can
     // answer.
+    if args.has("covers") {
+        let size = match args.value("size") {
+            Some(text) => aede_core::coverart::Size::parse(text).ok_or_else(|| {
+                format!(
+                    "--size takes 250, 500, 1200 or original; \"{text}\" is not \
+                     one the archive generates"
+                )
+            })?,
+            None => super::covers::DEFAULT_SIZE,
+        };
+        return super::covers::run(
+            &catalog,
+            transport,
+            backoff,
+            &mut held,
+            &path,
+            size,
+            args.has("images"),
+            args.has("dry-run"),
+        );
+    }
     if args.has("discography") {
         return super::discography::run(
             &catalog,
@@ -220,6 +272,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         // sees.
         offer_summaries(&held);
         offer_discography(&catalog, &held);
+        offer_covers(&catalog, &held);
         return Ok(());
     }
 
@@ -369,6 +422,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     }
     offer_summaries(&held);
     offer_discography(&catalog, &held);
+    offer_covers(&catalog, &held);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
 }
@@ -399,6 +453,21 @@ fn offer_summaries(held: &sources::Sources) {
         "  {}",
         ui::dim(&format!(
             "{them} {have} a wikidata link — aede fetch --summaries reads the article"
+        ))
+    );
+}
+
+/// Names the cover pass, when there are albums without artwork.
+fn offer_covers(catalog: &aede_core::model::Catalog, held: &sources::Sources) {
+    let door = super::covers::waiting(catalog, held);
+    if door == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{door} of your albums have no cover, in the files or beside them — \
+             aede fetch --covers looks for one"
         ))
     );
 }

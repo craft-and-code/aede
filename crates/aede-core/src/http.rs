@@ -21,6 +21,14 @@ use std::time::{Duration, Instant};
 /// How long to wait for one answer before giving up on it.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
+/// The largest body this client will read into memory.
+///
+/// Cover art is the only thing here that is not a small JSON document, and the
+/// original upload of one is a few megabytes at most. A ceiling turns a wrong
+/// address — a redirect gone astray, a service handing back something else
+/// entirely — into a refusal rather than a machine filling its memory.
+const MAX_BODY: u64 = 32 * 1024 * 1024;
+
 /// What can go wrong, kept apart because the answers differ.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -103,6 +111,37 @@ impl Client {
             .read_to_string()
             .map_err(|e| Error::Network(e.to_string()))?;
         crate::json::parse(&text).map_err(|e| Error::NotJson(e.to_string()))
+    }
+
+    /// Fetches a URL and hands back the body as it came.
+    ///
+    /// The one thing this client downloads that is not an answer to a question:
+    /// an image. It waits its turn like everything else.
+    ///
+    /// The size ceiling is the client library's own — it refuses an oversized
+    /// body rather than reading it — and the ceiling below is a second line
+    /// behind it, checked on what actually arrived. Two guards rather than one
+    /// because the first belongs to a dependency whose defaults may change, and
+    /// the failure it prevents is a machine filling its memory from a wrong
+    /// address.
+    pub fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Error> {
+        self.wait_turn();
+        let bytes = self
+            .agent
+            .get(url)
+            .header("User-Agent", &self.user_agent)
+            .call()
+            .map_err(from_ureq)?
+            .body_mut()
+            .read_to_vec()
+            .map_err(|e| Error::Network(e.to_string()))?;
+        if bytes.len() as u64 > MAX_BODY {
+            return Err(Error::Network(format!(
+                "the answer was larger than {} MB, so it was not kept",
+                MAX_BODY / (1024 * 1024)
+            )));
+        }
+        Ok(bytes)
     }
 
     /// Sleeps until the next request is allowed.

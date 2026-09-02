@@ -29,6 +29,13 @@ impl Ask for Canned {
             Err(why) => Err(why),
         }
     }
+
+    fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
+        // These passes ask questions and never download anything; a call here
+        // is a mistake worth failing on rather than a case worth answering.
+        self.asked.push(url.to_string());
+        Err(Refusal::Failed("this pass downloads nothing".to_string()))
+    }
 }
 
 fn library(dir: &std::path::Path) -> std::path::PathBuf {

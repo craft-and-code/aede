@@ -105,6 +105,9 @@ fn main() {
         "template",
         "summaries",
         "discography",
+        "covers",
+        "size",
+        "images",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -276,6 +279,13 @@ fn main() {
             &["fetch"],
             "browse everything credited to an artist",
         ),
+        ("covers", &["fetch"], "look for missing cover art"),
+        ("size", &["fetch"], "choose how large an image to keep"),
+        (
+            "images",
+            &["fetch", "extract"],
+            "keep the back and the booklet too, in artwork/",
+        ),
         (
             "threads",
             &["scan", "check", "spectrum", "copy"],
@@ -302,7 +312,7 @@ fn main() {
         ("extras", &["copy"], "choose what travels beside the audio"),
         (
             "dry-run",
-            &["copy", "spectrum", "playlist", "fetch"],
+            &["copy", "spectrum", "playlist", "fetch", "extract"],
             "say what it would do without doing it",
         ),
         (
@@ -505,6 +515,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("sources", None, commands::sources),
     ("fetch", None, commands::fetch),
     ("missing", None, commands::missing),
+    ("extract", Some("artwork"), commands::artwork),
     ("query", Some("find"), commands::query),
     ("collection", None, commands::collection),
     ("collections", None, commands::collections),
@@ -747,6 +758,19 @@ fn print_help() {
                        credits to each artist, so that aede missing can say
                        which studio albums your shelf does not hold. One more
                        request per artist.
+                       --covers is a second pass that downloads the front
+                       image of every album that has none — nothing inside the
+                       files, nothing beside them — and writes it as cover.jpg
+                       in the album's folder. It downloads only: an album whose
+                       picture is already inside its files is skipped, and the
+                       line that skips it names aede extract, which writes that
+                       one out without a network. An album that already has a
+                       cover is never touched, and there is no way to overwrite
+                       one.
+                       --size 250|500|1200|original chooses how large an image
+                       to keep (1200 by default), --images downloads the back,
+                       the booklet and the disc as well into an artwork/
+                       subfolder, and --dry-run lists what would be asked for
                        --summaries is a second pass, over what fetch already
                        stored: it follows the wikidata link to a Wikipedia
                        article and keeps its opening paragraph, with the page
@@ -770,6 +794,16 @@ fn print_help() {
                        document with the keys and nothing filled in, --import
                        <file> takes one back, --export writes out what is held
                        (both through --output, or to the terminal)
+  extract [folder…]    Write the picture your files already carry into their
+                       own folder, as cover.jpg. No network: it comes out of
+                       the audio files, whatever the format — FLAC, MP3, MP4,
+                       Ogg, AIFF, WAV. A folder that already holds an image is
+                       left alone, and nothing is ever overwritten. Reach for
+                       this before fetch --covers: an album whose artwork is
+                       inside its files needs no download. --images writes out
+                       the back, the booklet and the disc as well, into an
+                       artwork/ subfolder (--dry-run says which folders, and
+                       writes nothing). Also answers to: artwork
   spectrum [folder…]   Draw a spectrogram of every track into a spectrograms/
                        folder beside it, through ffmpeg, several at a time.
                        Only what is missing or older than its track is drawn,
@@ -883,6 +917,18 @@ fn print_help() {
   --full               Ignore the tag cache and re-read every file
                        (scan, check); on fetch, ask again about what is
                        already held
+  --covers             A second pass for fetch: download the front image of
+                       albums that have none, from the Cover Art Archive.
+                       Downloads only — aede extract is what writes out the
+                       picture your own files carry
+  --size <what>        250, 500, 1200 or original, for the images --covers
+                       keeps. 1200 by default: right on any screen, and a few
+                       hundred megabytes rather than a few gigabytes
+  --images             Keep the images that are not the cover — the back, the
+                       booklet, the disc — in an artwork/ subfolder of each
+                       album's folder, never beside the music where any image
+                       is taken for the cover. On extract, out of your own
+                       files; on fetch --covers, from the archive
   --discography        A second pass for fetch: browse everything MusicBrainz
                        credits to each artist, which is what the missing
                        command then reads

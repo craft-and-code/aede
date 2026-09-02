@@ -401,6 +401,10 @@ fn release_facts(group: &Json) -> ReleaseFacts {
             .unwrap_or_default(),
         first_released: field(group, "first-release-date"),
         label: None,
+        // MusicBrainz holds no artwork: the images live at the Cover Art
+        // Archive, which is a different service with its own answer — see
+        // [`crate::coverart`].
+        cover_art: None,
     }
 }
 

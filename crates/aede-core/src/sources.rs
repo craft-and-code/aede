@@ -250,6 +250,18 @@ pub struct ReleaseFacts {
     pub first_released: Option<String>,
     /// Label, as the source names it.
     pub label: Option<String>,
+    /// Address of the front image, when a source holds one.
+    ///
+    /// The address rather than the picture: a catalog is a description of a
+    /// library, and megabytes of artwork inside `sources.json` would make every
+    /// load of it slower for something that belongs beside the music. The image
+    /// is written into the album's folder, where the next scan discovers it
+    /// exactly as it would one the user put there.
+    ///
+    /// Kept so that "asked, and there is a cover" can be told from "asked, and
+    /// there is none" — the distinction this whole layer exists for — and so
+    /// that a second run costs nothing.
+    pub cover_art: Option<String>,
 }
 
 /// What a source says, for one kind of entity.
@@ -734,6 +746,7 @@ pub fn to_json(sources: &Sources) -> Json {
                     );
                     facts.set("first_released", opt_str(&rel.first_released));
                     facts.set("label", opt_str(&rel.label));
+                    facts.set("cover_art", opt_str(&rel.cover_art));
                 }
             }
             o.set("facts", facts);
@@ -828,6 +841,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .unwrap_or_default(),
                 first_released: facts.and_then(|f| f.field_str("first_released")),
                 label: facts.and_then(|f| f.field_str("label")),
+                cover_art: facts.and_then(|f| f.field_str("cover_art")),
             }),
             _ => continue,
         };

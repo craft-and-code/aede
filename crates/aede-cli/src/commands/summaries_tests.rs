@@ -22,6 +22,15 @@ impl Ask for Canned {
             Err(why) => Err(why),
         }
     }
+
+    fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, super::super::fetch::Refusal> {
+        // These passes ask questions and never download anything; a call here
+        // is a mistake worth failing on rather than a case worth answering.
+        self.asked.push(url.to_string());
+        Err(super::super::fetch::Refusal::Failed(
+            "this pass downloads nothing".to_string(),
+        ))
+    }
 }
 
 const ENTITY: &str = r#"{"entities":{"Q11649":{"sitelinks":{
