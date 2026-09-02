@@ -179,6 +179,72 @@ fn a_genre_is_compared_with_the_one_your_files_carry() {
 }
 
 #[test]
+fn every_source_is_shown_the_address_its_answer_came_from() {
+    // The identifier was stored from the first version and never displayed.
+    // Asked for the MusicBrainz id of an artist there was nowhere in this
+    // program to find it, and the nearest thing on screen was the Wikidata
+    // link — a different identifier that looks enough like an answer to send
+    // somebody off with a query that cannot work.
+    let artist = SourceRecord {
+        key: "marilyn manson".to_string(),
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("c98ff0e1-a92a-4a24-8f21-1a6b1e0b7c0f".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts::default()),
+    };
+    let line = address_of(&artist).expect("an address");
+    assert_eq!(
+        line, "https://musicbrainz.org/artist/c98ff0e1-a92a-4a24-8f21-1a6b1e0b7c0f",
+        "the identifier is inside the address, so it can still be copied for \
+         a query — and the page it opens is where the data is corrected"
+    );
+
+    // An album is stored under its *release group*, not its edition, so the
+    // path has to say so: the edition path would 404 on the one page a reader
+    // came to open.
+    let album = SourceRecord {
+        key: "manson|antichrist superstar|/music".to_string(),
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("aa11".to_string()),
+        facts: Facts::Release(Default::default()),
+        ..artist.clone()
+    };
+    assert_eq!(
+        address_of(&album).as_deref(),
+        Some("https://musicbrainz.org/release-group/aa11")
+    );
+
+    // Wikipedia records carry a Wikidata entity, which lives elsewhere.
+    let summary = SourceRecord {
+        source: "wikipedia".to_string(),
+        source_id: Some("Q485893".to_string()),
+        ..artist.clone()
+    };
+    assert_eq!(
+        address_of(&summary).as_deref(),
+        Some("https://www.wikidata.org/wiki/Q485893")
+    );
+
+    // A source this build knows nothing about still has an identifier, and the
+    // identifier is the useful half. Inventing an address would be worse.
+    let plugin = SourceRecord {
+        source: "some-plugin".to_string(),
+        source_id: Some("xyz-1".to_string()),
+        ..artist.clone()
+    };
+    assert_eq!(address_of(&plugin).as_deref(), Some("xyz-1"));
+
+    // Nothing was identified, so there is nothing to point at.
+    let manual = SourceRecord {
+        source: "manual".to_string(),
+        source_id: None,
+        ..artist
+    };
+    assert_eq!(address_of(&manual), None);
+}
+
+#[test]
 fn what_a_record_says_reads_as_a_sentence_or_says_it_holds_nothing() {
     let full = says(&Facts::Artist(ArtistFacts {
         kind: Some("Group".to_string()),

@@ -488,14 +488,65 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
                 ))
             );
         }
+        whence(&records);
         return;
     }
 
     print!("{}", table.render());
+    whence(&records);
     println!(
         "{}",
         ui::dim("  beside your tags, never on top of them — aede sources --forget removes them")
     );
+}
+
+/// Where each of these answers came from, as an address a reader can follow.
+///
+/// **The identifier was stored and never shown**, which is the one thing a
+/// reader needs to check anything by hand: to open the page, to ask the service
+/// the same question, or to correct the data at its source. Asked for the
+/// MusicBrainz identifier of an artist, there was nowhere in this program to
+/// find it — and the nearest thing on screen was the Wikidata link, which is a
+/// different identifier that looks enough like an answer to waste an afternoon.
+///
+/// Printed as the URL rather than the bare identifier: the identifier is inside
+/// it, so it can still be copied for a query, and the page it opens is where a
+/// wrong type or a missing date is actually fixed — for everybody, not just
+/// here.
+fn whence(records: &[&SourceRecord]) {
+    for record in records {
+        if let Some(address) = address_of(record) {
+            println!("  {}", ui::dim(&format!("{}: {address}", record.source)));
+        }
+    }
+}
+
+/// Where one record's answer can be looked at, or its bare identifier.
+///
+/// Split from the printing so the decision is testable: which path a
+/// MusicBrainz album takes is the sort of thing that is wrong once and then
+/// wrong for a year, because a link that 404s looks like the service's fault.
+fn address_of(record: &SourceRecord) -> Option<String> {
+    let id = record.source_id.as_deref()?;
+    let kind = match record.facts.kind() {
+        EntityKind::Artist => "artist",
+        // The identifier kept for an album is the release group's, not the
+        // edition's — see `musicbrainz::release`. Naming the wrong path here
+        // would produce a link that 404s on the one page a reader came to open.
+        EntityKind::Release => "release-group",
+        // `Facts` has only those two shapes today. A third would be one this
+        // function has never seen, and guessing a path for it is how a link
+        // that looks right leads nowhere.
+        _ => return Some(id.to_string()),
+    };
+    Some(match record.source.as_str() {
+        sources::MUSICBRAINZ => format!("https://musicbrainz.org/{kind}/{id}"),
+        "wikipedia" => format!("https://www.wikidata.org/wiki/{id}"),
+        // A source this build knows nothing about still has an identifier, and
+        // the identifier is the useful half. Inventing an address for it would
+        // be worse than showing none.
+        _ => id.to_string(),
+    })
 }
 
 /// The first value of a tag on any file credited to this artist.

@@ -102,7 +102,12 @@ aede sources --forget --source=musicbrainz
   musicbrainz 88% · 2 days ago  release type    Album       nothing in your tags
   musicbrainz 88% · 2 days ago  first released  1959-08-17  matches your tags
   musicbrainz 88% · 2 days ago  label           Blue Note   Columbia
+  musicbrainz: https://musicbrainz.org/release-group/c9fdb94c-…
 ```
+
+**The last line is the address the answer came from**, one per source. It is there because the identifier is what you need to check anything by hand — to open the page, to ask the service the same question with `curl`, or to correct the data at its source. It was stored from the first version and shown nowhere, and the nearest thing on screen was the Wikidata link: a different identifier that looks enough like an answer to send you off with a query that cannot work.
+
+The identifier is inside the address, so it can still be copied on its own. And the page it opens is where a wrong type or a missing date is actually fixed — for everyone, not only here. An album's address points at its **release group**, which is the album rather than the pressing, and is where its type is set.
 
 Three different things, deliberately distinguished: a value your tags confirm, one they contradict, and one they say nothing about. A field with no tag counterpart at all — where an artist is from, for instance — leaves the last column empty rather than claiming your tags are missing something they were never meant to hold.
 

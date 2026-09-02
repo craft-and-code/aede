@@ -22,7 +22,7 @@ Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album
 
 ```sh
 cargo build                      # offline once the dependencies are fetched
-cargo test                       # 466 tests
+cargo test                       # 467 tests
 cargo doc --no-deps --open       # the API documentation
 cargo fmt --all                  # rustfmt.toml
 cargo clippy --all-targets -- -D warnings
@@ -265,6 +265,8 @@ Before touching it, read [Paths](docs/design/paths.md) in full — the obvious f
 **Reused text and its credit are one value, never two fields.** Wikipedia is CC BY-SA, so attribution has to travel with the paragraph. `sources::Prose` holds the text, the page, the language and the licence together; it cannot be built without all four, it is written to `sources.json` as one nested object, and it is read back only when all four are present — a row that lost its attribution is dropped rather than shown uncredited. There is deliberately no function anywhere that returns bare article text as a `String`. A separate optional `url` beside a `text` field would make it *possible* to hold the words without the credit, and possible here means eventually certain: one path that fills the first and forgets the second, one export that copies one and not the other. The licence is stored per record rather than assumed at display time, for the reason `fetched_at` exists.
 
 **Asked-and-empty is a record, not a skip.** An artist Wikidata has no article for is stored with an empty summary. "Asked, and there is nothing" is the state this whole layer exists to keep apart from "never asked", and without the row every run asks about the same artists forever. The same rule already governs an empty MusicBrainz answer, which is why the panel says "was asked and holds nothing about this" instead of rendering an empty table.
+
+**A stored identifier that is never displayed is a dead end.** `source_id` was kept from the layer's first version and shown nowhere, so asked for the MusicBrainz id of an artist there was no way to get it out of this program — and the nearest thing on screen was the `wikidata` link, a different identifier that looks enough like an answer to send somebody off with a query that cannot work. The panel now prints one address per source. It is the *address* rather than the bare id because the id is inside it either way, and the page it opens is where wrong data is corrected at the source. An album's points at its **release group**, matching what `musicbrainz::release` stores — a link that 404s reads as the service's fault, not ours, which is how it stays wrong for a year. The general rule: **anything the program relies on to reach an answer must be reachable by the reader too.**
 
 **Being in the catalog is not having a place in the library.** The catalog holds an artist for every credit it reads — a guest on one track, a composer, a name among fifty on a compilation. `missing` treated the two as one and answered a question nobody asked: one Rolling Stones track on a compilation produced their entire studio discography as absent, for every passing credit at once, until the report was mostly noise. The test is **an album of their own**: album artist of at least one release here. `discography::has_shelf` is that question asked once, and *both* the report and the browse pass use it — a pass that fetched what the report cannot show would spend a request a second on nothing. The rule generalises: a report about gaps is about something that was *started*.
 
