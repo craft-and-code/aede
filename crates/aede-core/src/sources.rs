@@ -238,6 +238,28 @@ impl KnownRelease {
         self.primary_type.as_deref() == Some("Album") && self.secondary_types.is_empty()
     }
 
+    /// What the source calls this record, in the source's own words.
+    ///
+    /// For a report that has left something out to be able to say **why**. The
+    /// words are MusicBrainz's — `Album · Live`, `Single`, `Album · Compilation`
+    /// — rather than a vocabulary of our own, because the reader's next move is
+    /// often to go and correct the type on the page where it is set, and a
+    /// paraphrase would send them looking for a word that is not written there.
+    ///
+    /// A record nobody has typed at all says so: it is not a studio album
+    /// either, and having no type is exactly why it was left out.
+    pub fn stated_type(&self) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if let Some(primary) = &self.primary_type {
+            parts.push(primary);
+        }
+        parts.extend(self.secondary_types.iter().map(String::as_str));
+        match parts.is_empty() {
+            true => "no type".to_string(),
+            false => parts.join(" · "),
+        }
+    }
+
     /// The year, for a date that may be a year, a month or a full date.
     pub fn year(&self) -> Option<&str> {
         self.first_released.as_deref().map(|d| &d[..4.min(d.len())])

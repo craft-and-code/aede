@@ -353,6 +353,39 @@ fn a_known_release_without_an_identifier_is_not_read_back() {
 }
 
 #[test]
+fn a_record_left_out_of_the_report_can_say_what_the_source_calls_it() {
+    // A report that hides something owes the reason, and the reason is a fact
+    // the source stated — so it is quoted rather than paraphrased: somebody
+    // whose next move is to correct the type on MusicBrainz needs the word that
+    // is written there.
+    let known = |primary: Option<&str>, secondary: &[&str]| KnownRelease {
+        mbid: "x".to_string(),
+        title: "A record".to_string(),
+        first_released: None,
+        primary_type: primary.map(str::to_string),
+        secondary_types: secondary.iter().map(|s| s.to_string()).collect(),
+    };
+    assert_eq!(known(Some("Single"), &[]).stated_type(), "Single");
+    assert_eq!(
+        known(Some("Album"), &["Live"]).stated_type(),
+        "Album · Live"
+    );
+    assert_eq!(
+        known(Some("Album"), &["Compilation", "Live"]).stated_type(),
+        "Album · Compilation · Live",
+        "every word the source used, in the order it used them"
+    );
+    // A studio album is never left out, so it never has to say anything — but
+    // the answer is still the source's own word rather than nothing.
+    assert_eq!(known(Some("Album"), &[]).stated_type(), "Album");
+    // And a record nobody has typed says so: having no type is precisely why it
+    // is not a studio album, and an empty cell would read as an unexplained
+    // omission.
+    assert_eq!(known(None, &[]).stated_type(), "no type");
+    assert!(!known(None, &[]).is_studio_album());
+}
+
+#[test]
 fn a_document_of_another_version_is_refused() {
     let mut root = Json::obj();
     root.set("format_version", (SOURCES_FORMAT_VERSION + 1).into());

@@ -239,7 +239,7 @@ fn main() {
         ("notes", &["search"], "search what you wrote"),
         ("limit", PAGING_COMMANDS, "show a window of its result"),
         ("offset", PAGING_COMMANDS, "start further down its result"),
-        ("all", PAGING_COMMANDS, "drop the row limit"),
+        ("all", PAGING_COMMANDS, "hold nothing back"),
         ("json", JSON_COMMANDS, "answer in JSON"),
         ("separator", CSV_COMMANDS, "choose a separator"),
         ("sort", SORT_COMMANDS, "be sorted"),
@@ -706,6 +706,12 @@ const PAGING_COMMANDS: &[&str] = &[
     "query",
     "collection",
     "import",
+    // `missing` pages like the rest, and had to: it was added here for
+    // `--all` alone, which let `--limit` and `--offset` through to a command
+    // that ignored them — the exact fault this table exists to prevent, made
+    // by the table's own author. An option list is a promise that the command
+    // honours every option on it.
+    "missing",
 ];
 
 /// Commands whose output can go to a file instead of the terminal.
@@ -855,12 +861,14 @@ fn print_help() {
                        the answer is worked out from what fetch
                        --discography already stored, so an album stops being
                        listed the day you add it. Singles, live records and
-                       compilations are left out.
+                       compilations are left out; --all holds nothing back
+                       and says of each row why it would not be there.
                        MusicBrainz is sometimes wrong about what an album is —
                        a demo or a compilation nobody has typed as one — so
                        --forget <title> sets a record aside and stops listing
-                       it, --list shows what you set aside, and --forget
-                       --remove <title> puts it back. What the source said is
+                       it, --list shows what you set aside — narrowed by a
+                       name, like the report itself — and --forget --remove
+                       <title> puts it back. What the source said is
                        never altered: only what you are shown
   albums               List of albums (--artist, --year, --genre, --label,
                        --comment, --compilations, --no-compilations).

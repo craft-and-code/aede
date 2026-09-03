@@ -243,6 +243,15 @@ fn has_shelf(catalog: &Catalog, entity: &EntityRef) -> bool {
 pub struct Absent<'a> {
     /// The artist, as the catalog spells them.
     pub artist: String,
+    /// Why this row is not normally on the report, and `None` when it is.
+    ///
+    /// Two quite different reasons, in one field because they answer one
+    /// question — *why am I not being shown this* — and because a record can
+    /// be both: a live album the reader also set aside. The words for the
+    /// first are MusicBrainz's own; see [`KnownRelease::stated_type`].
+    pub held_back: Option<String>,
+    /// `true` when the reader set this one aside and asked to see it anyway.
+    pub set_aside: bool,
     /// Which artist, for a caller asking about one rather than about all.
     pub artist_id: aede_core::model::Id,
     /// The record MusicBrainz credits to them.
@@ -264,13 +273,21 @@ pub struct Absent<'a> {
 ///    program, so a shelf that says "Kind Of Blue" is not told it is missing
 ///    "Kind of Blue".
 ///
-/// Only studio albums are reported — see
-/// [`KnownRelease::is_studio_album`] for why a complete discography would be a
-/// true and useless answer.
+/// Two things are held back, and `everything` lifts both.
+///
+/// Only studio albums are reported — see [`KnownRelease::is_studio_album`] for
+/// why a complete discography would be a true and useless answer — and only
+/// records the reader has not set aside. Those are the report's two filters,
+/// and `--all` is one word for "hold nothing back", so it lifts both and every
+/// row that came back this way carries the reason it would not normally be
+/// here. **A filter is only honest when the reader can turn it off**: saying
+/// what is left out and offering no way to see it is a locked door with a
+/// label on it.
 pub fn absent<'a>(
     catalog: &Catalog,
     held: &'a sources::Sources,
     aside: &[aede_core::user::SetAside],
+    everything: bool,
 ) -> Vec<Absent<'a>> {
     let mut out: Vec<Absent<'a>> = Vec::new();
     for record in &held.records {
@@ -322,22 +339,35 @@ pub fn absent<'a>(
         }
 
         for known in &facts.discography {
-            if !known.is_studio_album() {
-                continue;
-            }
             // Set aside by hand. Filtered here rather than by dropping it from
             // the layer, because the two are different claims and this program
             // keeps them apart everywhere else: MusicBrainz still says this is
             // an album, and the user still says it is not one they want listed.
             // Deleting the record would lose the first to record the second.
-            if aside.iter().any(|a| a.release_group == known.mbid) {
+            let put_aside = aside.iter().any(|a| a.release_group == known.mbid);
+
+            // Both reasons, in the order a reader meets them: what it is, then
+            // what they decided about it. A record can be both, and naming only
+            // one would answer half the question.
+            let mut why: Vec<String> = Vec::new();
+            if !known.is_studio_album() {
+                why.push(known.stated_type());
+            }
+            if put_aside {
+                why.push("set aside".to_string());
+            }
+            let held_back = (!why.is_empty()).then(|| why.join(", "));
+            if held_back.is_some() && !everything {
                 continue;
             }
+
             let have = ids.iter().any(|id| *id == known.mbid)
                 || titles.contains(&text::normalize(&known.title));
             if !have {
                 out.push(Absent {
                     artist: artist.name.clone(),
+                    held_back,
+                    set_aside: put_aside,
                     artist_id,
                     known,
                 });
@@ -369,7 +399,7 @@ pub fn absent_for(
     aside: &[aede_core::user::SetAside],
     artist_id: aede_core::model::Id,
 ) -> usize {
-    absent(catalog, held, aside)
+    absent(catalog, held, aside, false)
         .iter()
         .filter(|record| record.artist_id == artist_id)
         .count()
@@ -385,16 +415,19 @@ pub fn missing(args: &crate::args::Args) -> Res {
     if args.has("forget") {
         return set_aside(args, &catalog, &held, &mut user, &user_path);
     }
+    let wanted = super::fetch::names_given(args);
+
     if args.has("list") {
-        return listed(&user);
+        return listed(&catalog, &held, &user, &wanted);
     }
 
-    let wanted: Vec<String> = args
-        .positionals
-        .iter()
-        .map(|name| text::normalize(name))
-        .filter(|name| !name.is_empty())
-        .collect();
+    // "Hold nothing back", the same word as on every other listing, and here
+    // it lifts everything this report holds back at once: the row limit, the
+    // studio-album filter, and what the reader set aside. Three things, one
+    // intent — *show me all of what the fetch brought back* — and a separate
+    // option for each would be three words to learn for one question.
+    let everything = args.has("all");
+    let window = args.window(50)?;
 
     let browsed = held
         .records
@@ -415,39 +448,67 @@ pub fn missing(args: &crate::args::Args) -> Res {
         return Ok(());
     }
 
-    let all = absent(&catalog, &held, &user.set_aside);
+    let all = absent(&catalog, &held, &user.set_aside, everything);
     let rows: Vec<&Absent> = all.iter().filter(|a| matches(a, &wanted)).collect();
+    // What the ordinary run is leaving out, counted over the rows this run is
+    // about rather than over the whole layer: a reader who typed a name is owed
+    // the number for that name. Derived from the same walk that produces the
+    // table, so the note and the list cannot disagree.
+    let held_back = match everything {
+        true => Vec::new(),
+        false => absent(&catalog, &held, &user.set_aside, true)
+            .into_iter()
+            .filter(|a| a.held_back.is_some() && matches(a, &wanted))
+            .collect(),
+    };
 
     println!("{}", ui::section("Missing"));
     if rows.is_empty() {
         println!(
             "  {}",
-            ui::dim(match wanted.is_empty() {
-                true => "every studio album MusicBrainz credits to your artists is here",
-                false => "nothing matching that is missing",
+            ui::dim(match (wanted.is_empty(), everything) {
+                (true, true) => "every record MusicBrainz credits to your artists is here",
+                (true, false) => "every studio album MusicBrainz credits to your artists is here",
+                (false, _) => "nothing matching that is missing",
             })
         );
-        aside_note(&user);
+        left_out(&held_back, everything);
         return Ok(());
     }
 
-    let mut table = crate::ui::Table::new(&["Artist", "Album", "Year"]).limit(1, 46);
-    for row in &rows {
-        table.push(vec![
+    // The last column exists only when there is something to put in it: a blank
+    // column on every ordinary run is a question the reader has to ask and
+    // answer for themselves.
+    let mut headings = vec!["Artist", "Album", "Year"];
+    if everything {
+        headings.push("Left out");
+    }
+    let mut table = crate::ui::Table::new(&headings).limit(1, 46);
+    let total = rows.len();
+    for row in rows.iter().skip(window.offset).take(window.limit) {
+        let mut cells = vec![
             row.artist.clone(),
             row.known.title.clone(),
             row.known.year().unwrap_or("").to_string(),
-        ]);
+        ];
+        if everything {
+            cells.push(row.held_back.clone().unwrap_or_default());
+        }
+        table.push(cells);
     }
     print!("{}", table.render());
-    println!("  {}", ui::plural(rows.len(), "studio album"));
-    // The filter is a decision, and a reader who is not told about it will read
-    // the list as everything MusicBrainz knows.
     println!(
         "  {}",
-        ui::dim("singles, live records and compilations are left out")
+        ui::plural(
+            total,
+            match everything {
+                true => "record",
+                false => "studio album",
+            }
+        )
     );
-    aside_note(&user);
+    super::announce_window(window, total, "record");
+    left_out(&held_back, everything);
     Ok(())
 }
 
@@ -461,23 +522,93 @@ fn matches(row: &Absent, wanted: &[String]) -> bool {
             .any(|w| artist.contains(w.as_str()) || title.contains(w.as_str()))
 }
 
-/// Says how many records are set aside, whenever any are.
+/// Says what this run held back, how much of it, and how to see it.
 ///
-/// **A filter the reader cannot see is a trap.** Everything else this command
-/// leaves out is stated under the table — singles, live records, compilations —
-/// and a decision the reader took themselves deserves the same treatment: the
-/// day they wonder why an album is not listed, the answer is on screen.
-fn aside_note(user: &aede_core::user::UserData) {
-    if user.set_aside.is_empty() {
+/// **A filter the reader cannot see is a trap, and one they cannot turn off is
+/// only half an answer.** The count is of the rows *this* run held back, so it
+/// falls with the name typed and cannot drift from the table above it; the way
+/// to see them is named in the same breath, because a report that says "some
+/// records are not shown" and stops there has told the reader they are missing
+/// something and left them no move.
+///
+/// The two reasons are named separately even though `--all` lifts both: one is
+/// this program's editorial decision about what a wish list is for, the other
+/// is a decision the reader took themselves, and only the second has a listing
+/// of its own to undo it from.
+fn left_out(rows: &[Absent], everything: bool) {
+    if everything {
+        println!(
+            "  {}",
+            ui::dim(
+                "nothing held back: everything the discography pass brought back, \
+                 and the last column is what MusicBrainz calls each one"
+            )
+        );
+        return;
+    }
+    if rows.is_empty() {
+        // Still stated with nothing to state it about: it is the shape of the
+        // report rather than an incident, and a reader who is not told will
+        // read the list as everything MusicBrainz knows.
+        println!(
+            "  {}",
+            ui::dim("singles, live records and compilations are left out")
+        );
         return;
     }
     println!(
         "  {}",
         ui::dim(&format!(
-            "{} set aside — aede missing --list shows them",
-            ui::plural(user.set_aside.len(), "record")
+            "{} left out — --all lists them here, with the reason for each: \
+             singles, live records, compilations, demos, and anything you set aside",
+            ui::plural(rows.len(), "record")
         ))
     );
+    let aside = rows.iter().filter(|row| row.set_aside).count();
+    if aside > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} among them you set aside yourself — --list shows those on their own",
+                ui::plural(aside, "record")
+            ))
+        );
+    }
+}
+
+/// Which artist a set-aside record belongs to, as the stored discographies say.
+///
+/// Not kept on the record itself: a set-aside is keyed on the release group,
+/// which is globally unique, so no artist is needed to tell two apart. But a
+/// listing that shows only titles is a listing nobody can act on, and the
+/// answer is already in the layer — derived at the moment of reading, like
+/// everything else here, so it cannot go stale.
+///
+/// Empty when the discography that named it has since been forgotten: the row
+/// is still shown, because a decision the reader took must not disappear
+/// because a fetch was undone.
+fn whose(catalog: &Catalog, held: &sources::Sources, release_group: &str) -> String {
+    for record in &held.records {
+        if record.source != sources::MUSICBRAINZ {
+            continue;
+        }
+        let Facts::Artist(facts) = &record.facts else {
+            continue;
+        };
+        if !facts.discography.iter().any(|k| k.mbid == release_group) {
+            continue;
+        }
+        // The catalog's spelling when it holds the artist, the layer's key
+        // otherwise — a name is better than nothing, and this row exists to
+        // be recognised.
+        return record
+            .entity()
+            .resolve(catalog)
+            .and_then(|id| catalog.artist(id))
+            .map(|artist| artist.name.clone())
+            .unwrap_or_else(|| record.key.clone());
+    }
+    String::new()
 }
 
 /// `aede missing --forget <text>`: take a record off the report, or put it back.
@@ -529,7 +660,7 @@ fn set_aside(
         return Ok(());
     }
 
-    let all = absent(catalog, held, &user.set_aside);
+    let all = absent(catalog, held, &user.set_aside, false);
     let found: Vec<&Absent> = all.iter().filter(|a| matches(a, &wanted)).collect();
     match found.len() {
         0 => Err("nothing missing answers to that".into()),
@@ -570,16 +701,65 @@ fn set_aside(
     }
 }
 
+/// The set-aside decisions a run is about, each with the artist it belongs to.
+///
+/// The names typed used to be **swallowed**: `aede missing "MIKA" --list`
+/// listed every decision on file and said nothing about the word. The fourth
+/// time a command in this program has quietly dropped its argument, and the
+/// reason it keeps happening is that each listing wrote its own matching. This
+/// one calls [`super::fetch::reaches`], which is where that decision lives.
+///
+/// Split out of [`listed`] so the narrowing can be tested without reading what
+/// was printed: a filter is a claim about which rows survive, and that is the
+/// part worth pinning down.
+fn aside_rows<'a>(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    user: &'a aede_core::user::UserData,
+    wanted: &[String],
+) -> Vec<(&'a aede_core::user::SetAside, String)> {
+    user.set_aside
+        .iter()
+        .map(|aside| (aside, whose(catalog, held, &aside.release_group)))
+        .filter(|(aside, artist)| super::fetch::reaches(wanted, &[&aside.title, artist]))
+        .collect()
+}
+
 /// `aede missing --list`: the decisions taken, so they can be undone.
-fn listed(user: &aede_core::user::UserData) -> Res {
+fn listed(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    user: &aede_core::user::UserData,
+    wanted: &[String],
+) -> Res {
     println!("{}", ui::section("Set aside"));
     if user.set_aside.is_empty() {
         println!("  {}", ui::dim("nothing has been set aside"));
         return Ok(());
     }
-    let mut table = crate::ui::Table::new(&["Album", "Identifier"]).limit(0, 46);
-    for aside in &user.set_aside {
+
+    let rows = aside_rows(catalog, held, user, wanted);
+    if rows.is_empty() {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "nothing set aside matches {} — {} in all",
+                wanted.join(", "),
+                ui::plural(user.set_aside.len(), "record")
+            ))
+        );
+        return Ok(());
+    }
+
+    // The artist was missing from this table, and "Sweet Dreams" on its own
+    // tells a reader nothing about whose decision they are looking at. It is
+    // not stored on the record — a set-aside is keyed on the release group,
+    // which is globally unique — so it is resolved from the discographies
+    // that named it, the way everything else here is derived rather than kept.
+    let mut table = crate::ui::Table::new(&["Artist", "Album", "Identifier"]).limit(1, 40);
+    for (aside, artist) in &rows {
         table.push(vec![
+            artist.clone(),
             aside.title.clone(),
             format!(
                 "https://musicbrainz.org/release-group/{}",

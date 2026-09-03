@@ -308,8 +308,33 @@ Missing
   Miles Davis  Sketches of Spain  1960
   Miles Davis  Bitches Brew       1970
   2 studio albums
-  singles, live records and compilations are left out
+  9 records left out — --all lists them here, with the reason for each: singles,
+  live records, compilations, demos, and anything you set aside
 ```
+
+### Seeing everything that was fetched
+
+The report holds two things back: records MusicBrainz does not type as studio albums, and records you set aside yourself. `--all` lifts both — the same word it is on every listing here, *hold nothing back* — and each row then says why it would not normally be there:
+
+```
+Missing
+
+  Artist      Album               Year  Left out
+  ──────────  ──────────────────  ────  ────────────────────────────
+  Air         Demo Tapes          1995  Album · Demo
+  Air         Premiers Symptomes  1999  set aside
+  Air         Everybody Hertz     2002  Album · Remix
+  Air         Late Night Tales    2014  Album · Compilation · DJ-mix
+  Portishead  Sour Times          1994  Single
+  Portishead  Roseland NYC Live   1998  Album · Live
+  8 records
+  nothing held back: everything the discography pass brought back, and the last
+  column is what MusicBrainz calls each one
+```
+
+The words in that column are **MusicBrainz's own** — `Album · Live`, not "a live record". If a type is wrong, the page where it is set is where you would go to fix it, and a paraphrase would send you looking for a word that is not written there.
+
+The last column only appears on a run that has something to put in it, and `missing` pages like every other listing: `--limit`, `--offset`, and `--all` for every row.
 
 ### When MusicBrainz is wrong about what an album is
 
@@ -318,12 +343,23 @@ A demo, a compilation and a single all arrive typed `Album` until somebody says 
 ```sh
 aede missing --forget "Sweet Dreams"            # stop listing it
 aede missing --list                             # what you set aside
+aede missing --list manson                      # narrowed, by artist or by title
 aede missing --forget "Sweet Dreams" --remove   # put it back
 ```
 
 The decision is kept in `user.json` — the file that holds what *you* say — and keyed on the MusicBrainz release-group identifier, which survives a re-fetch and a rescan where a title would not. **What the source said is untouched**: the record stays in `sources.json` exactly as it arrived, and only what you are shown changes. Deleting it would lose one claim in order to record the other, when they are two different claims.
 
-`missing` says how many records are set aside whenever any are, for the same reason it says that singles and live records are left out: a filter you cannot see is a trap, and the day you wonder why an album is not listed the answer should be on screen.
+`missing` says how many records you set aside whenever any are, for the same reason it says that singles and live records are left out: a filter you cannot see is a trap, and the day you wonder why an album is not listed the answer should be on screen. And a filter you cannot turn off is only half an answer, which is what `--all` above is for.
+
+`--list` takes a name too, and narrows to it — by the title of the record or by the artist it belongs to. A name that matches nothing says so and lists nothing, rather than quietly answering the wider question:
+
+```
+Set aside
+
+  nothing set aside matches mika — 2 records in all
+```
+
+The artist on that table is not stored with the decision — a release-group identifier is unique, so nothing else is needed to tell two apart. It is looked up in the discographies each time you ask, like everything else in this report. A record whose discography has since been forgotten still shows, with no artist beside it: a decision you took must not disappear because a fetch was undone.
 
 Two records answering to the same words are refused rather than arbitrated — setting aside the wrong one is a decision nobody would see being taken. `--list` shows the address of each, which is where the type is corrected on MusicBrainz itself: fixing it there fixes it for everybody, and `aede fetch --full --discography` picks it up.
 

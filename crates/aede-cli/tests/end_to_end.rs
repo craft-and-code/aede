@@ -15,6 +15,21 @@ fn library() -> PathBuf {
         .expect("reference folder")
 }
 
+/// The folder is named after the **test that owns it**, not after the argument.
+/// Three tests once shared one because they shared a helper that named it, and
+/// each call begins by deleting it: they raced, passing on Linux and failing on
+/// macOS with `Invalid argument`. A name a caller passes is a promise the
+/// caller has to keep, and no grep can check it — a helper called from three
+/// tests spells the name once. The thread's name is the test's own, so two
+/// tests cannot collide however they arrive here, and it is the same on the
+/// next run, so a re-run still clears what the last one left.
+fn owner(fallback: &str) -> String {
+    std::thread::current()
+        .name()
+        .map(|name| name.replace("::", "_"))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 /// A throwaway data directory, removed when the test ends.
 struct Sandbox {
     dir: PathBuf,
@@ -22,7 +37,7 @@ struct Sandbox {
 
 impl Sandbox {
     fn new(name: &str) -> Sandbox {
-        let dir = std::env::temp_dir().join(format!("aede_e2e_{name}"));
+        let dir = std::env::temp_dir().join(format!("aede_e2e_{}", owner(name)));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temporary folder");
         Sandbox { dir }
@@ -4535,8 +4550,45 @@ fn what_is_missing_is_worked_out_from_what_was_stored() {
         "a live record is not a gap in a discography: {out}"
     );
     assert!(
-        out.contains("live records and compilations are left out"),
-        "and the filter is stated, or the list reads as everything: {out}"
+        out.contains("live records") && out.contains("--all"),
+        "and the filter is stated — with the way to turn it off, or the reader \
+         is told they are missing something and left no move: {out}"
+    );
+
+    // The other half of that promise, end to end: --all produces what the
+    // filter took out, and says of each row what MusicBrainz calls it. A note
+    // offering a way to see something is worth exactly what the way is worth.
+    let (out, err, ok) = sandbox.run(&["missing", "--all"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("Live-Evil") && out.contains("Album · Live"),
+        "held nothing back, and said why this one is normally not here: {out}"
+    );
+    assert!(
+        out.contains("Bitches Brew"),
+        "and the ordinary rows are still there: {out}"
+    );
+    assert!(
+        !out.contains("Time Further Out"),
+        "--all lifts this report's own filters, not the rule about who has a \
+         shelf here — an artist with no album of their own still has no gaps: \
+         {out}"
+    );
+
+    // And it pages like every other listing. `missing` was put on the paging
+    // table for the sake of `--all` alone, which let `--limit` and `--offset`
+    // through to a command that ignored them: the exact fault that table exists
+    // to prevent. An option list is a promise, not a hint.
+    let (out, err, ok) = sandbox.run(&["missing", "--all", "--offset", "1"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("Live-Evil") && !out.contains("Bitches Brew"),
+        "the first row was skipped: {out}"
+    );
+    let (out, _, ok) = sandbox.run(&["missing", "--all", "--limit", "1"]);
+    assert!(
+        !ok && out.is_empty(),
+        "and two opposite instructions are refused rather than arbitrated"
     );
 }
 

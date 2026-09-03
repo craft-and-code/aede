@@ -7,8 +7,23 @@ use super::*;
 use aede_core::model::builder::{ScannedFile, build};
 use aede_core::tags::RawTags;
 
+/// The folder is named after the **test that owns it**, not after the argument.
+/// Three tests once shared one because they shared a helper that named it, and
+/// each call begins by deleting it: they raced, passing on Linux and failing on
+/// macOS with `Invalid argument`. A name a caller passes is a promise the
+/// caller has to keep, and no grep can check it — a helper called from three
+/// tests spells the name once. The thread's name is the test's own, so two
+/// tests cannot collide however they arrive here, and it is the same on the
+/// next run, so a re-run still clears what the last one left.
+fn owner(fallback: &str) -> String {
+    std::thread::current()
+        .name()
+        .map(|name| name.replace("::", "_"))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 fn sandbox(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("aede_cli_artwork_{name}"));
+    let dir = std::env::temp_dir().join(format!("aede_cli_artwork_{}", owner(name)));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }

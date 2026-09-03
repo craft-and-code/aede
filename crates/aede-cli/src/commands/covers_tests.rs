@@ -55,8 +55,23 @@ const INDEX: &str = r#"{"images":[{"front":true,"approved":true,
     "thumbnails":{"500":"https://coverartarchive.org/x/1-500.jpg",
                   "1200":"https://coverartarchive.org/x/1-1200.jpg"}}]}"#;
 
+/// The folder is named after the **test that owns it**, not after the argument.
+/// Three tests once shared one because they shared a helper that named it, and
+/// each call begins by deleting it: they raced, passing on Linux and failing on
+/// macOS with `Invalid argument`. A name a caller passes is a promise the
+/// caller has to keep, and no grep can check it — a helper called from three
+/// tests spells the name once. The thread's name is the test's own, so two
+/// tests cannot collide however they arrive here, and it is the same on the
+/// next run, so a re-run still clears what the last one left.
+fn owner(fallback: &str) -> String {
+    std::thread::current()
+        .name()
+        .map(|name| name.replace("::", "_"))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 fn sandbox(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("aede_covers_{name}"));
+    let dir = std::env::temp_dir().join(format!("aede_covers_{}", owner(name)));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("music/Miles Davis/Kind of Blue")).expect("a folder");
     dir

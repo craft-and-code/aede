@@ -376,10 +376,18 @@ fn announce_window(window: Window, total: usize, what: &str) {
     if first == 1 && last == total {
         return;
     }
+    // `--all` is advice only while it would change something. Given already,
+    // the rows are unbounded and what cut this screen was `--offset` alone, so
+    // repeating it names an option the reader has typed and tells them to type
+    // it — the kind of line that teaches a reader to stop reading the lines.
+    let advice = match window.limit {
+        usize::MAX => "",
+        _ => ", --all for every row",
+    };
     println!(
         "  {}",
         ui::yellow(&format!(
-            "{first}–{last} of {} — --offset={last} for the next page, --all for every row",
+            "{first}–{last} of {} — --offset={last} for the next page{advice}",
             ui::plural(total, what)
         ))
     );

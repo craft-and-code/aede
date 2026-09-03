@@ -45,11 +45,40 @@ impl Ask for Canned {
     }
 }
 
+/// The folder is named after the **test that owns it**, not after the argument.
+/// Three tests once shared one because they shared a helper that named it, and
+/// each call begins by deleting it: they raced, passing on Linux and failing on
+/// macOS with `Invalid argument`. A name a caller passes is a promise the
+/// caller has to keep, and no grep can check it — a helper called from three
+/// tests spells the name once. The thread's name is the test's own, so two
+/// tests cannot collide however they arrive here, and it is the same on the
+/// next run, so a re-run still clears what the last one left.
+fn owner(fallback: &str) -> String {
+    std::thread::current()
+        .name()
+        .map(|name| name.replace("::", "_"))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 fn sandbox(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("aede_disco_{name}"));
+    let dir = std::env::temp_dir().join(format!("aede_disco_{}", owner(name)));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a data folder");
     dir
+}
+
+#[test]
+fn each_test_gets_a_folder_of_its_own_whatever_it_asks_for() {
+    // The mechanism, pinned rather than trusted, because what it prevents is a
+    // race that passes here and fails on somebody else's machine: three tests
+    // sharing one folder, each deleting it as it starts. The argument is the
+    // same word on purpose — the folder is not named by it.
+    let mine = sandbox("a name several tests could pass");
+    assert!(
+        mine.to_string_lossy()
+            .contains("each_test_gets_a_folder_of_its_own_whatever_it_asks_for"),
+        "named after the test that owns it: {mine:?}"
+    );
 }
 
 /// A layer holding one identified MusicBrainz artist.
@@ -248,7 +277,7 @@ fn only_what_is_absent_and_a_studio_album_is_reported() {
 
     // One album on the shelf, matched by its release-group identifier.
     let catalog = library(&[("Kind of Blue", Some("g1"))]);
-    let missing = absent(&catalog, &layer, &[]);
+    let missing = absent(&catalog, &layer, &[], false);
     let titles: Vec<&str> = missing.iter().map(|a| a.known.title.as_str()).collect();
     assert_eq!(
         titles,
@@ -282,7 +311,7 @@ fn a_shelf_is_recognised_by_title_when_the_tags_carry_no_identifier() {
 
     let catalog = library(&[("Kind Of  Blue", None), ("Bitches Brew", None)]);
     assert!(
-        absent(&catalog, &layer, &[]).is_empty(),
+        absent(&catalog, &layer, &[], false).is_empty(),
         "different spacing and case is the same album"
     );
 }
@@ -336,7 +365,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
         "he is in the catalog — that is the whole point of the test"
     );
     assert!(
-        absent(&compilation, &layer, &[]).is_empty(),
+        absent(&compilation, &layer, &[], false).is_empty(),
         "and still has no shelf here, so nothing of his is missing from it"
     );
     assert_eq!(
@@ -350,7 +379,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
     // One album of his own, and the report has something to say again.
     let shelf = library(&[("Kind of Blue", None)]);
     assert_eq!(
-        absent(&shelf, &layer, &[]).len(),
+        absent(&shelf, &layer, &[], false).len(),
         1,
         "a discography that was started is one that can be incomplete"
     );
@@ -401,7 +430,7 @@ fn an_artist_this_catalog_cannot_place_is_not_a_shelf_with_gaps() {
     );
     assert!(!elsewhere.artists.is_empty());
     assert!(
-        absent(&other, &layer, &[]).is_empty(),
+        absent(&other, &layer, &[], false).is_empty(),
         "no shelf, no gaps in it"
     );
 }
@@ -428,7 +457,7 @@ fn a_record_set_aside_leaves_the_report_and_the_source_untouched() {
     .expect("the pass ran");
 
     let catalog = shelf();
-    assert_eq!(absent(&catalog, &layer, &[]).len(), 1);
+    assert_eq!(absent(&catalog, &layer, &[], false).len(), 1);
 
     let aside = vec![aede_core::user::SetAside {
         owner: aede_core::user::LOCAL_USER.to_string(),
@@ -437,7 +466,7 @@ fn a_record_set_aside_leaves_the_report_and_the_source_untouched() {
         created_at: 1,
     }];
     assert!(
-        absent(&catalog, &layer, &aside).is_empty(),
+        absent(&catalog, &layer, &aside, false).is_empty(),
         "set aside, so no longer reported"
     );
 
@@ -455,7 +484,162 @@ fn a_record_set_aside_leaves_the_report_and_the_source_untouched() {
         release_group: "nothing-like-it".to_string(),
         ..aside[0].clone()
     }];
-    assert_eq!(absent(&catalog, &layer, &elsewhere).len(), 1);
+    assert_eq!(absent(&catalog, &layer, &elsewhere, false).len(), 1);
+}
+
+/// The layer after one browse of Miles Davis, for the report to read.
+fn browsed() -> Sources {
+    let mut layer = held();
+    let dir = sandbox("browsed");
+    run(
+        &shelf(),
+        &mut Canned {
+            answers: vec![Ok(PAGE_ONE.to_string()), Ok(PAGE_TWO.to_string())],
+            asked: Vec::new(),
+        },
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(false),
+    )
+    .expect("the pass ran");
+    layer
+}
+
+/// One decision on file: Bitches Brew, set aside.
+fn put_aside() -> aede_core::user::UserData {
+    aede_core::user::UserData {
+        set_aside: vec![aede_core::user::SetAside {
+            owner: aede_core::user::LOCAL_USER.to_string(),
+            release_group: "g2".to_string(),
+            title: "Bitches Brew".to_string(),
+            created_at: 1,
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn what_is_held_back_can_be_asked_for_and_says_why_it_was() {
+    // `--all` means what it means on every listing here: hold nothing back. The
+    // report holds back two quite different things — records MusicBrainz does
+    // not type as studio albums, and records the reader set aside — and one
+    // word lifts both, because they answer one question: *what am I not being
+    // shown*. Every row that comes back this way carries its reason; a row that
+    // reappeared unmarked would read as an ordinary missing album.
+    let layer = browsed();
+    let catalog = shelf();
+
+    // Two studio albums are credited and one is on the shelf, so the ordinary
+    // report has one row and the live record is not in it.
+    let ordinary = absent(&catalog, &layer, &[], false);
+    assert_eq!(ordinary.len(), 1);
+    assert_eq!(ordinary[0].known.title, "Bitches Brew");
+    assert!(
+        ordinary[0].held_back.is_none(),
+        "a row on the ordinary report is not held back by anything"
+    );
+
+    let all = absent(&catalog, &layer, &[], true);
+    let rows: Vec<(&str, Option<&str>)> = all
+        .iter()
+        .map(|a| (a.known.title.as_str(), a.held_back.as_deref()))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("Bitches Brew", None),
+            // MusicBrainz's own words, not a vocabulary of ours: the reader's
+            // next move is often to go and correct the type on the page where
+            // it is set.
+            ("Live-Evil", Some("Album · Live")),
+        ]
+    );
+
+    // The reader's own decision is the second reason, and reads as itself.
+    let user = put_aside();
+    assert!(
+        !absent(&catalog, &layer, &user.set_aside, false)
+            .iter()
+            .any(|a| a.known.title == "Bitches Brew"),
+        "set aside, so held back from the ordinary report"
+    );
+    let all = absent(&catalog, &layer, &user.set_aside, true);
+    let brew = all
+        .iter()
+        .find(|a| a.known.title == "Bitches Brew")
+        .expect("produced on request");
+    assert_eq!(brew.held_back.as_deref(), Some("set aside"));
+    assert!(brew.set_aside);
+
+    // And a record can be both, in which case both are said: naming one would
+    // answer half the question.
+    let both = vec![aede_core::user::SetAside {
+        owner: aede_core::user::LOCAL_USER.to_string(),
+        release_group: "g3".to_string(),
+        title: "Live-Evil".to_string(),
+        created_at: 1,
+    }];
+    let all = absent(&catalog, &layer, &both, true);
+    let live = all
+        .iter()
+        .find(|a| a.known.title == "Live-Evil")
+        .expect("still there");
+    assert_eq!(live.held_back.as_deref(), Some("Album · Live, set aside"));
+}
+
+#[test]
+fn a_name_given_to_list_narrows_it_and_a_name_that_reaches_nothing_says_so() {
+    // `aede missing "MIKA" --list` used to list every decision on file and say
+    // nothing at all about the word — the fourth time a command here swallowed
+    // its argument. The matching lives in `fetch::reaches`, which is what makes
+    // this the same behaviour as every other listing rather than a fourth
+    // private copy of it.
+    let layer = browsed();
+    let catalog = shelf();
+    let user = put_aside();
+
+    let all = aside_rows(&catalog, &layer, &user, &[]);
+    assert_eq!(all.len(), 1, "no name given, so nothing is narrowed away");
+
+    // By title, and by the artist the row belongs to — the second only works
+    // because the artist is resolved rather than left off the row.
+    let by_title = aside_rows(&catalog, &layer, &user, &["brew".to_string()]);
+    assert_eq!(by_title.len(), 1);
+    let by_artist = aside_rows(&catalog, &layer, &user, &["miles".to_string()]);
+    assert_eq!(by_artist.len(), 1);
+    assert!(
+        aside_rows(&catalog, &layer, &user, &["mika".to_string()]).is_empty(),
+        "a name that reaches nothing narrows to nothing, and the command says \
+         so rather than listing everything"
+    );
+}
+
+#[test]
+fn a_set_aside_row_names_the_artist_it_belongs_to() {
+    // Kept on nothing: a set-aside is keyed on the release group, which is
+    // globally unique, so the artist is derived from the discography that named
+    // it. "Sweet Dreams" on its own tells a reader nothing about whose decision
+    // they are looking at.
+    let layer = browsed();
+    let catalog = shelf();
+    assert_eq!(whose(&catalog, &layer, "g2"), "Miles Davis");
+
+    // And a decision whose discography has since been forgotten still shows:
+    // an undone fetch must not erase a choice the reader made.
+    assert_eq!(whose(&catalog, &Sources::default(), "g2"), "");
+    let user = aede_core::user::UserData {
+        set_aside: vec![aede_core::user::SetAside {
+            owner: aede_core::user::LOCAL_USER.to_string(),
+            release_group: "nobody-knows".to_string(),
+            title: "Sweet Dreams".to_string(),
+            created_at: 1,
+        }],
+        ..Default::default()
+    };
+    let rows = aside_rows(&catalog, &layer, &user, &[]);
+    assert_eq!(rows.len(), 1, "the row survives the artist being unknown");
+    assert_eq!(rows[0].1, "");
 }
 
 #[test]
