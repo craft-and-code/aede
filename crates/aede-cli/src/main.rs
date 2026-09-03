@@ -109,6 +109,7 @@ fn main() {
         "size",
         "images",
         "country",
+        "identify",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -268,7 +269,7 @@ fn main() {
         ),
         (
             "full",
-            &["scan", "check", "spectrum", "fetch"],
+            &["scan", "check", "spectrum", "fetch", "fingerprint"],
             "ignore what was already done",
         ),
         (
@@ -282,6 +283,11 @@ fn main() {
             "browse everything credited to an artist",
         ),
         ("covers", &["fetch"], "look for missing cover art"),
+        (
+            "identify",
+            &["fetch"],
+            "ask what the fingerprinted files sound like",
+        ),
         ("size", &["fetch"], "choose how large an image to keep"),
         (
             "images",
@@ -314,7 +320,14 @@ fn main() {
         ("extras", &["copy"], "choose what travels beside the audio"),
         (
             "dry-run",
-            &["copy", "spectrum", "playlist", "fetch", "extract"],
+            &[
+                "copy",
+                "spectrum",
+                "playlist",
+                "fetch",
+                "extract",
+                "fingerprint",
+            ],
             "say what it would do without doing it",
         ),
         (
@@ -519,6 +532,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("fetch", None, commands::fetch),
     ("missing", None, commands::missing),
     ("extract", Some("artwork"), commands::artwork),
+    ("fingerprint", None, commands::fingerprint),
     ("query", Some("find"), commands::query),
     ("collection", None, commands::collection),
     ("collections", None, commands::collections),
@@ -797,6 +811,15 @@ fn print_help() {
                        document with the keys and nothing filled in, --import
                        <file> takes one back, --export writes out what is held
                        (both through --output, or to the terminal)
+  fingerprint [folder…] Work out what each file's audio is, by decoding it.
+                       The local half of identifying by sound: it touches no
+                       network and stores what it computes in the catalog, so
+                       it is never computed twice. By default only the files
+                       your tags cannot identify — no title, or no artist —
+                       since decoding a well-tagged library is hours of work
+                       to confirm what the tags say. --full takes everything.
+                       Needs ffmpeg built with chromaprint, or fpcalc; it says
+                       which, and how to install either
   extract [folder…]    Write the picture your files already carry into their
                        own folder, as cover.jpg. No network: it comes out of
                        the audio files, whatever the format — FLAC, MP3, MP4,
@@ -938,6 +961,12 @@ fn print_help() {
   --full               Ignore the tag cache and re-read every file
                        (scan, check); on fetch, ask again about what is
                        already held
+  --identify           A second pass for fetch: ask AcoustID what the
+                       fingerprinted files sound like, and store the answer
+                       beside your tags. Needs an application key in
+                       AEDE_ACOUSTID_KEY, and aede fingerprint first. Nothing
+                       is ever written into an audio file: a file whose sound
+                       and whose tags disagree is reported, not rewritten
   --covers             A second pass for fetch: download the front image of
                        albums that have none, from the Cover Art Archive.
                        Downloads only — aede extract is what writes out the

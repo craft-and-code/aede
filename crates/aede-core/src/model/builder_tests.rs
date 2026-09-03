@@ -82,6 +82,7 @@ fn a_box_set_in_disc_folders_is_one_album() {
                 folder_cover: None,
                 sidecar: None,
                 integrity: None,
+                fingerprint: None,
             });
         }
     }
@@ -116,6 +117,7 @@ fn a_disc_folder_supplies_the_number_the_tags_forgot() {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         });
     }
     let c = build(files, vec!["/m".into()], 0);
@@ -143,6 +145,7 @@ fn two_editions_in_two_folders_are_still_two_albums() {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }
     };
     let c = build(

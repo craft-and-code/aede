@@ -297,6 +297,8 @@ pub enum Facts {
     Artist(ArtistFacts),
     /// About a release.
     Release(ReleaseFacts),
+    /// About one recorded performance, identified by its sound.
+    Track(TrackFacts),
 }
 
 impl Facts {
@@ -309,6 +311,7 @@ impl Facts {
         match self {
             Facts::Artist(_) => EntityKind::Artist,
             Facts::Release(_) => EntityKind::Release,
+            Facts::Track(_) => EntityKind::Track,
         }
     }
 
@@ -321,8 +324,41 @@ impl Facts {
         match self {
             Facts::Artist(a) => a == &ArtistFacts::default(),
             Facts::Release(r) => r == &ReleaseFacts::default(),
+            Facts::Track(t) => t == &TrackFacts::default(),
         }
     }
+}
+
+/// What a source says about one recorded performance.
+///
+/// **A recording, not a release.** AcoustID answers what is *playing*, and the
+/// same performance sits on the original album, the compilation and the
+/// deluxe reissue alike — so this identifies the track and says nothing about
+/// which pressing the file was ripped from, which the tags answer better.
+///
+/// Everything here arrives as [`Confidence::Matched`], never `Identified`: a
+/// fingerprint match is a strong guess and is wrong in ways that are easy to
+/// picture — two masterings of one recording fingerprint alike, and a very
+/// short or silent track matches a great deal. The score is kept so that a
+/// reader can see what they are being told.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TrackFacts {
+    /// The MusicBrainz recording identifier the source named.
+    pub recording: Option<String>,
+    /// How sure the source said it was, as a percentage.
+    ///
+    /// Rounded on the way in, from the fraction the service states. A
+    /// stored float compares badly — two records that are the same answer
+    /// would not be equal — and the difference between 98.12 % and 98 % is
+    /// one nobody acts on. What a reader wants is a number to put beside a
+    /// tag.
+    pub score: Option<u8>,
+    /// The title, as the source spells it.
+    pub title: Option<String>,
+    /// The artists credited, in the order given.
+    pub artists: Vec<String>,
+    /// One release group the recording appears on, when the source named one.
+    pub album: Option<String>,
 }
 
 /// One entity, as one source describes it.
@@ -685,6 +721,19 @@ pub fn to_json(sources: &Sources) -> Json {
             }
             let mut facts = Json::obj();
             match &r.facts {
+                Facts::Track(t) => {
+                    facts.set("recording", opt_str(&t.recording));
+                    facts.set(
+                        "score",
+                        match t.score {
+                            Some(per_cent) => u32::from(per_cent).into(),
+                            None => Json::Null,
+                        },
+                    );
+                    facts.set("title", opt_str(&t.title));
+                    facts.set("artists", strings(&t.artists));
+                    facts.set("album", opt_str(&t.album));
+                }
                 Facts::Artist(a) => {
                     facts.set("area", opt_str(&a.area));
                     facts.set("country_code", opt_str(&a.country_code));
@@ -858,6 +907,19 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 first_released: facts.and_then(|f| f.field_str("first_released")),
                 label: facts.and_then(|f| f.field_str("label")),
                 cover_art: facts.and_then(|f| f.field_str("cover_art")),
+            }),
+            EntityKind::Track => Facts::Track(TrackFacts {
+                recording: facts.and_then(|f| f.field_str("recording")),
+                // Read back as a percentage and clamped, so a hand-edited
+                // file cannot put 4000 % beside somebody's tags.
+                score: facts
+                    .and_then(|f| f.field_u32("score"))
+                    .map(|value| value.min(100) as u8),
+                title: facts.and_then(|f| f.field_str("title")),
+                artists: facts
+                    .map(|f| read_strings(f, "artists"))
+                    .unwrap_or_default(),
+                album: facts.and_then(|f| f.field_str("album")),
             }),
             _ => continue,
         };

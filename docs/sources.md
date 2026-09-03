@@ -335,6 +335,67 @@ An album already here is recognised by its **MusicBrainz release-group identifie
 
 So an artist is only considered when at least one album **of their own** is here — when they are the album artist of something on the shelf. What this reports is an *incomplete* discography, which means one that was started. The same rule decides who `fetch --discography` bothers to browse, so the pass does not spend a request a second on answers the report would never show.
 
+## Identifying a file by its sound
+
+Every other identifier in Aède comes out of the tags, so a badly tagged file cannot be identified at all: `track03.flac` with no title and no artist is invisible to MusicBrainz, because there is nothing to ask about. A **fingerprint** is computed from the decoded audio, so it answers for a file whose tags say nothing — and disagrees with one whose tags say the wrong thing.
+
+Two commands, and the split matters:
+
+```sh
+aede fingerprint                # decode and work out what the audio is
+aede fingerprint ~/Music/Rips   # only under these folders
+aede fingerprint --full         # every file, not just the nameless ones
+aede fetch --identify           # ask AcoustID what it hears
+```
+
+`fingerprint` decodes, which is minutes of work over a library. `--identify` asks, which is one small request per file. Folded into one command, a network pass that failed halfway would have to decode everything again to be retried.
+
+**Only the files that need it, by default.** Four things get a file skipped, and the sharpest is worth knowing:
+
+- it **already carries a MusicBrainz recording id** — which is exactly what a lookup would answer with. A file that has been through Picard has one, so for a well-tagged library this feature has almost nothing to do, and that is the correct outcome rather than a disappointment;
+- its tags name it (a title and an artist);
+- it has been fingerprinted before;
+- the catalog knows no length for it, and a lookup needs one.
+
+`--full` lifts the first three. That is how you find a rip whose tags look perfectly correct and are **wrong** — the one case nothing else in Aède can catch, and the one where you have to already suspect something.
+
+### When this is worth running, and when it is not
+
+**Worth it:** files that never went through a tagger — old rips, downloads, things off a friend's drive; and a folder you suspect is mislabelled, with `--full`.
+
+**Not worth it:** a library Picard has been over. Those files already hold the answer, and Aède reads it out of the tags.
+
+**And it will not help with an album MusicBrainz has never heard of.** AcoustID's index maps fingerprints *to MusicBrainz recordings*: if the record is not in MusicBrainz, no fingerprint will find it, because there is nothing on the other end to find. The two are not independent sources — the second is a different way in to the first.
+
+**What it needs.** Chromaprint, through either ffmpeg built with it — likely already installed, since Aède uses ffmpeg for spectrograms — or `fpcalc`. Neither is shipped or linked; a checkout without them builds and passes its tests, and the command says which to install. AcoustID also asks every program using it to register, so `--identify` needs a free key in `AEDE_ACOUSTID_KEY`. Aède ships none on purpose: a key inside an open-source program is a key every copy shares, and the quota with it.
+
+**It identifies. It never corrects.** What comes back is filed beside your tags and shown next to them by `aede sources`:
+
+```
+  Source              Field         Says                Your tags
+  ──────────────────  ────────────  ──────────────────  ───────────
+  acoustid · 97%      heard artist  Miles Davis         Miles Davis
+  acoustid · 97%      heard title   So What             Track 03  ✗
+```
+
+Nothing is written into an audio file, here or anywhere in Aède. That is not an apology: a fingerprint match is a strong guess and is wrong in ways that are easy to picture — two masterings of one recording fingerprint alike — so a program that rewrote tags on the strength of one would trade a library nobody has checked for a library nobody *can* check. It is stored as **matched**, never identified, with the score kept and shown, and what to do about a disagreement is your decision, made in your own tagger.
+
+### Comparing two files, and finding the copies
+
+A fingerprint is deterministic: the same audio always gives the same string. So two files that fingerprint alike **are the same recording**, whatever their tags say — and `aede doctor` reports it:
+
+```
+  ! the same audio — 2 files are the same recording (379.1 kB recoverable)
+      /music/Copie/track07.flac
+      /music/Original/01.flac
+```
+
+This is what a fingerprint buys beyond naming a file, and for a library kept over years it is worth more than the naming. The older duplicate check compares artist, title and duration, so it can only find copies whose *tags* already agree; two rips of one track filed under different names — or under none — are invisible to it and obvious here. Note the wording: **"the same audio", not "likely duplicate"**. One is a measurement, the other a guess, and a reader deciding whether to delete a file needs to know which they are looking at.
+
+Only fingerprinted files take part, so a library where nothing has been fingerprinted reports no identical audio. That is a silence, not a clean bill of health — `aede fingerprint --full` is what fills it in.
+
+**A recording, not a release.** AcoustID answers what is *playing*. The same performance sits on the album, the compilation and the reissue alike, so the answer names the track and says nothing about which pressing your file came from — which your tags answer better than any fingerprint could.
+
 ## What MusicBrainz does not have
 
 **No biography.** MusicBrainz is a database of identifiers and relationships, not of prose. What Aède reads today is what an artist lookup answers: type, area, formation and end dates, whether the group is still active, and the short `disambiguation` — "US industrial metal band" — which is written to tell two artists apart rather than to describe one.

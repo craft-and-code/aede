@@ -393,6 +393,7 @@ mod tests {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }
     }
 

@@ -44,6 +44,10 @@ pub struct ScannedFile {
     /// was reused unchanged. A freshly read file has none: it has to be checked
     /// again.
     pub integrity: Option<IntegrityRecord>,
+    /// Fingerprint carried over the same way, and dropped for the same reason:
+    /// a file that changed is different audio, and its old fingerprint
+    /// describes something that is no longer there.
+    pub fingerprint: Option<crate::fingerprint::Fingerprint>,
 }
 
 /// Assembles the graph from the files that were read.
@@ -129,6 +133,7 @@ impl Builder {
             tags: tags.fields.clone(),
             lyrics_path: item.sidecar.clone(),
             integrity: item.integrity.clone(),
+            fingerprint: item.fingerprint.clone(),
         };
         // Where the *release* lives, which is not always where the file does.
         // A box set laid out as `Album/Disc 1`, `Album/Disc 2` is one album:

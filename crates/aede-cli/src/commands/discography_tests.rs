@@ -97,6 +97,7 @@ fn library(albums: &[(&str, Option<&str>)]) -> Catalog {
                 folder_cover: None,
                 sidecar: None,
                 integrity: None,
+                fingerprint: None,
             }
         })
         .collect();
@@ -325,6 +326,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }],
         vec!["/music".to_string()],
         1,
@@ -392,6 +394,7 @@ fn an_artist_this_catalog_cannot_place_is_not_a_shelf_with_gaps() {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }],
         vec!["/music".to_string()],
         1,

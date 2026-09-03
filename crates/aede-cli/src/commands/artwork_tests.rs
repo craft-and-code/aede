@@ -34,6 +34,7 @@ fn library(dir: &std::path::Path, folders: &[(&str, bool)]) -> Catalog {
                 folder_cover: None,
                 sidecar: None,
                 integrity: None,
+                fingerprint: None,
             }
         })
         .collect();

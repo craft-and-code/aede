@@ -30,6 +30,7 @@ fn catalog_with(label: &str, date: &str) -> Catalog {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }],
         vec!["/music".to_string()],
         1,

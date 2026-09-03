@@ -172,6 +172,23 @@ fn confidence_label(confidence: Confidence) -> String {
 fn says(facts: &Facts) -> String {
     let mut parts: Vec<String> = Vec::new();
     match facts {
+        Facts::Track(t) => {
+            // What it heard, in the order somebody reads it: who, then what.
+            // The score leads nothing — it qualifies the rest, and a line
+            // opening with a number reads as a measurement of the file.
+            if !t.artists.is_empty() {
+                parts.push(t.artists.join(", "));
+            }
+            if let Some(title) = &t.title {
+                parts.push(title.clone());
+            }
+            if let Some(album) = &t.album {
+                parts.push(album.clone());
+            }
+            if let Some(score) = t.score {
+                parts.push(format!("{score}% sure"));
+            }
+        }
         Facts::Artist(a) => {
             if let Some(kind) = &a.kind {
                 parts.push(kind.clone());
@@ -553,6 +570,23 @@ fn address_of(record: &SourceRecord) -> Option<String> {
 ///
 /// A genre lives on the tracks, not on the artist, so "what do my files call
 /// this artist" is answered by the files they appear on.
+/// What one track's own file says under a tag.
+///
+/// Its own file, not its release's: a fingerprint answers for one recording,
+/// and comparing it with an album-level tag would put the wrong two things
+/// side by side.
+fn tags_of_track(catalog: &Catalog, entity: &EntityRef, tag: &str) -> Vec<String> {
+    let Some(id) = entity.resolve(catalog) else {
+        return Vec::new();
+    };
+    catalog
+        .track(id)
+        .and_then(|track| catalog.file(track.file_id))
+        .and_then(|file| file.tags.get(tag))
+        .cloned()
+        .unwrap_or_default()
+}
+
 fn tags_of_artist(catalog: &Catalog, entity: &EntityRef, tag: &str) -> Vec<String> {
     let Some(id) = entity.resolve(catalog) else {
         return Vec::new();
@@ -586,6 +620,45 @@ fn compared(
 ) -> Vec<(&'static str, String, Option<Verdict>)> {
     let mut rows: Vec<(&'static str, String, Option<Verdict>)> = Vec::new();
     match facts {
+        Facts::Track(t) => {
+            // Compared with the tags, which is the whole use of this: a file
+            // whose audio and whose tags disagree is what fingerprinting is
+            // for, and the panel is where the two sit side by side.
+            if !t.artists.is_empty() {
+                rows.push((
+                    "heard artist",
+                    t.artists.join(", "),
+                    Some(sources::verdict_set(
+                        &t.artists,
+                        &tags_of_track(catalog, entity, "artist"),
+                    )),
+                ));
+            }
+            if let Some(title) = &t.title {
+                rows.push((
+                    "heard title",
+                    title.clone(),
+                    Some(sources::verdict(
+                        title,
+                        tags_of_track(catalog, entity, "title")
+                            .first()
+                            .map(String::as_str),
+                    )),
+                ));
+            }
+            for (field, value) in [("heard on", &t.album), ("recording", &t.recording)] {
+                if let Some(value) = value {
+                    rows.push((field, value.clone(), None));
+                }
+            }
+            if let Some(score) = t.score {
+                // Shown, never hidden behind a threshold: a reader deciding
+                // whether to believe this needs the number the service gave,
+                // and a program that quietly dropped the weak matches would
+                // be making that decision for them.
+                rows.push((("how sure"), format!("{score}%"), None));
+            }
+        }
         Facts::Artist(a) => {
             // "country" was wrong: MusicBrainz calls this an *area*, and an
             // area is a country, a city or a region — "Seattle" is a valid

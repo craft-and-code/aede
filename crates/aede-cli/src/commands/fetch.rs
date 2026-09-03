@@ -222,6 +222,8 @@ enum Pass {
     Discography,
     /// The front image of every album that has none.
     Covers,
+    /// What AcoustID hears in the files that have been fingerprinted.
+    Identify,
 }
 
 impl Pass {
@@ -231,6 +233,7 @@ impl Pass {
             ("summaries", Pass::Summaries),
             ("discography", Pass::Discography),
             ("covers", Pass::Covers),
+            ("identify", Pass::Identify),
         ]
         .into_iter()
         .filter(|(flag, _)| args.has(flag))
@@ -244,6 +247,7 @@ impl Pass {
             Pass::Summaries => "--summaries",
             Pass::Discography => "--discography",
             Pass::Covers => "--covers",
+            Pass::Identify => "--identify",
         }
     }
 
@@ -312,6 +316,10 @@ fn second_passes(
             Pass::Covers => {
                 let catalog = catalog.as_ref().expect("a catalog was loaded for it");
                 super::covers::run(catalog, transport, backoff, held, path, asked)?;
+            }
+            Pass::Identify => {
+                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                super::identify::run(catalog, transport, backoff, held, path, asked)?;
             }
         }
     }
@@ -431,6 +439,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         offer_summaries(&held);
         offer_discography(&catalog, &held);
         offer_covers(&catalog, &held);
+        offer_identify(&catalog, &held);
         return Ok(());
     }
 
@@ -581,6 +590,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     offer_summaries(&held);
     offer_discography(&catalog, &held);
     offer_covers(&catalog, &held);
+    offer_identify(&catalog, &held);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
 }
@@ -616,6 +626,27 @@ fn offer_summaries(held: &sources::Sources) {
 }
 
 /// Names the cover pass, when there are albums without artwork.
+/// Names the identify pass, when files have been fingerprinted for it.
+///
+/// Offered only once a fingerprint exists, because the pass cannot do
+/// anything before that and naming it earlier would be an instruction with a
+/// missing step in it. `aede fingerprint` names this one on the line where it
+/// finishes, which is the other half of the handover.
+fn offer_identify(catalog: &aede_core::model::Catalog, held: &sources::Sources) {
+    let door = super::identify::waiting(catalog, held);
+    if door == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} fingerprinted and never asked about — \
+             aede fetch --identify asks AcoustID what they are",
+            ui::plural(door, "file")
+        ))
+    );
+}
+
 fn offer_covers(catalog: &aede_core::model::Catalog, held: &sources::Sources) {
     let door = super::covers::waiting(catalog, held);
     if door == 0 {

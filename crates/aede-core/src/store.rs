@@ -225,6 +225,15 @@ fn file_to_json(file: &AudioFile) -> Json {
         }
         o.set("integrity", integrity);
     }
+    // Absent rather than null when there is none: "never fingerprinted" and
+    // "fingerprinted, and it came out empty" are different states, and the
+    // second cannot happen because an empty fingerprint is refused.
+    if let Some(print) = &file.fingerprint {
+        let mut written = Json::obj();
+        written.set("data", print.data.clone().into());
+        written.set("seconds", u64::from(print.seconds).into());
+        o.set("fingerprint", written);
+    }
     o
 }
 
@@ -626,7 +635,20 @@ fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
         has_embedded_art: item.field_bool("has_embedded_art"),
         tags,
         integrity: integrity_from_json(item.get("integrity")),
+        fingerprint: fingerprint_from_json(item.get("fingerprint")),
     })
+}
+
+/// Reads back a stored fingerprint, or nothing.
+///
+/// A row missing either half is read as no fingerprint at all rather than as
+/// half of one: the pair is what a lookup needs, and a fingerprint with no
+/// length would be sent out as a duration of zero.
+fn fingerprint_from_json(value: Option<&Json>) -> Option<crate::fingerprint::Fingerprint> {
+    let value = value?;
+    let data = value.field_str("data").filter(|d| !d.is_empty())?;
+    let seconds = value.field_u32("seconds").filter(|s| *s > 0)?;
+    Some(crate::fingerprint::Fingerprint { data, seconds })
 }
 
 /// Reads back a stored verdict; an unknown state is treated as no verdict at
@@ -697,6 +719,7 @@ mod tests {
                 folder_cover: Some("/music/Miles Davis/Kind of Blue/cover.jpg".into()),
                 sidecar: Some("/music/Miles Davis/Kind of Blue/01 So What.lrc".into()),
                 integrity: None,
+                fingerprint: None,
             }],
             vec!["/music".into()],
             1_700_000_100,
@@ -799,6 +822,7 @@ mod tests {
                 folder_cover: None,
                 sidecar: None,
                 integrity: None,
+                fingerprint: None,
             }],
             vec!["/music".into()],
             0,

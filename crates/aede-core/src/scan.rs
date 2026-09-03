@@ -169,8 +169,10 @@ pub fn scan(
                     // changed to say so.
                     sidecar: sidecar_for(&sidecars, path),
                     // The file has not moved and has not changed, so what was
-                    // concluded about it still holds.
+                    // concluded about it still holds — both of the expensive
+                    // conclusions, the checksum verdict and the fingerprint.
                     integrity: old.integrity.clone(),
+                    fingerprint: old.fingerprint.clone(),
                 });
             }
             _ => to_read.push(path.clone()),
@@ -217,8 +219,10 @@ pub fn scan(
                                 folder_cover: cover_for(&folder_covers, &path),
                                 sidecar: sidecar_for(&sidecars, &path),
                                 // A file read again is a file that changed:
-                                // any earlier verdict is about other bytes.
+                                // any earlier verdict is about other bytes,
+                                // and so is any earlier fingerprint.
                                 integrity: None,
+                                fingerprint: None,
                             };
                             results.lock().unwrap_or_else(|e| e.into_inner()).push(file);
                         }

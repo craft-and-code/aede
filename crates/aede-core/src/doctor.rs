@@ -52,6 +52,13 @@ pub enum IssueKind {
     MissingDuration,
     /// Same artist and title heard again at a near-identical duration: the copies waste space.
     DuplicateTrack,
+    /// The same audio, proved by fingerprint rather than guessed from tags.
+    ///
+    /// Stronger than [`IssueKind::DuplicateTrack`] and it catches what that
+    /// cannot: two files whose tags say quite different things, or nothing at
+    /// all, and whose sound is the same recording. A tag-based guess has to
+    /// call itself "likely"; this one does not.
+    SameAudio,
     /// A whole album is present twice, in the same quality: one of the two copies is dead weight.
     DuplicateAlbum,
     /// The same album is kept in two encodings. Not a defect — worth knowing.
@@ -92,6 +99,7 @@ impl IssueKind {
             | IssueKind::Md5Mismatch => Severity::Error,
             IssueKind::MissingAlbum
             | IssueKind::DuplicateTrack
+            | IssueKind::SameAudio
             | IssueKind::DuplicateAlbum
             | IssueKind::IncompleteAlbum
             | IssueKind::MixedQuality
@@ -115,6 +123,11 @@ impl IssueKind {
             IssueKind::MissingTrackNumber => "missing track number",
             IssueKind::MissingDuration => "unreadable duration",
             IssueKind::DuplicateTrack => "likely duplicate",
+            // Not "likely": the audio is the same audio. The word is what
+            // separates this from the guess above it, and a reader deciding
+            // whether to delete a file needs to know which of the two they
+            // are looking at.
+            IssueKind::SameAudio => "the same audio",
             IssueKind::DuplicateAlbum => "album present twice",
             IssueKind::OtherEdition => "album kept in two encodings",
             IssueKind::Md5Mismatch => "audio does not match its MD5",
@@ -196,6 +209,7 @@ pub fn diagnose(catalog: &Catalog, sources: &crate::sources::Sources) -> Vec<Iss
     check_duplicate_albums(catalog, &mut issues);
     check_other_editions(catalog, &mut issues);
     check_duplicates(catalog, &mut issues);
+    check_same_audio(catalog, &mut issues);
     check_releases(catalog, &mut issues);
 
     issues.sort_by(|a, b| {
@@ -555,6 +569,46 @@ fn release_size(catalog: &Catalog, release_id: Id) -> u64 {
 ///
 /// The duration is decisive: without it, a live rendition would be reported as
 /// a duplicate of the studio version.
+/// Files whose fingerprints are identical: the same audio, whatever the tags
+/// say about it.
+///
+/// This is what a fingerprint buys beyond identifying a file, and it is worth
+/// more than the identification for a library somebody has been keeping for
+/// years: [`IssueKind::DuplicateTrack`] compares artist, title and duration,
+/// so it can only find copies whose *tags* already agree. Two rips of one
+/// track filed under different titles — or under none — are invisible to it
+/// and obvious here.
+///
+/// Only files that have been fingerprinted take part, which is what makes the
+/// report honest: a library where nothing has been fingerprinted reports no
+/// identical audio, and that is a silence rather than a clean bill of health.
+/// `aede fingerprint --full` is what fills it in.
+fn check_same_audio(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    let mut groups: BTreeMap<&str, Vec<&crate::model::AudioFile>> = BTreeMap::new();
+    for file in &catalog.files {
+        if let Some(print) = &file.fingerprint {
+            groups.entry(print.data.as_str()).or_default().push(file);
+        }
+    }
+    for (_, files) in groups {
+        if files.len() < 2 {
+            continue;
+        }
+        // Everything after the first is what could go, which is the number a
+        // reader is actually deciding about.
+        let wasted: u64 = files.iter().skip(1).map(|f| f.size).sum();
+        issues.push(Issue {
+            kind: IssueKind::SameAudio,
+            detail: format!(
+                "{} files are the same recording ({} recoverable)",
+                files.len(),
+                text::format_size(wasted)
+            ),
+            files: files.iter().map(|f| f.path.clone()).collect(),
+        });
+    }
+}
+
 fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
     let mut groups: BTreeMap<(String, String), Vec<(Id, u64)>> = BTreeMap::new();
 

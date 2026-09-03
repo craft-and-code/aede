@@ -9,6 +9,7 @@
 //! specifications; `lofty` is the single dependency, and covers the long tail
 //! of containers that do not deserve a parser of their own.
 
+pub mod acoustid;
 pub mod analysis;
 pub mod artwork;
 pub mod audit;
@@ -22,6 +23,7 @@ pub mod copy;
 pub mod coverart;
 pub mod doctor;
 pub mod ffmpeg;
+pub mod fingerprint;
 #[cfg(feature = "fetch")]
 pub mod http;
 pub mod model;

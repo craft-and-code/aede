@@ -31,6 +31,7 @@
 use std::collections::BTreeMap;
 
 use crate::audit;
+use crate::fingerprint;
 use crate::tags::AudioProperties;
 use crate::text;
 
@@ -128,6 +129,20 @@ pub struct AudioFile {
     /// reuses the entry keeps it and a scan that re-reads the file drops it —
     /// a modified file has to be checked again.
     pub integrity: Option<IntegrityRecord>,
+    /// The acoustic fingerprint of this file, once one has been computed.
+    ///
+    /// Beside the integrity verdict and for the same reason: both are Aède's
+    /// own conclusions about the **bytes**, worked out rather than fetched,
+    /// and both are expensive enough that recomputing them on every scan would
+    /// be unthinkable. So both travel with the file entry — a scan that reuses
+    /// the entry keeps them, a scan that re-reads the file drops them, because
+    /// a modified file is different audio and its old fingerprint describes
+    /// something that is no longer there.
+    ///
+    /// What AcoustID *says* when shown one is a different kind of thing —
+    /// somebody else's claim — and lives in `sources.json` with every other
+    /// source's.
+    pub fingerprint: Option<fingerprint::Fingerprint>,
 }
 
 /// An integrity verdict, with what produced it.
@@ -417,6 +432,7 @@ pub(crate) mod tests {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }
     }
 

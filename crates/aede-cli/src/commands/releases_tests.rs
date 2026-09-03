@@ -28,6 +28,7 @@ fn library(album: &str, artist: &str, ids: &[(&str, &str)]) -> Catalog {
             folder_cover: None,
             sidecar: None,
             integrity: None,
+            fingerprint: None,
         }],
         vec!["/music".to_string()],
         1,

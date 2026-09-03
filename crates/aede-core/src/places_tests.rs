@@ -28,6 +28,7 @@ fn library(artists: &[&str]) -> Catalog {
                 folder_cover: None,
                 sidecar: None,
                 integrity: None,
+                fingerprint: None,
             }
         })
         .collect();

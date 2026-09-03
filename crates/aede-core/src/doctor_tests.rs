@@ -25,6 +25,7 @@ fn file(path: &str, fields: &[(&str, &str)], duration: Option<u64>, codec: &str)
         folder_cover: None,
         sidecar: None,
         integrity: None,
+        fingerprint: None,
     }
 }
 
@@ -593,4 +594,75 @@ fn a_clean_analysis_adds_nothing_to_report() {
         "got: {:?}",
         diagnose(&c, &crate::sources::Sources::default())
     );
+}
+
+#[test]
+fn files_with_one_fingerprint_are_the_same_audio_whatever_their_tags_say() {
+    // What a fingerprint buys beyond identifying a file, and worth more than
+    // the identification for a library somebody has kept for years: the
+    // tag-based duplicate check compares artist, title and duration, so it
+    // only finds copies whose *tags* already agree. Two rips of one track
+    // filed under different names are invisible to it.
+    let mut catalog = model::build(
+        vec![
+            file(
+                "/m/Miles/01.flac",
+                &[
+                    ("title", "So What"),
+                    ("artist", "Miles Davis"),
+                    ("album", "Kind of Blue"),
+                ],
+                Some(545_000),
+                "flac",
+            ),
+            file(
+                "/m/Rip/track03.flac",
+                &[("title", "Track 03"), ("album", "Unknown")],
+                Some(545_000),
+                "flac",
+            ),
+        ],
+        vec!["/m".into()],
+        0,
+    );
+    let print = crate::fingerprint::Fingerprint {
+        data: "AQAAcxUmUaEk".to_string(),
+        seconds: 545,
+    };
+    catalog.files[0].fingerprint = Some(print.clone());
+    catalog.files[1].fingerprint = Some(print);
+
+    let issues = diagnose(&catalog, &crate::sources::Sources::default());
+    let same: Vec<&Issue> = issues
+        .iter()
+        .filter(|i| i.kind == IssueKind::SameAudio)
+        .collect();
+    assert_eq!(same.len(), 1, "one report for the pair, not one each");
+    assert_eq!(same[0].files.len(), 2);
+    assert!(
+        same[0].detail.contains("2 files are the same recording"),
+        "{}",
+        same[0].detail
+    );
+    // Not "likely". The word is what separates this from the guess, and a
+    // reader deciding whether to delete a file needs to know which they have.
+    assert_eq!(IssueKind::SameAudio.label(), "the same audio");
+}
+
+#[test]
+fn a_library_nobody_has_fingerprinted_reports_no_identical_audio() {
+    // A silence, not a clean bill of health — and it must not be reported as
+    // one. Only files that have been fingerprinted take part.
+    let catalog = model::build(
+        vec![file(
+            "/m/Miles/01.flac",
+            &[("title", "So What"), ("artist", "Miles Davis")],
+            Some(545_000),
+            "flac",
+        )],
+        vec!["/m".into()],
+        0,
+    );
+    let issues = diagnose(&catalog, &crate::sources::Sources::default());
+    assert!(!issues.iter().any(|i| i.kind == IssueKind::SameAudio));
 }
