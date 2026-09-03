@@ -22,6 +22,13 @@
 //! fixed list. A country nobody on the shelf is from is not a country this
 //! program has an opinion about.
 //!
+//! The price of that, stated rather than discovered: MusicBrainz answers the
+//! **most specific area** it holds for an artist, which is usually a country
+//! and is sometimes a county or a city. A reader's shelf produced a row for
+//! *County Antrim*. These are the places the source named, and the listing says
+//! so; the ISO code is the only thing in the table that an authority assigned,
+//! which is why it has a column to itself.
+//!
 //! # Short forms, and where they are allowed to come from
 //!
 //! Nobody wants to type "United Kingdom". The temptation is a table of
@@ -33,7 +40,8 @@
 //! 1. the **name**, exactly: `united kingdom`;
 //! 2. the **ISO code** the source states: `gb`, `fr`, `us`;
 //! 3. the **initials** of a multi-word name: `uk`, `nz` — computed from the
-//!    name, so no country needs to be known about in advance;
+//!    name, so no country needs to be known about in advance, and offered only
+//!    where they name one place on this shelf — see `keep_usable_initials`;
 //! 4. any **substring** of the name: `kingdom`, `united`, which may reach
 //!    several and says so.
 //!
@@ -94,42 +102,52 @@ pub struct Place {
     pub key: String,
     /// The ISO code, lowercased, when any record carries one.
     ///
-    /// Absent for a country whose artists were all fetched before the code was
-    /// kept — the listing then shows the initials alone, which is honest: it
-    /// offers what it can actually match.
+    /// Absent for a place whose artists were all fetched before the code was
+    /// kept, and absent for a place MusicBrainz gave no code for. **This is
+    /// the only thing here that an authority assigned**, which is why it has a
+    /// column of its own: [`Place::initials`] beside it in one column made
+    /// `US` — the initials of "United States" — read as an ISO code, and made
+    /// a country with no code look like a country with no short form.
     pub code: Option<String>,
+    /// The initials of a multi-word name, when they name this place alone.
+    ///
+    /// Computed by [`countries`] over the whole set rather than from the name
+    /// on its own, because whether a short form is *usable* is a property of
+    /// the set: `keep_usable_initials` says what disqualifies one.
+    pub initials: Option<String>,
     /// The artists from there, in catalog order.
     pub artists: Vec<Id>,
 }
 
-impl Place {
-    /// The initials of a multi-word name: "United Kingdom" → `uk`.
-    ///
-    /// `None` for a one-word country, where the initial would be a single
-    /// letter matching half the world.
-    pub fn initials(&self) -> Option<String> {
-        let letters: String = self
-            .key
-            .split_whitespace()
-            .filter_map(|word| word.chars().next())
-            .collect();
-        (letters.chars().count() > 1).then_some(letters)
-    }
+/// The initials of a multi-word name: "United Kingdom" → `uk`.
+///
+/// `None` for a one-word name, where the initial would be a single letter
+/// matching half the world.
+fn derive_initials(key: &str) -> Option<String> {
+    let letters: String = key
+        .split_whitespace()
+        .filter_map(|word| word.chars().next())
+        .collect();
+    (letters.chars().count() > 1).then_some(letters)
+}
 
-    /// Every short form a reader may type for this country, for a listing to
-    /// show. Empty when the name is the only way in.
+impl Place {
+    /// Every short form a reader may type for this place. Empty when the name
+    /// is the only way in.
     ///
-    /// The code first: it is the one an authority assigns. Initials second,
-    /// and left out when they repeat the code — `US` is both, and printing it
-    /// twice would look like two different things.
+    /// The code first: it is the one an authority assigns. There is no guard
+    /// here against the two being the same word — `US` is both the code and the
+    /// initials of "United States" — because `keep_usable_initials` has
+    /// already dropped initials that repeat their own place's code. Deduplicating
+    /// at the point of display would have meant deduplicating at every point of
+    /// display, and one of them was going to be forgotten: the table, which
+    /// shows the two in separate columns, duly printed `US` twice.
     pub fn short_forms(&self) -> Vec<String> {
         let mut out = Vec::new();
         if let Some(code) = &self.code {
             out.push(code.to_uppercase());
         }
-        if let Some(letters) = self.initials()
-            && self.code.as_deref() != Some(letters.as_str())
-        {
+        if let Some(letters) = &self.initials {
             out.push(letters.to_uppercase());
         }
         out
@@ -151,6 +169,7 @@ pub fn countries(catalog: &Catalog, held: &Sources) -> Vec<Place> {
             key: text::normalize(&name),
             name,
             code: None,
+            initials: None,
             artists: Vec::new(),
         });
         // One artist fetched since the code was kept is enough to give the
@@ -162,6 +181,7 @@ pub fn countries(catalog: &Catalog, held: &Sources) -> Vec<Place> {
         place.artists.push(artist.id);
     }
     let mut out: Vec<Place> = by_name.into_values().collect();
+    keep_usable_initials(&mut out);
     out.sort_by(|a, b| {
         b.artists
             .len()
@@ -169,6 +189,65 @@ pub fn countries(catalog: &Catalog, held: &Sources) -> Vec<Place> {
             .then(a.name.cmp(&b.name))
     });
     out
+}
+
+/// Gives each place its initials, but only where they name that place alone.
+///
+/// **Derived is not the same as usable.** The initials of a name are derived
+/// from it and invented by nobody, which is what the rule about short forms
+/// asks for — and it is not enough. MusicBrainz answers the most specific area
+/// it holds for an artist, so this list is not all countries: a reader's shelf
+/// produced a row for *County Antrim*, whose initials are `CA`, in a library
+/// that also holds Canadian artists. `--country CA` then meant two things, and
+/// the listing showed the collision as though it were a helpful abbreviation.
+///
+/// So initials are dropped when they would answer for anything else:
+///
+/// - when **two places** derive the same ones — neither may claim them;
+/// - when they are **some other place's ISO code** — the code was assigned by
+///   an authority and the initials by this function, and a tie between the two
+///   is not a tie;
+/// - when they are **this place's own code**, which is not a collision but a
+///   repetition: `US` is both, and a reader shown it in a `Code` column and an
+///   `Also` column reads two facts where there is one. Dropped here rather than
+///   where it is printed, because it was printed in three places and the third
+///   forgot.
+///
+/// A place that loses them keeps its name and its own code; nothing becomes
+/// unreachable, only unambiguous. And the collision is a property of *this*
+/// library: a shelf with no Canadian artist keeps `CA` for County Antrim,
+/// which is correct there and would be wrong to forbid on the strength of a
+/// world atlas this program does not hold.
+fn keep_usable_initials(places: &mut [Place]) {
+    let codes: std::collections::BTreeSet<String> =
+        places.iter().filter_map(|p| p.code.clone()).collect();
+    let mut derived: BTreeMap<String, usize> = BTreeMap::new();
+    for place in places.iter() {
+        if let Some(letters) = derive_initials(&place.key) {
+            *derived.entry(letters).or_insert(0) += 1;
+        }
+    }
+    for place in places.iter_mut() {
+        let Some(letters) = derive_initials(&place.key) else {
+            continue;
+        };
+        let shared = derived.get(&letters).is_some_and(|&n| n > 1);
+        let its_own_code = place.code.as_deref() == Some(letters.as_str());
+        let someone_elses_code = codes.contains(&letters) && !its_own_code;
+        if !shared && !someone_elses_code && !its_own_code {
+            place.initials = Some(letters);
+        }
+    }
+}
+
+/// How many of these places carry no ISO code.
+///
+/// The number behind the one message this listing owes a reader whose codes are
+/// all missing: the field is newer than their fetch, and nothing on screen says
+/// so — the column is simply empty, which reads as "this program has no codes"
+/// rather than "this catalog has not been asked since".
+pub fn without_code(places: &[Place]) -> usize {
+    places.iter().filter(|p| p.code.is_none()).count()
 }
 
 /// Every country a typed value reaches, and how it reached them.
@@ -190,7 +269,7 @@ pub fn find(places: &[Place], name: &str) -> (Vec<Place>, TitleMatch) {
     for by in [
         |p: &Place, key: &str| p.key == key,
         |p: &Place, key: &str| p.code.as_deref() == Some(key),
-        |p: &Place, key: &str| p.initials().as_deref() == Some(key),
+        |p: &Place, key: &str| p.initials.as_deref() == Some(key),
     ] {
         let found: Vec<Place> = places.iter().filter(|p| by(p, &key)).cloned().collect();
         if !found.is_empty() {

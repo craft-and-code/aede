@@ -911,7 +911,12 @@ pub fn list_countries(args: &Args) -> Res {
                 let (duration, size) = totals(&catalog, &tracks);
                 vec![
                     place.name.clone(),
-                    place.short_forms().join(" "),
+                    // Two fields, for the reason they are two columns: a
+                    // consumer that cannot tell the source's code from our
+                    // initials would have to guess, and would guess the way a
+                    // reader did.
+                    place.code.clone().unwrap_or_default(),
+                    place.initials.clone().unwrap_or_default(),
                     place.artists.len().to_string(),
                     tracks.len().to_string(),
                     duration.to_string(),
@@ -922,7 +927,8 @@ pub fn list_countries(args: &Args) -> Res {
         return export::rows_table(
             &[
                 "country",
-                "short_forms",
+                "iso_code",
+                "initials",
                 "artists",
                 "tracks",
                 "duration_ms",
@@ -942,16 +948,25 @@ pub fn list_countries(args: &Args) -> Res {
     }
 
     let max = places.first().map(|p| p.artists.len()).unwrap_or(0);
-    // The short forms are a column and not a footnote: they are what a reader
+    // The short forms are columns and not a footnote: they are what a reader
     // will type, and an accepted spelling shown nowhere is a spelling nobody
     // has — the same rule that makes `--role "album artist"` work.
+    //
+    // **Two columns, because they are two different things.** One column held
+    // the code and the initials together, and the result misled in exactly the
+    // way that matters: `US` is the initials of "United States", so a table
+    // whose codes were all missing still looked like a table of codes — and
+    // Canada, a one-word name with no initials to derive, looked like a
+    // country Aède had no short form for rather than one nobody had asked
+    // MusicBrainz about since the code was kept. What an authority assigned
+    // and what this program worked out have to be told apart on sight.
     let mut t = Table::new(&[
-        "Country", "Also", "Artists", "Tracks", "Duration", "Size", "",
+        "Country", "Code", "Also", "Artists", "Tracks", "Duration", "Size", "",
     ])
-    .align(2, Align::Right)
     .align(3, Align::Right)
     .align(4, Align::Right)
     .align(5, Align::Right)
+    .align(6, Align::Right)
     .limit(0, 40);
     let total = places.len();
     for place in places.iter().skip(window.offset).take(window.limit) {
@@ -959,7 +974,8 @@ pub fn list_countries(args: &Args) -> Res {
         let (duration, size) = totals(&catalog, &tracks);
         t.push(vec![
             place.name.clone(),
-            place.short_forms().join(" "),
+            place.code.clone().unwrap_or_default().to_uppercase(),
+            place.initials.clone().unwrap_or_default().to_uppercase(),
             place.artists.len().to_string(),
             tracks.len().to_string(),
             text::format_duration(duration),
@@ -969,12 +985,50 @@ pub fn list_countries(args: &Args) -> Res {
     }
     print!("{}", t.render());
     announce_window(window, total, "country");
+    what_these_places_are(&places);
     silent_about(
         &catalog,
         asked,
         places.iter().map(|p| p.artists.len()).sum(),
     );
     Ok(())
+}
+
+/// Says what this table is a table of, and what an empty `Code` cell means.
+///
+/// Two questions a reader had while looking at it, answered where they had
+/// them. The first: *why has Canada no ISO code when the United States has
+/// "US"?* — because `US` was never a code but the initials of the name, and
+/// the codes are missing altogether from a catalog fetched before Aède kept
+/// them. An empty column reads as "this program has no codes"; the truth is
+/// "this catalog has not been asked since", and only one of the two has a next
+/// step.
+///
+/// The second: *why is County Antrim in a list of countries?* — because
+/// MusicBrainz answers the most specific area it holds for an artist, and that
+/// is usually a country and sometimes a county. Said plainly rather than
+/// quietly filtered: dropping the row would be this program overruling the
+/// source about what it said, which is the one thing the whole attributed
+/// layer exists not to do.
+fn what_these_places_are(places: &[aede_core::places::Place]) {
+    let missing = aede_core::places::without_code(places);
+    if missing > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} with no ISO code: MusicBrainz gave none, or the artists were \
+                 fetched before Aède kept it — aede fetch --full asks again",
+                ui::plural(missing, "place")
+            ))
+        );
+    }
+    println!(
+        "  {}",
+        ui::dim(
+            "these are the areas MusicBrainz holds for your artists: usually a \
+             country, sometimes a county or a city"
+        )
+    );
 }
 
 /// What to say when the layer holds no country at all.

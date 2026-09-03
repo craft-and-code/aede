@@ -70,16 +70,25 @@ aede countries --csv --output=map.csv
 That has a visible consequence, and the commands say it rather than let you discover it:
 
 ```
-Countries (3 in total)
+Countries (4 in total)
 
-  Country         Also   Artists  Tracks  Duration      Size
-  ──────────────  ─────  ───────  ──────  ────────  ────────
-  France          FR           2       2      0:02   40.3 kB
-  United Kingdom  GB UK        1       1      0:01   20.1 kB
-  United States   US           1       4      0:04   80.6 kB
+  Country         Code  Also  Artists  Tracks  Duration      Size
+  ──────────────  ────  ────  ───────  ──────  ────────  ────────
+  France          FR              2       2      0:02   40.3 kB
+  United Kingdom  GB    UK        1       1      0:01   20.1 kB
+  United States   US              1       4      0:04   80.6 kB
+  County Antrim                   1       1      0:01   20.1 kB
+  1 place with no ISO code: MusicBrainz gave none, or the artists were fetched
+  before Aède kept it — aede fetch --full asks again
+  these are the areas MusicBrainz holds for your artists: usually a country,
+  sometimes a county or a city
   7 artists not asked about yet: aede fetch
   2 artists asked about, with no area on record
 ```
+
+**`Code` and `Also` are two different things, which is why they are two columns.** The code is the only thing in the table an authority assigned; the `Also` column is initials this program worked out from the name. Held in one column they misled in exactly the way that matters: `US` is the initials of "United States", so a table whose codes were all missing still looked like a table of codes — and Canada, a one-word name with nothing to derive, looked like a country Aède had no short form for rather than one nobody had asked MusicBrainz about since.
+
+**And `County Antrim` is not a mistake.** MusicBrainz answers the most specific area it holds for an artist, and that is usually a country and sometimes a county or a city. Aède lists what the source said: dropping the row would be this program overruling it, which is the one thing the whole attributed layer exists not to do. What it will not do is let that row borrow somebody else's short form — see below.
 
 Those two last lines are two different silences. **An artist nobody has asked about** and **an artist MusicBrainz has no area for** are not the same state, and a listing that dropped both without a word would have you counting rows and wondering. A library that has never fetched anything gets a third message again, naming the command that would fill it.
 
@@ -87,14 +96,18 @@ Those two last lines are two different silences. **An artist nobody has asked ab
 
 1. the **name**, exactly — `--country "united kingdom"`;
 2. the **ISO code** MusicBrainz states — `--country gb`, `--country fr`;
-3. the **initials** of a multi-word name — `--country uk`, `--country nz`, computed from the name, so no country has to be known about in advance;
+3. the **initials** of a multi-word name — `--country uk`, `--country nz`, computed from the name, so no country has to be known about in advance, and offered only where they name one place on *your* shelf;
 4. any **substring** — `--country kingdom`, `--country united`, which may reach several and says which.
 
 `USA`, `Royaume-Uni` and `Great Britain` are refused, and that is the intended answer rather than a gap: none is the source's name or its code, and a list of vernacular spellings has no bottom — whose, in which language, maintained by whom. The error names `aede countries`, which shows every form that works.
 
 There is likewise no table of countries: `aede countries` lists what your shelf actually holds, the same way `aede stats` lists the roles your files actually carry.
 
-A note on the codes: they were not always kept, so an artist fetched before this existed has a country but no code — the listing then offers the initials alone. One artist re-fetched is enough to give the whole country its code.
+**Derived is not the same as usable**, and step 3 is where that bites. `County Antrim` derives `CA`, which is Canada's ISO code; on a shelf holding Canadians, `--country CA` would have meant two things and the listing would have shown the collision as though it were a helpful abbreviation. So initials are dropped when they would answer for anything else: when two places derive the same ones, when they are some other place's code — a code an authority assigned beats initials this program worked out — and when they repeat their own place's code, where `US` in two columns reads as two facts. Nothing becomes unreachable: the name always works.
+
+The collision is a property of *your* library, not of a world atlas this program does not hold. A shelf with no Canadian artist keeps `CA` for County Antrim, which is correct there.
+
+A note on the codes: they were not always kept, so an artist fetched before this existed has a country but no code — the listing says how many, and `aede fetch --full` asks again. One artist re-fetched is enough to give the whole country its code.
 
 ## Listing albums rather than tracks
 

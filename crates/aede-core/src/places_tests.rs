@@ -208,7 +208,7 @@ fn a_short_form_is_derived_and_never_invented() {
         .iter()
         .find(|p| p.name == "United Kingdom")
         .expect("the United Kingdom");
-    assert_eq!(uk.initials().as_deref(), Some("uk"));
+    assert_eq!(uk.initials.as_deref(), Some("uk"));
     assert_eq!(uk.code.as_deref(), Some("gb"));
     assert_eq!(
         uk.short_forms(),
@@ -219,16 +219,21 @@ fn a_short_form_is_derived_and_never_invented() {
     // A one-word country has no initials: a single letter would match half
     // the world, so France is reachable by its code and its name alone.
     let france = all.iter().find(|p| p.name == "France").expect("France");
-    assert_eq!(france.initials(), None);
+    assert_eq!(france.initials, None);
     assert_eq!(france.short_forms(), vec!["FR".to_string()]);
 
     // Where the code and the initials are the same word, it is offered once:
-    // printing "US US" would look like two different things.
+    // printing "US US" would look like two different things. Dropped from the
+    // place rather than at the point of display, because there are three of
+    // those — this list, the table's two columns, and the machine output — and
+    // the one that was added last printed it twice.
     let us = all
         .iter()
         .find(|p| p.name == "United States")
         .expect("the United States");
+    assert_eq!(us.initials, None, "the code says it already");
     assert_eq!(us.short_forms(), vec!["US".to_string()]);
+    assert_eq!(find(&all, "us").0.len(), 1, "and it still answers to it");
 }
 
 #[test]
@@ -316,4 +321,105 @@ fn one_artist_fetched_since_the_code_was_kept_gives_the_whole_country_its_code()
     let (found, how) = find(&all, "fr");
     assert_eq!(found.len(), 1);
     assert_eq!(how, TitleMatch::Partial, "not offered, merely reached");
+}
+
+#[test]
+fn initials_are_not_offered_when_they_answer_for_somebody_else() {
+    // The fault, from a real shelf. MusicBrainz answers the most specific area
+    // it holds, so a Northern Irish artist put **County Antrim** in a list
+    // called Countries — and its initials are `CA`, in a library that also
+    // holds Canadians. `--country CA` then meant two things, and the listing
+    // showed the collision as though it were a helpful abbreviation.
+    //
+    // Derived is not the same as usable: initials are derived from the name and
+    // invented by nobody, which is what the rule about short forms asks for and
+    // is not enough on its own.
+    let catalog = library(&["Snow Patrol", "Neil Young", "Air"]);
+    let mut held = Sources::default();
+    says_with_code(
+        &mut held,
+        &catalog,
+        "Snow Patrol",
+        Some("County Antrim"),
+        None,
+    );
+    says_with_code(
+        &mut held,
+        &catalog,
+        "Neil Young",
+        Some("Canada"),
+        Some("CA"),
+    );
+    says_with_code(&mut held, &catalog, "Air", Some("France"), Some("FR"));
+
+    let all = countries(&catalog, &held);
+    let antrim = all
+        .iter()
+        .find(|p| p.name == "County Antrim")
+        .expect("the source said it, so it is listed");
+    assert_eq!(
+        antrim.initials, None,
+        "CA is Canada's code here, and a code an authority assigned beats \
+         initials this program worked out"
+    );
+    assert!(antrim.short_forms().is_empty());
+
+    // Canada keeps its own code, and `CA` names exactly one place again.
+    let (found, how) = find(&all, "ca");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].name, "Canada");
+    assert_eq!(how, TitleMatch::Exact);
+
+    // The row itself is never dropped: refusing to list what the source said
+    // would be this program overruling it, which is the one thing the whole
+    // attributed layer exists not to do. It is reachable by its name.
+    assert_eq!(find(&all, "county antrim").0.len(), 1);
+}
+
+#[test]
+fn two_places_deriving_the_same_initials_leave_them_to_neither() {
+    // No code involved: the collision is between two derivations, and picking
+    // one would be arbitrary in the way `find_releases` refuses to be.
+    let catalog = library(&["Air", "Portishead"]);
+    let mut held = Sources::default();
+    says(&mut held, &catalog, "Air", Some("South Africa"));
+    says(&mut held, &catalog, "Portishead", Some("South Australia"));
+
+    let all = countries(&catalog, &held);
+    for place in &all {
+        assert_eq!(
+            place.initials, None,
+            "{} may not claim the SA both derive",
+            place.name
+        );
+    }
+    // Still reachable by name, and `sa` now widens and says so rather than
+    // naming one of the two as though it had been asked for.
+    assert_eq!(find(&all, "south africa").0.len(), 1);
+    let (found, how) = find(&all, "sa");
+    assert!(found.is_empty(), "no longer an identifier: {found:?}");
+    assert_eq!(how, TitleMatch::Partial);
+}
+
+#[test]
+fn a_place_with_no_code_is_counted_so_the_listing_can_say_why() {
+    // An empty column reads as "this program has no codes". The truth is "this
+    // catalog has not been asked since the code was kept", and only one of the
+    // two has a next step — so the number behind the message is derived here
+    // rather than eyeballed from the table.
+    let catalog = library(&["Air", "Neil Young"]);
+    let mut held = Sources::default();
+    says(&mut held, &catalog, "Air", Some("France"));
+    says_with_code(
+        &mut held,
+        &catalog,
+        "Neil Young",
+        Some("Canada"),
+        Some("CA"),
+    );
+
+    let all = countries(&catalog, &held);
+    assert_eq!(all.len(), 2);
+    assert_eq!(without_code(&all), 1);
+    assert_eq!(without_code(&[]), 0);
 }
