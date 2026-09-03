@@ -126,6 +126,16 @@ impl Prose {
 pub struct ArtistFacts {
     /// Country or area of origin, as the source names it.
     pub area: Option<String>,
+    /// The same country as a two-letter code, when the source gives one.
+    ///
+    /// Kept **beside** the name rather than instead of it, because the source
+    /// states both and they answer different needs: `area` is what a reader
+    /// sees, the code is what they can type. It used to be read only as a
+    /// fallback for a missing name and otherwise dropped — a fact the source
+    /// had stated, thrown away because another field happened to be filled.
+    ///
+    /// ISO 3166-1 alpha-2, so the United Kingdom is `GB` and not `UK`.
+    pub country_code: Option<String>,
     /// Formation date: a year, or a fuller date when the source has one.
     pub began: Option<String>,
     /// When it ended, for a group that has.
@@ -677,6 +687,7 @@ pub fn to_json(sources: &Sources) -> Json {
             match &r.facts {
                 Facts::Artist(a) => {
                     facts.set("area", opt_str(&a.area));
+                    facts.set("country_code", opt_str(&a.country_code));
                     facts.set("began", opt_str(&a.began));
                     facts.set("ended", opt_str(&a.ended));
                     facts.set(
@@ -788,6 +799,11 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
         let facts = match entity.kind {
             EntityKind::Artist => Facts::Artist(ArtistFacts {
                 area: facts.and_then(|f| f.field_str("area")),
+                // Absent from every record written before this field existed,
+                // which is exactly what `Option` is for: those artists keep
+                // their country and simply cannot be reached by its code
+                // until the next fetch.
+                country_code: facts.and_then(|f| f.field_str("country_code")),
                 began: facts.and_then(|f| f.field_str("began")),
                 ended: facts.and_then(|f| f.field_str("ended")),
                 active: facts.and_then(|f| f.field_optional_bool("active")),

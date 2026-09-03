@@ -36,7 +36,7 @@ pub use annotate::{
 };
 pub use artist::show_artist;
 pub use artwork::artwork;
-pub use browse::{list_albums, list_artists, list_genres, list_labels, list_years};
+pub use browse::{list_albums, list_artists, list_countries, list_genres, list_labels, list_years};
 pub use check::check;
 pub use copy::copy;
 pub use discography::missing;

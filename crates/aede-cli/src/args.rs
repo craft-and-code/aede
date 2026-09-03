@@ -90,6 +90,10 @@ const VALUED_NAME: &[&str] = &[
     "label",
     "comment",
     "role",
+    // "united kingdom", "united states", "new zealand": a country is a name
+    // like any other, and demanding quotes for half of them is exactly what
+    // this list exists to avoid.
+    "country",
     "text",
     "from",
     "tag",

@@ -108,6 +108,7 @@ fn main() {
         "covers",
         "size",
         "images",
+        "country",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -227,6 +228,7 @@ fn main() {
             "leave compilations out",
         ),
         ("role", ROLE_COMMANDS, "filter by role"),
+        ("country", &["artists"], "filter by where an artist is from"),
         ("artist", ARTIST_COMMANDS, "narrow to one artist"),
         ("year", YEAR_COMMANDS, "narrow to one year"),
         ("genre", GENRE_COMMANDS, "filter by genre"),
@@ -452,6 +454,7 @@ const CSV_COMMANDS: &[&str] = &[
     "artists",
     "genres",
     "labels",
+    "countries",
     "years",
     "favourites",
     "notes",
@@ -528,6 +531,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("notes", None, commands::notes),
     ("history", None, commands::history),
     ("artists", None, commands::list_artists),
+    ("countries", None, commands::list_countries),
     ("albums", None, commands::list_albums),
     ("genres", None, commands::list_genres),
     ("genre", None, commands::show_genre),
@@ -591,6 +595,7 @@ const JSON_COMMANDS: &[&str] = &[
     "artists",
     "genres",
     "labels",
+    "countries",
     "years",
     "stats",
     "doctor",
@@ -607,6 +612,7 @@ const SORT_COMMANDS: &[&str] = &[
     "genres",
     "labels",
     "years",
+    "countries",
     "query",
     "collection",
 ];
@@ -671,6 +677,7 @@ const PAGING_COMMANDS: &[&str] = &[
     "artists",
     "genres",
     "labels",
+    "countries",
     "album",
     "artist",
     "track",
@@ -817,7 +824,13 @@ fn print_help() {
                        --dry-run only says what it would write
 
   artists              List of artists (--role composer, producer…,
-                       --sort tracks|name)
+                       --country france, --sort tracks|name)
+  countries            Where the artists on the shelf are from. Not a tag:
+                       there is no usable one for it, so the fact comes from
+                       MusicBrainz and this reads what aede fetch stored. An
+                       artist nobody has asked about has no country, and the
+                       listing says how many those are rather than leaving
+                       them out in silence
   albums               List of albums (--artist, --year, --genre, --label,
                        --comment, --compilations, --no-compilations).
                        --query narrows it by anything the grammar can say:
@@ -972,6 +985,13 @@ fn print_help() {
                        off every one
   --role <role>        On artists: who is credited that way.
                        On artist <name>: what they did in that role.
+  --country <name>     On artists: where they are from, as MusicBrainz says.
+                       Not from a tag — there is no usable one — so it reads
+                       what aede fetch stored, and an artist nobody has asked
+                       about is not in the answer. A name, not a code:
+                       --country france, --country 'united kingdom'. One word
+                       reaching several countries covers all of them and says
+                       so. Run aede countries for the list.
   --album <title>      Of one album (track)
   --with <name>        The tracks two artists share (artist)
   --severity <level>   error, warning or info (doctor)

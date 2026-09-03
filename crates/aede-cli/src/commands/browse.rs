@@ -1,4 +1,4 @@
-//! Flat listings: artists, albums, genres, labels, years.
+//! Flat listings: artists, albums, genres, labels, years, countries.
 
 use aede_core::model::Id;
 use aede_core::stats;
@@ -185,6 +185,39 @@ pub fn list_artists(args: &Args) -> Res {
         None => None,
     };
 
+    // Held rather than printed on the spot: it belongs under the heading, and
+    // the heading is written further down. A note that arrives before the
+    // title of what it is about reads as an error.
+    let mut widened: Option<String> = None;
+    // Where they are from — the one filter here whose data is not in the
+    // catalog. It comes from the attributed layer, so the error when nothing
+    // matches has to separate "no such country" from "you have never fetched",
+    // which are the same empty answer and different problems.
+    let from: Option<std::collections::BTreeSet<Id>> = match args.value("country") {
+        None => None,
+        Some(typed) => {
+            let held = super::sources_held(args)?;
+            let places = aede_core::places::countries(&catalog, &held);
+            let (found, how) = aede_core::places::find(&places, typed);
+            if found.is_empty() {
+                return Err(no_country(&catalog, &held, typed).into());
+            }
+            // A partial match reaching several countries covers all of them —
+            // `--country united` is both kingdoms — and says so, because a
+            // silent widening is a different question answered.
+            if how == aede_core::model::TitleMatch::Partial {
+                let names: Vec<&str> = found.iter().map(|p| p.name.as_str()).collect();
+                widened = Some(format!("\"{typed}\" matches {}", names.join(", ")));
+            }
+            Some(
+                found
+                    .iter()
+                    .flat_map(|p| p.artists.iter().copied())
+                    .collect(),
+            )
+        }
+    };
+
     // Whatever the options cannot say, the grammar can — the same addition
     // `albums` received, and the same rule: an artist is kept when any track
     // the expression matches is credited to them. The coarser question is a
@@ -220,6 +253,10 @@ pub fn list_artists(args: &Args) -> Res {
         .artists
         .iter()
         .filter(|a| match &in_role {
+            Some(ids) => ids.contains(&a.id),
+            None => true,
+        })
+        .filter(|a| match &from {
             Some(ids) => ids.contains(&a.id),
             None => true,
         })
@@ -292,13 +329,16 @@ pub fn list_artists(args: &Args) -> Res {
     // The unfiltered listing can say how many the library holds, because that
     // is what it is showing; the moment anything narrows it, the number has to
     // be the number of rows.
-    let narrowed = role.is_some() || matched.is_some();
+    let narrowed = role.is_some() || matched.is_some() || from.is_some();
     let heading = match (&role, narrowed) {
         (Some(role), _) => format!("Artists credited as {} ({})", role_label(role), rows.len()),
         (None, true) => format!("Artists ({} matching)", rows.len()),
         (None, false) => format!("Artists ({} in total)", catalog.artists.len()),
     };
     println!("{}", ui::section(&heading));
+    if let Some(note) = &widened {
+        println!("  {}", ui::dim(note));
+    }
     let mut t = Table::new(&["Artist", "Tracks", "Albums", "Duration", "Size"])
         .align(1, Align::Right)
         .align(2, Align::Right)
@@ -807,6 +847,237 @@ fn tracks_of_label(catalog: &aede_core::model::Catalog, label_id: Id) -> Vec<Id>
         .filter(|r| r.label_ids.contains(&label_id))
         .flat_map(|r| r.track_ids.iter().copied())
         .collect()
+}
+
+/// `aede countries`: where the artists on the shelf are from.
+///
+/// The first listing in this program built on something the catalog does not
+/// know. There is no usable tag for an artist's country — `RELEASECOUNTRY` is
+/// about a pressing, which is a different question answered wrongly — so the
+/// fact comes from MusicBrainz and lives in the attributed layer. See
+/// [`aede_core::places`].
+///
+/// The consequence is a state no other listing has, and the one this command
+/// spends most of its words on: **a library that has never fetched has no
+/// countries**, and an empty table there would read as a library of stateless
+/// musicians rather than as a question nobody has asked yet.
+pub fn list_countries(args: &Args) -> Res {
+    let catalog = load(args)?;
+    let held = super::sources_held(args)?;
+    let window = args.window(50)?;
+    let mut places = aede_core::places::countries(&catalog, &held);
+    let asked = aede_core::places::asked_about(&catalog, &held);
+
+    // `--albums` reads as "how many artists" here: a country is a bag of
+    // artists the way a genre is a bag of tracks, and the shared vocabulary is
+    // worth more than a seventh word nobody would guess.
+    const COUNTRY_ORDERS: &[Order] = &[
+        Order::Name,
+        Order::Albums,
+        Order::Tracks,
+        Order::Duration,
+        Order::Size,
+    ];
+    if let Some((by, descending)) = order(args, COUNTRY_ORDERS)? {
+        places.sort_by(|a, b| {
+            let weigh = |p: &aede_core::places::Place| {
+                let tracks = tracks_of_artists(&catalog, &p.artists);
+                let (duration, size) = totals(&catalog, &tracks);
+                (tracks.len(), duration, size)
+            };
+            let (at, ad, az) = weigh(a);
+            let (bt, bd, bz) = weigh(b);
+            match by {
+                Order::Name => a.key.cmp(&b.key),
+                Order::Albums => b.artists.len().cmp(&a.artists.len()),
+                Order::Tracks => bt.cmp(&at),
+                Order::Duration => bd.cmp(&ad),
+                Order::Size => bz.cmp(&az),
+                _ => std::cmp::Ordering::Equal,
+            }
+            // Ties by name, so that two runs over one library answer alike.
+            .then(a.key.cmp(&b.key))
+        });
+        if descending {
+            places.reverse();
+        }
+    }
+
+    if args.has("csv") || args.has("json") {
+        let table: Vec<Vec<String>> = places
+            .iter()
+            .map(|place| {
+                let tracks = tracks_of_artists(&catalog, &place.artists);
+                let (duration, size) = totals(&catalog, &tracks);
+                vec![
+                    place.name.clone(),
+                    place.short_forms().join(" "),
+                    place.artists.len().to_string(),
+                    tracks.len().to_string(),
+                    duration.to_string(),
+                    size.to_string(),
+                ]
+            })
+            .collect();
+        return export::rows_table(
+            &[
+                "country",
+                "short_forms",
+                "artists",
+                "tracks",
+                "duration_ms",
+                "size_bytes",
+            ],
+            &table,
+            args,
+        );
+    }
+
+    println!(
+        "{}",
+        ui::section(&format!("Countries ({} in total)", places.len()))
+    );
+    if places.is_empty() {
+        return nothing_to_show_from(&catalog, asked);
+    }
+
+    let max = places.first().map(|p| p.artists.len()).unwrap_or(0);
+    // The short forms are a column and not a footnote: they are what a reader
+    // will type, and an accepted spelling shown nowhere is a spelling nobody
+    // has — the same rule that makes `--role "album artist"` work.
+    let mut t = Table::new(&[
+        "Country", "Also", "Artists", "Tracks", "Duration", "Size", "",
+    ])
+    .align(2, Align::Right)
+    .align(3, Align::Right)
+    .align(4, Align::Right)
+    .align(5, Align::Right)
+    .limit(0, 40);
+    let total = places.len();
+    for place in places.iter().skip(window.offset).take(window.limit) {
+        let tracks = tracks_of_artists(&catalog, &place.artists);
+        let (duration, size) = totals(&catalog, &tracks);
+        t.push(vec![
+            place.name.clone(),
+            place.short_forms().join(" "),
+            place.artists.len().to_string(),
+            tracks.len().to_string(),
+            text::format_duration(duration),
+            text::format_size(size),
+            ui::bar(place.artists.len(), max, 20),
+        ]);
+    }
+    print!("{}", t.render());
+    announce_window(window, total, "country");
+    silent_about(
+        &catalog,
+        asked,
+        places.iter().map(|p| p.artists.len()).sum(),
+    );
+    Ok(())
+}
+
+/// What to say when the layer holds no country at all.
+///
+/// Two states wearing one empty table, and the difference is everything: a
+/// library nobody has fetched, and a library MusicBrainz simply has no area
+/// for. The first has a next step and the second does not, so they are two
+/// messages — the lesson `fetch --covers` had to be taught four times, applied
+/// here before it could be got wrong.
+fn nothing_to_show_from(catalog: &aede_core::model::Catalog, asked: usize) -> Res {
+    match asked {
+        0 => {
+            println!("  {}", ui::dim("nothing has been asked about yet"));
+            println!(
+                "  {}",
+                ui::dim(&format!(
+                    "a country is not in your tags: aede fetch asks MusicBrainz about \
+                     your {}",
+                    ui::plural(catalog.artists.len(), "artist")
+                ))
+            );
+        }
+        _ => {
+            println!("  {}", ui::dim("no country came back"));
+            println!(
+                "  {}",
+                ui::dim(&format!(
+                    "{} asked about, and MusicBrainz gave an area for none of them",
+                    ui::plural(asked, "artist")
+                ))
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The artists this listing could not place, and why — printed under the table
+/// for the same reason the cover pass prints its skips: a reader looking at a
+/// count wants to know what is *not* in it, and the answer differs between
+/// "never asked" and "asked, and there was no answer".
+fn silent_about(catalog: &aede_core::model::Catalog, asked: usize, placed: usize) {
+    let unasked = catalog.artists.len().saturating_sub(asked);
+    if unasked > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} not asked about yet: aede fetch",
+                ui::plural(unasked, "artist")
+            ))
+        );
+    }
+    let blank = asked.saturating_sub(placed);
+    if blank > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} asked about, with no area on record",
+                ui::plural(blank, "artist")
+            ))
+        );
+    }
+}
+
+/// Every track credited to any of these artists, once each.
+fn tracks_of_artists(catalog: &aede_core::model::Catalog, artists: &[Id]) -> Vec<Id> {
+    let mut tracks: std::collections::BTreeSet<Id> = Default::default();
+    for &artist in artists {
+        tracks.extend(catalog.tracks_of_artist(artist));
+    }
+    tracks.into_iter().collect()
+}
+
+/// What to say when `--country` matches nothing.
+///
+/// Three states, three sentences. "No such country" is the ordinary one, and
+/// the two others are the trap: a library that has never fetched holds no
+/// country whatever you type, and one that was fetched before this field
+/// existed holds none either. Answering all three with "no country matches
+/// France" would send a reader looking for a spelling mistake that is not
+/// there — the same fault `fetch --covers` printed for four states before it
+/// was taught to count them separately.
+fn no_country(
+    catalog: &aede_core::model::Catalog,
+    held: &aede_core::sources::Sources,
+    typed: &str,
+) -> String {
+    let asked = aede_core::places::asked_about(catalog, held);
+    if asked == 0 {
+        return format!(
+            "a country is not in your tags, and nothing here has been asked about.\n\
+             Run \"aede fetch\" to ask MusicBrainz about your {}.",
+            ui::plural(catalog.artists.len(), "artist")
+        );
+    }
+    let places = aede_core::places::countries(catalog, held);
+    if places.is_empty() {
+        return format!(
+            "{} asked about, and MusicBrainz gave an area for none of them.\n\
+             There is nothing to filter on yet.",
+            ui::plural(asked, "artist")
+        );
+    }
+    format!("no country matches \"{typed}\".\nRun \"aede countries\" for the list.")
 }
 
 #[cfg(test)]

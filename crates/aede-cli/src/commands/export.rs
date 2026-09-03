@@ -141,6 +141,7 @@ pub fn rows_table(header: &[&str], rows: &[Vec<String>], args: &Args) -> Res {
 const NUMERIC_COLUMNS: &[&str] = &[
     "tracks",
     "albums",
+    "artists",
     "discs",
     "year",
     "duration_ms",

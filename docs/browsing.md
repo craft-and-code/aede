@@ -46,6 +46,46 @@ Roles
 
 `main` and `album` are left out: every track and every release carries them by construction, so they say nothing. At M1, a role coming from MusicBrainz will work here without a line of code, because the list is read from the credits rather than fixed.
 
+## Where the artists are from
+
+```sh
+aede countries                        # the whole shelf, by country
+aede artists --country france         # who is from there
+aede artists --country united         # both kingdoms, and it says so
+aede countries --csv --output=map.csv
+```
+
+**This one is not built on your tags**, and it is the only listing that is not. There is no usable tag for an artist's country: `RELEASECOUNTRY` exists, but it is the country a *pressing* came out in, which answers a different question and answers this one wrongly — an American pressing of a French band is not an American band. So the fact comes from MusicBrainz, and it is there only for artists `aede fetch` has asked about.
+
+That has a visible consequence, and the commands say it rather than let you discover it:
+
+```
+Countries (3 in total)
+
+  Country         Also   Artists  Tracks  Duration      Size
+  ──────────────  ─────  ───────  ──────  ────────  ────────
+  France          FR           2       2      0:02   40.3 kB
+  United Kingdom  GB UK        1       1      0:01   20.1 kB
+  United States   US           1       4      0:04   80.6 kB
+  7 artists not asked about yet: aede fetch
+  2 artists asked about, with no area on record
+```
+
+Those two last lines are two different silences. **An artist nobody has asked about** and **an artist MusicBrainz has no area for** are not the same state, and a listing that dropped both without a word would have you counting rows and wondering. A library that has never fetched anything gets a third message again, naming the command that would fill it.
+
+**The short forms in the `Also` column are the ones that work**, and there is no table of synonyms anywhere in the program. Each is derived from the source or from the name itself, in four steps:
+
+1. the **name**, exactly — `--country "united kingdom"`;
+2. the **ISO code** MusicBrainz states — `--country gb`, `--country fr`;
+3. the **initials** of a multi-word name — `--country uk`, `--country nz`, computed from the name, so no country has to be known about in advance;
+4. any **substring** — `--country kingdom`, `--country united`, which may reach several and says which.
+
+`USA`, `Royaume-Uni` and `Great Britain` are refused, and that is the intended answer rather than a gap: none is the source's name or its code, and a list of vernacular spellings has no bottom — whose, in which language, maintained by whom. The error names `aede countries`, which shows every form that works.
+
+There is likewise no table of countries: `aede countries` lists what your shelf actually holds, the same way `aede stats` lists the roles your files actually carry.
+
+A note on the codes: they were not always kept, so an artist fetched before this existed has a country but no code — the listing then offers the initials alone. One artist re-fetched is enough to give the whole country its code.
+
 ## Listing albums rather than tracks
 
 The grammar evaluates over **tracks**, because that is the finer question and

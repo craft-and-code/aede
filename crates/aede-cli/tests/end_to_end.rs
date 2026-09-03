@@ -4568,3 +4568,93 @@ fn each_cover_command_points_at_the_other_where_it_gives_up() {
     // unit tests, where `covers::reasons` hands back its wording without a
     // library that carries embedded artwork having to be built here.
 }
+
+#[test]
+fn a_country_comes_from_the_layer_and_says_so_when_there_is_none() {
+    // The first listing built on something the catalog does not know. Its two
+    // hard cases are not the happy one: a library nobody has fetched, and a
+    // library fetched with no area on record, are the same empty table and
+    // two different problems.
+    let sandbox = Sandbox::new("countries");
+    let root = library();
+    let (_, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "the scan must succeed. stderr: {err}");
+
+    // Nothing fetched: not an empty listing, a question nobody has asked.
+    let (out, _, ok) = sandbox.run(&["countries"]);
+    assert!(ok);
+    assert!(
+        out.contains("nothing has been asked about yet"),
+        "an empty table here would read as a library of stateless musicians: {out}"
+    );
+    assert!(
+        out.contains("aede fetch"),
+        "and it names the way out: {out}"
+    );
+
+    // And the filter refuses in the same terms rather than blaming a spelling.
+    let (_, err, ok) = sandbox.run(&["artists", "--country", "france"]);
+    assert!(!ok, "it cannot answer, so it must not pretend to");
+    assert!(
+        err.contains("not in your tags") && err.contains("aede fetch"),
+        "stderr: {err}"
+    );
+
+    // Now file an area against one artist, exactly as a fetch would.
+    let (template, _, ok) = sandbox.run(&["sources", "--template"]);
+    assert!(
+        ok,
+        "the template is how a value is loaded without a network"
+    );
+    let filled = template.replacen("\"area\": null", "\"area\": \"United States\"", 1);
+    let path = sandbox.dir.join("filled.json");
+    std::fs::write(&path, filled).expect("written");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", path.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, _, ok) = sandbox.run(&["countries"]);
+    assert!(ok);
+    assert!(out.contains("United States"), "{out}");
+    // What is *not* in the count is said under it. The template asked about
+    // every artist, so the line that applies is the second of the two —
+    // "asked, and there was no area" — which is precisely the state a single
+    // sentence for both would have hidden.
+    assert!(out.contains("with no area on record"), "{out}");
+
+    // The filter now matches, and the heading counts the rows rather than the
+    // library — a heading that contradicts its own table is the bug this
+    // pins.
+    let (out, _, ok) = sandbox.run(&["artists", "--country", "united states"]);
+    assert!(ok);
+    assert!(out.contains("matching"), "{out}");
+
+    // A short form works, and it is derived rather than looked up in a table
+    // of synonyms this program would have had to invent and maintain.
+    let (out, _, ok) = sandbox.run(&["artists", "--country", "us"]);
+    assert!(ok, "the initials of a two-word name reach it");
+    assert!(out.contains("matching"), "{out}");
+
+    // And the listing shows the forms it accepts, because a spelling that
+    // works and is displayed nowhere is a spelling nobody has.
+    let (out, _, _) = sandbox.run(&["countries"]);
+    assert!(out.contains("US"), "the short form is a column: {out}");
+
+    // "USA" is neither the source's name nor its code, so it is refused —
+    // the intended answer, not a gap — and the error names the listing.
+    let (_, err, ok) = sandbox.run(&["artists", "--country", "USA"]);
+    assert!(!ok);
+    assert!(err.contains("aede countries"), "stderr: {err}");
+
+    // An unknown country is a third message again, and names the listing.
+    let (_, err, ok) = sandbox.run(&["artists", "--country", "belgium"]);
+    assert!(!ok);
+    assert!(err.contains("aede countries"), "stderr: {err}");
+
+    // The option is refused where it means nothing, like every other filter.
+    let (_, err, ok) = sandbox.run(&["albums", "--country", "france"]);
+    assert!(!ok);
+    assert!(
+        err.contains("--country applies to artists"),
+        "stderr: {err}"
+    );
+}

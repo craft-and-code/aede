@@ -247,6 +247,7 @@ fn a_round_trip_keeps_every_field() {
         confidence: Confidence::Identified,
         facts: Facts::Artist(ArtistFacts {
             area: Some("United States".to_string()),
+            country_code: Some("US".to_string()),
             began: Some("1926-05-26".to_string()),
             ended: Some("1991-09-28".to_string()),
             active: Some(false),

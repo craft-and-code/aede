@@ -235,12 +235,16 @@ fn score_of(value: &Json) -> u8 {
 fn artist_facts(row: &Json) -> ArtistFacts {
     let life = row.get("life-span");
     ArtistFacts {
-        // `country` is a code, `area.name` is the name a reader wants. Prefer
-        // the name, fall back to the code rather than losing the fact.
+        // `country` is a code, `area.name` is the name a reader wants. Both
+        // are kept: the name is what a listing shows, the code is what
+        // somebody types. Preferring one and discarding the other threw away
+        // a fact the source had stated — and it was the short one, which is
+        // the half a reader reaches for.
         area: row
             .get("area")
             .and_then(|a| field(a, "name"))
             .or_else(|| field(row, "country")),
+        country_code: field(row, "country"),
         began: life.and_then(|l| field(l, "begin")),
         // An artist that has not ended has no end date, and a `life-span` may
         // carry `ended: false` with no `end`.
