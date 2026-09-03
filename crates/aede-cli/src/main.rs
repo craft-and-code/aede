@@ -778,23 +778,19 @@ fn print_help() {
                        to keep (1200 by default), --images downloads the back,
                        the booklet and the disc as well into an artwork/
                        subfolder, and --dry-run lists what would be asked for
+                       Any of the three second passes below may be given
+                       together — aede fetch --covers --discography runs both,
+                       one after the other. Each takes names, like fetch
+                       itself: aede fetch --discography 'pink floyd' browses
+                       that artist alone, and a list of names is fine. They always run in the order they
+                       are listed here, whatever order you type them in, since
+                       they go out from the artist: who they are, what they
+                       recorded, what the records look like.
                        --summaries is a second pass, over what fetch already
                        stored: it follows the wikidata link to a Wikipedia
                        article and keeps its opening paragraph, with the page
                        and the licence that text is under. Two more requests
                        per artist, which is why it is asked for
-  missing [name…]      Studio albums MusicBrainz credits to your artists that
-                       this catalog does not hold. Nothing is fetched here:
-                       the answer is worked out from what fetch
-                       --discography already stored, so an album stops being
-                       listed the day you add it. Singles, live records and
-                       compilations are left out.
-                       MusicBrainz is sometimes wrong about what an album is —
-                       a demo or a compilation nobody has typed as one — so
-                       --forget <title> sets a record aside and stops listing
-                       it, --list shows what you set aside, and --forget
-                       --remove <title> puts it back. What the source said is
-                       never altered: only what you are shown
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
@@ -831,6 +827,18 @@ fn print_help() {
                        artist nobody has asked about has no country, and the
                        listing says how many those are rather than leaving
                        them out in silence
+  missing [name…]      Studio albums MusicBrainz credits to your artists that
+                       this catalog does not hold. Nothing is fetched here:
+                       the answer is worked out from what fetch
+                       --discography already stored, so an album stops being
+                       listed the day you add it. Singles, live records and
+                       compilations are left out.
+                       MusicBrainz is sometimes wrong about what an album is —
+                       a demo or a compilation nobody has typed as one — so
+                       --forget <title> sets a record aside and stops listing
+                       it, --list shows what you set aside, and --forget
+                       --remove <title> puts it back. What the source said is
+                       never altered: only what you are shown
   albums               List of albums (--artist, --year, --genre, --label,
                        --comment, --compilations, --no-compilations).
                        --query narrows it by anything the grammar can say:

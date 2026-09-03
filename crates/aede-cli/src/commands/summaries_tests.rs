@@ -8,6 +8,16 @@ use aede_core::json::Json;
 use aede_core::model::EntityKind;
 use aede_core::sources::{ArtistFacts, Confidence, Prose, Sources};
 
+/// The options a pass reads, as `fetch` gathers them.
+fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
+    crate::commands::fetch::Asked {
+        names: &[],
+        again,
+        dry_run: false,
+        size: crate::commands::covers::DEFAULT_SIZE,
+        images: false,
+    }
+}
 /// A transport that answers from canned text, and remembers what was asked.
 struct Canned {
     answers: Vec<Result<String, super::super::fetch::Refusal>>,
@@ -92,7 +102,7 @@ fn the_two_requests_go_through_wikidata_and_land_on_the_article() {
         &["en".to_string()],
         &mut layer,
         &path,
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -131,7 +141,7 @@ fn what_was_stored_is_on_disk_before_the_pass_ends() {
         &["en".to_string()],
         &mut layer,
         &path,
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -157,7 +167,7 @@ fn an_artist_with_no_wikidata_link_is_not_asked_about() {
         &["en".to_string()],
         &mut layer,
         &path,
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
     assert!(
@@ -183,7 +193,7 @@ fn an_entity_with_no_article_is_recorded_as_asked_and_empty() {
         &["en".to_string()],
         &mut layer,
         &path,
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -208,13 +218,21 @@ fn a_second_run_costs_nothing_unless_it_is_asked_to_do_it_again() {
         asked: Vec::new(),
     };
     let langs = ["en".to_string()];
-    run(&mut transport, &[], &langs, &mut layer, &path, false).expect("the first pass");
+    run(
+        &mut transport,
+        &[],
+        &langs,
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .expect("the first pass");
 
     let mut second = Canned {
         answers: Vec::new(),
         asked: Vec::new(),
     };
-    run(&mut second, &[], &langs, &mut layer, &path, false).expect("the second pass");
+    run(&mut second, &[], &langs, &mut layer, &path, &asked(false)).expect("the second pass");
     assert!(
         second.asked.is_empty(),
         "already answered, so not asked again"
@@ -224,7 +242,7 @@ fn a_second_run_costs_nothing_unless_it_is_asked_to_do_it_again() {
         answers: vec![Ok(ENTITY.to_string()), Ok(SUMMARY.to_string())],
         asked: Vec::new(),
     };
-    run(&mut third, &[], &langs, &mut layer, &path, true).expect("the third pass");
+    run(&mut third, &[], &langs, &mut layer, &path, &asked(true)).expect("the third pass");
     assert_eq!(third.asked.len(), 2, "--full asks again");
 }
 
@@ -245,7 +263,7 @@ fn a_failure_on_one_artist_does_not_end_the_pass() {
         &["en".to_string()],
         &mut layer,
         &path,
-        false,
+        &asked(false),
     )
     .expect("a failed lookup is reported, not fatal");
     assert_eq!(
@@ -277,7 +295,7 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
         &["en".to_string()],
         &mut layer,
         &path,
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
     assert_eq!(

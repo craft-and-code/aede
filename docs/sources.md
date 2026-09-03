@@ -115,6 +115,37 @@ Two labels are worth explaining, because both were wrong at first. **from** is M
 
 A record that waits is not a failure either: it describes something this catalog does not hold yet, and it is kept until it does.
 
+## The second passes, and running several at once
+
+`aede fetch` on its own asks MusicBrainz about your artists and albums. Three options ask a further question instead, over what that fetch already stored:
+
+```sh
+aede fetch --summaries      # the Wikipedia article behind each wikidata link
+aede fetch --discography    # everything MusicBrainz credits to each artist
+aede fetch --covers         # the front image of every album that has none
+```
+
+**Each of them takes names**, like `aede fetch` itself — one or several:
+
+```sh
+aede fetch --discography "pink floyd"
+aede fetch --covers manson portishead      # a list is fine
+aede fetch --summaries mika                # nothing here matches mika
+```
+
+A name reaches an artist by their name, and an album by its title **or** its artist — so `--covers manson` finds the records as well as the person. A name that reaches nothing says so, and says which of the two nothings it is: nobody here answers to it, or they do and the pass has already been run on them (`--full` asks again). The passes used to ignore the word entirely and run over the whole library.
+
+**They can be combined**, and then they run one after another:
+
+```sh
+aede fetch --covers --discography          # both, in one go
+aede fetch --summaries --discography --covers --dry-run
+```
+
+They always run in the order listed above, whatever order you type them in. That order is not arbitrary: the passes go outward from the artist — who they are, what they recorded, what the records look like — and running them the other way round would be asking about albums before the fetch that names them.
+
+This used to be three `return`s in a row, so `aede fetch --covers --discography` ran the covers and **dropped the discography without a word**. Nothing else in this program swallows an option it cannot honour; this one could be honoured and was not.
+
 ## Asking Wikipedia
 
 MusicBrainz holds no biography, but it holds the link to one. Following it is **an option on `fetch`**, not a command of its own:
@@ -251,6 +282,13 @@ Nothing is written into your audio files by any of this — not with `--images`,
 **What is not an image is not written.** A download that goes wrong — an error page, a redirect gone astray, a truncated transfer — arrives as bytes like any other. Those bytes are checked before anything reaches your folder, and anything that is not a JPEG or a PNG is refused. Writing an error page into a music folder under the name `cover.jpg` is silent corruption that surfaces months later, when something tries to display it.
 
 ## What is missing from the shelf
+
+`aede artist "<name>"` names it at the foot of the records, so the question does not have to be remembered:
+
+```
+  3 studio albums MusicBrainz credits to them and this shelf does not hold: aede missing "Portishead"
+```
+
 
 MusicBrainz knows what your artists recorded. Comparing that with what you have is a wish list:
 

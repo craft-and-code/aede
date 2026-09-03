@@ -48,11 +48,25 @@ pub fn run(
     langs: &[String],
     held: &mut sources::Sources,
     path: &std::path::Path,
-    again: bool,
+    asked: &super::fetch::Asked,
 ) -> Res {
-    let targets = targets(held, again);
+    let (wanted, again) = (asked.names, asked.again);
+    let targets = targets(held, wanted, again);
     println!("{}", ui::section("Summaries"));
     if targets.is_empty() {
+        // A name that reached nothing is its own answer, and not the general
+        // one: telling somebody who typed a name to "run fetch first" sends
+        // them to re-run a pass that would have nothing to do either.
+        if !wanted.is_empty() {
+            println!(
+                "  {}",
+                ui::dim(&super::fetch::nothing_named(
+                    wanted,
+                    self::targets(held, wanted, true).len()
+                ))
+            );
+            return Ok(());
+        }
         println!(
             "  {}",
             ui::dim(
@@ -174,7 +188,7 @@ fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::
 /// possible, and an offer that counted differently from the run it offers is
 /// worse than no offer at all.
 pub fn waiting(held: &sources::Sources) -> usize {
-    targets(held, false).len()
+    targets(held, &[], false).len()
 }
 
 /// Who to ask about: artists MusicBrainz gave a Wikidata link for.
@@ -183,10 +197,15 @@ pub fn waiting(held: &sources::Sources) -> usize {
 /// the catalog does not hold it. An artist whose record has already been
 /// fetched is skipped unless `again`, for the reason `fetch` skips them: a
 /// second run should cost what changed.
-fn targets(held: &sources::Sources, again: bool) -> Vec<Target> {
+fn targets(held: &sources::Sources, wanted: &[String], again: bool) -> Vec<Target> {
     let mut targets = Vec::new();
     for record in &held.records {
         if record.source != sources::MUSICBRAINZ {
+            continue;
+        }
+        // The key is the artist's normalised name, and it is the only name
+        // this pass has: it never reads the catalog.
+        if !super::fetch::reaches(wanted, &[record.key.as_str()]) {
             continue;
         }
         let Facts::Artist(artist) = &record.facts else {

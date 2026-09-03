@@ -9,6 +9,16 @@ use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{Confidence, Sources};
 use aede_core::tags::RawTags;
 
+/// The options a pass reads, as `fetch` gathers them.
+fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
+    crate::commands::fetch::Asked {
+        names: &[],
+        again,
+        dry_run: false,
+        size: crate::commands::covers::DEFAULT_SIZE,
+        images: false,
+    }
+}
 /// A transport that answers from canned text, and remembers what was asked.
 struct Canned {
     answers: Vec<Result<String, Refusal>>,
@@ -118,7 +128,15 @@ fn a_discography_longer_than_a_page_is_asked_for_in_pages() {
         answers: vec![Ok(PAGE_ONE.to_string()), Ok(PAGE_TWO.to_string())],
         asked: Vec::new(),
     };
-    run(&shelf(), &mut transport, &[], &mut layer, &path, false).expect("the pass ran");
+    run(
+        &shelf(),
+        &mut transport,
+        &[],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .expect("the pass ran");
 
     assert_eq!(transport.asked.len(), 2, "asked: {:?}", transport.asked);
     assert!(
@@ -150,7 +168,15 @@ fn a_page_that_comes_back_empty_ends_the_walk() {
         ],
         asked: Vec::new(),
     };
-    run(&shelf(), &mut transport, &[], &mut layer, &path, false).expect("the pass ran");
+    run(
+        &shelf(),
+        &mut transport,
+        &[],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .expect("the pass ran");
     assert_eq!(transport.asked.len(), 2, "it stopped rather than looping");
 }
 
@@ -166,7 +192,15 @@ fn the_discography_joins_the_artists_record_and_does_not_replace_it() {
         answers: vec![Ok(PAGE_ONE.to_string()), Ok(PAGE_TWO.to_string())],
         asked: Vec::new(),
     };
-    run(&shelf(), &mut transport, &[], &mut layer, &path, false).expect("the pass ran");
+    run(
+        &shelf(),
+        &mut transport,
+        &[],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .expect("the pass ran");
 
     assert_eq!(layer.records.len(), 1, "one source, one row");
     match &layer.records[0].facts {
@@ -186,7 +220,7 @@ fn the_discography_joins_the_artists_record_and_does_not_replace_it() {
         answers: Vec::new(),
         asked: Vec::new(),
     };
-    run(&shelf(), &mut second, &[], &mut layer, &path, false).expect("the second pass");
+    run(&shelf(), &mut second, &[], &mut layer, &path, &asked(false)).expect("the second pass");
     assert!(
         second.asked.is_empty(),
         "already browsed, so not browsed again"
@@ -207,7 +241,7 @@ fn only_what_is_absent_and_a_studio_album_is_reported() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -241,7 +275,7 @@ fn a_shelf_is_recognised_by_title_when_the_tags_carry_no_identifier() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -271,7 +305,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -337,7 +371,7 @@ fn an_artist_this_catalog_cannot_place_is_not_a_shelf_with_gaps() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 
@@ -386,7 +420,7 @@ fn a_record_set_aside_leaves_the_report_and_the_source_untouched() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        false,
+        &asked(false),
     )
     .expect("the pass ran");
 

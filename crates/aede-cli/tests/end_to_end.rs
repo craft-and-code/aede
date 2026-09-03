@@ -4658,3 +4658,89 @@ fn a_country_comes_from_the_layer_and_says_so_when_there_is_none() {
         "stderr: {err}"
     );
 }
+
+#[test]
+fn an_artist_page_names_what_the_shelf_does_not_hold() {
+    // `aede missing` was in the help, in the README and in the manual, and
+    // still could not be found — it was named nowhere near the question it
+    // answers, which is asked while looking at one artist. The same fault
+    // `aede extract` had, and the same fix.
+    let sandbox = Sandbox::new("missing_on_page");
+    let root = library();
+    let (_, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "the scan must succeed. stderr: {err}");
+
+    // Nothing browsed yet: the page says nothing about it, because a line
+    // about a discography nobody has fetched is noise on a page that is
+    // about something else.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(
+        !out.contains("aede missing"),
+        "silent until there is something to name: {out}"
+    );
+
+    // File a discography against the artist, as `fetch --discography` would.
+    let (template, _, ok) = sandbox.run(&["sources", "--template"]);
+    assert!(ok);
+    let filled = template.replacen(
+        "\"discography\": []",
+        "\"discography\": [{\"mbid\": \"aaa\", \"title\": \"Milestones\", \
+         \"first_released\": \"1958\", \"primary_type\": \"Album\", \
+         \"secondary_types\": []}]",
+        1,
+    );
+    let path = sandbox.dir.join("filled.json");
+    std::fs::write(&path, filled).expect("written");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", path.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    // Now the page names the command, with the count and the artist's name
+    // already filled in — a reader should not have to work out the quoting.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("aede missing"), "{out}");
+    assert!(out.contains("1 studio album"), "{out}");
+
+    // And it sits under the artist's **own** discography, not at the foot of
+    // the page. It was printed after the last table, which is "Appears on" —
+    // so a line about the records that are theirs read as being about a table
+    // of records that are not. Where a note is put is part of what it says.
+    let discography = out.find("Discography").expect("the table");
+    let appears_on = out.find("Appears on").expect("the fixtures have a guest");
+    let named = out.find("aede missing").expect("the line");
+    assert!(
+        discography < named && named < appears_on,
+        "the line belongs between the two tables, not after both: {out}"
+    );
+
+    // And the command it names answers.
+    let (out, _, ok) = sandbox.run(&["missing", "Miles Davis"]);
+    assert!(ok);
+    assert!(out.contains("Milestones"), "{out}");
+}
+
+#[test]
+fn the_help_files_missing_with_the_listings_and_not_with_the_fetching() {
+    // It fetches nothing and reads as a report, but sat among the commands
+    // that go to the network because that is where it was written. A reader
+    // looking for "what am I missing" looks at the listings.
+    let sandbox = Sandbox::new("missing_in_help");
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+    let at = |needle: &str| {
+        out.find(needle)
+            .unwrap_or_else(|| panic!("{needle} in help"))
+    };
+    assert!(
+        at("  artists ") < at("  missing ") && at("  missing ") < at("  albums "),
+        "missing belongs between the artist and album listings"
+    );
+    // And it has left the block it was written in: the commands that go to
+    // the network are listed before the listings, and this one no longer sits
+    // among them.
+    assert!(
+        at("  missing ") > at("  fetch ") && at("  missing ") > at("  sources "),
+        "missing left the block of commands that reach the network"
+    );
+}

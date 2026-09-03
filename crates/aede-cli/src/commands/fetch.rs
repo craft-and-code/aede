@@ -133,6 +133,191 @@ const RETRY_AFTER: [std::time::Duration; 3] = [
     std::time::Duration::from_secs(15),
 ];
 
+/// The names typed after the command, normalised, or empty for the whole shelf.
+///
+/// Read once for the whole run and handed to every pass, because a name given
+/// to `aede fetch --discography mika` used to be **swallowed**: the pass ran
+/// over the entire library and nothing said the word had been ignored. That is
+/// the fault this program refuses everywhere else, and it was in four places
+/// at once — the ordinary fetch was the only half that read them.
+pub(super) fn names_given(args: &Args) -> Vec<String> {
+    args.positionals
+        .iter()
+        .map(|name| text::normalize(name))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// `true` when one of the names typed reaches this thing.
+///
+/// Empty means everything, which is what makes a bare `aede fetch --covers`
+/// the whole library. A name matches on **any** of the strings offered — for
+/// an album that is its title and its artist, so `--covers manson` finds the
+/// records as well as the person, exactly as the ordinary fetch does.
+///
+/// Matching is `contains` on the normalised form, the same rule as the
+/// ordinary fetch: a reader who types `pink` should not have to remember
+/// whether the band is filed as "Pink Floyd" or "The Pink Floyd Sound".
+pub(super) fn reaches(wanted: &[String], candidates: &[&str]) -> bool {
+    wanted.is_empty()
+        || candidates.iter().any(|candidate| {
+            let key = text::normalize(candidate);
+            wanted.iter().any(|w| key.contains(w.as_str()))
+        })
+}
+
+/// What to say when names were given and nothing came of them.
+///
+/// Three states again, and only the first two used to be told apart. "No such
+/// artist here" and "that artist is already done" are different problems with
+/// different next steps, and printing the general "run fetch first" for both
+/// sends somebody to re-run a pass that has nothing to do.
+pub(super) fn nothing_named(wanted: &[String], but_for_full: usize) -> String {
+    let names = wanted.join(", ");
+    match but_for_full {
+        0 => format!("nothing here matches {names}"),
+        _ => format!(
+            "{} matching {names}, already done: --full asks again",
+            ui::plural(but_for_full, "artist")
+        ),
+    }
+}
+
+/// What the reader asked for, gathered once and handed to every pass.
+///
+/// The passes grew one parameter at a time — a name, a size, `--images`,
+/// `--dry-run` — until the cover pass took nine, which is the point at which a
+/// signature stops being read and starts being counted. Bundling them also
+/// makes the three passes **the same shape**, so adding a fourth is a call
+/// that looks like the others rather than a new argument list to invent.
+///
+/// Fields nobody but one pass reads — `size`, `images` — sit here all the
+/// same: they are things the reader asked for, which is what this is.
+pub(super) struct Asked<'a> {
+    /// The names typed after the command; empty means the whole shelf.
+    pub names: &'a [String],
+    /// `--full`: ask again about what is already held.
+    pub again: bool,
+    /// `--dry-run`: say what would happen and do none of it.
+    pub dry_run: bool,
+    /// `--size`: how large an image to keep.
+    pub size: aede_core::coverart::Size,
+    /// `--images`: keep the pictures that are not the cover.
+    pub images: bool,
+}
+
+/// A pass `fetch` can be asked for instead of its ordinary run.
+///
+/// Each answers a different question, and any combination of them is allowed.
+/// What is **not** allowed is the typed order deciding anything: the passes go
+/// out from the artist — who they are, what they recorded, what the records
+/// look like — and running them the other way round would ask about albums
+/// before the fetch that names them. So the order is fixed here and the
+/// command says so when there is more than one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pass {
+    /// Wikipedia, through the wikidata link already in the layer.
+    Summaries,
+    /// Everything MusicBrainz credits to each artist.
+    Discography,
+    /// The front image of every album that has none.
+    Covers,
+}
+
+impl Pass {
+    /// The passes asked for, in the order they will run.
+    fn asked_for(args: &Args) -> Vec<Pass> {
+        [
+            ("summaries", Pass::Summaries),
+            ("discography", Pass::Discography),
+            ("covers", Pass::Covers),
+        ]
+        .into_iter()
+        .filter(|(flag, _)| args.has(flag))
+        .map(|(_, pass)| pass)
+        .collect()
+    }
+
+    /// The option that asks for it, for a message to name.
+    fn option(self) -> &'static str {
+        match self {
+            Pass::Summaries => "--summaries",
+            Pass::Discography => "--discography",
+            Pass::Covers => "--covers",
+        }
+    }
+
+    /// Whether it needs the catalog, which decides whether one is loaded.
+    ///
+    /// `--summaries` does not: its input is the wikidata link already stored,
+    /// and failing on a missing catalog would be a refusal with no reason
+    /// behind it. Loading one anyway "for symmetry" would break that.
+    fn needs_the_catalog(self) -> bool {
+        self != Pass::Summaries
+    }
+}
+
+/// Runs the passes asked for, in order, stopping at the first that cannot go on.
+///
+/// A pass returning `Err` means it could not do its work at all — the layer
+/// could not be written, an option was unusable. Individual requests that fail
+/// are counted inside each pass and do not stop the next one, which is the
+/// distinction that lets a run over a large library survive a bad afternoon.
+fn second_passes(
+    passes: &[Pass],
+    args: &Args,
+    transport: &mut dyn Ask,
+    backoff: &[std::time::Duration],
+    held: &mut sources::Sources,
+    path: &std::path::Path,
+    asked: &Asked,
+) -> Res {
+    // The order is not the typed one, so it is stated rather than left to be
+    // inferred from the order the sections happen to come out in.
+    if passes.len() > 1 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} in this order: {}",
+                ui::plural(passes.len(), "pass"),
+                passes
+                    .iter()
+                    .map(|p| p.option())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        );
+    }
+
+    // Loaded once for the whole run, and only if something needs it.
+    let catalog = match passes.iter().any(|p| p.needs_the_catalog()) {
+        true => Some(super::load(args)?),
+        false => None,
+    };
+    for pass in passes {
+        match pass {
+            Pass::Summaries => {
+                let langs = super::summaries::preferred_langs(
+                    std::env::var("LC_ALL")
+                        .or_else(|_| std::env::var("LANG"))
+                        .ok()
+                        .as_deref(),
+                );
+                super::summaries::run(transport, backoff, &langs, held, path, asked)?;
+            }
+            Pass::Discography => {
+                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                super::discography::run(catalog, transport, backoff, held, path, asked)?;
+            }
+            Pass::Covers => {
+                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                super::covers::run(catalog, transport, backoff, held, path, asked)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The whole of the command except reaching the network.
 pub fn run(args: &Args, transport: &mut dyn Ask) -> Res {
     run_with(args, transport, &RETRY_AFTER)
@@ -143,30 +328,6 @@ pub fn run(args: &Args, transport: &mut dyn Ask) -> Res {
 pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Duration]) -> Res {
     let path = sources::sources_path(&super::data_dir(args));
     let mut held = sources::load(&path)?.unwrap_or_default();
-
-    // The second pass is a different question asked of a different service, so
-    // it is its own run rather than a stage of this one: `--summaries` alone
-    // does not re-ask MusicBrainz about a library it has already answered on.
-    //
-    // Before the catalog is loaded, because it does not need one: its input is
-    // the wikidata link already in the layer, and failing on a missing catalog
-    // would be a refusal with no reason behind it.
-    if args.has("summaries") {
-        let langs = super::summaries::preferred_langs(
-            std::env::var("LC_ALL")
-                .or_else(|_| std::env::var("LANG"))
-                .ok()
-                .as_deref(),
-        );
-        return super::summaries::run(
-            transport,
-            backoff,
-            &langs,
-            &mut held,
-            &path,
-            args.has("full"),
-        );
-    }
 
     // An option that only means something to another pass, given on its own,
     // is refused rather than ignored: a reader who typed `--images` and got an
@@ -182,13 +343,29 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         }
     }
 
-    let catalog = super::load(args)?;
+    // A second pass is a different question, often of a different service, so
+    // each is its own run rather than a stage of the ordinary fetch:
+    // `--summaries` alone does not re-ask MusicBrainz about a library it has
+    // already answered on.
+    //
+    // Several of them together run one after another. They used to be three
+    // `return`s in a row, so `--covers --discography` ran the covers and
+    // **dropped the discography without a word** — the fault this program
+    // refuses everywhere else: an option that cannot be honoured is refused,
+    // never swallowed. Here it could be honoured, so it is.
+    // What to ask about: the names given, or every artist in the library. Read
+    // here rather than inside the ordinary run, because every pass honours
+    // them now — `aede fetch --discography mika` used to swallow the word.
+    let wanted = names_given(args);
 
-    // After the catalog is loaded, unlike the summaries pass: this one needs to
-    // know who has a shelf here, and that is a question only the catalog can
-    // answer.
-    if args.has("covers") {
-        let size = match args.value("size") {
+    // Read once for the whole run, and before anything is asked: a width the
+    // archive does not generate must be refused before a summaries pass has
+    // spent ten minutes on the network for it.
+    let asked = Asked {
+        names: &wanted,
+        again: args.has("full"),
+        dry_run: args.has("dry-run"),
+        size: match args.value("size") {
             Some(text) => aede_core::coverart::Size::parse(text).ok_or_else(|| {
                 format!(
                     "--size takes 250, 500, 1200 or original; \"{text}\" is not \
@@ -196,36 +373,17 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 )
             })?,
             None => super::covers::DEFAULT_SIZE,
-        };
-        return super::covers::run(
-            &catalog,
-            transport,
-            backoff,
-            &mut held,
-            &path,
-            size,
-            args.has("images"),
-            args.has("dry-run"),
-        );
-    }
-    if args.has("discography") {
-        return super::discography::run(
-            &catalog,
-            transport,
-            backoff,
-            &mut held,
-            &path,
-            args.has("full"),
-        );
+        },
+        images: args.has("images"),
+    };
+
+    let passes = Pass::asked_for(args);
+    if !passes.is_empty() {
+        return second_passes(&passes, args, transport, backoff, &mut held, &path, &asked);
     }
 
-    // What to ask about: the names given, or every artist in the library.
-    let wanted: Vec<String> = args
-        .positionals
-        .iter()
-        .map(|name| text::normalize(name))
-        .filter(|name| !name.is_empty())
-        .collect();
+    let catalog = super::load(args)?;
+
     // No `--limit` here on purpose: everywhere else in this program it means
     // "show a window of the result", and bounding how much work is done is a
     // different thing wearing the same word. Naming artists narrows the run.

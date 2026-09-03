@@ -55,11 +55,22 @@ pub fn run(
     backoff: &[std::time::Duration],
     held: &mut sources::Sources,
     path: &std::path::Path,
-    again: bool,
+    asked: &super::fetch::Asked,
 ) -> Res {
-    let targets = targets(catalog, held, again);
+    let (wanted, again) = (asked.names, asked.again);
+    let targets = targets(catalog, held, wanted, again);
     println!("{}", ui::section("Discography"));
     if targets.is_empty() {
+        if !wanted.is_empty() {
+            println!(
+                "  {}",
+                ui::dim(&super::fetch::nothing_named(
+                    wanted,
+                    self::targets(catalog, held, wanted, true).len()
+                ))
+            );
+            return Ok(());
+        }
         println!(
             "  {}",
             ui::dim(
@@ -168,10 +179,18 @@ fn store(held: &mut sources::Sources, target: &Target, known: Vec<KnownRelease>)
 /// folder is not. Browsing them costs a request a second for a discography
 /// [`absent`] will never report — the two must agree on who has a shelf, or the
 /// pass spends minutes fetching answers nothing can use.
-fn targets(catalog: &Catalog, held: &sources::Sources, again: bool) -> Vec<Target> {
+fn targets(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    wanted: &[String],
+    again: bool,
+) -> Vec<Target> {
     let mut targets = Vec::new();
     for record in &held.records {
         if record.source != sources::MUSICBRAINZ {
+            continue;
+        }
+        if !super::fetch::reaches(wanted, &[record.key.as_str()]) {
             continue;
         }
         let Facts::Artist(artist) = &record.facts else {
@@ -198,7 +217,7 @@ fn targets(catalog: &Catalog, held: &sources::Sources, again: bool) -> Vec<Targe
 
 /// How many artists a `--discography` pass would browse, if it ran now.
 pub fn waiting(catalog: &Catalog, held: &sources::Sources) -> usize {
-    targets(catalog, held, false).len()
+    targets(catalog, held, &[], false).len()
 }
 
 /// `true` when this artist is the album artist of something in the library.
@@ -224,6 +243,8 @@ fn has_shelf(catalog: &Catalog, entity: &EntityRef) -> bool {
 pub struct Absent<'a> {
     /// The artist, as the catalog spells them.
     pub artist: String,
+    /// Which artist, for a caller asking about one rather than about all.
+    pub artist_id: aede_core::model::Id,
     /// The record MusicBrainz credits to them.
     pub known: &'a KnownRelease,
 }
@@ -317,6 +338,7 @@ pub fn absent<'a>(
             if !have {
                 out.push(Absent {
                     artist: artist.name.clone(),
+                    artist_id,
                     known,
                 });
             }
@@ -329,6 +351,28 @@ pub fn absent<'a>(
             .then_with(|| a.known.first_released.cmp(&b.known.first_released))
     });
     out
+}
+
+/// How many records one artist has that this shelf does not.
+///
+/// For a page to say so at the moment somebody is looking at that artist —
+/// which is the moment they wonder. `aede missing` was in the help, in the
+/// README and in the manual, and still could not be found, because it was
+/// named nowhere near the question it answers. The same fault `aede extract`
+/// had, and the same fix.
+///
+/// Derived like everything else here: nothing is stored, so the number falls
+/// the day an album is added.
+pub fn absent_for(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    aside: &[aede_core::user::SetAside],
+    artist_id: aede_core::model::Id,
+) -> usize {
+    absent(catalog, held, aside)
+        .iter()
+        .filter(|record| record.artist_id == artist_id)
+        .count()
 }
 
 /// The `missing` command: the records your artists made and you do not have.

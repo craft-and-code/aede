@@ -46,6 +46,16 @@ Roles
 
 `main` and `album` are left out: every track and every release carries them by construction, so they say nothing. At M1, a role coming from MusicBrainz will work here without a line of code, because the list is read from the credits rather than fixed.
 
+## What an artist page names
+
+Beyond the records themselves, the page names the two things a reader asks next and would otherwise have to remember:
+
+```
+  3 studio albums MusicBrainz credits to them and this shelf does not hold: aede missing "Portishead"
+```
+
+Silent when nothing has been browsed for that artist, or when the shelf holds everything — a line about an empty answer is noise on a page that is about something else.
+
 ## Where the artists are from
 
 ```sh

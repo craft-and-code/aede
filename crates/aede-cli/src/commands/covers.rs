@@ -100,15 +100,23 @@ pub fn run(
     backoff: &[std::time::Duration],
     held: &mut sources::Sources,
     path: &std::path::Path,
-    size: Size,
-    images: bool,
-    dry_run: bool,
+    asked: &super::fetch::Asked,
 ) -> Res {
-    let survey = survey(catalog, held, images);
+    let (wanted, size, images, dry_run) = (asked.names, asked.size, asked.images, asked.dry_run);
+    let survey = survey(catalog, held, wanted, images);
     let targets = &survey.targets;
     println!("{}", ui::section("Cover art"));
     if targets.is_empty() {
-        println!("  {}", ui::dim("nothing to ask about"));
+        match wanted.is_empty() {
+            true => println!("  {}", ui::dim("nothing to ask about")),
+            // A name that reached nothing is its own answer. The counts below
+            // are then about the albums that name reached, which is what a
+            // reader who typed one wants to know.
+            false => println!(
+                "  {}",
+                ui::dim(&format!("nothing to ask about for {}", wanted.join(", ")))
+            ),
+        }
         skipped(&survey);
         return Ok(());
     }
@@ -369,7 +377,7 @@ struct Survey {
 /// second question — "has this album's other artwork been fetched" — whose
 /// answer is on the disk: an `artwork/` folder means yes. Nothing records it
 /// anywhere else, for the same reason nothing records `cover.jpg`.
-fn survey(catalog: &Catalog, held: &sources::Sources, images: bool) -> Survey {
+fn survey(catalog: &Catalog, held: &sources::Sources, wanted: &[String], images: bool) -> Survey {
     let mut out = Survey {
         targets: Vec::new(),
         embedded: 0,
@@ -378,6 +386,17 @@ fn survey(catalog: &Catalog, held: &sources::Sources, images: bool) -> Survey {
         asked: 0,
     };
     for release in &catalog.releases {
+        // A name reaches an album by its title **or** by its artist, the same
+        // rule the ordinary fetch uses: `--covers manson` should find the
+        // records as well as the person.
+        let by = release
+            .album_artist_id
+            .and_then(|id| catalog.artist(id))
+            .map(|a| a.name.as_str())
+            .unwrap_or_default();
+        if !super::fetch::reaches(wanted, &[release.title.as_str(), by]) {
+            continue;
+        }
         // Embedded first, because it is the answer that surprises people: an
         // album can have no `cover.jpg` at all and still not want one.
         let embedded = has_embedded_art(catalog, release);
@@ -462,7 +481,7 @@ fn survey(catalog: &Catalog, held: &sources::Sources, images: bool) -> Survey {
 
 /// The albums this pass would ask about.
 fn targets(catalog: &Catalog, held: &sources::Sources) -> Vec<Target> {
-    survey(catalog, held, false).targets
+    survey(catalog, held, &[], false).targets
 }
 
 /// What was left alone and why, one line per reason that applies.

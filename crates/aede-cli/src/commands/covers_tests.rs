@@ -87,6 +87,17 @@ fn library(dir: &std::path::Path, embedded: bool, beside: Option<&str>) -> Catal
     )
 }
 
+/// The options a pass reads, as `fetch` gathers them.
+fn asked(size: Size, images: bool, dry_run: bool) -> crate::commands::fetch::Asked<'static> {
+    crate::commands::fetch::Asked {
+        names: &[],
+        again: false,
+        dry_run,
+        size,
+        images,
+    }
+}
+
 fn cover_in(dir: &std::path::Path) -> std::path::PathBuf {
     dir.join("music/Miles Davis/Kind of Blue/cover.jpg")
 }
@@ -124,13 +135,14 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
     // that the image was inside the files all along.
     let dir = sandbox("survey");
 
-    let inside = survey(&library(&dir, true, None), &Sources::default(), false);
+    let inside = survey(&library(&dir, true, None), &Sources::default(), &[], false);
     assert_eq!((inside.embedded, inside.beside), (1, 0));
     assert!(inside.targets.is_empty());
 
     let alongside = survey(
         &library(&dir, false, Some("cover.jpg")),
         &Sources::default(),
+        &[],
         false,
     );
     assert_eq!((alongside.embedded, alongside.beside), (0, 1));
@@ -156,7 +168,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         vec![dir.join("music").to_string_lossy().to_string()],
         1,
     );
-    let nameless = survey(&unknown, &Sources::default(), false);
+    let nameless = survey(&unknown, &Sources::default(), &[], false);
     assert_eq!(nameless.unidentified, 1);
     assert_eq!(
         (nameless.embedded, nameless.beside, nameless.asked),
@@ -175,7 +187,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
     });
-    let again = survey(&catalog, &layer, false);
+    let again = survey(&catalog, &layer, &[], false);
     assert_eq!(again.asked, 1);
     assert!(again.targets.is_empty());
 }
@@ -192,7 +204,7 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
     // reverted: two commands that both wrote, one of them not named for it,
     // cost more to hold in the head than the duplicated request it saved.
     let dir = sandbox("handover");
-    let inside = survey(&library(&dir, true, None), &Sources::default(), false);
+    let inside = survey(&library(&dir, true, None), &Sources::default(), &[], false);
     let lines = reasons(&inside);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
@@ -204,7 +216,7 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
     assert!(lines[0].starts_with("1 album carries"), "{}", lines[0]);
 
     let two = library(&dir, true, None);
-    let mut both = survey(&two, &Sources::default(), false);
+    let mut both = survey(&two, &Sources::default(), &[], false);
     both.embedded = 2;
     assert!(reasons(&both)[0].starts_with("2 albums carry"));
 }
@@ -231,7 +243,7 @@ fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
         }),
     });
 
-    let survey = survey(&catalog, &layer, false);
+    let survey = survey(&catalog, &layer, &[], false);
     assert_eq!(survey.asked, 0, "not a finished question");
     assert_eq!(survey.targets.len(), 1);
     assert!(survey.targets[0].known, "the address is the image");
@@ -243,9 +255,7 @@ fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        false,
-        false,
+        &asked(Size::Thumbnail(1200), false, false),
     )
     .expect("the pass ran");
 
@@ -277,7 +287,7 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
     });
-    let survey = survey(&catalog, &layer, false);
+    let survey = survey(&catalog, &layer, &[], false);
     assert_eq!((survey.asked, survey.targets.len()), (1, 0));
 }
 
@@ -294,9 +304,7 @@ fn the_index_is_asked_first_and_the_image_second() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        false,
-        false,
+        &asked(Size::Thumbnail(1200), false, false),
     )
     .expect("the pass ran");
 
@@ -336,9 +344,7 @@ fn bytes_that_are_not_an_image_are_not_written() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        false,
-        false,
+        &asked(Size::Thumbnail(1200), false, false),
     )
     .expect("a refusal is reported, not fatal");
 
@@ -368,9 +374,7 @@ fn a_file_that_appeared_since_the_scan_is_left_alone() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        false,
-        false,
+        &asked(Size::Thumbnail(1200), false, false),
     )
     .expect("a refusal is reported, not fatal");
 
@@ -395,9 +399,7 @@ fn a_record_with_no_artwork_is_recorded_so_it_is_not_asked_about_twice() {
         &[],
         &mut layer,
         &path,
-        Size::Thumbnail(1200),
-        false,
-        false,
+        &asked(Size::Thumbnail(1200), false, false),
     )
     .expect("the pass ran");
     assert_eq!(transport.asked.len(), 1, "no image, so nothing downloaded");
@@ -421,9 +423,7 @@ fn the_size_asked_for_is_the_one_downloaded_when_it_exists() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(500),
-        false,
-        false,
+        &asked(Size::Thumbnail(500), false, false),
     )
     .expect("the pass ran");
     assert_eq!(
@@ -442,9 +442,7 @@ fn the_size_asked_for_is_the_one_downloaded_when_it_exists() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Original,
-        false,
-        false,
+        &asked(Size::Original, false, false),
     )
     .expect("the pass ran");
     assert_eq!(transport.asked[1], "https://coverartarchive.org/x/1.jpg");
@@ -462,9 +460,7 @@ fn a_dry_run_asks_nothing_and_writes_nothing() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        false,
-        true,
+        &asked(Size::Thumbnail(1200), false, true),
     )
     .expect("the pass ran");
     assert!(transport.asked.is_empty());
@@ -539,11 +535,11 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     let dir = sandbox("images_scope");
     let catalog = library(&dir, false, Some("cover.jpg"));
 
-    let plain = survey(&catalog, &Sources::default(), false);
+    let plain = survey(&catalog, &Sources::default(), &[], false);
     assert!(plain.targets.is_empty());
     assert_eq!(plain.beside, 1);
 
-    let wider = survey(&catalog, &Sources::default(), true);
+    let wider = survey(&catalog, &Sources::default(), &[], true);
     assert_eq!(wider.targets.len(), 1);
     assert!(
         !wider.targets[0].cover,
@@ -551,7 +547,7 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     );
 
     std::fs::create_dir_all(dir.join("music/Miles Davis/Kind of Blue/artwork")).expect("a folder");
-    let done = survey(&catalog, &Sources::default(), true);
+    let done = survey(&catalog, &Sources::default(), &[], true);
     assert!(done.targets.is_empty(), "the folder is the record");
     assert_eq!(done.beside, 1);
 }
@@ -581,8 +577,8 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
         }),
     });
 
-    assert!(survey(&catalog, &layer, false).targets[0].known);
-    let wider = survey(&catalog, &layer, true);
+    assert!(survey(&catalog, &layer, &[], false).targets[0].known);
+    let wider = survey(&catalog, &layer, &[], true);
     assert!(!wider.targets[0].known, "the index has to be asked again");
     assert!(
         wider.targets[0]
@@ -614,9 +610,7 @@ fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        true,
-        false,
+        &asked(Size::Thumbnail(1200), true, false),
     )
     .expect("the pass ran");
 
@@ -649,7 +643,7 @@ fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
     // wrote is not in it until something looks.
     let rescanned = library(&dir, false, Some("cover.jpg"));
     assert!(
-        survey(&rescanned, &layer, true).targets.is_empty(),
+        survey(&rescanned, &layer, &[], true).targets.is_empty(),
         "the artwork folder is there now, and the cover is too"
     );
 
@@ -670,9 +664,7 @@ fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        Size::Thumbnail(1200),
-        true,
-        false,
+        &asked(Size::Thumbnail(1200), true, false),
     )
     .expect("the pass ran");
     assert_eq!(

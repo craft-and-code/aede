@@ -90,6 +90,20 @@ pub fn show_artist(args: &Args) -> Res {
     }
 
     print_release_table(&catalog, "Discography", &own, TrackColumn::WholeRelease);
+    // Under *this* table and no other. It was under the last one printed,
+    // which is "Appears on" — so a line about the records that are theirs sat
+    // beneath a table of records that are not, and read as being about it.
+    // **A line belongs under the table it is about, not at the end of the
+    // page**: where a note is put is part of what it says.
+    //
+    // Guarded on the table having been printed at all. An artist with no
+    // album of their own is never browsed — `discography::has_shelf` asks the
+    // same question — so the count would be zero anyway; relying on that
+    // coincidence in another module is how a heading ends up with nothing
+    // under it.
+    if !own.is_empty() {
+        say_what_is_missing(args, &catalog, artist.id);
+    }
     print_release_table(
         &catalog,
         "Appears on",
@@ -145,6 +159,46 @@ pub fn show_artist(args: &Args) -> Res {
     // A rating given and never shown again is a rating nobody trusts.
     super::panel_for(args, &catalog, EntityKind::Artist, artist.id);
     Ok(())
+}
+
+/// Names `aede missing` under the artist's own discography.
+///
+/// Called from directly beneath that table rather than at the end of the page:
+/// `aede missing` was in the help, in the README and in the manual, and still
+/// could not be found, because it was named nowhere near the question it
+/// answers. **A command named only where nobody is looking is a command
+/// nobody has** — and "near" means under the right table, not merely on the
+/// right page.
+///
+/// Silent in three cases, each of which would otherwise be noise on a page
+/// that is about something else: no discography has been browsed for this
+/// artist, the shelf holds everything MusicBrainz credits to them, or the
+/// layer cannot be read at all. A page does not fail because a panel could
+/// not be filled.
+fn say_what_is_missing(args: &Args, catalog: &aede_core::model::Catalog, artist: Id) {
+    let Ok(held) = super::sources_held(args) else {
+        return;
+    };
+    let aside = match super::user_data(args, catalog) {
+        Ok(user) => user.set_aside,
+        Err(_) => Vec::new(),
+    };
+    let count = super::discography::absent_for(catalog, &held, &aside, artist);
+    if count == 0 {
+        return;
+    }
+    let name = catalog
+        .artist(artist)
+        .map(|a| a.name.clone())
+        .unwrap_or_default();
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} MusicBrainz credits to them and this shelf does not hold: \
+             aede missing \"{name}\"",
+            ui::plural(count, "studio album")
+        ))
+    );
 }
 
 /// Which release tables the artist page can print.

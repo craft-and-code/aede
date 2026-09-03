@@ -447,3 +447,193 @@ fn a_name_becomes_a_query_value_and_not_a_second_parameter() {
         "the unreserved set is kept"
     );
 }
+
+#[test]
+fn two_passes_asked_for_together_both_run() {
+    // The defect this pins: the passes were three `return`s in a row, so
+    // `--covers --discography` ran the covers and dropped the discography
+    // without a word. An option that cannot be honoured is refused everywhere
+    // else in this program; this one could be honoured and was not.
+    let dir = sandbox("two_passes");
+
+    // First an ordinary fetch, so that both passes have something identified
+    // to work from: a discography needs the artist's identifier, a cover needs
+    // the album's.
+    let mut first = Canned {
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(ONE_ALBUM.to_string())],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &[]), &mut first, &NO_WAIT).expect("the ordinary fetch");
+
+    let mut both = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(
+        &args(&dir, &["--covers", "--discography"]),
+        &mut both,
+        &NO_WAIT,
+    )
+    .expect("both passes run");
+
+    // Each pass asks its own service, so what was asked says which ran. With
+    // the old three-`return` dispatch only the second of these appeared.
+    assert!(
+        both.asked
+            .iter()
+            .any(|url| url.contains("release-group?artist=")),
+        "the discography pass was skipped: {:?}",
+        both.asked
+    );
+    assert!(
+        both.asked
+            .iter()
+            .any(|url| url.contains("coverartarchive.org")),
+        "the cover pass was skipped: {:?}",
+        both.asked
+    );
+    // And in the order the passes are declared in, not the order typed.
+    let discography = both
+        .asked
+        .iter()
+        .position(|url| url.contains("release-group?artist="))
+        .expect("asked");
+    let covers = both
+        .asked
+        .iter()
+        .position(|url| url.contains("coverartarchive.org"))
+        .expect("asked");
+    assert!(discography < covers, "{:?}", both.asked);
+}
+
+#[test]
+fn the_passes_run_in_their_own_order_and_not_the_typed_one() {
+    // Fixed rather than typed, because they go out from the artist: who they
+    // are, what they recorded, what the records look like. Asking about the
+    // albums first would be asking before the fetch that names them.
+    let typed_one_way = Pass::asked_for(&args(
+        std::path::Path::new("/tmp"),
+        &["--covers", "--summaries", "--discography"],
+    ));
+    let typed_another = Pass::asked_for(&args(
+        std::path::Path::new("/tmp"),
+        &["--discography", "--covers", "--summaries"],
+    ));
+    assert_eq!(
+        typed_one_way,
+        vec![Pass::Summaries, Pass::Discography, Pass::Covers]
+    );
+    assert_eq!(
+        typed_one_way, typed_another,
+        "two orders of the same three options are one run"
+    );
+
+    assert!(Pass::asked_for(&args(std::path::Path::new("/tmp"), &[])).is_empty());
+
+    // And only the summaries pass can work without a catalog, which is what
+    // decides whether one is loaded at all.
+    assert!(!Pass::Summaries.needs_the_catalog());
+    assert!(Pass::Discography.needs_the_catalog());
+    assert!(Pass::Covers.needs_the_catalog());
+}
+
+#[test]
+fn an_unusable_size_stops_the_run_before_any_pass_asks_anything() {
+    // `--size` is read once for the whole run now rather than inside the
+    // cover pass, and a value the archive does not generate must still be
+    // refused before a summaries pass has spent ten minutes on the network.
+    let dir = sandbox("bad_size");
+    let mut transport = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    let error = run_with(
+        &args(&dir, &["--summaries", "--covers", "--size=800"]),
+        &mut transport,
+        &NO_WAIT,
+    )
+    .expect_err("800 is not a width the archive generates");
+    assert!(error.to_string().contains("--size takes"), "{error}");
+    assert!(
+        transport.asked.is_empty(),
+        "and nothing was asked before it was refused"
+    );
+}
+
+#[test]
+fn a_name_given_to_a_second_pass_narrows_it_instead_of_being_swallowed() {
+    // The defect: `aede fetch --discography mika` ran over the whole library
+    // and said nothing about the word it had ignored — an argument that could
+    // not be honoured, dropped rather than refused, which is the one thing
+    // this program is most careful about elsewhere.
+    let dir = sandbox("named_pass");
+    let mut first = Canned {
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(ONE_ALBUM.to_string())],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &[]), &mut first, &NO_WAIT).expect("the ordinary fetch");
+
+    // A name nobody here answers to: nothing is asked at all.
+    let mut nobody = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(
+        &args(&dir, &["--discography", "mika"]),
+        &mut nobody,
+        &NO_WAIT,
+    )
+    .expect("the pass ran");
+    assert!(
+        nobody.asked.is_empty(),
+        "a name reaching nobody must not browse the whole shelf: {:?}",
+        nobody.asked
+    );
+
+    // And the name of somebody who is here does reach them.
+    let mut somebody = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(
+        &args(&dir, &["--discography", "miles"]),
+        &mut somebody,
+        &NO_WAIT,
+    )
+    .expect("the pass ran");
+    assert!(
+        somebody
+            .asked
+            .iter()
+            .any(|url| url.contains("release-group?artist=")),
+        "the name matched and the pass ran: {:?}",
+        somebody.asked
+    );
+}
+
+#[test]
+fn a_name_reaches_an_album_by_its_title_or_by_its_artist() {
+    // The rule the ordinary fetch already used, now shared by every pass:
+    // `--covers manson` should find the records as well as the person.
+    assert!(reaches(&[], &["anything"]), "no name means the whole shelf");
+    assert!(reaches(&["miles".to_string()], &["Miles Davis", ""]));
+    assert!(reaches(&["blue".to_string()], &["", "Kind of Blue"]));
+    assert!(!reaches(
+        &["mika".to_string()],
+        &["Miles Davis", "Kind of Blue"]
+    ));
+    // Case and accents go through `normalize`, as everywhere else.
+    assert!(reaches(&[text::normalize("MILES")], &["Miles Davis"]));
+}
+
+#[test]
+fn nothing_matched_says_which_of_the_two_nothings_it_is() {
+    // "No such artist here" and "that artist is already done" are different
+    // problems with different next steps, and the general "run fetch first"
+    // sends the second of them to re-run a pass with nothing to do.
+    let names = vec!["mika".to_string()];
+    assert!(nothing_named(&names, 0).contains("nothing here matches mika"));
+    let done = nothing_named(&names, 3);
+    assert!(done.contains("3 artists"), "{done}");
+    assert!(done.contains("--full"), "{done}");
+}
