@@ -216,7 +216,7 @@ fn main() {
             IMPORT_COMMANDS,
             "list or restrict to what is waiting",
         ),
-        ("list", SAID_ELSEWHERE_COMMANDS, "list what is held"),
+        ("list", LIST_COMMANDS, "list what is held"),
         ("source", SAID_ELSEWHERE_COMMANDS, "select a source"),
         (
             "compilations",
@@ -502,6 +502,16 @@ const IMPORT_COMMANDS: &[&str] = &["import"];
 /// one — because a user who learned it on one should not have to learn it
 /// again on the other.
 const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing"];
+
+/// Commands that can list what they hold rather than go and get more.
+///
+/// Not [`SAID_ELSEWHERE_COMMANDS`], although it started as a copy of it. Those
+/// three options — `--forget`, `--list`, `--source` — happened to apply to the
+/// same three commands, and sharing one list made that coincidence look like a
+/// rule: `fingerprint` can list what it holds and has nothing to forget and no
+/// source to select. **One list per question, not one list per set of commands
+/// that happen to agree today.**
+const LIST_COMMANDS: &[&str] = &["import", "sources", "missing", "fingerprint"];
 
 /// The one command that lists releases and can therefore sort compilations
 /// from the rest.
@@ -832,6 +842,10 @@ fn print_help() {
                        your tags cannot identify — no title, or no artist —
                        since decoding a well-tagged library is hours of work
                        to confirm what the tags say. --full takes everything.
+                       --list prints what is stored, whole and one value to a
+                       line: the same string fpcalc prints, so two copies of an
+                       album can be compared, and aede doctor reports the ones
+                       that match.
                        Needs ffmpeg built with chromaprint, or fpcalc; it says
                        which, and how to install either
   extract [folder…]    Write the picture your files already carry into their

@@ -40,6 +40,12 @@
 //! than reading a version string, and the message names both ways out with
 //! the right one first for each platform.
 //!
+//! **The two agree, and that has been checked rather than assumed** — on one
+//! file, `ffmpeg -algorithm 1` and a bare `fpcalc` answer the same string, byte
+//! for byte. They agree only on those exact flags: `fpcalc -algorithm 1` is a
+//! *different* algorithm and answers something else — the measurement is beside
+//! the `ALGORITHM` constant below.
+//!
 //! ffmpeg is tried first because it is more likely to be there already; the
 //! fallback exists because "built with chromaprint" is not a promise anyone
 //! made. **Neither is linked or vendored**, exactly as ffmpeg is not: a
@@ -92,6 +98,22 @@ impl By {
 /// defaults to it; ffmpeg's muxer numbers the same list from zero, so the
 /// second entry is the one, and it is passed explicitly rather than trusted to
 /// stay the default.
+///
+/// **The two programs number the list differently, and it is measured rather
+/// than assumed.** On one file, ffmpeg 1.5.1 and fpcalc 1.5.1:
+///
+/// ```text
+/// ffmpeg -algorithm 1  AQAAS0mUaEkSRZEAAA…   ← what Aède computes
+/// fpcalc               AQAAS0mUaEkSRZEAAA…   ← identical, its default
+/// fpcalc -algorithm 1  AAAAS4kUSUqSJEkWAA…   ← a different algorithm
+/// ffmpeg -algorithm 2  AgAADUmUaEkSRZEAAA…
+/// ```
+///
+/// So ffmpeg's number *is* the version byte the fingerprint begins with, and
+/// fpcalc's is that plus one. Aède's ffmpeg path passes `1` and its fpcalc path
+/// passes **nothing**, and the two therefore agree — which is the whole premise
+/// of having two paths at all. Anything that tells a reader to compare with
+/// `fpcalc` must not tell them to add `-algorithm 1`.
 const ALGORITHM: &str = "1";
 
 /// Whether either program is available, and which.
@@ -104,13 +126,22 @@ pub fn find() -> Option<By> {
     if has_chromaprint() {
         return Some(By::Ffmpeg);
     }
+    has_fpcalc().then_some(By::Fpcalc)
+}
+
+/// `true` when Chromaprint's own `fpcalc` is on the path.
+///
+/// Split out of [`find`] so that a test can ask the question without being told
+/// the answer `find` prefers: it returns ffmpeg whenever ffmpeg will do, which
+/// is right for a run and useless to a test whose whole subject is whether the
+/// two agree.
+fn has_fpcalc() -> bool {
     Command::new("fpcalc")
         .arg("-version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
-        .then_some(By::Fpcalc)
 }
 
 /// `true` when the ffmpeg on this machine can produce a fingerprint.

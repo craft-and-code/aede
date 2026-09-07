@@ -58,6 +58,9 @@ pub fn fingerprint(args: &Args) -> Res {
     let mut catalog = super::load(args)?;
     let scope = super::scope_of(args)?;
     let wanted = super::fetch::names_given(args);
+    if args.has("list") {
+        return listed(&catalog, &scope, &wanted);
+    }
     let full = args.has("full");
     let survey = survey(&catalog, &scope, &wanted, full);
 
@@ -126,6 +129,86 @@ pub fn fingerprint(args: &Args) -> Res {
             ui::dim("aede fetch --identify asks AcoustID what they are")
         );
     }
+    Ok(())
+}
+
+/// `aede fingerprint --list`: what is stored, in full.
+///
+/// **A conclusion this program keeps and never shows is a dead end** — the same
+/// fault `source_id` had, held from the layer's first version and displayed
+/// nowhere. It bites harder here, because a fingerprint is the one value in the
+/// catalog a reader can check from outside: `fpcalc` prints the same string for
+/// the same file, and two copies of an album either agree or they do not.
+/// Withholding it made that check impossible and made `doctor`'s "the same
+/// audio" verdict something to be taken on trust.
+///
+/// Printed **whole**, one value to a line, and deliberately not in a table. The
+/// point of the value is that it can be compared, and a fingerprint truncated
+/// to a column width compares equal to nothing; on its own line it survives a
+/// pipe, a `grep` and a `diff`. That is worth more here than a tidy screen.
+fn listed(catalog: &Catalog, scope: &[String], wanted: &[String]) -> Res {
+    println!("{}", ui::section("Fingerprint"));
+    let (mut held, mut without) = (0usize, 0usize);
+    for file in &catalog.files {
+        if !super::in_scope(&file.path, scope) {
+            continue;
+        }
+        let title = first(file, "title");
+        let artist = first(file, "artist");
+        if !super::fetch::reaches(wanted, &[&title, &artist, &file.path]) {
+            continue;
+        }
+        let Some(print) = &file.fingerprint else {
+            without += 1;
+            continue;
+        };
+        held += 1;
+        println!("  {}", file.path);
+        println!("  {}", ui::dim(&format!("{} s", print.seconds)));
+        println!("  {}", print.data);
+        println!();
+    }
+
+    if held == 0 {
+        println!(
+            "  {}",
+            ui::dim(match without {
+                0 => "no file here",
+                _ => "none of these has a fingerprint yet: aede fingerprint computes them",
+            })
+        );
+        return Ok(());
+    }
+    println!(
+        "{} {} held",
+        ui::green("→"),
+        ui::plural(held, "fingerprint")
+    );
+    if without > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{} without one: aede fingerprint computes them",
+                ui::plural(without, "file")
+            ))
+        );
+    }
+    // The command to compare against, spelled exactly, **and the flag not to
+    // add**. `fpcalc` numbers the algorithms from one and ffmpeg from zero, so
+    // `fpcalc -algorithm 1` is a different algorithm and answers a different
+    // string — measured, not assumed. A reader told to compare, who reached for
+    // the flag whose number they had just been shown, would conclude that Aède
+    // was wrong. Naming the trap costs a line and saves that hour.
+    println!(
+        "  {}",
+        ui::dim(
+            "compare with: fpcalc \"<file>\" — its default, not -algorithm 1, which is another one"
+        )
+    );
+    println!(
+        "  {}",
+        ui::dim("aede doctor reports files whose fingerprints are identical")
+    );
     Ok(())
 }
 
@@ -241,9 +324,15 @@ fn first(file: &aede_core::model::AudioFile, key: &str) -> String {
 fn skipped(survey: &Survey, full: bool) {
     for (count, one, many) in [
         (
+            // Both ways out, on the line that raises the question. A reader
+            // reading "12 files have one already" wants one of two things —
+            // to compute them again, or to *see* them — and the first version
+            // named only the destructive one. **A capability that becomes
+            // possible at a particular moment is named at that moment**, not
+            // only in `--help`: it is the line this reader is looking at.
             survey.done,
-            "has one already: --full computes it again",
-            "have one already: --full computes them again",
+            "has one already: --list shows it, --full computes it again",
+            "have one already: --list shows them, --full computes them again",
         ),
         (
             survey.already_identified,

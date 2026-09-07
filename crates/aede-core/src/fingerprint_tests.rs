@@ -114,5 +114,24 @@ fn a_real_file_fingerprints_the_same_way_twice() {
     std::fs::write(&nonsense, b"not a FLAC file at all").expect("written");
     assert!(of(by, &nonsense, 30).is_err());
 
+    // **The premise of having two paths at all**: on a machine with both, they
+    // must answer the same string, or a library fingerprinted on one machine
+    // would match nothing fingerprinted on another. The flags are what make it
+    // true — ffmpeg is given `-algorithm 1` and fpcalc is given nothing, and
+    // `fpcalc -algorithm 1` would be a *different* algorithm, because the two
+    // programs number the list differently. Nothing about that is inferable
+    // from either manual; it is measured, here, whenever the machine can.
+    match has_chromaprint() && has_fpcalc() {
+        true => {
+            let one = of(By::Ffmpeg, &path, 30).expect("ffmpeg has chromaprint");
+            let two = of(By::Fpcalc, &path, 30).expect("fpcalc is here");
+            assert_eq!(
+                one.data, two.data,
+                "ffmpeg and fpcalc must agree, or the fallback is not a fallback"
+            );
+        }
+        false => eprintln!("skipped: this machine does not have both programs"),
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
 }

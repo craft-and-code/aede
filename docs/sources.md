@@ -381,6 +381,7 @@ Two commands, and the split matters:
 aede fingerprint                # decode and work out what the audio is
 aede fingerprint ~/Music/Rips   # only under these folders
 aede fingerprint --full         # every file, not just the nameless ones
+aede fingerprint --list         # print what is stored, to compare it
 aede fetch --identify           # ask AcoustID what it hears
 ```
 
@@ -394,6 +395,26 @@ aede fetch --identify           # ask AcoustID what it hears
 - the catalog knows no length for it, and a lookup needs one.
 
 `--full` lifts the first three. That is how you find a rip whose tags look perfectly correct and are **wrong** — the one case nothing else in Aède can catch, and the one where you have to already suspect something.
+
+### Seeing the values, and comparing them
+
+A fingerprint is the one thing Aède works out that you can check from outside, so it is printed on request — whole, one value to a line, never in a table. A fingerprint cut to a column width compares equal to nothing; on its own line it survives a pipe, a `grep` and a `diff`.
+
+```
+Fingerprint
+
+  /Music/Billy Martin/Illy B Eats/01.flac
+  241 s
+  AQADtEmiRFEmJXqOH0ePH8dxHT9yHD9y…
+
+→ 12 fingerprints held
+  compare with: fpcalc "<file>" — its default, not -algorithm 1, which is another one
+  aede doctor reports files whose fingerprints are identical
+```
+
+**Mind that last flag.** The two programs number the algorithms differently, and it was measured rather than assumed: on one file, `ffmpeg -algorithm 1` — what Aède runs — and a bare `fpcalc` answer the same string byte for byte, while `fpcalc -algorithm 1` answers a different one. ffmpeg's number is the version byte the fingerprint starts with; fpcalc's is that plus one. Compare with a plain `fpcalc` and the two agree; add the flag whose number you have just read and you will conclude Aède is wrong.
+
+Comparing two copies of an album by eye is what `aede doctor` is for: it groups files whose fingerprints are identical and reports them as **the same audio**, whatever their tags say.
 
 ### When this is worth running, and when it is not
 
