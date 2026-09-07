@@ -87,6 +87,17 @@ aede --data=/volume1/aede stats     # for this command only
 export AEDE_HOME=/volume1/aede      # for good
 ```
 
+`aede stats` ends by saying where they are, what they weigh and how old the catalog is, so the question has one place that answers it rather than three that mention it in passing:
+
+```
+This catalog
+
+  Kept in       /Users/kcell/.local/share/aede
+  Weighs        11.2 MB
+  Last scanned  3 days ago
+  aede backup writes all three to one file; AEDE_HOME moves them
+```
+
 `XDG_DATA_HOME` is honoured too; failing all three, it is `~/.local/share/aede`. On a NAS, or anywhere the home directory is not where you want megabytes to accumulate, `AEDE_HOME` is the answer. The whole group moves together — the catalog and the file holding what you wrote stay side by side, because a backup that catches one and misses the other is worse than no backup.
 
 The catalog is one JSON file, read whole into memory by every command. That is a deliberate choice and it has a ceiling, so here is where the ceiling actually sits — measured, on a synthetic library of twelve tracks an album:

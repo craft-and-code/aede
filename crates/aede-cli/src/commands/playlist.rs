@@ -17,7 +17,7 @@ use crate::ui::{self, Align, Table};
 
 pub fn playlist(args: &Args) -> Res {
     let catalog = load(args)?;
-    let scope = super::scope_of(args)?;
+    let scope = super::scope_of(args, &catalog)?;
     let style = match args.has("simple") {
         true => Style::Simple,
         false => Style::Extended,

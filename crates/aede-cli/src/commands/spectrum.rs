@@ -18,7 +18,7 @@ use crate::ui::{self, Align, Table};
 
 pub fn spectrum(args: &Args) -> Res {
     let catalog = load(args)?;
-    let scope = super::scope_of(args)?;
+    let scope = super::scope_of(args, &catalog)?;
     let redraw_everything = args.has("full");
     let dry_run = args.has("dry-run");
 

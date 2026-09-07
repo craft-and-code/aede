@@ -79,6 +79,19 @@ mpv --playlist=deicide.m3u8
 
 Paths are absolute, so the playlist works wherever it is saved; `#EXTINF` carries the duration and the title, so a player shows them without opening every file. Without `--output` it goes to standard output, which a shell supporting process substitution can hand straight to a player — `mpv --playlist=<(aede artist "Ozzy Osbourne" --m3u)`.
 
+## Naming a folder
+
+`check`, `spectrum`, `playlist`, `extract` and `fingerprint` all take folders, and all five work from the **catalog** rather than from the disk. So a folder the catalog has never seen is refused, rather than producing a run with nothing to do:
+
+```
+$ aede extract ~/Desktop/new-rips
+Error: no file in the catalog is under "/Users/kcell/Desktop/new-rips".
+It is on disk, so this catalog was scanned 3 days ago and has not seen it — a folder added since is not in it yet.
+Add it: aede scan "/Users/kcell/Desktop/new-rips"
+```
+
+It used to answer "nothing to extract", which reads as *your files already have their covers*. The date is there because it is the fact that explains it: you can weigh "scanned three days ago" against what you have been doing for three days, and you cannot weigh "run a scan".
+
 ## Paging through a result
 
 Every listing shows **50 rows** by default and says which ones they are:

@@ -56,7 +56,7 @@ struct Survey {
 
 pub fn fingerprint(args: &Args) -> Res {
     let mut catalog = super::load(args)?;
-    let scope = super::scope_of(args)?;
+    let scope = super::scope_of(args, &catalog)?;
     let wanted = super::fetch::names_given(args);
     if args.has("list") {
         return listed(&catalog, &scope, &wanted);

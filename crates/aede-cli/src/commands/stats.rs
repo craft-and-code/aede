@@ -138,7 +138,58 @@ pub fn show_stats(args: &Args) -> Res {
         print!("{}", t.render());
     }
 
+    where_it_lives(args, &catalog);
     Ok(())
+}
+
+/// Where Aède keeps its own files, how much they weigh, and how old they are.
+///
+/// **"Where is my data" had no answer.** The location was in `--help` as a
+/// default, printed by `scan` after a scan, and named by `reset` on its way to
+/// deleting it — three places nobody visits with that question in mind. It is
+/// the first thing somebody needs in order to back it up by hand, to move it to
+/// a NAS, or to tell two catalogs apart, and it belongs on the page that
+/// describes the catalog.
+///
+/// The age goes with it, and it is the answer to a second question this program
+/// used to leave to chance: **a catalog is a photograph of the disk**, and a
+/// reader who ran `aede extract` on a folder they added yesterday has been told
+/// "nothing to do" about files the catalog never held. The date is a fact they
+/// can weigh; "run a scan" on every page would be noise nobody reads by the
+/// third time.
+fn where_it_lives(args: &Args, catalog: &Catalog) {
+    let dir = super::data_dir(args);
+    let files = [
+        aede_core::store::catalog_path(&dir),
+        aede_core::user::user_path(&dir),
+        aede_core::sources::sources_path(&dir),
+    ];
+    let weight: u64 = files
+        .iter()
+        .filter_map(|path| std::fs::metadata(path).ok())
+        .map(|meta| meta.len())
+        .sum();
+
+    println!("{}", ui::section("This catalog"));
+    let mut t = Table::plain(2);
+    t.push(vec!["Kept in".into(), dir.display().to_string()]);
+    t.push(vec!["Weighs".into(), text::format_size(weight)]);
+    t.push(vec![
+        "Last scanned".into(),
+        // From the catalog already in hand, never read from disk a second
+        // time: this page has just loaded a document that is a quarter of a
+        // gigabyte on a large library, and asking for it again to read one
+        // number out of it would double the slowest thing the command does.
+        match catalog.scanned_at {
+            0 => "never".to_string(),
+            at => ui::ago(aede_core::clock::now_seconds().saturating_sub(at)),
+        },
+    ]);
+    print!("{}", t.render());
+    println!(
+        "  {}",
+        ui::dim("aede backup writes all three to one file; AEDE_HOME moves them")
+    );
 }
 
 fn print_buckets(title: &str, buckets: &[stats::Bucket], with_size: bool) {

@@ -80,7 +80,7 @@ struct Survey {
 
 pub fn artwork(args: &Args) -> Res {
     let catalog = super::load(args)?;
-    let scope = super::scope_of(args)?;
+    let scope = super::scope_of(args, &catalog)?;
     let images = args.has("images");
     let survey = survey(&catalog, &scope, images);
 

@@ -42,7 +42,7 @@ pub fn check(args: &Args) -> Res {
     // A folder given on the command line restricts the work to it. Verifying a
     // whole library at once is the kind of thing one wants to try on a corner
     // first.
-    let scope = super::scope_of(args)?;
+    let scope = super::scope_of(args, &catalog)?;
     let queue = to_verify(&catalog, &scope, args.has("full"));
 
     // Nothing to read is not nothing to say. The command answers "are my files
@@ -231,13 +231,12 @@ fn report(
                 ui::elapsed(ms)
             ))
         ),
-        None if intact + damaged + nothing + unchecked == 0 => println!(
-            "  {}",
-            ui::yellow(match scope.is_empty() {
-                true => "the catalog holds no file",
-                false => "no file of the catalog is in that folder",
-            })
-        ),
+        // A scope holding none of the catalog no longer reaches this point:
+        // `scope_of` refuses it, for all five commands that take a folder
+        // rather than for this one alone. What is left is the empty catalog.
+        None if intact + damaged + nothing + unchecked == 0 => {
+            println!("  {}", ui::yellow("the catalog holds no file"))
+        }
         None => {
             println!("  {}", ui::dim("nothing to read: it all has a verdict"));
             println!("  {}", ui::dim("aede check --full verifies them again"));

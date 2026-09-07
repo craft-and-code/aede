@@ -2177,17 +2177,22 @@ fn checking_can_be_restricted_to_one_folder() {
     assert!(out.contains("nothing to read"), "output: {out}");
     assert!(out.contains("Intact"), "output: {out}");
 
-    // A folder the catalog knows nothing about is not silently an empty run.
-    // It has to be a real folder holding none of the library — the temporary
-    // directory itself is the *parent* of this test's library, so pointing at
-    // it proved nothing.
+    // Two neighbouring mistakes on a command line, and they answer alike: a
+    // folder that is not there, and a folder that is there and holds nothing
+    // the catalog has ever seen. It has to be a real folder holding none of the
+    // library — the temporary directory itself is the *parent* of this test's
+    // library, so pointing at it proved nothing.
     let elsewhere = root.join("empty");
     std::fs::create_dir_all(&elsewhere).unwrap();
-    let (out, _, ok) = sandbox.run(&["check", elsewhere.to_str().unwrap()]);
-    assert!(ok);
+    let (_, err, ok) = sandbox.run(&["check", elsewhere.to_str().unwrap()]);
+    assert!(!ok, "stderr: {err}");
     assert!(
-        out.contains("no file of the catalog is in that folder"),
-        "output: {out}"
+        err.contains("no file in the catalog is under"),
+        "it names the folder rather than the run: {err}"
+    );
+    assert!(
+        err.contains("scanned") && err.contains("aede scan"),
+        "and gives the fact that explains it, and the command that fixes it: {err}"
     );
 
     // A folder that does not exist is an error, not an empty result.
@@ -5012,4 +5017,51 @@ fn a_watched_folder_that_is_not_on_this_machine_is_named_before_a_scan_drops_it(
         out.contains("would drop every file under it"),
         "and what a scan would do to it, before they run one: {out}"
     );
+}
+
+/// A folder the catalog has never seen is refused by **every** command that
+/// takes one, not by the one that happened to check.
+///
+/// `check` had the guard and the other four did not, so `aede extract <a folder
+/// added yesterday>` answered "nothing to extract" — which reads as *your files
+/// already have their covers* and means *I have never heard of that folder*. A
+/// reader lost an evening to it and worked it out themselves. The check now
+/// lives in `scope_of`, so the sixth command cannot forget it, and this test
+/// walks the list so that adding one without it fails here.
+#[test]
+fn every_command_taking_a_folder_refuses_one_the_catalog_has_never_seen() {
+    let sandbox = Sandbox::new("unknown_folder");
+    let root = sandbox.dir.join("music/Miles Davis/Kind of Blue");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::copy(library_flac(), root.join("01.flac")).unwrap();
+    let watched = sandbox.dir.join("music");
+    let (out, err, ok) = sandbox.run(&["scan", watched.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // Real, and holding nothing the catalog has ever seen.
+    let elsewhere = sandbox.dir.join("added-yesterday");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let unknown = elsewhere.to_str().unwrap();
+
+    for command in ["check", "spectrum", "playlist", "extract", "fingerprint"] {
+        let (out, err, ok) = sandbox.run(&[command, unknown]);
+        assert!(!ok, "{command} accepted it: {out}{err}");
+        let said = format!("{out}{err}");
+        assert!(
+            said.contains("no file in the catalog is under"),
+            "{command} must name the folder rather than the run: {said}"
+        );
+        assert!(
+            said.contains("aede scan"),
+            "{command} must name what fixes it: {said}"
+        );
+    }
+
+    // And the folder that *is* in the catalog still works, in all five: a guard
+    // that refused everything would pass every assertion above.
+    let known = watched.to_str().unwrap();
+    for command in ["check", "playlist", "extract", "fingerprint"] {
+        let (out, err, ok) = sandbox.run(&[command, known]);
+        assert!(ok, "{command} refused a folder it holds: {out}{err}");
+    }
 }

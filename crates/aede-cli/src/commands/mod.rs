@@ -132,20 +132,67 @@ pub fn canonical(path: &Path) -> PathBuf {
 /// whole catalog.
 ///
 /// Shared by every command that takes `[folder…]` and acts on the files under
-/// it — `check`, `spectrum`, `playlist`. They must agree on what "under this
-/// folder" means, and on macOS that agreement is not free: `/var` and
-/// `/private/var` name the same place by two strings that never compare equal,
-/// which is what [`canonical`] exists for.
-pub fn scope_of(args: &Args) -> Result<Vec<String>, Box<dyn Error>> {
+/// it — `check`, `spectrum`, `playlist`, `extract`, `fingerprint`. They must
+/// agree on what "under this folder" means, and on macOS that agreement is not
+/// free: `/var` and `/private/var` name the same place by two strings that
+/// never compare equal, which is what [`canonical`] exists for.
+///
+/// **A folder the catalog knows nothing about is refused here**, which is why
+/// this takes the catalog. Every one of these commands works from the catalog
+/// rather than from the disk, so a folder that was never scanned produces a
+/// run with nothing to do — and each of them then says something cheerful and
+/// wrong: `aede extract <a folder added yesterday>` answered "nothing to
+/// extract", which reads as *your files already have their covers* and is in
+/// fact *I have never heard of that folder*. One reader lost an evening to it,
+/// and worked it out themselves.
+///
+/// It is an error rather than a warning, and refuses the whole run rather than
+/// dropping the unknown folder: a command answers the question it was asked or
+/// refuses, and quietly acting on two of the three folders named is the
+/// swallowed argument in another costume. Checked here rather than in five
+/// commands, so the sixth cannot forget it — the same reason [`canonical`]
+/// exists.
+pub fn scope_of(args: &Args, catalog: &Catalog) -> Result<Vec<String>, Box<dyn Error>> {
     let mut scope = Vec::new();
     for raw in &args.positionals {
         let path = Path::new(raw);
         if !path.exists() {
             return Err(format!("\"{raw}\" does not exist").into());
         }
-        scope.push(canonical(path).to_string_lossy().to_string());
+        let resolved = canonical(path).to_string_lossy().to_string();
+        if !catalog
+            .files
+            .iter()
+            .any(|f| text::is_under(&f.path, &resolved))
+        {
+            return Err(unknown_folder(raw, catalog).into());
+        }
+        scope.push(resolved);
     }
     Ok(scope)
+}
+
+/// What to say about a folder that exists on disk and not in the catalog.
+///
+/// The age of the catalog is the fact that explains it, and it is given rather
+/// than the advice: "run a scan" is something a reader weighs at nothing, while
+/// "this catalog was built three days ago" is something they can weigh against
+/// what they did three days ago. The command that fixes it is spelled out with
+/// the folder already in it, because the next thing they will do is type it.
+fn unknown_folder(raw: &str, catalog: &Catalog) -> String {
+    let age = match catalog.scanned_at {
+        0 => "this catalog has never been scanned".to_string(),
+        at => format!(
+            "this catalog was scanned {}",
+            ui::ago(aede_core::clock::now_seconds().saturating_sub(at))
+        ),
+    };
+    format!(
+        "no file in the catalog is under \"{raw}\".\n\
+         It is on disk, so {age} and has not seen it — a folder added since is \
+         not in it yet.\n\
+         Add it: aede scan \"{raw}\""
+    )
 }
 
 /// `true` when the path is inside one of the folders given, or is one of them.
