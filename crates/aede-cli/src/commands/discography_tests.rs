@@ -45,40 +45,48 @@ impl Ask for Canned {
     }
 }
 
-/// The folder is named after the **test that owns it**, not after the argument.
-/// Three tests once shared one because they shared a helper that named it, and
-/// each call begins by deleting it: they raced, passing on Linux and failing on
-/// macOS with `Invalid argument`. A name a caller passes is a promise the
-/// caller has to keep, and no grep can check it — a helper called from three
-/// tests spells the name once. The thread's name is the test's own, so two
-/// tests cannot collide however they arrive here, and it is the same on the
-/// next run, so a re-run still clears what the last one left.
-fn owner(fallback: &str) -> String {
+/// The test that owns this folder, for a name no other test can produce.
+///
+/// **Both halves are needed, and each was learnt the hard way.** Naming a
+/// folder by the argument alone works only while no two tests pass the same
+/// word — a rule nothing enforces and no grep can check, because a helper
+/// called from three tests spells the word once: three of them shared a folder,
+/// each deleting it as it started, and the race passed on Linux and failed on
+/// macOS. Naming it by the test alone then broke the opposite case within a
+/// single test, where two sandboxes are two folders on purpose. So the name is
+/// the test **and** the argument: unique across tests however they arrive here,
+/// unique within one, and the same on the next run, so a re-run still clears
+/// what the last one left.
+fn owner() -> String {
     std::thread::current()
         .name()
         .map(|name| name.replace("::", "_"))
-        .unwrap_or_else(|| fallback.to_string())
+        .unwrap_or_else(|| "main".to_string())
 }
 
 fn sandbox(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("aede_disco_{}", owner(name)));
+    let dir = std::env::temp_dir().join(format!("aede_disco_{}_{name}", owner()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a data folder");
     dir
 }
 
 #[test]
-fn each_test_gets_a_folder_of_its_own_whatever_it_asks_for() {
-    // The mechanism, pinned rather than trusted, because what it prevents is a
-    // race that passes here and fails on somebody else's machine: three tests
-    // sharing one folder, each deleting it as it starts. The argument is the
-    // same word on purpose — the folder is not named by it.
-    let mine = sandbox("a name several tests could pass");
+fn a_folder_is_named_by_the_test_and_by_what_it_was_asked_for() {
+    // The mechanism, pinned rather than trusted, because each half prevents a
+    // fault the other one caused. The test's name stops three tests sharing a
+    // folder through a helper that names it once — a race that passed on Linux
+    // and failed on macOS. The argument stops two sandboxes *within* one test
+    // becoming one folder, which is what happened the day only the first half
+    // was there: the second sandbox deleted the first one's file.
+    let one = sandbox("a name several tests could pass");
+    let two = sandbox("another");
     assert!(
-        mine.to_string_lossy()
-            .contains("each_test_gets_a_folder_of_its_own_whatever_it_asks_for"),
-        "named after the test that owns it: {mine:?}"
+        one.to_string_lossy()
+            .contains("a_folder_is_named_by_the_test_and_by_what_it_was_asked_for"),
+        "named after the test that owns it: {one:?}"
     );
+    assert_ne!(one, two, "and two in one test are two folders");
 }
 
 /// A layer holding one identified MusicBrainz artist.

@@ -7,23 +7,27 @@ use super::*;
 use aede_core::model::builder::{ScannedFile, build};
 use aede_core::tags::RawTags;
 
-/// The folder is named after the **test that owns it**, not after the argument.
-/// Three tests once shared one because they shared a helper that named it, and
-/// each call begins by deleting it: they raced, passing on Linux and failing on
-/// macOS with `Invalid argument`. A name a caller passes is a promise the
-/// caller has to keep, and no grep can check it — a helper called from three
-/// tests spells the name once. The thread's name is the test's own, so two
-/// tests cannot collide however they arrive here, and it is the same on the
-/// next run, so a re-run still clears what the last one left.
-fn owner(fallback: &str) -> String {
+/// The test that owns this folder, for a name no other test can produce.
+///
+/// **Both halves are needed, and each was learnt the hard way.** Naming a
+/// folder by the argument alone works only while no two tests pass the same
+/// word — a rule nothing enforces and no grep can check, because a helper
+/// called from three tests spells the word once: three of them shared a folder,
+/// each deleting it as it started, and the race passed on Linux and failed on
+/// macOS. Naming it by the test alone then broke the opposite case within a
+/// single test, where two sandboxes are two folders on purpose. So the name is
+/// the test **and** the argument: unique across tests however they arrive here,
+/// unique within one, and the same on the next run, so a re-run still clears
+/// what the last one left.
+fn owner() -> String {
     std::thread::current()
         .name()
         .map(|name| name.replace("::", "_"))
-        .unwrap_or_else(|| fallback.to_string())
+        .unwrap_or_else(|| "main".to_string())
 }
 
 fn sandbox(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("aede_cli_artwork_{}", owner(name)));
+    let dir = std::env::temp_dir().join(format!("aede_cli_artwork_{}_{name}", owner()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }

@@ -69,6 +69,8 @@ Two commands want `ffmpeg` on the `PATH` — `aede copy --compress` and `aede sp
 | `aede playlist [folder…]`                                 | Write an `.m3u` in every album folder, in album order and with relative paths                                                                                                  |
 | `aede query <expression>`                                 | Every track an expression matches, as a selection                                                                                                                              |
 | `aede reset`                                              | Remove the catalog, after confirmation (`--yes` skips it)                                                                                                                      |
+| `aede backup <file>`                                      | Everything Aède knows in one document: the catalog, what you said, what sources said. The catalog a scan rebuilds; your notes nothing rebuilds                                  |
+| `aede restore <file>`                                     | Put a backup back, after confirmation. It says what it will replace before asking, and never deletes a store the backup does not hold                                           |
 | `aede roots`                                              | List the watched folders (`--remove <folder>` to drop one)                                                                                                                     |
 | `aede scan [folder…]`                                     | Scan the watched folders; any folder given is added to them                                                                                                                    |
 | `aede search <text>`                                      | Search across the whole catalog (`--comments` looks in the comment tag, `--notes` in your own notes, `--lyrics` in the words)                                                  |
@@ -118,6 +120,7 @@ most of them exist to explain a refusal.
 | [Playback (M3)](docs/design/playback.md)                           | The queue, shuffle, loudness, gapless                                           |
 | [Identification (M1)](docs/design/identification.md)               | MusicBrainz, editions, band membership, what is missing from the shelf          |
 | [Discogs, set aside](docs/design/discogs.md)                        | What it would bring, why it needs no API token, and why it is not built         |
+| [What Aède worked out about the bytes](docs/design/conclusions.md)  | Why the integrity verdicts and the fingerprints leave the catalog at M2         |
 | [Lyrics](docs/design/lyrics.md)                                    | Three problems that share a word                                                |
 | [Paths](docs/design/paths.md)                                      | Why a catalog path is a `/`-separated string, and why Windows is not published  |
 | [Plugins, if there are any](docs/design/plugins.md)                | Why a plugin would be a program and not a library, and what it could not be     |

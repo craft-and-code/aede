@@ -249,7 +249,7 @@ fn main() {
         ("tracks", &["export"], "switch to one row per track"),
         (
             "yes",
-            &["reset", "history", "fetch"],
+            &["reset", "history", "fetch", "backup", "restore"],
             "skip the confirmation",
         ),
         (
@@ -377,6 +377,12 @@ fn main() {
             // Naming the commands is not always enough. A role means nothing
             // without a person, and someone typing `album "X" --role performer`
             // is after the people, not the album.
+            // A command whose whole subject is a file, refused the option
+            // that writes to one, needs the form that does work — not a list
+            // of other commands. The same reason `--role` carries a hint.
+            if option == "output" && matches!(command, "backup" | "restore") {
+                eprintln!("The file is not an option here: aede {command} <file>");
+            }
             if option == "role" {
                 eprintln!(
                     "A role needs a person: aede artist \"<name>\" --role {}",
@@ -527,6 +533,8 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("spectrum", None, commands::spectrum),
     ("playlist", None, commands::playlist),
     ("reset", None, commands::reset),
+    ("backup", None, commands::backup),
+    ("restore", None, commands::restore),
     ("import", None, commands::import),
     ("sources", None, commands::sources),
     ("fetch", None, commands::fetch),
@@ -896,6 +904,18 @@ fn print_help() {
                        removes analyses; --forget --pending [folder…] drops
                        only what is waiting, and keeps what did attach
   reset                Remove the catalog, after confirmation (--yes skips it)
+  backup <file>        Everything Aède knows in one document: the catalog,
+                       what you said and what sources said. The catalog can
+                       be rebuilt by a scan; your notes, ratings and play
+                       counts cannot be rebuilt by anything, and the fetched
+                       layer costs twenty minutes of polite requests. An
+                       existing file is overwritten only after confirmation
+                       (--yes skips it)
+  restore <file>       Put a backup back, after confirmation (--yes skips
+                       it). It says what it will replace before asking. A
+                       store the backup does not hold is left exactly as it
+                       is and never deleted, and a store this build cannot
+                       read does not stop the other two
   export               Export the catalog as JSON, or as CSV with --csv
                        (one row per album; --tracks for one row per track)
   query <expression>   (also: find) Every track an expression matches; the

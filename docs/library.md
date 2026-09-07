@@ -99,6 +99,45 @@ The catalog is one JSON file, read whole into memory by every command. That is a
 
 Fifty thousand tracks is roughly four thousand albums, and up to there the catalog costs two seconds and under a gigabyte — you will not notice it. Past a hundred thousand you will, and it is the memory you will notice first, not the wait. If that is your library, say so: the reasoning, and what would have to change, is in [Architecture](design/architecture.md#when-this-becomes-a-database).
 
+## Putting it somewhere safe
+
+```sh
+aede backup ~/aede-2026-09-03.json    # everything, in one document
+aede restore ~/aede-2026-09-03.json   # put it back
+```
+
+Three stores go in, and they are worth wildly different amounts. `catalog.json` is **derived from your disk**: lose it and a scan rebuilds it — except the integrity verdicts and the fingerprints, which are hours of decoding. `sources.json` is **re-fetchable**, at one polite request a second. `user.json` **cannot be rebuilt by anything**: your notes, your ratings, your play counts, your collections, the records you set aside. All three go in, because the cheap-to-rebuild one is also cheap to store, and a backup that made you choose is a backup you get wrong once.
+
+```
+Backup
+
+  catalog            20 148 tracks, 1 604 albums
+  what you said      312 annotations, 4 collections, 9 records set aside
+  what sources said  1 841 records
+→ /Users/kcell/aede-2026-09-03.json (9.7 MB)
+```
+
+The three documents are nested **exactly as each module writes them**, each keeping its own `format_version`. Nothing re-encodes a catalog, so a field added tomorrow is in the backup tomorrow, with no second writer to forget it. And each store is refused on its own: a backup written by an older Aède whose catalog format has since moved still restores your notes, because the catalog's version check has nothing to say about `user.json`.
+
+`aede restore` says what it will replace **before** it asks, since agreeing to "replace three files" is agreeing to nothing you can picture:
+
+```
+Restore
+
+  made 3 days ago by Aède 0.1.0
+  into /Users/kcell/.local/share/aede
+  catalog            20 148 tracks, 1 604 albums — replaces what is there
+  what you said      312 annotations — replaces what is there
+  what sources said  not in this backup — left as it is
+  a store this backup does not hold is left exactly as it is, never deleted
+```
+
+What comes back is **what the library looked like**, not the library. A scan reconciles the two, in both directions — files added since are read in, files gone since are dropped — and the command gives you the date rather than the advice, because "this describes your library as it was twelve days ago" is something you can weigh and "run a scan" is not. If a watched folder is not on the machine you are restoring onto — the drive not plugged in yet, which is the ordinary case when the point of the exercise is a disk that failed — it is named first, because a scan run before mounting it would drop every file under it. That is the one way a restore can lose more than it gave back.
+
+**A store the backup does not hold is never deleted.** A backup made before you had fetched anything carries no `sources.json`, and treating that as "there should be none" would silently throw away a layer that cost twenty minutes of requests. It is left alone and said out loud — you can decide about a file that is still there, and not about one that is gone.
+
+Two commands rather than `backup --restore`, for the reason `aede artwork` became `aede extract`: a command that writes is named for the writing. Restoring replaces three stores at once, and hiding that behind an option on a command called *backup* would put the dangerous half under the reassuring name. Both ask before overwriting, and `--yes` skips the question for scripts; without a terminal to ask on, both **refuse** rather than assuming an answer.
+
 ## Starting over
 
 `aede roots` weighs each watched folder, so the list answers "what is on this drive" and not merely "which drives":

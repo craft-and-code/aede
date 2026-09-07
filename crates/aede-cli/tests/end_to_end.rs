@@ -7,6 +7,15 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// One real audio file, for a test that builds a library of its own.
+///
+/// The reference folder is shared and read-only; a test that adds and removes
+/// files needs a library it owns, and copying one fixture into it is cheaper
+/// than a second folder of fixtures to keep in step.
+fn library_flac() -> PathBuf {
+    library().join("track.flac")
+}
+
 fn library() -> PathBuf {
     // The reference files belong to the core crate.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -15,19 +24,23 @@ fn library() -> PathBuf {
         .expect("reference folder")
 }
 
-/// The folder is named after the **test that owns it**, not after the argument.
-/// Three tests once shared one because they shared a helper that named it, and
-/// each call begins by deleting it: they raced, passing on Linux and failing on
-/// macOS with `Invalid argument`. A name a caller passes is a promise the
-/// caller has to keep, and no grep can check it — a helper called from three
-/// tests spells the name once. The thread's name is the test's own, so two
-/// tests cannot collide however they arrive here, and it is the same on the
-/// next run, so a re-run still clears what the last one left.
-fn owner(fallback: &str) -> String {
+/// The test that owns this folder, for a name no other test can produce.
+///
+/// **Both halves are needed, and each was learnt the hard way.** Naming a
+/// folder by the argument alone works only while no two tests pass the same
+/// word — a rule nothing enforces and no grep can check, because a helper
+/// called from three tests spells the word once: three of them shared a folder,
+/// each deleting it as it started, and the race passed on Linux and failed on
+/// macOS. Naming it by the test alone then broke the opposite case within a
+/// single test, where two sandboxes are two folders on purpose. So the name is
+/// the test **and** the argument: unique across tests however they arrive here,
+/// unique within one, and the same on the next run, so a re-run still clears
+/// what the last one left.
+fn owner() -> String {
     std::thread::current()
         .name()
         .map(|name| name.replace("::", "_"))
-        .unwrap_or_else(|| fallback.to_string())
+        .unwrap_or_else(|| "main".to_string())
 }
 
 /// A throwaway data directory, removed when the test ends.
@@ -37,7 +50,7 @@ struct Sandbox {
 
 impl Sandbox {
     fn new(name: &str) -> Sandbox {
-        let dir = std::env::temp_dir().join(format!("aede_e2e_{}", owner(name)));
+        let dir = std::env::temp_dir().join(format!("aede_e2e_{}_{name}", owner()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temporary folder");
         Sandbox { dir }
@@ -4794,5 +4807,209 @@ fn the_help_files_missing_with_the_listings_and_not_with_the_fetching() {
     assert!(
         at("  missing ") > at("  fetch ") && at("  missing ") > at("  sources "),
         "missing left the block of commands that reach the network"
+    );
+}
+
+/// A backup is only worth what a restore gets back, so the two are one test.
+///
+/// The thing being proved is not that JSON round-trips — three modules already
+/// prove that about themselves — but that the file **written by one command
+/// into one data folder** brings a different folder to the same state, with the
+/// notes intact. A backup nobody has restored is a belief, not a backup.
+#[test]
+fn a_backup_restores_into_a_folder_that_never_held_any_of_it() {
+    let sandbox = Sandbox::new("backup_round_trip");
+    let (out, err, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // Something nothing on earth can rebuild: the whole reason this command
+    // exists is the third of the data that a rescan cannot bring back.
+    let (out, err, ok) = sandbox.run(&["note", "artist", "Miles Davis", "--text", "le meilleur"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let file = sandbox.dir.join("everything.json");
+    let name = file.to_str().unwrap().to_string();
+
+    // The file is the subject of this command, not an option of it.
+    let (out, err, ok) = sandbox.run(&["backup"]);
+    assert!(!ok, "a backup with nowhere to go is refused: {out}{err}");
+    assert!(
+        format!("{out}{err}").contains("aede backup <file>"),
+        "and the refusal shows the form that works: {out}{err}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["backup", &name]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("catalog") && out.contains("what you said"),
+        "{out}"
+    );
+    assert!(file.exists(), "the file it said it wrote: {out}");
+
+    // Overwriting a backup is the one mistake here that running the command
+    // again cannot undo, so it asks — and with no terminal to ask on it refuses
+    // rather than assuming either answer.
+    let (out, err, ok) = sandbox.run(&["backup", &name]);
+    assert!(!ok, "{out}{err}");
+    assert!(
+        format!("{out}{err}").contains("--yes"),
+        "and it names the way to say yes in a script: {out}{err}"
+    );
+
+    // A different data folder, which has never seen any of this.
+    let elsewhere = Sandbox::new("backup_round_trip_elsewhere");
+    let (out, _, ok) = elsewhere.run(&["stats"]);
+    assert!(!ok, "nothing there yet: {out}");
+
+    let (out, err, ok) = elsewhere.run(&["restore", &name, "--yes"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("2 stores restored"),
+        "the catalog and what was written, and not the layer nothing fetched: {out}"
+    );
+    assert!(
+        out.contains("never deleted"),
+        "and it says that the store it did not hold was left alone rather than \
+         emptied — the reader cannot decide about a file already gone: {out}"
+    );
+
+    // The proof: the same library, and the note that nothing could have rebuilt.
+    let (out, err, ok) = elsewhere.run(&["notes"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("le meilleur"), "{out}");
+    let (out, _, ok) = elsewhere.run(&["albums"]);
+    assert!(ok && out.contains("Kind of Blue"), "{out}");
+}
+
+/// The two directions are two commands, and the dangerous one is named for
+/// what it does.
+///
+/// `backup --restore` would have put the destructive half under the reassuring
+/// name — the same fault `aede artwork` had when it was the command that
+/// *wrote* files and said so nowhere.
+#[test]
+fn restoring_is_its_own_command_and_refuses_what_it_cannot_read() {
+    let sandbox = Sandbox::new("restore_is_its_own_command");
+    let (out, _, ok) = sandbox.run(&["help"]);
+    assert!(ok);
+    assert!(
+        out.contains("  backup <file>") && out.contains("  restore <file>"),
+        "both are in the help, each naming the file it is about: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["restore"]);
+    assert!(!ok && format!("{out}{err}").contains("aede restore <file>"));
+
+    // A file that is not a backup is an error, not an empty restore that
+    // reports success and quietly leaves the data folder as it was.
+    let junk = sandbox.dir.join("not-a-backup.json");
+    std::fs::write(&junk, r#"{"format_version":99}"#).unwrap();
+    let (out, err, ok) = sandbox.run(&["restore", junk.to_str().unwrap(), "--yes"]);
+    assert!(!ok, "{out}{err}");
+
+    std::fs::write(&junk, "this is not JSON at all").unwrap();
+    let (out, err, ok) = sandbox.run(&["restore", junk.to_str().unwrap(), "--yes"]);
+    assert!(!ok, "{out}{err}");
+}
+
+/// A restore puts back what the library *looked like*, and says so.
+///
+/// The distinction a reader has to be handed rather than deduce: the file holds
+/// a photograph, and the library has moved since. A scan reconciles in **both**
+/// directions — files added since are read in, files gone since are dropped —
+/// and the first version of this message said only that a scan "checks the
+/// library against it", which is advice nobody weighs and half the truth.
+#[test]
+fn a_restored_catalog_is_a_photograph_and_a_scan_reconciles_both_ways() {
+    let source = Sandbox::new("restore_then_scan");
+    let library = source.dir.join("music/Miles Davis/Kind of Blue");
+    std::fs::create_dir_all(&library).unwrap();
+    let one = library.join("01.flac");
+    let two = library.join("02.flac");
+    std::fs::copy(library_flac(), &one).unwrap();
+    std::fs::copy(library_flac(), &two).unwrap();
+
+    let root = source.dir.join("music");
+    let (out, err, ok) = source.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let file = source.dir.join("photograph.json");
+    let name = file.to_str().unwrap().to_string();
+    let (out, err, ok) = source.run(&["backup", &name]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // The library moves on: one file gone, one arrived. Both directions in one
+    // test, because a reconciliation that only added would be half a scan and
+    // would still pass a test that only removed.
+    std::fs::remove_file(&two).unwrap();
+    std::fs::copy(library_flac(), library.join("03.flac")).unwrap();
+
+    let (out, err, ok) = source.run(&["restore", &name, "--yes"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("describes the library as it was"),
+        "the file is a photograph, and the reader is told: {out}"
+    );
+    assert!(
+        out.contains("added since") && out.contains("gone since"),
+        "and told that a scan reconciles both ways, not that it checks: {out}"
+    );
+
+    // The restored catalog still holds the file that has gone.
+    let (out, _, ok) = source.run(&["stats"]);
+    assert!(ok && out.contains('2'), "two tracks, as it was: {out}");
+
+    let (out, err, ok) = source.run(&["scan"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("Gone since last scan"),
+        "and the scan reports the removal rather than doing it in silence: {out}"
+    );
+
+    // Asked of the catalog by path, because the titles are identical and a
+    // listing of them proves nothing about which file is behind each row.
+    let (out, _, ok) = source.run(&["query", "path:03.flac"]);
+    assert!(ok && out.contains("1 track"), "added since, read in: {out}");
+    let (out, _, ok) = source.run(&["query", "path:02.flac"]);
+    assert!(
+        out.contains("0 track") || out.contains("nothing"),
+        "gone since, dropped — a scan reconciles both ways: {out} (ok: {ok})"
+    );
+}
+
+/// A backup is restored on the machine whose disk did not fail, and that
+/// machine may not have the drive mounted.
+///
+/// Not an error — the drive may simply not be plugged in yet — but a scan run
+/// before mounting it drops every file under it, which is the one way a restore
+/// can lose more than it gave back.
+#[test]
+fn a_watched_folder_that_is_not_on_this_machine_is_named_before_a_scan_drops_it() {
+    let source = Sandbox::new("restore_missing_root");
+    let library = source.dir.join("music/Miles Davis/Kind of Blue");
+    std::fs::create_dir_all(&library).unwrap();
+    std::fs::copy(library_flac(), library.join("01.flac")).unwrap();
+    let root = source.dir.join("music");
+    let (out, err, ok) = source.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let file = source.dir.join("elsewhere.json");
+    let name = file.to_str().unwrap().to_string();
+    let (out, err, ok) = source.run(&["backup", &name]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // The drive is not mounted on the machine doing the restoring.
+    std::fs::rename(&root, source.dir.join("unmounted")).unwrap();
+
+    let elsewhere = Sandbox::new("restore_missing_root_elsewhere");
+    let (out, err, ok) = elsewhere.run(&["restore", &name, "--yes"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("not on this machine") && out.contains("music"),
+        "the folder is named, not merely counted: {out}"
+    );
+    assert!(
+        out.contains("would drop every file under it"),
+        "and what a scan would do to it, before they run one: {out}"
     );
 }

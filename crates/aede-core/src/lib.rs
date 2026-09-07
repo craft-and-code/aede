@@ -13,6 +13,7 @@ pub mod acoustid;
 pub mod analysis;
 pub mod artwork;
 pub mod audit;
+pub mod backup;
 pub mod clock;
 pub mod json;
 pub mod lyrics;
