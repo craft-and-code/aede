@@ -356,6 +356,21 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
 /// Nothing is printed when everything was shown, so the notice keeps meaning
 /// something.
 fn announce_window(window: Window, total: usize, what: &str) {
+    if let Some(said) = window_note(window, total, what) {
+        println!("  {}", ui::yellow(&said));
+    }
+}
+
+/// The sentence [`announce_window`] prints, or `None` when there is nothing to
+/// say.
+///
+/// Split out of the printing because what it decides is not obvious and was
+/// wrong: the *advice* at the end has to follow from the window, and a line
+/// that offers a page which is not there is worse than no line. `aede doctor
+/// --offset=25 --all` answered `26–52 of 52 issues — --offset=52 for the next
+/// page`, and `--offset=52` leads to "starts past the end". The command had
+/// done exactly what it was asked; the sentence under it had not.
+fn window_note(window: Window, total: usize, what: &str) -> Option<String> {
     let Some((first, last)) = window.shown(total) else {
         // Two different emptinesses, and naming the wrong one sends the reader
         // looking for a page that was never there. `--offset` explains an empty
@@ -364,35 +379,44 @@ fn announce_window(window: Window, total: usize, what: &str) {
         // easy to meet the day the listings learned `--query`: `aede artists
         // --query "year:2050"` answered "0 artist in all, and --offset=0 starts
         // past the end", which blames a page number nobody typed.
-        let reason = match total {
+        return Some(match total {
             0 => format!("nothing here: no {what} to show"),
             _ => format!(
                 "nothing here: {} in all, and --offset={} starts past the end",
                 ui::plural(total, what),
                 window.offset
             ),
-        };
-        println!("  {}", ui::yellow(&reason));
-        return;
+        });
     };
     if first == 1 && last == total {
-        return;
+        return None;
     }
-    // `--all` is advice only while it would change something. Given already,
-    // the rows are unbounded and what cut this screen was `--offset` alone, so
-    // repeating it names an option the reader has typed and tells them to type
-    // it — the kind of line that teaches a reader to stop reading the lines.
-    let advice = match window.limit {
-        usize::MAX => "",
-        _ => ", --all for every row",
+
+    // Two questions, and only the answers that are true of *this* screen.
+    //
+    // **A page is offered only when it exists.** The last row shown being the
+    // last row there is means there is no next page, and `--offset={last}` then
+    // names the one number guaranteed to answer "starts past the end". A reader
+    // on the last screen wants to be told that they are, not sent onward.
+    //
+    // **`--all` is advice only while it would change something.** Given
+    // already, the rows are unbounded and what shaped this screen was
+    // `--offset` alone; repeating it names an option the reader has typed and
+    // tells them to type it, which is how a reader learns to stop reading these
+    // lines.
+    let unbounded = window.limit == usize::MAX;
+    let onward = match (last < total, unbounded) {
+        (true, true) => format!("--offset={last} for the next page"),
+        (true, false) => format!("--offset={last} for the next page, --all for every row"),
+        // On the last screen `--all` is not advice either, whatever the limit:
+        // what cut this one is the offset, and lifting the limit would show the
+        // same rows again. The only move left is back to the start.
+        (false, _) => "these are the last; drop --offset to start from the first".to_string(),
     };
-    println!(
-        "  {}",
-        ui::yellow(&format!(
-            "{first}–{last} of {} — --offset={last} for the next page{advice}",
-            ui::plural(total, what)
-        ))
-    );
+    Some(format!(
+        "{first}–{last} of {} — {onward}",
+        ui::plural(total, what)
+    ))
 }
 
 /// Marker put after an album title when the same album sits elsewhere too.
@@ -442,3 +466,7 @@ fn play_list(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
     }
     export::emit(args, &export::m3u(catalog, tracks))
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

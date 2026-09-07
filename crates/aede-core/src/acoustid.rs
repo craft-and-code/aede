@@ -49,6 +49,26 @@ pub const WEB_SERVICE: &str = "https://api.acoustid.org/v2/lookup";
 /// free — [`no_key`] says where.
 pub const KEY_VARIABLE: &str = "AEDE_ACOUSTID_KEY";
 
+/// The key this machine holds, when it holds one.
+///
+/// **Read once, at the edge, and carried in.** It used to be read inside the
+/// pass, from the process environment — which made the pass untestable by
+/// construction: the environment is one variable shared by every thread, and
+/// `cargo test` runs tests on threads. Four tests set and unset it around each
+/// other, and which one won depended on the interleaving: green on a machine
+/// with no key, red on a machine that had one. A value a function reads from
+/// the process rather than from its caller cannot be given to it.
+///
+/// The trimming and the empty check live here rather than at the call site, so
+/// that `AEDE_ACOUSTID_KEY=""` and no variable at all mean the same thing
+/// wherever the question is asked.
+pub fn key() -> Option<String> {
+    std::env::var(KEY_VARIABLE)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 /// The wait between two requests.
 ///
 /// The service asks for no more than three per second. Aède sends one every

@@ -74,13 +74,12 @@ pub fn run(
         return Ok(());
     }
 
-    // Read before anything is asked, so a missing key costs no requests and
-    // no waiting — and the message explains rather than orders.
-    let key = std::env::var(acoustid::KEY_VARIABLE)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(acoustid::no_key)?;
+    // Checked before anything is asked, so a missing key costs no requests and
+    // no waiting — and the message explains rather than orders. The *reading*
+    // happened at the edge, in `fetch`: a pass that reached into the process
+    // environment could not be handed a different answer by a test, because
+    // that environment is one variable shared by every thread.
+    let key = asked.key.as_deref().ok_or_else(acoustid::no_key)?;
 
     let total_ms = survey.targets.len() as u64 * acoustid::REQUEST_INTERVAL.as_millis() as u64;
     println!(
@@ -108,7 +107,7 @@ pub fn run(
         print!("\r  asking: {}/{}", done + 1, survey.targets.len());
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
-        let url = acoustid::lookup_url(&key, &target.fingerprint.data, target.fingerprint.seconds);
+        let url = acoustid::lookup_url(key, &target.fingerprint.data, target.fingerprint.seconds);
         let answer = match ask_with_backoff(transport, &url, backoff) {
             Ok(answer) => answer,
             Err(why) => {

@@ -69,13 +69,30 @@ fn library(fingerprinted: bool) -> Catalog {
     catalog
 }
 
+/// The options a pass reads, with the AcoustID key given rather than exported.
+///
+/// **The key is a value here because it is a value there.** These tests used to
+/// set and unset `AEDE_ACOUSTID_KEY` around each other, which is one variable
+/// shared by every thread in a binary that runs its tests on threads: whichever
+/// test wrote last won, and the suite passed on a machine with no key and
+/// failed on a machine that had one. The environment is read once at the edge
+/// now, in `fetch`, and what reaches a pass is a value a test can choose.
 fn asked_for(again: bool, dry_run: bool) -> crate::commands::fetch::Asked<'static> {
+    with_key(again, dry_run, Some("TESTKEY"))
+}
+
+fn with_key(
+    again: bool,
+    dry_run: bool,
+    key: Option<&str>,
+) -> crate::commands::fetch::Asked<'static> {
     crate::commands::fetch::Asked {
         names: &[],
         again,
         dry_run,
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
+        key: key.map(str::to_string),
     }
 }
 
@@ -130,7 +147,6 @@ fn what_it_heard_is_stored_as_a_guess_and_never_as_a_certainty() {
         answers: vec![Ok(HEARD.to_string())],
         asked: Vec::new(),
     };
-    unsafe { std::env::set_var(aede_core::acoustid::KEY_VARIABLE, "TESTKEY") };
     run(
         &catalog,
         &mut transport,
@@ -187,7 +203,6 @@ fn a_file_the_service_does_not_know_is_recorded_as_asked() {
         answers: vec![Ok(r#"{"status":"ok","results":[]}"#.to_string())],
         asked: Vec::new(),
     };
-    unsafe { std::env::set_var(aede_core::acoustid::KEY_VARIABLE, "TESTKEY") };
     run(
         &catalog,
         &mut transport,
@@ -218,7 +233,6 @@ fn a_bad_key_stops_the_run_instead_of_condemning_the_whole_library() {
         )],
         asked: Vec::new(),
     };
-    unsafe { std::env::set_var(aede_core::acoustid::KEY_VARIABLE, "WRONG") };
     let error = run(
         &catalog,
         &mut transport,
@@ -245,14 +259,13 @@ fn no_key_is_refused_before_a_single_request() {
         answers: Vec::new(),
         asked: Vec::new(),
     };
-    unsafe { std::env::remove_var(aede_core::acoustid::KEY_VARIABLE) };
     let error = run(
         &catalog,
         &mut transport,
         &[],
         &mut layer,
         &sources::sources_path(&dir),
-        &asked_for(false, false),
+        &with_key(false, false, None),
     )
     .expect_err("no key");
     assert!(error.to_string().contains("acoustid.org/new-application"));

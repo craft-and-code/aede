@@ -115,6 +115,7 @@ fn asked(size: Size, images: bool, dry_run: bool) -> crate::commands::fetch::Ask
         dry_run,
         size,
         images,
+        key: None,
     }
 }
 

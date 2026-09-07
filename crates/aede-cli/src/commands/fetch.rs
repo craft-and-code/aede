@@ -191,8 +191,9 @@ pub(super) fn nothing_named(wanted: &[String], but_for_full: usize) -> String {
 /// makes the three passes **the same shape**, so adding a fourth is a call
 /// that looks like the others rather than a new argument list to invent.
 ///
-/// Fields nobody but one pass reads — `size`, `images` — sit here all the
-/// same: they are things the reader asked for, which is what this is.
+/// Fields nobody but one pass reads — `size`, `images`, `key` — sit here all
+/// the same: they are things the reader arranged, which is what this is,
+/// whether they typed them or exported them.
 pub(super) struct Asked<'a> {
     /// The names typed after the command; empty means the whole shelf.
     pub names: &'a [String],
@@ -204,6 +205,13 @@ pub(super) struct Asked<'a> {
     pub size: aede_core::coverart::Size,
     /// `--images`: keep the pictures that are not the cover.
     pub images: bool,
+    /// The AcoustID key, from `AEDE_ACOUSTID_KEY`, when this machine has one.
+    ///
+    /// Read here rather than inside the pass that needs it, for the reason
+    /// [`aede_core::acoustid::key`] gives: the process environment is shared by
+    /// every thread, so a pass that reaches for it cannot be handed a different
+    /// answer by a test. Gathered at the edge, like everything else in here.
+    pub key: Option<String>,
 }
 
 /// A pass `fetch` can be asked for instead of its ordinary run.
@@ -373,6 +381,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         names: &wanted,
         again: args.has("full"),
         dry_run: args.has("dry-run"),
+        key: aede_core::acoustid::key(),
         size: match args.value("size") {
             Some(text) => aede_core::coverart::Size::parse(text).ok_or_else(|| {
                 format!(

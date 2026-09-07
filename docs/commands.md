@@ -96,6 +96,14 @@ aede albums --all                  # every row, however many
 aede albums --all --csv -o all.csv # and into a file
 ```
 
+**Only what is true of that screen is offered.** On the last one there is no next page, so none is named — a line saying `--offset=312` would send you to "starts past the end" and read as a broken command:
+
+```
+  301–312 of 312 albums — these are the last; drop --offset to start from the first
+```
+
+`--all` disappears from the line for the same reason, twice over: when you have already typed it, and on a last screen, where lifting the limit shows the same rows again because what cut them was the offset.
+
 `--offset` is what a front end needs: the order of every listing is deterministic, so page two is genuinely the rows after page one. `--all` says "everything" by name rather than by an encoding to remember — `--limit=0` is refused, since it would show nothing, and so is `--limit abc`, which used to fall back on the default and answer a question nobody asked.
 
 Nothing is printed when everything fit, so the line keeps meaning something. A window past the end says so rather than showing an empty screen that reads as an empty library.
