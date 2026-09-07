@@ -111,8 +111,17 @@ pub struct Prose {
 
 impl Prose {
     /// The line that has to appear wherever the text does.
+    ///
+    /// The **language is named**, and that is not decoration. This text is
+    /// fetched in one language and kept in one language, so a reader who wanted
+    /// French and is reading English has no way to tell whether their
+    /// preference was ignored, whether the article does not exist in French, or
+    /// whether the prose was fetched before they expressed a preference at all.
+    /// The field was stored from the first version and displayed nowhere — the
+    /// same dead end `source_id` and the fingerprints had. Now the screen says
+    /// which language it is, and the way to ask for another is one line below.
     pub fn credit(&self) -> String {
-        format!("{} — {}", self.url, self.licence)
+        format!("{} — in {} — {}", self.url, self.lang, self.licence)
     }
 }
 

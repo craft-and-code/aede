@@ -5065,3 +5065,119 @@ fn every_command_taking_a_folder_refuses_one_the_catalog_has_never_seen() {
         assert!(ok, "{command} refused a folder it holds: {out}{err}");
     }
 }
+
+/// `--lang` is a statement of intent, and the locale is a guess about one.
+///
+/// The machinery to prefer a reader's language existed from the first version —
+/// `preferred_langs`, a fallback chain, English kept last so it never displaces
+/// a language somebody asked for — and there was **no way to ask**. It read the
+/// shell's locale and nothing else, so a reader whose Terminal exports no
+/// `LANG` got English and had no lever, and one whose locale was French had no
+/// way to ask for English. An option nobody can type is a feature nobody has.
+#[test]
+fn the_language_of_the_prose_can_be_asked_for_and_the_option_beats_the_locale() {
+    let sandbox = Sandbox::new("summary_language");
+    let (out, err, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // The pass needs something to ask about before it says what it would ask
+    // for, so a wikidata link is imported the way a fetch would have left one.
+    let held = sandbox.dir.join("held.json");
+    std::fs::write(
+        &held,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:miles davis","source":"musicbrainz",
+              "source_id":"561d854a","fetched_at":1756600000,
+              "confidence":"identified",
+              "facts":{"wikidata":"https://www.wikidata.org/wiki/Q93341"}}
+           ]}"#,
+    )
+    .unwrap();
+    let (out, err, ok) = sandbox.run(&["sources", "--import", held.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // `--dry-run` says what it would do without a single request, which is what
+    // makes the choice observable in a test that must not touch the network.
+    let (out, err, ok) = sandbox.run(&["fetch", "--summaries", "--lang=fr", "--dry-run"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("fr, en"),
+        "the language asked for leads, and English still backs it up: {out}"
+    );
+
+    // Two letters is a language; a folder path or a country is not, and a
+    // value that cannot be a language must not become a hostname —
+    // `https://french.wikipedia.org` does not exist and the request would fail
+    // for a reason nobody could guess.
+    let (out, _, ok) = sandbox.run(&["fetch", "--summaries", "--lang=french", "--dry-run"]);
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("en") && !out.contains("french"),
+        "an unusable value falls back rather than travelling: {out}"
+    );
+
+    // And it belongs to fetch alone: the prose is stored in the language it was
+    // fetched in, so asking a listing to translate it would be a promise the
+    // catalog cannot keep.
+    let (out, err, ok) = sandbox.run(&["artists", "--lang=fr"]);
+    assert!(!ok, "stdout: {out}\nstderr: {err}");
+    assert!(format!("{out}{err}").contains("--lang"), "{out}{err}");
+}
+
+/// `--dry-run` is a promise, and it is kept by **every** pass.
+///
+/// Two of the four kept it and two did not: `--summaries` and `--discography`
+/// read the flag, said nothing about it, and went to the network — which for
+/// summaries is two requests per artist against Wikimedia by somebody who had
+/// just said *ask nothing*. The rule was written as a comment on the first pass
+/// that honoured it, which is exactly how the third and fourth came not to. It
+/// is one function now, and this walks the list so a fifth pass cannot quietly
+/// join the wrong half.
+#[test]
+fn every_pass_that_can_reach_the_network_stops_for_dry_run() {
+    let sandbox = Sandbox::new("dry_run_every_pass");
+    let (out, err, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // Enough of a layer for each pass to have something it would ask about.
+    let held = sandbox.dir.join("held.json");
+    std::fs::write(
+        &held,
+        r#"{"format_version":1,"records":[
+             {"entity":"artist:miles davis","source":"musicbrainz",
+              "source_id":"561d854a","fetched_at":1756600000,
+              "confidence":"identified",
+              "facts":{"wikidata":"https://www.wikidata.org/wiki/Q93341"}}
+           ]}"#,
+    )
+    .unwrap();
+    let (out, err, ok) = sandbox.run(&["sources", "--import", held.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // `has_targets` says whether this fixture gives the pass anything to ask
+    // about: `--covers` needs an album MusicBrainz has already identified and
+    // this library has none, so it stops earlier, for its own reason. It stays
+    // in the walk all the same — the assertion that matters is the second one,
+    // and it holds whichever way a pass stops.
+    for (pass, has_targets) in [
+        ("--summaries", true),
+        ("--discography", true),
+        ("--covers", false),
+    ] {
+        let (out, err, ok) = sandbox.run(&["fetch", pass, "--dry-run"]);
+        assert!(ok, "{pass}: stdout: {out}\nstderr: {err}");
+        if has_targets {
+            assert!(
+                out.contains("nothing was asked: --dry-run"),
+                "{pass} must say it asked nothing: {out}"
+            );
+        }
+        // The proof it is not merely *saying* so: a request that went out and
+        // failed is reported on the error stream, and there must be none. This
+        // is what caught the two passes that read the flag and went anyway.
+        assert!(
+            !err.contains("could not reach") && !err.contains("no network"),
+            "{pass} reached the network after being told not to: {err}"
+        );
+    }
+}

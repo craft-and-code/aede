@@ -4,6 +4,15 @@
 //! endpoints answer with. They are here so that what the program *concludes*
 //! from an answer is proven without a network — the same arrangement
 //! `musicbrainz_tests.rs` uses.
+//!
+//! **Both have since been checked against the live endpoints**, which is not a
+//! formality: they were written from the documented shape and nobody had ever
+//! held them next to a real answer. The shape held. The *content* did not —
+//! `Q11649` was labelled Marilyn Manson here and is in fact **Nirvana**, an
+//! invention that would have sent the next reader looking for a bug in the
+//! wrong place. The titles below are now what `Special:EntityData/Q11649.json`
+//! actually answers. A fixture is a claim about somebody else's service, and a
+//! claim nobody has checked is a guess with a test around it.
 
 use super::*;
 use crate::json::parse;
@@ -13,27 +22,36 @@ use crate::json::parse;
 /// The real document is large — every statement, every label, every sitelink —
 /// and none of the rest is looked at. A fixture that reproduced all of it
 /// would prove nothing extra and hide what is actually being asserted.
+///
+/// The two titles are what the live endpoint answered when this was checked;
+/// the sister-project entries are kept because one test exists to prove that
+/// `enwikiquote` is not mistaken for `enwiki`.
 const ENTITY: &str = r#"{
   "entities": {
     "Q11649": {
       "type": "item",
       "id": "Q11649",
-      "labels": { "en": { "language": "en", "value": "Marilyn Manson" } },
+      "labels": { "en": { "language": "en", "value": "Nirvana" } },
       "sitelinks": {
-        "commonswiki": { "site": "commonswiki", "title": "Category:Marilyn Manson" },
+        "commonswiki": { "site": "commonswiki", "title": "Category:Nirvana" },
         "enwiki": {
           "site": "enwiki",
-          "title": "Marilyn Manson (band)",
+          "title": "Nirvana (band)",
           "badges": []
         },
-        "enwikiquote": { "site": "enwikiquote", "title": "Marilyn Manson" },
-        "frwiki": { "site": "frwiki", "title": "Marilyn Manson (groupe)", "badges": [] }
+        "enwikiquote": { "site": "enwikiquote", "title": "Nirvana" },
+        "frwiki": { "site": "frwiki", "title": "Nirvana (groupe)", "badges": [] }
       }
     }
   }
 }"#;
 
 /// `…/api/rest_v1/page/summary/Marilyn_Manson_(band)`, likewise abbreviated.
+///
+/// A different artist from [`ENTITY`] on purpose, and not an oversight: the two
+/// endpoints are read by two functions with two tests, and these are the two
+/// answers that were actually checked against the live services. Making them
+/// one journey would have meant inventing half of one of them.
 const SUMMARY: &str = r#"{
   "type": "standard",
   "title": "Marilyn Manson",
@@ -76,7 +94,7 @@ fn a_link_that_is_not_an_entity_yields_nothing_rather_than_a_bad_request() {
     for link in [
         "https://www.wikidata.org/wiki/Property:P31",
         "https://www.wikidata.org/wiki/Special:EntityData",
-        "https://en.wikipedia.org/wiki/Marilyn_Manson_(band)",
+        "https://en.wikipedia.org/wiki/Nirvana_(band)",
         "https://www.wikidata.org/wiki/Q",
         "https://www.wikidata.org/wiki/Q11a49",
         "",
@@ -92,7 +110,7 @@ fn the_first_language_that_has_an_article_wins() {
         article(&doc, "Q11649", &["fr", "en"]),
         Some(Article {
             lang: "fr".to_string(),
-            title: "Marilyn Manson (groupe)".to_string(),
+            title: "Nirvana (groupe)".to_string(),
         }),
         "the reader's own language is preferred when it has an article"
     );
@@ -100,7 +118,7 @@ fn the_first_language_that_has_an_article_wins() {
         article(&doc, "Q11649", &["de", "en"]),
         Some(Article {
             lang: "en".to_string(),
-            title: "Marilyn Manson (band)".to_string(),
+            title: "Nirvana (band)".to_string(),
         }),
         "and the chain falls through to the next language, not to nothing"
     );
@@ -118,7 +136,7 @@ fn a_sister_project_is_not_mistaken_for_an_encyclopaedia_article() {
     // how a summary ends up being someone's collected sayings.
     let doc = json(ENTITY);
     let found = article(&doc, "Q11649", &["en"]).expect("an article");
-    assert_eq!(found.title, "Marilyn Manson (band)");
+    assert_eq!(found.title, "Nirvana (band)");
 }
 
 #[test]
@@ -128,7 +146,7 @@ fn an_answer_about_another_id_is_still_read_when_it_is_unambiguous() {
     let doc = json(ENTITY);
     assert_eq!(
         article(&doc, "Q99999", &["en"]).map(|a| a.title),
-        Some("Marilyn Manson (band)".to_string()),
+        Some("Nirvana (band)".to_string()),
         "a redirect is followed rather than reported as nothing"
     );
 }
@@ -158,9 +176,12 @@ fn a_title_becomes_an_address_without_leaving_anything_raw() {
 
 #[test]
 fn the_paragraph_arrives_with_its_credit_or_not_at_all() {
+    // Asked about one article and answered about another, which is the redirect
+    // case this function exists for — and no longer a contrived one, since the
+    // two fixtures are two real answers about two different artists.
     let asked = Article {
         lang: "en".to_string(),
-        title: "Marilyn Manson (band)".to_string(),
+        title: "Nirvana (band)".to_string(),
     };
     let found = prose(&json(SUMMARY), &asked).expect("an extract");
     assert!(
@@ -170,8 +191,9 @@ fn the_paragraph_arrives_with_its_credit_or_not_at_all() {
     );
     assert_eq!(
         found.url, "https://en.wikipedia.org/wiki/Marilyn_Manson_(band)",
-        "the canonical address is preferred: a title may have been redirected, \
-         and a credit has to point where the reader will land"
+        "the canonical address is preferred over the one asked for: a title may \
+         have been redirected, and a credit has to point where the reader will \
+         land rather than where we knocked"
     );
     assert_eq!(found.lang, "en");
     assert_eq!(found.licence, LICENCE);

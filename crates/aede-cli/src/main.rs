@@ -110,6 +110,7 @@ fn main() {
         "images",
         "country",
         "identify",
+        "lang",
     ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
@@ -289,6 +290,7 @@ fn main() {
             "ask what the fingerprinted files sound like",
         ),
         ("size", &["fetch"], "choose how large an image to keep"),
+        ("lang", &["fetch"], "choose the language of the prose"),
         (
             "images",
             &["fetch", "extract"],
@@ -1029,6 +1031,13 @@ fn print_help() {
                        keep its opening paragraph with its credit. The
                        article is looked for in your own language first,
                        then in English
+  --lang <code>        Which language to fetch the prose in (fetch): a
+                       two-letter code, `fr`, `de`, `ja`. Without it, the
+                       shell's own locale is used, and English is always the
+                       last resort — for a great many artists it is the only
+                       article there is. The prose is stored in the language
+                       it was fetched in, so asking for another means asking
+                       again: aede fetch --summaries --full --lang=fr <name>
   --replace            Forget the watched folders and keep only those given
   --threads <n>        Number of reader threads (scan, check;
                        default: available cores)

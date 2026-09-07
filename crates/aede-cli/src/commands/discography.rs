@@ -90,6 +90,13 @@ pub fn run(
         ui::long_duration(total_ms)
     );
 
+    if super::fetch::asked_nothing(
+        asked,
+        &targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+    ) {
+        return Ok(());
+    }
+
     let (mut stored, mut empty, mut failed) = (0usize, 0usize, 0usize);
     for (done, target) in targets.iter().enumerate() {
         print!("\r  browsing: {}/{}", done + 1, targets.len());

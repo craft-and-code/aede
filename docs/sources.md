@@ -37,6 +37,33 @@ Some artists come back with nothing stored, and that is the design working.
 
 An answer that is not clearly about your artist is left alone rather than guessed at. Nothing arbitrary is ever filed.
 
+### The language of the prose
+
+The summary is fetched in **one** language and kept in one language, so the choice belongs to `fetch` and not to whatever displays it later:
+
+```sh
+aede fetch --summaries                       # your shell's locale, English as a fallback
+aede fetch --summaries --lang=fr             # French, English as a fallback
+aede fetch --summaries --full --lang=fr ozzy # and replace what is already held
+```
+
+Without `--lang`, the shell's own `LANG` or `LC_ALL` is read — `fr_FR.UTF-8` means French. **English is always last**, never displaced: for a great many artists it is the only article there is. The pass says what it will look for before it asks:
+
+```
+  articles are looked for in fr, en, in that order
+```
+
+An artist with no French article gets the English one, and the credit under the paragraph says which you are reading:
+
+```
+  https://en.wikipedia.org/wiki/Ozzy_Osbourne — in en — CC BY-SA 4.0
+  aede fetch --summaries --full --lang=fr "ozzy osbourne" asks for another
+```
+
+That last line matters more than it looks: a paragraph in the wrong language is indistinguishable from a preference that was ignored, from an article that does not exist in your language, and from prose fetched before you had a preference at all. Naming the language tells the three apart.
+
+`--full` is needed to replace prose already held — a second run asks about nothing it already has, and the language is part of what it has.
+
 ## Identified, or matched
 
 If your files have been through **Picard**, they already carry MusicBrainz identifiers, and `fetch` uses them: it looks the artist up rather than searching for a name. That is worth two things.

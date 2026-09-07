@@ -94,11 +94,14 @@ pub fn run(
              a file: aede sources shows the two side by side"
         )
     );
-    if asked.dry_run {
-        for target in &survey.targets {
-            println!("  {}", ui::dim(&target.path));
-        }
-        println!("  {}", ui::dim("nothing was asked: --dry-run"));
+    if super::fetch::asked_nothing(
+        asked,
+        &survey
+            .targets
+            .iter()
+            .map(|t| t.path.clone())
+            .collect::<Vec<_>>(),
+    ) {
         return Ok(());
     }
 

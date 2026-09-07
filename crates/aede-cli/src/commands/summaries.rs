@@ -94,6 +94,13 @@ pub fn run(
         ))
     );
 
+    if super::fetch::asked_nothing(
+        asked,
+        &targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+    ) {
+        return Ok(());
+    }
+
     let langs: Vec<&str> = langs.iter().map(String::as_str).collect();
     let (mut stored, mut empty, mut failed) = (0usize, 0usize, 0usize);
     for (done, target) in targets.iter().enumerate() {

@@ -102,7 +102,7 @@ pub fn run(
     path: &std::path::Path,
     asked: &super::fetch::Asked,
 ) -> Res {
-    let (wanted, size, images, dry_run) = (asked.names, asked.size, asked.images, asked.dry_run);
+    let (wanted, size, images) = (asked.names, asked.size, asked.images);
     let survey = survey(catalog, held, wanted, images);
     let targets = &survey.targets;
     println!("{}", ui::section("Cover art"));
@@ -160,11 +160,10 @@ pub fn run(
         );
     }
     skipped(&survey);
-    if dry_run {
-        for target in targets {
-            println!("  {}", ui::dim(&target.title));
-        }
-        println!("  {}", ui::dim("nothing was asked: --dry-run"));
+    if super::fetch::asked_nothing(
+        asked,
+        &targets.iter().map(|t| t.title.clone()).collect::<Vec<_>>(),
+    ) {
         return Ok(());
     }
 

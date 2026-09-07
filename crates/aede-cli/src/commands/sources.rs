@@ -450,6 +450,17 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
             // asks and because a reader deserves to know they are reading an
             // encyclopaedia rather than the program's own opinion.
             println!("  {}", ui::dim(&prose.credit()));
+            // Named where it is read, not only in `fetch --help`: a reader
+            // looking at a paragraph in the wrong language is exactly the
+            // reader who needs the command that changes it, and they are
+            // looking at this line and not at the help.
+            println!(
+                "  {}",
+                ui::dim(&format!(
+                    "aede fetch --summaries --full --lang=<code> \"{}\" asks for another",
+                    record.key
+                ))
+            );
             println!();
         }
     }

@@ -93,6 +93,7 @@ fn with_key(
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
         key: key.map(str::to_string),
+        langs: vec!["en".to_string()],
     }
 }
 

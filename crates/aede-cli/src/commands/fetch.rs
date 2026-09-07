@@ -205,6 +205,14 @@ pub(super) struct Asked<'a> {
     pub size: aede_core::coverart::Size,
     /// `--images`: keep the pictures that are not the cover.
     pub images: bool,
+    /// Which language the prose is wanted in, most wanted first.
+    ///
+    /// `--lang` when it was given, the shell's own locale otherwise, and
+    /// English last in either case — for a great many artists it is the only
+    /// article there is, and being *last* means it never displaces a language
+    /// the reader actually asked for. Gathered here rather than read inside the
+    /// pass, like the key below and for the same reason.
+    pub langs: Vec<String>,
     /// The AcoustID key, from `AEDE_ACOUSTID_KEY`, when this machine has one.
     ///
     /// Read here rather than inside the pass that needs it, for the reason
@@ -212,6 +220,31 @@ pub(super) struct Asked<'a> {
     /// every thread, so a pass that reaches for it cannot be handed a different
     /// answer by a test. Gathered at the edge, like everything else in here.
     pub key: Option<String>,
+}
+
+/// Prints the list a pass would have asked about, and says nothing was.
+///
+/// **`--dry-run` is a promise, and two of the four passes were not keeping it.**
+/// `--covers` and `--identify` stopped; `--summaries` and `--discography` read
+/// the flag, said nothing, and went to the network — which for summaries is two
+/// requests per artist against Wikimedia by somebody who had just said *ask
+/// nothing*. The rule was stated in prose on the first pass that honoured it,
+/// which is exactly how the third and fourth came not to: **a rule stated in a
+/// comment is a rule the next caller does not have.**
+///
+/// So the sentinel is a function. A pass prints its own plan — the titles, the
+/// artists, whatever it is about — and then calls this, which prints the one
+/// line and answers whether to stop. Four call sites, one wording, and an
+/// end-to-end test walks all of them.
+pub(super) fn asked_nothing(asked: &Asked, what: &[String]) -> bool {
+    if !asked.dry_run {
+        return false;
+    }
+    for one in what {
+        println!("  {}", ui::dim(one));
+    }
+    println!("  {}", ui::dim("nothing was asked: --dry-run"));
+    true
 }
 
 /// A pass `fetch` can be asked for instead of its ordinary run.
@@ -309,13 +342,7 @@ fn second_passes(
     for pass in passes {
         match pass {
             Pass::Summaries => {
-                let langs = super::summaries::preferred_langs(
-                    std::env::var("LC_ALL")
-                        .or_else(|_| std::env::var("LANG"))
-                        .ok()
-                        .as_deref(),
-                );
-                super::summaries::run(transport, backoff, &langs, held, path, asked)?;
+                super::summaries::run(transport, backoff, &asked.langs, held, path, asked)?;
             }
             Pass::Discography => {
                 let catalog = catalog.as_ref().expect("a catalog was loaded for it");
@@ -377,11 +404,20 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     // Read once for the whole run, and before anything is asked: a width the
     // archive does not generate must be refused before a summaries pass has
     // spent ten minutes on the network for it.
+    let shell_locale = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LANG"))
+        .ok();
     let asked = Asked {
         names: &wanted,
         again: args.has("full"),
         dry_run: args.has("dry-run"),
         key: aede_core::acoustid::key(),
+        // `--lang` is a statement of intent and the locale is a guess about
+        // one, so the option wins. Neither is read anywhere but here.
+        langs: super::summaries::preferred_langs(match args.value("lang") {
+            Some(asked) => Some(asked),
+            None => shell_locale.as_deref(),
+        }),
         size: match args.value("size") {
             Some(text) => aede_core::coverart::Size::parse(text).ok_or_else(|| {
                 format!(
