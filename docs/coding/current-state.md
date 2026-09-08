@@ -44,7 +44,9 @@ The current implementation includes:
   `aede merge` for the files that never met one, with `aede doctor` suggesting
   pairs and applying none;
 - dated band membership, and the line-up of an album's year, derived on read;
-- lyrics fetching from LRCLIB, behind `--lyrics` and never on by default.
+- lyrics fetching from LRCLIB, behind `--lyrics` and never on by default;
+- folder narrowing on every option of `fetch`: a positional that exists on disk
+  is a folder, anything else is a name, and the two narrow a run independently.
 
 Audio playback is intentionally not implemented yet.
 
@@ -78,7 +80,7 @@ See:
 
 ## Test status
 
-**Last recorded test count:** 663
+**Last recorded test count:** 669
 
 **Last verified:** 2026-09-08
 

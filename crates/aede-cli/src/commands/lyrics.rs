@@ -102,7 +102,7 @@ pub fn run(
     backoff: &[std::time::Duration],
     asked: &super::fetch::Asked,
 ) -> Res {
-    let (targets, skipped) = survey(catalog, asked.names);
+    let (targets, skipped) = survey(catalog, asked.names, asked.scope);
 
     println!("{}", ui::section("Lyrics"));
     // Before the counts, and before anything is asked. A reader deciding
@@ -118,13 +118,13 @@ pub fn run(
     report(&skipped);
 
     if targets.is_empty() {
-        match asked.names.is_empty() {
+        match asked.names.is_empty() && asked.scope.is_empty() {
             true => println!("  {}", ui::dim("no track is missing its words")),
             false => println!(
                 "  {}",
                 ui::dim(&format!(
                     "no track missing its words answers to {}",
-                    asked.names.join(", ")
+                    super::fetch::narrowing(asked.names, asked.scope)
                 ))
             ),
         }
@@ -307,13 +307,23 @@ fn write_beside(path: &std::path::Path, text: &str) -> Result<(), String> {
 /// asked about at all: the service matches on artist, title, album and length,
 /// so a track missing any of them cannot be looked up — and saying that is
 /// better than sending a request that cannot match.
-fn survey(catalog: &Catalog, wanted: &[String]) -> (Vec<Target>, Skipped) {
+fn survey(
+    catalog: &Catalog,
+    wanted: &[String],
+    scope: &super::fetch::Scope,
+) -> (Vec<Target>, Skipped) {
     let mut targets = Vec::new();
     let mut skipped = Skipped::default();
     for track in &catalog.tracks {
         let Some(file) = catalog.file(track.file_id) else {
             continue;
         };
+        // Out of the folders asked about: not skipped, not counted, not here
+        // at all. The counts below explain the tracks this run *could* have
+        // asked about, and a track on another shelf was never one of them.
+        if !scope.has_track(track.id) {
+            continue;
+        }
         // The main credit, which is what the service matches on. `credits_on`
         // is the one place a track's artists are worked out, and going round
         // it would be a second answer to the same question.

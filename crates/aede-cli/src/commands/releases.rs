@@ -119,16 +119,21 @@ impl Target {
 ///
 /// `wanted` narrows by album artist *or* title, so `aede fetch manson` reaches
 /// the records as well as the man — one word, one meaning, whichever half of
-/// the library it lands in.
+/// the library it lands in. `scope` narrows by **where** the record is, which
+/// is a different question and is asked as well as, never instead of.
 pub fn targets(
     catalog: &Catalog,
     held: &sources::Sources,
     wanted: &[String],
+    scope: &super::fetch::Scope,
     again: bool,
 ) -> Vec<Target> {
     let mut targets = Vec::new();
     for release in &catalog.releases {
         if release.title.trim().is_empty() {
+            continue;
+        }
+        if !scope.has_release(release.id) {
             continue;
         }
         let artist = release

@@ -655,8 +655,8 @@ fn nothing_matched_says_which_of_the_two_nothings_it_is() {
     // problems with different next steps, and the general "run fetch first"
     // sends the second of them to re-run a pass with nothing to do.
     let names = vec!["mika".to_string()];
-    assert!(nothing_named(&names, 0).contains("nothing here matches mika"));
-    let done = nothing_named(&names, 3);
+    assert!(nothing_named(&names, &EVERYTHING, 0).contains("nothing here matches mika"));
+    let done = nothing_named(&names, &EVERYTHING, 3);
     assert!(done.contains("3 artists"), "{done}");
     assert!(done.contains("--full"), "{done}");
 }
@@ -746,4 +746,167 @@ fn a_lookup_asks_for_the_memberships_and_stores_them_dated() {
         vec!["Andy Sneap"],
         "\"end\": null beside \"ended\": false is a musician still playing"
     );
+}
+
+/// Two shelves on the disk, one folder each, so that a folder can be given.
+///
+/// **Real files**, unlike the reference library above: a folder is read off
+/// the filesystem before it is looked up in the catalog, and
+/// [`super::Scope::of`] refuses a path that is not there — which is what stops
+/// a mistyped folder becoming a silent run over everything.
+///
+/// **And canonical**, which is not a detail: `std::env::temp_dir()` is
+/// `/var/folders/…` on macOS and `/var` is a link to `/private/var`, so a
+/// catalog built from the path as handed out is filed under a spelling
+/// [`super::super::canonical`] never produces. `aede scan` canonicalizes its
+/// roots, so a real catalog never holds that spelling — a fixture that did
+/// would be testing a library the program cannot build, and it failed on macOS
+/// while passing on Linux, where nothing is a link. See `docs/design/paths.md`.
+fn two_shelves(what: &str) -> (aede_core::model::Catalog, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("aede_scope_{}_{what}", owner()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let dir = super::super::canonical(&dir);
+    let mut files = Vec::new();
+    for (artist, album) in [("Alastis", "Revenge"), ("Ozzy Osbourne", "Blizzard of Ozz")] {
+        let folder = dir.join(artist);
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let path = folder.join("01.flac");
+        std::fs::write(&path, b"not really audio").expect("a file");
+        let mut tags = RawTags::default();
+        tags.insert("artist", artist);
+        tags.insert("albumartist", artist);
+        tags.insert("album", album);
+        // Titled after the shelf, so that a track can be told from the other.
+        tags.insert("title", artist);
+        files.push(ScannedFile {
+            path: path.to_string_lossy().to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        });
+    }
+    let catalog = build(files, vec![dir.to_string_lossy().to_string()], 1, &[]);
+    (catalog, dir)
+}
+
+#[test]
+fn a_positional_that_names_a_folder_is_read_as_one_rather_than_as_a_name() {
+    // `aede fetch --lyrics ~/Music/Alastis` used to normalise the whole path
+    // into words, match none of them against a title or an artist, and ask
+    // about the **entire library** — the swallowed argument this program
+    // refuses everywhere else, wearing a slash.
+    let (_, dir) = two_shelves("split");
+    let shelf = dir.join("Alastis");
+    let args = Args::parse(vec![
+        "fetch".to_string(),
+        shelf.to_string_lossy().to_string(),
+        "portishead".to_string(),
+    ]);
+
+    let (folders, names) = folders_and_names(&args);
+    assert_eq!(folders, vec![shelf.to_string_lossy().to_string()]);
+    assert_eq!(
+        names,
+        vec!["portishead".to_string()],
+        "a word that is not on the disk is still a name"
+    );
+}
+
+#[test]
+fn a_folder_reaches_the_tracks_the_album_and_the_artist_under_it() {
+    // One walk of the catalog answers for every pass, so what a folder means
+    // cannot differ between them.
+    let (catalog, dir) = two_shelves("reach");
+    let scope = Scope::of(
+        &catalog,
+        &[dir.join("Alastis").to_string_lossy().to_string()],
+    )
+    .expect("a folder the catalog holds");
+
+    let artist = |name: &str| {
+        catalog
+            .artists
+            .iter()
+            .find(|a| a.name == name)
+            .expect("the artist")
+    };
+    assert!(scope.has_artist(&artist("Alastis").key));
+    assert!(!scope.has_artist(&artist("Ozzy Osbourne").key));
+
+    let release = |title: &str| {
+        catalog
+            .releases
+            .iter()
+            .find(|r| r.title == title)
+            .expect("the record")
+    };
+    assert!(scope.has_release(release("Revenge").id));
+    assert!(!scope.has_release(release("Blizzard of Ozz").id));
+
+    let track = |title: &str| {
+        catalog
+            .tracks
+            .iter()
+            .find(|t| t.title == title)
+            .expect("the track")
+    };
+    assert!(scope.has_track(track("Alastis").id));
+    assert!(!scope.has_track(track("Ozzy Osbourne").id));
+}
+
+#[test]
+fn no_folder_at_all_reaches_everything() {
+    // The distinction the `Option` inside the scope exists for: "no folder was
+    // given" reaches the whole library, "a folder that holds nothing" reaches
+    // nothing — and reading the first as the second would turn every ordinary
+    // fetch into a run with nothing to do.
+    let (catalog, _) = two_shelves("everything");
+    let scope = Scope::of(&catalog, &[]).expect("no folder is not a refusal");
+    assert!(scope.is_empty());
+    for artist in &catalog.artists {
+        assert!(scope.has_artist(&artist.key));
+    }
+    for release in &catalog.releases {
+        assert!(scope.has_release(release.id));
+    }
+}
+
+#[test]
+fn a_folder_the_catalog_has_never_seen_is_refused_rather_than_run_over() {
+    // The same refusal `check` and `playlist` make, and for the same reason: a
+    // folder added since the last scan would otherwise produce a cheerful
+    // "nothing to ask about" that reads as *your library is done*.
+    let (catalog, dir) = two_shelves("unknown");
+    let outside = dir.join("Portishead");
+    std::fs::create_dir_all(&outside).expect("a folder");
+
+    let refused = Scope::of(&catalog, &[outside.to_string_lossy().to_string()]);
+    assert!(refused.is_err(), "a folder no file of the catalog is under");
+}
+
+#[test]
+fn the_album_half_of_an_ordinary_fetch_honours_a_folder() {
+    // Both halves of the ordinary run, not only the artists: `aede fetch
+    // ~/Music/Alastis` that asked about every album of the library would be
+    // answering a question nobody typed.
+    let (catalog, dir) = two_shelves("albums");
+    let scope = Scope::of(
+        &catalog,
+        &[dir.join("Alastis").to_string_lossy().to_string()],
+    )
+    .expect("a folder the catalog holds");
+    let held = sources::Sources::default();
+
+    let narrowed = crate::commands::releases::targets(&catalog, &held, &[], &scope, false);
+    assert_eq!(
+        crate::commands::releases::names(&narrowed).collect::<Vec<_>>(),
+        vec!["Revenge"]
+    );
+    let whole = crate::commands::releases::targets(&catalog, &held, &[], &EVERYTHING, false);
+    assert_eq!(whole.len(), 2, "and without a folder, both records");
 }

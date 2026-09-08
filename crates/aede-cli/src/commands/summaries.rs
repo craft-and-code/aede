@@ -51,18 +51,20 @@ pub fn run(
     asked: &super::fetch::Asked,
 ) -> Res {
     let (wanted, again) = (asked.names, asked.again);
-    let targets = targets(held, wanted, again);
+    let targets = targets(held, wanted, asked.scope, again);
     println!("{}", ui::section("Summaries"));
     if targets.is_empty() {
         // A name that reached nothing is its own answer, and not the general
         // one: telling somebody who typed a name to "run fetch first" sends
-        // them to re-run a pass that would have nothing to do either.
-        if !wanted.is_empty() {
+        // them to re-run a pass that would have nothing to do either. A folder
+        // that reached nothing is the same answer, asked the other way round.
+        if !wanted.is_empty() || !asked.scope.is_empty() {
             println!(
                 "  {}",
                 ui::dim(&super::fetch::nothing_named(
                     wanted,
-                    self::targets(held, wanted, true).len()
+                    asked.scope,
+                    self::targets(held, wanted, asked.scope, true).len()
                 ))
             );
             return Ok(());
@@ -195,7 +197,7 @@ fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::
 /// possible, and an offer that counted differently from the run it offers is
 /// worse than no offer at all.
 pub fn waiting(held: &sources::Sources) -> usize {
-    targets(held, &[], false).len()
+    targets(held, &[], &super::fetch::EVERYTHING, false).len()
 }
 
 /// Who to ask about: artists MusicBrainz gave a Wikidata link for.
@@ -204,7 +206,12 @@ pub fn waiting(held: &sources::Sources) -> usize {
 /// the catalog does not hold it. An artist whose record has already been
 /// fetched is skipped unless `again`, for the reason `fetch` skips them: a
 /// second run should cost what changed.
-fn targets(held: &sources::Sources, wanted: &[String], again: bool) -> Vec<Target> {
+fn targets(
+    held: &sources::Sources,
+    wanted: &[String],
+    scope: &super::fetch::Scope,
+    again: bool,
+) -> Vec<Target> {
     let mut targets = Vec::new();
     for record in &held.records {
         if record.source != sources::MUSICBRAINZ {
@@ -213,6 +220,12 @@ fn targets(held: &sources::Sources, wanted: &[String], again: bool) -> Vec<Targe
         // The key is the artist's normalised name, and it is the only name
         // this pass has: it never reads the catalog.
         if !super::fetch::reaches(wanted, &[record.key.as_str()]) {
+            continue;
+        }
+        // Which is also why a folder arrives here already turned into a set of
+        // those same keys: the walk that answers "who is on that shelf" needs
+        // the catalog, and it was done once, in `fetch`, before any pass ran.
+        if !scope.has_artist(&record.key) {
             continue;
         }
         let Facts::Artist(artist) = &record.facts else {

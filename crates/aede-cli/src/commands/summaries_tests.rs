@@ -11,6 +11,7 @@ use aede_core::sources::{ArtistFacts, Confidence, Prose, Sources};
 /// The options a pass reads, as `fetch` gathers them.
 fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
     crate::commands::fetch::Asked {
+        scope: &crate::commands::fetch::EVERYTHING,
         names: &[],
         again,
         dry_run: false,

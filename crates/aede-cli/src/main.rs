@@ -817,9 +817,9 @@ fn print_help() {
   check [folder…]      Verify the checksums the files carry, all of them or
                        only those under the folders given (--full re-verifies).
                        Nothing left to check prints the current report instead
-  fetch [name…]        Ask MusicBrainz about your artists and albums and store
-                       what it says, beside your tags. The albums are where
-                       your tags can be contradicted: RELEASETYPE, DATE and
+  fetch [name… | folder…] Ask MusicBrainz about your artists and albums and
+                       store what it says, beside your tags. The albums are
+                       where your tags can be contradicted: RELEASETYPE, DATE and
                        LABEL have an answer on both sides. One request per
                        second, which the service requires, and one request per
                        album whatever your tags carry: a large library takes a
@@ -827,6 +827,13 @@ fn print_help() {
                        --dry-run lists what would be asked, --full asks again
                        about what is already held. A name narrows it, and
                        reaches the records as well as the person.
+                       A folder narrows it too, and asks the other question:
+                       aede fetch --lyrics ~/Music/Alastis is that shelf, not
+                       that word. Anything you type that is on the disk is
+                       read as a folder, anything else as a name, and the run
+                       prints the folders back before it asks anything. It
+                       works the same way for every option of fetch, and for
+                       several folders and names at once
                        --discography is a second pass, over what fetch
                        already stored: it browses everything MusicBrainz
                        credits to each artist, so that aede missing can say
@@ -856,9 +863,11 @@ fn print_help() {
                        subfolder, and --dry-run lists what would be asked for
                        Any of the three second passes below may be given
                        together — aede fetch --covers --discography runs both,
-                       one after the other. Each takes names, like fetch
-                       itself: aede fetch --discography 'pink floyd' browses
-                       that artist alone, and a list of names is fine. They always run in the order they
+                       one after the other. Each takes names and folders, like
+                       fetch itself: aede fetch --discography 'pink floyd'
+                       browses that artist alone, aede fetch --covers
+                       ~/Music/Alastis asks about that shelf alone, and a list
+                       of either is fine. They always run in the order they
                        are listed here, whatever order you type them in, since
                        they go out from the artist: who they are, what they
                        recorded, what the records look like.

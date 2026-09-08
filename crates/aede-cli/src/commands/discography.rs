@@ -58,15 +58,16 @@ pub fn run(
     asked: &super::fetch::Asked,
 ) -> Res {
     let (wanted, again) = (asked.names, asked.again);
-    let targets = targets(catalog, held, wanted, again);
+    let targets = targets(catalog, held, wanted, asked.scope, again);
     println!("{}", ui::section("Discography"));
     if targets.is_empty() {
-        if !wanted.is_empty() {
+        if !wanted.is_empty() || !asked.scope.is_empty() {
             println!(
                 "  {}",
                 ui::dim(&super::fetch::nothing_named(
                     wanted,
-                    self::targets(catalog, held, wanted, true).len()
+                    asked.scope,
+                    self::targets(catalog, held, wanted, asked.scope, true).len()
                 ))
             );
             return Ok(());
@@ -190,6 +191,7 @@ fn targets(
     catalog: &Catalog,
     held: &sources::Sources,
     wanted: &[String],
+    scope: &super::fetch::Scope,
     again: bool,
 ) -> Vec<Target> {
     let mut targets = Vec::new();
@@ -198,6 +200,13 @@ fn targets(
             continue;
         }
         if !super::fetch::reaches(wanted, &[record.key.as_str()]) {
+            continue;
+        }
+        // A record's key *is* the artist's catalog key, which is what makes a
+        // folder answerable here at all: this pass reads the attributed layer
+        // and never the catalog, so the folder was turned into a set of keys
+        // once, in `fetch`, before any pass ran.
+        if !scope.has_artist(&record.key) {
             continue;
         }
         let Facts::Artist(artist) = &record.facts else {
@@ -224,7 +233,7 @@ fn targets(
 
 /// How many artists a `--discography` pass would browse, if it ran now.
 pub fn waiting(catalog: &Catalog, held: &sources::Sources) -> usize {
-    targets(catalog, held, &[], false).len()
+    targets(catalog, held, &[], &super::fetch::EVERYTHING, false).len()
 }
 
 /// `true` when this artist is the album artist of something in the library.

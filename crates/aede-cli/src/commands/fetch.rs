@@ -15,8 +15,10 @@
 // otherwise report this machinery as dead.
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
 
+use std::collections::BTreeSet;
+
 use aede_core::json::Json;
-use aede_core::model::EntityKind;
+use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::sources::{self, Facts, SourceRecord};
 use aede_core::user::EntityRef;
 use aede_core::{clock, musicbrainz, text};
@@ -145,6 +147,38 @@ const RETRY_AFTER: [std::time::Duration; 3] = [
     std::time::Duration::from_secs(15),
 ];
 
+/// What was typed after the command, sorted into folders and names.
+///
+/// **A path is not a name**, and every positional used to be read as one. So
+/// `aede fetch --lyrics ~/Music/Alastis` normalised a whole path into words,
+/// matched none of them against a title or an artist, and asked LRCLIB about
+/// the **entire library** — the swallowed argument this program refuses
+/// everywhere else, wearing a slash. Worse than a mistyped name, because it
+/// looks like it worked.
+///
+/// A positional naming something that exists on the disk is a folder;
+/// everything else is a name. That is the test [`super::scope_of`] already
+/// makes for the commands that take `[folder…]`, so `aede fetch --lyrics
+/// ~/Music/Alastis` and `aede check ~/Music/Alastis` mean the same thing by
+/// the same word. The reading is never silent: [`run_with`] prints the folders
+/// back before anything is asked, so a name that happens to also be a folder
+/// on the disk is visibly read as the folder.
+pub(super) fn folders_and_names(args: &Args) -> (Vec<String>, Vec<String>) {
+    let mut folders = Vec::new();
+    let mut names = Vec::new();
+    for raw in &args.positionals {
+        if std::path::Path::new(raw).exists() {
+            folders.push(raw.clone());
+            continue;
+        }
+        let name = text::normalize(raw);
+        if !name.is_empty() {
+            names.push(name);
+        }
+    }
+    (folders, names)
+}
+
 /// The names typed after the command, normalised, or empty for the whole shelf.
 ///
 /// Read once for the whole run and handed to every pass, because a name given
@@ -152,12 +186,155 @@ const RETRY_AFTER: [std::time::Duration; 3] = [
 /// over the entire library and nothing said the word had been ignored. That is
 /// the fault this program refuses everywhere else, and it was in four places
 /// at once — the ordinary fetch was the only half that read them.
+///
+/// Folders are not names: see [`folders_and_names`], which is the one rule the
+/// whole program reads a positional by.
 pub(super) fn names_given(args: &Args) -> Vec<String> {
-    args.positionals
-        .iter()
-        .map(|name| text::normalize(name))
-        .filter(|name| !name.is_empty())
-        .collect()
+    folders_and_names(args).1
+}
+
+/// The folders typed after the command, and what the catalog holds under them.
+///
+/// A name and a folder narrow a run in two different ways — one asks *who*,
+/// the other asks *where* — and every pass has to honour both. Which artists,
+/// albums and tracks a folder holds is a walk over the catalog, so it is
+/// worked out **once**, here, exactly as the names are: six passes working it
+/// out separately is six chances for two of them to disagree about what
+/// `~/Music/Alastis` means.
+///
+/// [`Default`] is the whole library, which is what the `waiting` counters ask
+/// for: they report what a pass would find over everything, not over what
+/// happened to be typed this time.
+#[derive(Default)]
+pub(super) struct Scope {
+    /// The folders, canonical, as the catalog spells them; empty for the whole
+    /// library.
+    folders: Vec<String>,
+    /// What they hold. `None` when no folder was given, which is not the same
+    /// as a folder that holds nothing — the first reaches everything, the
+    /// second reaches nothing at all.
+    holds: Option<Held>,
+}
+
+/// No folders: the whole library, which is what most callers mean.
+///
+/// A `static` rather than a [`Default::default()`](Default) at each call site
+/// because several callers want a `&'static Scope` — the `waiting` counters,
+/// which report over everything, and the tests that build an [`Asked`] by
+/// hand. It costs nothing: an empty `Vec` allocates nothing and a `static` is
+/// never dropped.
+pub(super) static EVERYTHING: Scope = Scope {
+    folders: Vec::new(),
+    holds: None,
+};
+
+/// The catalog under the folders.
+#[derive(Default)]
+struct Held {
+    tracks: BTreeSet<Id>,
+    releases: BTreeSet<Id>,
+    /// Artists by their catalog key rather than their identifier: two of the
+    /// passes read the attributed layer instead of the catalog, and a stored
+    /// record carries a key and no identifier.
+    artists: BTreeSet<String>,
+}
+
+impl Scope {
+    /// The scope the folders name, refusing one the catalog has never seen.
+    ///
+    /// That refusal is [`super::scope_from`]'s, the same one `check` and
+    /// `playlist` make and for the same reason: a folder added since the last
+    /// scan would otherwise produce a run with nothing to do and a cheerful
+    /// line saying so, which reads as *there is nothing to fetch here* and is
+    /// in fact *I have never heard of that folder*.
+    pub(super) fn of(
+        catalog: &Catalog,
+        typed: &[String],
+    ) -> Result<Scope, Box<dyn std::error::Error>> {
+        if typed.is_empty() {
+            return Ok(Scope::default());
+        }
+        let folders = super::scope_from(typed, catalog)?;
+        let mut holds = Held::default();
+        for track in &catalog.tracks {
+            let Some(file) = catalog.file(track.file_id) else {
+                continue;
+            };
+            if !super::in_scope(&file.path, &folders) {
+                continue;
+            }
+            holds.tracks.insert(track.id);
+            if let Some(release) = track.release_id {
+                holds.releases.insert(release);
+            }
+            for (artist, _role) in catalog.credits_on(EntityKind::Track, track.id) {
+                holds.artists.insert(artist.key.clone());
+            }
+        }
+        // The album artist is credited on the record rather than on each of
+        // its tracks, so a folder holding a record whose tracks name only the
+        // guests would otherwise not reach the person whose record it is.
+        for id in &holds.releases {
+            let Some(artist) = catalog
+                .release(*id)
+                .and_then(|release| release.album_artist_id)
+                .and_then(|id| catalog.artist(id))
+            else {
+                continue;
+            };
+            holds.artists.insert(artist.key.clone());
+        }
+        Ok(Scope {
+            folders,
+            holds: Some(holds),
+        })
+    }
+
+    /// `true` when no folder was given, so the whole library is in reach.
+    pub(super) fn is_empty(&self) -> bool {
+        self.holds.is_none()
+    }
+
+    /// The folders, for a message that names them.
+    pub(super) fn folders(&self) -> &[String] {
+        &self.folders
+    }
+
+    pub(super) fn has_track(&self, id: Id) -> bool {
+        match &self.holds {
+            None => true,
+            Some(held) => held.tracks.contains(&id),
+        }
+    }
+
+    pub(super) fn has_release(&self, id: Id) -> bool {
+        match &self.holds {
+            None => true,
+            Some(held) => held.releases.contains(&id),
+        }
+    }
+
+    /// `true` when the artist filed under this key has something in reach.
+    pub(super) fn has_artist(&self, key: &str) -> bool {
+        match &self.holds {
+            None => true,
+            Some(held) => held.artists.contains(key),
+        }
+    }
+}
+
+/// How a run was narrowed, worded for a message; empty when it was not.
+///
+/// A name and a folder are two different questions, and a run narrowed by both
+/// says both rather than running them together into a list the reader has to
+/// sort out again.
+pub(super) fn narrowing(names: &[String], scope: &Scope) -> String {
+    match (names.is_empty(), scope.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => names.join(", "),
+        (true, false) => scope.folders().join(", "),
+        (false, false) => format!("{} under {}", names.join(", "), scope.folders().join(", ")),
+    }
 }
 
 /// `true` when one of the names typed reaches this thing.
@@ -184,12 +361,12 @@ pub(super) fn reaches(wanted: &[String], candidates: &[&str]) -> bool {
 /// artist here" and "that artist is already done" are different problems with
 /// different next steps, and printing the general "run fetch first" for both
 /// sends somebody to re-run a pass that has nothing to do.
-pub(super) fn nothing_named(wanted: &[String], but_for_full: usize) -> String {
-    let names = wanted.join(", ");
+pub(super) fn nothing_named(wanted: &[String], scope: &Scope, but_for_full: usize) -> String {
+    let named = narrowing(wanted, scope);
     match but_for_full {
-        0 => format!("nothing here matches {names}"),
+        0 => format!("nothing here matches {named}"),
         _ => format!(
-            "{} matching {names}, already done: --full asks again",
+            "{} matching {named}, already done: --full asks again",
             ui::plural(but_for_full, "artist")
         ),
     }
@@ -209,6 +386,13 @@ pub(super) fn nothing_named(wanted: &[String], but_for_full: usize) -> String {
 pub(super) struct Asked<'a> {
     /// The names typed after the command; empty means the whole shelf.
     pub names: &'a [String],
+    /// The folders typed after the command, and what they hold; empty means
+    /// the whole library.
+    ///
+    /// Beside the names rather than folded into them: a name asks *who* and a
+    /// folder asks *where*, they narrow a run independently, and a pass given
+    /// both honours both.
+    pub scope: &'a Scope,
     /// `--full`: ask again about what is already held.
     pub again: bool,
     /// `--dry-run`: say what would happen and do none of it.
@@ -313,6 +497,11 @@ impl Pass {
     /// `--summaries` does not: its input is the wikidata link already stored,
     /// and failing on a missing catalog would be a refusal with no reason
     /// behind it. Loading one anyway "for symmetry" would break that.
+    ///
+    /// A **folder** overrides this, in [`run_with`] rather than here: the
+    /// catalog is the only thing that can say which artists a folder holds, so
+    /// `aede fetch --summaries ~/Music/Alastis` needs one even though the pass
+    /// alone does not. The pass still never reads it — it is handed the answer.
     fn needs_the_catalog(self) -> bool {
         self != Pass::Summaries
     }
@@ -332,6 +521,7 @@ fn second_passes(
     held: &mut sources::Sources,
     path: &std::path::Path,
     asked: &Asked,
+    catalog: Option<&Catalog>,
 ) -> Res {
     // The order is not the typed one, so it is stated rather than left to be
     // inferred from the order the sections happen to come out in.
@@ -350,33 +540,28 @@ fn second_passes(
         );
     }
 
-    // Loaded once for the whole run, and only if something needs it.
-    let catalog = match passes.iter().any(|p| p.needs_the_catalog()) {
-        true => Some(super::load(args)?),
-        false => None,
-    };
     for pass in passes {
         match pass {
             Pass::Summaries => {
                 super::summaries::run(transport, backoff, &asked.langs, held, path, asked)?;
             }
             Pass::Discography => {
-                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                let catalog = catalog.expect("a catalog was loaded for it");
                 super::discography::run(catalog, transport, backoff, held, path, asked)?;
             }
             Pass::Covers => {
-                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                let catalog = catalog.expect("a catalog was loaded for it");
                 super::covers::run(catalog, transport, backoff, held, path, asked)?;
             }
             Pass::Lyrics => {
-                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                let catalog = catalog.expect("a catalog was loaded for it");
                 // The only pass that writes nothing into the attributed layer:
                 // its answer is a file beside the music, which the next scan
                 // discovers, exactly as it would one put there by hand.
                 super::lyrics::run(args, catalog, transport, backoff, asked)?;
             }
             Pass::Identify => {
-                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                let catalog = catalog.expect("a catalog was loaded for it");
                 super::identify::run(catalog, transport, backoff, held, path, asked)?;
             }
         }
@@ -419,10 +604,41 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     // **dropped the discography without a word** — the fault this program
     // refuses everywhere else: an option that cannot be honoured is refused,
     // never swallowed. Here it could be honoured, so it is.
-    // What to ask about: the names given, or every artist in the library. Read
-    // here rather than inside the ordinary run, because every pass honours
-    // them now — `aede fetch --discography mika` used to swallow the word.
-    let wanted = names_given(args);
+    // What to ask about: the names given, the folders given, or every artist
+    // in the library. Read here rather than inside the ordinary run, because
+    // every pass honours them now — `aede fetch --discography mika` used to
+    // swallow the word, and `aede fetch --lyrics ~/Music/Alastis` the path.
+    let (folders, wanted) = folders_and_names(args);
+    let passes = Pass::asked_for(args);
+
+    // Loaded once for the whole run, and only when something needs it. An
+    // ordinary fetch always does; a pass may not; and a **folder** always
+    // does, whatever the pass, because the catalog is the only thing that can
+    // say what a folder holds.
+    let catalog = match passes.is_empty()
+        || !folders.is_empty()
+        || passes.iter().any(|pass| pass.needs_the_catalog())
+    {
+        true => Some(super::load(args)?),
+        false => None,
+    };
+    let scope = match &catalog {
+        Some(catalog) => Scope::of(catalog, &folders)?,
+        // A folder would have loaded one, so there is no folder to place.
+        None => Scope::default(),
+    };
+    // Said before anything is asked, and on every run that gives one: reading
+    // a positional as a folder is a *reading*, and a reading the person cannot
+    // see is one they cannot correct.
+    if !scope.is_empty() {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "only what is under {}",
+                scope.folders().join(", ")
+            ))
+        );
+    }
 
     // Read once for the whole run, and before anything is asked: a width the
     // archive does not generate must be refused before a summaries pass has
@@ -432,6 +648,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         .ok();
     let asked = Asked {
         names: &wanted,
+        scope: &scope,
         again: args.has("full"),
         dry_run: args.has("dry-run"),
         key: aede_core::acoustid::key(),
@@ -453,12 +670,20 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         images: args.has("images"),
     };
 
-    let passes = Pass::asked_for(args);
     if !passes.is_empty() {
-        return second_passes(&passes, args, transport, backoff, &mut held, &path, &asked);
+        return second_passes(
+            &passes,
+            args,
+            transport,
+            backoff,
+            &mut held,
+            &path,
+            &asked,
+            catalog.as_ref(),
+        );
     }
 
-    let catalog = super::load(args)?;
+    let catalog = catalog.expect("an ordinary fetch always loads one");
 
     // No `--limit` here on purpose: everywhere else in this program it means
     // "show a window of the result", and bounding how much work is done is a
@@ -475,6 +700,12 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         if !wanted.is_empty() && !wanted.iter().any(|w| key.contains(w.as_str())) {
             continue;
         }
+        // A folder narrows by where the music is rather than by what it is
+        // called, and the two are asked together: `aede fetch ozzy ~/Music/80s`
+        // is the artist, on that shelf.
+        if !scope.has_artist(&artist.key) {
+            continue;
+        }
         if let Some(entity) = EntityRef::of(&catalog, EntityKind::Artist, artist.id) {
             // Already answered, unless asked to do it again. A second run over
             // a library should cost what changed, not ten minutes again.
@@ -487,13 +718,13 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     // The albums, decided before anything is asked, so that one estimate and
     // one confirmation cover the whole run. Two prompts for one question is
     // how a confirmation becomes something a reader clicks through.
-    let albums = super::releases::targets(&catalog, &held, &wanted, args.has("full"));
+    let albums = super::releases::targets(&catalog, &held, &wanted, &scope, args.has("full"));
 
     if targets.is_empty() && albums.is_empty() {
         println!("{}", ui::section("Fetch"));
         println!(
             "  {}",
-            ui::dim(match wanted.is_empty() {
+            ui::dim(match wanted.is_empty() && scope.is_empty() {
                 true => "every artist and album has already been asked about (--full asks again)",
                 false => "nothing in this catalog matches, or it was already asked about",
             })

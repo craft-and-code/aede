@@ -66,11 +66,18 @@ pub fn run(
     path: &std::path::Path,
     asked: &super::fetch::Asked,
 ) -> Res {
-    let survey = survey(catalog, held, asked.names, asked.again);
+    let survey = survey(catalog, held, asked.names, asked.scope, asked.again);
     println!("{}", ui::section("Identify"));
     skipped(&survey);
     if survey.targets.is_empty() {
-        println!("  {}", ui::dim("nothing to ask about"));
+        let narrowed = super::fetch::narrowing(asked.names, asked.scope);
+        match narrowed.is_empty() {
+            true => println!("  {}", ui::dim("nothing to ask about")),
+            false => println!(
+                "  {}",
+                ui::dim(&format!("nothing to ask about for {narrowed}"))
+            ),
+        }
         return Ok(());
     }
 
@@ -191,7 +198,13 @@ fn store(held: &mut sources::Sources, target: &Target, heard: Option<acoustid::H
 }
 
 /// Sorts every file into one of the three.
-fn survey(catalog: &Catalog, held: &sources::Sources, wanted: &[String], again: bool) -> Survey {
+fn survey(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    wanted: &[String],
+    scope: &super::fetch::Scope,
+    again: bool,
+) -> Survey {
     let mut out = Survey {
         targets: Vec::new(),
         no_fingerprint: 0,
@@ -201,6 +214,9 @@ fn survey(catalog: &Catalog, held: &sources::Sources, wanted: &[String], again: 
         let Some(file) = catalog.file(track.file_id) else {
             continue;
         };
+        if !scope.has_track(track.id) {
+            continue;
+        }
         if !super::fetch::reaches(wanted, &[&track.title, &file.path]) {
             continue;
         }
@@ -257,7 +273,9 @@ fn skipped(survey: &Survey) {
 
 /// How many files an `--identify` pass would ask about, if it ran now.
 pub fn waiting(catalog: &Catalog, held: &sources::Sources) -> usize {
-    survey(catalog, held, &[], false).targets.len()
+    survey(catalog, held, &[], &super::fetch::EVERYTHING, false)
+        .targets
+        .len()
 }
 
 #[cfg(test)]

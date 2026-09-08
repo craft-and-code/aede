@@ -103,18 +103,19 @@ pub fn run(
     asked: &super::fetch::Asked,
 ) -> Res {
     let (wanted, size, images) = (asked.names, asked.size, asked.images);
-    let survey = survey(catalog, held, wanted, images);
+    let survey = survey(catalog, held, wanted, asked.scope, images);
     let targets = &survey.targets;
     println!("{}", ui::section("Cover art"));
     if targets.is_empty() {
-        match wanted.is_empty() {
+        let narrowed = super::fetch::narrowing(wanted, asked.scope);
+        match narrowed.is_empty() {
             true => println!("  {}", ui::dim("nothing to ask about")),
-            // A name that reached nothing is its own answer. The counts below
-            // are then about the albums that name reached, which is what a
-            // reader who typed one wants to know.
+            // A name or a folder that reached nothing is its own answer. The
+            // counts below are then about the albums it reached, which is what
+            // a reader who typed one wants to know.
             false => println!(
                 "  {}",
-                ui::dim(&format!("nothing to ask about for {}", wanted.join(", ")))
+                ui::dim(&format!("nothing to ask about for {narrowed}"))
             ),
         }
         skipped(&survey);
@@ -381,7 +382,13 @@ struct Survey {
 /// second question — "has this album's other artwork been fetched" — whose
 /// answer is on the disk: an `artwork/` folder means yes. Nothing records it
 /// anywhere else, for the same reason nothing records `cover.jpg`.
-fn survey(catalog: &Catalog, held: &sources::Sources, wanted: &[String], images: bool) -> Survey {
+fn survey(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    wanted: &[String],
+    scope: &super::fetch::Scope,
+    images: bool,
+) -> Survey {
     let mut out = Survey {
         targets: Vec::new(),
         embedded: 0,
@@ -390,6 +397,13 @@ fn survey(catalog: &Catalog, held: &sources::Sources, wanted: &[String], images:
         asked: 0,
     };
     for release in &catalog.releases {
+        // Out of the folders asked about: not counted into any of the five
+        // either, for the reason the lyrics pass gives — the counts explain
+        // what this run could have asked about, and a record on another shelf
+        // was never a candidate.
+        if !scope.has_release(release.id) {
+            continue;
+        }
         // A name reaches an album by its title **or** by its artist, the same
         // rule the ordinary fetch uses: `--covers manson` should find the
         // records as well as the person.
@@ -485,7 +499,7 @@ fn survey(catalog: &Catalog, held: &sources::Sources, wanted: &[String], images:
 
 /// The albums this pass would ask about.
 fn targets(catalog: &Catalog, held: &sources::Sources) -> Vec<Target> {
-    survey(catalog, held, &[], false).targets
+    survey(catalog, held, &[], &super::fetch::EVERYTHING, false).targets
 }
 
 /// What was left alone and why, one line per reason that applies.

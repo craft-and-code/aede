@@ -87,8 +87,16 @@ project does not get to make it silently on a user's behalf.
 ```sh
 aede fetch --lyrics                 # every track that has none
 aede fetch "Crazy Train" --lyrics   # narrowed, by title or by artist
+aede fetch --lyrics ~/Music/Alastis # narrowed by shelf, whatever it is called
 aede fetch --lyrics --dry-run       # what would be asked, asking nothing
 ```
+
+The folder is read the way every option of `fetch` reads one — anything typed
+that exists on the disk is a folder, anything else is a name — and
+[the manual](../sources.md#narrowing-a-run-by-folder) has the rule. It matters
+most here: a shelf is the natural unit for a decision about somebody else's
+rights, and *the words for this record* should not have to be spelled as a
+search for a word that happens to match nothing else.
 
 **The typed option is the consent.** The caveat above is printed on every run,
 before anything is asked — not once, not in a file nobody opens. It is

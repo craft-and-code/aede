@@ -156,8 +156,19 @@ pub fn canonical(path: &Path) -> PathBuf {
 /// commands, so the sixth cannot forget it — the same reason [`canonical`]
 /// exists.
 pub fn scope_of(args: &Args, catalog: &Catalog) -> Result<Vec<String>, Box<dyn Error>> {
+    scope_from(&args.positionals, catalog)
+}
+
+/// [`scope_of`], for a command whose positionals are not all folders.
+///
+/// `fetch` takes names and folders in the same place — `aede fetch --lyrics
+/// alastis ~/Music/Alastis` is both — so it sorts them out itself and hands
+/// the folders here. Splitting the reading from the *rules* is the point: what
+/// "under this folder" means, and what happens to a folder the catalog has
+/// never heard of, are decided once for every command that takes one.
+pub fn scope_from(folders: &[String], catalog: &Catalog) -> Result<Vec<String>, Box<dyn Error>> {
     let mut scope = Vec::new();
-    for raw in &args.positionals {
+    for raw in folders {
         let path = Path::new(raw);
         if !path.exists() {
             return Err(format!("\"{raw}\" does not exist").into());

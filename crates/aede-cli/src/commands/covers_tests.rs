@@ -111,6 +111,7 @@ fn library(dir: &std::path::Path, embedded: bool, beside: Option<&str>) -> Catal
 /// The options a pass reads, as `fetch` gathers them.
 fn asked(size: Size, images: bool, dry_run: bool) -> crate::commands::fetch::Asked<'static> {
     crate::commands::fetch::Asked {
+        scope: &crate::commands::fetch::EVERYTHING,
         names: &[],
         again: false,
         dry_run,
@@ -158,7 +159,13 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
     // that the image was inside the files all along.
     let dir = sandbox("survey");
 
-    let inside = survey(&library(&dir, true, None), &Sources::default(), &[], false);
+    let inside = survey(
+        &library(&dir, true, None),
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert_eq!((inside.embedded, inside.beside), (1, 0));
     assert!(inside.targets.is_empty());
 
@@ -166,6 +173,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         &library(&dir, false, Some("cover.jpg")),
         &Sources::default(),
         &[],
+        &crate::commands::fetch::EVERYTHING,
         false,
     );
     assert_eq!((alongside.embedded, alongside.beside), (0, 1));
@@ -193,7 +201,13 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         1,
         &[],
     );
-    let nameless = survey(&unknown, &Sources::default(), &[], false);
+    let nameless = survey(
+        &unknown,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert_eq!(nameless.unidentified, 1);
     assert_eq!(
         (nameless.embedded, nameless.beside, nameless.asked),
@@ -212,7 +226,13 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
     });
-    let again = survey(&catalog, &layer, &[], false);
+    let again = survey(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert_eq!(again.asked, 1);
     assert!(again.targets.is_empty());
 }
@@ -229,7 +249,13 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
     // reverted: two commands that both wrote, one of them not named for it,
     // cost more to hold in the head than the duplicated request it saved.
     let dir = sandbox("handover");
-    let inside = survey(&library(&dir, true, None), &Sources::default(), &[], false);
+    let inside = survey(
+        &library(&dir, true, None),
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     let lines = reasons(&inside);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
@@ -241,7 +267,13 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
     assert!(lines[0].starts_with("1 album carries"), "{}", lines[0]);
 
     let two = library(&dir, true, None);
-    let mut both = survey(&two, &Sources::default(), &[], false);
+    let mut both = survey(
+        &two,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     both.embedded = 2;
     assert!(reasons(&both)[0].starts_with("2 albums carry"));
 }
@@ -268,7 +300,13 @@ fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
         }),
     });
 
-    let survey = survey(&catalog, &layer, &[], false);
+    let survey = survey(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert_eq!(survey.asked, 0, "not a finished question");
     assert_eq!(survey.targets.len(), 1);
     assert!(survey.targets[0].known, "the address is the image");
@@ -312,7 +350,13 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
     });
-    let survey = survey(&catalog, &layer, &[], false);
+    let survey = survey(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert_eq!((survey.asked, survey.targets.len()), (1, 0));
 }
 
@@ -562,11 +606,23 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     let dir = sandbox("images_scope");
     let catalog = library(&dir, false, Some("cover.jpg"));
 
-    let plain = survey(&catalog, &Sources::default(), &[], false);
+    let plain = survey(
+        &catalog,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert!(plain.targets.is_empty());
     assert_eq!(plain.beside, 1);
 
-    let wider = survey(&catalog, &Sources::default(), &[], true);
+    let wider = survey(
+        &catalog,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        true,
+    );
     assert_eq!(wider.targets.len(), 1);
     assert!(
         !wider.targets[0].cover,
@@ -574,7 +630,13 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     );
 
     std::fs::create_dir_all(dir.join("music/Miles Davis/Kind of Blue/artwork")).expect("a folder");
-    let done = survey(&catalog, &Sources::default(), &[], true);
+    let done = survey(
+        &catalog,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        true,
+    );
     assert!(done.targets.is_empty(), "the folder is the record");
     assert_eq!(done.beside, 1);
 }
@@ -604,8 +666,24 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
         }),
     });
 
-    assert!(survey(&catalog, &layer, &[], false).targets[0].known);
-    let wider = survey(&catalog, &layer, &[], true);
+    assert!(
+        survey(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .targets[0]
+            .known
+    );
+    let wider = survey(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        true,
+    );
     assert!(!wider.targets[0].known, "the index has to be asked again");
     assert!(
         wider.targets[0]
@@ -670,7 +748,15 @@ fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
     // wrote is not in it until something looks.
     let rescanned = library(&dir, false, Some("cover.jpg"));
     assert!(
-        survey(&rescanned, &layer, &[], true).targets.is_empty(),
+        survey(
+            &rescanned,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            true
+        )
+        .targets
+        .is_empty(),
         "the artwork folder is there now, and the cover is too"
     );
 

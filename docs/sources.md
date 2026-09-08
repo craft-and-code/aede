@@ -13,9 +13,12 @@ A value from a source **sits beside your tags and never on top of them**. Nothin
 ```sh
 aede fetch                      # every artist and every album
 aede fetch manson               # only what the name matches — person or record
+aede fetch ~/Music/Alastis      # only what is on that shelf
 aede fetch --dry-run            # say what would be asked, ask nothing
 aede fetch --full               # ask again about what is already held
 ```
+
+A name and a folder are two different questions, and `fetch` takes both — see [Narrowing a run by folder](#narrowing-a-run-by-folder).
 
 **Artists and albums, in one run.** The albums are the half that matters most, and it is worth saying why: there is no tag for where a musician is from, so what MusicBrainz says about an *artist* can only ever be added beside your library. An album is different — Picard writes `RELEASETYPE`, `DATE` and `LABEL`, so your files have an opinion and MusicBrainz has one, and the two can disagree. That disagreement is the whole point of this store, and it lives on the albums.
 
@@ -152,15 +155,51 @@ aede fetch --discography    # everything MusicBrainz credits to each artist
 aede fetch --covers         # the front image of every album that has none
 ```
 
-**Each of them takes names**, like `aede fetch` itself — one or several:
+**Each of them takes names and folders**, like `aede fetch` itself — one or several:
 
 ```sh
 aede fetch --discography "pink floyd"
 aede fetch --covers manson portishead      # a list is fine
 aede fetch --summaries mika                # nothing here matches mika
+aede fetch --lyrics ~/Music/Alastis        # that shelf, whatever it is called
 ```
 
 A name reaches an artist by their name, and an album by its title **or** its artist — so `--covers manson` finds the records as well as the person. A name that reaches nothing says so, and says which of the two nothings it is: nobody here answers to it, or they do and the pass has already been run on them (`--full` asks again). The passes used to ignore the word entirely and run over the whole library.
+
+## Narrowing a run by folder
+
+Every option of `fetch` also takes **folders**, and reads them the same way [`check`, `playlist` and `fingerprint`](commands.md) do:
+
+```sh
+aede fetch ~/Music/Alastis                 # the artists and albums on that shelf
+aede fetch --lyrics ~/Desktop/test/Alastis # the words, for those tracks only
+aede fetch --covers --lyrics ~/Music/80s   # several passes, one shelf
+aede fetch ozzy ~/Music/80s                # that person, on that shelf
+```
+
+**Anything you type that exists on the disk is a folder; anything else is a name.** One rule, for every option, so a path never has to be introduced by a flag — and the run prints the folders back before it asks anything, so the reading is visible:
+
+```
+  only what is under /Users/you/Music/Alastis
+
+Lyrics
+```
+
+The two narrow independently, because they answer different questions: a name asks **who**, a folder asks **where**. `aede fetch ozzy ~/Music/80s` is that person on that shelf, and neither half is dropped.
+
+A folder is turned into the artists, albums and tracks it holds **once**, before any pass runs, so every pass means the same thing by it — including `--summaries`, which otherwise never reads the catalog at all.
+
+A folder the catalog has never scanned is **refused**, not quietly ignored:
+
+```
+no file in the catalog is under "~/Music/New".
+It is on disk, so this catalog was scanned 3 days ago and has not seen it — a folder added since is not in it yet.
+Add it: aede scan "~/Music/New"
+```
+
+That refusal is the same one `check` makes, and it exists because the alternative is worse than an error: a run with nothing to do, and a cheerful line saying so, which reads as *your library is already done*.
+
+Before this, a path typed after `fetch` was normalised into words like any other name, matched nothing, and the pass ran over the **whole library** — the one kind of swallowed argument that looks like it worked.
 
 **They can be combined**, and then they run one after another:
 

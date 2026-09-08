@@ -37,7 +37,13 @@ fn library(album: &str, artist: &str, ids: &[(&str, &str)]) -> Catalog {
 }
 
 fn only(catalog: &Catalog) -> Target {
-    let mut found = targets(catalog, &Sources::default(), &[], false);
+    let mut found = targets(
+        catalog,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert_eq!(found.len(), 1, "one album in this library");
     found.remove(0)
 }
@@ -161,8 +167,26 @@ fn an_album_nothing_clearly_matches_is_left_alone() {
 fn an_album_already_answered_is_not_asked_about_twice() {
     let catalog = library("Kind of Blue", "Miles Davis", &[]);
     let mut held = Sources::default();
-    let entity = targets(&catalog, &held, &[], false)[0].entity.clone();
-    assert_eq!(targets(&catalog, &held, &[], false).len(), 1);
+    let entity = targets(
+        &catalog,
+        &held,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    )[0]
+    .entity
+    .clone();
+    assert_eq!(
+        targets(
+            &catalog,
+            &held,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .len(),
+        1
+    );
 
     held.set(SourceRecord {
         key: entity.key.clone(),
@@ -173,11 +197,25 @@ fn an_album_already_answered_is_not_asked_about_twice() {
         facts: Facts::Release(ReleaseFacts::default()),
     });
     assert!(
-        targets(&catalog, &held, &[], false).is_empty(),
+        targets(
+            &catalog,
+            &held,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .is_empty(),
         "a second run costs what changed"
     );
     assert_eq!(
-        targets(&catalog, &held, &[], true).len(),
+        targets(
+            &catalog,
+            &held,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            true
+        )
+        .len(),
         1,
         "--full asks again"
     );
@@ -191,17 +229,38 @@ fn a_name_on_the_command_line_reaches_the_records_as_well_as_the_person() {
     let catalog = library("Antichrist Superstar", "Marilyn Manson", &[]);
     let held = Sources::default();
     assert_eq!(
-        targets(&catalog, &held, &["manson".to_string()], false).len(),
+        targets(
+            &catalog,
+            &held,
+            &["manson".to_string()],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .len(),
         1,
         "matched on the album artist"
     );
     assert_eq!(
-        targets(&catalog, &held, &["antichrist".to_string()], false).len(),
+        targets(
+            &catalog,
+            &held,
+            &["antichrist".to_string()],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .len(),
         1,
         "and on the title"
     );
     assert!(
-        targets(&catalog, &held, &["coltrane".to_string()], false).is_empty(),
+        targets(
+            &catalog,
+            &held,
+            &["coltrane".to_string()],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .is_empty(),
         "and on neither, when neither matches"
     );
 }

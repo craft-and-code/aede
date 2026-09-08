@@ -76,6 +76,7 @@ fn shelf(dir: &std::path::Path, files: Vec<ScannedFile>) -> aede_core::model::Ca
 
 fn asked_for(names: &[String]) -> crate::commands::fetch::Asked<'_> {
     crate::commands::fetch::Asked {
+        scope: &crate::commands::fetch::EVERYTHING,
         names,
         again: false,
         dry_run: false,
@@ -257,4 +258,38 @@ fn a_name_given_to_the_pass_narrows_it_instead_of_being_swallowed() {
         "the word chose which: {}",
         transport.asked[0]
     );
+}
+
+#[test]
+fn a_folder_narrows_the_pass_to_the_tracks_under_it() {
+    // The pass a folder was asked for first, and the case a name cannot
+    // answer: both tracks are credited to the same person, so nothing but
+    // *where they are* tells them apart.
+    // Canonical, as `aede scan` files its roots: on macOS the temp folder is
+    // reached through a link, and a catalog filed under the unresolved
+    // spelling is one the program cannot build. See `docs/design/paths.md`.
+    let dir = super::super::canonical(&scratch("folder"));
+    let one = dir.join("Revenge");
+    let other = dir.join("Blizzard of Ozz");
+    std::fs::create_dir_all(&one).expect("a folder");
+    std::fs::create_dir_all(&other).expect("a folder");
+    let catalog = shelf(
+        &dir,
+        vec![
+            track(&one, "Slaves of Rot", &[]),
+            track(&other, "Crazy Train", &[]),
+        ],
+    );
+
+    let scope = crate::commands::fetch::Scope::of(&catalog, &[one.to_string_lossy().to_string()])
+        .expect("a folder the catalog holds");
+    let (targets, _) = survey(&catalog, &[], &scope);
+    assert_eq!(
+        targets.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(),
+        vec!["Slaves of Rot"]
+    );
+
+    // And without one, the whole shelf — the folder narrowed it, nothing else.
+    let (all, _) = survey(&catalog, &[], &crate::commands::fetch::EVERYTHING);
+    assert_eq!(all.len(), 2);
 }

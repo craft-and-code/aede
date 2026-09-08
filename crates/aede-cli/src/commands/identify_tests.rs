@@ -88,6 +88,7 @@ fn with_key(
     key: Option<&str>,
 ) -> crate::commands::fetch::Asked<'static> {
     crate::commands::fetch::Asked {
+        scope: &crate::commands::fetch::EVERYTHING,
         names: &[],
         again,
         dry_run,
@@ -129,7 +130,13 @@ fn a_file_with_no_fingerprint_is_counted_and_told_where_to_go() {
     // This pass cannot compute one — that is the other command — so the line
     // where it gives up names it.
     let catalog = library(false);
-    let found = survey(&catalog, &sources::Sources::default(), &[], false);
+    let found = survey(
+        &catalog,
+        &sources::Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert!(found.targets.is_empty());
     assert_eq!(found.no_fingerprint, 1);
     assert_eq!(waiting(&catalog, &sources::Sources::default()), 0);
@@ -186,10 +193,27 @@ fn what_it_heard_is_stored_as_a_guess_and_never_as_a_certainty() {
     );
 
     // Asked once, and not again.
-    let found = survey(&catalog, &layer, &[], false);
+    let found = survey(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
     assert!(found.targets.is_empty());
     assert_eq!(found.asked, 1);
-    assert_eq!(survey(&catalog, &layer, &[], true).targets.len(), 1);
+    assert_eq!(
+        survey(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            true
+        )
+        .targets
+        .len(),
+        1
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -216,7 +240,17 @@ fn a_file_the_service_does_not_know_is_recorded_as_asked() {
     .expect("the pass ran");
 
     assert_eq!(layer.records.len(), 1, "the question is recorded as asked");
-    assert!(survey(&catalog, &layer, &[], false).targets.is_empty());
+    assert!(
+        survey(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .targets
+        .is_empty()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
