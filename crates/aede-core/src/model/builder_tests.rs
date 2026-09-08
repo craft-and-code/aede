@@ -47,6 +47,7 @@ fn various_artists_is_not_an_artist() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
     assert!(c.find_artist("Various Artists").is_none());
     assert_eq!(c.artists.len(), 1, "only the performer must exist");
@@ -86,7 +87,7 @@ fn a_box_set_in_disc_folders_is_one_album() {
             });
         }
     }
-    let c = build(files, vec!["/m".into()], 0);
+    let c = build(files, vec!["/m".into()], 0, &[]);
     assert_eq!(c.releases.len(), 1, "one album, not one per disc");
     assert_eq!(c.releases[0].track_ids.len(), 4);
     // The release lives where the album does, not in one of its discs —
@@ -120,7 +121,7 @@ fn a_disc_folder_supplies_the_number_the_tags_forgot() {
             fingerprint: None,
         });
     }
-    let c = build(files, vec!["/m".into()], 0);
+    let c = build(files, vec!["/m".into()], 0, &[]);
     assert_eq!(c.releases.len(), 1);
     let discs: Vec<Option<u32>> = c.tracks.iter().map(|t| t.disc_no).collect();
     assert_eq!(discs, vec![Some(1), Some(2)], "read from the folder");
@@ -152,6 +153,7 @@ fn two_editions_in_two_folders_are_still_two_albums() {
         vec![edition("Album (CD rip)"), edition("Album (vinyl rip)")],
         vec!["/m".into()],
         0,
+        &[],
     );
     assert_eq!(c.releases.len(), 2, "two editions stay two");
 }
@@ -261,6 +263,7 @@ fn two_spellings_under_one_musicbrainz_id_build_one_artist() {
         ],
         vec!["/music".to_string()],
         1,
+        &[],
     );
 
     assert_eq!(catalog.artists.len(), 1, "one man, {:?}", catalog.artists);
@@ -314,6 +317,7 @@ fn without_an_identifier_two_spellings_stay_two_artists() {
         vec![file("Ozzy Osbourne"), file("O. Osbourne")],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     assert_eq!(catalog.artists.len(), 2, "{:?}", catalog.artists);
 }
@@ -346,6 +350,7 @@ fn two_artists_on_one_track_leave_their_identifiers_unpaired() {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     assert_eq!(catalog.artists.len(), 2, "{:?}", catalog.artists);
     assert!(
@@ -386,6 +391,7 @@ fn a_collaboration_credit_is_two_artists_when_the_tags_say_which_two() {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
 
     let names: Vec<&str> = catalog.artists.iter().map(|a| a.name.as_str()).collect();
@@ -420,6 +426,7 @@ fn a_band_whose_name_holds_an_ampersand_is_still_one_band() {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     let names: Vec<&str> = catalog.artists.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, vec!["Simon & Garfunkel"], "{names:?}");
@@ -458,6 +465,7 @@ fn a_performer_tag_that_names_the_pair_and_then_each_of_them_names_two_people() 
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
 
     let names: Vec<&str> = catalog.artists.iter().map(|a| a.name.as_str()).collect();

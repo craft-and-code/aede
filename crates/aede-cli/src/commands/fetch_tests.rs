@@ -57,6 +57,7 @@ fn library(dir: &std::path::Path) -> std::path::PathBuf {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     std::fs::create_dir_all(dir).expect("a data folder");
     let path = aede_core::store::catalog_path(dir);
@@ -207,6 +208,7 @@ fn an_identifier_in_the_tags_is_used_instead_of_a_search() {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).expect("saved");
 

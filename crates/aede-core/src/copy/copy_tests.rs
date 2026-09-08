@@ -38,6 +38,7 @@ fn catalog_of(paths: &[(&str, &str)], roots: &[&str]) -> Catalog {
         paths.iter().map(|(p, a)| file(p, a)).collect(),
         roots.iter().map(|r| (*r).to_string()).collect(),
         0,
+        &[],
     )
 }
 
@@ -242,7 +243,7 @@ fn catalog_of_codec(path: &str, codec: &str, lossless: bool) -> Catalog {
     f.tags.properties.codec = codec.into();
     f.tags.properties.lossless = lossless;
     f.tags.properties.duration_ms = Some(240_000);
-    model::build(vec![f], vec!["/m".into()], 0)
+    model::build(vec![f], vec!["/m".into()], 0, &[])
 }
 
 fn converted_to(catalog: &Catalog, target: transcode::Target) -> Option<transcode::Target> {
@@ -322,7 +323,7 @@ fn two_sources_landing_on_one_name_do_not_become_one_file() {
     b.tags.properties.codec = "pcm".into();
     b.tags.properties.lossless = true;
     b.tags.properties.duration_ms = Some(1000);
-    let catalog = model::build(vec![a, b], vec!["/m".into()], 0);
+    let catalog = model::build(vec![a, b], vec!["/m".into()], 0, &[]);
     let plan = plan(
         &catalog,
         &all_tracks(&catalog),

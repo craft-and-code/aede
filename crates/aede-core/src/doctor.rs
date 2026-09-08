@@ -78,6 +78,16 @@ pub enum IssueKind {
     /// A checksum carried by the file does not match its contents: the audio
     /// has been damaged since it was written.
     DamagedAudio,
+    /// Two artist rows that look like one musician written two ways.
+    ///
+    /// **Suggested, never applied**, and that is the whole design. A shared
+    /// `MUSICBRAINZ_ARTISTID` merges two spellings with no heuristic at all;
+    /// this is the other half of the problem — files that never met
+    /// MusicBrainz — where nobody outside the owner of the disk can know the
+    /// answer. Matching on a fragment of a name merges Angus Young with Neil
+    /// Young, so what this does is put a pair in front of somebody who can
+    /// tell, and name the command that acts on it.
+    SameArtistMaybe,
     /// A source and the tags say different things about the same release.
     ///
     /// Reported, never resolved. Which of the two is right is not something
@@ -108,6 +118,7 @@ impl IssueKind {
             | IssueKind::MissingTrackNumber
             | IssueKind::MissingCover
             | IssueKind::SourceDisagrees
+            | IssueKind::SameArtistMaybe
             | IssueKind::OtherEdition => Severity::Info,
         }
     }
@@ -116,6 +127,10 @@ impl IssueKind {
     pub fn label(self) -> &'static str {
         match self {
             IssueKind::SourceDisagrees => "source disagrees",
+            // "possibly", and the word is doing work: nothing here is a
+            // finding, and a line reading "the same artist" would be a claim
+            // this program has no way to make.
+            IssueKind::SameArtistMaybe => "possibly one artist",
             IssueKind::MissingTitle => "missing title",
             IssueKind::MissingArtist => "missing artist",
             IssueKind::MissingAlbum => "missing album",
@@ -211,6 +226,7 @@ pub fn diagnose(catalog: &Catalog, sources: &crate::sources::Sources) -> Vec<Iss
     check_duplicates(catalog, &mut issues);
     check_same_audio(catalog, &mut issues);
     check_releases(catalog, &mut issues);
+    check_same_person(catalog, &mut issues);
 
     issues.sort_by(|a, b| {
         a.severity()
@@ -863,3 +879,137 @@ mod tests;
 #[cfg(test)]
 #[path = "doctor_source_tests.rs"]
 mod source_tests;
+
+/// Pairs of artist rows that look like one musician written two ways.
+///
+/// **Suggestions, and nothing here ever acts on one.** The half of artist
+/// identity that has an exact answer — two spellings under one
+/// `MUSICBRAINZ_ARTISTID` — is settled in `model::identity` before anything is
+/// interned, so anything still standing as two rows by the time this runs is a
+/// pair no authority can rule on. Matching on a fragment of a name merges
+/// Angus Young with Neil Young; the only safe thing to do with a resemblance is
+/// to show it to somebody who knows.
+///
+/// Two shapes are reported, and each has to earn it.
+///
+/// **An initialism.** `O. Osbourne` beside `Ozzy Osbourne`: the same number of
+/// words, each word either identical or a single letter that opens the other.
+/// Tight enough to stand on its own — the abbreviated spelling usually lives on
+/// a different album, so there is nothing else to corroborate it with.
+///
+/// **A shortened name that shares an album.** `Osbourne` beside `Ozzy
+/// Osbourne`, where one name's words end the other's. Loose on its own, which
+/// is why it is only reported when the two are credited on **the same release
+/// folder**: two people who differ by a dropped first name and appear on one
+/// record together are, in practice, one person tagged twice.
+///
+/// A pair whose two rows carry **different** MusicBrainz identifiers is never
+/// reported: that is not a resemblance, it is two people, said so by the only
+/// authority on the question.
+fn check_same_person(catalog: &Catalog, issues: &mut Vec<Issue>) {
+    // Artists with nothing behind them are skipped: a name credited on no
+    // track is usually a stray tag, and a report of two strays helps nobody.
+    let named: Vec<&model::Artist> = catalog
+        .artists
+        .iter()
+        .filter(|a| !catalog.tracks_of_artist(a.id).is_empty())
+        .collect();
+
+    for (at, one) in named.iter().enumerate() {
+        for other in named.iter().skip(at + 1) {
+            // Two identifiers are two people. Two rows sharing one would
+            // already be one row, so this only ever excludes real pairs.
+            if let (Some(a), Some(b)) = (&one.mbid, &other.mbid)
+                && a != b
+            {
+                continue;
+            }
+            let together = || shares_a_release(catalog, one.id, other.id);
+            let why = if initialism(&one.key, &other.key) {
+                "one is the other with a first name reduced to its initial"
+            } else if shortened(&one.key, &other.key) && together() {
+                "one is the other without its first name, and both are credited on one album"
+            } else {
+                continue;
+            };
+            // The longer spelling second, so the line reads the way the
+            // command that acts on it is typed: the short one gives way.
+            let (short, long) = match one.key.len() <= other.key.len() {
+                true => (one, other),
+                false => (other, one),
+            };
+            issues.push(Issue {
+                kind: IssueKind::SameArtistMaybe,
+                detail: format!(
+                    "\"{}\" ({}) and \"{}\" ({}): {why}. \
+                     If they are, aede merge \"{}\" \"{}\" says so — \
+                     nothing in your files changes",
+                    short.name,
+                    crate::text::plural(catalog.tracks_of_artist(short.id).len(), "track"),
+                    long.name,
+                    crate::text::plural(catalog.tracks_of_artist(long.id).len(), "track"),
+                    short.name,
+                    long.name,
+                ),
+                // A couple of files from the lesser spelling, because the way
+                // to settle this is to look at what they are tagged with.
+                files: catalog
+                    .tracks_of_artist(short.id)
+                    .iter()
+                    .filter_map(|&t| catalog.track(t))
+                    .filter_map(|t| catalog.file(t.file_id))
+                    .map(|f| f.path.clone())
+                    .take(2)
+                    .collect(),
+            });
+        }
+    }
+}
+
+/// `true` when two normalised names differ only by a first name reduced to its
+/// initial: `o osbourne` and `ozzy osbourne`.
+///
+/// Word for word, so a shared letter anywhere else cannot trigger it, and at
+/// least one word has to actually be an initial — otherwise two identical names
+/// would qualify, and they are one row already.
+fn initialism(one: &str, other: &str) -> bool {
+    let (a, b): (Vec<&str>, Vec<&str>) = (one.split(' ').collect(), other.split(' ').collect());
+    if a.len() != b.len() || a.len() < 2 {
+        return false;
+    }
+    let mut abbreviated = false;
+    for (left, right) in a.iter().zip(&b) {
+        if left == right {
+            continue;
+        }
+        let opens = |short: &str, full: &str| {
+            short.chars().count() == 1 && full.starts_with(short) && full.chars().count() > 1
+        };
+        match opens(left, right) || opens(right, left) {
+            true => abbreviated = true,
+            false => return false,
+        }
+    }
+    abbreviated
+}
+
+/// `true` when one name's words are the tail of the other's: `osbourne` inside
+/// `ozzy osbourne`.
+///
+/// Whole words, never a substring, because a substring match is what merges
+/// `Young` into everybody. On its own this is far too loose to act on, which is
+/// why its caller also demands a shared release.
+fn shortened(one: &str, other: &str) -> bool {
+    let (a, b): (Vec<&str>, Vec<&str>) = (one.split(' ').collect(), other.split(' ').collect());
+    let (short, long) = if a.len() < b.len() { (a, b) } else { (b, a) };
+    !short.is_empty() && short.len() < long.len() && long.ends_with(&short[..])
+}
+
+/// `true` when two artists are credited on one and the same release.
+fn shares_a_release(catalog: &Catalog, one: Id, other: Id) -> bool {
+    let mine: BTreeSet<Id> = catalog.releases_of_artist(one).into_iter().collect();
+    catalog
+        .releases_of_artist(other)
+        .iter()
+        .any(|id| mine.contains(id))
+}

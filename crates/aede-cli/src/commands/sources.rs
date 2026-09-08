@@ -68,7 +68,6 @@ fn summary(held: &Sources, catalog: &Catalog) -> Res {
     names.sort_unstable();
     names.dedup();
 
-    let now = aede_core::clock::now_seconds();
     let mut table = Table::new(&["Source", "Records", "Attached", "Waiting", "Last fetch"])
         .align(1, Align::Right)
         .align(2, Align::Right)
@@ -90,7 +89,7 @@ fn summary(held: &Sources, catalog: &Catalog) -> Res {
             mine.records.len().to_string(),
             reach.attached.to_string(),
             reach.waiting.to_string(),
-            ui::ago(now.saturating_sub(last)),
+            ui::since(last),
         ]);
     }
     println!("{}", table.render());
@@ -432,7 +431,6 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
     }
 
     println!("{}", ui::section("What sources say"));
-    let now = aede_core::clock::now_seconds();
 
     // Prose first, and outside the table. A paragraph does not fit a column,
     // and it is the one thing here meant to be read rather than compared with
@@ -468,7 +466,7 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
     let mut table = Table::new(&["Source", "Field", "Says", "Your tags"]).limit(2, 34);
 
     for record in &records {
-        let age = ui::ago(now.saturating_sub(record.fetched_at));
+        let age = ui::since(record.fetched_at);
         let attribution = match record.confidence {
             Confidence::Identified => format!("{} · {age}", record.source),
             Confidence::Matched(score) => format!("{} {score}% · {age}", record.source),
@@ -512,7 +510,7 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
                 ui::dim(&format!(
                     "{} was asked and holds nothing about this ({})",
                     record.source,
-                    ui::ago(now.saturating_sub(record.fetched_at))
+                    ui::since(record.fetched_at)
                 ))
             );
         }

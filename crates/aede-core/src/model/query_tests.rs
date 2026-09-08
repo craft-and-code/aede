@@ -50,6 +50,7 @@ fn an_exact_album_title_wins_over_the_ones_beginning_with_it() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
 
     let (exact, kind) = c.find_releases("Danzig");
@@ -99,6 +100,7 @@ fn every_track_sharing_a_title_is_returned() {
         ],
         vec!["/m".to_string()],
         0,
+        &[],
     );
     let (found, kind) = c.find_tracks("ride the lightning");
     assert_eq!(kind, TitleMatch::Exact, "the title matches as written");
@@ -178,6 +180,7 @@ fn a_guest_appearance_is_not_part_of_the_discography() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
 
     let ozzy = c
@@ -228,6 +231,7 @@ fn a_writing_credit_is_neither_discography_nor_appearance() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
 
     let rhoads = c
@@ -261,6 +265,7 @@ fn what_someone_wrote_is_counted_even_when_they_play_it_too() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
     let ozzy = c.find_artist("Ozzy Osbourne").expect("the artist");
 

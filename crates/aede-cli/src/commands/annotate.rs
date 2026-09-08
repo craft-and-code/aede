@@ -225,10 +225,7 @@ fn print_note(entry: &Annotation) {
     if entry.updated_at > 0 {
         println!(
             "\n  {}",
-            ui::dim(&format!(
-                "written {}",
-                ui::ago(aede_core::clock::now_seconds().saturating_sub(entry.updated_at))
-            ))
+            ui::dim(&format!("written {}", ui::since(entry.updated_at)))
         );
     }
 }
@@ -1093,7 +1090,7 @@ pub fn history(args: &Args) -> Res {
             })
             .unwrap_or_default();
         t.push(vec![
-            ui::ago(clock::now_seconds().saturating_sub(play.at)),
+            ui::since(play.at),
             play.track.display_name(&catalog),
             artist,
             if play.completed {

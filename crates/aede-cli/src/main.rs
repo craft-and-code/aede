@@ -503,7 +503,7 @@ const IMPORT_COMMANDS: &[&str] = &["import"];
 /// — `--list` says what is held, `--forget` drops it, `--source` narrows to
 /// one — because a user who learned it on one should not have to learn it
 /// again on the other.
-const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing"];
+const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing", "merge"];
 
 /// Commands that can list what they hold rather than go and get more.
 ///
@@ -513,7 +513,7 @@ const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing"];
 /// rule: `fingerprint` can list what it holds and has nothing to forget and no
 /// source to select. **One list per question, not one list per set of commands
 /// that happen to agree today.**
-const LIST_COMMANDS: &[&str] = &["import", "sources", "missing", "fingerprint"];
+const LIST_COMMANDS: &[&str] = &["import", "sources", "missing", "fingerprint", "merge"];
 
 /// The one command that lists releases and can therefore sort compilations
 /// from the rest.
@@ -551,6 +551,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("sources", None, commands::sources),
     ("fetch", None, commands::fetch),
     ("missing", None, commands::missing),
+    ("merge", None, commands::merge),
     ("extract", Some("artwork"), commands::artwork),
     ("fingerprint", None, commands::fingerprint),
     ("query", Some("find"), commands::query),
@@ -894,6 +895,16 @@ fn print_help() {
                        name, like the report itself — and --forget --remove
                        <title> puts it back. What the source said is
                        never altered: only what you are shown
+  merge <a> <b>        Say that two spellings are one musician: the first
+                       gives way to the second. Files tagged by Picard need
+                       none of this — a shared MUSICBRAINZ_ARTISTID already
+                       merges them — but nobody outside can know that your
+                       O. Osbourne is Ozzy, so this is where you say it.
+                       Nothing in your files changes: it is how the shelf is
+                       read, and it takes effect on the next aede scan.
+                       --list shows the statements, narrowed by a name;
+                       --forget <spelling> takes one back. aede doctor names
+                       the pairs worth looking at and merges none of them
   albums               List of albums (--artist, --year, --genre, --label,
                        --comment, --compilations, --no-compilations).
                        --query narrows it by anything the grammar can say:

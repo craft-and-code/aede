@@ -21,6 +21,7 @@ mod fingerprint;
 mod identify;
 mod import;
 mod inspect;
+mod merge;
 mod playlist;
 mod releases;
 mod reset;
@@ -51,6 +52,7 @@ pub use fetch::fetch;
 pub use fingerprint::fingerprint;
 pub use import::import;
 pub use inspect::inspect;
+pub use merge::merge;
 pub use playlist::playlist;
 pub use reset::reset;
 pub use scan::{roots, scan};
@@ -182,10 +184,7 @@ pub fn scope_of(args: &Args, catalog: &Catalog) -> Result<Vec<String>, Box<dyn E
 fn unknown_folder(raw: &str, catalog: &Catalog) -> String {
     let age = match catalog.scanned_at {
         0 => "this catalog has never been scanned".to_string(),
-        at => format!(
-            "this catalog was scanned {}",
-            ui::ago(aede_core::clock::now_seconds().saturating_sub(at))
-        ),
+        at => format!("this catalog was scanned {}", ui::since(at)),
     };
     format!(
         "no file in the catalog is under \"{raw}\".\n\

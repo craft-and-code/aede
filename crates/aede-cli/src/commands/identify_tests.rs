@@ -59,6 +59,7 @@ fn library(fingerprinted: bool) -> Catalog {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     if fingerprinted {
         catalog.files[0].fingerprint = Some(Fingerprint {

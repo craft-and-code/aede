@@ -55,14 +55,21 @@ pub struct ScannedFile {
 /// Processing order is deterministic — files are sorted by path first — so two
 /// scans of the same library produce exactly the same identifiers. Without
 /// that, neither a readable diff nor a reproducible test is possible.
-pub fn build(mut scanned: Vec<ScannedFile>, roots: Vec<String>, scanned_at: u64) -> Catalog {
+pub fn build(
+    mut scanned: Vec<ScannedFile>,
+    roots: Vec<String>,
+    scanned_at: u64,
+    chosen: &[super::identity::Chosen],
+) -> Catalog {
     scanned.sort_by(|a, b| a.path.cmp(&b.path));
 
     // **Read before anything is interned.** Two spellings under one MusicBrainz
     // identifier are one artist, and which spelling survives is decided by the
     // library as a whole — the most frequent one — so it cannot be settled file
-    // by file as the walk goes. See [`super::identity`].
-    let aliases = super::identity::aliases(scanned.iter().flat_map(named_once));
+    // by file as the walk goes. `chosen` is what the owner of the disk said
+    // about the files no identifier can answer for, and it is resolved in the
+    // same pass rather than applied over it. See [`super::identity`].
+    let aliases = super::identity::aliases(scanned.iter().flat_map(named_once), chosen);
 
     let mut builder = Builder::new(roots, scanned_at, aliases);
     for item in &scanned {

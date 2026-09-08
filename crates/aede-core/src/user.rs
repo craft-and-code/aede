@@ -320,6 +320,36 @@ pub struct SetAside {
     pub created_at: u64,
 }
 
+/// Two spellings the owner of the disk says are one musician.
+///
+/// The second half of artist identity, and the half no authority can settle.
+/// `MUSICBRAINZ_ARTISTID` answers for the files that met Picard; for an old
+/// rip, a download, a friend's drive, **nobody on earth knows that a particular
+/// `O. Osbourne` is Ozzy except the person whose shelf it is**. Comparing the
+/// strings cannot stand in for them — a fragment match merges Angus Young with
+/// Neil Young — so the program asks instead of guessing, and keeps the answer
+/// here, with everything else that was said rather than derived.
+///
+/// **Both keys are normalised**, because that is the form the merge is decided
+/// on everywhere else in the program: a statement about `Ozzy  Osbourne` must
+/// still be about `ozzy osbourne` on the next scan. They are readable as they
+/// stand — unlike a [`SetAside`], whose key is an identifier and which
+/// therefore has to carry a title beside it.
+///
+/// Nothing in an audio file changes, ever. This is a statement about how the
+/// shelf is *read*, and `aede merge --forget` takes it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SameArtist {
+    /// Whose statement it is.
+    pub owner: UserRef,
+    /// The spelling that gives way, normalised.
+    pub spelling: String,
+    /// The spelling it is filed under, normalised.
+    pub filed_as: String,
+    /// When it was said.
+    pub created_at: u64,
+}
+
 /// Everything the user wrote, as it sits on disk.
 #[derive(Debug, Clone, Default)]
 pub struct UserData {
@@ -333,6 +363,8 @@ pub struct UserData {
     pub collections: Vec<Collection>,
     /// Records taken off the `missing` report — see [`SetAside`].
     pub set_aside: Vec<SetAside>,
+    /// Spellings the owner says are one artist — see [`SameArtist`].
+    pub same_artist: Vec<SameArtist>,
 }
 
 impl UserData {
@@ -747,6 +779,20 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         })
         .collect();
     root.set("set_aside", Json::Arr(set_aside));
+
+    let same_artist: Vec<Json> = data
+        .same_artist
+        .iter()
+        .map(|m| {
+            let mut o = Json::obj();
+            o.set("owner", m.owner.as_str().into());
+            o.set("spelling", m.spelling.as_str().into());
+            o.set("filed_as", m.filed_as.as_str().into());
+            o.set("created_at", m.created_at.into());
+            o
+        })
+        .collect();
+    root.set("same_artist", Json::Arr(same_artist));
     root
 }
 
@@ -861,6 +907,36 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             created_at: row.field_u64("created_at").unwrap_or(0),
         });
     }
+    for row in value
+        .get("same_artist")
+        .and_then(crate::json::Json::as_arr)
+        .unwrap_or(&[])
+    {
+        // Half a statement is not a statement: a row naming one spelling says
+        // nothing about which artist it gives way to, and filing it under the
+        // empty key would collect every broken row in the file under one
+        // artist nobody named.
+        let (Some(spelling), Some(filed_as)) =
+            (row.field_str("spelling"), row.field_str("filed_as"))
+        else {
+            continue;
+        };
+        // Normalised on the way in as well as on the way out. A file edited by
+        // hand — which is a thing this format invites, being readable — must
+        // not be able to state a merge the program can never match.
+        let (spelling, filed_as) = (text::normalize(&spelling), text::normalize(&filed_as));
+        if spelling.is_empty() || filed_as.is_empty() || spelling == filed_as {
+            continue;
+        }
+        data.same_artist.push(SameArtist {
+            owner: row
+                .field_str("owner")
+                .unwrap_or_else(|| LOCAL_USER.to_string()),
+            spelling,
+            filed_as,
+            created_at: row.field_u64("created_at").unwrap_or(0),
+        });
+    }
     Ok(data)
 }
 
@@ -968,6 +1044,21 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
             .any(|a| a.owner == aside.owner && a.release_group == aside.release_group);
         if !known {
             into.set_aside.push(aside);
+            report.added += 1;
+        }
+    }
+    // Same rule, and the same reason: a merge was stated or it was not.
+    // Keyed on the spelling that gives way alone, not on the pair — two rows
+    // filing `o osbourne` under two different artists is not a statement said
+    // twice, it is a contradiction, and the one already on this disk wins
+    // because taking it back is one command and finding it is not.
+    for same in incoming.same_artist {
+        let known = into
+            .same_artist
+            .iter()
+            .any(|m| m.owner == same.owner && m.spelling == same.spelling);
+        if !known {
+            into.same_artist.push(same);
             report.added += 1;
         }
     }

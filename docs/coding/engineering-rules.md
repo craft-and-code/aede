@@ -296,6 +296,24 @@ When a test module becomes larger than approximately 200 lines, move it to a sib
 
 The split must not change the number or meaning of tests.
 
+### A sibling test file must be declared
+
+A `*_tests.rs` that no module declares is compiled by nothing and run by
+nothing, and `cargo test` is green either way — a missing `mod` is not an error
+anywhere in Rust. The failure is silent and looks exactly like coverage.
+
+The declaration is one line in the module under test:
+
+```rust
+#[cfg(test)]
+#[path = "widget_tests.rs"]
+mod tests;
+```
+
+`crates/aede-cli/tests/docs.rs` walks both `src/` trees and fails on a
+`*_tests.rs` no module names. It happened once, to a file holding tests written
+against a real bug.
+
 ---
 
 ## 18. API design
@@ -312,6 +330,20 @@ Prefer:
 - small focused functions.
 
 Avoid abstraction for abstraction's sake.
+
+### Two meanings need two functions, not a comment
+
+Where two different quantities share a primitive type, a single function that
+takes one of them is a trap, however clearly its parameter is documented.
+
+`ui::ago` takes an *elapsed span in seconds*. Ten call sites wrote
+`ago(now - at)`; the eleventh wrote `ago(created_at)`, which reads correctly in
+English and printed "56 years ago" for something a second old — a Unix
+timestamp is a plausible number of seconds, so nothing could reject it. The fix
+was `ui::since(at)`, which takes the moment and does the arithmetic once.
+
+Keep the part with rules in it pure: `since` reads the clock, `ago` remains a
+function of its argument and stays testable without one.
 
 ---
 

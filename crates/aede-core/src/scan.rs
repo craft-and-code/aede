@@ -42,6 +42,19 @@ pub struct ScanOptions {
     /// plain `aede scan` re-reads every watched root: an exclusion that had to
     /// be retyped would be forgotten exactly when it mattered.
     pub excluded: Vec<PathBuf>,
+    /// Spellings the owner of the disk has said are one artist.
+    ///
+    /// The half of artist identity no identifier can settle, and the reason it
+    /// travels here rather than in the catalog: it is **the user's**, it lives
+    /// in `user.json`, and this crate does not read that file — the caller
+    /// does, as it does for every other statement in it.
+    ///
+    /// It is applied when the graph is built, which is why a merge takes
+    /// effect on the next `aede scan` and not before: the spelling a track is
+    /// filed under is decided as the artist is interned, and there is no later
+    /// moment at which one row can become another without rebuilding
+    /// everything that points at it.
+    pub same_artist: Vec<crate::model::identity::Chosen>,
 }
 
 impl Default for ScanOptions {
@@ -51,6 +64,7 @@ impl Default for ScanOptions {
             follow_symlinks: false,
             skip_hidden: true,
             excluded: Vec::new(),
+            same_artist: Vec::new(),
         }
     }
 }
@@ -264,7 +278,7 @@ pub fn scan(
         .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
-    let mut catalog = model::build(scanned, roots_str, now_seconds());
+    let mut catalog = model::build(scanned, roots_str, now_seconds(), &options.same_artist);
 
     // Analyses are keyed by path, so they simply travel: nothing to remap, and
     // nothing to lose. They are the one thing in a catalog that reading the

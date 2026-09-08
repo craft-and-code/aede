@@ -104,6 +104,7 @@ fn library(dir: &std::path::Path, embedded: bool, beside: Option<&str>) -> Catal
         }],
         vec![dir.join("music").to_string_lossy().to_string()],
         1,
+        &[],
     )
 }
 
@@ -190,6 +191,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         }],
         vec![dir.join("music").to_string_lossy().to_string()],
         1,
+        &[],
     );
     let nameless = survey(&unknown, &Sources::default(), &[], false);
     assert_eq!(nameless.unidentified, 1);
@@ -513,6 +515,7 @@ fn an_album_nothing_has_identified_cannot_be_asked_about() {
         }],
         vec![dir.join("music").to_string_lossy().to_string()],
         1,
+        &[],
     );
     assert_eq!(
         waiting(&catalog, &Sources::default()),

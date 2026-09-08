@@ -39,6 +39,7 @@ fn detects_missing_tags() {
         vec![file("/m/a/01 no tags.flac", &[], Some(1000), "flac")],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issues = diagnose(&c, &crate::sources::Sources::default());
     assert_eq!(count(&issues, IssueKind::MissingTitle), 1);
@@ -63,6 +64,7 @@ fn detects_an_unreadable_duration() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issues = diagnose(&c, &crate::sources::Sources::default());
     assert_eq!(count(&issues, IssueKind::MissingDuration), 1);
@@ -105,7 +107,7 @@ fn a_copied_album_is_reported_once_and_not_per_track() {
             ));
         }
     }
-    let c = model::build(files, vec!["/m".into()], 0);
+    let c = model::build(files, vec!["/m".into()], 0, &[]);
     let issues = diagnose(&c, &crate::sources::Sources::default());
     assert_eq!(count(&issues, IssueKind::DuplicateAlbum), 1);
     assert_eq!(
@@ -146,6 +148,7 @@ fn detects_a_duplicate_but_not_a_live_version() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issues = diagnose(&c, &crate::sources::Sources::default());
     let duplicates: Vec<&Issue> = issues
@@ -178,6 +181,7 @@ fn an_album_cut_short_at_the_end_is_incomplete_too() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let gap = diagnose(&c, &crate::sources::Sources::default())
         .into_iter()
@@ -210,6 +214,7 @@ fn a_total_smaller_than_what_is_there_is_a_wrong_tag_not_a_gap() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     assert!(
         !diagnose(&c, &crate::sources::Sources::default())
@@ -251,6 +256,7 @@ fn a_set_missing_a_whole_disc_is_incomplete() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issue = diagnose(&c, &crate::sources::Sources::default())
         .into_iter()
@@ -270,6 +276,7 @@ fn a_hole_in_the_disc_numbers_needs_no_total() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issue = diagnose(&c, &crate::sources::Sources::default())
         .into_iter()
@@ -302,6 +309,7 @@ fn a_complete_set_and_a_plain_album_say_nothing() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     assert!(
         !diagnose(&c, &crate::sources::Sources::default())
@@ -324,6 +332,7 @@ fn a_disc_in_a_folder_of_its_own_is_not_a_disc_that_is_missing() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     assert_eq!(c.releases.len(), 2, "two folders, two releases");
     assert!(
@@ -357,6 +366,7 @@ fn detects_an_incomplete_album() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issues = diagnose(&c, &crate::sources::Sources::default());
     let gap = issues
@@ -384,6 +394,7 @@ fn detects_mixed_quality() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     assert_eq!(
         count(
@@ -409,7 +420,7 @@ fn healthy_library_reports_nothing() {
     let mut b = file("/m/a/02.flac", &track("Finale", "2"), Some(2000), "flac");
     a.tags.has_embedded_art = true;
     b.tags.has_embedded_art = true;
-    let c = model::build(vec![a, b], vec!["/m".into()], 0);
+    let c = model::build(vec![a, b], vec!["/m".into()], 0, &[]);
     assert!(
         diagnose(&c, &crate::sources::Sources::default()).is_empty(),
         "got: {:?}",
@@ -434,6 +445,7 @@ fn two_identical_tracks_are_not_silently_ignored() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issues = diagnose(&c, &crate::sources::Sources::default());
     let reported =
@@ -461,7 +473,7 @@ fn catalog_of_one() -> Catalog {
     ];
     let mut f = file("/m/a/01.flac", &fields, Some(30_000), "flac");
     f.tags.has_embedded_art = true;
-    model::build(vec![f], vec!["/m".into()], 0)
+    model::build(vec![f], vec!["/m".into()], 0, &[])
 }
 
 fn analysis_of(c: &Catalog) -> crate::analysis::FileAnalysis {
@@ -624,6 +636,7 @@ fn files_with_one_fingerprint_are_the_same_audio_whatever_their_tags_say() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let print = crate::fingerprint::Fingerprint {
         data: "AQAAcxUmUaEk".to_string(),
@@ -662,7 +675,195 @@ fn a_library_nobody_has_fingerprinted_reports_no_identical_audio() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
     let issues = diagnose(&catalog, &crate::sources::Sources::default());
     assert!(!issues.iter().any(|i| i.kind == IssueKind::SameAudio));
+}
+
+/// A shelf of tracks, each `(path, artist, album artist, album, identifier)`.
+///
+/// The album artist is spelt out rather than taken from the track artist,
+/// because whether two spellings share a *release* is the whole question in
+/// one of these tests, and a release is keyed on its album artist: a fixture
+/// that filed each spelling under its own album would answer that question by
+/// construction.
+fn shelf(rows: &[(&str, &str, &str, &str, Option<&str>)]) -> Catalog {
+    let files = rows
+        .iter()
+        .map(|(path, artist, album_artist, album, mbid)| {
+            let mut fields = vec![
+                ("artist", *artist),
+                ("albumartist", *album_artist),
+                ("album", *album),
+                ("title", *path),
+            ];
+            if let Some(id) = mbid {
+                fields.push(("musicbrainz_artistid", id));
+            }
+            file(path, &fields, Some(180_000), "flac")
+        })
+        .collect();
+    model::build(files, vec!["/m".into()], 0, &[])
+}
+
+fn suggestions(catalog: &Catalog) -> Vec<String> {
+    diagnose(catalog, &crate::sources::Sources::default())
+        .into_iter()
+        .filter(|i| i.kind == IssueKind::SameArtistMaybe)
+        .map(|i| i.detail)
+        .collect()
+}
+
+#[test]
+fn an_initial_standing_for_a_first_name_is_worth_asking_about() {
+    // The case this exists for. Nothing outside the owner of the disk can know
+    // the answer, so the pair is put in front of them with the command that
+    // acts on it — and nothing here acts on anything.
+    let found = suggestions(&shelf(&[
+        (
+            "/m/a/1.flac",
+            "Ozzy Osbourne",
+            "Ozzy Osbourne",
+            "Blizzard of Ozz",
+            None,
+        ),
+        (
+            "/m/b/1.flac",
+            "O. Osbourne",
+            "O. Osbourne",
+            "Bark at the Moon",
+            None,
+        ),
+    ]));
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("O. Osbourne"), "{found:?}");
+    assert!(found[0].contains("Ozzy Osbourne"), "{found:?}");
+    assert!(
+        found[0].contains("aede merge \"O. Osbourne\" \"Ozzy Osbourne\""),
+        "the shorter spelling gives way, and the line is the command: {found:?}"
+    );
+}
+
+#[test]
+fn two_identifiers_are_never_suggested_however_alike_the_names() {
+    // The fault the whole approach exists to avoid, in the one place where a
+    // resemblance is allowed to be reported at all. Two identifiers are two
+    // people, said so by the only authority on the question.
+    let found = suggestions(&shelf(&[
+        (
+            "/m/a/1.flac",
+            "A. Young",
+            "A. Young",
+            "Back in Black",
+            Some("angus"),
+        ),
+        (
+            "/m/b/1.flac",
+            "Angus Young",
+            "Angus Young",
+            "Solo",
+            Some("neil"),
+        ),
+    ]));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_dropped_first_name_is_only_suggested_when_an_album_says_so() {
+    // Whole words, never a substring — a substring match merges `Young` into
+    // everybody — and even then far too loose to report on its own. The
+    // corroboration is a shared release: two people differing by a dropped
+    // first name who appear on one record are one person tagged twice.
+    let apart = suggestions(&shelf(&[
+        (
+            "/m/a/1.flac",
+            "Ozzy Osbourne",
+            "Ozzy Osbourne",
+            "Blizzard of Ozz",
+            None,
+        ),
+        (
+            "/m/b/1.flac",
+            "Osbourne",
+            "Osbourne",
+            "Some Other Record",
+            None,
+        ),
+    ]));
+    assert!(apart.is_empty(), "nothing ties them together: {apart:?}");
+
+    // One album, signed by the full name, one of whose tracks is credited to
+    // the short one — which is what a half-retagged rip actually looks like.
+    let together = suggestions(&shelf(&[
+        (
+            "/m/a/1.flac",
+            "Ozzy Osbourne",
+            "Ozzy Osbourne",
+            "Blizzard of Ozz",
+            None,
+        ),
+        (
+            "/m/a/2.flac",
+            "Osbourne",
+            "Ozzy Osbourne",
+            "Blizzard of Ozz",
+            None,
+        ),
+    ]));
+    assert_eq!(together.len(), 1, "{together:?}");
+    assert!(
+        together[0].contains("without its first name"),
+        "{together:?}"
+    );
+}
+
+#[test]
+fn two_people_who_merely_share_a_surname_are_left_alone() {
+    // Angus Young and Neil Young, on one compilation, with nothing to tell
+    // them apart but the names. Neither is the other abbreviated and neither
+    // is the other shortened, so nothing is said — which is the correct
+    // answer, and the reason the rules are shaped word by word.
+    let found = suggestions(&shelf(&[
+        (
+            "/m/a/1.flac",
+            "Angus Young",
+            "Various Artists",
+            "A Compilation",
+            None,
+        ),
+        (
+            "/m/a/2.flac",
+            "Neil Young",
+            "Various Artists",
+            "A Compilation",
+            None,
+        ),
+    ]));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_pair_the_scan_already_merged_is_never_suggested() {
+    // Two spellings under one identifier are one row by the time this runs, so
+    // there is nothing left to suggest. A report that repeated the merge it
+    // had just performed would teach the reader to ignore it.
+    let catalog = shelf(&[
+        (
+            "/m/a/1.flac",
+            "Ozzy Osbourne",
+            "Ozzy Osbourne",
+            "Blizzard of Ozz",
+            Some("ozzy"),
+        ),
+        (
+            "/m/b/1.flac",
+            "O. Osbourne",
+            "O. Osbourne",
+            "Bark at the Moon",
+            Some("ozzy"),
+        ),
+    ]);
+    assert_eq!(catalog.artists.len(), 1, "the scan merged them");
+    assert!(suggestions(&catalog).is_empty());
 }

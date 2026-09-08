@@ -114,7 +114,7 @@ pub fn restore(args: &Args) -> Res {
     println!("{}", ui::section("Restore"));
     println!(
         "  made {} by Aède {}",
-        ui::ago(clock::now_seconds().saturating_sub(held.made_at)),
+        ui::since(held.made_at),
         match held.made_by.is_empty() {
             true => "of an unknown version".to_string(),
             false => held.made_by.clone(),
@@ -196,12 +196,11 @@ pub fn restore(args: &Args) -> Res {
 /// describes your library as it was twelve days ago" is a fact they can weigh
 /// against what they have been doing for twelve days.
 fn catch_up(catalog: &aede_core::model::Catalog) {
-    let age = clock::now_seconds().saturating_sub(catalog.scanned_at);
     println!(
         "  {}",
         ui::dim(&format!(
             "this catalog was scanned {} and describes the library as it was then",
-            ui::ago(age)
+            ui::since(catalog.scanned_at)
         ))
     );
     println!(

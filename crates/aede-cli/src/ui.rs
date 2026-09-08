@@ -362,10 +362,27 @@ pub fn bar(value: usize, max: usize, width: usize) -> String {
 /// becoming `-es` (analysis → analyses) and the sibilants that take `-es`. A
 /// full English pluraliser would be a library; "1 analysiss" is a typo the
 /// user reads every time.
-/// How long ago something happened, in one short phrase.
+/// How long ago a moment was, in one short phrase.
+///
+/// **Takes the moment, not the age**, and that is the whole reason it exists
+/// beside [`ago`]. Ten call sites wrote `ago(now_seconds() - at)` and the
+/// eleventh wrote `ago(at)`, which reads perfectly and says "56 years ago" for
+/// something that happened a second before — a Unix timestamp is a plausible
+/// number of seconds. A signature two callers can read two ways is a trap
+/// however well documented, so the arithmetic lives here, once.
+///
+/// The clock is read here rather than inside [`ago`] so that the part with
+/// rules in it stays a pure function of its argument, testable without a clock.
+pub fn since(at: u64) -> String {
+    ago(aede_core::clock::now_seconds().saturating_sub(at))
+}
+
+/// How long an elapsed span is, in one short phrase.
 ///
 /// Coarse on purpose: a history is read for its order, not for its arithmetic,
 /// and "3 days ago" is easier to place than a date nobody remembers.
+///
+/// Takes a **duration in seconds**. Callers holding a moment want [`since`].
 pub fn ago(seconds: u64) -> String {
     const MINUTE: u64 = 60;
     const HOUR: u64 = 60 * MINUTE;
@@ -380,22 +397,14 @@ pub fn ago(seconds: u64) -> String {
     }
 }
 
+/// A count and its noun, agreeing: `1 track`, `2 tracks`, `3 analyses`.
+///
+/// **The count is part of the answer**, not a prefix the caller adds. It lives
+/// in `aede_core::text` because `doctor` writes sentences too and lives one
+/// layer down; this is the name every screen in this program already uses for
+/// it, so it stays.
 pub fn plural(count: usize, singular: &str) -> String {
-    if count <= 1 {
-        return format!("{count} {singular}");
-    }
-    let lower = singular.to_ascii_lowercase();
-    if lower.ends_with("is") {
-        return format!("{count} {}es", &singular[..singular.len() - 2]);
-    }
-    if ["s", "x", "z", "ch", "sh"]
-        .iter()
-        .any(|end| lower.ends_with(end))
-    {
-        format!("{count} {singular}es")
-    } else {
-        format!("{count} {singular}s")
-    }
+    aede_core::text::plural(count, singular)
 }
 
 /// Section title.
@@ -452,6 +461,26 @@ pub fn long_duration(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_moment_and_a_span_are_not_the_same_number() {
+        // The bug this pair exists to prevent: `ago` takes a duration and a
+        // Unix timestamp is a plausible duration, so `ago(created_at)` reads
+        // perfectly and says "56 years ago" for something a second old. It
+        // shipped once, in a listing, and was caught by running the program
+        // rather than by any test — which is why there is now one.
+        let now = aede_core::clock::now_seconds();
+        assert_eq!(since(now), "just now");
+        assert_eq!(ago(0), "just now");
+        assert!(
+            since(0).ends_with("years ago"),
+            "the epoch is a long time ago: {}",
+            since(0)
+        );
+        // And `ago` keeps its own meaning, which is what makes it testable
+        // without a clock at all.
+        assert_eq!(ago(3 * 24 * 60 * 60), "3 days ago");
+    }
 
     #[test]
     fn elapsed_time_stays_readable() {

@@ -246,6 +246,7 @@ mod tests {
             ],
             vec!["/m".into()],
             0,
+            &[],
         );
         assert_eq!(c.releases.len(), 3, "three folders, three releases");
         let a = c.releases[0].id;
@@ -279,6 +280,7 @@ mod tests {
             ],
             vec!["/m".into()],
             0,
+            &[],
         );
         assert_eq!(c.releases.len(), 2, "the folder tells the editions apart");
         assert_eq!(c.artists.len(), 1, "but the artist is shared");

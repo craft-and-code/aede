@@ -5423,3 +5423,148 @@ fn a_collaboration_is_the_artists_it_names_and_never_an_artist_of_its_own() {
     assert!(ok, "stdout: {out}\nstderr: {err}");
     assert!(out.contains("Iron Head"), "{out}");
 }
+
+#[test]
+fn a_merge_the_owner_states_survives_a_scan_and_can_be_taken_back() {
+    // The half of artist identity no authority can settle. These files carry
+    // no MusicBrainz identifier at all — an old rip, a download, a friend's
+    // drive — so the shelf holds two musicians and nothing outside this room
+    // can know they are one. The owner says so, and the statement has to
+    // outlive the scan that rebuilds everything around it.
+    let sandbox = Sandbox::new("stated_merge");
+    let music = sandbox.dir.join("music");
+    for (artist, album) in [
+        ("Ozzy Osbourne", "Blizzard of Ozz"),
+        ("Ozzy Osbourne", "Diary of a Madman"),
+        ("O. Osbourne", "Bark at the Moon"),
+    ] {
+        let dir = music.join(artist).join(album);
+        std::fs::create_dir_all(&dir).unwrap();
+        tagged_with(
+            &dir.join("01.flac"),
+            &[
+                ("artist", artist),
+                ("album_artist", artist),
+                ("album", album),
+                ("title", album),
+            ],
+        );
+    }
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // Nothing merged them, and nothing should have: two spellings with no
+    // identifier between them are two rows until somebody says otherwise.
+    let (out, _, ok) = sandbox.run(&["artists"]);
+    assert!(ok);
+    assert!(
+        out.contains("O. Osbourne") && out.contains("Ozzy Osbourne"),
+        "{out}"
+    );
+
+    // `doctor` puts the pair in front of the one person who can answer, and
+    // hands them the command rather than acting on it.
+    let (out, err, ok) = sandbox.run(&["doctor"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("possibly one artist"), "{out}");
+    assert!(
+        out.contains("aede merge \"O. Osbourne\" \"Ozzy Osbourne\""),
+        "the suggestion is the command: {out}"
+    );
+    let (before, _, _) = sandbox.run(&["artists"]);
+
+    let (out, err, ok) = sandbox.run(&["merge", "O. Osbourne", "Ozzy Osbourne"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("o osbourne") && out.contains("ozzy osbourne"),
+        "{out}"
+    );
+    assert!(
+        out.contains("aede scan"),
+        "it says when it takes effect: {out}"
+    );
+
+    // **Stated is not applied.** The spelling a track is filed under is decided
+    // as the artist is interned, so until the shelf is rebuilt nothing has
+    // moved — and the listing says so rather than letting the reader assume.
+    let (after, _, _) = sandbox.run(&["artists"]);
+    assert_eq!(after, before, "nothing changed before the scan");
+    let (out, err, ok) = sandbox.run(&["merge", "--list"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("waiting for a scan"), "{out}");
+
+    // A plain rescan, the one a person runs anyway, carries it.
+    let (out, err, ok) = sandbox.run(&["scan"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let (out, _, ok) = sandbox.run(&["artists"]);
+    assert!(ok);
+    assert!(!out.contains("O. Osbourne"), "the two are one now: {out}");
+    let (out, err, ok) = sandbox.run(&["artist", "Ozzy Osbourne"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("3 albums"), "and it holds all three: {out}");
+    assert!(
+        out.contains("also spelled") && out.contains("o osbourne"),
+        "a merge the reader cannot see is one they cannot check: {out}"
+    );
+    // Once in effect, the listing stops saying a scan is owed.
+    let (out, _, ok) = sandbox.run(&["merge", "--list"]);
+    assert!(ok);
+    assert!(
+        out.contains("in effect") && !out.contains("waiting"),
+        "{out}"
+    );
+
+    // And it is a statement, not a change: taking it back and rescanning puts
+    // the shelf exactly where it was. Nothing in the files was ever touched.
+    let (out, err, ok) = sandbox.run(&["merge", "--forget", "O. Osbourne"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let (_, _, ok) = sandbox.run(&["scan"]);
+    assert!(ok);
+    let (out, _, ok) = sandbox.run(&["artists"]);
+    assert!(ok);
+    assert_eq!(out, before, "back to two rows, byte for byte");
+}
+
+#[test]
+fn a_merge_musicbrainz_contradicts_is_refused_and_says_where_to_argue() {
+    // The one case where this command knows better than the person typing.
+    // Two identifiers are two people, said so by the only authority there is,
+    // and the fix belongs at the source where it fixes it for everybody.
+    let sandbox = Sandbox::new("contradicted_merge");
+    let music = sandbox.dir.join("music");
+    for (artist, album, mbid) in [
+        ("Angus Young", "Back in Black", "angus-mbid"),
+        ("Neil Young", "Harvest", "neil-mbid"),
+    ] {
+        let dir = music.join(artist).join(album);
+        std::fs::create_dir_all(&dir).unwrap();
+        tagged_with(
+            &dir.join("01.flac"),
+            &[
+                ("artist", artist),
+                ("album_artist", artist),
+                ("album", album),
+                ("title", album),
+                ("MUSICBRAINZ_ARTISTID", mbid),
+            ],
+        );
+    }
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["merge", "Angus Young", "Neil Young"]);
+    assert!(!ok, "stdout: {out}\nstderr: {err}");
+    let said = format!("{out}{err}");
+    assert!(
+        said.contains("angus-mbid") && said.contains("neil-mbid"),
+        "{said}"
+    );
+    assert!(said.contains("at the source"), "{said}");
+
+    let (out, _, ok) = sandbox.run(&["merge", "--list"]);
+    assert!(ok);
+    assert!(
+        out.contains("nobody has been merged"),
+        "nothing was stored: {out}"
+    );
+}

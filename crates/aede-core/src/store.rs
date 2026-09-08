@@ -736,6 +736,7 @@ mod tests {
             }],
             vec!["/music".into()],
             1_700_000_100,
+            &[],
         )
     }
 
@@ -839,6 +840,7 @@ mod tests {
             }],
             vec!["/music".into()],
             0,
+            &[],
         );
         assert!(!original.relations.is_empty(), "the fixture has relations");
 

@@ -1,7 +1,7 @@
 //! Which spellings of a name are the same person, decided before any of them
 //! becomes an entity.
 //!
-//! # The problem, and the half of it that has an exact answer
+//! # The problem, and its two halves
 //!
 //! The catalog builds an artist per **normalised name**, so a library holding
 //! `Ozzy Osbourne` on one album and `O. Osbourne` on another holds two
@@ -10,16 +10,21 @@
 //! fragment of a name would merge Angus Young with Neil Young, which is worse
 //! than the fault it cures.
 //!
-//! But a great many libraries have been through **Picard**, and those files
-//! carry `MUSICBRAINZ_ARTISTID`. Two spellings under one identifier are not a
-//! resemblance to be judged — they are the same artist, said so by the only
-//! authority there is on the question. **That half needs no heuristic at all**,
-//! and it is the half this module does.
+//! **The half that has an exact answer.** A great many libraries have been
+//! through **Picard**, and those files carry `MUSICBRAINZ_ARTISTID`. Two
+//! spellings under one identifier are not a resemblance to be judged — they are
+//! the same artist, said so by the only authority there is on the question.
+//! That half needs no heuristic at all.
 //!
-//! The other half — files that never met MusicBrainz — cannot be answered from
-//! outside: nobody on earth knows that a particular `O. Osbourne` is Ozzy
-//! except the person whose disk it is. That is what a local alias file is for,
-//! and it is a separate piece of work.
+//! **The half nobody outside can answer.** Old rips, downloads, a friend's
+//! drive: nobody on earth knows that a particular `O. Osbourne` is Ozzy except
+//! the person whose disk it is. So the program does not guess — it asks, with
+//! `aede merge`, and keeps the answer in `user.json` beside everything else
+//! that was said rather than derived. `doctor` **suggests** pairs worth looking
+//! at and applies none of them.
+//!
+//! Both halves arrive here, and they are resolved together rather than one
+//! after the other, for the reason in [`aliases`].
 //!
 //! # Only where the pairing is unambiguous
 //!
@@ -36,12 +41,11 @@
 //!
 //! # Which spelling survives
 //!
-//! The one that names the most tracks, ties broken by the normalised key so
-//! that two runs over one library answer alike. It is derived from the library
-//! rather than chosen — the shelf's own most frequent way of writing the name —
-//! and it is deliberately **a key that already existed**, so merging can only
-//! ever shrink the set of keys. Anything filed under the surviving key in
-//! `user.json` or `sources.json` keeps pointing at it.
+//! Where a person has said so, the one they named. Otherwise the one that names
+//! the most tracks, ties broken by the normalised key so that two runs over one
+//! library answer alike. Either way it is **a key that already existed**, so
+//! merging can only ever shrink the set of keys: anything filed under the
+//! surviving key in `user.json` or `sources.json` keeps pointing at it.
 
 use std::collections::HashMap;
 
@@ -71,15 +75,38 @@ pub struct Said {
     pub name: String,
 }
 
-/// Reads the aliases out of everything the scan saw.
+/// What the owner of the disk says, for the files no identifier can answer for.
+///
+/// Both keys normalised, which is the form `user::SameArtist` holds them in and
+/// the form every merge in this program is decided on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chosen {
+    /// The spelling that gives way.
+    pub spelling: String,
+    /// The spelling it is to be filed under.
+    pub filed_as: String,
+}
+
+/// Reads the aliases out of everything the scan saw and everything the owner
+/// said.
 ///
 /// `said` is every unambiguous (identifier, name) pair in the library, in any
 /// order; a file contributes one for its artist and one for its album artist
-/// when each is unambiguous, and nothing when it is not.
-pub fn aliases(said: impl Iterator<Item = Said>) -> Aliases {
+/// when each is unambiguous, and nothing when it is not. `chosen` is what the
+/// person typed.
+///
+/// **The two are resolved together, not one on top of the other.** Laying a
+/// person's statement over a finished table is where this goes wrong: if the
+/// files elect `o osbourne` — perfectly possible, the count decides — and the
+/// person says `o osbourne` gives way to `Ozzy`, overwriting one row leaves the
+/// other standing and the two names point at each other for ever. Every
+/// statement, from either source, is therefore read as *these spellings are one
+/// artist*; the spellings are gathered into groups; and each group elects one
+/// survivor, which cannot loop because there is exactly one per group.
+pub fn aliases(said: impl Iterator<Item = Said>, chosen: &[Chosen]) -> Aliases {
     // How often each spelling was seen, per identifier. Counted rather than
     // collected into a set, because the count is what decides which spelling
-    // survives and a set would throw it away.
+    // survives where nobody has said otherwise, and a set would throw it away.
     let mut seen: HashMap<String, HashMap<String, usize>> = HashMap::new();
     for Said { mbid, name } in said {
         let key = text::normalize(&name);
@@ -89,23 +116,74 @@ pub fn aliases(said: impl Iterator<Item = Said>) -> Aliases {
         *seen.entry(mbid).or_default().entry(key).or_insert(0) += 1;
     }
 
-    let mut aliases = Aliases::new();
-    for spellings in seen.into_values() {
-        if spellings.len() < 2 {
-            // One spelling is not an alias of anything, and mapping it to
-            // itself would make every lookup that misses look like one that
-            // hit.
+    // How many tracks each spelling names, whatever identifier it came under.
+    // All that is left of the counts once the groups are formed, and the
+    // tie-break of last resort.
+    let mut tracks: HashMap<String, usize> = HashMap::new();
+    for spellings in seen.values() {
+        for (key, count) in spellings {
+            *tracks.entry(key.clone()).or_insert(0) += count;
+        }
+    }
+
+    let mut groups = Groups::default();
+    for spellings in seen.values() {
+        // One spelling is not an alias of anything. Joining it to itself would
+        // be harmless and pointless; skipping keeps the table to the names that
+        // really are somebody's alias.
+        let mut keys = spellings.keys();
+        if let Some(first) = keys.next() {
+            for other in keys {
+                groups.join(first, other);
+            }
+        }
+    }
+    // A person saying two names are one artist has said something no file can
+    // contradict, and it joins the same groups: their statement decides *which*
+    // spelling survives, below, not whether the two belong together.
+    for Chosen { spelling, filed_as } in chosen {
+        if spelling.is_empty() || filed_as.is_empty() || spelling == filed_as {
             continue;
         }
-        // Most tracks first; then the normalised key, so that two runs over one
-        // library agree. Sorting on the key rather than on iteration order
-        // matters: a `HashMap` does not promise one, and a catalog that named
-        // an artist differently on Tuesday would be unusable.
-        let mut ranked: Vec<(String, usize)> = spellings.into_iter().collect();
-        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        let (winner, rest) = ranked.split_first().expect("at least two");
-        for (loser, _) in rest {
-            aliases.insert(loser.clone(), winner.0.clone());
+        groups.join(spelling, filed_as);
+    }
+
+    // A spelling somebody said gives way can never be the survivor, and one
+    // they named as the destination is the survivor unless they also said it
+    // gives way — which is how `A → B` followed by `B → C` lands everybody on
+    // `C` without either statement having to know about the other.
+    let gives_way: Vec<&str> = chosen.iter().map(|c| c.spelling.as_str()).collect();
+    let named: Vec<&str> = chosen.iter().map(|c| c.filed_as.as_str()).collect();
+
+    let mut aliases = Aliases::new();
+    for mut ranked in groups.members() {
+        if ranked.len() < 2 {
+            continue;
+        }
+        // Ranked once, so both rules below read the same list: most tracks
+        // first, then the normalised key. Sorting on the key rather than on
+        // iteration order matters — a `HashMap` promises none, and a catalog
+        // that named an artist differently on Tuesday would be unusable.
+        ranked.sort_by(|a, b| {
+            tracks
+                .get(b)
+                .unwrap_or(&0)
+                .cmp(tracks.get(a).unwrap_or(&0))
+                .then(a.cmp(b))
+        });
+        // Where the statements cancel out — `A → B` and `B → A`, a person
+        // contradicting themselves — nobody is elected by name and the count
+        // decides, as it does when nobody has said anything at all. The two
+        // names still become one artist, which is the part they agreed on.
+        let winner = ranked
+            .iter()
+            .find(|k| named.contains(&k.as_str()) && !gives_way.contains(&k.as_str()))
+            .unwrap_or(&ranked[0])
+            .clone();
+        for loser in ranked {
+            if loser != winner {
+                aliases.insert(loser, winner.clone());
+            }
         }
     }
     aliases
@@ -114,6 +192,61 @@ pub fn aliases(said: impl Iterator<Item = Said>) -> Aliases {
 /// The name a spelling is filed under: its alias, or itself.
 pub fn filed_as<'a>(aliases: &'a Aliases, key: &'a str) -> &'a str {
     aliases.get(key).map(String::as_str).unwrap_or(key)
+}
+
+/// Spellings gathered into the sets that name one artist.
+///
+/// A union-find, and the reason for it is the one in [`aliases`]: statements
+/// arrive as *pairs*, from two sources that know nothing of each other, and
+/// turning pairs into one winner per name is exactly what a disjoint-set
+/// structure does — with no path that can produce a cycle, whatever order the
+/// pairs arrive in.
+#[derive(Default)]
+struct Groups {
+    /// Each spelling's parent, walked up to the root that stands for its group.
+    parent: HashMap<String, String>,
+}
+
+impl Groups {
+    /// Puts two spellings in one group.
+    fn join(&mut self, one: &str, other: &str) {
+        let (a, b) = (self.root(one), self.root(other));
+        if a != b {
+            // The smaller key becomes the root, so a group's root depends on
+            // its members rather than on the order the pairs arrived in. Which
+            // member is the root says nothing about which spelling wins — that
+            // is decided per group in `aliases` — but a stable root is what
+            // makes this structure testable.
+            let (root, child) = if a < b { (a, b) } else { (b, a) };
+            self.parent.insert(child, root);
+        }
+    }
+
+    /// The root of the group a spelling belongs to, adding it if it is new.
+    fn root(&mut self, key: &str) -> String {
+        let mut at = key.to_string();
+        while let Some(up) = self.parent.get(&at) {
+            if up == &at {
+                break;
+            }
+            at = up.clone();
+        }
+        self.parent
+            .entry(key.to_string())
+            .or_insert_with(|| at.clone());
+        at
+    }
+
+    /// Every group, as the spellings it holds.
+    fn members(mut self) -> Vec<Vec<String>> {
+        let keys: Vec<String> = self.parent.keys().cloned().collect();
+        let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
+        for key in keys {
+            let root = self.root(&key);
+            grouped.entry(root).or_default().push(key);
+        }
+        grouped.into_values().collect()
+    }
 }
 
 #[cfg(test)]

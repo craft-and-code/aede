@@ -490,6 +490,7 @@ pub(crate) mod tests {
             ],
             vec!["/m".to_string()],
             0,
+            &[],
         )
     }
 }

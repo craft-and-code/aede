@@ -23,7 +23,7 @@ fn library(paths: &[&str]) -> Catalog {
             )
         })
         .collect();
-    model::build(files, vec!["/m".into()], 0)
+    model::build(files, vec!["/m".into()], 0, &[])
 }
 
 #[test]

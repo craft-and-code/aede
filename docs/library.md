@@ -10,6 +10,19 @@ It also makes the divergences M1 reports rare by construction: if your tags came
 
 If you would rather not run Picard, nothing breaks — Aède reads whatever the tags say and `aede doctor` tells you where they are thin.
 
+## When one musician is on the shelf twice
+
+A library that has been through Picard carries `MUSICBRAINZ_ARTISTID`, and two
+spellings under one identifier are merged by the scan with no guesswork at all —
+`Ozzy Osbourne` and `O. Osbourne` are one row, and the artist's page says which
+spellings it absorbed.
+
+For the files that never met MusicBrainz there is nothing to consult, and Aède
+will not guess: matching on a fragment of a name would merge Angus Young with
+Neil Young. `aede doctor` names the pairs worth looking at, and `aede merge`
+is how you answer. Neither ever touches a file. The whole of it is in
+[Identification](design/identification.md#who-is-the-same-person).
+
 ## Folders never read
 
 A music folder is rarely only music. `Audiobooks`, `Podcasts`, `_incoming`, a `Samples` folder for a DAW — none of it belongs in a music catalog, and reorganising the disk to suit the program is the wrong way round.
@@ -117,7 +130,7 @@ aede backup ~/aede-2026-09-03.json    # everything, in one document
 aede restore ~/aede-2026-09-03.json   # put it back
 ```
 
-Three stores go in, and they are worth wildly different amounts. `catalog.json` is **derived from your disk**: lose it and a scan rebuilds it — except the integrity verdicts and the fingerprints, which are hours of decoding. `sources.json` is **re-fetchable**, at one polite request a second. `user.json` **cannot be rebuilt by anything**: your notes, your ratings, your play counts, your collections, the records you set aside. All three go in, because the cheap-to-rebuild one is also cheap to store, and a backup that made you choose is a backup you get wrong once.
+Three stores go in, and they are worth wildly different amounts. `catalog.json` is **derived from your disk**: lose it and a scan rebuilds it — except the integrity verdicts and the fingerprints, which are hours of decoding. `sources.json` is **re-fetchable**, at one polite request a second. `user.json` **cannot be rebuilt by anything**: your notes, your ratings, your play counts, your collections, the records you set aside, the artists you said were one person. All three go in, because the cheap-to-rebuild one is also cheap to store, and a backup that made you choose is a backup you get wrong once.
 
 ```
 Backup

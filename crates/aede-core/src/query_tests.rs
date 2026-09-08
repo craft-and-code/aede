@@ -52,6 +52,7 @@ fn catalog() -> Catalog {
         ],
         vec!["/m".into()],
         0,
+        &[],
     )
 }
 
@@ -116,6 +117,7 @@ fn a_track_with_nothing_to_compare_is_absent_rather_than_zero() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
     let d = UserData::default();
     assert!(titles("year:<2000", &c, &d).is_empty());
@@ -236,6 +238,7 @@ fn the_credit_table_can_be_asked_who_did_what() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let d = UserData::default();
 
@@ -274,6 +277,7 @@ fn who_is_audible_is_its_own_question() {
         )],
         vec!["/m".into()],
         0,
+        &[],
     );
     let d = UserData::default();
     assert_eq!(titles("performing:rhoads", &c, &d), ["Crazy Train"]);
@@ -385,6 +389,7 @@ fn a_result_can_be_put_in_order_and_the_unknown_goes_last() {
         ],
         vec!["/m".into()],
         0,
+        &[],
     );
     let context = Context {
         catalog: &c,

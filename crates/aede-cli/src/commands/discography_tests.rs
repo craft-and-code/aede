@@ -140,7 +140,7 @@ fn library(albums: &[(&str, Option<&str>)]) -> Catalog {
             }
         })
         .collect();
-    build(files, vec!["/music".to_string()], 1)
+    build(files, vec!["/music".to_string()], 1, &[])
 }
 
 /// A library where Miles Davis has an album of his own — the condition both
@@ -369,6 +369,7 @@ fn an_artist_with_no_album_of_their_own_has_no_shelf_to_have_gaps_in() {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     assert!(
         compilation.artists.iter().any(|a| a.name == "Miles Davis"),
@@ -437,6 +438,7 @@ fn an_artist_this_catalog_cannot_place_is_not_a_shelf_with_gaps() {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     );
     assert!(!elsewhere.artists.is_empty());
     assert!(

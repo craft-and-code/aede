@@ -182,7 +182,7 @@ fn where_it_lives(args: &Args, catalog: &Catalog) {
         // number out of it would double the slowest thing the command does.
         match catalog.scanned_at {
             0 => "never".to_string(),
-            at => ui::ago(aede_core::clock::now_seconds().saturating_sub(at)),
+            at => ui::since(at),
         },
     ]);
     print!("{}", t.render());

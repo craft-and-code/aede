@@ -113,10 +113,72 @@ What this cannot do is split a joined credit in a file that carries neither
 
 **The other half is files that never met MusicBrainz** — old rips, downloads,
 a friend's drive. Nothing outside can help: nobody on earth knows that your
-`O. Osbourne` is Ozzy except you. That is what a local alias file is for,
-applied when the graph is built so a `scan` propagates it, plus `doctor`
-**suggesting** candidates — one name a suffix of another, sharing releases —
-without ever applying them. Still to do.
+`O. Osbourne` is Ozzy except you. So Aède asks instead of guessing:
+
+```sh
+aede merge "O. Osbourne" "Ozzy Osbourne"   # the first gives way to the second
+aede merge --list                          # what has been said, and whether it is in effect
+aede merge --list osbourne                 # narrowed, on either side of the arrow
+aede merge --forget "O. Osbourne"          # take it back
+```
+
+The statement is kept in `user.json` — the file that holds what *you* say —
+with both names normalised, because that is the form every merge in this
+program is decided on. **Nothing in your files changes**, ever: not the audio,
+not the tags, not what any source said. What changes is how the shelf is read.
+
+It takes effect on the **next scan**, and the listing says so per row rather
+than leaving you to guess:
+
+```
+Spelling      Filed as        Said    State
+o osbourne    ozzy osbourne  2m ago   waiting for a scan
+```
+
+The reason is not a shortcut: the spelling a track is filed under is decided as
+the artist is interned, and there is no later moment at which one row can become
+another without rebuilding everything that points at it. An incremental scan
+re-reads nothing it does not have to, so this costs seconds.
+
+One statement is refused. Where **both** spellings carry a MusicBrainz
+identifier and the two differ, they are two people, said so by the only
+authority on the question, and the disagreement is with MusicBrainz rather than
+with your shelf:
+
+```
+$ aede merge "Angus Young" "Neil Young"
+Error: MusicBrainz says these are two people, so they were not merged:
+	Angus Young · musicbrainz 1eaa5f1a-…
+	Neil Young · musicbrainz 24f1766e-…
+	If that is wrong, it is wrong at the source — correcting it there fixes it
+	for everybody, and a later fetch brings the correction back.
+```
+
+### What doctor suggests, and never does
+
+Finding the pairs by hand on a shelf of forty thousand tracks is not a plan, so
+`aede doctor` names them — and applies none of them, because the whole point is
+that it cannot know:
+
+```
+info   possibly one artist
+       "O. Osbourne" (9 tracks) and "Ozzy Osbourne" (141 tracks): one is the
+       other with a first name reduced to its initial. If they are,
+       aede merge "O. Osbourne" "Ozzy Osbourne" says so — nothing in your
+       files changes
+       /music/Ozzy Osbourne/Bark at the Moon/01.flac
+```
+
+Two shapes are reported, and each has to earn it. **An initialism** — the same
+number of words, each identical or a single letter opening the other — stands on
+its own, because the abbreviated spelling usually lives on a different album and
+there is nothing to corroborate it with. **A dropped first name** — one name's
+words ending the other's, whole words and never a substring — is far too loose
+alone, so it is only reported when the two are credited on the same release. A
+pair whose rows carry different identifiers is never reported at all.
+
+Angus Young and Neil Young survive both rules, which is the point: neither is
+the other abbreviated and neither is the other shortened.
 
 A note on a tempting wrong turn: *correcting MusicBrainz* does not help with
 either half. The two spellings are in **your files**; there is nothing at the

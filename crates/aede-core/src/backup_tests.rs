@@ -30,6 +30,7 @@ fn catalog() -> Catalog {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     )
 }
 

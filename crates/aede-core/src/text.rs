@@ -252,6 +252,31 @@ fn fold_char(c: char) -> std::vec::IntoIter<char> {
     replacement.chars().collect::<Vec<_>>().into_iter()
 }
 
+/// A count and its noun, agreeing: `1 track`, `2 tracks`, `3 analyses`.
+///
+/// **The count is included**, because a caller that had to write it itself
+/// would sooner or later write it twice or not at all. English plurals are not
+/// a solved problem and this does not pretend otherwise: the `-es` endings and
+/// `analysis`/`analyses` are here because this program says those words, and
+/// anything else gets an `s`.
+pub fn plural(count: usize, singular: &str) -> String {
+    if count <= 1 {
+        return format!("{count} {singular}");
+    }
+    let lower = singular.to_ascii_lowercase();
+    if lower.ends_with("is") {
+        return format!("{count} {}es", &singular[..singular.len() - 2]);
+    }
+    if ["s", "x", "z", "ch", "sh"]
+        .iter()
+        .any(|end| lower.ends_with(end))
+    {
+        format!("{count} {singular}es")
+    } else {
+        format!("{count} {singular}s")
+    }
+}
+
 /// Formats a duration as `h:mm:ss` or `m:ss`.
 ///
 /// The count of seconds is **rounded**, not truncated: a track of 4 min 20.7 s

@@ -34,6 +34,7 @@ fn catalog_with(label: &str, date: &str) -> Catalog {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     )
 }
 

@@ -59,6 +59,7 @@ Two commands want `ffmpeg` on the `PATH` — `aede copy --compress` and `aede sp
 | `aede fetch --identify`                                   | Ask AcoustID what the fingerprinted files sound like, and store the answer **beside** your tags — never in them. Reported as a match with its score, so a file whose sound and tags disagree is shown rather than rewritten. Needs a free key in `AEDE_ACOUSTID_KEY`                          |
 | `aede fetch --covers`                                     | Download the front image of every album that has none — nothing inside the files, nothing beside them — from the Cover Art Archive, as `cover.jpg` in the album's folder. It downloads only: an album whose picture is inside its files is skipped, and the line that skips it names `aede extract`. An album that already has a cover is never touched, and there is no way to overwrite one (`--size 250\|500\|1200\|original`, `--images` for the back and the booklet too)                          |
 | `aede missing [name…]`                                    | Studio albums MusicBrainz credits to your artists that this catalog does not hold. Fetches nothing: the answer is derived from what `aede fetch --discography` stored, so an album stops being listed the day you add it. `--all` holds nothing back and says of each row why it would not be there; `--forget <title>` sets aside a record MusicBrainz has typed wrongly, `--list` shows those, `--forget --remove` puts one back — what the source said is never altered                          |
+| `aede merge <a> <b>`                                      | Say that two spellings are one musician: the first gives way to the second. Files tagged by Picard need none of this — a shared `MUSICBRAINZ_ARTISTID` already merges them — but nobody outside can know that your `O. Osbourne` is Ozzy, so this is where you say it. Nothing in your files changes; it takes effect on the next `aede scan`. `--list` shows the statements and whether each is in effect, `--forget <spelling>` takes one back. `aede doctor` names the pairs worth looking at and merges none of them |
 | `aede file <path>`                                        | Inspect a single file, outside the catalog                                                                                                                                     |
 | `aede genre <name>`                                       | What is in a genre: albums and the artists audible on them                                                                                                                     |
 | `aede help`                                               | Every command and every option, which is the contract                                                                                                                          |
@@ -126,6 +127,17 @@ most of them exist to explain a refusal.
 | [Plugins, if there are any](docs/design/plugins.md)                | Why a plugin would be a program and not a library, and what it could not be     |
 | [Speaking other tools' languages](docs/design/interoperability.md) | Beets, MPD, Picard: what is borrowed and what is refused                        |
 | [Roadmap](docs/design/roadmap.md)                                  | M0 to M3, and what is deliberately left out                                     |
+
+**Before writing code here**
+
+Two pages that are instructions rather than description: what the repository is
+right now, and the rules a change is expected to hold to. They are also what
+`CLAUDE.md` points a coding assistant at.
+
+| Page                                                     | What is in it                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [Current state](docs/coding/current-state.md)            | The milestone in progress, what is built, the last recorded test count   |
+| [Engineering rules](docs/coding/engineering-rules.md)    | Determinism, parsers, the CLI contract, tests, dependencies              |
 
 ## Contributing
 

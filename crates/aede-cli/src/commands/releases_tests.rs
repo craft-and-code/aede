@@ -32,6 +32,7 @@ fn library(album: &str, artist: &str, ids: &[(&str, &str)]) -> Catalog {
         }],
         vec!["/music".to_string()],
         1,
+        &[],
     )
 }
 

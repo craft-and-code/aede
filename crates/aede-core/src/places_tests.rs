@@ -32,7 +32,7 @@ fn library(artists: &[&str]) -> Catalog {
             }
         })
         .collect();
-    build(files, vec!["/music".to_string()], 1)
+    build(files, vec!["/music".to_string()], 1, &[])
 }
 
 /// Files a country against an artist, the way a fetch would.

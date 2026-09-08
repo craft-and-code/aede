@@ -61,6 +61,7 @@ fn library(dir: &std::path::Path, folders: &[(&str, bool)]) -> Catalog {
         files,
         vec![dir.join("music").to_string_lossy().to_string()],
         1,
+        &[],
     )
 }
 

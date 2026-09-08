@@ -80,6 +80,11 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
         excluded: previous
             .map(|c| c.excluded.iter().map(PathBuf::from).collect())
             .unwrap_or_default(),
+        // And from `user.json` for the same reason. A merge is applied as the
+        // artists are interned, so every scan has to be told about it again;
+        // a statement that only held until the next scan would be forgotten
+        // exactly when the shelf was rebuilt around it.
+        same_artist: super::merge::stated(&dir),
     };
 
     println!("{}", ui::bold("Scanning folders…"));

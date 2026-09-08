@@ -52,7 +52,7 @@ fn tagged(files: &[(&str, &str, u64)], recording_id: bool) -> Catalog {
             }
         })
         .collect();
-    build(scanned, vec!["/music".to_string()], 1)
+    build(scanned, vec!["/music".to_string()], 1, &[])
 }
 
 #[test]
