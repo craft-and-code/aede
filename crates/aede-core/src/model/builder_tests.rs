@@ -166,7 +166,7 @@ fn compilation_has_no_album_artist() {
 
 #[test]
 fn interning_reuses_entities_and_keeps_ids_contiguous() {
-    let mut b = Builder::new(vec!["/m".into()], 0);
+    let mut b = Builder::new(vec!["/m".into()], 0, Default::default());
     let first = b.intern_artist("The Beatles");
     assert_eq!(
         first,
@@ -185,7 +185,7 @@ fn interning_reuses_entities_and_keeps_ids_contiguous() {
 
 #[test]
 fn the_same_credit_is_never_recorded_twice() {
-    let mut b = Builder::new(vec![], 0);
+    let mut b = Builder::new(vec![], 0, Default::default());
     let artist = b.intern_artist("Miles Davis");
     b.push_credit(artist, EntityKind::Track, 0, "main");
     b.push_credit(artist, EntityKind::Track, 0, "main");
@@ -223,4 +223,247 @@ fn deterministic_build() {
     let names_a: Vec<&str> = a.artists.iter().map(|x| x.name.as_str()).collect();
     let names_b: Vec<&str> = b.artists.iter().map(|x| x.name.as_str()).collect();
     assert_eq!(names_a, names_b, "identifiers must be stable");
+}
+
+#[test]
+fn two_spellings_under_one_musicbrainz_id_build_one_artist() {
+    // The half of artist identity that needs no heuristic. Before this, a
+    // library holding `Ozzy Osbourne` on one album and `O. Osbourne` on another
+    // held two musicians, and every count, every listing and every page was
+    // wrong by one.
+    let file = |album: &str, artist: &str, mbid: Option<&str>| {
+        let mut tags = RawTags::default();
+        tags.insert("artist", artist);
+        tags.insert("albumartist", artist);
+        tags.insert("album", album);
+        tags.insert("title", "A track");
+        if let Some(mbid) = mbid {
+            tags.insert("musicbrainz_artistid", mbid);
+            tags.insert("musicbrainz_albumartistid", mbid);
+        }
+        ScannedFile {
+            path: format!("/music/{artist}/{album}/01.flac"),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }
+    };
+
+    let catalog = build(
+        vec![
+            file("Blizzard of Ozz", "Ozzy Osbourne", Some("ozzy")),
+            file("Diary of a Madman", "Ozzy Osbourne", Some("ozzy")),
+            file("Bark at the Moon", "O. Osbourne", Some("ozzy")),
+        ],
+        vec!["/music".to_string()],
+        1,
+    );
+
+    assert_eq!(catalog.artists.len(), 1, "one man, {:?}", catalog.artists);
+    let ozzy = &catalog.artists[0];
+    assert_eq!(
+        ozzy.name, "Ozzy Osbourne",
+        "and named by the spelling that names the most tracks, not by the \
+         matching key and not by whichever file was read first"
+    );
+    assert_eq!(ozzy.key, "ozzy osbourne");
+    assert_eq!(
+        ozzy.mbid.as_deref(),
+        Some("ozzy"),
+        "the identifier that merged them is kept"
+    );
+    // Three albums, all his: the merge has to reach the credits and not only
+    // the artist list, or a page would show one man with one album.
+    assert_eq!(catalog.releases.len(), 3);
+    assert!(
+        catalog
+            .releases
+            .iter()
+            .all(|r| r.album_artist_id == Some(ozzy.id))
+    );
+}
+
+#[test]
+fn without_an_identifier_two_spellings_stay_two_artists() {
+    // The other half, and it is not this module's to solve: nobody on earth
+    // knows that a particular `O. Osbourne` is Ozzy except the person whose
+    // disk it is. Guessing from the strings is what would merge Angus Young
+    // with Neil Young.
+    let file = |artist: &str| {
+        let mut tags = RawTags::default();
+        tags.insert("artist", artist);
+        tags.insert("albumartist", artist);
+        tags.insert("album", "An album");
+        tags.insert("title", "A track");
+        ScannedFile {
+            path: format!("/music/{artist}/01.flac"),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }
+    };
+    let catalog = build(
+        vec![file("Ozzy Osbourne"), file("O. Osbourne")],
+        vec!["/music".to_string()],
+        1,
+    );
+    assert_eq!(catalog.artists.len(), 2, "{:?}", catalog.artists);
+}
+
+#[test]
+fn two_artists_on_one_track_leave_their_identifiers_unpaired() {
+    // A tag naming two artists arrives as one string that `split_artists` cuts
+    // in two — on a semicolon here, one of the separators it treats as hard —
+    // while the identifiers arrive as their own list in an order nothing
+    // guarantees to match. Pairing by position would file an identifier against
+    // whichever name sorted first: an invention, and the kind this program
+    // refuses rather than arbitrates.
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Queen; David Bowie");
+    tags.insert("albumartist", "Queen; David Bowie");
+    tags.insert("album", "Hot Space");
+    tags.insert("title", "Under Pressure");
+    tags.insert("musicbrainz_artistid", "queen-id");
+    tags.insert("musicbrainz_artistid", "bowie-id");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Queen/Hot Space/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+    );
+    assert_eq!(catalog.artists.len(), 2, "{:?}", catalog.artists);
+    assert!(
+        catalog.artists.iter().all(|a| a.mbid.is_none()),
+        "neither is given an identifier on the strength of its position: {:?}",
+        catalog.artists
+    );
+}
+
+#[test]
+fn a_collaboration_credit_is_two_artists_when_the_tags_say_which_two() {
+    // `Rob Zombie & Ozzy Osbourne` reached the shelf as an *artist*, with one
+    // track and one album, beside the real Ozzy — and four such rows made
+    // `aede artist ozzy` an ambiguity between five. They are not artists; they
+    // are credits nobody split, because `&` cannot be split safely from the
+    // string alone: `Simon & Garfunkel` is one band.
+    //
+    // `ARTISTS` is the tag written for this, one value per artist, and a file
+    // that carries it has already answered the question.
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Rob Zombie & Ozzy Osbourne");
+    tags.insert("artists", "Rob Zombie");
+    tags.insert("artists", "Ozzy Osbourne");
+    tags.insert("albumartist", "Rob Zombie");
+    tags.insert("album", "Educated Horses");
+    tags.insert("title", "Iron Head");
+
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Rob Zombie/Educated Horses/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+    );
+
+    let names: Vec<&str> = catalog.artists.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["Rob Zombie", "Ozzy Osbourne"], "{names:?}");
+    assert!(
+        !names.iter().any(|n| n.contains('&')),
+        "the joined credit is not an artist: {names:?}"
+    );
+}
+
+#[test]
+fn a_band_whose_name_holds_an_ampersand_is_still_one_band() {
+    // The other side of the same coin, and the reason `&` is not a separator:
+    // splitting the string would shatter Simon & Garfunkel, Earth, Wind & Fire
+    // and every band like them. With no `ARTISTS` tag to say otherwise, the
+    // name stands.
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Simon & Garfunkel");
+    tags.insert("albumartist", "Simon & Garfunkel");
+    tags.insert("album", "Bookends");
+    tags.insert("title", "America");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Simon & Garfunkel/Bookends/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+    );
+    let names: Vec<&str> = catalog.artists.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["Simon & Garfunkel"], "{names:?}");
+}
+
+#[test]
+fn a_performer_tag_that_names_the_pair_and_then_each_of_them_names_two_people() {
+    // Measured on a real file, and the last of the five rows `aede artist ozzy`
+    // had to refuse between. `War Pigs (charity version)` carries
+    // `PERFORMER=Ozzy Osbourne; Judas Priest; Judas Priest & Ozzy Osbourne`:
+    // the pair, then each of them. `ARTISTS` cannot help here — this is not the
+    // artist tag — but the list answers for itself, because the third value is
+    // made of the first two and nothing else.
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Judas Priest featuring Ozzy Osbourne");
+    tags.insert("artists", "Judas Priest");
+    tags.insert("artists", "Ozzy Osbourne");
+    tags.insert("albumartist", "Judas Priest featuring Ozzy Osbourne");
+    tags.insert(
+        "performer",
+        "Ozzy Osbourne; Judas Priest; Judas Priest & Ozzy Osbourne",
+    );
+    tags.insert("album", "War Pigs (charity version)");
+    tags.insert("title", "War Pigs (charity version)");
+
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/War Pigs/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+    );
+
+    let names: Vec<&str> = catalog.artists.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(
+        !names.iter().any(|n| n.contains('&')),
+        "the joint credit is the same two people said again: {names:?}"
+    );
 }

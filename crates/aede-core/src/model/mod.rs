@@ -36,6 +36,7 @@ use crate::tags::AudioProperties;
 use crate::text;
 
 pub mod builder;
+pub mod identity;
 pub mod query;
 pub mod relations;
 
@@ -194,6 +195,16 @@ pub struct Artist {
     pub key: String,
     /// MusicBrainz identifier, when one of the files carried it.
     pub mbid: Option<String>,
+    /// Other spellings of this name, merged in because the files carrying them
+    /// carried the same MusicBrainz identifier.
+    ///
+    /// **Kept so the merge can be seen.** Two rows becoming one is a decision,
+    /// and a decision the reader cannot see is one they cannot check: a shelf
+    /// that lists `Ozzy Osbourne` and no longer lists `O. Osbourne` leaves them
+    /// unable to tell a merge that happened from a folder that was never
+    /// scanned. Normalised, since that is the form the merge was decided on,
+    /// and sorted so two runs over one library answer alike.
+    pub aliases: Vec<String>,
 }
 
 /// An album, in the sense of a "release": what MusicBrainz calls a *release*.

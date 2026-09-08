@@ -3,7 +3,9 @@
 //! Releases are split by role. Performing on somebody else's album is an
 //! appearance, not part of a discography, and a writing credit is neither.
 
-use aede_core::model::{Catalog, EntityKind, Id};
+use std::error::Error;
+
+use aede_core::model::{Artist, Catalog, EntityKind, Id};
 use aede_core::text;
 
 use super::{
@@ -12,22 +14,70 @@ use super::{
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
+/// The one artist a name reaches, or an error naming the several it reaches.
+///
+/// **Several equally good answers are refused rather than arbitrated**, which
+/// is the rule everywhere else in this program and was missing here: the page
+/// matched exactly, then fell back on the fuzzy search and took its *first
+/// hit*. On a shelf holding both `Ozzy Osbourne` and `O. Osbourne`,
+/// `aede artist osbourne` and `aede artist ozzy` answered about two different
+/// people — one with a biography and thirteen albums, the other with seven —
+/// and nothing on screen suggested a choice had been made.
+///
+/// Each line of the refusal carries what tells the two apart, because repeating
+/// the names would repeat the ambiguity: the track count, and the MusicBrainz
+/// identifier where there is one, since two spellings with **different**
+/// identifiers are genuinely two people and two spellings with the same one
+/// should have been merged by the scan.
+fn one_artist<'a>(catalog: &'a Catalog, name: &str) -> Result<&'a Artist, Box<dyn Error>> {
+    let (found, _) = catalog.find_artists(name);
+    match found.as_slice() {
+        [one] => return Ok(one),
+        [] => {
+            // Nothing matched even loosely: the fuzzy search is the last
+            // resort, and it answers about spelling rather than about
+            // substrings — `ozy` reaching Ozzy is what it is for.
+            return catalog
+                .search(name, 1)
+                .first()
+                .filter(|hit| hit.kind == EntityKind::Artist)
+                .and_then(|hit| catalog.artist(hit.id))
+                .ok_or_else(|| format!("no artist matches \"{name}\"").into());
+        }
+        _ => {}
+    }
+    let mut lines = String::new();
+    for artist in &found {
+        // Tracks *and* albums, because either alone can be zero for a real
+        // artist: a name credited only as an album artist performs on nothing,
+        // and a guest performs on tracks and owns no album. "0 track" on its
+        // own reads as an empty row rather than as a distinguishing fact.
+        let mbid = match &artist.mbid {
+            Some(id) => format!(" · musicbrainz {id}"),
+            None => String::new(),
+        };
+        lines.push_str(&format!(
+            "\n\t{} ({}, {}){mbid}",
+            artist.name,
+            crate::ui::plural(catalog.tracks_of_artist(artist.id).len(), "track"),
+            crate::ui::plural(catalog.releases_of_artist(artist.id).len(), "album")
+        ));
+    }
+    Err(format!(
+        "\"{name}\" matches {}, and a page is about exactly one.\n\
+         Name the one you mean:{lines}",
+        crate::ui::plural(found.len(), "artist")
+    )
+    .into())
+}
+
 pub fn show_artist(args: &Args) -> Res {
     let catalog = load(args)?;
     let name = args.positionals.join(" ");
     if name.trim().is_empty() {
         return Err("give a name: aede artist \"Miles Davis\"".into());
     }
-    let Some(artist) = catalog.find_artist(&name).or_else(|| {
-        // Fall back on the fuzzy search.
-        catalog
-            .search(&name, 1)
-            .first()
-            .filter(|h| h.kind == EntityKind::Artist)
-            .and_then(|h| catalog.artist(h.id))
-    }) else {
-        return Err(format!("no artist matches \"{name}\"").into());
-    };
+    let artist = one_artist(&catalog, &name)?;
 
     // `--with` turns one line of the collaboration table into the tracks it
     // counts: the graph is only useful if one can walk down it.
@@ -59,6 +109,22 @@ pub fn show_artist(args: &Args) -> Res {
     }
     if let Some(mbid) = &artist.mbid {
         println!("  {}", ui::dim(&format!("MusicBrainz: {mbid}")));
+    }
+    // **A merge the reader cannot see is a merge they cannot check.** Two rows
+    // became one because the files carrying them carried the same MusicBrainz
+    // identifier, and a shelf that simply stops listing `O. Osbourne` leaves
+    // somebody unable to tell that from a folder that was never scanned. The
+    // spellings are normalised because that is the form the merge was decided
+    // on, and showing them as they were written would suggest the tags had been
+    // changed — which nothing here ever does.
+    if !artist.aliases.is_empty() {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "also spelled {} in your tags, merged by that identifier",
+                artist.aliases.join(", ")
+            ))
+        );
     }
 
     let artist_id = artist.id;
@@ -365,15 +431,7 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
 }
 
 fn print_tracks_in_common(catalog: &Catalog, artist_id: Id, wanted: &str) -> Res {
-    let Some(other) = catalog.find_artist(wanted).or_else(|| {
-        catalog
-            .search(wanted, 1)
-            .first()
-            .filter(|h| h.kind == EntityKind::Artist)
-            .and_then(|h| catalog.artist(h.id))
-    }) else {
-        return Err(format!("no artist matches \"{wanted}\"").into());
-    };
+    let other = one_artist(catalog, wanted)?;
 
     let tracks = catalog.tracks_in_common(artist_id, other.id);
     let here = catalog

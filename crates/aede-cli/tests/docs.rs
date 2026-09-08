@@ -231,3 +231,72 @@ fn the_front_page_names_every_page_of_the_manual() {
         orphans.join("\n  ")
     );
 }
+
+/// Every source file, of both crates.
+fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name == "target" {
+            continue;
+        }
+        match path.is_dir() {
+            true => rust_files(&path, found),
+            false if name.ends_with(".rs") => found.push(path),
+            false => {}
+        }
+    }
+}
+
+#[test]
+fn every_split_out_test_file_is_declared_by_the_module_it_tests() {
+    // **A test file nothing declares is a file nothing runs**, and it fails in
+    // the worst possible way: `cargo test` is green, the file sits in the tree
+    // looking like coverage, and the count in `CLAUDE.md` counts tests that
+    // never executed. `text_tests.rs` lived that way — two tests written
+    // against a real bug, compiled by nothing.
+    //
+    // The convention is one line in the module under test:
+    //
+    // ```ignore
+    // #[cfg(test)]
+    // #[path = "text_tests.rs"]
+    // mod tests;
+    // ```
+    //
+    // Nothing but this test can notice when it is missing, because a missing
+    // `mod` is not an error anywhere in Rust.
+    // The crates' `src/` only. This very file quotes the convention a few
+    // lines above, and a check that reads its own example proves nothing.
+    let root = root();
+    let mut sources = Vec::new();
+    rust_files(&root.join("crates/aede-core/src"), &mut sources);
+    rust_files(&root.join("crates/aede-cli/src"), &mut sources);
+    assert!(
+        sources.len() > 40,
+        "the crates hold {} source files: the walk stopped working",
+        sources.len()
+    );
+
+    let declared: String = sources
+        .iter()
+        .filter(|p| !p.to_string_lossy().ends_with("_tests.rs"))
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .collect();
+
+    let mut orphans: Vec<String> = sources
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .filter(|name| name.ends_with("_tests.rs"))
+        .filter(|name| !declared.contains(&format!("#[path = \"{name}\"]")))
+        .collect();
+    orphans.sort();
+    assert!(
+        orphans.is_empty(),
+        "test files no module declares, so nothing compiles or runs them:\n  {}",
+        orphans.join("\n  ")
+    );
+}

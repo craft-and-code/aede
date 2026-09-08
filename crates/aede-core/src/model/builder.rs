@@ -58,7 +58,13 @@ pub struct ScannedFile {
 pub fn build(mut scanned: Vec<ScannedFile>, roots: Vec<String>, scanned_at: u64) -> Catalog {
     scanned.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let mut builder = Builder::new(roots, scanned_at);
+    // **Read before anything is interned.** Two spellings under one MusicBrainz
+    // identifier are one artist, and which spelling survives is decided by the
+    // library as a whole — the most frequent one — so it cannot be settled file
+    // by file as the walk goes. See [`super::identity`].
+    let aliases = super::identity::aliases(scanned.iter().flat_map(named_once));
+
+    let mut builder = Builder::new(roots, scanned_at, aliases);
     for item in &scanned {
         builder.add_file(item);
     }
@@ -71,6 +77,8 @@ pub fn build(mut scanned: Vec<ScannedFile>, roots: Vec<String>, scanned_at: u64)
 /// it with a linear scan made construction quadratic on real libraries.
 struct Builder {
     catalog: Catalog,
+    /// Spellings that are somebody else's, worked out before the walk.
+    aliases: super::identity::Aliases,
     artists: HashMap<String, Id>,
     labels: HashMap<String, Id>,
     genres: HashMap<String, Id>,
@@ -93,13 +101,14 @@ struct FileEntities {
 }
 
 impl Builder {
-    fn new(roots: Vec<String>, scanned_at: u64) -> Builder {
+    fn new(roots: Vec<String>, scanned_at: u64, aliases: super::identity::Aliases) -> Builder {
         Builder {
             catalog: Catalog {
                 roots,
                 scanned_at,
                 ..Default::default()
             },
+            aliases,
             artists: HashMap::new(),
             labels: HashMap::new(),
             genres: HashMap::new(),
@@ -148,21 +157,43 @@ impl Builder {
         };
         self.catalog.files.push(file);
 
-        let artist_names = split_all(tags.all("artist"));
-        let album_artist_names = split_all(tags.all("albumartist"));
+        let artist_names = credited(tags, "artists", "artist");
+        let album_artist_names = credited(tags, "albumartists", "albumartist");
 
-        let artist_ids: Vec<Id> = artist_names.iter().map(|n| self.intern_artist(n)).collect();
+        let artist_ids: Vec<Id> = artist_names
+            .iter()
+            .map(|n| {
+                let id = self.intern_artist(n);
+                self.name_artist(id, n);
+                id
+            })
+            .collect();
         let album_artist_ids: Vec<Id> = album_artist_names
             .iter()
             .filter(|n| !is_various_artists(n))
-            .map(|n| self.intern_artist(n))
+            .map(|n| {
+                let id = self.intern_artist(n);
+                self.name_artist(id, n);
+                id
+            })
             .collect();
 
-        // MBIDs encountered along the way enrich the primary artist.
-        if let (Some(mbid), Some(&first)) = (tags.first("musicbrainz_artistid"), artist_ids.first())
-            && let Some(artist) = self.catalog.artists.get_mut(first as usize)
-        {
-            artist.mbid.get_or_insert_with(|| mbid.to_string());
+        // MBIDs encountered along the way enrich the artist they name — both
+        // of them, since an album artist's identifier used to be read by
+        // nothing at all and is exactly as good as a track artist's.
+        for (ids, tag) in [
+            (&artist_ids, "musicbrainz_artistid"),
+            (&album_artist_ids, "musicbrainz_albumartistid"),
+        ] {
+            // One name and one identifier, or nothing — the same rule
+            // `named_once` applies, and for the same reason: with two of
+            // either, position is not evidence of which belongs to which.
+            let (Some(mbid), [id]) = (only_one(tags.all(tag)), ids.as_slice()) else {
+                continue;
+            };
+            if let Some(artist) = self.catalog.artists.get_mut(*id as usize) {
+                artist.mbid.get_or_insert_with(|| mbid.to_string());
+            }
         }
 
         let is_compilation = tags.first("compilation").is_some()
@@ -309,11 +340,13 @@ impl Builder {
             self.push_credit(artist_id, EntityKind::Track, track_id, "main");
         }
         for role in ROLE_TAGS {
-            for value in item.tags.all(role) {
-                for name in text::split_artists(value) {
-                    let id = self.intern_artist(&name);
-                    self.push_credit(id, EntityKind::Track, track_id, role);
-                }
+            // The whole tag at once, not one value at a time: whether a value
+            // restates the others can only be asked of the list it belongs to,
+            // and `PERFORMER` is where a collaboration is habitually written
+            // out twice — once per musician, then once as the joint credit.
+            for name in credited_under(&item.tags, role) {
+                let id = self.intern_artist(&name);
+                self.push_credit(id, EntityKind::Track, track_id, role);
             }
         }
         if let Some(rid) = entities.release_id
@@ -362,21 +395,66 @@ impl Builder {
         }
     }
 
+    /// The artist this spelling belongs to, creating them the first time.
+    ///
+    /// A spelling MusicBrainz places under another one is filed there, and the
+    /// row is **named for the spelling it is filed under** rather than for
+    /// whichever file was read first: the key and the displayed name have to
+    /// agree, or a listing shows `O. Osbourne` and a query for `ozzy osbourne`
+    /// finds it, which is worse than either alone.
     fn intern_artist(&mut self, name: &str) -> Id {
-        let key = text::normalize(name);
+        let spelling = text::normalize(name);
+        let key = super::identity::filed_as(&self.aliases, &spelling).to_string();
         if let Some(&id) = self.artists.get(&key) {
             return id;
         }
+        // `name` is one of the spellings; the surviving key is another. Naming
+        // the row from the key would print a normalised string — lower case,
+        // no punctuation — where a reader expects a name, so the *first file
+        // carrying the surviving spelling* supplies it. Until one is read, the
+        // spelling in hand stands in, and is replaced below.
+        let display = match key == spelling {
+            true => name.trim().to_string(),
+            false => key.clone(),
+        };
+        // The other spellings that were filed here, kept so the merge can be
+        // seen: two rows becoming one is a decision, and a reader who cannot
+        // see it cannot tell it from a folder that was never scanned.
+        let mut aliases: Vec<String> = self
+            .aliases
+            .iter()
+            .filter(|(_, under)| **under == key)
+            .map(|(spelling, _)| spelling.clone())
+            .collect();
+        aliases.sort();
         let id = self.catalog.artists.len() as Id;
         self.catalog.artists.push(Artist {
             id,
-            name: name.trim().to_string(),
-            sort_name: text::sort_name(name.trim()),
+            name: display.clone(),
+            sort_name: text::sort_name(&display),
             key: key.clone(),
             mbid: None,
+            aliases,
         });
         self.artists.insert(key, id);
         id
+    }
+
+    /// Gives an artist the spelling their surviving key was taken from.
+    ///
+    /// Called with every name read, and it only ever acts once: the row keeps
+    /// the first *unnormalised* form of the winning spelling that the walk
+    /// meets. Without it a merged artist would be displayed by their key, which
+    /// is a matching form and not a name.
+    fn name_artist(&mut self, id: Id, name: &str) {
+        let Some(artist) = self.catalog.artists.get_mut(id as usize) else {
+            return;
+        };
+        if artist.name != artist.key || text::normalize(name) != artist.key {
+            return;
+        }
+        artist.name = name.trim().to_string();
+        artist.sort_name = text::sort_name(name.trim());
     }
 
     fn intern_label(&mut self, name: &str) -> Id {
@@ -440,6 +518,78 @@ const ROLE_TAGS: &[&str] = &[
 
 /// Key of a credit, used to reject duplicates in constant time.
 type CreditKey = (Id, EntityKind, Id, String);
+
+/// The unambiguous (identifier, name) pairs one file states.
+///
+/// A file speaks only where it names **exactly one** artist and carries
+/// **exactly one** identifier for them. A tag naming two artists arrives as one
+/// string that `split_artists` cuts in two, while the identifiers arrive as
+/// their own list in an order nothing guarantees to match — pairing those by
+/// position would file an identifier against whichever name sorted first. Both
+/// the artist and the album artist are read, since either is evidence.
+fn named_once(item: &ScannedFile) -> Vec<super::identity::Said> {
+    let mut said = Vec::new();
+    for (plural, single, tag) in [
+        ("artists", "artist", "musicbrainz_artistid"),
+        ("albumartists", "albumartist", "musicbrainz_albumartistid"),
+    ] {
+        // Resolved exactly as the credit itself is, or the two would disagree
+        // about how many artists a file names — and this pre-pass would call a
+        // collaboration one artist while the walk called it two.
+        let names = credited(&item.tags, plural, single);
+        let (Some(mbid), [name]) = (only_one(item.tags.all(tag)), names.as_slice()) else {
+            continue;
+        };
+        if is_various_artists(name) {
+            continue;
+        }
+        said.push(super::identity::Said {
+            mbid: mbid.to_string(),
+            name: name.clone(),
+        });
+    }
+    said
+}
+
+/// The artists a file credits, from the tag written for the purpose.
+///
+/// **`ARTISTS` before `ARTIST`, and it is not a nicety.** `ARTIST` is one
+/// string holding however many names, and the conventions for joining them do
+/// not survive contact with a real library: `Rob Zombie & Ozzy Osbourne` is two
+/// artists, `Simon & Garfunkel` is one, and nothing in either string says
+/// which. `ARTISTS` is the tag taggers write with **one value per artist** for
+/// exactly this reason, and a file that carries it has already answered the
+/// question — no separator to guess at, no band name to shatter.
+///
+/// Each value still goes through [`text::split_artists`], because a tagger that
+/// writes `ARTISTS` as one joined value is not rare either, and splitting a
+/// value that holds one name gives that name back.
+fn credited(tags: &RawTags, plural: &str, single: &str) -> Vec<String> {
+    let named = credited_under(tags, plural);
+    match named.is_empty() {
+        false => named,
+        true => credited_under(tags, single),
+    }
+}
+
+/// Every artist one tag names, split and freed of the values that only restate
+/// the others.
+///
+/// The scope matters and is the whole point: [`text::without_restatements`]
+/// judges a name against the *rest of its own tag*, so the list has to be
+/// gathered before anything is dropped from it. See that function for why a
+/// joint credit sitting beside its members is a duplicate rather than a band.
+fn credited_under(tags: &RawTags, tag: &str) -> Vec<String> {
+    text::without_restatements(split_all(tags.all(tag)))
+}
+
+/// The only value there is, when there is exactly one.
+fn only_one(values: &[String]) -> Option<&str> {
+    match values {
+        [one] if !one.trim().is_empty() => Some(one.trim()),
+        _ => None,
+    }
+}
 
 fn split_all(values: &[String]) -> Vec<String> {
     values.iter().flat_map(|v| text::split_artists(v)).collect()

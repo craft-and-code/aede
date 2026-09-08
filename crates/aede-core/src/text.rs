@@ -11,9 +11,21 @@
 /// Real libraries mix every convention: `;`, `/`, ` feat. `, ` & `… We cut on
 /// the safe separators and leave `&` and `and` alone, because "Simon &
 /// Garfunkel" or "Earth, Wind & Fire" are band names, not lists.
+///
+/// **That last rule is why this is the fallback and not the answer.** A tag
+/// reading `Rob Zombie & Ozzy Osbourne` is two artists and one that reads
+/// `Simon & Garfunkel` is one, and no amount of looking at the string can tell
+/// them apart. The tag that can is `ARTISTS`, which taggers write with **one
+/// value per artist** for exactly this reason; see
+/// [`crate::model::builder`], which prefers it wherever a file carries it and
+/// falls back here only when none does.
 pub fn split_artists(raw: &str) -> Vec<String> {
     const HARD_SEPARATORS: [&str; 4] = [";", " / ", "//", " ; "];
-    const FEATURE_MARKERS: [&str; 8] = [
+    // `" w/"` carries no trailing space on purpose: it is written `w/Therapy?`
+    // as often as `w/ Therapy?`, and the space before it is what keeps it from
+    // matching inside a name. Nothing loses by it — a band whose name contains
+    // a space followed by `w/` does not exist as far as anyone has met one.
+    const FEATURE_MARKERS: [&str; 9] = [
         " feat. ",
         " feat ",
         " featuring ",
@@ -22,6 +34,7 @@ pub fn split_artists(raw: &str) -> Vec<String> {
         " avec ",
         " with ",
         " vs. ",
+        " w/",
     ];
 
     let mut parts: Vec<String> = vec![raw.trim().to_string()];
@@ -71,6 +84,78 @@ pub fn split_artists(raw: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Drops, from one tag's list of names, the ones that only say again what the
+/// other entries of that same list already say.
+///
+/// Real tags do this constantly. A file of *War Pigs* carries
+/// `PERFORMER=Ozzy Osbourne; Judas Priest; Judas Priest & Ozzy Osbourne`:
+/// three values, two musicians. The third is the credit written out whole, and
+/// nothing in the string alone tells it from a band name — `&` is never a
+/// separator here, and rightly, or `Kool & the Gang` would be shattered.
+///
+/// **The list itself is what tells them apart, and it is not a heuristic.** A
+/// value made of two or more of the *other* values in the same tag, with
+/// nothing left over but the words that join names together, is the file
+/// saying one thing twice. Keeping the granular form loses nobody: every
+/// person it named is still named, and each is now an artist in their own
+/// right rather than a third party who happens to exist on one track.
+/// `Kool & the Gang` survives any list that does not also hold `Kool` and
+/// `the Gang` on their own — and a list that did would have named them itself.
+///
+/// The comparison is on [`normalize`]d keys, so joining punctuation has
+/// already fallen away and only joining *words* remain to be recognised.
+pub fn without_restatements(names: Vec<String>) -> Vec<String> {
+    // Words that join names and name nobody. `&` is not among them because
+    // `normalize` has already turned it into a space.
+    const JOINERS: [&str; 13] = [
+        "and",
+        "et",
+        "with",
+        "avec",
+        "feat",
+        "featuring",
+        "ft",
+        "vs",
+        "versus",
+        "w",
+        "x",
+        "meets",
+        "presents",
+    ];
+
+    let keys: Vec<String> = names.iter().map(|n| normalize(n)).collect();
+    let mut kept = Vec::with_capacity(names.len());
+    for (me, name) in names.iter().enumerate() {
+        // Longest first, so `Ozzy Osbourne` is consumed whole rather than
+        // leaving `osbourne` stranded because a shorter `Ozzy` matched first.
+        let mut others: Vec<usize> = (0..keys.len())
+            .filter(|&j| j != me && !keys[j].is_empty() && keys[j] != keys[me])
+            .collect();
+        others.sort_by_key(|&j| std::cmp::Reverse(keys[j].len()));
+
+        // A space at each end so a needle only ever matches whole words:
+        // without them `Al` would be eaten out of `Alice`.
+        let mut left = format!(" {} ", keys[me]);
+        let mut eaten = 0;
+        for j in others {
+            let needle = format!(" {} ", keys[j]);
+            if let Some(at) = left.find(&needle) {
+                left.replace_range(at..at + needle.len(), " ");
+                eaten += 1;
+            }
+        }
+        // Two, not one. One would mean that any name containing another name
+        // of the list is a restatement of it, and `Therapy?` sitting beside
+        // `Ozzy Osbourne w/Therapy?` would delete the collaboration instead of
+        // the other way round.
+        let restated = eaten >= 2 && left.split_whitespace().all(|w| JOINERS.contains(&w));
+        if !restated {
+            kept.push(name.clone());
+        }
+    }
+    kept
 }
 
 /// Matching key: lowercase, without diacritics, without punctuation,
@@ -302,135 +387,5 @@ pub fn is_under(path: &str, folder: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_disc_folder_is_recognised_and_nothing_else_is() {
-        // A box set laid out as Album/Disc 1, Album/Disc 2 is one album, not
-        // two. Reading the folder wrongly in either direction is expensive:
-        // missing it splits a release, claiming it merges two.
-        for (name, number) in [
-            ("Disc 1", 1),
-            ("disc1", 1),
-            ("CD2", 2),
-            ("cd 2", 2),
-            ("Disque 3", 3),
-            ("Disk-4", 4),
-            ("DISC_10", 10),
-        ] {
-            assert_eq!(disc_folder(name), Some(number), "{name}");
-        }
-        for name in [
-            "CD Singles",
-            "Discography",
-            "disc one",
-            "Bonus",
-            "cd2 bonus",
-            "Disc",
-            "1",
-            "Disc 0",
-        ] {
-            assert_eq!(disc_folder(name), None, "{name} is not a disc folder");
-        }
-    }
-
-    #[test]
-    fn a_folder_is_not_a_prefix_of_its_name() {
-        assert!(is_under("/music/Rock/01.flac", "/music/Rock"));
-        assert!(is_under("/music/Rock", "/music/Rock"));
-        assert!(is_under("/music/Rock/01.flac", "/music/Rock/"));
-        // The trap: one name beginning with the other.
-        assert!(!is_under("/music/Rockabilly/01.flac", "/music/Rock"));
-        assert!(!is_under("/music", "/music/Rock"));
-        assert!(!is_under("/other/Rock/01.flac", "/music/Rock"));
-    }
-
-    #[test]
-    fn path_parts() {
-        assert_eq!(file_name("/music/a/01.flac"), "01.flac");
-        assert_eq!(folder("/music/a/01.flac"), "/music/a");
-        // A bare name is its own file name, and is in no folder.
-        assert_eq!(file_name("01.flac"), "01.flac");
-        assert_eq!(folder("01.flac"), "");
-        // A file sitting at the root has no folder either: the root is not a
-        // grouping.
-        assert_eq!(folder("/01.flac"), "");
-    }
-
-    #[test]
-    fn article_normalization() {
-        assert_eq!(normalize("The Beatles"), normalize("Beatles, The"));
-        assert_eq!(normalize("The Beatles"), "beatles");
-        assert_eq!(normalize("  the   ROLLING   Stones "), "rolling stones");
-        // A lone article must not disappear.
-        assert_eq!(normalize("The The"), "the");
-    }
-
-    #[test]
-    fn accent_and_punctuation_normalization() {
-        assert_eq!(normalize("Björk"), "bjork");
-        assert_eq!(normalize("Sigur Rós"), "sigur ros");
-        assert_eq!(normalize("AC/DC"), "ac dc");
-        assert_eq!(normalize("Motörhead!"), "motorhead");
-        assert_eq!(normalize("Émilie Simon"), "emilie simon");
-    }
-
-    #[test]
-    fn artist_splitting() {
-        assert_eq!(split_artists("Miles Davis"), vec!["Miles Davis"]);
-        assert_eq!(
-            split_artists("Miles Davis; John Coltrane"),
-            vec!["Miles Davis", "John Coltrane"]
-        );
-        assert_eq!(
-            split_artists("Daft Punk feat. Pharrell Williams"),
-            vec!["Daft Punk", "Pharrell Williams"]
-        );
-        // Ampersands inside band names must NOT be cut.
-        assert_eq!(
-            split_artists("Simon & Garfunkel"),
-            vec!["Simon & Garfunkel"]
-        );
-        assert_eq!(
-            split_artists("Earth, Wind & Fire"),
-            vec!["Earth, Wind & Fire"]
-        );
-    }
-
-    #[test]
-    fn sort_names() {
-        assert_eq!(sort_name("The Beatles"), "Beatles, The");
-        assert_eq!(sort_name("Miles Davis"), "Miles Davis");
-        assert_eq!(sort_name("Les Rita Mitsouko"), "Rita Mitsouko, Les");
-    }
-
-    #[test]
-    fn year_extraction() {
-        assert_eq!(extract_year("1959"), Some(1959));
-        assert_eq!(extract_year("1959-08-17"), Some(1959));
-        assert_eq!(extract_year("17/08/1959"), Some(1959));
-        assert_eq!(extract_year("unknown"), None);
-        assert_eq!(extract_year("12"), None);
-    }
-
-    #[test]
-    fn track_numbers() {
-        assert_eq!(parse_track_number("5"), (Some(5), None));
-        assert_eq!(parse_track_number("5/12"), (Some(5), Some(12)));
-        assert_eq!(parse_track_number("noise"), (None, None));
-    }
-
-    #[test]
-    fn formatting() {
-        assert_eq!(format_duration(65_000), "1:05");
-        assert_eq!(format_duration(3_725_000), "1:02:05");
-        // Rounded, not truncated: 4 min 20.7 s is 4:21, as in any player.
-        assert_eq!(format_duration(260_700), "4:21");
-        assert_eq!(format_duration(260_400), "4:20");
-        assert_eq!(format_size(512), "512 B");
-        assert_eq!(format_size(1500), "1.5 kB");
-        // Decimal units, like the Finder: 315.7 MB, not 301.1 "MB".
-        assert_eq!(format_size(315_727_769), "315.7 MB");
-    }
-}
+#[path = "text_tests.rs"]
+mod tests;

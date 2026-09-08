@@ -325,6 +325,14 @@ fn artist_to_json(a: &Artist) -> Json {
     o.set("sort_name", a.sort_name.clone().into());
     o.set("key", a.key.clone().into());
     o.set("mbid", opt_str(&a.mbid));
+    // Written only when there are any: an empty array on every artist of a
+    // library that has never been merged is a quarter of a megabyte of `[]`.
+    if !a.aliases.is_empty() {
+        o.set(
+            "aliases",
+            Json::Arr(a.aliases.iter().map(|s| s.clone().into()).collect()),
+        );
+    }
     o
 }
 
@@ -459,6 +467,11 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             sort_name: item.field_str("sort_name").unwrap_or_default(),
             key: item.field_str("key").unwrap_or_default(),
             mbid: item.field_str("mbid"),
+            aliases: item
+                .get("aliases")
+                .and_then(Json::as_arr)
+                .map(|values| values.iter().filter_map(Json::as_string).collect())
+                .unwrap_or_default(),
         });
     }
     for item in rows(value, "release") {

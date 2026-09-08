@@ -388,6 +388,38 @@ impl Catalog {
         self.artists.iter().find(|a| a.key == key)
     }
 
+    /// Every artist whose name matches, exactly or failing that partially.
+    ///
+    /// **The rule [`Catalog::find_releases`] and [`Catalog::find_tracks`]
+    /// already followed, and that this one did not.** `find_artist` matched
+    /// exactly and nothing else, so every caller that wanted `osbourne` to
+    /// reach Ozzy bolted a fuzzy search underneath and took its **first hit**
+    /// — an arbitrary answer among several, given without a word. On a shelf
+    /// holding both `Ozzy Osbourne` and `O. Osbourne` that is not a nicety:
+    /// `aede artist osbourne` and `aede artist ozzy` answered about two
+    /// different people, one of them with a biography and thirteen albums and
+    /// the other with seven.
+    ///
+    /// So: exact first, and only widen when nothing was exact — the same shape,
+    /// returning the same [`TitleMatch`], so a caller can say which of the two
+    /// happened and refuse to arbitrate between several.
+    pub fn find_artists(&self, name: &str) -> (Vec<&Artist>, TitleMatch) {
+        let key = text::normalize(name);
+        if key.is_empty() {
+            return (Vec::new(), TitleMatch::Exact);
+        }
+        let exact: Vec<&Artist> = self.artists.iter().filter(|a| a.key == key).collect();
+        if !exact.is_empty() {
+            return (exact, TitleMatch::Exact);
+        }
+        let partial = self
+            .artists
+            .iter()
+            .filter(|a| a.key.contains(&key))
+            .collect();
+        (partial, TitleMatch::Partial)
+    }
+
     /// Every release whose title matches, exactly or failing that partially.
     ///
     /// Same rule as [`Catalog::find_tracks`], and for the same reason: a

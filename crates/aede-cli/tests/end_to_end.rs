@@ -1830,8 +1830,11 @@ fn a_name_given_to_an_option_may_be_typed_without_quotes() {
 
     // A name typed in several words reaches the option whole. The pair does
     // not play together, and the answer says exactly that — the point is that
-    // both names were understood.
-    let (out, err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill", "Evans"]);
+    // both names were understood. The subject is spelled in full because
+    // `Miles` alone reaches two artists in this library and a page is about
+    // exactly one: an ambiguity refused, which is a different answer from the
+    // one this test is about.
+    let (out, err, _) = sandbox.run(&["artist", "Miles Davis", "--with", "Bill", "Evans"]);
     let text = format!("{out}{err}");
     assert!(
         !text.contains("Miles Evans"),
@@ -1843,7 +1846,14 @@ fn a_name_given_to_an_option_may_be_typed_without_quotes() {
     );
 
     // The value stops at the next option rather than eating it.
-    let (out, err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill", "Evans", "--limit=1"]);
+    let (out, err, _) = sandbox.run(&[
+        "artist",
+        "Miles Davis",
+        "--with",
+        "Bill",
+        "Evans",
+        "--limit=1",
+    ]);
     let text = format!("{out}{err}");
     assert!(text.contains("Bill Evans"), "output: {text}");
     assert!(
@@ -1852,8 +1862,10 @@ fn a_name_given_to_an_option_may_be_typed_without_quotes() {
     );
 
     // Quoting keeps working, and says the same thing.
-    let (plain_out, plain_err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill", "Evans"]);
-    let (quoted_out, quoted_err, _) = sandbox.run(&["artist", "Miles", "--with", "Bill Evans"]);
+    let (plain_out, plain_err, _) =
+        sandbox.run(&["artist", "Miles Davis", "--with", "Bill", "Evans"]);
+    let (quoted_out, quoted_err, _) =
+        sandbox.run(&["artist", "Miles Davis", "--with", "Bill Evans"]);
     assert_eq!(
         format!("{quoted_out}{quoted_err}"),
         format!("{plain_out}{plain_err}"),
@@ -5180,4 +5192,234 @@ fn every_pass_that_can_reach_the_network_stops_for_dry_run() {
             "{pass} reached the network after being told not to: {err}"
         );
     }
+}
+
+/// Two spellings under one MusicBrainz identifier are one artist, and the page
+/// says so.
+///
+/// The merge is only half the work: a shelf that stops listing `O. Osbourne`
+/// leaves a reader unable to tell a merge that happened from a folder that was
+/// never scanned. And a name that reaches both of two artists is refused rather
+/// than arbitrated — `aede artist osbourne` used to take the first fuzzy hit
+/// and answer about a different man from `aede artist ozzy`, one with a
+/// biography and thirteen albums and the other with seven.
+#[test]
+fn a_merged_artist_says_which_spellings_it_absorbed() {
+    let sandbox = Sandbox::new("merged_artist");
+    let music = sandbox.dir.join("music");
+    for (spelling, album, mbid) in [
+        ("Ozzy Osbourne", "Blizzard of Ozz", "ozzy-mbid"),
+        ("Ozzy Osbourne", "Diary of a Madman", "ozzy-mbid"),
+        ("O. Osbourne", "Bark at the Moon", "ozzy-mbid"),
+        // A different identifier is a different person, however alike the
+        // names — the fault the whole approach exists to avoid.
+        ("Ozzy Tribute", "Covers", "someone-else"),
+    ] {
+        let dir = music.join(spelling).join(album);
+        std::fs::create_dir_all(&dir).unwrap();
+        tagged(&dir.join("01.flac"), spelling, album, mbid);
+    }
+
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, _, ok) = sandbox.run(&["artists"]);
+    assert!(ok);
+    assert!(
+        !out.contains("O. Osbourne"),
+        "the two spellings are one artist now: {out}"
+    );
+    assert!(
+        out.contains("Ozzy Osbourne") && out.contains("Ozzy Tribute"),
+        "{out}"
+    );
+
+    // Named by the spelling that names the most tracks, and saying what it took
+    // in — the merge is a decision, and a decision the reader cannot see is one
+    // they cannot check.
+    let (out, err, ok) = sandbox.run(&["artist", "Ozzy Osbourne"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("also spelled") && out.contains("o osbourne"),
+        "the page says which spellings it absorbed: {out}"
+    );
+    assert!(out.contains("3 albums"), "and holds all three: {out}");
+
+    // A name reaching both is refused, and each line carries what tells them
+    // apart rather than repeating the ambiguity.
+    let (out, err, ok) = sandbox.run(&["artist", "ozzy"]);
+    assert!(!ok, "stdout: {out}\nstderr: {err}");
+    let said = format!("{out}{err}");
+    assert!(said.contains("matches 2 artists"), "{said}");
+    assert!(
+        said.contains("ozzy-mbid") && said.contains("someone-else"),
+        "the identifiers are what tell two similar names apart: {said}"
+    );
+}
+
+/// One tagged file, for a test that builds a library of its own.
+///
+/// Two incantations here are not decoration, and both were found by running
+/// ffmpeg rather than by reading about it. **`-map_metadata -1` starts from
+/// nothing**, or the fixture's own date, genre, composer and publisher travel
+/// into a file this test claims to control. And the album artist is
+/// **`album_artist`**, not `albumartist`: ffmpeg silently ignores the second,
+/// so the fixture's `Miles Davis Sextet` survived every retag and the library
+/// this test built was not the one it described.
+fn tagged(path: &std::path::Path, artist: &str, album: &str, mbid: &str) {
+    std::fs::copy(library_flac(), path).unwrap();
+    let retagged = path.with_extension("tagged.flac");
+    let ok = std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(path)
+        .args(["-map_metadata", "-1", "-c", "copy", "-metadata"])
+        .arg(format!("artist={artist}"))
+        .arg("-metadata")
+        .arg(format!("album_artist={artist}"))
+        .arg("-metadata")
+        .arg(format!("album={album}"))
+        .arg("-metadata")
+        .arg(format!("MUSICBRAINZ_ARTISTID={mbid}"))
+        .arg("-metadata")
+        .arg(format!("MUSICBRAINZ_ALBUMARTISTID={mbid}"))
+        .arg("-metadata")
+        .arg("title=A track")
+        .arg(&retagged)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(ok, "ffmpeg tagged the fixture: {path:?}");
+    std::fs::rename(&retagged, path).unwrap();
+}
+
+/// Writes a fixture carrying exactly the tags given, and nothing else.
+///
+/// `-map_metadata -1` first, because ffmpeg keeps the source's tags otherwise
+/// and a test that inherits half its input proves nothing about the half it
+/// wrote. Multi-valued tags are given as one `;`-joined value, which is how a
+/// good many taggers write them and which `split_artists` reads back.
+fn tagged_with(path: &std::path::Path, tags: &[(&str, &str)]) {
+    std::fs::copy(library_flac(), path).unwrap();
+    let retagged = path.with_extension("tagged.flac");
+    let mut command = std::process::Command::new("ffmpeg");
+    command
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(path)
+        .args(["-map_metadata", "-1", "-c", "copy"]);
+    for (key, value) in tags {
+        command.arg("-metadata").arg(format!("{key}={value}"));
+    }
+    let ok = command.arg(&retagged).status().is_ok_and(|s| s.success());
+    assert!(ok, "ffmpeg tagged the fixture: {path:?}");
+    std::fs::rename(&retagged, path).unwrap();
+}
+
+#[test]
+fn a_collaboration_is_the_artists_it_names_and_never_an_artist_of_its_own() {
+    // The shelf as it actually was. Four of the five rows `aede artist ozzy`
+    // refused between were not people: they were credits nobody had split,
+    // because `&` can never be split from the string alone — `Simon &
+    // Garfunkel` is one band. Every one of these files is copied from a real
+    // one, tags included.
+    let sandbox = Sandbox::new("collaboration_credits");
+    let music = sandbox.dir.join("music");
+    let ozzy = "8aa5b65a-5b3c-4029-92bf-47a544356934";
+
+    let solo = music.join("Ozzy Osbourne").join("Blizzard of Ozz");
+    std::fs::create_dir_all(&solo).unwrap();
+    tagged_with(
+        &solo.join("01.flac"),
+        &[
+            ("artist", "Ozzy Osbourne"),
+            ("album_artist", "Ozzy Osbourne"),
+            ("album", "Blizzard of Ozz"),
+            ("title", "Crazy Train"),
+            ("MUSICBRAINZ_ARTISTID", ozzy),
+        ],
+    );
+
+    // `ARTISTS` answers for the artist tag: one value per artist, written by
+    // the tagger for exactly this question.
+    let zombie = music.join("Rob Zombie").join("The Sinister Urge");
+    std::fs::create_dir_all(&zombie).unwrap();
+    tagged_with(
+        &zombie.join("05.flac"),
+        &[
+            ("artist", "Rob Zombie & Ozzy Osbourne"),
+            ("ARTISTS", "Rob Zombie;Ozzy Osbourne"),
+            ("album_artist", "Rob Zombie"),
+            ("album", "The Sinister Urge"),
+            ("title", "Iron Head"),
+        ],
+    );
+
+    // And the list answers for `PERFORMER`, where `ARTISTS` has nothing to say:
+    // the pair, then each of them, is the same credit written twice.
+    let priest = music.join("War Pigs").join("charity version");
+    std::fs::create_dir_all(&priest).unwrap();
+    tagged_with(
+        &priest.join("01.flac"),
+        &[
+            ("artist", "Judas Priest featuring Ozzy Osbourne"),
+            ("ARTISTS", "Judas Priest;Ozzy Osbourne"),
+            ("album_artist", "Judas Priest featuring Ozzy Osbourne"),
+            (
+                "PERFORMER",
+                "Ozzy Osbourne; Judas Priest; Judas Priest & Ozzy Osbourne",
+            ),
+            ("album", "War Pigs (charity version)"),
+            ("title", "War Pigs"),
+        ],
+    );
+
+    // A band whose name holds an ampersand, on the same shelf, to prove the
+    // rule cuts nothing it should not.
+    let kool = music.join("Various Artists").join("Pulp Fiction");
+    std::fs::create_dir_all(&kool).unwrap();
+    tagged_with(
+        &kool.join("04.flac"),
+        &[
+            ("artist", "Kool & the Gang"),
+            ("ARTISTS", "Kool & the Gang"),
+            ("album_artist", "Various Artists"),
+            ("album", "Pulp Fiction"),
+            ("title", "Jungle Boogie"),
+        ],
+    );
+
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["artists"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    for nobody in [
+        "Rob Zombie & Ozzy Osbourne",
+        "Judas Priest & Ozzy Osbourne",
+        "Judas Priest featuring Ozzy Osbourne",
+    ] {
+        assert!(!out.contains(nobody), "{nobody} is not an artist: {out}");
+    }
+    for somebody in [
+        "Ozzy Osbourne",
+        "Rob Zombie",
+        "Judas Priest",
+        "Kool & the Gang",
+    ] {
+        assert!(out.contains(somebody), "{somebody} is missing: {out}");
+    }
+
+    // **The two spellings of the question answer alike.** A full name matches
+    // exactly and a fragment matches loosely, but with the collaborations gone
+    // there is only one Osbourne on the shelf, so both reach the same page —
+    // which is what the ambiguity was hiding.
+    let (full, _, ok) = sandbox.run(&["artist", "Ozzy Osbourne"]);
+    assert!(ok, "{full}");
+    let (part, err, ok) = sandbox.run(&["artist", "osbourne"]);
+    assert!(ok, "stdout: {part}\nstderr: {err}");
+    assert_eq!(part, full, "a fragment and the full name are one artist");
+
+    // And the collaborations are still there — as collaborations, which is the
+    // only place they were ever a fact about anybody.
+    let (out, err, ok) = sandbox.run(&["artist", "Ozzy Osbourne", "--with", "Rob Zombie"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("Iron Head"), "{out}");
 }

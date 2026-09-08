@@ -283,6 +283,7 @@ mod tests {
             sort_name: name.into(),
             key: name.to_lowercase(),
             mbid: None,
+            aliases: Vec::new(),
         }
     }
 
