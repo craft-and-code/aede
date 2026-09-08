@@ -12,9 +12,17 @@ use crate::ui::{self, Align, Table};
 pub fn show_stats(args: &Args) -> Res {
     let catalog = load(args)?;
     let s = stats::compute(&catalog);
+    // Empty until a fetch has asked MusicBrainz where each artist is from —
+    // `sources_held` answers that with an empty store rather than an error,
+    // so a library that has never fetched simply shows no countries at all,
+    // the same way `by_decade` shows nothing for an untagged library.
+    let countries = country_buckets(&catalog, &super::sources_held(args)?);
 
     if args.has("json") {
-        println!("{}", stats_to_json(&catalog, &s).to_string_pretty());
+        println!(
+            "{}",
+            stats_to_json(&catalog, &s, &countries).to_string_pretty()
+        );
         return Ok(());
     }
 
@@ -49,11 +57,6 @@ pub fn show_stats(args: &Args) -> Res {
     }
     print!("{}", t.render());
 
-    print_buckets("Formats", &s.by_codec, true);
-    print_buckets("Quality", &s.by_quality, true);
-    print_buckets("Sample rates", &s.by_sample_rate, false);
-    print_buckets("Decades (albums)", &s.by_decade, false);
-
     println!("{}", ui::section("Metadata completeness"));
     let mut t = Table::plain(3).align(1, Align::Right);
     for (label, ratio) in [
@@ -69,6 +72,11 @@ pub fn show_stats(args: &Args) -> Res {
         ]);
     }
     print!("{}", t.render());
+
+    print_buckets("Formats", "Format", &s.by_codec, true);
+    print_buckets("Quality", "Quality", &s.by_quality, true);
+    print_buckets("Sample rates", "Sample rate", &s.by_sample_rate, false);
+    print_buckets("Decades (albums)", "Decade", &s.by_decade, false);
 
     // The credit vocabulary as it actually exists in *this* library. Without
     // it, `--role composer` returning nothing is indistinguishable from a bug:
@@ -138,6 +146,8 @@ pub fn show_stats(args: &Args) -> Res {
         print!("{}", t.render());
     }
 
+    print_buckets("Countries", "Country", &countries, false);
+
     where_it_lives(args, &catalog);
     Ok(())
 }
@@ -192,15 +202,32 @@ fn where_it_lives(args: &Args, catalog: &Catalog) {
     );
 }
 
-fn print_buckets(title: &str, buckets: &[stats::Bucket], with_size: bool) {
+/// Artists grouped by where MusicBrainz says they are from, most first.
+///
+/// A [`stats::Bucket`] rather than a table of its own: it is one more
+/// breakdown of the same shape as `by_codec` or `by_decade`, and reusing
+/// [`print_buckets`] is what keeps it looking like one instead of like a
+/// feature bolted on afterward.
+fn country_buckets(catalog: &Catalog, held: &aede_core::sources::Sources) -> Vec<stats::Bucket> {
+    aede_core::places::countries(catalog, held)
+        .into_iter()
+        .map(|place| stats::Bucket {
+            label: place.name,
+            count: place.artists.len(),
+            bytes: 0,
+        })
+        .collect()
+}
+
+fn print_buckets(title: &str, column: &str, buckets: &[stats::Bucket], with_size: bool) {
     if buckets.is_empty() {
         return;
     }
     println!("{}", ui::section(title));
     let headers: Vec<&str> = if with_size {
-        vec!["", "Count", "Size", ""]
+        vec![column, "Count", "Size", ""]
     } else {
-        vec!["", "Count", ""]
+        vec![column, "Count", ""]
     };
     let mut t = Table::new(&headers).align(1, Align::Right);
     if with_size {
@@ -265,7 +292,7 @@ fn print_roles(catalog: &Catalog) {
     );
 }
 
-fn stats_to_json(catalog: &Catalog, s: &stats::Stats) -> Json {
+fn stats_to_json(catalog: &Catalog, s: &stats::Stats, countries: &[stats::Bucket]) -> Json {
     let mut root = Json::obj();
     root.set("tracks", s.tracks.into());
     root.set("albums", s.releases.into());
@@ -319,6 +346,7 @@ fn stats_to_json(catalog: &Catalog, s: &stats::Stats) -> Json {
     root.set("by_quality", buckets(&s.by_quality));
     root.set("by_sample_rate", buckets(&s.by_sample_rate));
     root.set("by_decade", buckets(&s.by_decade));
+    root.set("by_country", buckets(countries));
 
     let mut completeness = Json::obj();
     completeness.set("covers", s.cover_ratio.into());

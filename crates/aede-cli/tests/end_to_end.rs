@@ -4761,6 +4761,62 @@ fn a_country_comes_from_the_layer_and_says_so_when_there_is_none() {
 }
 
 #[test]
+fn stats_shows_countries_only_once_something_has_been_fetched() {
+    // The same two states `countries` itself has to tell apart: a library
+    // nobody has fetched, and one that has an answer to show. `stats` reuses
+    // the same layer, so it inherits the same silence rather than a zero that
+    // would read as "no country holds an artist" instead of "nobody asked".
+    let sandbox = Sandbox::new("stats_countries");
+    let root = library();
+    let (_, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "the scan must succeed. stderr: {err}");
+
+    let (out, _, ok) = sandbox.run(&["stats"]);
+    assert!(ok);
+    assert!(!out.contains("Countries"), "nothing fetched yet: {out}");
+
+    let (out, _, ok) = sandbox.run(&["stats", "--json"]);
+    assert!(ok);
+    let value = aede_core::json::parse(&out).expect("valid JSON");
+    let by_country = value
+        .get("by_country")
+        .and_then(|c| c.as_arr())
+        .expect("by_country");
+    assert!(by_country.is_empty(), "output: {out}");
+
+    // Now file an area against one artist, exactly as a fetch would.
+    let (template, _, ok) = sandbox.run(&["sources", "--template"]);
+    assert!(
+        ok,
+        "the template is how a value is loaded without a network"
+    );
+    let filled = template.replacen("\"area\": null", "\"area\": \"United States\"", 1);
+    let path = sandbox.dir.join("filled.json");
+    std::fs::write(&path, filled).expect("written");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", path.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, _, ok) = sandbox.run(&["stats"]);
+    assert!(ok);
+    assert!(out.contains("Countries"), "output: {out}");
+    assert!(out.contains("United States"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["stats", "--json"]);
+    assert!(ok);
+    let value = aede_core::json::parse(&out).expect("valid JSON");
+    let by_country = value
+        .get("by_country")
+        .and_then(|c| c.as_arr())
+        .expect("by_country");
+    assert!(
+        by_country
+            .iter()
+            .any(|b| b.field_str("label").as_deref() == Some("United States")),
+        "output: {out}"
+    );
+}
+
+#[test]
 fn an_artist_page_names_what_the_shelf_does_not_hold() {
     // `aede missing` was in the help, in the README and in the manual, and
     // still could not be found — it was named nowhere near the question it
