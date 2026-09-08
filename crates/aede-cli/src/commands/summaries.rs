@@ -27,7 +27,7 @@ use aede_core::{clock, wikipedia};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, ask_with_backoff};
+use super::fetch::{Ask, ask_with_backoff, queue, worth_deferring};
 
 /// An artist to ask about: where to file the answer, what to call them, and
 /// the Wikidata id MusicBrainz gave.
@@ -105,15 +105,23 @@ pub fn run(
 
     let langs: Vec<&str> = langs.iter().map(String::as_str).collect();
     let (mut stored, mut empty, mut failed) = (0usize, 0usize, 0usize);
-    for (done, target) in targets.iter().enumerate() {
-        print!("\r  asking: {}/{}", done + 1, targets.len());
+    let mut pending = queue(&targets);
+    let mut done = 0usize;
+    let total = targets.len();
+    while let Some((target, retried)) = pending.pop_front() {
+        print!("\r  asking: {}/{}", done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         let entity_doc =
             match ask_with_backoff(transport, &wikipedia::entity_data_url(&target.id), backoff) {
                 Ok(doc) => doc,
+                Err(why) if worth_deferring(&why) && !retried => {
+                    pending.push_back((target, true));
+                    continue;
+                }
                 Err(why) => {
                     failed += 1;
+                    done += 1;
                     eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
                     continue;
                 }
@@ -124,14 +132,20 @@ pub fn run(
             empty += 1;
             store(held, target, None);
             sources::save(held, path)?;
+            done += 1;
             continue;
         };
 
         let summary_doc =
             match ask_with_backoff(transport, &wikipedia::summary_url(&article), backoff) {
                 Ok(doc) => doc,
+                Err(why) if worth_deferring(&why) && !retried => {
+                    pending.push_back((target, true));
+                    continue;
+                }
                 Err(why) => {
                     failed += 1;
+                    done += 1;
                     eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
                     continue;
                 }
@@ -147,6 +161,7 @@ pub fn run(
             }
         }
         sources::save(held, path)?;
+        done += 1;
     }
     println!();
 

@@ -62,7 +62,7 @@ use aede_core::{clock, musicbrainz};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_with_backoff};
+use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
 
 /// The width used when `--size` is not given.
 ///
@@ -170,16 +170,27 @@ pub fn run(
 
     let (mut written, mut none, mut failed) = (0usize, 0usize, 0usize);
     let mut extras = 0usize;
-    for (done, target) in targets.iter().enumerate() {
-        print!("\r  asking: {}/{}", done + 1, targets.len());
+    let mut pending = queue(targets);
+    let mut done = 0usize;
+    let total = targets.len();
+    while let Some((target, retried)) = pending.pop_front() {
+        print!("\r  asking: {}/{}", done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         // A known address is the image, so there is nothing to look up.
         if target.known {
             match download(transport, backoff, &target.url, &target.folder) {
-                Ok(()) => written += 1,
+                Ok(()) => {
+                    written += 1;
+                    done += 1;
+                }
+                Err(why) if worth_deferring(&why) && !retried => {
+                    pending.push_back((target, true));
+                    continue;
+                }
                 Err(why) => {
                     failed += 1;
+                    done += 1;
                     eprintln!("\r  {} {}: {why}", ui::red("×"), target.title);
                 }
             }
@@ -188,6 +199,10 @@ pub fn run(
 
         let index = match ask_with_backoff(transport, &target.url, backoff) {
             Ok(index) => index,
+            Err(why) if worth_deferring(&why) && !retried => {
+                pending.push_back((target, true));
+                continue;
+            }
             // The archive answers `404` for a record it holds no image of, so
             // a failure here is nearly always that: a real answer, recorded so
             // the next run does not ask again.
@@ -208,6 +223,7 @@ pub fn run(
                         eprintln!("\r  {} {}: {other}", ui::red("×"), target.title);
                     }
                 }
+                done += 1;
                 continue;
             }
         };
@@ -226,6 +242,7 @@ pub fn run(
         }
 
         if !target.cover {
+            done += 1;
             continue;
         }
 
@@ -233,6 +250,7 @@ pub fn run(
             none += 1;
             store(held, target, None);
             sources::save(held, path)?;
+            done += 1;
             continue;
         };
 
@@ -247,6 +265,7 @@ pub fn run(
                 eprintln!("\r  {} {}: {why}", ui::red("×"), target.title);
             }
         }
+        done += 1;
     }
     println!();
 
@@ -278,13 +297,15 @@ fn download(
     backoff: &[std::time::Duration],
     url: &str,
     folder: &str,
-) -> Result<(), String> {
-    let bytes = ask_bytes(transport, url, backoff).map_err(|why| why.to_string())?;
+) -> Result<(), Refusal> {
+    let bytes = ask_bytes(transport, url, backoff)?;
     // Both guards — the bytes are an image, and nothing is overwritten — live
     // in one place, shared with `aede artwork`. Written twice they would
     // eventually differ, and the difference would only show as a corrupt file
     // in somebody's library.
-    coverart::write_beside(std::path::Path::new(folder), &bytes).map(|_| ())
+    coverart::write_beside(std::path::Path::new(folder), &bytes)
+        .map(|_| ())
+        .map_err(Refusal::Failed)
 }
 
 /// Downloads every image of an index that is not the front, and says how many.

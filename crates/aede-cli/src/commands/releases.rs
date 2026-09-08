@@ -36,7 +36,7 @@ use aede_core::{clock, musicbrainz, text};
 
 use crate::ui;
 
-use super::fetch::{Ask, Refusal, ask_with_backoff};
+use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
 
 /// An album to ask about, and what the tags already know about it.
 pub struct Target {
@@ -181,7 +181,9 @@ pub fn run(
     total: usize,
 ) -> Result<(usize, usize, usize), Box<dyn std::error::Error>> {
     let (mut stored, mut refused, mut failed) = (0usize, 0usize, 0usize);
-    for (done, target) in targets.iter().enumerate() {
+    let mut pending = queue(targets);
+    let mut done = 0usize;
+    while let Some((target, retried)) = pending.pop_front() {
         print!("\r  asking: {}/{}", done_already + done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
@@ -200,8 +202,13 @@ pub fn run(
                 )
                 .into());
             }
+            Err(other) if worth_deferring(&other) && !retried => {
+                pending.push_back((target, true));
+                continue;
+            }
             Err(other) => {
                 failed += 1;
+                done += 1;
                 eprintln!("\r  {} {}: {other}", ui::red("×"), target.title);
                 continue;
             }
@@ -230,6 +237,7 @@ pub fn run(
                 );
             }
         }
+        done += 1;
     }
     Ok((stored, refused, failed))
 }

@@ -39,7 +39,7 @@ use aede_core::{acoustid, clock};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, ask_with_backoff};
+use super::fetch::{Ask, ask_with_backoff, queue, worth_deferring};
 
 /// A file to ask about, and what to ask with.
 struct Target {
@@ -113,15 +113,23 @@ pub fn run(
     }
 
     let (mut named, mut unknown, mut failed) = (0usize, 0usize, 0usize);
-    for (done, target) in survey.targets.iter().enumerate() {
-        print!("\r  asking: {}/{}", done + 1, survey.targets.len());
+    let mut pending = queue(&survey.targets);
+    let mut done = 0usize;
+    let total = survey.targets.len();
+    while let Some((target, retried)) = pending.pop_front() {
+        print!("\r  asking: {}/{}", done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         let url = acoustid::lookup_url(key, &target.fingerprint.data, target.fingerprint.seconds);
         let answer = match ask_with_backoff(transport, &url, backoff) {
             Ok(answer) => answer,
+            Err(why) if worth_deferring(&why) && !retried => {
+                pending.push_back((target, true));
+                continue;
+            }
             Err(why) => {
                 failed += 1;
+                done += 1;
                 eprintln!("\r  {} {}: {why}", ui::red("×"), target.path);
                 continue;
             }
@@ -150,6 +158,7 @@ pub fn run(
             }
         }
         sources::save(held, path)?;
+        done += 1;
     }
     println!();
 

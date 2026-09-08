@@ -63,7 +63,7 @@ use crate::args::Args;
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_with_backoff};
+use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
 
 /// A track to ask about, and where its words would go.
 struct Target {
@@ -179,8 +179,11 @@ pub fn run(
 
     let (mut written, mut none, mut instrumental, mut failed) = (0usize, 0usize, 0usize, 0usize);
     let mut timed = 0usize;
-    for (done, target) in targets.iter().enumerate() {
-        print!("\r  asking: {}/{}", done + 1, targets.len());
+    let mut pending = queue(&targets);
+    let mut done = 0usize;
+    let total = targets.len();
+    while let Some((target, retried)) = pending.pop_front() {
+        print!("\r  asking: {}/{}", done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         match ask_with_backoff(transport, &target.url, backoff) {
@@ -215,6 +218,10 @@ pub fn run(
                 )
                 .into());
             }
+            Err(other) if worth_deferring(&other) && !retried => {
+                pending.push_back((target, true));
+                continue;
+            }
             Err(other) => {
                 failed += 1;
                 eprintln!(
@@ -225,6 +232,7 @@ pub fn run(
                 );
             }
         }
+        done += 1;
     }
     println!();
 

@@ -311,6 +311,64 @@ fn a_hiccup_is_waited_out_rather_than_ending_the_run() {
 }
 
 #[test]
+fn a_timeout_is_retried_once_before_being_reported() {
+    // The one failure `ask_with_backoff` does not retry on its own: the
+    // service was never reached at all. A single one of those is what a
+    // MusicBrainz search occasionally does under load, and reporting it
+    // immediately would describe a working service as broken.
+    let dir = sandbox("timeout-once");
+    let mut transport = Canned {
+        answers: vec![
+            Err(Refusal::Unreachable("timeout: global".to_string())),
+            Ok(ONE_ARTIST.to_string()),
+            Ok(NO_ALBUM.to_string()),
+        ],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &[]), &mut transport, &NO_WAIT).expect("a run");
+
+    assert_eq!(
+        transport.asked.len(),
+        3,
+        "the request that timed out, asked again, then the album"
+    );
+    let held = sources::load(&sources::sources_path(&dir))
+        .expect("readable")
+        .expect("a layer");
+    assert_eq!(held.records.len(), 1, "the retry is what got stored");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_second_timeout_on_the_same_artist_is_reported() {
+    // One retry, not a second: a service that could not be reached twice in
+    // a row is not a hiccup any more, and asking a third time would only
+    // delay the same report.
+    let dir = sandbox("timeout-twice");
+    let mut transport = Canned {
+        answers: vec![
+            Err(Refusal::Unreachable("timeout: global".to_string())),
+            Err(Refusal::Unreachable("timeout: global".to_string())),
+            Ok(NO_ALBUM.to_string()),
+        ],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &[]), &mut transport, &NO_WAIT).expect("a run");
+
+    assert_eq!(
+        transport.asked.len(),
+        3,
+        "one try, one retry, then the album — the artist gave up after two"
+    );
+    let held = sources::load(&sources::sources_path(&dir)).expect("readable");
+    assert!(
+        held.is_none_or(|h| h.records.is_empty()),
+        "nothing was stored for an artist never reached"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn being_told_to_slow_down_stops_the_run_and_keeps_what_was_stored() {
     // The one failure that must not be retried: MusicBrainz answers 503 to
     // *everything* once the rate is exceeded, so carrying on would turn a

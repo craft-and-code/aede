@@ -31,7 +31,7 @@ use aede_core::{clock, musicbrainz, text};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_with_backoff};
+use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
 
 /// An artist to browse, and the identifier to browse by.
 struct Target {
@@ -99,8 +99,11 @@ pub fn run(
     }
 
     let (mut stored, mut empty, mut failed) = (0usize, 0usize, 0usize);
-    for (done, target) in targets.iter().enumerate() {
-        print!("\r  browsing: {}/{}", done + 1, targets.len());
+    let mut pending = queue(&targets);
+    let mut done = 0usize;
+    let total = targets.len();
+    while let Some((target, retried)) = pending.pop_front() {
+        print!("\r  browsing: {}/{}", done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         match browse(transport, backoff, &target.mbid) {
@@ -112,11 +115,16 @@ pub fn run(
                 store(held, target, known);
                 sources::save(held, path)?;
             }
+            Err(why) if worth_deferring(&why) && !retried => {
+                pending.push_back((target, true));
+                continue;
+            }
             Err(why) => {
                 failed += 1;
                 eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
             }
         }
+        done += 1;
     }
     println!();
 

@@ -19,7 +19,7 @@ use crate::json::Json;
 use std::time::{Duration, Instant};
 
 /// How long to wait for one answer before giving up on it.
-const TIMEOUT: Duration = Duration::from_secs(20);
+const TIMEOUT: Duration = Duration::from_secs(25);
 
 /// The largest body this client will read into memory.
 ///

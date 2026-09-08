@@ -63,6 +63,13 @@ pub enum Refusal {
     /// `detail.contains("404")` — which is a comparison that breaks the day the
     /// wording changes and says nothing when it does.
     Missing,
+    /// No route, no name, a timeout: the service was never reached at all.
+    ///
+    /// Kept apart from [`Refusal::Failed`] because it is the one refusal a
+    /// later attempt might not repeat — see [`worth_deferring`]. A run gives
+    /// it exactly one more try, at the end of the list, before treating it
+    /// the same as any other failure.
+    Unreachable(String),
     /// Anything else, already worded for a reader.
     Failed(String),
 }
@@ -76,6 +83,7 @@ impl std::fmt::Display for Refusal {
                  (one per second is the limit); nothing was lost, try later"
             ),
             Refusal::Missing => write!(f, "the service has nothing for this"),
+            Refusal::Unreachable(detail) => write!(f, "could not reach the service: {detail}"),
             Refusal::Failed(detail) => write!(f, "{detail}"),
         }
     }
@@ -104,6 +112,7 @@ impl Ask for Http {
             Ok(value) => Ok(value),
             Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
             Err(aede_core::http::Error::Status(404)) => Err(Refusal::Missing),
+            Err(aede_core::http::Error::Network(detail)) => Err(Refusal::Unreachable(detail)),
             Err(other) => Err(Refusal::Failed(other.to_string())),
         }
     }
@@ -113,6 +122,7 @@ impl Ask for Http {
             Ok(bytes) => Ok(bytes),
             Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
             Err(aede_core::http::Error::Status(404)) => Err(Refusal::Missing),
+            Err(aede_core::http::Error::Network(detail)) => Err(Refusal::Unreachable(detail)),
             Err(other) => Err(Refusal::Failed(other.to_string())),
         }
     }
@@ -775,7 +785,9 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     }
 
     let (mut stored, mut refused, mut failed) = (0usize, 0usize, 0usize);
-    for (done, (entity, name, mbid)) in targets.iter().enumerate() {
+    let mut pending = queue(&targets);
+    let mut done = 0usize;
+    while let Some((item @ (entity, name, mbid), retried)) = pending.pop_front() {
         print!("\r  asking: {}/{asks}", done + 1);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
@@ -818,8 +830,17 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 )
                 .into());
             }
+            Err(other) if worth_deferring(&other) && !retried => {
+                // Not shown, not counted: the same name goes back to the end
+                // of the queue instead, on the theory that whatever kept the
+                // service from answering will often have passed by the time
+                // everything else here has had its turn.
+                pending.push_back((item, true));
+                continue;
+            }
             Err(other) => {
                 failed += 1;
+                done += 1;
                 eprintln!("\r  {} {name}: {other}", ui::red("×"));
                 continue;
             }
@@ -853,6 +874,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 eprintln!("\r  {} {name}: {}", ui::yellow("?"), refusal(&why));
             }
         }
+        done += 1;
     }
 
     // The albums, in the same run and counted into the same report: they are
@@ -1026,6 +1048,30 @@ pub(super) fn ask_with_backoff(
             other => return other,
         }
     }
+}
+
+/// Turns a plain list into a queue where nothing has been retried yet.
+///
+/// A queue rather than a plain list because of what a caller does with a
+/// [`Refusal`] that [`worth_deferring`] returns `true` for: push the same
+/// target back onto the end, with the flag now `true`, instead of reporting
+/// it. Everything already asked before it gets its turn first, which is
+/// usually enough time for a service that merely stumbled to have recovered —
+/// so asking it again is the exception rather than the rule. A target only
+/// gets that once: `true` on the way back in means the next refusal is final.
+pub(super) fn queue<T>(targets: &[T]) -> std::collections::VecDeque<(&T, bool)> {
+    targets.iter().map(|target| (target, false)).collect()
+}
+
+/// Whether a refusal is worth asking again later rather than reporting now.
+///
+/// Only [`Refusal::Unreachable`] qualifies: no route, no name, a timeout are
+/// all a property of one attempt, and often gone by the time everything else
+/// in the queue has had its turn. A `404`, a rate limit that has used up its
+/// own retries, or an answer that was not JSON will not read differently for
+/// having waited — deferring those would only delay the same report.
+pub(super) fn worth_deferring(refusal: &Refusal) -> bool {
+    matches!(refusal, Refusal::Unreachable(_))
 }
 
 /// Says why an answer was not taken, in words rather than a variant name.
