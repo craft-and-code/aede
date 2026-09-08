@@ -249,6 +249,17 @@ fn print_lyrics(catalog: &Catalog, track: &Track) {
             "  {}",
             ui::dim("none in the tags, and no .lrc beside the file")
         );
+        // A command named only where nobody is looking is a command nobody
+        // has, and this is the page somebody is on at the moment they want it.
+        // Named, never run: the words are the song's copyright, and going and
+        // getting them is a decision this program leaves to the reader.
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "aede fetch \"{}\" --lyrics asks LRCLIB for them",
+                track.title
+            ))
+        );
         return;
     };
 

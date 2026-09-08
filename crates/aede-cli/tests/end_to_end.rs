@@ -5741,3 +5741,111 @@ fn an_artist_nobody_has_fetched_is_told_so_rather_than_shown_an_empty_table() {
     let said = format!("{out}{err}");
     assert!(said.contains("aede fetch"), "it says what to do: {said}");
 }
+
+#[test]
+fn the_words_lrclib_answers_with_are_words_this_program_reads_back() {
+    // The round trip the pass exists for, with the service's real answer in
+    // the middle of it. `fetch --lyrics` writes this text verbatim beside the
+    // track; the risk is not the writing but the **reading** — a form the
+    // service produces that this program's own parser does not understand
+    // would fail silently, as a page of `[00:00.15]` shown to somebody who
+    // asked for the words.
+    //
+    // Copied from a live answer for `Crazy Train`: a space after each
+    // timestamp, and timed lines with nothing in them where the singing stops.
+    let sandbox = Sandbox::new("lrc_round_trip");
+    let music = sandbox
+        .dir
+        .join("music")
+        .join("Ozzy")
+        .join("Blizzard of Ozz");
+    std::fs::create_dir_all(&music).unwrap();
+    tagged_with(
+        &music.join("01.flac"),
+        &[
+            ("artist", "Ozzy Osbourne"),
+            ("album_artist", "Ozzy Osbourne"),
+            ("album", "Blizzard of Ozz"),
+            ("title", "Crazy Train"),
+        ],
+    );
+    std::fs::write(
+        music.join("01.lrc"),
+        "[00:00.15] All aboard! Ha ha ha ha ha ha haaaa!\n\
+         [00:07.73] Ay, ay, ay, ay, ay, ay, ay...\n\
+         [00:12.42] \n\
+         [00:38.87] Crazy, but that's how it goes\n",
+    )
+    .unwrap();
+
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["track", "Crazy Train", "--lyrics"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    // Named after where they came from and whether they are timed, because
+    // those are two different things to whoever is about to use them.
+    assert!(out.contains("Lyrics (from 01.lrc, timed)"), "{out}");
+    assert!(out.contains("All aboard!"), "{out}");
+    // The timestamp is read, not printed back: `[00:38.87]` becomes 0:38.
+    assert!(out.contains("0:38"), "{out}");
+    assert!(
+        !out.contains("[00:38.87]"),
+        "the brackets are parsed away: {out}"
+    );
+
+    // And the words are searchable, which is the other half of what reading
+    // them is for.
+    let (out, _, ok) = sandbox.run(&["search", "all aboard", "--lyrics"]);
+    assert!(ok);
+    assert!(out.contains("All aboard!"), "{out}");
+}
+
+#[test]
+fn fetching_the_words_says_what_it_is_before_it_asks_anything() {
+    // The caveat is printed on **every** run, before a single request, and it
+    // is not a prompt: a confirmation asked every time is a confirmation
+    // nobody reads. `--dry-run` proves the order — nothing was asked, and the
+    // sentence is there anyway.
+    let sandbox = Sandbox::new("lyrics_caveat");
+    let music = sandbox
+        .dir
+        .join("music")
+        .join("Ozzy")
+        .join("Blizzard of Ozz");
+    std::fs::create_dir_all(&music).unwrap();
+    tagged_with(
+        &music.join("01.flac"),
+        &[
+            ("artist", "Ozzy Osbourne"),
+            ("album_artist", "Ozzy Osbourne"),
+            ("album", "Blizzard of Ozz"),
+            ("title", "Crazy Train"),
+        ],
+    );
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["fetch", "--lyrics", "--dry-run"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("copyright"), "{out}");
+    assert!(
+        out.contains("--lyrics"),
+        "it names what turns this on: {out}"
+    );
+    assert!(
+        out.contains("Crazy Train"),
+        "and what it would ask about: {out}"
+    );
+    assert!(out.contains("nothing was asked"), "{out}");
+    assert!(
+        !music.join("01.lrc").exists(),
+        "and a dry run writes nothing"
+    );
+
+    // The track page names the command, on the page somebody is on at the
+    // moment they want it.
+    let (out, _, ok) = sandbox.run(&["track", "Crazy Train", "--lyrics"]);
+    assert!(ok);
+    assert!(out.contains("aede fetch \"Crazy Train\" --lyrics"), "{out}");
+}

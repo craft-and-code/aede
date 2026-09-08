@@ -16,6 +16,7 @@ pub mod audit;
 pub mod backup;
 pub mod clock;
 pub mod json;
+pub mod lrclib;
 pub mod lyrics;
 pub mod tags;
 pub mod text;

@@ -261,7 +261,12 @@ Maintain:
 
 - stable table structure;
 - correct display widths;
-- correct pluralisation;
+- correct pluralisation — **including what follows the count**. `ui::plural`
+  agrees the noun and cannot agree the verb after it, so a hard-coded one gives
+  "1 track already have a lyrics file beside them". A phrase that reads
+  correctly at one and at many is the fix, not a second branch per line:
+  prefer a participle ("already with a lyrics file alongside") to a verb.
+  Only running the program finds these;
 - useful empty-result messages;
 - explicit filtering information;
 - explicit truncation/limits;

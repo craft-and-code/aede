@@ -39,7 +39,12 @@ The current implementation includes:
 - MusicBrainz discography information;
 - Wikipedia/Wikidata summaries;
 - cover-art fetching;
-- language selection for fetched prose.
+- language selection for fetched prose;
+- artist identity: spellings merged on a shared MusicBrainz identifier, and
+  `aede merge` for the files that never met one, with `aede doctor` suggesting
+  pairs and applying none;
+- dated band membership, and the line-up of an album's year, derived on read;
+- lyrics fetching from LRCLIB, behind `--lyrics` and never on by default.
 
 Audio playback is intentionally not implemented yet.
 
@@ -73,7 +78,7 @@ See:
 
 ## Test status
 
-**Last recorded test count:** 641
+**Last recorded test count:** 663
 
 **Last verified:** 2026-09-08
 

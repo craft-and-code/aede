@@ -445,8 +445,8 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ),
     (
         "lyrics",
-        &["track", "search"],
-        "show the words, or look in them",
+        &["track", "search", "fetch"],
+        "show the words, look in them, or go and get them",
     ),
     ("simple", &["playlist"], "leave out the #EXTINF lines"),
     (
@@ -832,6 +832,15 @@ fn print_help() {
                        credits to each artist, so that aede missing can say
                        which studio albums your shelf does not hold. One more
                        request per artist.
+                       --lyrics is a second pass that asks LRCLIB for the
+                       words of every track that has none, and writes each
+                       answer as a .lrc beside its track. It never runs on
+                       its own: lyrics are the song's copyright, which owning
+                       the file grants no rights in, so going and getting
+                       them is a decision left to you and the run says so
+                       before it asks anything. A track that already has
+                       words — in its tags or in a .lrc — is never touched,
+                       and nothing is ever written into an audio file.
                        --covers is a second pass that downloads the front
                        image of every album that has none — nothing inside the
                        files, nothing beside them — and writes it as cover.jpg

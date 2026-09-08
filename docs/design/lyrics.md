@@ -82,6 +82,106 @@ So: fetching goes behind an explicit choice, from a source that permits it, and
 never on by default. That is a decision about somebody else's rights, and this
 project does not get to make it silently on a user's behalf.
 
+### It is built, and this is the shape it took
+
+```sh
+aede fetch --lyrics                 # every track that has none
+aede fetch "Crazy Train" --lyrics   # narrowed, by title or by artist
+aede fetch --lyrics --dry-run       # what would be asked, asking nothing
+```
+
+**The typed option is the consent.** The caveat above is printed on every run,
+before anything is asked — not once, not in a file nobody opens. It is
+deliberately *not* doubled by a prompt each time: a confirmation asked every
+time is a confirmation nobody reads, which would leave the caveat less read
+than printing it plainly does. A long run is still agreed to, on the same
+threshold as the ordinary fetch, and that is about the ten minutes rather than
+about the rights.
+
+**A track that already has words is never asked about.** The catalog answers
+that offline and exactly — the words are in the file's tags, or a `.lrc` is
+beside it — and the header says how many were left out for each reason, because
+a filter the reader cannot see is a trap. There is deliberately no `--replace`:
+overwriting a lyrics file somebody wrote or corrected is not something this
+should be able to do by accident, which is the refusal `--covers` already makes
+about artwork.
+
+**Each answer is written as a `.lrc` beside its track**, which is the file every
+player already looks for and the one the walk already picks up. It is
+registered nowhere: the next scan discovers it exactly as it would one put there
+by hand. Nothing is written into an audio file, here or anywhere in this
+program. The check that the file does not already exist is made **again** at the
+moment of writing, not only in the survey: the two are separated by a network,
+and a `.lrc` that appeared meanwhile — by hand, or from a second copy of the
+program — must not be overwritten by an answer asked for before it existed.
+
+**The timed form wins where there is one.** The service holds both, and they are
+two different things: one is a page to read, the other a file a player can
+follow. Taking the plain form when a timed one exists would throw away something
+that cannot be recovered.
+
+**An instrumental is an answer, not an absence.** The service says so, and it is
+a finished question — telling a reader "no lyrics found" about one would send
+them looking for a fault that is not there. Nothing is written for it: an empty
+`.lrc` would put a claim on somebody's disk that nobody made, and would then
+hide the track from every later run.
+
+**A track the service has nothing for is asked about again on the next run.**
+Said plainly rather than hidden, because it is the one cost here a reader might
+not expect. A successful answer records itself — the `.lrc` is on the disk and
+the track is skipped from then on — so only the misses come back. Recording
+those would mean a store of negative claims about a service that gains entries
+every day, which is a worse trade than one wasted request on a run somebody
+typed on purpose. Above five hundred requests the run says so and names the
+published database dump, which is the polite way to fill a whole library.
+
+Its throttle is MusicBrainz's, shared with the rest of the program: one client,
+one rate limiter, and being slower than a free service requires is never the
+wrong mistake.
+
+### Three things the live answers said that the documentation did not
+
+The parser was written from the documented shape and then checked against real
+responses — a hit, a hit with fewer criteria, and a miss. The field names held.
+These did not.
+
+**The length is not the service's requirement, it is this program's.** A request
+carrying only `artist_name` and `track_name` came back `200`. So the album and
+the duration are Aède's insistence rather than LRCLIB's, and the reason has to
+be stated as ours: a song has a studio take, a live one and three covers, they
+share a title, and the length is what tells them apart. The catalog measures it
+on the stream rather than reading it from a tag, so asking the narrow question
+costs nothing. A track whose length could not be read is skipped, and the line
+that skips it now says why *this program* declined rather than blaming the
+service.
+
+**An empty album is left out of the address, not sent empty.** They are two
+different questions — an omitted parameter asks with one criterion fewer, where
+`album_name=` states that the album is called nothing — and only the first has
+been seen to work.
+
+**A miss is a `404` with a well-formed body**, `{"name":"TrackNotFound",…}`.
+Read on its own that document is indistinguishable from a service having a bad
+day: it is the *status* that says "not found". Which is what made
+`Refusal::Missing` necessary rather than merely tidy.
+
+Two smaller ones, both kept in the fixture because a parser written from the
+documentation would have guessed at them: the timestamps carry a space after the
+bracket (`[00:00.15] All aboard!`), and the blank lines between verses are timed
+too — kept, because a player following the timings needs to know when the
+singing stops. There is also a newer `lyricsfile` field, a richer per-line
+format with start and end times; `syncedLyrics` is what a `.lrc` is, so that is
+what is written.
+
+One thing the service's answer taught the rest of the program. A `404` used to
+arrive as `Refusal::Failed("the service answered 404")`, and the cover pass read
+it back out with `detail.contains("404")` — a comparison that stops working the
+day the wording changes and says nothing when it does. Here it would have been
+worse than a wart: a library of four hundred tracks holds plenty LRCLIB has
+never seen, and a run reporting four hundred failures would describe a working
+service as broken. `Refusal::Missing` is now its own thing, and both passes read
+it.
+
 **Showing them in time is M3 work.** Synchronised lyrics are what `SYLT` and
 enhanced `.lrc` carry, and they only mean anything once there is a playhead to
 follow. The parsers should keep the timings when they read them, so that M3

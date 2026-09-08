@@ -190,9 +190,14 @@ pub fn run(
             // The archive answers `404` for a record it holds no image of, so
             // a failure here is nearly always that: a real answer, recorded so
             // the next run does not ask again.
+            //
+            // It used to be read out of the message text — `detail.contains
+            // ("404")` — which is a comparison that stops working the day the
+            // wording changes, and says nothing when it does. The transport
+            // knows the status; it now hands back what it knew.
             Err(why) => {
                 match why {
-                    Refusal::Failed(ref detail) if detail.contains("404") => {
+                    Refusal::Missing => {
                         none += 1;
                         store(held, target, None);
                         sources::save(held, path)?;

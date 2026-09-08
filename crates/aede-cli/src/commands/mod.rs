@@ -21,6 +21,7 @@ mod fingerprint;
 mod identify;
 mod import;
 mod inspect;
+mod lyrics;
 mod merge;
 mod playlist;
 mod releases;

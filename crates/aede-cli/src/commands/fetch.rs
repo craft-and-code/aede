@@ -52,6 +52,15 @@ pub trait Ask {
 pub enum Refusal {
     /// The service asked us to slow down: stop, do not retry.
     RateLimited,
+    /// The service answered, and the answer was that it has nothing.
+    ///
+    /// **Not a failure**, and kept apart from one for that reason. A library of
+    /// four hundred tracks holds plenty LRCLIB has never seen, and a run that
+    /// reported four hundred failures would be describing a working service as
+    /// broken. It was read out of the message text before this existed — a
+    /// `detail.contains("404")` — which is a comparison that breaks the day the
+    /// wording changes and says nothing when it does.
+    Missing,
     /// Anything else, already worded for a reader.
     Failed(String),
 }
@@ -64,6 +73,7 @@ impl std::fmt::Display for Refusal {
                 "the service is refusing requests because too many were sent \
                  (one per second is the limit); nothing was lost, try later"
             ),
+            Refusal::Missing => write!(f, "the service has nothing for this"),
             Refusal::Failed(detail) => write!(f, "{detail}"),
         }
     }
@@ -91,6 +101,7 @@ impl Ask for Http {
         match self.0.get_json(url) {
             Ok(value) => Ok(value),
             Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
+            Err(aede_core::http::Error::Status(404)) => Err(Refusal::Missing),
             Err(other) => Err(Refusal::Failed(other.to_string())),
         }
     }
@@ -99,6 +110,7 @@ impl Ask for Http {
         match self.0.get_bytes(url) {
             Ok(bytes) => Ok(bytes),
             Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
+            Err(aede_core::http::Error::Status(404)) => Err(Refusal::Missing),
             Err(other) => Err(Refusal::Failed(other.to_string())),
         }
     }
@@ -263,6 +275,8 @@ enum Pass {
     Discography,
     /// The front image of every album that has none.
     Covers,
+    /// The words, for tracks that have none — see [`super::lyrics`].
+    Lyrics,
     /// What AcoustID hears in the files that have been fingerprinted.
     Identify,
 }
@@ -274,6 +288,7 @@ impl Pass {
             ("summaries", Pass::Summaries),
             ("discography", Pass::Discography),
             ("covers", Pass::Covers),
+            ("lyrics", Pass::Lyrics),
             ("identify", Pass::Identify),
         ]
         .into_iter()
@@ -288,6 +303,7 @@ impl Pass {
             Pass::Summaries => "--summaries",
             Pass::Discography => "--discography",
             Pass::Covers => "--covers",
+            Pass::Lyrics => "--lyrics",
             Pass::Identify => "--identify",
         }
     }
@@ -351,6 +367,13 @@ fn second_passes(
             Pass::Covers => {
                 let catalog = catalog.as_ref().expect("a catalog was loaded for it");
                 super::covers::run(catalog, transport, backoff, held, path, asked)?;
+            }
+            Pass::Lyrics => {
+                let catalog = catalog.as_ref().expect("a catalog was loaded for it");
+                // The only pass that writes nothing into the attributed layer:
+                // its answer is a file beside the music, which the next scan
+                // discovers, exactly as it would one put there by hand.
+                super::lyrics::run(args, catalog, transport, backoff, asked)?;
             }
             Pass::Identify => {
                 let catalog = catalog.as_ref().expect("a catalog was loaded for it");
@@ -729,7 +752,7 @@ fn offer_discography(catalog: &aede_core::model::Catalog, held: &sources::Source
 ///
 /// Below it there is nothing to decide — twenty seconds is not a commitment —
 /// and a confirmation asked every time is a confirmation nobody reads.
-const CONFIRM_ABOVE: usize = 20;
+pub(super) const CONFIRM_ABOVE: usize = 20;
 
 /// The `User-Agent`, refused rather than sent empty.
 ///
