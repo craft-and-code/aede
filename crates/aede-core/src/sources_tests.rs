@@ -265,6 +265,16 @@ fn a_round_trip_keeps_every_field() {
                 primary_type: Some("Album".to_string()),
                 secondary_types: vec![],
             }],
+            members: vec![Membership {
+                mbid: "b1a9c0e9".to_string(),
+                name: "The Miles Davis Quintet".to_string(),
+                side: Side::Group,
+                kind: "member of band".to_string(),
+                attributes: vec!["trumpet".to_string()],
+                began: Some("1955".to_string()),
+                ended: Some("1968".to_string()),
+                over: Some(true),
+            }],
             summary: Some(Prose {
                 text: "An American trumpeter and bandleader.".to_string(),
                 url: "https://en.wikipedia.org/wiki/Miles_Davis".to_string(),
@@ -412,4 +422,134 @@ fn a_row_this_build_cannot_read_is_skipped_and_the_rest_survives() {
     let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("a layer");
     assert_eq!(back.records.len(), 1, "the readable row survived alone");
     assert_eq!(back.records[0].key, "miles davis");
+}
+
+/// One membership, with only the fields a test cares about.
+fn played(name: &str, began: Option<&str>, ended: Option<&str>, over: Option<bool>) -> Membership {
+    Membership {
+        mbid: format!("mbid-{name}"),
+        name: name.to_string(),
+        side: Side::Player,
+        kind: "member of band".to_string(),
+        attributes: Vec::new(),
+        began: began.map(str::to_string),
+        ended: ended.map(str::to_string),
+        over,
+    }
+}
+
+#[test]
+fn one_relation_read_from_either_end_is_two_different_lists() {
+    // MusicBrainz states a membership once and returns it on both artists,
+    // with a direction. Losing that direction does not lose data — it inverts
+    // it, and puts Judas Priest among Ozzy Osbourne's members.
+    let facts = ArtistFacts {
+        members: vec![
+            Membership {
+                side: Side::Player,
+                ..played("Tony Iommi", Some("1968"), None, Some(false))
+            },
+            Membership {
+                side: Side::Group,
+                ..played("Black Sabbath", Some("1968"), Some("1979"), Some(true))
+            },
+        ],
+        ..Default::default()
+    };
+    let line_up: Vec<&str> = facts.line_up().map(|m| m.name.as_str()).collect();
+    let bands: Vec<&str> = facts.bands().map(|m| m.name.as_str()).collect();
+    assert_eq!(line_up, vec!["Tony Iommi"]);
+    assert_eq!(bands, vec!["Black Sabbath"]);
+}
+
+#[test]
+fn a_year_is_covered_only_where_the_source_dates_say_so() {
+    // Three answers, not two. `None` is what the caller has to decide about,
+    // and handing back `false` instead would be a silence dressed as knowledge.
+    let ozzy = played("Ozzy", Some("1968"), Some("1979"), Some(true));
+    assert_eq!(ozzy.covers(1970), Some(true), "Paranoid");
+    assert_eq!(ozzy.covers(1967), Some(false), "before he joined");
+    assert_eq!(ozzy.covers(1985), Some(false), "after he left");
+    // A full date, not just a year, and the year is what decides.
+    let dated = played("Dated", Some("1968-02-13"), Some("1979-04-27"), Some(true));
+    assert_eq!(dated.covers(1979), Some(true));
+
+    // Still in the band: the source says so with `ended: false`, and that is
+    // an answer rather than a missing end date.
+    let current = played("Tony", Some("1968"), None, Some(false));
+    assert_eq!(current.covers(2020), Some(true));
+
+    // Over, but nobody wrote down when. The end is somewhere and "somewhere"
+    // cannot be compared with a year.
+    let vague = played("Vague", Some("1968"), None, Some(true));
+    assert_eq!(vague.covers(1970), None);
+    // And nothing said at all is the same silence.
+    assert_eq!(played("Quiet", Some("1968"), None, None).covers(1970), None);
+    // No start date places nobody, whatever else is known.
+    assert_eq!(
+        played("Undated", None, Some("1979"), None).covers(1970),
+        None
+    );
+}
+
+#[test]
+fn the_line_up_of_a_year_counts_who_it_cannot_place() {
+    // The cross that makes the dates worth fetching — and the filter is
+    // counted rather than applied in silence, because a reader who knows
+    // somebody was there should be told why the page disagrees.
+    let facts = ArtistFacts {
+        members: vec![
+            played("Ozzy Osbourne", Some("1968"), Some("1979"), Some(true)),
+            played("Tony Iommi", Some("1968"), None, Some(false)),
+            played("Ronnie James Dio", Some("1979"), Some("1982"), Some(true)),
+            played("Somebody", Some("1968"), None, Some(true)),
+            played("Nobody", None, None, None),
+        ],
+        ..Default::default()
+    };
+    let (placed, undated) = facts.line_up_in(1970);
+    let named: Vec<&str> = placed.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(named, vec!["Ozzy Osbourne", "Tony Iommi"]);
+    assert_eq!(undated, 2, "and the page says so rather than hiding them");
+
+    // The same band, nine years later, is a different band.
+    let (later, _) = facts.line_up_in(1980);
+    let named: Vec<&str> = later.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(named, vec!["Tony Iommi", "Ronnie James Dio"]);
+}
+
+#[test]
+fn a_membership_never_shows_an_end_the_source_did_not_give() {
+    // A dash trailing into nothing claims the musician is still in the band,
+    // which is a claim MusicBrainz makes with `ended: false` and not with a
+    // missing date.
+    assert_eq!(
+        played("x", Some("1968"), Some("1979"), Some(true)).years(),
+        "1968–1979"
+    );
+    assert_eq!(
+        played("x", Some("1968"), None, Some(false)).years(),
+        "1968–"
+    );
+    assert_eq!(
+        played("x", Some("1968"), None, Some(true)).years(),
+        "1968–?"
+    );
+    assert_eq!(played("x", Some("1968"), None, None).years(), "1968");
+}
+
+#[test]
+fn two_spells_in_one_band_are_two_rows_and_not_a_span() {
+    // Ozzy Osbourne was in Black Sabbath 1968–1979 and again from 1997.
+    // Folding the two into one range would claim he was there in 1985.
+    let facts = ArtistFacts {
+        members: vec![
+            played("Ozzy Osbourne", Some("1968"), Some("1979"), Some(true)),
+            played("Ozzy Osbourne", Some("1997"), Some("2017"), Some(true)),
+        ],
+        ..Default::default()
+    };
+    assert_eq!(facts.line_up_in(1970).0.len(), 1);
+    assert_eq!(facts.line_up_in(2013).0.len(), 1);
+    assert!(facts.line_up_in(1985).0.is_empty(), "he had left");
 }

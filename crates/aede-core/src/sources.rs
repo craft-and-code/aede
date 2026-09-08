@@ -206,6 +206,170 @@ pub struct ArtistFacts {
     /// moment the album is bought, and the catalog would hold a claim it had
     /// stopped being able to justify.
     pub discography: Vec<KnownRelease>,
+    /// Who played in this band, or which bands this person played in — see
+    /// [`Membership`].
+    ///
+    /// One list, not two, because MusicBrainz states **one** relation and the
+    /// two readings are the same fact seen from either end. Splitting it here
+    /// would mean deciding at write time which question a reader was going to
+    /// ask, and getting it wrong for a person who is both — a soloist with a
+    /// backing band under their own name is exactly that.
+    pub members: Vec<Membership>,
+}
+
+impl ArtistFacts {
+    /// The line-up: everyone the source says played in **this** artist.
+    pub fn line_up(&self) -> impl Iterator<Item = &Membership> {
+        self.members.iter().filter(|m| m.side == Side::Player)
+    }
+
+    /// The other way round: the bands **this** artist played in.
+    pub fn bands(&self) -> impl Iterator<Item = &Membership> {
+        self.members.iter().filter(|m| m.side == Side::Group)
+    }
+
+    /// Who the source places in this band in a given year, and how many
+    /// members it cannot place at all.
+    ///
+    /// **This is the whole reason the dates are worth fetching**: a line-up is
+    /// a fact about an artist, an album is a fact about a year, and crossing
+    /// them answers the question a listener actually asks — who was in the band
+    /// when this record came out.
+    ///
+    /// Derived when read, never stored. A stored line-up would be a claim the
+    /// catalog had stopped being able to justify the moment either side
+    /// changed, and it is the same rule the missing-albums list already
+    /// follows.
+    ///
+    /// A row is placed only when the source's own dates put it there: an
+    /// undated membership, or one the source says has ended without saying
+    /// when, is **counted rather than shown**. Including it would put a
+    /// musician on a record they may not be on, which is the one mistake here
+    /// that matters; dropping it in silence would be a filter the reader
+    /// cannot see.
+    pub fn line_up_in(&self, year: u32) -> (Vec<&Membership>, usize) {
+        let mut placed = Vec::new();
+        let mut undated = 0;
+        for member in self.line_up() {
+            match member.covers(year) {
+                Some(true) => placed.push(member),
+                Some(false) => {}
+                None => undated += 1,
+            }
+        }
+        (placed, undated)
+    }
+}
+
+/// Which end of a membership the named artist is.
+///
+/// A membership is one relation between two artists, and MusicBrainz returns
+/// it on both of them with a direction. Losing that direction is not a cosmetic
+/// mistake: it puts Judas Priest in the list of Ozzy Osbourne's members.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// The named artist played **in** the artist this record describes, which
+    /// therefore is a band.
+    Player,
+    /// The named artist **is** the band, and the artist this record describes
+    /// played in it.
+    Group,
+}
+
+/// One spell in a band, as a source dates it.
+///
+/// **A person can appear twice**, and the second row is not a duplicate: Ozzy
+/// Osbourne was in Black Sabbath from 1968 to 1979 and again from 1997, and a
+/// list that folded the two into one span would claim he was there in 1985.
+/// MusicBrainz states them as two relations and they are kept as two rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Membership {
+    /// The other artist's MusicBrainz identifier, which is what makes a later
+    /// fetch about them an update rather than a second opinion.
+    pub mbid: String,
+    /// The other artist's name, as the source spells it.
+    pub name: String,
+    /// Which end of the relation that name is — see [`Side`].
+    pub side: Side,
+    /// How the source names the relationship, in its own words: `member of
+    /// band`, `instrumental supporting musician`.
+    ///
+    /// Kept verbatim and shown verbatim, the same rule
+    /// [`KnownRelease::stated_type`] follows. The two are not the same fact — a
+    /// founding member and a guitarist hired for one tour are both on a record
+    /// and only one of them was in the band — and paraphrasing them into one
+    /// word would throw away the distinction MusicBrainz took the trouble to
+    /// draw.
+    pub kind: String,
+    /// What the source lists against the relationship.
+    ///
+    /// **Not "instruments", although most of them are.** Measured on a real
+    /// answer: Judas Priest's line-up carries `["guitar family", "original"]`
+    /// on one row, where `original` marks an original member and is not an
+    /// instrument at all. Calling this field `instruments` would put a lie in
+    /// a column header, so it carries the source's own word and its own
+    /// values.
+    pub attributes: Vec<String>,
+    /// When it started: a year, or a fuller date when the source has one.
+    pub began: Option<String>,
+    /// When it stopped.
+    pub ended: Option<String>,
+    /// Whether the source says it is over.
+    ///
+    /// The same distinction [`ArtistFacts::active`] draws, and it matters more
+    /// here: a membership with no end date may be a current one or one nobody
+    /// has filled in, and printing "1968–" for both tells the reader something
+    /// the source never said. `Some(false)` is "still in the band".
+    pub over: Option<bool>,
+}
+
+impl Membership {
+    /// Whether this membership was running in a given year: `Some(true)`,
+    /// `Some(false)`, or `None` where the source's dates cannot say.
+    ///
+    /// The three-way answer is the point. A membership with no start date
+    /// places nobody, and one the source says has **ended without saying
+    /// when** places nobody either — the end is somewhere, and "somewhere"
+    /// cannot be compared with a year. Both come back `None`, so a caller has
+    /// to decide what to do about them rather than being handed a `false` that
+    /// looks like knowledge.
+    pub fn covers(&self, year: u32) -> Option<bool> {
+        let started = self.year(self.began.as_deref())?;
+        if started > year {
+            return Some(false);
+        }
+        match (self.year(self.ended.as_deref()), self.over) {
+            (Some(stopped), _) => Some(stopped >= year),
+            // Still in the band, said so by the source.
+            (None, Some(false)) => Some(true),
+            // Over, with no date for it, or nothing said at all.
+            (None, _) => None,
+        }
+    }
+
+    /// The year out of a MusicBrainz date, which is `1968` or `1968-02-13`.
+    fn year(&self, date: Option<&str>) -> Option<u32> {
+        date?.get(..4)?.parse().ok()
+    }
+
+    /// The years as a reader recognises them: `1968–1979`, `1968–` for a
+    /// current member, `1968` where the source only knows a start and does not
+    /// say whether it ended.
+    ///
+    /// **Never invents an end.** A dash trailing into nothing is a claim that
+    /// the membership is still going, and it is one MusicBrainz makes with
+    /// `ended: false` rather than with a missing date.
+    pub fn years(&self) -> String {
+        let began = self.began.as_deref().unwrap_or("");
+        match (&self.ended, self.over) {
+            (Some(end), _) => format!("{began}–{end}"),
+            (None, Some(false)) => format!("{began}–"),
+            // Said to be over, with no date for it: the reader is told that
+            // much rather than being shown an open range that would be wrong.
+            (None, Some(true)) => format!("{began}–?"),
+            (None, None) => began.to_string(),
+        }
+    }
 }
 
 /// One record a source credits to an artist, whether or not you own it.
@@ -807,6 +971,42 @@ pub fn to_json(sources: &Sources) -> Json {
                         ),
                     );
                     facts.set(
+                        "members",
+                        Json::Arr(
+                            a.members
+                                .iter()
+                                .map(|m| {
+                                    let mut o = Json::obj();
+                                    o.set("mbid", m.mbid.clone().into());
+                                    o.set("name", m.name.clone().into());
+                                    // Spelt out rather than written as a flag:
+                                    // a hand-editable file where the direction
+                                    // is `true` is a file nobody can correct.
+                                    o.set(
+                                        "side",
+                                        match m.side {
+                                            Side::Player => "player",
+                                            Side::Group => "group",
+                                        }
+                                        .into(),
+                                    );
+                                    o.set("kind", m.kind.clone().into());
+                                    o.set("attributes", strings(&m.attributes));
+                                    o.set("began", opt_str(&m.began));
+                                    o.set("ended", opt_str(&m.ended));
+                                    o.set(
+                                        "over",
+                                        match m.over {
+                                            Some(over) => Json::Bool(over),
+                                            None => Json::Null,
+                                        },
+                                    );
+                                    o
+                                })
+                                .collect(),
+                        ),
+                    );
+                    facts.set(
                         "summary",
                         match &a.summary {
                             // Written as one object for the same reason it is
@@ -912,6 +1112,34 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                                     first_released: row.field_str("first_released"),
                                     primary_type: row.field_str("primary_type"),
                                     secondary_types: read_strings(row, "secondary_types"),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                members: facts
+                    .and_then(|f| f.get("members"))
+                    .and_then(Json::as_arr)
+                    .map(|rows| {
+                        rows.iter()
+                            .filter_map(|row| {
+                                // No identifier and no direction, no
+                                // membership: a name alone cannot say which
+                                // end of the relation it is, and guessing
+                                // would put a band among a person's members.
+                                Some(Membership {
+                                    mbid: row.field_str("mbid")?,
+                                    name: row.field_str("name").unwrap_or_default(),
+                                    side: match row.field_str("side")?.as_str() {
+                                        "player" => Side::Player,
+                                        "group" => Side::Group,
+                                        _ => return None,
+                                    },
+                                    kind: row.field_str("kind").unwrap_or_default(),
+                                    attributes: read_strings(row, "attributes"),
+                                    began: row.field_str("began"),
+                                    ended: row.field_str("ended"),
+                                    over: row.get("over").and_then(Json::as_bool),
                                 })
                             })
                             .collect()

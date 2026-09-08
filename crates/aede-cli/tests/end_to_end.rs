@@ -5568,3 +5568,176 @@ fn a_merge_musicbrainz_contradicts_is_refused_and_says_where_to_argue() {
         "nothing was stored: {out}"
     );
 }
+
+/// One membership, in the shape MusicBrainz states it.
+fn played(
+    name: &str,
+    kind: &str,
+    as_: &[&str],
+    began: &str,
+    ended: Option<&str>,
+    over: Option<bool>,
+) -> aede_core::sources::Membership {
+    aede_core::sources::Membership {
+        mbid: format!("mbid-{name}"),
+        name: name.to_string(),
+        kind: kind.to_string(),
+        side: aede_core::sources::Side::Player,
+        attributes: as_.iter().map(|s| s.to_string()).collect(),
+        began: Some(began.to_string()),
+        ended: ended.map(str::to_string),
+        over,
+    }
+}
+
+#[test]
+fn a_line_up_is_dated_and_the_album_page_names_the_band_of_its_year() {
+    // The whole point of fetching membership dates: a line-up is a fact about
+    // an artist, an album is a fact about a year, and crossing them answers
+    // what a listener actually asks. The two albums here are nine years apart
+    // and the band is not the same band.
+    let sandbox = Sandbox::new("line_up");
+    let music = sandbox.dir.join("music");
+    for year in ["1970", "1980"] {
+        let album = format!("Album {year}");
+        let title = format!("Track {year}");
+        let dir = music.join("Black Sabbath").join(&album);
+        std::fs::create_dir_all(&dir).unwrap();
+        tagged_with(
+            &dir.join("01.flac"),
+            &[
+                ("artist", "Black Sabbath"),
+                ("album_artist", "Black Sabbath"),
+                ("album", album.as_str()),
+                ("date", year),
+                ("title", title.as_str()),
+            ],
+        );
+    }
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    // Written straight into the layer rather than fetched: this test is about
+    // what the pages do with a line-up, and the network belongs to the tests
+    // that are about the network.
+    let mut held = aede_core::sources::Sources::default();
+    held.set(aede_core::sources::SourceRecord {
+        key: "black sabbath".to_string(),
+        source: aede_core::sources::MUSICBRAINZ.to_string(),
+        source_id: Some("5182c1d9".to_string()),
+        fetched_at: 1_700_000_000,
+        confidence: aede_core::sources::Confidence::Identified,
+        facts: aede_core::sources::Facts::Artist(aede_core::sources::ArtistFacts {
+            members: vec![
+                played(
+                    "Ozzy Osbourne",
+                    "member of band",
+                    &["lead vocals"],
+                    "1968",
+                    Some("1979"),
+                    Some(true),
+                ),
+                played(
+                    "Tony Iommi",
+                    "member of band",
+                    &["guitar"],
+                    "1968",
+                    None,
+                    Some(false),
+                ),
+                played(
+                    "Ronnie James Dio",
+                    "member of band",
+                    &["lead vocals"],
+                    "1979",
+                    Some("1982"),
+                    Some(true),
+                ),
+                played(
+                    "Somebody",
+                    "instrumental supporting musician",
+                    &["keyboard"],
+                    "1970",
+                    None,
+                    Some(true),
+                ),
+            ],
+            ..Default::default()
+        }),
+    });
+    // `AEDE_HOME` is the sandbox folder, so that is where the layer lives.
+    aede_core::sources::save(&held, &aede_core::sources::sources_path(&sandbox.dir))
+        .expect("a layer");
+
+    // The table: MusicBrainz's own phrase for the relationship, its own
+    // attributes, and dates that never invent an end.
+    let (out, err, ok) = sandbox.run(&["artist", "Black Sabbath", "--members"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("member of band"), "{out}");
+    assert!(
+        out.contains("instrumental supporting musician"),
+        "a solo artist's band is here too, and it is not the same relationship: {out}"
+    );
+    assert!(out.contains("1968–1979"), "{out}");
+    assert!(out.contains("1968–"), "still in the band: {out}");
+    assert!(out.contains("1970–?"), "over, with no date for it: {out}");
+
+    // The cross. Ozzy is on the 1970 record and gone from the 1980 one; Dio is
+    // the other way round. Nothing about this is stored — it is worked out from
+    // the dates and the album's year each time it is shown.
+    let (out, err, ok) = sandbox.run(&["album", "Album 1970"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("line-up in 1970"), "{out}");
+    assert!(out.contains("Ozzy Osbourne"), "{out}");
+    assert!(
+        !out.contains("Ronnie James Dio"),
+        "he joined in 1979: {out}"
+    );
+
+    let (out, _, ok) = sandbox.run(&["album", "Album 1980"]);
+    assert!(ok);
+    assert!(out.contains("Ronnie James Dio"), "{out}");
+    assert!(!out.contains("Ozzy Osbourne"), "he had left: {out}");
+    // A filter the reader cannot see is a trap: the musician whose dates
+    // cannot place him is counted rather than dropped in silence.
+    assert!(
+        out.contains("does not date closely enough to place"),
+        "{out}"
+    );
+
+    // And the page that is about this artist says the table exists, under the
+    // panel it belongs to — a command named only where nobody is looking is a
+    // command nobody has.
+    let (out, _, ok) = sandbox.run(&["artist", "Black Sabbath"]);
+    assert!(ok);
+    assert!(
+        out.contains("aede artist \"Black Sabbath\" --members"),
+        "{out}"
+    );
+}
+
+#[test]
+fn an_artist_nobody_has_fetched_is_told_so_rather_than_shown_an_empty_table() {
+    // Two silences that look identical on screen and are not the same: a
+    // soloist who never joined anything, and an artist nobody has asked about.
+    // Only the second is worth acting on, so only the second names a command.
+    let sandbox = Sandbox::new("no_line_up");
+    let music = sandbox.dir.join("music").join("Nobody").join("Album");
+    std::fs::create_dir_all(&music).unwrap();
+    tagged_with(
+        &music.join("01.flac"),
+        &[
+            ("artist", "Nobody"),
+            ("album_artist", "Nobody"),
+            ("album", "Album"),
+            ("title", "Track"),
+        ],
+    );
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["artist", "Nobody", "--members"]);
+    assert!(!ok, "stdout: {out}\nstderr: {err}");
+    let said = format!("{out}{err}");
+    assert!(said.contains("aede fetch"), "it says what to do: {said}");
+}

@@ -660,3 +660,90 @@ fn nothing_matched_says_which_of_the_two_nothings_it_is() {
     assert!(done.contains("3 artists"), "{done}");
     assert!(done.contains("--full"), "{done}");
 }
+
+#[test]
+fn a_lookup_asks_for_the_memberships_and_stores_them_dated() {
+    // **An include nobody asks for is a field nobody has.** The parser can read
+    // a line-up perfectly and still show nothing, for ever, because the request
+    // never asked for the relations — which is a failure with no error message
+    // anywhere. So the URL is asserted as well as the result.
+    //
+    // The answer is the one MusicBrainz really gave for Judas Priest, cut to
+    // the fields this reads.
+    let dir = sandbox("members");
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Judas Priest");
+    tags.insert("albumartist", "Judas Priest");
+    tags.insert("album", "British Steel");
+    tags.insert("title", "Breaking the Law");
+    tags.insert(
+        "musicbrainz_artistid",
+        "6b335658-22c8-485d-93de-0bc29a1d0349",
+    );
+    let catalog = aede_core::model::builder::build(
+        vec![ScannedFile {
+            path: "/music/Priest/British Steel/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+        &[],
+    );
+    aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).expect("saved");
+
+    let mut transport = Canned {
+        answers: vec![Ok(r#"{"id":"6b335658-22c8-485d-93de-0bc29a1d0349",
+            "name":"Judas Priest","type":"Group",
+            "life-span":{"begin":"1969","ended":false},
+            "relations":[
+              {"type":"member of band","direction":"backward","target-type":"artist",
+               "begin":"1969","end":"1970","ended":true,
+               "attributes":["guitar family","original"],
+               "artist":{"id":"3651334d-6513-40e1-adbb-423acf0ad3d6",
+                         "name":"Ernie Chataway","type":"Person"}},
+              {"type":"instrumental supporting musician","direction":"backward",
+               "target-type":"artist","begin":"2018","end":null,"ended":false,
+               "attributes":["electric guitar"],
+               "artist":{"id":"2b9aed4d-769e-4c38-96e4-586ac59ce668",
+                         "name":"Andy Sneap","type":"Person"}}]}"#
+            .to_string())],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--artists"]), &mut transport, &NO_WAIT).expect("a run");
+
+    assert!(
+        transport.asked[0].contains("artist-rels"),
+        "the request asked for the relations: {}",
+        transport.asked[0]
+    );
+
+    let held = sources::load(&sources::sources_path(&dir))
+        .expect("readable")
+        .expect("a layer");
+    let Facts::Artist(facts) = &held.records[0].facts else {
+        panic!("expected artist facts");
+    };
+    assert_eq!(facts.line_up().count(), 2, "both relations name a player");
+    assert!(facts.bands().next().is_none(), "and neither names a band");
+
+    // The whole reason the dates are worth asking for: the band as it stood in
+    // a given year. Ernie Chataway had left by 1980; Andy Sneap had not
+    // arrived, so 1980 holds neither.
+    let (in_1969, _) = facts.line_up_in(1969);
+    assert_eq!(
+        in_1969.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+        vec!["Ernie Chataway"]
+    );
+    let (in_2020, _) = facts.line_up_in(2020);
+    assert_eq!(
+        in_2020.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+        vec!["Andy Sneap"],
+        "\"end\": null beside \"ended\": false is a musician still playing"
+    );
+}

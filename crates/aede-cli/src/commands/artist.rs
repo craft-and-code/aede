@@ -85,6 +85,13 @@ pub fn show_artist(args: &Args) -> Res {
         return print_tracks_in_common(&catalog, artist.id, wanted);
     }
 
+    // `--members` is the line-up, and it is its own answer rather than a
+    // panel on the page: a band's history is a table with dates in it, and a
+    // person's is the same table read from the other end.
+    if args.has("members") {
+        return print_members(args, &catalog, artist);
+    }
+
     // `--role` narrows the page to what this person did *in that role*. The
     // page below already separates performing from writing; this goes one step
     // finer, and is the only way to ask "what did Ozzy sing on" as opposed to
@@ -222,6 +229,7 @@ pub fn show_artist(args: &Args) -> Res {
         print!("{}", t.render());
     }
     super::sources_panel_for(args, &catalog, EntityKind::Artist, artist.id);
+    say_who_played(args, &catalog, artist.id, &artist.name);
     // A rating given and never shown again is a rating nobody trusts.
     super::panel_for(args, &catalog, EntityKind::Artist, artist.id);
     Ok(())
@@ -265,6 +273,126 @@ fn say_what_is_missing(args: &Args, catalog: &aede_core::model::Catalog, artist:
             ui::plural(count, "studio album")
         ))
     );
+}
+
+/// Names the line-up on the page that already knows about it.
+///
+/// The same rule as the missing-albums line just below: **a command named only
+/// where nobody is looking is a command nobody has**. The table itself does not
+/// belong here — it is long, dated, and about a different question than the
+/// discography this page is built around — but its existence does, under the
+/// artist it is about.
+fn say_who_played(args: &Args, catalog: &Catalog, artist: Id, name: &str) {
+    let Some(facts) = super::artist_facts_for(args, catalog, artist) else {
+        return;
+    };
+    let (players, bands) = (facts.line_up().count(), facts.bands().count());
+    let said = match (players, bands) {
+        (0, 0) => return,
+        (0, bands) => format!("played in {}", ui::plural(bands, "band")),
+        // "musician", not "member": most of what a solo artist's record holds
+        // are supporting musicians, and calling Randy Rhoads a member of Ozzy
+        // Osbourne would be the page inventing a relationship the source never
+        // stated.
+        (players, 0) => format!("{} played with them", ui::plural(players, "musician")),
+        (players, bands) => format!(
+            "{} played with them · played in {}",
+            ui::plural(players, "musician"),
+            ui::plural(bands, "band")
+        ),
+    };
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{said}, with dates: aede artist \"{name}\" --members"
+        ))
+    );
+}
+
+/// `aede artist <name> --members`: the line-up, dated.
+///
+/// **One relation, read from either end.** MusicBrainz states a membership
+/// once, between two artists, and returns it on both of them; for a band the
+/// rows are the musicians who played in it, for a person they are the bands
+/// they played in. This prints whichever the artist has, and both when an
+/// artist is both — a soloist whose backing band carries their own name is
+/// exactly that, and picking one at write time would lose the other.
+fn print_members(args: &Args, catalog: &Catalog, artist: &Artist) -> Res {
+    let facts = super::artist_facts_for(args, catalog, artist.id);
+    let Some(facts) = facts else {
+        return Err(format!(
+            "nothing has been fetched about {name} yet: aede fetch \"{name}\"",
+            name = artist.name
+        )
+        .into());
+    };
+
+    let mut printed = false;
+    // "Played with", not "Line-up": Ozzy Osbourne's record holds no members at
+    // all — a solo artist is not a band — and every musician on it is there as
+    // a supporting musician. A heading that called them the line-up would be
+    // the page asserting what the Relation column then contradicts.
+    for (title, rows) in [
+        ("Played with them", facts.line_up().collect::<Vec<_>>()),
+        ("Played in", facts.bands().collect::<Vec<_>>()),
+    ] {
+        if rows.is_empty() {
+            continue;
+        }
+        printed = true;
+        println!("{}", ui::section(title));
+        // "As" rather than "Instruments", because the source's attributes are
+        // not all instruments: a real answer carries `guitar family, original`,
+        // where `original` marks an original member. And "Relation" carries
+        // MusicBrainz's own phrase — a founding member and a guitarist hired
+        // for one tour are both on the record, and only one was in the band.
+        let mut table = Table::new(&["Name", "Relation", "As", "Years"]).limit(1, 32);
+        for row in rows_in_order(rows) {
+            table.push(vec![
+                row.name.clone(),
+                row.kind.clone(),
+                row.attributes.join(", "),
+                row.years(),
+            ]);
+        }
+        println!("{}", table.render());
+    }
+
+    if !printed {
+        println!("{}", ui::section(&artist.name));
+        // Said rather than left blank, because the two cases look identical on
+        // an empty screen and only one of them is worth acting on: MusicBrainz
+        // holds no membership for a solo artist who never joined anything, and
+        // holds plenty for a band nobody has fetched again.
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "MusicBrainz lists nobody playing with them. Somebody who never \
+                 joined a group and never hired a band has nobody; if you \
+                 expected somebody, aede fetch \"{}\" --full asks again",
+                artist.name
+            ))
+        );
+    }
+    Ok(())
+}
+
+/// Memberships in the order a reader expects: earliest first, then by name.
+///
+/// Earliest first because a line-up is a history, and a history read out of
+/// order is a list. The name breaks the tie so that two runs agree, and a
+/// missing date sorts last rather than first — an undated row is not the
+/// beginning of the story, it is the one nobody has written down.
+fn rows_in_order(
+    mut rows: Vec<&aede_core::sources::Membership>,
+) -> Vec<&aede_core::sources::Membership> {
+    rows.sort_by(|a, b| {
+        let key = |m: &aede_core::sources::Membership| {
+            m.began.clone().unwrap_or_else(|| "9999".to_string())
+        };
+        key(a).cmp(&key(b)).then_with(|| a.name.cmp(&b.name))
+    });
+    rows
 }
 
 /// Which release tables the artist page can print.

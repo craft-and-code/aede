@@ -73,7 +73,7 @@ See:
 
 ## Test status
 
-**Last recorded test count:** 587
+**Last recorded test count:** 641
 
 **Last verified:** 2026-09-08
 

@@ -37,81 +37,6 @@ fn main() {
     let args = Args::from_env();
     ui::init_color(args.has("no-color"));
 
-    // Before anything answers, including `--help` and `--version`: an option
-    // nobody recognises makes the whole command line untrustworthy, and
-    // `aede --fegioregj` printing a cheerful help page is the same silence in
-    // a friendlier costume.
-    const OPTIONS: &[&str] = &[
-        "data",
-        "replace",
-        "remove",
-        "limit",
-        "sort",
-        "severity",
-        "artist",
-        "album",
-        "with",
-        "separator",
-        "csv",
-        "tracks",
-        "m3u",
-        "year",
-        "output",
-        "threads",
-        "genre",
-        "label",
-        "json",
-        "no-color",
-        "yes",
-        "forget",
-        "pending",
-        "list",
-        "no-scan",
-        "lyrics",
-        "simple",
-        "artists",
-        "extras",
-        "dry-run",
-        "verify",
-        "safe-names",
-        "raw-names",
-        "collection",
-        "compress",
-        "quality",
-        "source",
-        "compilations",
-        "no-compilations",
-        "role",
-        "comment",
-        "comments",
-        "notes",
-        "offset",
-        "all",
-        "help",
-        "version",
-        "full",
-        "follow-symlinks",
-        "include-hidden",
-        "exclude",
-        "stars",
-        "text",
-        "from",
-        "tag",
-        "file",
-        "append",
-        "query",
-        "export",
-        "import",
-        "template",
-        "summaries",
-        "discography",
-        "covers",
-        "size",
-        "images",
-        "country",
-        "identify",
-        "lang",
-    ];
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
         for option in &unknown {
@@ -207,168 +132,7 @@ fn main() {
     // global list above only says an option exists; this says where it means
     // something, which is what stops `aede stats --csv` from printing a table
     // that is not one.
-    for (option, commands, what) in [
-        ("csv", CSV_COMMANDS, "produce a table"),
-        ("m3u", M3U_COMMANDS, "produce a playlist"),
-        ("output", OUTPUT_COMMANDS, "write to a file"),
-        ("forget", SAID_ELSEWHERE_COMMANDS, "forget what was stored"),
-        (
-            "pending",
-            IMPORT_COMMANDS,
-            "list or restrict to what is waiting",
-        ),
-        ("list", LIST_COMMANDS, "list what is held"),
-        ("source", SAID_ELSEWHERE_COMMANDS, "select a source"),
-        (
-            "compilations",
-            ALBUM_LIST_COMMANDS,
-            "single out compilations",
-        ),
-        (
-            "no-compilations",
-            ALBUM_LIST_COMMANDS,
-            "leave compilations out",
-        ),
-        ("role", ROLE_COMMANDS, "filter by role"),
-        ("country", &["artists"], "filter by where an artist is from"),
-        ("artist", ARTIST_COMMANDS, "narrow to one artist"),
-        ("year", YEAR_COMMANDS, "narrow to one year"),
-        ("genre", GENRE_COMMANDS, "filter by genre"),
-        ("label", LABEL_COMMANDS, "filter by label"),
-        ("comment", COMMENT_COMMANDS, "filter on the comments"),
-        ("comments", &["search"], "search the comments"),
-        ("notes", &["search"], "search what you wrote"),
-        ("limit", PAGING_COMMANDS, "show a window of its result"),
-        ("offset", PAGING_COMMANDS, "start further down its result"),
-        ("all", PAGING_COMMANDS, "hold nothing back"),
-        ("json", JSON_COMMANDS, "answer in JSON"),
-        ("separator", CSV_COMMANDS, "choose a separator"),
-        ("sort", SORT_COMMANDS, "be sorted"),
-        ("severity", DOCTOR_COMMANDS, "filter by severity"),
-        ("album", &["track"], "narrow to one album"),
-        ("with", &["artist"], "cross two artists"),
-        ("tracks", &["export"], "switch to one row per track"),
-        (
-            "yes",
-            &["reset", "history", "fetch", "backup", "restore"],
-            "skip the confirmation",
-        ),
-        (
-            "remove",
-            &[
-                "roots",
-                "love",
-                "rate",
-                "note",
-                "tag",
-                "collection",
-                "played",
-                "history",
-                "missing",
-            ],
-            "take something back",
-        ),
-        (
-            "full",
-            &["scan", "check", "spectrum", "fetch", "fingerprint"],
-            "ignore what was already done",
-        ),
-        (
-            "summaries",
-            &["fetch"],
-            "follow the wikidata link to an article",
-        ),
-        (
-            "discography",
-            &["fetch"],
-            "browse everything credited to an artist",
-        ),
-        ("covers", &["fetch"], "look for missing cover art"),
-        (
-            "identify",
-            &["fetch"],
-            "ask what the fingerprinted files sound like",
-        ),
-        ("size", &["fetch"], "choose how large an image to keep"),
-        ("lang", &["fetch"], "choose the language of the prose"),
-        (
-            "images",
-            &["fetch", "extract"],
-            "keep the back and the booklet too, in artwork/",
-        ),
-        (
-            "threads",
-            &["scan", "check", "spectrum", "copy"],
-            "read on several threads",
-        ),
-        ("replace", &["scan", "copy"], "forget the watched folders"),
-        ("exclude", &["roots"], "keep a folder out of the catalog"),
-        (
-            "no-scan",
-            &["roots"],
-            "leave the catalog untouched until the next scan",
-        ),
-        ("follow-symlinks", &["scan"], "follow symbolic links"),
-        ("include-hidden", &["scan"], "walk hidden files"),
-        ("stars", &["rate"], "carry a rating"),
-        ("text", &["note"], "carry a note"),
-        ("file", &["note"], "read a note from a file"),
-        ("append", &["note"], "add to a note"),
-        (
-            "query",
-            &["collection", "copy", "albums", "artists"],
-            "hold an expression",
-        ),
-        ("extras", &["copy"], "choose what travels beside the audio"),
-        (
-            "dry-run",
-            &[
-                "copy",
-                "spectrum",
-                "playlist",
-                "fetch",
-                "extract",
-                "fingerprint",
-            ],
-            "say what it would do without doing it",
-        ),
-        (
-            "lyrics",
-            &["track", "search"],
-            "show the words, or look in them",
-        ),
-        ("simple", &["playlist"], "leave out the #EXTINF lines"),
-        (
-            "artists",
-            &["playlist"],
-            "write one playlist per artist too",
-        ),
-        ("verify", &["copy"], "read back what it wrote"),
-        ("safe-names", &["copy"], "adapt names to the destination"),
-        ("raw-names", &["copy"], "leave names exactly as they are"),
-        (
-            "collection",
-            &["copy"],
-            "take its selection from a saved query",
-        ),
-        (
-            "export",
-            &["notes", "sources"],
-            "write what is held to a file",
-        ),
-        (
-            "template",
-            &["sources"],
-            "write a document with the keys and nothing filled in",
-        ),
-        (
-            "import",
-            &["notes", "sources"],
-            "take back in what was exported",
-        ),
-        ("from", &["note"], "copy what was said elsewhere"),
-        ("tag", &["notes"], "filter on a tag"),
-    ] {
+    for (option, commands, what) in OPTION_SCOPE {
         if args.has(option) && !commands.contains(&command) {
             eprintln!(
                 "{} \"{}\" cannot {what}: --{option} applies to {}",
@@ -382,10 +146,10 @@ fn main() {
             // A command whose whole subject is a file, refused the option
             // that writes to one, needs the form that does work — not a list
             // of other commands. The same reason `--role` carries a hint.
-            if option == "output" && matches!(command, "backup" | "restore") {
+            if *option == "output" && matches!(command, "backup" | "restore") {
                 eprintln!("The file is not an option here: aede {command} <file>");
             }
-            if option == "role" {
+            if *option == "role" {
                 eprintln!(
                     "A role needs a person: aede artist \"<name>\" --role {}",
                     args.value("role").unwrap_or("<role>")
@@ -462,6 +226,261 @@ fn main() {
     }
 }
 
+/// Every option this program recognises at all.
+///
+/// **Before anything answers, including `--help` and `--version`**: an option
+/// nobody recognises makes the whole command line untrustworthy, and
+/// `aede --fegioregj` printing a cheerful help page is the same silence in a
+/// friendlier costume. [`OPTION_SCOPE`] then says which commands honour which
+/// of these; being on this list only means the word exists.
+///
+/// At module level rather than inside `main` so that a test can read it, for
+/// the reason written on [`OPTION_SCOPE`].
+const OPTIONS: &[&str] = &[
+    "data",
+    "replace",
+    "remove",
+    "limit",
+    "sort",
+    "severity",
+    "artist",
+    "album",
+    "with",
+    "separator",
+    "csv",
+    "tracks",
+    "m3u",
+    "year",
+    "output",
+    "threads",
+    "genre",
+    "label",
+    "json",
+    "no-color",
+    "yes",
+    "forget",
+    "pending",
+    "list",
+    "members",
+    "no-scan",
+    "lyrics",
+    "simple",
+    "artists",
+    "extras",
+    "dry-run",
+    "verify",
+    "safe-names",
+    "raw-names",
+    "collection",
+    "compress",
+    "quality",
+    "source",
+    "compilations",
+    "no-compilations",
+    "role",
+    "comment",
+    "comments",
+    "notes",
+    "offset",
+    "all",
+    "help",
+    "version",
+    "full",
+    "follow-symlinks",
+    "include-hidden",
+    "exclude",
+    "stars",
+    "text",
+    "from",
+    "tag",
+    "file",
+    "append",
+    "query",
+    "export",
+    "import",
+    "template",
+    "summaries",
+    "discography",
+    "covers",
+    "size",
+    "images",
+    "country",
+    "identify",
+    "lang",
+];
+
+/// Where each restricted option means something.
+///
+/// **One table, and it is the only place this is written down.** The global
+/// option list above says an option exists; this says which commands can
+/// honour it, which is what stops `aede stats --csv` from printing a table that
+/// is not one. Lifted out of `main` so that a test can read it: a message that
+/// advises `aede fetch --artists` when `--artists` belongs to `playlist` is an
+/// option nobody can type, and only something comparing the two can notice.
+const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
+    ("csv", CSV_COMMANDS, "produce a table"),
+    ("m3u", M3U_COMMANDS, "produce a playlist"),
+    ("output", OUTPUT_COMMANDS, "write to a file"),
+    ("forget", SAID_ELSEWHERE_COMMANDS, "forget what was stored"),
+    (
+        "pending",
+        IMPORT_COMMANDS,
+        "list or restrict to what is waiting",
+    ),
+    ("list", LIST_COMMANDS, "list what is held"),
+    ("source", SAID_ELSEWHERE_COMMANDS, "select a source"),
+    (
+        "compilations",
+        ALBUM_LIST_COMMANDS,
+        "single out compilations",
+    ),
+    (
+        "no-compilations",
+        ALBUM_LIST_COMMANDS,
+        "leave compilations out",
+    ),
+    ("role", ROLE_COMMANDS, "filter by role"),
+    ("members", MEMBER_COMMANDS, "show who played in it"),
+    ("country", &["artists"], "filter by where an artist is from"),
+    ("artist", ARTIST_COMMANDS, "narrow to one artist"),
+    ("year", YEAR_COMMANDS, "narrow to one year"),
+    ("genre", GENRE_COMMANDS, "filter by genre"),
+    ("label", LABEL_COMMANDS, "filter by label"),
+    ("comment", COMMENT_COMMANDS, "filter on the comments"),
+    ("comments", &["search"], "search the comments"),
+    ("notes", &["search"], "search what you wrote"),
+    ("limit", PAGING_COMMANDS, "show a window of its result"),
+    ("offset", PAGING_COMMANDS, "start further down its result"),
+    ("all", PAGING_COMMANDS, "hold nothing back"),
+    ("json", JSON_COMMANDS, "answer in JSON"),
+    ("separator", CSV_COMMANDS, "choose a separator"),
+    ("sort", SORT_COMMANDS, "be sorted"),
+    ("severity", DOCTOR_COMMANDS, "filter by severity"),
+    ("album", &["track"], "narrow to one album"),
+    ("with", &["artist"], "cross two artists"),
+    ("tracks", &["export"], "switch to one row per track"),
+    (
+        "yes",
+        &["reset", "history", "fetch", "backup", "restore"],
+        "skip the confirmation",
+    ),
+    (
+        "remove",
+        &[
+            "roots",
+            "love",
+            "rate",
+            "note",
+            "tag",
+            "collection",
+            "played",
+            "history",
+            "missing",
+        ],
+        "take something back",
+    ),
+    (
+        "full",
+        &["scan", "check", "spectrum", "fetch", "fingerprint"],
+        "ignore what was already done",
+    ),
+    (
+        "summaries",
+        &["fetch"],
+        "follow the wikidata link to an article",
+    ),
+    (
+        "discography",
+        &["fetch"],
+        "browse everything credited to an artist",
+    ),
+    ("covers", &["fetch"], "look for missing cover art"),
+    (
+        "identify",
+        &["fetch"],
+        "ask what the fingerprinted files sound like",
+    ),
+    ("size", &["fetch"], "choose how large an image to keep"),
+    ("lang", &["fetch"], "choose the language of the prose"),
+    (
+        "images",
+        &["fetch", "extract"],
+        "keep the back and the booklet too, in artwork/",
+    ),
+    (
+        "threads",
+        &["scan", "check", "spectrum", "copy"],
+        "read on several threads",
+    ),
+    ("replace", &["scan", "copy"], "forget the watched folders"),
+    ("exclude", &["roots"], "keep a folder out of the catalog"),
+    (
+        "no-scan",
+        &["roots"],
+        "leave the catalog untouched until the next scan",
+    ),
+    ("follow-symlinks", &["scan"], "follow symbolic links"),
+    ("include-hidden", &["scan"], "walk hidden files"),
+    ("stars", &["rate"], "carry a rating"),
+    ("text", &["note"], "carry a note"),
+    ("file", &["note"], "read a note from a file"),
+    ("append", &["note"], "add to a note"),
+    (
+        "query",
+        &["collection", "copy", "albums", "artists"],
+        "hold an expression",
+    ),
+    ("extras", &["copy"], "choose what travels beside the audio"),
+    (
+        "dry-run",
+        &[
+            "copy",
+            "spectrum",
+            "playlist",
+            "fetch",
+            "extract",
+            "fingerprint",
+        ],
+        "say what it would do without doing it",
+    ),
+    (
+        "lyrics",
+        &["track", "search"],
+        "show the words, or look in them",
+    ),
+    ("simple", &["playlist"], "leave out the #EXTINF lines"),
+    (
+        "artists",
+        &["playlist"],
+        "write one playlist per artist too",
+    ),
+    ("verify", &["copy"], "read back what it wrote"),
+    ("safe-names", &["copy"], "adapt names to the destination"),
+    ("raw-names", &["copy"], "leave names exactly as they are"),
+    (
+        "collection",
+        &["copy"],
+        "take its selection from a saved query",
+    ),
+    (
+        "export",
+        &["notes", "sources"],
+        "write what is held to a file",
+    ),
+    (
+        "template",
+        &["sources"],
+        "write a document with the keys and nothing filled in",
+    ),
+    (
+        "import",
+        &["notes", "sources"],
+        "take back in what was exported",
+    ),
+    ("from", &["note"], "copy what was said elsewhere"),
+    ("tag", &["notes"], "filter on a tag"),
+];
+
 /// Commands that can render what they show as a CSV table.
 const CSV_COMMANDS: &[&str] = &[
     "export",
@@ -525,6 +544,13 @@ const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 /// which is why `album` and `track` are not here: there, `--artist` is the
 /// filter, and a role with nobody attached asks nothing.
 const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
+
+/// The one command that can answer with a band's line-up.
+///
+/// `album` is deliberately not here: an album shows the line-up of its year on
+/// its own page, because that is the whole reason the dates are worth fetching,
+/// and an option to switch it off would be an option nobody types.
+const MEMBER_COMMANDS: &[&str] = &["artist"];
 
 /// Every command, its alias if it has one, and what it runs.
 ///
@@ -914,7 +940,13 @@ fn print_help() {
   years                Breakdown by year
 
   artist <name>        Artist card: discography, collaborations
-                       (--with=<other> lists the tracks the two share)
+                       (--with=<other> lists the tracks the two share).
+                       --members is the dated line-up: who played in the band,
+                       on what, and between which years, in MusicBrainz's own
+                       words — and for a person, the bands they played in. It
+                       comes from aede fetch, and the album pages use the same
+                       dates to name the band as it stood the year each record
+                       came out
   album <title>        Album card: tracks and credits
   track <title>        Track card: album, credits, technical details, tags
                        (--lyrics adds the words, from the tags or from a .lrc
@@ -1182,3 +1214,7 @@ fn print_help() {
         ui::cyan("EXAMPLES")
     );
 }
+
+#[cfg(test)]
+#[path = "main_tests.rs"]
+mod tests;

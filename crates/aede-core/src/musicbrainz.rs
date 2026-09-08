@@ -12,7 +12,7 @@
 //! guessing one of those wrong produces a record that is silently empty.
 
 use crate::json::Json;
-use crate::sources::{ArtistFacts, Confidence, ReleaseFacts};
+use crate::sources::{ArtistFacts, Confidence, Membership, ReleaseFacts, Side};
 use crate::text;
 
 /// Base address of the web service, kept here so the client has nothing to
@@ -39,11 +39,12 @@ pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// Wikidata among them — cost nothing extra at a service that allows one
 /// request per second.
 ///
-/// `artist-rels` is deliberately absent for now. Band membership is what the
-/// roadmap wants as **dated relations**, which is a change to the graph rather
-/// than a field to display, and asking for data nothing can hold yet would
-/// store an answer with nowhere to put it.
-pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels";
+/// `artist-rels` carries the dated memberships — who played in a band and
+/// between which years — read by `memberships` below. It rides on the same request
+/// as the rest, so a line-up costs nothing beyond the lookup already being
+/// made, and the dates are what let an album page name the band as it stood
+/// the year that record came out.
+pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels+artist-rels";
 
 /// What to ask for alongside a *release*, in one request.
 ///
@@ -274,6 +275,7 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         // browse over release groups, not a field of an artist lookup, and
         // reading it here would quietly empty it on every ordinary fetch.
         discography: Vec::new(),
+        members: memberships(row),
         // MusicBrainz holds no prose about an artist: an annotation there is
         // an editorial note about the data, not a description of the
         // musician. The summary comes from Wikipedia, reached through the
@@ -281,6 +283,89 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         summary: None,
     }
 }
+
+/// Band memberships, from the `artist-rels` a lookup was asked for.
+///
+/// # The direction, measured rather than assumed
+///
+/// MusicBrainz states **one** relation between two artists and returns it on
+/// both, distinguished by `direction`. Reading that field wrongly does not lose
+/// data, it inverts it — Black Sabbath would appear in the list of Ozzy
+/// Osbourne's members — so it was checked against live answers for a person and
+/// for a band rather than reasoned about.
+///
+/// Both answers carry `"direction": "backward"`, and that settles it: these
+/// relationships are defined **from the musician towards the group**, so a
+/// backward one is being read *from the group's end* and the artist it names is
+/// the player. The first version of this function had it the other way round,
+/// on the reasonable-sounding assumption that a person's own record would read
+/// forward. It does not.
+///
+/// # Which relationships count
+///
+/// `member of band` is the obvious one and it is not enough. Ozzy Osbourne's
+/// own record holds no members at all — a solo artist is not a band — and every
+/// musician who played on his records is there as an
+/// `instrumental supporting musician`: Randy Rhoads on guitar, Bob Daisley on
+/// bass. A line-up that showed nothing for him while MusicBrainz plainly holds
+/// his band would be a worse answer than no feature.
+///
+/// The two are kept apart rather than merged, because a founding member and a
+/// guitarist hired for one tour are both on the record and only one of them was
+/// in the band. [`Membership::kind`] carries the source's own phrase.
+///
+/// **The list is what has been seen in a real answer**, and nothing else: a
+/// relationship type nobody has checked is a guess with a `const` around it.
+fn memberships(row: &Json) -> Vec<Membership> {
+    let Some(relations) = row.get("relations").and_then(Json::as_arr) else {
+        return Vec::new();
+    };
+    relations
+        .iter()
+        .filter(|r| {
+            r.field_str("type")
+                .is_some_and(|t| MEMBER_RELATIONS.contains(&t.as_str()))
+        })
+        .filter_map(|r| {
+            let artist = r.get("artist")?;
+            Some(Membership {
+                // No identifier, no membership: a name alone cannot be
+                // followed to the artist it names, and the whole value of this
+                // list is that each row leads somewhere.
+                mbid: field(artist, "id")?,
+                name: field(artist, "name").unwrap_or_default(),
+                kind: field(r, "type").unwrap_or_default(),
+                side: match r.field_str("direction").as_deref() {
+                    Some("backward") => Side::Player,
+                    _ => Side::Group,
+                },
+                attributes: r
+                    .get("attributes")
+                    .and_then(Json::as_arr)
+                    .map(|a| a.iter().filter_map(Json::as_string).collect())
+                    .unwrap_or_default(),
+                // `begin` may be a year, `1979-11`, or a full date, and every
+                // one of those is answered by taking the first four characters
+                // where a year is wanted.
+                began: field(r, "begin"),
+                ended: field(r, "end"),
+                // `ended: false` is an answer — "still in the band" — and it is
+                // the one a reader looking at a line-up wants most. It arrives
+                // beside `"end": null`, so the two must be read separately.
+                over: r.field_optional_bool("ended"),
+            })
+        })
+        .collect()
+}
+
+/// The relationships this reads, spelt as MusicBrainz spells them.
+///
+/// One place, because the strings are the whole filter: a typo here empties
+/// every line-up in the program and nothing else goes wrong. Each was seen in
+/// a live answer — `member of band` on Judas Priest, `instrumental supporting
+/// musician` on Ozzy Osbourne — and a type nobody has checked does not belong
+/// on this list, however plausible its name.
+const MEMBER_RELATIONS: [&str; 2] = ["member of band", "instrumental supporting musician"];
 
 /// Names from a `genres` or `tags` list, most agreed first.
 ///

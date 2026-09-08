@@ -65,7 +65,7 @@ pub fn show_album(args: &Args) -> Res {
         );
     }
     for release in &matches {
-        print_album(&catalog, release);
+        print_album(args, &catalog, release);
         super::sources_panel_for(args, &catalog, EntityKind::Release, release.id);
         super::panel_for(args, &catalog, EntityKind::Release, release.id);
     }
@@ -84,11 +84,56 @@ pub fn show_album(args: &Args) -> Res {
     Ok(())
 }
 
+/// The band as it stood the year this album came out.
+///
+/// A line-up is a fact about an artist and an album is a fact about a year;
+/// this is where the two meet, and it is the whole reason the membership dates
+/// are worth fetching. Nothing is stored — the answer is worked out from the
+/// source's dates and the album's year each time it is shown, so it cannot go
+/// stale the way a copy would.
+///
+/// Silent unless it has something to say. An album with no year cannot be
+/// placed, a compilation has no album artist to ask about, and an artist
+/// nobody has fetched has no dates: none of those is a fault, and a page does
+/// not fail because a line could not be filled.
+fn say_who_was_in_the_band(args: &Args, catalog: &Catalog, release: &Release) {
+    let (Some(year), Some(artist_id)) = (release.year, release.album_artist_id) else {
+        return;
+    };
+    let Some(facts) = super::artist_facts_for(args, catalog, artist_id) else {
+        return;
+    };
+    let (placed, undated) = facts.line_up_in(year);
+    if placed.is_empty() {
+        return;
+    }
+    let mut named: Vec<&str> = placed.iter().map(|m| m.name.as_str()).collect();
+    named.sort_unstable();
+    println!(
+        "  {} {}",
+        ui::dim(&format!("line-up in {year}:")),
+        named.join(" · ")
+    );
+    // The filter is named rather than applied in silence. These are members
+    // MusicBrainz holds but does not date well enough to place in a year, and
+    // a reader who knows one of them was there should be told why the page
+    // disagrees rather than left to think the data is wrong.
+    if undated > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "  and {} MusicBrainz does not date closely enough to place",
+                ui::plural(undated, "musician")
+            ))
+        );
+    }
+}
+
 /// Default number of album pages printed: an album page is long, and a prefix
 /// that matches a whole discography should not scroll for a minute.
 const DEFAULT_LIMIT: usize = 5;
 
-fn print_album(catalog: &Catalog, release: &Release) {
+fn print_album(args: &Args, catalog: &Catalog, release: &Release) {
     let artist = release
         .album_artist_id
         .and_then(|id| catalog.artist(id))
@@ -122,6 +167,11 @@ fn print_album(catalog: &Catalog, release: &Release) {
         println!("  {}", ui::dim(&genres.join(", ")));
     }
     println!("  {}", ui::dim(&release.folder));
+    // Directly under the year, because that is the fact it is derived from and
+    // the two are read together. Printed at the foot of the page — where it
+    // first went — it read as a note about the track list rather than as an
+    // answer about the record.
+    say_who_was_in_the_band(args, catalog, release);
 
     // What is known about these files beyond their tags, in one line.
     //

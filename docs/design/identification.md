@@ -201,20 +201,92 @@ said to use `relation` — an artist-to-artist link, which is what a line-up is.
 That would be wrong now: `relation` is rebuilt by the **scan** from your files,
 so a line-up written there would be erased by the first scan after the fetch,
 which is precisely the fault the attributed layer was built to prevent. A
-line-up is what *somebody else says*, so it belongs in `ArtistFacts` beside the
-area and the formation date, and the work is smaller than what follows
-describes: add `artist-rels` to `ARTIST_INCLUDES` — no extra request, it is the
-same lookup — read the `member of band` relations, and show them.
+line-up is what *somebody else says*, so it lives in `ArtistFacts` beside the
+area and the formation date, and it rides on the lookup already being made —
+`artist-rels` in `ARTIST_INCLUDES`, no extra request.
 
-The original reasoning, kept because the shape of the data is still right:
-it is an artist-to-artist link, and MusicBrainz's "member of band"
-relationship carries begin and end dates and an instrument, so the one model
-change is a **dated relation** — an optional period on a link. Which is worth
-doing carefully, because "who was in the band in 1979" is a question the graph
-should be able to answer, and dated links are how.
+### A line-up is not an album's data
 
-Then `aede artists --country FR`, `aede artist "Iron Maiden" --members`, and a
-band page that shows a line-up rather than a list of names.
+It is a **dated relation between two artists**: Ozzy Osbourne was in Black
+Sabbath from 1968 to 1979 and again from 1997. MusicBrainz holds it on the
+artist, never on a record, and it exists for a band whose albums you do not own.
+Albums enter only when the two are **crossed**, and that is where the dates pay
+for themselves:
+
+```
+$ aede artist "Black Sabbath" --members
+
+Played with them
+
+  Name              Relation                          As                          Years
+  ────────────────  ────────────────────────────────  ──────────────────────────  ─────────
+  Bill Ward         member of band                    drums (drum set), original  1968–1980
+  Ozzy Osbourne     member of band                    lead vocals, original       1968–1979
+  Tony Iommi        member of band                    guitar, original            1968–
+  Ronnie James Dio  member of band                    lead vocals                 1979–1982
+```
+
+```
+$ aede album "Paranoid"
+
+Paranoid
+  Black Sabbath
+  1970
+  /music/Black Sabbath/Paranoid
+  line-up in 1970: Bill Ward · Geezer Butler · Ozzy Osbourne · Tony Iommi
+```
+
+The album line is **derived when shown**, never stored. A stored line-up would
+be a claim the catalog had stopped being able to justify the moment either side
+changed — the same rule the missing-albums list already follows.
+
+### Three things the live answers said that guessing did not
+
+The parser was written from the documented shape and then checked against real
+responses for a person and for a band. All three of these were wrong before:
+
+**The direction is not what it looks like.** MusicBrainz states one relation and
+returns it on both artists with a `direction`. Both answers — the person's and
+the band's — say `"backward"`, because these relationships are defined *from the
+musician towards the group*: a backward one is being read from the group's end
+and the artist it names is the player. Assuming a person's own record would read
+"forward" is reasonable, and wrong, and it does not lose data — it inverts it.
+Black Sabbath would have appeared in the list of Ozzy Osbourne's members.
+
+**`member of band` alone is not enough.** Ozzy Osbourne's record holds none at
+all — a solo artist is not a band — and every musician who played with him is an
+`instrumental supporting musician`: Randy Rhoads on guitar, Bob Daisley on bass.
+Reading only the obvious relationship would have shown him an empty line-up
+while MusicBrainz plainly holds his band. The two are kept apart rather than
+merged, in MusicBrainz's own words, because a founding member and a guitarist
+hired for one tour are both on the record and only one of them was in the band.
+
+**An attribute is not always an instrument.** Judas Priest's line-up carries
+`["guitar family", "original"]`, where `original` marks an original member. The
+field is `attributes` and the column is headed "As", because calling it
+`instruments` would put a lie in a column header.
+
+### What a date cannot say
+
+`covers(year)` answers with three values, not two. A membership with no start
+date places nobody; one the source says has **ended without saying when** places
+nobody either — the end is somewhere, and "somewhere" cannot be compared with a
+year. Both come back "don't know", and the album page **counts** them rather
+than dropping them in silence:
+
+```
+  and 1 musician MusicBrainz does not date closely enough to place
+```
+
+Including them would put a musician on a record they may not be on, which is the
+one mistake here that matters. Hiding them would be a filter the reader cannot
+see, which is the other one.
+
+Two spells in one band stay **two rows**. Folding `1968–1979` and `1997–2017`
+into one span would claim Ozzy was in Black Sabbath in 1985.
+
+Then `aede artists --country FR`, and a band page that shows a line-up rather
+than a list of names.
 
 ## Editions: single, EP, live, remaster, deluxe
 

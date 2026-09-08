@@ -234,6 +234,25 @@ fn user_data(args: &Args, catalog: &Catalog) -> Result<aede_core::user::UserData
 /// Loaded and not reconciled, unlike the annotations: the layer is keyed on
 /// what an entity calls itself and resolves on read, so a rebuilt catalog
 /// needs nothing rewritten here.
+/// What MusicBrainz said about this artist, when anything has been fetched.
+///
+/// Returns the facts rather than the record: every caller here wants the
+/// contents, and handing back the wrapper would have each of them repeat the
+/// same two `match` arms to get inside it.
+pub(super) fn artist_facts_for(
+    args: &Args,
+    catalog: &Catalog,
+    artist: Id,
+) -> Option<aede_core::sources::ArtistFacts> {
+    let held = sources_held(args).ok()?;
+    let entity =
+        aede_core::user::EntityRef::of(catalog, aede_core::model::EntityKind::Artist, artist)?;
+    match &held.get(&entity, aede_core::sources::MUSICBRAINZ)?.facts {
+        aede_core::sources::Facts::Artist(facts) => Some(facts.clone()),
+        _ => None,
+    }
+}
+
 fn sources_held(args: &Args) -> Result<aede_core::sources::Sources, Box<dyn Error>> {
     let path = aede_core::sources::sources_path(&data_dir(args));
     Ok(aede_core::sources::load(&path)?.unwrap_or_default())

@@ -219,6 +219,38 @@ A new command or option must not exist in only one of those layers.
 
 When an option is accepted, verify that it actually affects the command that accepts it.
 
+### Advice the program prints is part of that contract
+
+An error or a hint that names a command line is a promise the same binary must
+keep. `aede artist --members` told a reader with no line-up to run
+`aede fetch --artists --full`, and `--artists` belongs to `playlist`: the
+program advised something it then refused, in the next breath, using a table two
+hundred lines from the sentence.
+
+Nothing else can catch this. The sentence is a `format!` argument in one file
+and the rule is a table in another, and no test that runs the binary will ever
+type every sentence it can print. So the table is a `const` at module level
+(`OPTION_SCOPE`, `OPTIONS`) rather than a literal inside `main`, and
+`main_tests.rs` reads the crate's own source for every `aede <command> …
+--<option>` it prints and checks each against it.
+
+Lifting a rule out of a function so that a test can read it is a good enough
+reason on its own.
+
+### A message written across source lines needs its backslashes
+
+A long string continued with a trailing `\` drops the newline **and** the
+indentation of the next line. Lose one backslash and nothing fails — it
+compiles, the suite is green — and the user reads a sentence with eighteen
+spaces in the middle of it. That shipped, and was found by a reader rather than
+by anything here.
+
+`main_tests.rs` now looks for a run of five spaces inside an open string
+literal, in a line long enough to be a sentence. Deliberately narrow: a wider
+rule flagging any literal still open at the end of its line reported eighteen
+perfectly good continuations, which is how a test becomes something people
+switch off.
+
 ---
 
 ## 14. CLI output
@@ -278,6 +310,20 @@ A new supported audio format requires an appropriate real fixture.
 
 Fixtures representing external services must be based on verified real responses. Never invent service response data merely to make a fixture convenient.
 
+This is not only about field names. A documented shape can be read correctly and
+still be understood backwards. MusicBrainz returns a membership relation on both
+artists with a `direction`, and a parser written from the documentation mapped
+`"backward"` to the wrong end — which does not lose data, it **inverts** it:
+Black Sabbath would have appeared in the list of Ozzy Osbourne's members. Two
+live answers, one for a person and one for a band, settled it in a minute.
+
+The same two answers also showed that `member of band` alone misses a solo
+artist's entire band (they are `instrumental supporting musician`), and that an
+`attributes` list holds `original` beside real instruments — so a field named
+`instruments` would have put a lie in a column header.
+
+Fetch the real answer before writing the parser, not after it fails.
+
 ### Test isolation
 
 Tests must not depend on process-global mutable state.
@@ -330,6 +376,21 @@ Prefer:
 - small focused functions.
 
 Avoid abstraction for abstraction's sake.
+
+### Three answers where two would lie
+
+Where a value can be *unknown* as well as true or false, say so in the type.
+
+`Membership::covers(year)` returns `Option<bool>`: a membership with no start
+date places nobody, and one the source says has ended without saying when places
+nobody either — the end is somewhere, and "somewhere" cannot be compared with a
+year. Returning `false` there would hand the caller a silence dressed as
+knowledge, and the caller would have had no way to count what it could not
+place.
+
+The same distinction already runs through `ArtistFacts::active` and
+`Membership::over`: a band with no end date may be one that never stopped or one
+nobody has filled in, and a reader shown the same thing for both learns nothing.
 
 ### Two meanings need two functions, not a comment
 

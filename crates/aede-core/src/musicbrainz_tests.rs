@@ -429,3 +429,176 @@ fn two_spellings_of_one_name_are_not_an_ambiguity() {
     let (best, _) = best_match(&found, "The Beatles").expect("a match");
     assert!(best.name.contains("Beatles"));
 }
+
+/// Two relations copied out of a live answer for **Ozzy Osbourne**
+/// (`8aa5b65a-5b3c-4029-92bf-47a544356934`), `inc=artist-rels`, verbatim but
+/// for the fields this program does not read.
+///
+/// A person, and the point of keeping it: his record holds **no** `member of
+/// band` at all — a solo artist is not a band — and every musician who played
+/// with him is an `instrumental supporting musician`. A parser that only knew
+/// the obvious relationship would have shown him an empty line-up while
+/// MusicBrainz plainly holds his band.
+const OZZY_RELATIONS: &str = r#"{
+  "id": "8aa5b65a-5b3c-4029-92bf-47a544356934",
+  "name": "Ozzy Osbourne",
+  "relations": [
+    { "type": "instrumental supporting musician",
+      "type-id": "ed6a7891-ce70-4e08-9839-1f2f62270497",
+      "target-type": "artist",
+      "direction": "backward",
+      "begin": "1979-11",
+      "end": "1982-03-19",
+      "ended": true,
+      "attributes": ["guitar"],
+      "artist": { "type": "Person", "country": "US", "name": "Randy Rhoads",
+                  "id": "19dccaac-efa8-413f-9042-28006792e0f2",
+                  "sort-name": "Rhoads, Randy" } },
+    { "type": "instrumental supporting musician",
+      "type-id": "ed6a7891-ce70-4e08-9839-1f2f62270497",
+      "target-type": "artist",
+      "direction": "backward",
+      "begin": "1979",
+      "end": "1981",
+      "ended": true,
+      "attributes": ["bass guitar"],
+      "artist": { "type": "Person", "country": "AU", "name": "Bob Daisley",
+                  "id": "af49ecbb-a0b9-4805-9cec-f97eac794c81",
+                  "sort-name": "Daisley, Bob" } }
+  ]
+}"#;
+
+/// Two relations copied out of a live answer for **Judas Priest**
+/// (`6b335658-22c8-485d-93de-0bc29a1d0349`), the same way.
+///
+/// A band this time, and it answers the question the two responses were fetched
+/// to settle: the direction. Both a person's record and a band's say
+/// `"backward"`, so backward cannot mean "this record is the person".
+const PRIEST_RELATIONS: &str = r#"{
+  "id": "6b335658-22c8-485d-93de-0bc29a1d0349",
+  "name": "Judas Priest",
+  "relations": [
+    { "type": "instrumental supporting musician",
+      "type-id": "ed6a7891-ce70-4e08-9839-1f2f62270497",
+      "target-type": "artist",
+      "direction": "backward",
+      "begin": "2018",
+      "end": null,
+      "ended": false,
+      "attributes": ["electric guitar"],
+      "artist": { "type": "Person", "country": "GB", "name": "Andy Sneap",
+                  "id": "2b9aed4d-769e-4c38-96e4-586ac59ce668",
+                  "sort-name": "Sneap, Andy" } },
+    { "type": "member of band",
+      "type-id": "5be4c609-9afa-4ea0-910b-12ffb71e3821",
+      "target-type": "artist",
+      "direction": "backward",
+      "begin": "1969",
+      "end": "1970",
+      "ended": true,
+      "attributes": ["guitar family", "original"],
+      "artist": { "type": "Person", "country": "GB", "name": "Ernie Chataway",
+                  "id": "3651334d-6513-40e1-adbb-423acf0ad3d6",
+                  "sort-name": "Chataway, Ernie" } }
+  ]
+}"#;
+
+#[test]
+fn a_backward_relation_names_the_player_whichever_record_it_came_from() {
+    // **The question these two fixtures were fetched to answer.** One relation
+    // is stated once and returned on both artists with a direction, and reading
+    // it wrongly does not lose data — it inverts it. The first version of the
+    // parser assumed a person's own record would read "forward"; both live
+    // answers say "backward", so the direction is about the relationship's
+    // definition (musician towards group) and not about which record you asked
+    // for.
+    for (who, json) in [("Ozzy", OZZY_RELATIONS), ("Judas Priest", PRIEST_RELATIONS)] {
+        let found = artist(&parse(json)).expect("an artist");
+        assert!(
+            found.facts.bands().next().is_none(),
+            "{who}: a backward relation is not a band this artist joined"
+        );
+        assert_eq!(
+            found.facts.line_up().count(),
+            2,
+            "{who}: both relations name a player"
+        );
+    }
+}
+
+#[test]
+fn a_solo_artist_has_supporting_musicians_and_no_members() {
+    // Ozzy Osbourne's record holds not one `member of band`: he is a person,
+    // not a group. Reading only the obvious relationship would have shown him
+    // an empty line-up while MusicBrainz holds his whole band.
+    let found = artist(&parse(OZZY_RELATIONS)).expect("an artist");
+    let rows: Vec<&Membership> = found.facts.line_up().collect();
+    assert!(
+        rows.iter()
+            .all(|m| m.kind == "instrumental supporting musician"),
+        "{:?}",
+        rows.iter().map(|m| &m.kind).collect::<Vec<_>>()
+    );
+    let randy = rows
+        .iter()
+        .find(|m| m.name == "Randy Rhoads")
+        .expect("Randy");
+    assert_eq!(randy.mbid, "19dccaac-efa8-413f-9042-28006792e0f2");
+    assert_eq!(randy.attributes, vec!["guitar"]);
+    // A partial date is a date: `1979-11` places him in 1980 as surely as
+    // `1979` would, because only the year is ever compared.
+    assert_eq!(randy.began.as_deref(), Some("1979-11"));
+    assert_eq!(randy.covers(1980), Some(true));
+    assert_eq!(randy.covers(1983), Some(false));
+}
+
+#[test]
+fn an_attribute_is_not_always_an_instrument() {
+    // Measured, and it is why the field is not called `instruments`: Judas
+    // Priest's line-up carries `["guitar family", "original"]`, where
+    // `original` marks an original member and is not an instrument at all.
+    let found = artist(&parse(PRIEST_RELATIONS)).expect("an artist");
+    let ernie = found
+        .facts
+        .line_up()
+        .find(|m| m.name == "Ernie Chataway")
+        .expect("Ernie");
+    assert_eq!(ernie.kind, "member of band");
+    assert_eq!(ernie.attributes, vec!["guitar family", "original"]);
+    assert_eq!(ernie.years(), "1969–1970");
+}
+
+#[test]
+fn a_null_end_beside_ended_false_is_a_current_member() {
+    // The two fields arrive together — `"end": null, "ended": false` — and only
+    // reading both says "still in the band" rather than "nobody filled it in".
+    let found = artist(&parse(PRIEST_RELATIONS)).expect("an artist");
+    let andy = found
+        .facts
+        .line_up()
+        .find(|m| m.name == "Andy Sneap")
+        .expect("Andy");
+    assert_eq!(andy.ended, None);
+    assert_eq!(andy.over, Some(false));
+    assert_eq!(andy.years(), "2018–");
+    assert_eq!(andy.covers(2024), Some(true));
+}
+
+#[test]
+fn a_relationship_of_another_kind_is_not_a_membership() {
+    // The list of relationships read is a filter, and everything else on an
+    // artist's record — the URLs, a teacher, a marriage — must fall through it.
+    let response = parse(
+        r#"{"id":"x","name":"Someone","relations":[
+            {"type":"teacher","direction":"backward",
+             "artist":{"id":"t","name":"A Teacher"}},
+            {"type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q1"}}]}"#,
+    );
+    let found = artist(&response).expect("an artist");
+    assert!(found.facts.members.is_empty());
+    assert_eq!(
+        found.facts.wikidata.as_deref(),
+        Some("https://www.wikidata.org/wiki/Q1"),
+        "and the link relations still work"
+    );
+}
