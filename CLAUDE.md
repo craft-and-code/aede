@@ -1,541 +1,216 @@
-# Working conventions — Aède
+# Aède — Claude Code instructions
 
-This file is for Claude Code and for any contributor. It states the rules of the project: what is settled, what must not be broken, and how Rust is written here.
+Aède is a local-first music library engine written in Rust. It scans music folders into a persistent graph-based catalog of releases, recordings, tracks, artists, credits, relations, user annotations and external source claims.
 
-Where this file contradicts a general habit, **this file wins**. Where a rule is clearly wrong for a specific case, say so explicitly rather than quietly working around it.
+The project is developed incrementally through the milestones defined in `docs/design/roadmap.md`.
 
----
+## 1. Before changing code
 
-## 1. The project on one page
+At the start of a session:
 
-Aède is a local music library: give it folders, it builds a navigable catalog. The long-term ambition is to cover what Roon does, locally, with no subscription and on open metadata.
+1. Read `docs/coding/current-state.md`.
+2. Read the relevant milestone/task documentation.
+3. Inspect the existing implementation before proposing changes.
+4. Follow the architecture and invariants already established in the repository.
+5. Do not re-implement behaviour that already exists elsewhere.
 
-**Current state: milestone M0.6.** Folder scanning, native tag reading, graph model, statistics, diagnostics, command-line navigation — what the user writes about it — favourites, ratings, notes, free tags, listening history — and `copy`, which puts a selection on a player or a card.
+Do not read unrelated documentation unless the current task requires it.
 
-**Deliberately out of scope for now:** any audio playback, any network access, any external database. Do not introduce them "while passing by" — each is a milestone of its own (see [the roadmap](docs/design/roadmap.md)).
+When a milestone is completed, the next milestone should normally start in a new Claude Code conversation.
 
-Rust 1.89 or later (`rust-version` in the workspace manifest, `msrv` in `clippy.toml` — the two must stay in step).
+## 2. Project priorities
 
-Domain vocabulary follows MusicBrainz: a `release` is what a user calls an album, a `recording` is a recorded performance, a `track` is the position of a recording within a release. Sticking to this avoids expensive misunderstandings at M1.
+These are fundamental properties of Aède:
 
-## 2. Commands
+- Local-first: no network access unless explicitly requested by a command.
+- Never modify audio files or their tags.
+- External metadata is stored beside local data, never over local truth.
+- External claims retain their source and provenance.
+- The catalog is a graph, not an album/artist hierarchy.
+- Persisted data must remain compatible across versions unless an incompatible change is explicitly designed.
+- Derived data must remain distinguishable from data read from files or supplied by external sources.
+- Deterministic catalog construction is required.
+- A command must either answer the question it was asked or refuse; it must never silently ignore an argument or option.
+- User data must not be destroyed implicitly.
+- Every important behavioural rule must have a test.
 
-```sh
-cargo build                      # offline once the dependencies are fetched
-cargo test                       # 608 tests
-cargo doc --no-deps --open       # the API documentation
-cargo fmt --all                  # rustfmt.toml
-cargo clippy --all-targets -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps   # broken links are errors
-tools/check.sh                   # all five at once, before committing
-tools/demo-library.sh /tmp/demo-music   # test library (needs ffmpeg)
-```
+## 3. Architecture
 
-`tools/check.sh` must pass before every commit. No exceptions.
+### Workspace
 
-**`Cargo.lock` belongs to the machine that builds, and is never delivered.** The development sandbox resolves against a vendored mirror rather than crates.io, which makes the lock it writes wrong twice over: it carries no `checksum` lines at all — the one thing a lock exists to provide — and it can name a version the registry does not have. It did: `flate2 1.1.10` shipped in a delivery, crates.io stops at 1.1.9, and `cargo test` refused to resolve. The lock is regenerated locally, from the real registry, and `rust-version = "1.89"` with `resolver = "3"` is what keeps that resolution inside the MSRV. Deliveries exclude it.
+- `crates/aede-core` — domain model, catalog, storage and library logic.
+- `crates/aede-cli` — command-line interface and user-facing behaviour.
+- `docs/` — architecture, design decisions, milestone plans and behavioural documentation.
+- `tools/` — development and verification scripts.
+- `site/` — project website.
 
-More generally, **a delivery carries the files that changed, and nothing else.** Shipping the tree as an archive and unpacking it over the working copy overwrote files nobody had touched — `.gitignore` twice, then `Cargo.lock` — and left staging directories behind to be cleaned up by hand. The blast radius of a change should be the change.
+Keep domain logic in `aede-core`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
 
-`tools/check.sh` includes `cargo doc` because a broken documentation link is silent everywhere else — neither the build nor clippy reads them — and moving an item between modules is precisely what breaks one. In a codebase where the reasoning lives in the doc comments, a dead link is a real defect.
+### Domain model
 
-## 3. Invariants
+The model is graph-based.
 
-These properties are covered by tests. Breaking them breaks the project — if a change requires it, raise it first.
+- `Release` represents what users commonly call an album.
+- `Recording` represents a recorded performance.
+- `Track` represents the position of a recording within a release.
+- Credits and relations are first-class data.
+- Do not simplify the model into an album → artist hierarchy.
 
-**A dependency is a requirement, not a dogma.** Adding one is a decision to argue for, not a reflex. Three criteria, all three of them: it does something we could not do as well ourselves; it is maintained and widely used; its own dependency tree is small enough to read. Propose it, say what it replaces, and ask before adding it.
+Domain vocabulary follows MusicBrainz terminology.
 
-Current list: `lofty`, for the containers we have no parser of our own for. Planned: `serde` at M2, when the HTTP contract makes hand-written serialization the wrong trade.
+### Storage
 
-**The hand-written parsers stay.** `lofty` is a fallback reached only when the signature matches none of them, and it must never become the primary path for FLAC, MP3, MP4, Ogg, WAV or AIFF. Those parsers extract things no general-purpose library exposes — the LAME encoder delay and padding, the ALAC magic cookie, the Opus pre-skip — and M3 needs them for gapless playback. A format one of them claims and then fails on keeps its own diagnosis: the fallback is for `UnrecognizedFormat`, nothing else.
+The persisted JSON representation mirrors `schema.sql`.
 
-**The model is a graph.** The `credit` table (who does what, on what) and the `relation` table (typed links between entities) are the heart of the system. Never "simplify" towards an album → artist hierarchy: that graph is precisely what will let a user click a drummer and see their forty appearances.
+- One persisted concept corresponds to one schema concept.
+- Incompatible storage changes require a `FORMAT_VERSION` change.
+- Adding an optional field is normally backward-compatible and does not require a format bump.
+- Derived/inferred data has its own rule/versioning mechanism where required.
 
-`model/` is divided by verb, and the division is load-bearing rather than cosmetic: `query.rs` takes `&self` throughout, so a lookup that tried to change something would not compile; `builder.rs` is the only place identifiers are handed out; `relations.rs` holds what is inferred rather than read, which is why it is the thing that carries `RELATION_RULES`. A new function goes to the file whose verb it is, not to whichever one is shortest. What the rest of the program calls is re-exported from `model/mod.rs`, so callers never name the sub-modules.
+## 4. Rust rules
 
-**A test asserts on what survives the display.** Path columns truncate from the **left**, so the last components — the ones that identify the thing — are what remains on a narrow terminal. A test matching a whole path therefore passes on Linux and fails on macOS, where a temporary path alone is sixty columns; this has now cost two rounds. Match the tail, or assert on something the renderer never shortens.
+- Rust 1.89+.
+- Follow the existing `rustfmt.toml` and `clippy.toml`.
+- Prefer simple, readable Rust over clever abstractions.
+- Minimize visibility: prefer `pub(crate)` over `pub`.
+- Borrow rather than clone when practical.
+- Do not introduce `unsafe` without explicit justification and discussion.
+- Library code must not use `unwrap()` or `expect()`.
+- Parsers must handle truncated, corrupt and malformed input without panicking.
+- Never silently swallow errors.
+- Comments explain why, not what.
+- All repository-facing text is written in English.
 
-**A folder is not a prefix of its name.** `text::is_under` is the only way to ask whether a path sits in a folder. The obvious `path.starts_with(root)` is wrong on strings — `/music/Rock` claims every file of `/music/Rockabilly` — and `aede roots` counted a neighbour's files that way while `check` had already got it right inline, which is how one idea becomes two. The test is on a separator boundary, in one place.
-
-**One idea, one implementation.** `text::file_name` and `text::folder` split a path; `clock::now_seconds` says what time it is. Both had grown three copies in three files, each a little different — which is how "the same thing" quietly becomes two things. A helper short enough to retype is exactly the one that gets retyped: put it where it belongs and use it.
-
-**Construction is deterministic.** Two scans of the same library produce exactly the same identifiers. Consequences: sort before iterating, never let `HashMap` iteration order leak into output or into identifier assignment, and prefer `BTreeMap`/`BTreeSet` wherever order matters.
-
-**Parsers never panic.** No `unwrap`, `expect`, `panic!`, direct indexing or unchecked slicing anywhere in `tags/` or `audit/`. A truncated or corrupt file yields an error or a partial result. Use the `Cursor` from `tags/bytes.rs`, whose reads all return `Option`. Use `checked_`/`saturating_` arithmetic on any value that comes from a file.
-
-**Inferred data carries the version of the rules that inferred it.** `model::RELATION_RULES` is bumped when the way relations are derived changes; `store::from_json` then recomputes them, in memory, from the credits and tracks it just read. This is deliberately not `FORMAT_VERSION`: an out-of-date inference is stale, not invalid, and refusing to load would cost the user their integrity verdicts. The rule generalises — anything derived rather than read belongs here, not in the format version.
-
-**The on-disk format is versioned.** Any incompatible change to the catalog bumps `store::FORMAT_VERSION`, and reading an older file must produce a clear message rather than a crash. A **new optional field is not an incompatible change** and must not bump it: these versions are compared for equality, so bumping for an addition makes every existing file unreadable — `sources.json` gained `summary` without a bump, an older document simply reads it as absent, and an older build reading a newer one drops a field it does not know instead of refusing to start.
-
-**A destructive command says what is lost, then asks.** `reset` lists what the catalog holds before removing it, and distinguishes what a rescan brings back from what it does not — the watched folders, the integrity verdicts and the imported analyses. With no terminal to ask on it refuses instead of assuming: assuming "no" makes a scripted reset fail without saying why, assuming "yes" removes something nobody agreed to lose. `--yes` is the explicit consent.
-
-**A short option is the long one written shorter.** `args::SHORT` resolves it to a long name and everything downstream — values, guards, the missing-value check — sees one option. Aliases stay few: four saved keystrokes cost a documented line for ever, so they are worth it only where the option is typed constantly (`-o`, `-j`, `-h`, `-V`).
-
-**The help is part of the contract, and one table proves it.** `main::COMMANDS` is the single list of every command, its alias and the function it runs: the dispatcher reads it, and a test walks it demanding that the help name each one. That test exists because the rule had been written for `help` itself and left untested, and two commands — `find` and `favorites` — then worked for a week without appearing anywhere in the help. A rule with no test behind it is a preference.
-
-**The help is part of the contract.** An option printed under a heading that names the one command it does not work on is a lie that costs more than a missing line. Each option in `print_help` says where it applies, and a test asserts the help names every filter option the parser accepts — the same claim, checked from both ends. A command's own line in COMMANDS names the filters it honours, too: for most readers that line is the whole help, so `--year`, honoured by `albums` and named only in the section below, existed for them nowhere. It runs the other way as well — `help` answered for months without appearing in its own list of commands.
-
-**One guard list per question, not one per set of commands that happen to agree today.** `--forget`, `--list` and `--source` shared `SAID_ELSEWHERE_COMMANDS`, which was true of the three commands they then applied to and made a coincidence look like a rule: `fingerprint` can list what it holds, has nothing to forget and no source to select. The same trap caught `missing`, added to `PAGING_COMMANDS` for `--all` alone and thereby handed `--limit` and `--offset` it did not honour. **When a guard table tempts you into an exception, the exception is usually a second list.**
-
-**An option a command cannot honour is refused.** `main.rs` holds `CSV_COMMANDS`, `M3U_COMMANDS` and `OUTPUT_COMMANDS`: the global option list only says an option exists, these say where it means something. Accepting `--csv` on `stats` and doing nothing is the same fault as swallowing a misspelled option — worse, in fact, since the command then reports success. Adding an option means adding it to a list here, or it will be silently ignored somewhere — **and the table has to be complete, not growing.** This fault was fixed three times one option at a time (`--csv`, then `--genre`/`--label`, then `--artist`/`--year`) while fourteen others stayed unguarded: `aede stats --severity=error`, `aede albums --full`, `aede artists --with Miles` all answered cheerfully and dropped the word. Fixing a class one member at a time is how the class survives. One end-to-end test now walks the whole list, and a new option that is not in the table fails it. Two corners the table cannot see, and which have their own checks: an option that needs _another option_ rather than a command (`--separator` and `--tracks` are meaningless without `--csv`), and a **value** the option cannot read — `--sort banana`, `--severity=banana`, `--threads abc` and `--year=abc` all used to fall back on a default and answer a different question. Every option that takes a value reads it strictly, through `Args::whole_number`/`Args::number_or` for numbers or an explicit match for keywords; there is no such thing as a silent fallback.
-
-The guard is only half of it, though, and the cheaper half. **Adding an option to the table where it is refused is not the same as deciding where it belongs.** `--json` was guarded to the four commands that read it, which was accurate and still wrong: every listing and every page could produce a CSV of exactly the rows a JSON would carry, and the option had simply never been wired to them. Refusing it there made a nine-month silence look like a decision. So the question a guard entry raises is _why not here_ — and when the answer is "no reason", the fix is to implement it, not to forbid it. `export::rows_table` now renders both formats from one set of rows, which is what makes "a column exists in one and not the other" impossible rather than merely unlikely; a test walks the CSV header and demands every column in the JSON. `--artist` and `--year` were the proof: declared, documented, guarded nowhere, so `aede artists --year=1969` answered about every year. A filter whose value does not parse is refused for the same reason — `--year=abc` used to become no filter at all, which is the whole library returned under a name that promised one year.
-
-An option the program has never heard of is refused too, and **before anything answers, `--help` and `--version` included**. It used to be a warning: `aede albums --limite=5` put one line on the error stream and the whole unlimited listing on the standard one, and the answer is the half that gets read. `aede --fegioregj` printed a cheerful help page — the same silence in a friendlier costume, since the page says nothing about the command line having failed to parse. `args::nearest` proposes the closest known option within a third of the typed length, and `args::as_typed` quotes the option back in the spelling it was typed in, `-z` and not `--z`. The rule that covers all of it: **a command either answers the question it was asked or refuses; it never answers a different one.** Warning and carrying on is answering a different one, and so is printing the help. `aede --data ~/music` named a catalog, did nothing with it, printed the whole help and reported success — the option going into the void exactly as a swallowed argument does, with a page of text making it look like an answer. Running the program with nothing at all still asks for the help, and so does an option that only shapes what is printed (`PRESENTATION_OPTIONS`), because `--no-color` has the help itself to act on. Anything else with no command is refused.
-
-**Every entity deserves a page, and every page a filter.** The model is a graph; a listing that counts genres without letting you open one is a dead end. `artist`, `album`, `track`, `genre` and `label` each have a singular page, and what a page gathers is a selection — so `--csv` and `--m3u` work on it, through `commands::selection_output`, without the command knowing anything about them. Adding an entity kind means adding its page.
-
-**What is shown is what is accepted.** `commands::ROLE_NAMES` is one table read in both directions — `role_label` for display, `role_key` for input — because a one-way `match` produced a message that denied a role and listed it in the same breath: the screen said "album artist", the parser wanted "album". Anything the interface prints as a name must be typeable back in, and an error offering alternatives offers them in the spelling it displays them in. The same applies to any vocabulary added later.
-
-**A rule the first implementation honours is a rule three later ones will not.** The ordinary fetch read the names typed after it and narrowed to them. The three second passes did not — `aede fetch --discography mika` browsed the whole library and never said the word had been ignored, which is the swallowed argument this program refuses everywhere it has thought about it. The matching now lives in one place, `fetch::reaches`, and every pass calls it. **When behaviour is described in a doc comment rather than shared as a function, the second caller reimplements it and the third forgets it** — and the give-away is a rule stated in prose on one function and nowhere in the code.
-
-**Nine parameters is a signature that has stopped being read.** `covers::run` grew one at a time — a name, a size, `--images`, `--dry-run` — until clippy counted them. They are gathered into `fetch::Asked` now, which also makes the three passes the same shape, so a fourth is a call that looks like the others rather than a new argument list to invent. `size` and `images` sit there although only one pass reads them: the struct means *what the reader asked for*, not *what this callee needs*.
-
-**A dispatcher written as a row of `return`s silently drops everything after the first.** `fetch` chose its second pass with three `if … { return }`, so `--covers --discography` ran the covers and dropped the discography without a word — the exact fault this program refuses everywhere else, hiding in the shape of the code rather than in a decision anybody made. `Pass::asked_for` now collects the options into a list and runs them all. **When several options select rather than configure, collect them; a chain of early returns encodes "the first one wins" without ever saying so**, and nobody reviewing it sees a choice being made. The order is fixed in the enum and not taken from the command line, because the passes go outward from the artist and the reverse order would ask about albums before the fetch that names them — and it is printed when more than one runs, since an order the reader did not choose has to be stated.
-
-**A conclusion about the bytes is not a claim by a source, and the two are stored apart.** A fingerprint is computed here — nobody told us — so it sits on `AudioFile` beside the integrity verdict, carried across a rescan by the same size-and-mtime rule and dropped the same way when the file changes, because a modified file is different audio and its old fingerprint describes something that is no longer there. What **AcoustID answers** when shown one is somebody else's claim and goes in `sources.json` with every other source's. Both halves are about the same file and they are not the same kind of thing; a program that filed them together would have no way to say which of them it had reason to doubt.
-
-**Never assert somebody else's build options.** `fingerprint.rs` said Debian, Ubuntu *and Homebrew* all ship ffmpeg with chromaprint. Two of the three were checked; the third was written as a fact and was wrong, and a reader pasted the `configuration:` line of a fresh `brew install ffmpeg` to prove it. **A build option is a property of somebody else's packaging decision**, and the program has no business claiming one it has not seen — which is why the availability check asks the muxer list rather than a version string, and why the message now names the right fix per platform instead of one list for everyone.
-
-**The fingerprint's second use is worth more than its first.** It was built to name untagged files; what it also does is prove that two files are the same recording, which the tag-based duplicate check cannot — that one compares artist, title and duration, so it only finds copies whose *tags* already agree. `IssueKind::SameAudio` says "the same audio" where the older one says "likely duplicate", and the difference in wording is the difference between a measurement and a guess: a reader about to delete a file needs to know which they have. **When a new signal arrives, look at what it settles as well as at what it was for.**
-
-**Check the tags before decoding: the answer is often already in them.** A file that has been through Picard carries `musicbrainz_recordingid` — precisely what an AcoustID lookup would answer with — so `fingerprint` skips it, and for a well-tagged library the whole feature has almost nothing to do. That is the correct outcome, not a disappointment. It is the Discogs note's lesson a second time, and it is worth stating as a habit: **before spending a request or a minute of CPU on a service, ask whether the identifier is already in hand.** `--full` lifts the skip, because a *wrong* recording identifier is the one thing nothing else here can catch. The question is asked of `Track::mbid` rather than of the raw tags, so the spelling table that knows ID3 calls it `MUSICBRAINZ_TRACKID` stays in one place.
-
-**It identifies; it never corrects.** AcoustID can name an untagged file, and the obvious next step — writing the answer into the tags — does not exist and must not. A fingerprint match is a strong guess that is wrong in picturable ways (two masterings of one recording fingerprint alike), so a program that retagged on the strength of one would trade a library nobody has checked for a library nobody *can* check. It is stored as `Matched`, never `Identified`, with the score kept and shown, and the disagreement is reported for a person to settle in their own tagger. This is the same rule as **Aède never writes into an audio file**, arrived at from the other direction.
-
-**A percentage stores; a float does not.** The service states a fraction and the record keeps a `u8` per cent. A stored float makes two records that are the same answer compare unequal, denies the whole type `Eq`, and buys a precision — 98.12 % against 98 % — that nobody acts on. **Round at the boundary, and store the number a reader would compare.**
-
-**An expensive computation and a cheap request are two commands.** `aede fingerprint` decodes, which is minutes over a library; `fetch --identify` asks, which is one small request per file. Folded into one, a network pass that failed halfway would have to decode everything again to be retried. The split is the one `aede extract` and `fetch --covers` already have, and here the cost asymmetry makes it not a matter of taste.
-
-**A short form is derived, never invented.** "How do I type United Kingdom?" has an obvious wrong answer — a table of synonyms, UK / GB / Great Britain / Royaume-Uni — and it is a slope with no bottom: whose vernacular, in which language, maintained by whom. `places::find` resolves in four steps and **every one of them comes from the source or from the name itself**: the exact name, the ISO code MusicBrainz states, the initials of a multi-word name (`United Kingdom` → `uk`, computed, so no country has to be known in advance), then any substring. `USA` and `Royaume-Uni` are refused, and that is the answer rather than a gap. The first three report `TitleMatch::Exact` because each names exactly one country — telling a reader their `uk` "partly matched" would be false modesty about a certainty — and only the substring step widens and says so. The corollary is that **the accepted forms are a column in `aede countries`**: a spelling that works and is displayed nowhere is a spelling nobody has, which is the same rule that makes `--role "album artist"` work.
-
-**Derived is not the same as usable, and one column for two authorities is a lie of layout.** Both halves of that came back from one reader's table. First: MusicBrainz answers the **most specific area** it holds for an artist, so `aede countries` is not a list of countries — a shelf produced a row for *County Antrim*, whose initials are `CA`, in a library that also holds Canadians. Initials derived from a name are invented by nobody, which is what the rule above asks for, and it is not enough: a short form has to name **one** place. `keep_usable_initials` drops them when two places derive the same ones, when they are some other place's ISO code (an authority assigned that; this program assigned the initials, and a tie between the two is not a tie), and when they repeat their own place's code. The collision is a property of *this* library rather than of a world atlas the program does not hold, so a shelf with no Canadian keeps `CA` for County Antrim. The row itself is never dropped: refusing to list what the source said would be overruling it. Second: the code and the initials shared an `Also` column, and `US` — the initials of "United States" — made a table whose codes were **all missing** look like a table of codes, while Canada, a one-word name with nothing to derive, looked like a country with no short form rather than one nobody had re-fetched. Two columns now, and the count of places with no code is on screen with the command that fills them. **What an authority assigned and what this program worked out must be told apart on sight** — and the deduplication between them lives on the data, not at the point of display, because there were three points of display and the newest one printed `US` twice.
-
-**Keeping one of two fields the source stated is losing data, even when the two say the same thing.** `artist_facts` read MusicBrainz's `country` code only as a fallback for a missing `area.name`, and dropped it otherwise — so the short form, the half a reader actually reaches for, was thrown away whenever the long one was present. Both are kept now. A field added late is `Option` and absent from every older record, which is not a migration to write but a state to word: those artists keep their country and simply cannot be reached by its code until the next fetch, and one artist fetched since is enough to give the whole country its code, because the code is a property of the place and not of whoever was asked about first.
-
-**A filter may read from outside the catalog, and then it owes three messages instead of one.** `--country` is the first: there is no usable tag for where an artist is from — `RELEASECOUNTRY` is about a pressing, a different question answered wrongly — so the fact comes from MusicBrainz and lives in the attributed layer. That makes the empty answer ambiguous in a way no other filter's is, and `places::asked_about` exists to disambiguate it: *nothing has been fetched* (there is a next step, and it is named), *fetched and no area came back* (there is no next step, and saying "no country matches" would send the reader hunting a spelling mistake), and *no such country* (run `aede countries`). One sentence for the three would be the `fetch --covers` fault again, in a listing this time. **The vocabulary is still read from the data** — no table of countries is written down anywhere, the way `roles_in_use` reads roles from the credits — so a reader types the name MusicBrainz gave and `aede countries` is the list.
-
-**A heading that contradicts its own table is a bug, and the fix belongs in one place.** `list_artists` computes `narrowed` precisely so that any filter switches the heading from "N in total" to "N matching"; adding `--country` without adding it there printed "Artists (4 in total)" above two rows. The flag is the mechanism — **when you add a filter, the thing to update is the predicate that knows a filter exists**, not the heading.
-
-**A role is a question asked in both directions.** `Catalog::artists_in_role` answers "who does this here", `Catalog::tracks_of_artist_in_role` answers "what did this person do in that role", and `--role` carries both readings depending on whether it is attached to the listing or to a page. That inversion is the whole reason the `credit` table stores a role rather than being a bare artist column. `Catalog::roles_in_use` reads the vocabulary from the credits rather than from a fixed list — a role arriving from MusicBrainz at M1 must work without a line of code. A role needs a person, which is why `album` and `track` refuse it and say so: there, `--artist` is the filter.
-
-**A column headed with a unit counts that unit, and two tables on one page must agree.** The Artists table of a facet page is headed _Tracks_ and was counting **credits**: a band credited as main artist and as performer on each of its own tracks — the ordinary shape of a well-tagged file — showed 57 for the 29 tracks the albums table listed directly above it. Both numbers were on screen at once, which is what made it a defect rather than a curiosity: a page that contradicts itself teaches the user to distrust every figure on it. `facet::tracks_per_artist` folds the roles per track before counting, and its unit tests bound each count by the number of tracks the page holds. Any figure derived from the `credit` table is a count of credits until something makes it otherwise.
-
-**A page that answers does not open by denying.** `aede label earache` printed _no label is called "earache"_ immediately above a heading reading **Earache Records**, while `aede albums --label earache` narrowed on the same text without a word — the note was reporting the mechanism (exact lookup missed, substring lookup ran) to a user who had asked a question and got it answered. `facet::match_note` speaks only when the heading cannot: one name is its own explanation, several need saying, since the heading joins them with commas and reads as one. A note earns its line by carrying something not already on screen.
-
-**The catalog is shared; what a person says is theirs.** There will be user accounts — the Subsonic surface at M2.5 has them by definition, and Aède's own front end will want them. The line to hold from now, before there is anything to migrate, is the one between the two kinds of data:
-
-- **Facts about the files** — files, tracks, releases, artists, credits, relations, genres, labels, integrity verdicts, imported analyses. Read from the disk or measured on it, identical for everyone, and belonging to the catalog. Two people looking at the same library see the same facts.
-- **What someone said or did** — favourites, ratings, notes, user tags, play history and counts, queues, saved queries. These belong to a person, always, even when there is exactly one.
-
-The rule that follows: **no per-user field ever lands on a catalog entity.** A `rating` on `Release` or a `play_count` on `Track` reads as harmless while there is one user and becomes a question with no answer — _whose?_ — the day there are two, and by then every read in the program assumes the single answer. As of M0 the boundary is intact: every table in `Catalog` is a fact. Keeping it that way costs nothing; repairing it later costs everything downstream of it.
-
-And the shape that makes the migration never happen: **a per-user record carries an owner from the first version in which it exists**, and every read filters by it, even when the only owner is the local one. The single-user case is then the multi-user case with one user — the same code path, exercised on every run, rather than a second path written blind years later. Same reasoning as `args::Window` and `EntityRef`: one reading for the whole program, decided once.
-
-What M0 deliberately does _not_ decide: authentication (M2's problem, and Subsonic's legacy scheme must stay inside the compatibility layer rather than reaching the model) and authorization. The working assumption to argue against rather than from: the library is shared and only the annotations are private; scanning, importing and resetting are the owner's, not a listener's. The catalog itself has no owner, and that is a decision rather than an omission.
-
-**What the user writes is the only irreplaceable thing here, and it is treated that way.** `user.rs` holds it: favourites, ratings, notes, free tags, plays. Four rules, each of which has already cost this project something once.
-
-_Its own file._ `user.json`, with its own `USER_FORMAT_VERSION`, never inside the catalog. The catalog is derived from the disk and written whole; a rating that changes on a keystroke has no business rewriting a library, and `reset` says out loud that it is not taking this file with it.
-
-_Never keyed by an identifier._ `EntityRef` names a thing the way the thing names itself — a path for a track, `artist|title|folder` for a release, the normalized key for the rest. Catalog identifiers are positions a scan renumbers, which is exactly how the imported analyses were lost the first time.
-
-_Never dropped._ `user::reconcile` runs on every read. A target that no longer resolves is retried by file name, and rewritten only when **one** file matches — two candidates give no reason to prefer either, and moving somebody's note onto the wrong track is worse than leaving it waiting, because nothing on screen would ever say so. What still does not resolve is kept: the drive may simply be unplugged.
-
-_A note is text, and text is kept as given._ One note per entity, stored byte for byte: no wrapping, no trimming, no reflowing, and no rendering. `--file` and `--file -` exist because a written thing does not fit between two quotation marks on a command line. Markdown is the intended format and is the **front end's** business at M2 — which makes the note untrusted input that must be escaped before it reaches any HTML, and makes any "helpful" rewriting on the way in a defect: the day Aède reformats a note is the day the note stops being the user's. On a page it gets a section of its own rather than a row among the stars and the tags, because a rating is a label on a thing and a note is something somebody wrote.
-
-_One record, not four._ A favourite, a rating, a note and a set of tags are four ways of having an opinion about one thing. `Annotation` holds all four, which is what makes copying everything said about one album onto another (`note --from`) a record copy rather than a loop, and `forget_empty` is what stops an emptied record from surviving as a shell.
-
-The bounded log and the unbounded counters are two structures on purpose: the log answers "what did I listen to last night", the counters answer "what have I never heard", and a truncated log cannot do the second — which is the question M3's `discover` shuffle asks.
-
-**A query is an interface, not a storage engine.** `query.rs` defines the grammar on its own terms, so it works today over the vectors in memory and tomorrow over SQL; defined as "whatever the database makes easy" it would arrive late and shaped by the wrong concerns. Three rules hold it together.
-
-_It evaluates over tracks, always._ A track is the finest grain and every coarser answer is a fold of it — the albums matching a query are the albums of its tracks. One evaluator, not five, and what comes out is a **selection**, which is already what `--csv`, `--m3u` and M3's queue consume. That is what makes a saved query a smart collection and a smart collection playable, with nothing new built.
-
-_A field says where an opinion was written._ `rating` is the track's, `album.rating` the album's, `artist.rating` the artist's. Folding the three together would make "rated five stars" mean something different depending on where the user happened to put the stars, and no message could say which was meant.
-
-_A value that cannot be compared is absent, not zero._ A track with no year does not satisfy `year:<2000`; counting the missing as zero would file every untagged file under "before 1970" — an answer, and a wrong one. Same reasoning as the strict option values: no silent substitution, ever.
-
-_A saved query holds the question._ `user::Collection` keeps the expression as written, never the result — that is the whole difference between a smart collection and a playlist, and it is why running one produces a selection and costs nothing to play. It is parsed **when it is saved**, because a collection that only fails when somebody opens it is a trap left for later. And a listing of collections that cannot parse one shows it anyway, with `?` for its size: a grammar that drops a field must not take the whole screen down with it.
-
-_An import merges; nothing here ever replaces._ `user::merge` is the only way in. Someone restoring half a backup wants their two halves, and a replacing import would be the one operation in this program able to lose everything at once. Last write wins per record, the loser is counted out loud, play counters take the larger of the two, and an event is identified by owner, track and time so that importing twice changes nothing.
-
-_The options are shorthand for the grammar._ `browse::albums_query` turns `--genre`, `--year`, `--label`, `--comment`, `--artist` and the compilation flags into one expression, which the one evaluator answers. They used to be a second filter loop — two implementations of one question, and the day one changed nobody would have seen it. A test walks both doors and demands the same answer.
-
-One mapping there is a **decision, not a transcription**: `--artist` on an album listing means the _album artist_, so it becomes `albumartist:` and not `artist:`. The obvious mapping would have quietly listed every album an artist guests on as one of their own. No end-to-end test could catch it — the reference library holds no such guest — so it is tested on the expression the options build, where the decision is taken. When the fixtures cannot express a difference, test the decision rather than the outcome.
-
-`track` went the same way, and its mapping shows why the grammar had to exist first: `--artist` there means a credit **or** the album's own artist, which is an `OR` and therefore unsayable in options. What stays outside is stated rather than forgotten — `artists --role` answers about artists rather than tracks, and folding a track query into an artist answer loses the question; `artist --with` already calls one model function, so a query string there would add indirection without removing duplication.
-
-_A value naming nothing is a misunderstanding, not an empty result._ `query::unknown_values` reports a genre, label or artist the library has never heard of, and the commands refuse. Without it the grammar would have been a step backwards from the options it replaced, which drew that distinction already — the same one `artists --role` draws between a role nobody holds and a word that is no role.
-
-_Unknown sorts last, in both directions._ `query::sort` puts a track with no value for the key at the end whichever way round the sort was asked, which is why that test sits outside the reversal: "unknown" is not "smallest", and sorting by year must not open with everything nobody ever tagged. Ties fall back on catalog order, without which `--offset` would show one row twice and hide another.
-
-Adding a field means one row in `FIELD_NAMES` and one arm in `texts_of`/`number_of`. An unknown field names the ones that exist rather than shrugging, and a flag is accepted both as `loved` and as `loved:false`, since offering one spelling and refusing the other makes the refused one a trap.
-
-**A truncated list says so, and says where it stopped.** `args::Window` is the one reading of `--limit`, `--offset` and `--all` for the whole program, and `commands::announce_window` the one way of reporting it: `1–50 of 312 albums`, nothing at all when everything fit, and an explicit line when the window falls past the end. All five listings used to stop in silence, and sorted by year that made the most recent albums of a real library invisible — the header counting the matches is not enough, since nobody compares it against the rows they were handed.
-
-Paging is only meaningful because construction is deterministic: page two is the rows after page one, and that holds only while every listing sorts. The window is read **strictly** — `--limit abc` is an error, not a fall-back on the default — and `--limit=0` is refused in favour of `--all`, because a size of zero is never what anyone means and "everything" deserves a name rather than an encoding. Any new listing goes through `Window` and that helper.
-
-**A value that is a name may be typed in several words.** `args::VALUED_NAME` (`--artist`, `--album`, `--with`, `--genre`, `--label`) takes every word up to the next option; `args::VALUED_WORD` takes exactly one, because a number, a path or a keyword is one word. The bug this fixes was the worst kind: `artist Ozzy --with Jeff Beck` gave `--with` the word "Jeff", left "Beck" to be joined onto the positional, and went looking for an "Ozzy Beck" nobody had typed. A wrong answer built in silence is worse than a refusal — and here it is worse than being permissive too, since the shell has already split the words and only this program knows they were one name. Adding a name-valued option means adding it to the right list.
-
-**An option means the same thing wherever it is typed.** `--m3u` and `--csv` on `album`, `artist`, `track` and `search` all describe the tracks on screen, through one helper (`commands::selection_output`); `export` describes the catalog. A command that cannot honour an argument says so — `aede export "an album"` is an error, never a full export under a name that promised a selection.
-
-**Each export answers one question.** JSON is the faithful dump and mirrors the model; CSV is a flat table for a spreadsheet, denormalized on purpose and carrying raw values, since a formatted column cannot be summed; M3U exports a selection, not the catalog. Adding a format means saying which question it answers that the other three do not.
-
-**An argument a command cannot read is refused.** The twin of the rule above, and it bit later: `main.rs::takes_no_argument` names the commands that read only their options, and a positional given to one of them is an error pointing at the command that does take it. `aede artists ozzy --role producer` listed every producer with "ozzy" going into the void — an answer that looks right is worse than one that fails.
-
-**A count of zero is an answer; an empty screen is not.** `stats` prints the credit vocabulary the library actually holds, so `--role composer` returning nothing can be told apart from a bug. Wherever a filter can legitimately match nothing, something must let the user see the domain it filters over — otherwise every empty result reads as a defect, and the user is right to think so.
-
-**A filter is visible or it is not a filter.** `albums` prints the facets it narrowed on, because a filter that leaves the count unchanged cannot be told from one that was ignored — and this project shipped `--genre` and `--label` declared in the option list and honoured nowhere for months. A filter matching nothing is an **error** naming where to look, never an empty listing: an empty listing reads as an empty library.
-
-**A folder given to a command is walked whole.** `import` recurses, because reports are filed the way albums are — one folder per artist, one per album — and a walk that stopped at the top level would report "nothing found" on the folder the user actually meant. The same applies to any folder argument added later.
-
-**The persisted JSON mirrors `schema.sql`.** One key in the file equals one table in the schema. Adding a field to the model means reflecting it in both. That is what will make the move to SQLite mechanical.
-
-**The same album twice is two releases and one relation.** Never merge two folders into one release: they are two sets of files, and the folder is what the user acts on. `model::DUPLICATE` and `model::OTHER_EDITION` say which case it is — same track list and same encoding, or same track list and a different one. Reporting belongs to the album level: a copied album is one issue, not one per track, and an other edition is information rather than a warning.
-
-**Roles are not interchangeable.** `model::is_performing_role` separates being audible on a recording from having written or produced it. The distinction drives the artist page, the performer rankings and the collaboration graph; ignoring it puts other people's albums in an artist's discography.
-
-A figure derived from it carries the name of the role class it counts. An artist page shows `performing:` and `writing:`, never a bare total: tags credit the band, not its members, so a lyricist with forty albums has zero performing credits and the unlabelled zero read as an error.
-
-The two lines are **not a partition**, and must not be made into one. Someone who writes what they sing belongs in both, because writing it and playing it are two facts about the same track, not two halves of one. The page also holds _display_ sets that do subtract — `releases_written_without_performing`, `written_tracks_without_performing` — so a table does not repeat what the table above it already showed. Those exist to be printed, never to be counted: reporting one as `writing:` announced Ozzy Osbourne, sixty-nine composer credits, as writing a single track. A method whose result is a display set says so in its name, and a summary line reads from the measure, never from the size of a table.
-
-**A command answers its question, whatever the work was.** `check` prints the same table whether it read a thousand files or none: the state of the library, then a line about this run. It used to withhold the verdicts precisely when everything was already verified, leaving "every file already has a verdict" and no way to learn _which_. A shape that changes with the outcome is a shape nobody can learn — the same rule that keeps a listing looking identical whether it matched one row or a thousand. State and run are separate lines because they count different things.
-
-**"Not checked" is not "nothing to check".** An absent integrity verdict means no one has looked yet, and that can change; `Verdict::NothingToCheck` means the container carries no checksum, and that never will. Collapsing the two would have the user re-running `aede check` forever on their MP3s. The same distinction holds in the JSON, in `schema.sql` and in whatever the interface ends up drawing.
-
-**A verdict belongs to the bytes it was reached on.** `integrity` travels with the file entry: a scan that reuses an unchanged file keeps it, a scan that re-reads a modified one drops it. Never carry a verdict across a change of size or date. An imported analysis follows the same rule from the other side: `FileAnalysis::still_applies` compares the size and date the other tool saw against the ones the catalog holds, and nothing acts on a record that fails it.
-
-**A measurement carries who made it.** Imported analyses live in their own table, attributed to their source, and are never merged into Aède's own fields. A bit depth read from the wasted-bits counts and one obtained by decoding are two different claims; merging them loses the provenance and, worse, hides the case where they disagree. Noticing the disagreement is the whole reason to keep the data. `doctor` reports an MD5 mismatch as an **error** even when `aede check` said intact — the frame checksums prove the container, the MD5 proves the audio, and passing one while failing the other is a finding, not a contradiction to arbitrate.
-
-**A folder identifies a release; a _disc_ folder does not.** `Release` is keyed on `title|album artist|folder`, and the folder is there to tell two editions apart. `Album/Disc 1` and `Album/Disc 2` are not two editions, so `text::disc_folder` recognises that shape and the builder keys on the parent. One Final Fantasy VII soundtrack was coming back as two albums of the same name, each numbering from one — and the disc-number rendering added just before it was correct and never fired, because no release ever spanned two discs. Two lessons worth keeping: a display that never triggers is a signal to check the _model_, not the display; and when a key is made of several parts, ask of each new layout whether every part still means what it meant.
-
-**A scan may not destroy what it cannot recompute.** Imported analyses travel with the catalog a scan rebuilds. Tags, durations and the graph all come back from reading the files again; an hour of someone else's decoding does not. Anything future that is entered rather than read belongs in that same carry-over.
-
-**Entered data is keyed by path, not by identifier.** Identifiers are positions that every scan renumbers, so anything not rebuilt by the scan would have to be remapped after it — and, worse, could not exist before it. `FileAnalysis` therefore carries the path it describes and no id. That is what lets a report be imported into an empty catalog and attach itself later, which makes the order of "analyse" and "scan" irrelevant. A record whose file the catalog does not hold is waiting, not broken: it is counted (`Catalog::pending_analyses`), reported, and never diagnosed as a defect.
-
-**Matching a file is not the same as describing it.** `analysis::merge_into` is the single place that decides which file a record is about — by path, then by name and size — and both routes end in the same `still_applies` test against that file's size and date. The fallback bypassing it was a real bug: a name and a size can agree while the modification date says the tags were rewritten yesterday. `analysis::reconcile` re-tries the waiting records after a scan, which is what makes a report written against a symbolic link (or `/var` against a canonical `/private/var`) attach at all. Never re-implement this matching in a caller — the scan and `import` share it precisely so the two cannot drift.
-
-**A count that cannot be acted on is half an answer.** `doctor` says how many imported analyses are still waiting for a scan; a user who has already scanned and sees the number unmoved has no way, from a count alone, to tell "not scanned yet" from "will never match — the report was exported against a library that has since moved or was renamed". `Catalog::pending_analyses_list` names them, `aede import --pending` shows them, and `aede import --forget --pending [folder…]` drops exactly that set without touching analyses that did attach. `Catalog::pending_analyses` is defined as `pending_analyses_list().len()` rather than a second copy of the same filter, so the two can never disagree about what "pending" means.
-
-**A listing is grouped by the unit the reader acts on.** Waiting analyses are reported **by folder with a count**, never one row per file — both by `import --pending` and by the import summary (`Attachment::waiting_folders`). A report covering a fourteen-track album is one decision, and fourteen rows spend the screen to say it once. The corollary is that the folder column is left _unbounded_ while every other path column in the program uses `Table::path_limit`: that helper cuts the **head** off a path because the file name is what identifies a file — true everywhere except here, where nobody wants a file. `…/1980 Blizzard of Ozz/01 I Don't Know.flac` is precisely the useless half. Before reaching for `path_limit`, ask which end of the path answers the question on screen.
-
-**The one command that writes files writes them outside.** `copy` is the only thing in the program that creates files, and its destination is by definition not a library: it is never scanned, never becomes a catalog, and nothing about it comes back in. Three refusals enforce that rather than documenting it — a destination that does not exist (a missing folder is a drive that is not plugged in, and creating it fills the internal disk instead), a destination under a watched root (the next scan would read the copies back in and `doctor` would report every album as its own duplicate), and a destination without room (checked before the first byte, not discovered on the last album). `copy::plan` decides everything and touches nothing; only the caller writes. That split is what makes `--dry-run` a consequence of the design rather than a feature bolted onto it, and what lets every placement decision be tested without a filesystem.
-
-**A path from the command line is canonicalized before it is compared.** `commands::canonical` is the one place that does it, and every path a command receives and will match against a stored one goes through it. Watched roots are stored canonical and the comparisons are string comparisons on a separator boundary, so a path reached through a symbolic link names the same folder by a string that never compares equal — and on macOS that is the _ordinary_ case, `/var` being a link to `/private/var`. The step existed four times, spelled four ways, in `scan`, `roots`, `check` and `copy`; `copy` — the one command that writes — was the one that had left it out, so its "this destination is inside your library" refusal waved through exactly the case it exists to catch. The bug reached the user because both the code and its test were written on Linux, where `/tmp` is not a link. **When a guard compares a user-supplied path against a stored one, the regression test must reach it through a symlink**, which is the portable way to reproduce what macOS does by default.
-
-**An external program is not a dependency, and the difference is load-bearing.** `--compress` runs ffmpeg; nothing is linked, nothing is vendored, and a checkout without ffmpeg builds and passes its tests. That is what makes it acceptable under the dependency rule, and it comes with obligations: the program is looked for **once, before the first byte is written** (not per file, and not after half a copy), its absence is a sentence saying how to install it, and the tests that need it skip themselves _loudly_ rather than failing or — worse — silently not running.
-
-**A scan may not destroy what it cannot recompute — and the list keeps growing.** Imported analyses, and now the scan **exclusions**. Both are typed by the user and derived from no file, so `scan::scan`, which rebuilds the catalog from what it reads, has to carry them across explicitly. The exclusions shipped without that line in their first version, and the symptom was precise and baffling: an exclusion that worked on the run that set it and vanished on the next. When adding any field to `Catalog`, the question is not "does it round-trip through `store`" but "does a **rebuild** keep it" — those are different questions and only the second one is about `scan.rs`.
-
-**Decided for M1, before there is any code to argue with: a MusicBrainz value sits beside the tag, never on top of it.** The precedent is `analysis` — attributed to its source, never merged, which is the only reason `doctor` can say two methods disagree. Overwriting the `genre` field with a MusicBrainz genre would lose the provenance, lose the disagreement, and lose the undo; and being derived from no file, it would not survive the next scan's rebuild either (see the rule above). M1 therefore gets its own attributed layer, carried across a rescan, removable, with the display choosing which value to show. Anything in M1 that proposes to write into the fields the tags fill is a design change to raise, not an implementation detail. **And it is stored whole, including where it agrees with the tag**: "checked and matches" and "never checked" are two different states, and a layer that recorded only divergences could not tell them apart — nor answer "does my tag still match" offline the day after the user re-tags a file. Raw tags are already kept per file for the same reason.
-
-**A design that is right can still answer badly.** A bare `loved` asks about the track, and that is correct — five stars on an artist is not five stars on a track. But somebody who marked an _album_ a favourite types `loved`, is told nothing matches, and concludes the feature is broken: the semantics were right and the _answer_ was misleading. `query::rescoped` re-asks the same question at the album and artist scopes when the result is empty, and the empty answer names the scope that holds something, offering an expression that can be typed back in. The query still means exactly what it says. Generalise this rather than the fix: where a correct-but-surprising rule produces an empty result, the empty result is the place to explain the rule — not the rule's place to bend.
-
-**Two emptinesses, two explanations.** A listing shows no rows either because nothing matched or because the page asked for lies past the last row, and `announce_window` explained both with the paging sentence. Harmless while the listings could only be paged; misleading the day they learned `--query`, where `aede artists --query "year:2050"` answered "0 artist in all, and --offset=0 starts past the end" — sending the reader after a page number they never typed. A message that covers two states has to name the one it is in, and the give-away is a value in it that reads as absurd (`0 in all`, `--offset=0 ... past the end`).
-
-**Before calling something missing, look for it in the rest of the library.** `doctor` learned to report a whole disc absent from a set — `disctotal` says four, three are here — and the first version of it reported a false one on a layout that is common in the wild: `Box CD1` beside `Box CD2`, sibling folders rather than a child of a common parent, which the disc-folder rule does not recognise. That is two releases of the same album, each announcing two discs and holding one, each pointing at the other as lost. The check now consults every release sharing the album key (title and album artist, deliberately _without_ the folder that identifies an edition) before it speaks. The general shape: an absence is a claim about the whole library, and it cannot be established from one record in it.
-
-**A fact and an inference are not reported the same way.** An imported report carries both, and `doctor` used to relay them alike: a failed MD5 — two methods compared a checksum and disagreed, and `check` can settle it — beside "early roll-off at 33 kHz, possible transcoding", which is a heuristic its own author hedges. The label flattened the hedge on the way through: `made from a lossy source` headed a line whose detail said _possibly_, and `upsampled` was filed under the same heading though upsampling is not a lossy ancestry. On a 1988 analogue master, where nothing above 30 kHz exists to begin with, a faithful 24/96 transfer looks exactly like the thing being warned about. The spectral verdicts are now imported, stored, kept fresh and said nowhere; `analysis::FileAnalysis::suspect_encoding` is called by nothing, on purpose, and the measurements they are drawn from stay on the file's page. **Relaying another program's guess as your own warning is a category error, not a display detail** — and the test that guards it asserts an absence, which is the only shape that catches a line coming back.
-
-**A store that only shows its failures cannot be trusted about its successes.** `import --pending` listed what had failed to attach; nothing listed what had attached. So a report imported over an artist whose files are clean produced no waiting line, no `doctor` entry and no message at all — every symptom of having done nothing, and the user reasonably concluded the import was broken. `--list` is the missing half, and it reports **three** fates rather than two: attached, waiting, and _stale_ (attached to a file whose bytes changed since), the third being invisible everywhere else and the one that silently voids a verdict. The same asymmetry existed one level up: both readings — Aède's own `check` and the imported one — lived on the _track_ page only, so verifying an album took one command per track. Generalise it: for every "what went wrong" listing, ask what shows the population it was drawn from.
-
-**An instruction the program can carry out is a chore handed back.** Three commands ended by printing "run `aede scan` to drop them", and a user who forgets is left with a catalog describing a library they no longer have — with nothing on screen saying so. `roots --remove` and `roots --exclude` now run that scan themselves (`commands::scan::take_effect`), with `--no-scan` for the person dropping four folders in a row. Two things make it work rather than merely convenient: the automatic scan takes its roots from the **catalog only** (`Watched::Only`), because the positional of `aede roots --remove ~/Music` is the folder being dropped and feeding it to `resolve_roots` would add it straight back; and **`reset` is deliberately excluded** — it destroys what a scan cannot rebuild, it is the one command that asks for confirmation, and rebuilding a catalog somebody just chose to throw away answers a question nobody asked. The general rule: a command that creates the need for another command should satisfy it, _unless_ the first command's whole purpose was to destroy something.
-
-**Two programs that draw the same picture must draw it identically.** `spectrum` reproduces FlacCompagnon's ffmpeg filter, size, colour map and gain character for character. The output _folder_ is the exception, and the distinction is worth keeping: it is called `spectrograms`, not FlacCompagnon's `spectres`, because matching a picture is what makes the pair comparable while matching a folder name buys nothing and leaves a French word in an English codebase. They are used on the same library, and the point of having two spectrograms is to compare them — a difference in scale or gain makes the pair unreadable while looking, individually, perfectly fine. Where a second tool's output will sit beside a first one's, matching it exactly is the feature, not laziness. The corollary held here too: `find_ffmpeg` and the "how to install it" message now live in `core::ffmpeg`, because two searches that could disagree about which ffmpeg is _the_ ffmpeg is one too many.
-
-**A freshness test asks the disk, not the catalog.** `spectrum::out_of_date` compares the picture's date with the **track's date on disk**, never with the `mtime` the catalog recorded at the last scan. Those are two different facts, and the catalog's is the wrong one: a library edited since would keep pictures of bytes nobody has any more, and the first version of the end-to-end test caught exactly that by touching a file without rescanning. Whenever a derived artifact is kept beside a source, the question is "was this made from what is there now", and only the source can answer it.
-
-**Freshness is asked of whatever the artifact is derived _from_.** Two commands write files beside the music and must do nothing on a second run, and they answer the question differently because they are derived from different things. A spectrogram is derived from one file's **bytes**, so `spectrum` compares modification dates. A playlist is derived from the **set** of tracks — adding one changes what the playlist should say without touching any file it already names — so `playlist` renders the text and compares it with what is on disk. Using a date there would miss the added track; using content for a PNG would mean drawing it to find out whether to draw it. Match the test to the derivation, not to the habit. Comparing the text has a second virtue: an unchanged playlist keeps its own modification date, which matters to whatever syncs the folder next.
-
-**Parallelism follows the work, not the machine.** Three commands do many small jobs and they do not get the same answer. `scan` and `spectrum` are arithmetic — reading tags, decoding and running an FFT — so they take every core. `copy` is two kinds of work in one command: `--compress` is an ffmpeg run per file and parallel, a plain copy is a queue at _one_ device where extra writers seek against each other (markedly so on cheap flash, and `--verify` doubles the traffic), so it stays at one. `playlist` renders a few kilobytes per album and threads would buy nothing but a mutex to reason about. `copy::workers` is where that decision lives, with a unit test on the decision itself — the end-to-end test can prove the pool copies everything correctly, never that it was faster, so the checkable part is _how many_, and that is what is asserted. `--threads` means the same thing everywhere and overrides all of it, which is why `scan::resolve_threads` is public rather than copied.
-
-**The manual is a folder, and its links are tested.** The README passed a hundred kilobytes doing two jobs at once — a manual for someone using the program and a notebook of why it is built this way — and it was relivered whole for every line that changed. It is now a front page (what this is, how to build it, the command table, an index) plus `docs/` for using it and `docs/design/` for the reasoning. The move turned every cross-reference from an anchor inside one document into a **path between files**, and those fail differently: a dead anchor sends the reader nowhere and they notice, a renamed page leaves a link that looks right in the source and 404s on the web. So `crates/aede-cli/tests/docs.rs` walks every `.md` in the repository and fails on a link that leads nowhere, plus a second test that fails on a page the README does not name — because the moment a document is split is the moment a page quietly leaves the manual with all its content intact. Adding a page means adding a row to the index; the test says so.
-
-**A path in the catalog, a text read on demand.** Lyrics arrive from two places and are stored two ways, and the difference is not an inconsistency. A tag carrying `LYRICS` is _already_ in the catalog, because raw tags are kept per file. A `.lrc` sidecar is not in the file, so writing its contents into `AudioFile::tags` would make the catalog state something the file does not say — `lyrics_path` holds where it is, and `lyrics::read` opens it when somebody asks. The general shape: store what the thing **is**, and where anything else can be found; a copy of a neighbouring file goes stale, a path does not. Note also that the sidecar is attached from the **walk**, never carried over from the previous scan: a `.lrc` dropped beside a track nobody touched must attach on the next run, and the track's own bytes have not changed to announce it — the same reasoning that makes cover art a property of the folder.
-
-**A comment and a note are not the same field.** The comment tag lives inside the audio file, put there by whoever tagged it; a note lives in `user.json`, put there by the person using Aède. `search --comments` and `search --notes` therefore stay two options with two sections, and must never be folded into one "free text" search: searching one is searching the library, searching the other is searching yourself, and a hit has to say by which route it was found.
-
-**One predicate answering two questions is one predicate too few.** `is_flag` decided both "does `field:true` mean a yes or a no" and "is this field's bare name a question", and those are not the same question. The consequence was a hole nobody could see: there was **no way at all** to ask which things carried a note, a tag or a rating — a bare `note` fell through to a text search for the word, `note:true` searched for the word "true", and the fallback in `flag_of` written to answer exactly this was unreachable code. `asks_whether_it_holds_anything` is now the second predicate. When a helper's name has an "or" in its meaning, it is two helpers.
-
-**A listing answers the grammar rather than growing filters.** `albums --query` folds a track selection into the releases holding them, because the grammar evaluates over tracks and the coarser question is a fold of the finer one. The expression is wrapped in brackets before being joined with the option terms: juxtaposition binds tighter than `OR`, so `--artist X --query "a OR b"` unbracketed reads as `(X AND a) OR b` — a listing quietly wider than what was asked for. The test for this needs an `OR` branch that **does** match the fixture, or both readings pass and it proves nothing; the first version of it did not, and did not.
-
-**An option is unhonourable by its _value_, not only by its command.** The guard table in `main.rs` answers "does this option mean anything on this command", and that is not the whole question: `--compress wav --quality 128k` passed every guard, reached the encoder, and was dropped on the floor because PCM has no quality knob. The user had asked for small files and would have got the largest possible. So an option whose meaning depends on another option's _value_ is checked where that value is known — here in `copy::quality`, which takes the target — and refused, not warned about: the check runs before a single file is read, so stopping costs nothing, whereas a warning scrolls past a plan and a progress line while the wrong run proceeds. Its mirror image counts too: an option that was honoured but had _nothing to do_ (`--compress mp3` over a selection already entirely MP3) must say so, or it reads as an option that was ignored.
-
-**Only a lossless source is ever encoded.** `copy::conversion_for` is the whole rule, and it settles three cases with one line: MP3 asked to become MP3 (re-encoding loses quality to produce the same thing), MP3 asked to become Opus (a second lossy pass over a first is audible), MP3 asked to become FLAC (larger, no better, and lossless in name only). Note the trap this created in testing: an end-to-end test using an MP3 source and an MP3 target passes even with the lossless rule deleted, because the "already in that format" branch catches it anyway. **The case that proves the rule is a lossy source with a _different_ target**, and the test was vacuous until it had one. Second time this class of vacuous test has appeared here — check which branch your assertion actually exercises.
-
-**Ask the destination, do not infer from its name.** Whether a volume accepts `?` and `:` in a file name is settled by writing one probe file into it, not by reading the filesystem type and consulting a table. The table is wrong exactly where it matters: a FUSE mount, an SMB share of a Windows folder and a card reader all report something it does not list, and the inference then has to guess. This generalises — where a cheap experiment answers a question about the environment, prefer it to a classification of the environment.
-
-**A derived copy is not the library.** Writing tags into a file `copy` produced is not the tag-rewriting this project refuses: the refusal protects _the user's_ files, whose mtime, integrity verdict and scan state all depend on not being touched. A copy has none of those. Keep the two apart in any future work — the moment `--compress` writes metadata into a transcoded file, it must be obvious that it is doing so to a derived artifact and never to a source.
-
-**Not every dot ends a name.** `copy::names::split_extension` recognises an extension rather than assuming the last dot introduces one, because `Vol. 1: Live` has a dot that does not. Assuming it made the stem `Vol` and put the disambiguating counter inside the title: `Vol (2). 1_ Live`. A test caught it. The same helper serves the reserved-name check, the shortening and the uniqueness counter, so the three cannot disagree about where a name ends.
-
-**Where a positional list meets an unquoted multi-word name, a separator decides — not a count.** `tag` takes `<kind> <name> <label[,label…]>`, and names are routinely typed unquoted (`aede tag album Kind of Blue jazz` predates the list). "Everything after the name" is therefore not a rule the parser can apply: nothing says where the name stopped. `split_tags` walks from the end and keeps taking words while a **comma** joins them, which adds the list reading without changing what any existing command line means. The residual ambiguity — an unquoted multi-word name with no label — is left as it was rather than papered over, and every confirmation names both the target and the labels so a misreading is visible. The general rule: when a new shape overlaps an old one, make the new shape opt-in by a token the old one never contained, and prove the old readings are untouched with tests that predate it.
-
-**An alias is the command, in every table.** `COMMANDS` is the one place an alias is written down, and `canonical()` resolves it _once_ in `main` before any guard runs. The eight guard tables (`CSV_COMMANDS`, `JSON_COMMANDS`, `M3U_COMMANDS`, `SORT_COMMANDS`, `PAGING_COMMANDS`, `OUTPUT_COMMANDS`, `takes_no_argument`, …) list canonical names only, and never learn that aliases exist. Before this, `find` and `favorites` dispatched correctly and were refused their options on the way there, which produced a program contradicting itself in one breath: `aede find … --csv` answered that "find" cannot produce a table and then listed `query` among those that can. The general shape is worth recognising — a fact known to one part of the program and hand-copied into eight others will be right in seven of them.
-
-**A destructive command may not swallow an argument.** `aede import --forget <folder>` used to ignore the folder entirely and delete everything. Positionals now scope `--forget --pending`, and a folder given to a plain `--forget` is an error naming the form that does work. The general rule — an option or argument that cannot be honoured is refused, not dropped — is at its sharpest where the mistake is unrecoverable.
-
-**Scanning never silently narrows the library.** The watched folders live in `Catalog::roots` and accumulate. Dropping one is always an explicit act, and a scan with no folder left is the way a catalog is emptied — refusing it would strand the files with no way out.
-
-**`Various Artists` is not an artist**, it is the absence of an album artist. The same reasoning applies to any placeholder name: do not pollute the catalog with entities that are not entities.
-
-**A path is compared as a path, never as the text that renders it.** `Path::display` spells a separator the way the platform does, so `docs/library.md` and `docs\library.md` are two strings and one file. `the_front_page_names_every_page_of_the_manual` compared rendered paths against the README's links and held on Unix by luck; on Windows every page of the manual read as an orphan. It now resolves both sides with `canonicalize` and compares the results, which has no platform in it. Wherever two paths must be found equal, resolve first.
-
-A second lesson came out of the first attempt at fixing it. A companion test tried to make the defect reproducible everywhere by using `..` rather than a separator as the second spelling, on the assumption that `root.join("docs/design/../library.md")` renders differently from `root.join("docs/library.md")`. It does on Unix; on Windows `PathBuf::join` folds `..` away and the two render identically, so the test failed on exactly the platform it was written to defend. **A reproduction that asserts how a path renders has a platform in it, which is the fault it was meant to catch.** Some defects are conditional on the system, and the honest guard for those is the CI leg that runs there — not a clever local imitation of it. What went in instead is portable and worth more: both sides of the comparison must be non-empty, since resolving can silently empty one and a check between two empty sets passes while proving nothing.
-
-**The catalog's paths are `/`-separated, and that is a boundary, not a hope.** `AudioFile::path` is documented as "absolute path, with `/` separators" and nothing enforces it: the scanner stores whatever the platform hands it, and `text::file_name`, `text::folder` and `text::is_under` split on `/` only. On Unix the two agree and nothing shows; on Windows `text::folder` of a real path returns the empty string, which takes down every release key, every disc folder, every `--folder` restriction, every import grouping and the "copying into your own library" refusal. Fourteen tests fail there and carry `#[cfg_attr(windows, ignore)]`; Windows is out of the release matrix until the work is done. When hunting for them, note that `Path` comparison on Windows splits on both separators — `Path::new("a/b") == Path::new("a\\b")` is true — so a test only breaks once the value has crossed into `String` (`to_string_lossy`, `display`, `format!`) or once a `/`-only helper has already made the program misbehave. That is why one of eleven neighbouring `copy` tests failed and ten did not, and it is the rule to apply before assuming a path test is safe. **An invariant that only the documentation believes is not an invariant.**
-
-Before touching it, read [Paths](docs/design/paths.md) in full — the obvious fix is wrong. `canonical()` calls `std::fs::canonicalize`, which on Windows returns a **verbatim** path (`\\?\C:\…`), and a verbatim path does not accept `/` as a separator at all: rewriting the catalog to `/` there produces strings Win32 rejects and that `std::path` stops splitting, so the result is wrong answers rather than errors. The entry side is nearly one place (seven sites); the exit side is thirteen, three of them ffmpeg arguments and one that never becomes a `PathBuf`. Add load-time normalisation in `store.rs` and `user.rs` and a `FORMAT_VERSION` bump — annotation keys embed the path, and changing its spelling silently unlinks every favourite, rating and note — and the honest shape is a `CatalogPath` newtype, not a `replace('\\', '/')`.
-
-**The network is a feature, not a promise.** `ureq` is optional and `aede-core`'s `fetch` feature is what turns it on; `aede-cli` depends on the library with `default-features = false` so that switching it off really does leave a build with no network code compiled in. That is worth more than a sentence in a README claiming the same thing, and it is the difference between a property and a slogan. It also keeps the whole suite runnable without the dependency: `cargo test -p aede-core --no-default-features` and the same for the binary.
-
-**The command is testable, the socket is not.** `commands::fetch::run` takes a `&mut dyn Ask` and everything it does — the walk, the refusals, the counting, the saving after each answer — is exercised against a canned transport with no network at all. The only code the tests cannot reach is the twenty lines that hand a URL to the client library. A trait with one real implementation usually earns nothing; this one earns the difference between six tested behaviours and none.
-
-**A rate limit is a contract, and exceeding it is not a slow run but a broken one.** MusicBrainz allows one request per second per address and answers `503` to *everything* once that is passed — for every program on that address, not just this one. So the throttle lives in the client where a caller cannot forget it, a `503` stops the run rather than provoking a retry, and what was already stored is saved before stopping. The same reason `fetch` saves after every single answer: ten minutes of waiting must not be undone by one interruption.
-
-**Reused text and its credit are one value, never two fields.** Wikipedia is CC BY-SA, so attribution has to travel with the paragraph. `sources::Prose` holds the text, the page, the language and the licence together; it cannot be built without all four, it is written to `sources.json` as one nested object, and it is read back only when all four are present — a row that lost its attribution is dropped rather than shown uncredited. There is deliberately no function anywhere that returns bare article text as a `String`. A separate optional `url` beside a `text` field would make it *possible* to hold the words without the credit, and possible here means eventually certain: one path that fills the first and forgets the second, one export that copies one and not the other. The licence is stored per record rather than assumed at display time, for the reason `fetched_at` exists.
-
-**Asked-and-empty is a record, not a skip.** An artist Wikidata has no article for is stored with an empty summary. "Asked, and there is nothing" is the state this whole layer exists to keep apart from "never asked", and without the row every run asks about the same artists forever. The same rule already governs an empty MusicBrainz answer, which is why the panel says "was asked and holds nothing about this" instead of rendering an empty table.
-
-**One sentence for four states is a sentence that answers nothing.** `fetch --covers` printed "every album already has a cover, or none has been identified yet" for four quite different situations, and a reader who deleted a cover to test it could not learn that the artwork was inside the files all along. `covers::survey` now counts each reason separately — embedded, beside, unidentified, already asked — and prints the ones that apply, whether or not there is work to do. The question *why is my album not in there* is the same when nothing happens and when something does. This is the same rule as the `missing` filters, broken in the very next command written after it: **stating a filter is not a nicety attached to one report, it is what makes any report readable.**
-
-**"Already asked" is not one state: what the answer *was* decides whether the question is finished.** `fetch --covers` skipped every album it had ever asked about, so a reader who deleted a cover was told the album had been dealt with — while the answer, an address, sat unused in the layer. An answer that named an image is re-fetched straight from that address when the file is gone: one request, no index, and no need to discover `sources --forget`. Only "asked, and the archive had nothing" is finished, and it must stay finished or every artless album is asked about for ever. The general rule: **a skip keyed on "we asked" rather than on "what we learnt" throws away the answer it is protecting.**
-
-**A command named only where nobody is looking is a command nobody has.** `aede extract` was in the help, in the README and in the manual, and still could not be found — because the moment somebody needs it is the moment they delete a cover, run `fetch --covers`, and are told the image is inside the files. That line handed them a fact and no way forward, and it went further, saying nothing was *wanted* beside the files: deciding for a reader who had just demonstrated the opposite. It names `aede extract` now. The wording is returned by `covers::reasons` rather than printed inside the loop, so the cross-reference is a test rather than a hope. **Every line that gives up should name what to try next**, and the place to put that name is where the giving up happens.
-
-**And the help is a place nobody looks either, if the command is filed where it was written.** `aede missing` was in the help, the README and the manual, and the reader who wanted it could not find it — it sat among the commands that reach the network, because that is the block `fetch --discography` had just been added to. It fetches nothing: it is a listing, derived offline, and it belongs with `artists` and `albums`, which is where somebody looking for "what am I missing" looks. **File a command by the question it answers, not by the code it was written next to.** It is now also named on an artist's page, with the count and the quoting already filled in, because that page is the moment the question is asked — and **under that artist's own discography, not at the foot of the page**. Printed after the last table it landed under "Appears on", so a line about the records that are theirs read as being about a table of records that are not. **Where a note is put is part of what it says**, and "on the right page" is not the same as "under the right table".
-
-**Folding one command into another to save a request cost more than the request.** `fetch --covers` was briefly made to run the whole local extraction pass before its first download, so that a picture already inside the files was never fetched again. It was reverted the same day, on the reader's objection, and the objection was right: two commands now both wrote into music folders, and the one whose name did not say so — `artwork` — looked like a report. The saving was one avoided request per album, on albums the pass was skipping anyway. **A command does one thing, and the boundary between two commands is worth more than the work it duplicates.** `fetch --covers` downloads; `aede extract` extracts; the line that skips an album names the other command, which is the whole of the coordination between them.
-
-**A command that writes must be named for the writing.** `artwork` named the subject, not the act — and a reader who ran it, saw `nothing to write` above a list of counts, and concluded it was a report was reading it correctly. It is `extract` now, with `artwork` kept as an alias so nothing anybody has typed stops working; the section heading, the summary line and the header all say *extracted*. The general rule: **name a command for its verb, and say what is about to happen before it happens, not what state things are in.**
-
-**Aède never writes into an audio file. Ever.** It reads them, describes them, and writes *beside* them — a `cover.jpg`, an `.m3u`, a spectrogram, a copy on a card. The tags themselves are the user's, edited with the user's tagger, and this program is not one. The rule is what makes every other promise cheap to keep: a scan that goes wrong costs a rebuilt catalog, a fetch that goes wrong costs a deleted `sources.json`, and neither can cost a music file. It also settles a question that will keep coming back — writing a fetched cover *into* the files, writing a corrected genre into a tag — the answer is no, and the reason is not caution about bugs but that this is somebody else's data and the program has no mandate over it. `lofty` can write; that capability is not used and must not be.
-
-**One function writes pictures into a library, and it carries both guards.** `coverart::write_beside` sniffs the bytes and refuses to overwrite; `fetch --covers` and `aede extract` both go through it. They were about to hold a copy each, which is how the four `canonical()` call sites drifted until the one command that wrote was the one missing the check.
-
-**Anything that is not the cover goes one level down, into `artwork/`.** `scan::cover_rank` gives *any* image in a folder last-rank cover status, so a `back.jpg` written beside the music becomes the album's artwork — in this program and in most players — and it is the wrong picture, one nothing would ever look at again. `coverart::EXTRAS` is the subfolder, alongside the `spectrograms/` that `spectrum` already writes. The general shape: **before writing a new kind of file into a folder, ask what already reads that folder and what it will make of it.**
-
-**A file already there is not a failure.** `coverart::write_image` answers `Written::New` or `Written::Already`, and only bytes that are not an image or a write that failed are `Err`. Both `--images` passes run over folders they have already done — that is how they are meant to be used — and a version that returned `Err` for "already exists" would report every folder in the library as an error for having worked the first time. **Distinguish "nothing to do" from "something went wrong" at the point that knows the difference**, not by matching on the text of a message afterwards.
-
-**The disk is the record of what was fetched, not a row in a store.** `cover.jpg` is what stops `--covers` asking again; the `artwork/` folder is what stops `--images` asking again. Nothing registers either anywhere — the next scan discovers them exactly as it would files put there by hand — and the two questions stay separate: an album finished for its cover can be untouched for its booklet, which is why `covers::survey` and `extract`'s own survey both take the flag and both carry a per-target `cover` bool rather than a single "done" state.
-
-**A count that opens a sentence takes the verb with it.** `ui::plural` puts the number *inside* the sentence, and the rest of the sentence has to agree with it — "1 folder have an image" is what happens otherwise, and it has now happened three times. Where a count leads a line, both forms are written out. `plural` cannot do this and should not try: English verb agreement is not a suffix rule.
-
-**Extraction goes through `lofty` for every format, though tag reading does not.** The hand-written parsers exist because a scan opens every file in the library and because the fields they take are few and stable. Pulling a picture out is neither: it runs once per folder, on demand, and what it produces is written into somebody's music library. Four more extractors — FLAC block, `APIC` frame, `covr` atom, base64 in an Ogg comment — would be four more chances to write a corrupt file, to buy speed nobody is waiting for. **Where the hot path is not involved, prefer the code that is already proven over the code you would own.**
-
-**A test that prepares its own fixture must say when the preparation failed.** `artwork_tests` writes a picture into a copy of each reference file and reads it back — and asks *this crate's own reader* whether the write actually landed. A container the test cannot prepare is reported as skipped, not passed: it says nothing about whether extraction works on a file a real tagger wrote. Two tests sharing one temporary filename also made a format look incapable when the truth was a race; a directory per test fixed it.
-
-**Bytes that arrive over a network are checked before they touch a user's folder.** `fetch --covers` is the first thing this program writes into a music library from outside it, and a download that went wrong — an error page, a redirect gone astray, a truncated transfer — arrives as bytes like any other. `coverart::image_kind` sniffs the magic number and refuses anything that is not a JPEG or a PNG; an extension read off the URL would catch none of it. Writing an error document as `cover.jpg` is silent corruption that surfaces months later.
-
-**Two covers in one folder is the same defect as an overwrite, and the name check does not catch it.** Extraction writes `cover.png`, a download writes `cover.jpg`; each only looked at the name it was about to write, so neither saw the other, and both rank as the album's cover — leaving which one a player shows to chance, quite possibly the 1200 px download over the full-size picture that was inside the files all along. `coverart::write_beside` now asks `scan::cover_in`, the scanner's own question, immediately before writing. `write_image` does **not** carry that check: the images that are not the cover live in their own folder, where the first one written must not block the rest. **A uniqueness guard has to be written in the terms the rest of the program reads the folder in, not in terms of the one file this call is making.**
-
-**A file is not overwritten because a snapshot said it was absent.** The targets come from the catalog, which is a snapshot; the disk is not. `covers::download` checks `target.exists()` again immediately before writing, and there is no `--replace` at all. This is the one place in the program where being out of date destroys something the user made, so it is guarded twice.
-
-**Ask for the index, not for the picture.** The Cover Art Archive answers a record with a small document naming its images and the thumbnail widths it has generated. Reading the sizes out of that answer means no width is ever guessed at, and a record with no artwork costs one small request rather than a failed download. The general shape: **when a service will tell you what it has, ask it, rather than addressing what you hope exists.**
-
-**Disagreeing with a source is recorded, never applied to it.** MusicBrainz types a demo or a compilation as `Album` until somebody says otherwise there, so `missing` can list a record nobody would call an album. `missing --forget` writes the release-group identifier into `user.json` — the file that holds what *the user* says — and `absent` filters on it at display time. The record in `sources.json` is left exactly as it arrived. Deleting it would lose one claim in order to record the other, when the two are different claims that every other part of this program keeps apart: **the three voices stay three, even when two of them conflict.** Keyed on the identifier rather than the title, because a title is neither unique nor stable across a re-fetch.
-
-**A filter the reader cannot see is a trap, and one they cannot turn off is only half the answer.** `missing` states that singles, live records and compilations are left out, and how many records the reader set aside themselves. A report that silently omits things trains its reader to distrust it the first time they notice — and they always notice. But a note saying "eight records are held back" with no way to see them is a locked door with a label on it: `--all` lifts **both** filters, and every row that comes back this way carries the reason it would not normally be there. Two filters, one word, because they answer one question — _what am I not being shown_ — and three options would be three words to learn for it. The word is `--all` because it is already the word for "hold nothing back" on every paged listing.
-
-The reason is quoted rather than paraphrased: `Album · Live`, not "a live record", because `KnownRelease::stated_type` returns MusicBrainz's own vocabulary and the reader's next move is often to go and correct the type on the page where that word is written. A record nobody has typed says `no type` — having none is precisely why it is not a studio album, and an empty cell would read as an unexplained omission. The last column appears only on the run that needs it: a blank column on every ordinary run is a question the reader has to ask and answer for themselves. The count in the note is taken over the rows _this_ run is about, from the same walk that builds the table, so it falls with the name typed and cannot drift from the list above it.
-
-**An option list is a promise, not a hint.** `missing` was added to `PAGING_COMMANDS` for the sake of `--all` alone, which let `--limit` and `--offset` through to a command that ignored them — the exact fault that table exists to prevent, committed by the person editing the table. There was no way to give one option a wider list than its neighbours without a second copy of the list to drift, and the right answer was not a private list but to keep the promise: `missing` pages like every other listing now. **When a guard table tempts you into an exception, the exception is usually the bug.**
-
-**The fourth swallowed argument, and the same fix as the first three.** `aede missing "MIKA" --list` listed every decision on file and said nothing whatever about the word. `--list` was written as a branch of its own, taken before the names were read, so the argument reached nothing — and every listing that goes on to write its own matching is the next place this recurs. The narrowing now calls `fetch::reaches` like all the others, a name that reaches nothing says so rather than answering a wider question, and the filtering is split out of the printing (`aside_rows`) so a test can pin down which rows survive without reading what was printed. The related fault in the same table: a listing keyed on an identifier still has to name the thing to a human — `Sweet Dreams` alone tells nobody whose decision they are looking at, so the artist is **derived** from the discography that named it, like everything else in this report, and the row survives with an empty name when that fetch has since been undone. **A decision the reader took must not disappear because a fetch was.**
-
-**A stored identifier that is never displayed is a dead end.** `source_id` was kept from the layer's first version and shown nowhere, so asked for the MusicBrainz id of an artist there was no way to get it out of this program — and the nearest thing on screen was the `wikidata` link, a different identifier that looks enough like an answer to send somebody off with a query that cannot work. The panel now prints one address per source. It is the *address* rather than the bare id because the id is inside it either way, and the page it opens is where wrong data is corrected at the source. An album's points at its **release group**, matching what `musicbrainz::release` stores — a link that 404s reads as the service's fault, not ours, which is how it stays wrong for a year. The general rule: **anything the program relies on to reach an answer must be reachable by the reader too.**
-
-**Being in the catalog is not having a place in the library.** The catalog holds an artist for every credit it reads — a guest on one track, a composer, a name among fifty on a compilation. `missing` treated the two as one and answered a question nobody asked: one Rolling Stones track on a compilation produced their entire studio discography as absent, for every passing credit at once, until the report was mostly noise. The test is **an album of their own**: album artist of at least one release here. `discography::has_shelf` is that question asked once, and *both* the report and the browse pass use it — a pass that fetched what the report cannot show would spend a request a second on nothing. The rule generalises: a report about gaps is about something that was *started*.
-
-**A field that holds a set is compared as a set.** Genres were compared by taking the source's first and matching it, as a string, against the whole tag: `pop` against `Rock, Pop` came out as a disagreement when the tag plainly says pop. Genres are not exclusive and the two sides do not answer at the same granularity — one is what a crowd voted, the other what one person typed — so `verdict_set` reports agreement on **overlap** and a difference only on disjoint sets. It also splits: a genre tag arrives as several values, or as one value holding `Rock, Pop`, `Rock; Pop` or `Rock / Pop`, and reading only the first value is how a tag that does carry the genre gets reported as contradicting it.
-
-**An entity you do not own cannot be keyed, so it is a fact about one you do.** A release key is `artist|title|folder`, and an album missing from the library has no folder — there is nothing to file it under. So MusicBrainz's answer is stored on the *artist* (`ArtistFacts::discography`), and which records are missing is **derived on read** by comparing that list with the catalog. Storing "missing" would go stale the moment the record is bought, and the catalog would hold a claim it had stopped being able to justify; derived, it corrects itself. The rule generalises: **store what a source said, never what it implies about a catalog that changes.**
-
-**A pass that adds a field to an existing record reads it first.** The layer is keyed on (entity, source), so a second MusicBrainz row about one artist is not a second opinion but a lost one — `set` replaces. `discography::store` therefore loads the artist's existing facts, fills the one field, and writes the whole back. Any future pass that enriches rather than creates must do the same.
-
-**A filter that decides what a reader is shown lives in the program, not in the request.** `type=album` narrows what MusicBrainz sends; `KnownRelease::is_studio_album` decides what appears. A parameter the service ignores then costs bandwidth and never correctness. And the filter is *stated* in the output — a list of missing albums that silently excluded live records would read as everything MusicBrainz knows.
-
-**A paged walk has an end that does not depend on the server being right.** `browse` stops on `MAX_PAGES`, on an empty page, and on having reached the reported total — three conditions, because a miscounted `release-group-count` must not become one request per second for ever.
-
-**A release is the only entity a tag can contradict, so it is the one `fetch` must not skip.** An artist's area, formation date and aliases have no counterpart in a file, so a fetched artist can only ever be *added* beside the catalog. Picard writes `RELEASETYPE`, `DATE` and `LABEL`, so an album is where "what your files say" and "what MusicBrainz says" are two answers to one question — and the disagreement between them is what `sources` and `doctor` exist to report. `release_groups` and `label_of_release` sat written and tested for a whole milestone with no command calling them, and the consequence was a layer whose headline column had nothing to put in it. **A function no caller reaches is not a feature; it is a plan.**
-
-**One request per album, whichever route it takes in.** `inc=labels+release-groups` on a release lookup folds the album into the edition's answer, so a library Picard has tagged pays one request for the label *and* the type *and* the first release date. Asking the edition and then its group would double a run at one request per second. Which route is taken is decided by what the tags carry, never by what came back — an edition identifier is a lookup, a group identifier is a lookup, neither is a scored search — so the confidence stored is a property of the question, not a reading of the answer.
-
-**Both halves of a run are one estimate and one confirmation.** They are the same question asked of the same service, and two prompts for one act is how a confirmation becomes something a reader clicks through. For the same reason the totals are added before they are printed, rather than reported as two lines the reader has to sum by eye.
-
-**A name on the command line means one thing.** `aede fetch manson` narrows the artists by name and the albums by title *or* album artist, so the records come with the person. Narrowing the two halves by different rules would leave albums out of a run the user believed they had asked for.
-
-**An option nothing points at is an option nobody finds — and it must be pointed at from every exit, not the interesting one.** `fetch --summaries` is announced by `fetch` itself, which counts how many artists have a wikidata link and names the command that reads them. The first version printed it only after a run that had stored something, which hid it from exactly the people who were ready for it: a reader whose library was already fetched leaves through the *early* return every single time and never reaches the end of the walk. Both exits call one `offer_summaries`, and an end-to-end test takes the early one. The count comes from `summaries::waiting`, which is the walk's own `targets` counted rather than a second derivation — an offer that disagreed with the run it offers would be worse than no offer. The general shape: a capability that becomes possible at a particular moment is announced at that moment, not only in `--help`.
-
-**A second source that costs requests is opt-in, and says what it costs.** `fetch --summaries` is a second pass over what `fetch` already stored: it follows each artist's Wikidata link to an article, which is two more requests per artist on top of the one already made. It is a flag rather than a stage because it triples a run that already takes ten minutes over a large library, and because the paragraph is the one thing here nobody needs in order to file their music. Like `fetch`, it prints the duration before it starts and saves after every answer.
-
-**One gate, not two.** `ci.yml` runs `tools/check.sh`; it does not restate what the script does. A CI that listed formatting, clippy, the tests and the build a second time would drift from the script contributors actually run, and "green here, red there" would become a normal state instead of a bug. Anything that must pass before a commit goes into the script, and the workflow inherits it. The same rule fixes the toolchain: `dtolnay/rust-toolchain@1.89`, not `stable`, because `rust-version = "1.89"` in the manifest is a promise to whoever builds this and a CI on a newer compiler would let a feature slip in that breaks it.
-
-**A version is written in one place, and the tag is checked against it.** `release.yml` compares `${GITHUB_REF_NAME#v}` with `Cargo.toml` before compiling anything and fails the run when they differ. Otherwise `v0.2.0` publishes a program that answers `0.1.0` to `--version` — and `--version` is what a bug report quotes, so the mistake outlives the release by a year. The general shape is the one above: a fact stated twice will eventually be stated wrongly, so either state it once or make the machine compare the two.
-
-**What is published has been tested on the machine that built it.** The tests run inside the release job, per target, before the archive is made. A tag that does not build is worse than no tag: it is downloaded, and the failure is discovered by somebody who cannot fix it.
-
-**A downloaded binary must start on a machine older than the one that built it.** The Linux target is `x86_64-unknown-linux-musl`, not `gnu`: a glibc build made on Ubuntu 22.04 refuses to run on Debian 11 or a NAS with a `GLIBC_2.34` message that means nothing to the person reading it. Everything here is pure Rust, so a static build costs nothing — the general rule being that the build environment must not leak into the artifact's requirements.
-
-**Generated release notes are a draft, never the release.** The workflow assembles the commit list and publishes the release as a **draft**, with a `<!-- TODO -->` where the highlights go. A body that wrote itself entirely would be a commit list, and a commit list is not release notes; the draft is what forces one deliberate pass over "what changed" before anyone reads it.
-
-**The page has no third party.** `site/` is one HTML file, one stylesheet and a few images, with the system font stack: no font service, no analytics, no CDN. A project whose first claim is that it never touches your files and never reaches the network cannot have a landing page that phones somewhere to render a heading. The palette is shared with the Open Graph card so the link preview and the page it opens are visibly the same project.
-
-## 4. Writing Rust here
-
-### Language
-
-Everything in this repository is in **English**: identifiers, comments, documentation, error messages, program output, command names, tests, commit messages. The project is published on GitHub and has to be readable by anyone.
-
-Comments explain the **why**; the what is already in the code. A comment must be about the code, never about the conversation that produced it. Do not document tooling choices, alternatives that were rejected in chat, or anything a reader of the repository has no context for.
-
-Good:
-
-```rust
-/// Two tracks count as duplicates when the same artist and title come back
-/// with a close duration (less than 3 seconds apart).
-///
-/// The duration is what makes this safe: without it, a live rendition would
-/// be flagged as a duplicate of the studio version.
-```
-
-No commented-out code left behind. No `TODO` without a sentence saying what is missing and why it is not done yet.
-
-### Documentation
-
-`//!` at the top of every module, saying what it is for and why it is built that way. `///` on every public item — `aede-core` sets `#![warn(missing_docs)]`, so an undocumented public item is a warning and `tools/check.sh` fails on it. Doc examples are compiled by `cargo test`, so they must stay correct.
-
-A doc comment must add what the name does not give. `/// The artist's id.` on `artist_id: Id` is noise; say what it points at and why the field exists. Browse the result with `cargo doc --open`.
-
-### Errors
-
-One error type per module: an explicit enum implementing `Display` and `std::error::Error`, with `From` for the common conversions. Messages address the user in plain language and say **what to do**:
-
-```rust
-Err(format!(
-    "no catalog in {}.\nRun this first: aede scan <folder>",
-    dir.display()
-))
-```
-
-`unwrap` and `expect` are forbidden in library code, tolerated in tests (with a message saying what was expected) and in `main` when the failure is fatal and already explained.
-
-Never swallow an error silently. When work continues in spite of one — an unreadable folder must not abort a whole scan — report it back to the caller.
-
-### API and style
-
-Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/):
-
-- naming: `snake_case` for functions, `CamelCase` for types, `SCREAMING_CASE` for constants; no `get_` prefix; `as_` (borrow, free), `to_` (expensive), `into_` (consumes);
-- take `&str` over `&String`, `&[T]` over `&Vec<T>`;
-- return iterators or `Vec` depending on what is easiest to use, not on what is most elegant to write;
-- minimal visibility: `pub(crate)` by default, `pub` only for what genuinely belongs to the interface;
-- derive `Debug`, `Clone`, `PartialEq` liberally on data types;
-- borrow rather than clone, but do not contort the code to avoid cloning a small `String` on a cold path — readability first, targeted optimisation second.
-
-`unsafe` is forbidden, with one documented exception already in the tree: restoring the default `SIGPIPE` handler in `aede-cli/src/main.rs`. Any other use must be justified in a `// Safe:` comment stating the invariant being upheld, and discussed first.
-
-### Concurrency
-
-`std::thread::scope` and the `std::sync` primitives are enough. No async runtime until networking arrives at M1, and then only after discussion. A poisoned `Mutex` must not bring down a scan: use `unwrap_or_else(|e| e.into_inner())`.
+See `docs/coding/engineering-rules.md` for detailed project-specific rules.
 
 ## 5. Tests
 
-- unit tests live in the module, under `#[cfg(test)] mod tests` — beside what they test, and reaching its private items;
-- **past 200 lines**, that section moves to a sibling `<module>_tests.rs`, declared with `#[cfg(test)] #[path = "…"] mod tests;`. It is still the same child module and still sees the same private items: what changes is the length of a file somebody has to scroll, not what a test may reach. A number rather than "when it feels long", because a judgement call at every file is a judgement made differently at every file. Thirteen files are split; the rest keep their tests in place, and the smallest of those is a dozen lines that belong exactly where they are;
-- the proof a split changed nothing is the count: it was 264 and 151 before, and 264 and 151 after;
-- integration tests live in `tests/`, and run against **real files** — the audio fixtures were produced with ffmpeg and cross-checked with ffprobe;
-- a new format means a new fixture: reading it correctly is not something a unit test can claim;
-- test names describe the behaviour: `truncated_vorbis_comments`, `various_artists_is_not_an_artist`;
-- any non-obvious assertion carries a message with the observed value: `assert!(ok, "bitrate obtained: {bitrate} kbps")`;
-- **every bug fix starts with a failing test.**
+- Every bug fix starts with a failing test.
+- Unit tests normally live beside the implementation.
+- Integration tests live in `tests/`.
+- New supported audio formats require real fixtures.
+- Tests must assert behaviour, not implementation details.
+- Avoid process-global state in tests.
+- Test names describe observable behaviour.
+- Do not weaken an existing test merely to make a change pass.
 
-**A backup is a document of documents, and each part answers for itself.** `aede backup` nests `catalog.json`, `user.json` and `sources.json` **as their own modules write them**, each keeping its `format_version`. Nothing re-encodes a catalog, so a field added to the catalog tomorrow is in the backup tomorrow with no second writer to forget it — a fault that would only ever be discovered by somebody restoring one. The version check is therefore *per store*: the envelope's own version is fatal, because a shape this build cannot read is not a shape to guess at, but a store inside a readable envelope comes back as `Part::Unreadable` with what its own reader said, and the other two restore. **A single check at the top would throw away the irreplaceable third to protect the rebuildable one** — the catalog is derived from the disk, the layer is re-fetchable at a request a second, and nothing on earth rebuilds the notes. `Part` has three states rather than being an `Option` for the same reason: "the backup holds no `sources.json`" and "it holds one this build refuses" call for opposite things to be said, and collapsing them would restore the second as though the file had never existed. Restoring **never deletes** a store the backup does not hold; it says so instead, because a reader can decide about a file that is still there and not about one that is gone. And it is `aede restore`, not `backup --restore`: the destructive direction does not go under the reassuring name — the same rule that renamed `artwork` to `extract`. Both commands describe the three stores through one function, since two lists of wording drift the first time a field is added to one of them.
+Do not update test counts manually during normal development.
 
-**Advice is only advice while it would change something.** `aede doctor --offset=25 --all` answered `26–52 of 52 issues — --offset=52 for the next page`, and `--offset=52` is the one number guaranteed to answer "starts past the end". The command had done exactly what it was asked — every issue after the twenty-fifth — and the sentence under it had not: **a line that offers a page which is not there is worse than no line**, because a reader who follows it lands on an empty screen and concludes the command is broken. A page is now offered only when `last < total`; on the last screen the reader is told they are on it. Same rule, same fix, twice more in that one sentence: `--all` is dropped when it is already given (telling somebody to type an option they have typed is how they learn to stop reading these lines) and when the screen is the last one, where lifting the limit would show the same rows again — what cut it was the offset. The wording is split out of the printing (`window_note`) because none of that is obvious enough to be checked by eye.
+The current verified test count is maintained in `docs/coding/current-state.md` and should only be updated when the test suite has actually been run.
 
-**A restore puts back what the library looked like, not the library.** The file is a photograph, and saying "aede scan checks the library against it" was both vague and half the truth: a scan does not check, it **reconciles**, and in both directions — files added since are read in, files gone since are dropped. So the line names both, and gives the date: "run a scan" is advice nobody weighs, while "this describes your library as it was twelve days ago" is a fact they can weigh against what they have been doing for twelve days. The machine restoring a backup is often not the machine that wrote it, so a watched folder that is not here is named before a scan is suggested — not an error, since the drive may simply not be mounted, but **a scan run first would drop every file under it, which is the one way a restore can lose more than it gave back.**
+## 6. Verification
 
-**A lookup by name reports which of the two happened, and `artist` was the one that did not.** The invariant above claims `find_releases` and `find_tracks` share the rule; `find_artist` matched exactly and nothing else, so both callers bolted a fuzzy search underneath and took its **first hit**. On a shelf holding `Ozzy Osbourne` and `O. Osbourne`, `aede artist osbourne` and `aede artist ozzy` therefore answered about two different men — one with a biography and thirteen albums, the other with seven — and nothing on screen suggested a choice had been made. `find_artists` now mirrors `find_releases`, several are refused rather than arbitrated, and each line of the refusal carries the track and album counts **and the MusicBrainz identifier**, because two similar names with different identifiers are genuinely two people while two with the same one should have been merged by the scan. **An invariant that names three functions is worth grepping for the third.**
+The repository's verification script is authoritative:
 
-**A merge the reader cannot see is a merge they cannot check.** Two artist rows becoming one is a decision, and a shelf that simply stops listing `O. Osbourne` leaves somebody unable to tell a merge that happened from a folder that was never scanned — which is exactly the question the first reader asked. `Artist::aliases` keeps the spellings that were absorbed and the page says so. Normalised, because that is the form the merge was decided on and showing them as written would suggest the tags had been changed, which nothing here ever does.
-
-**Two spellings under one MusicBrainz identifier are one artist, and that half of artist identity needs no heuristic.** The catalog builds an artist per normalised name, so a library holding `Ozzy Osbourne` and `O. Osbourne` held two musicians and every count was wrong by one. Comparing the strings cannot fix it — matching on a fragment merges Angus with Neil Young — but a file tagged by Picard carries `MUSICBRAINZ_ARTISTID`, and two spellings under one identifier are not a resemblance to be judged: they are the same artist, said so by the only authority on the question. **The other half — files that never met MusicBrainz — cannot be answered from outside**, because nobody but the owner of the disk knows that a particular `O. Osbourne` is Ozzy, and that is what a local alias file is for. Correcting MusicBrainz does not help with either: the two spellings are in the *reader's files*, and there is nothing at the source to correct.
-
-Three rules make the merge safe. A file speaks only where it names **exactly one** artist and carries **exactly one** identifier: a tag naming two arrives as one string `split_artists` cuts in two while the identifiers arrive in an order nothing guarantees to match, and pairing by position would file an identifier against whichever name sorted first. The surviving spelling is **the one that names the most tracks**, ties broken by the normalised key so two runs over one library agree — derived from the shelf rather than chosen, and always a key that *already existed*, so merging can only shrink the set of keys and anything filed under the survivor in `user.json` keeps pointing at it. And the decision is taken **before anything is interned** (`model::identity`, a pure function over the scanned files), because which spelling wins is a property of the library and cannot be settled file by file as the walk goes.
-
-**A collaboration credit is not an artist, and `ARTISTS` is the tag that says so.** `aede artist ozzy` refused between five names of which four were nobody: `Judas Priest & Ozzy Osbourne`, `Ozzy Osbourne & Travis Scott`, `Rob Zombie & Ozzy Osbourne`, `Ozzy Osbourne w/Therapy?` — one track and one album each, and every track they held was missing from the real Ozzy's page. The temptation is to make the page prefer the biggest match; that is arbitration dressed as a fix, and it leaves four phantoms on the shelf. `&` cannot be split from the string alone — `Simon & Garfunkel`, `Kool & the Gang`, measured on this very library with one identifier and one `ARTISTS` value — so the answer is not to look harder at the string but to read the tag written for the question: **`ARTISTS` and `ALBUMARTISTS` hold one value per artist**, and every one of those four files carried it. `builder::credited` prefers them and falls back to `ARTIST`/`ALBUMARTIST` only where none exists; the same function serves the identity pre-pass and the walk, or the two would disagree about how many artists a file names. The consequence the reader asked for follows on its own: with the phantoms gone there is one Osbourne, so `aede artist Osbourne` and `aede artist "Ozzy Osbourne"` reach the same page, and the collaborators appear where they belong — under `--with`.
-
-**A value that restates the others of its own tag is the file saying one thing twice.** `ARTISTS` has nothing to say about `PERFORMER`, and a real file of *War Pigs* carries `PERFORMER=Ozzy Osbourne; Judas Priest; Judas Priest & Ozzy Osbourne`: three values, two musicians, the third being the pair written out whole. The list is what tells it from a band name, and it is not a heuristic — a value made of **two or more of the other values of the same tag**, with nothing left over but the words that join names (`feat`, `with`, `vs`…; `&` has already normalised into a space), names nobody the list does not already name. `text::without_restatements` drops it, `builder::credited_under` gathers a whole tag before judging it, and two is the threshold rather than one because a single match would mean any credit containing another credit restates it — `Therapy?` beside `Ozzy Osbourne w/Therapy?` would then delete the collaboration instead of the duplicate. `Kool & the Gang` survives every list that does not also credit `Kool` and `the Gang` separately, and a list that did would have named them itself.
-
-**A test file nothing declares is a file nothing runs, and `cargo test` is green either way.** `text_tests.rs` sat in the tree for two commits holding tests written against a real bug: `text.rs` still had its `mod tests` inline and never declared the sibling, so nothing compiled it, nothing ran it, and the count in this file counted tests that did not exist. Rust has no diagnostic for it — a missing `mod` is not an error anywhere — and the split-tests convention above makes it easy to reach for: the file is created before the declaration is added, and the suite passes at every step. `docs.rs` now walks both `src/` trees and fails on a `*_tests.rs` no module names with `#[path]`. **A convention whose omission is invisible needs a test, not a paragraph** — and a test whose subject is a source file must not read its own example, which is why that walk stops at `src/`.
-
-**A fixture is a claim about somebody else's service, and an unchecked claim is a guess with a test around it.** The two Wikipedia fixtures were written from the documented shape and nobody had ever held them next to a real answer. Checked at last, by the reader, with two `curl`s: **the shape held and the content did not** — `Q11649` was labelled Marilyn Manson and is in fact Nirvana, an invention that would have sent the next reader hunting a bug in the wrong place. The titles are now what the live endpoint answers, the module says so, and the two fixtures stay about two different artists on purpose, because those are the two answers that were actually seen. Inventing the other half to make them one journey would have put the whole exercise back where it started.
-
-**An option nobody can type is a feature nobody has.** The machinery to fetch prose in the reader's language existed from the first version — `preferred_langs`, a fallback chain, English kept last so it never displaces a language somebody asked for — and it read the shell's locale and nothing else. A reader whose Terminal exports no `LANG` got English with no lever; one whose locale was French had no way to ask for English. `--lang` is the statement of intent and the locale is a guess about one, so the option wins, and both are read once in `fetch` and carried in `Asked`. The corollary on screen: the language a paragraph is in was **stored from the first version and displayed nowhere**, so a reader looking at English prose could not tell an ignored preference from a missing article from prose fetched before they had a preference. The credit line names it, and the line below names the command that changes it.
-
-**`--dry-run` is a promise, and half the passes were not keeping it.** `--covers` and `--identify` stopped; `--summaries` and `--discography` read the flag, said nothing, and went to the network — two requests per artist against Wikimedia by somebody who had just said *ask nothing*. The rule was written as a comment on the first pass that honoured it, which is precisely how the third and fourth came not to: **a rule stated in a comment is a rule the next caller does not have.** It is `fetch::asked_nothing` now, called by all four, and an end-to-end test walks the list — asserting not that a pass *says* it asked nothing but that no request reached the stubbed transport, which is what caught the two.
-
-**A folder the catalog has never seen is a mistake on the command line, not an empty run.** Every command taking `[folder…]` works from the catalog rather than from the disk, so naming an unscanned folder produced a run with nothing to do — and each said something cheerful and wrong. `aede extract <a folder added yesterday>` answered "nothing to extract", which reads as *your files already have their covers* and means *I have never heard of that folder*; a reader lost an evening to it and worked it out himself. It sits beside the mistake next door — a folder that does not exist — and now answers alike: an error, naming the folder, giving **the age of the catalog** as the fact that explains it, and spelling out `aede scan "<folder>"` with the path already in it. `check` had the guard for itself and the other four did not, so it moved into `scope_of`, which is why that now takes the catalog: **one helper, so the sixth command cannot forget it** — the same reason `canonical` exists. The whole run is refused rather than the unknown folder dropped, because quietly acting on two of the three folders named is the swallowed argument in another costume.
-
-**"Where is my data" needs one place that answers it.** The location was in `--help` as a default, printed by `scan` after a scan, and named by `reset` on its way to deleting it — three places nobody visits with that question in mind. `aede stats` ends with the folder, what the three stores weigh, and when the catalog was last scanned, because that is the page that describes the catalog and the first thing somebody needs in order to back it up by hand or to tell two catalogs apart. Read from the catalog already loaded, never fetched from disk a second time: this page has just parsed a document that is a quarter of a gigabyte on a large library.
-
-**A conclusion the program keeps and never shows is a dead end — and a fingerprint is the one it can be checked on.** `aede fingerprint` computed a value, stored it, and offered no way to read it: `12 files have one already` named `--full`, which recomputes, and nothing that displays. `--list` prints them whole, one value to a line and never in a table, because a fingerprint truncated to a column width compares equal to nothing, while one on its own line survives a pipe, a `grep` and a `diff`. The line that raises the question names it, not only `--help`: **a capability that becomes possible at a particular moment is named at that moment.**
-
-**The two programs number the algorithms differently, and the difference was measured rather than assumed.** On one file: `ffmpeg -algorithm 1` and a bare `fpcalc` answer the same string byte for byte; `fpcalc -algorithm 1` answers a different one, and `ffmpeg -algorithm 2` a third. So ffmpeg's number is the version byte the fingerprint starts with, and fpcalc's is that plus one — which is why Aède passes `1` to ffmpeg and *nothing* to fpcalc. Two consequences. The screen names the trap: telling a reader to compare with `fpcalc` while showing them the number `1` would have sent them to `fpcalc -algorithm 1`, a different string, and the conclusion that this program is wrong. And a test now runs **both programs on one file and asserts they agree**, skipping where only one is installed — the premise of having a fallback at all is that the fallback answers the same thing, and nothing in either manual says so. The same lesson as the Homebrew ffmpeg: **never assert somebody else's build or somebody else's numbering; run it.**
-
-**A value a function reads from the process cannot be given to it.** `identify::run` read `AEDE_ACOUSTID_KEY` from the environment itself, so the four tests around it set and unset one process-global variable — shared by every thread, in a binary that runs its tests on threads. Whichever wrote last won: the suite passed here and failed on a reader's machine, and reproducing it took eight test threads on two cores to hit **once in sixty runs**. That is the worst failure mode a test can have, because the machine that runs it is not the machine that wrote it. The environment is read once at the edge (`acoustid::key`, called by `fetch`), and what reaches a pass is a value a test can choose — the same shape as `fingerprint::find` being looked for once per run by the caller rather than once per file by the callee. `Asked` already carried fields only one pass reads; a key is one more thing the reader arranged, whether they typed it or exported it. **Any `set_var` in a test is a race with every other test, and the fix is never a lock: it is to stop the code under test reaching for the process at all.**
-
-**A test's scratch folder is named after the test, not by the caller.** Every `sandbox()` helper here took a name and joined it to the temporary directory, which works exactly as long as no two tests pass the same word — a rule nothing enforced and no grep could check, because a *helper* that calls `sandbox("browsed")` spells the name once and hands the same folder to every test that uses it. Three did, each beginning by deleting it, and the result passed on Linux and failed on macOS with `Invalid argument`: the worst kind of green, since the machine that runs the tests is not the machine that wrote them. The folder is now named from `std::thread::current().name()` — under `cargo test`, the test's own path — **and** from the argument. Both halves, and the second was learnt immediately after the first: naming it by the test alone broke the opposite case, where one test makes two sandboxes on purpose, and the second one deleted the first one's file. So: unique across tests however they arrive there, unique within one, and the same on the next run, so a re-run still clears what the last one left. **A convention two callers can break is not a convention: make the collision impossible rather than documenting it** — and check that the fix has not made the mirror-image case impossible instead.
-
-For a binary parser, always think through the three hostile cases: truncated input, a lying length field, a forged signature.
-
-## 6. Command-line interface
-
-Output is for humans first: aligned tables (`ui::Table`), colours that vanish outside a terminal or under `NO_COLOR`, correct plurals (`ui::plural`). Alignment is computed in **display columns**, not bytes — "Björk" takes five columns for six bytes.
-
-An elapsed time goes through `ui::elapsed`, which switches to seconds then to minutes: `260604 ms` makes the reader do the division. A long-running command says what it is about to do before doing it, in volume rather than in a predicted time — how long a read takes depends on the disk, and a wrong estimate is worse than none — and saves its progress as it goes, so that interrupting it costs only the current batch.
-
-A column holding a path is bounded with `Table::path_limit`, which drops the **start** of the text: the file name is what identifies the file, and on macOS a temporary path is sixty columns before the name even begins.
-
-`--json` on the query commands, for machine use. A misspelled option is reported, never silently ignored, and an option that expects a value but was given none stops the command: answering as if it had never been typed would be a wrong answer, not an incomplete one. Any option taking a value belongs in `args::VALUED`, or its space-separated form lands in the positionals. The program does not panic when its output is cut off (`aede stats | head`).
-
-Sizes are **decimal** (`text::format_size`, 1 kB = 1000 bytes), matching Finder and the other tools of this family; dividing by 1024 under a "MB" label understates an album by 5% and reads as a bug. Durations are **rounded** to the nearest second, never truncated — truncating loses a second on half the tracks of a library.
-
-A row measures the set of tracks it counts, never a wider one: in the _Appears on_ table the duration, the size and the formats describe the artist's tracks, not the release they sit on.
-
-Count, duration and size on disk go together: a command that shows one of the three shows all three, and `commands::totals` is what computes the last two. In a table a duration is `text::format_duration` (`h:mm:ss`, right-aligned); in a sentence it is `ui::long_duration` (`1 d 22 h 41 min`).
-
-A lookup by name matches exactly first, and only widens when nothing matched — `Catalog::find_releases` and `Catalog::find_tracks` share that rule and report which of the two happened. Returning the first of several partial matches is the fault this replaced: an arbitrary answer, given without saying so.
-
-The shape of an answer does not depend on how many results it has: `aede track` prints the same page whether one track carries the title or four. Any list bounded by a limit says so on screen — a silent truncation reads as "that is all there is".
-
-## 7. Git
-
-Commit messages in English, imperative mood, subject line of 72 characters at most, then a blank line and a body explaining **why**:
-
-```
-Treat "Various Artists" as the absence of an album artist
-
-Recording it as an artist made it show up in the rankings and inflated the
-artist count of every compilation.
+```sh
+tools/check.sh
 ```
 
-One commit, one idea. Automatic reformatting and lint fixes go in their own commit, never mixed with a behaviour change.
+Before committing, run:
 
-## 8. Things to watch for in the coming milestones
+```sh
+tools/check.sh
+```
 
-**M1 — artist identity.** Tags carry names, not identifiers, and the same person arrives spelled several ways: `Ozzy Osbourne` / `O. Osbourne`, `Glen Benton` / `Benton` as credited on the sleeve. Matching on a fragment of the name is out of the question — it would merge Angus and Neil Young. The answer is a local alias file, applied when the graph is built so a `scan` propagates it, plus `doctor` **suggesting** candidates (one name a suffix of another, sharing releases) without ever applying them. Where MusicBrainz gives an identifier, the identifier wins over the name.
+Useful individual commands:
 
-**M1 — MusicBrainz.** A hard limit of one request per second and a mandatory identifying `User-Agent`, on pain of being blocked. Wikipedia is CC BY-SA: attribution is mandatory and carries over to translations. Go through Wikidata to reach the article in the user's language — it already exists in the vast majority of cases, written by humans, and no machine translation is then needed.
+```sh
+cargo test
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+```
 
-Matching a file to a release is the hard problem of this project. Always keep a confidence score and a way to review: never overwrite correct tags on the strength of an approximate match.
+When testing locally, use the smallest relevant command first. Run the complete verification before committing.
 
-**M2 — API.** The HTTP contract freezes early and is versioned. Every future client will depend on it.
+Claude Code may inspect and reason about Rust code, but if Rust execution is unavailable in the current environment, do not claim that compilation or tests passed. State clearly what was and was not verified.
 
-**M3 — the decoder.** It is what the FLAC MD5 check waits for: verifying that hash means decoding the audio. The frame walk in `audit/flac.rs` already reads every Rice residual and throws the numbers away — what is missing is the LPC restoration, the inter-channel decorrelation and MD5 itself. Adding the stronger verdict must not change the stored shape, only `integrity_method`.
+## 7. Network and external services
 
-The two checks are not competing methods and neither replaces the other: the frame CRCs are the cheap pass that reads the container, the MD5 is the deep pass that reads the audio. Both stay. "Aligning on FlacCompagnon" therefore does not mean copying its verdict but computing the same digest over the same bytes — the interleaved little-endian samples the FLAC specification defines, which is the only thing there is to agree on. Two conforming implementations cannot disagree, and if they do, one of them has a bug: that is exactly the check `doctor` already performs on imported reports, and it is why the disagreement is reported rather than resolved. The way to guarantee it is to stop having two implementations at all — extract `audit` into a crate both programs depend on.
+Network access is explicit.
 
-**M3/M4 — playback.** The encoder delay and padding (already extracted from LAME tags and the Opus pre-skip) are what make gapless playback possible. Do not lose them along the way.
+- Do not add automatic network access to normal catalog operations.
+- External services are accessed only through the appropriate explicit command/pass.
+- Respect service rate limits.
+- Never overwrite local metadata with external metadata.
+- Keep source attribution with externally supplied data.
+- Avoid network requests when the required identifier/data is already available locally.
+
+## 8. Dependencies
+
+Do not add a dependency automatically.
+
+Before proposing a new dependency:
+
+1. Explain why the existing standard library or current dependencies are insufficient.
+2. Explain what the dependency replaces or enables.
+3. Consider dependency-tree size and maintenance.
+4. Ask before introducing it.
+
+Current important dependencies include:
+
+- `lofty` — supported audio/container/tag formats where the project does not provide its own parser.
+- `ureq` — optional network functionality.
+
+## 9. CLI behaviour
+
+The CLI is part of the public contract.
+
+- Invalid options are errors.
+- Invalid option values are errors.
+- Options that a command cannot honour are errors.
+- Never silently ignore user input.
+- Output must remain understandable for humans.
+- JSON/CSV/M3U output must remain machine-readable.
+- Long-running commands should report progress and preserve completed work where appropriate.
+- Destructive operations require explicit confirmation unless an explicit non-interactive confirmation option is supplied.
+
+## 10. Documentation
+
+Do not duplicate information unnecessarily.
+
+- `CLAUDE.md` contains permanent instructions required during every coding session.
+- `docs/coding/current-state.md` contains the current project state.
+- `docs/coding/engineering-rules.md` contains detailed, stable engineering rules.
+- `docs/design/roadmap.md` contains milestones and future direction.
+- Topic-specific files under `docs/` contain detailed domain behaviour.
+
+When a decision becomes permanent, document it in the appropriate documentation file rather than adding historical explanation to `CLAUDE.md`.
+
+## 11. Working method
+
+Work on one defined task at a time.
+
+Before coding:
+
+1. Identify the relevant files.
+2. Explain the intended change briefly.
+3. Check whether existing abstractions already solve part of the problem.
+4. Implement the smallest coherent change.
+5. Add/update tests.
+6. Run the relevant verification.
+7. Report exactly what was changed and what was verified.
+
+Do not perform unrelated cleanup or refactoring while implementing a task.
+
+Do not modify documentation merely to reflect transient implementation details.
+
+## 12. Git
+
+Commit messages:
+
+- English.
+- Imperative mood.
+- Maximum 72 characters for the subject.
+- One commit = one coherent idea.
+- Do not mix unrelated formatting or cleanup with behavioural changes.
+
+Do not create commits unless explicitly requested.
+
+## 13. Current milestone
+
+The authoritative current state is:
+
+`docs/coding/current-state.md`
+
+Do not infer the current milestone from the conversation history. Read the file.
