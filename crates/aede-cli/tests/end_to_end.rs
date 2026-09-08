@@ -4632,6 +4632,10 @@ fn what_is_missing_is_worked_out_from_what_was_stored() {
 /// has.
 #[cfg(feature = "fetch")]
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn each_cover_command_points_at_the_other_where_it_gives_up() {
     let sandbox = Sandbox::new("cover_handover");
     let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
@@ -5041,6 +5045,10 @@ fn a_watched_folder_that_is_not_on_this_machine_is_named_before_a_scan_drops_it(
 /// lives in `scope_of`, so the sixth command cannot forget it, and this test
 /// walks the list so that adding one without it fails here.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn every_command_taking_a_folder_refuses_one_the_catalog_has_never_seen() {
     let sandbox = Sandbox::new("unknown_folder");
     let root = sandbox.dir.join("music/Miles Davis/Kind of Blue");
