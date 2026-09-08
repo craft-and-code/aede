@@ -2323,6 +2323,7 @@ fn every_listing_can_become_a_table() {
         ("genres", "genre,tracks,duration_ms"),
         ("labels", "label,albums,tracks"),
         ("years", "year,albums,tracks"),
+        ("countries", "country,iso_code,initials"),
     ] {
         let (out, _, ok) = sandbox.run(&[command, "--csv"]);
         assert!(ok, "{command} --csv must run");
@@ -2341,6 +2342,20 @@ fn every_listing_can_become_a_table() {
     assert!(out.contains("written to"), "it says where it went: {out}");
     let written = std::fs::read_to_string(&target).expect("the file");
     assert!(written.starts_with("album_artist,"), "content: {written}");
+    let _ = std::fs::remove_file(&target);
+
+    // `countries` renders a table exactly like the other listings and went
+    // through the same `export::rows_table` — but `--output` was refused for
+    // it alone, `OUTPUT_COMMANDS` having been left out of step with
+    // `CSV_COMMANDS` when the command was added.
+    let (out, _, ok) = sandbox.run(&[
+        "countries",
+        "--csv",
+        &format!("--output={}", target.display()),
+    ]);
+    assert!(ok, "output: {out}");
+    let written = std::fs::read_to_string(&target).expect("the file");
+    assert!(written.starts_with("country,"), "content: {written}");
     let _ = std::fs::remove_file(&target);
 
     // A command that cannot honour the option refuses it.

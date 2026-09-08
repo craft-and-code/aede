@@ -775,6 +775,7 @@ const OUTPUT_COMMANDS: &[&str] = &[
     "artists",
     "genres",
     "labels",
+    "countries",
     "years",
     "favourites",
     "notes",
