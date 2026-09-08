@@ -14,9 +14,11 @@ Do not turn this file into a development diary.
 
 **Previous milestone:** M0.6 — Catalog and local library
 
-**Status:** M1 in progress
+**Status:** M1 done. M0.5 is also done (query grammar covers relations, and
+the command options are shorthand for it). A manual verification pass is
+planned before M2 begins.
 
-Aède has completed the local catalog foundation and has started the external identification layer.
+Aède has completed the local catalog foundation and the external identification layer.
 
 The current implementation includes:
 
@@ -44,6 +46,8 @@ The current implementation includes:
   `aede merge` for the files that never met one, with `aede doctor` suggesting
   pairs and applying none;
 - dated band membership, and the line-up of an album's year, derived on read;
+- artist country/area and formation/end dates from MusicBrainz, with
+  `--country` filtering on `artists`;
 - lyrics fetching from LRCLIB, behind `--lyrics` and never on by default;
 - folder narrowing on every option of `fetch`: a positional that exists on disk
   is a folder, anything else is a name, and the two narrow a run independently.
