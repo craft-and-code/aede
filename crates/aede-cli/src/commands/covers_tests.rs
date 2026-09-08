@@ -279,6 +279,10 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
     // What sent a reader looking for `sources --forget`: they deleted a cover,
     // ran this, and were told the album had been asked about already. It had —
@@ -361,6 +365,10 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn the_index_is_asked_first_and_the_image_second() {
     let dir = sandbox("walk");
     let catalog = library(&dir, false, None);
@@ -598,6 +606,10 @@ const INDEX_ALL: &str = r#"{"images":[
      "thumbnails":{"1200":"https://x/4-1200.jpg"}}]}"#;
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     // The cover is one question and the booklet is another, and `--images`
     // asks the second of an album finished for the first. What stops it being
@@ -693,6 +705,10 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
     // The point of the whole option. A `back.jpg` next to the tracks would be
     // taken for the album's cover by this program's own scanner, which is the

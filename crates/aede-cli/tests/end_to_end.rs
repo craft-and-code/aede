@@ -5205,6 +5205,9 @@ fn every_pass_that_can_reach_the_network_stops_for_dry_run() {
 /// biography and thirteen albums and the other with seven.
 #[test]
 fn a_merged_artist_says_which_spellings_it_absorbed() {
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("merged_artist");
     let music = sandbox.dir.join("music");
     for (spelling, album, mbid) in [
@@ -5320,6 +5323,9 @@ fn a_collaboration_is_the_artists_it_names_and_never_an_artist_of_its_own() {
     // because `&` can never be split from the string alone — `Simon &
     // Garfunkel` is one band. Every one of these files is copied from a real
     // one, tags included.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("collaboration_credits");
     let music = sandbox.dir.join("music");
     let ozzy = "8aa5b65a-5b3c-4029-92bf-47a544356934";
@@ -5431,6 +5437,9 @@ fn a_merge_the_owner_states_survives_a_scan_and_can_be_taken_back() {
     // drive — so the shelf holds two musicians and nothing outside this room
     // can know they are one. The owner says so, and the statement has to
     // outlive the scan that rebuilds everything around it.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("stated_merge");
     let music = sandbox.dir.join("music");
     for (artist, album) in [
@@ -5530,6 +5539,9 @@ fn a_merge_musicbrainz_contradicts_is_refused_and_says_where_to_argue() {
     // The one case where this command knows better than the person typing.
     // Two identifiers are two people, said so by the only authority there is,
     // and the fix belongs at the source where it fixes it for everybody.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("contradicted_merge");
     let music = sandbox.dir.join("music");
     for (artist, album, mbid) in [
@@ -5596,6 +5608,9 @@ fn a_line_up_is_dated_and_the_album_page_names_the_band_of_its_year() {
     // an artist, an album is a fact about a year, and crossing them answers
     // what a listener actually asks. The two albums here are nine years apart
     // and the band is not the same band.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("line_up");
     let music = sandbox.dir.join("music");
     for year in ["1970", "1980"] {
@@ -5721,6 +5736,9 @@ fn an_artist_nobody_has_fetched_is_told_so_rather_than_shown_an_empty_table() {
     // Two silences that look identical on screen and are not the same: a
     // soloist who never joined anything, and an artist nobody has asked about.
     // Only the second is worth acting on, so only the second names a command.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("no_line_up");
     let music = sandbox.dir.join("music").join("Nobody").join("Album");
     std::fs::create_dir_all(&music).unwrap();
@@ -5753,6 +5771,9 @@ fn the_words_lrclib_answers_with_are_words_this_program_reads_back() {
     //
     // Copied from a live answer for `Crazy Train`: a space after each
     // timestamp, and timed lines with nothing in them where the singing stops.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("lrc_round_trip");
     let music = sandbox
         .dir
@@ -5807,6 +5828,9 @@ fn fetching_the_words_says_what_it_is_before_it_asks_anything() {
     // is not a prompt: a confirmation asked every time is a confirmation
     // nobody reads. `--dry-run` proves the order — nothing was asked, and the
     // sentence is there anyway.
+    if !ffmpeg_is_installed() {
+        return;
+    }
     let sandbox = Sandbox::new("lyrics_caveat");
     let music = sandbox
         .dir

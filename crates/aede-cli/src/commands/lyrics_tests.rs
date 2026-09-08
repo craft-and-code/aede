@@ -261,6 +261,10 @@ fn a_name_given_to_the_pass_narrows_it_instead_of_being_swallowed() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_folder_narrows_the_pass_to_the_tracks_under_it() {
     // The pass a folder was asked for first, and the case a name cannot
     // answer: both tracks are credited to the same person, so nothing but

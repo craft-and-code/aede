@@ -66,6 +66,10 @@ fn library(dir: &std::path::Path, folders: &[(&str, bool)]) -> Catalog {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_folder_is_the_unit_and_not_an_album() {
     // A double album is one release and two folders, and a cover image belongs
     // to a folder — that is where every player looks for it. Walking releases
@@ -81,6 +85,10 @@ fn a_folder_is_the_unit_and_not_an_album() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_folder_that_already_holds_an_image_is_left_alone() {
     let dir = sandbox("has_image");
     let catalog = library(&dir, &[("Kind of Blue", true)]);
@@ -94,6 +102,10 @@ fn a_folder_that_already_holds_an_image_is_left_alone() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_folder_whose_files_carry_nothing_is_counted_rather_than_attempted() {
     // And counted separately: "there is nothing to extract" and "there is
     // already an image" are two different answers, and the first is the one
@@ -106,6 +118,10 @@ fn a_folder_whose_files_carry_nothing_is_counted_rather_than_attempted() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn only_the_folders_named_are_looked_at() {
     let dir = sandbox("scope");
     let catalog = library(&dir, &[("CD1", true), ("CD2", true)]);
@@ -138,6 +154,10 @@ fn a_source_that_is_not_audio_is_reported_and_writes_nothing() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn with_images_a_folder_that_has_a_cover_is_opened_again() {
     // The cover is one question and the booklet is another. A folder finished
     // for the first can be untouched for the second, and the flag is what
@@ -163,6 +183,10 @@ fn with_images_a_folder_that_has_a_cover_is_opened_again() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn with_images_a_folder_carrying_nothing_is_still_nothing_to_do() {
     // `--images` widens which folders are opened, not which ones have
     // something inside them to write out.
