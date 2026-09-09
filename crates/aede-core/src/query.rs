@@ -130,6 +130,16 @@ pub enum Field {
     Rating(Scope),
     /// A favourite, on the entity named by the scope.
     Loved(Scope),
+    /// A favourite, wherever it was actually written: the track itself, or
+    /// failing that its album, or failing that its artist.
+    ///
+    /// What a bare `loved` asks. Unlike [`Field::Rating`], a favourite is a
+    /// blunter signal — closer to "this matters to me" than to a precise
+    /// score — so loving a whole album should not have to be repeated one
+    /// track at a time. `track.loved` still reaches the precise, track-only
+    /// question, exactly as `album.loved` and `artist.loved` already do for
+    /// theirs.
+    LovedAnywhere,
     /// A free label, on the entity named by the scope.
     Tag(Scope),
     /// A note was written, and contains this text.
@@ -446,7 +456,8 @@ const FIELD_NAMES: &[(&str, Field)] = &[
     ("rating", Field::Rating(Scope::Track)),
     ("album.rating", Field::Rating(Scope::Album)),
     ("artist.rating", Field::Rating(Scope::Artist)),
-    ("loved", Field::Loved(Scope::Track)),
+    ("loved", Field::LovedAnywhere),
+    ("track.loved", Field::Loved(Scope::Track)),
     ("album.loved", Field::Loved(Scope::Album)),
     ("artist.loved", Field::Loved(Scope::Artist)),
     ("tag", Field::Tag(Scope::Track)),
@@ -495,18 +506,20 @@ fn is_numeric(field: &Field) -> bool {
 fn is_flag(field: &Field) -> bool {
     matches!(
         field,
-        Field::Lossless | Field::Compilation | Field::Loved(_)
+        Field::Lossless | Field::Compilation | Field::Loved(_) | Field::LovedAnywhere
     )
 }
 
 /// The same question, asked of the album or the artist instead of the track.
 ///
-/// Every field the *user* writes carries a scope, and a bare `loved` means the
-/// track's own. That is deliberate — five stars on an artist is not five stars
-/// on a track — but it makes one answer badly misleading: somebody who marked
-/// an **album** a favourite types `loved`, is told nothing matches, and
-/// concludes the feature is broken. It is not; they asked a different question
-/// from the one they meant.
+/// Every field the *user* writes carries a scope, and a bare `rating`, `tag`
+/// or `note` means the track's own. That is deliberate — five stars on an
+/// artist is not five stars on a track — but it makes one answer badly
+/// misleading: somebody who rated an **album** types `rating`, is told
+/// nothing matches, and concludes the feature is broken. It is not; they
+/// asked a different question from the one they meant. (`loved` is the one
+/// exception: see [`Field::LovedAnywhere`], which already looks past the
+/// track, so there is nothing here for it to rescope.)
 ///
 /// So a caller that gets an empty result can ask the same question again at
 /// another scope, and — if *that* answers — say which scope holds what was
@@ -514,7 +527,7 @@ fn is_flag(field: &Field) -> bool {
 /// meaning exactly what it says.
 ///
 /// Fields that carry no scope are left alone, so a mixed expression such as
-/// `genre:metal loved` is rescoped only where rescoping means something.
+/// `genre:metal rating` is rescoped only where rescoping means something.
 pub fn rescoped(query: &Query, scope: Scope) -> Query {
     match query {
         Query::All => Query::All,
@@ -963,6 +976,9 @@ fn flag_of(field: &Field, context: &Context, track: Id) -> bool {
         Field::Loved(scope) => annotation(*scope, context, track)
             .map(|a| a.loved)
             .unwrap_or(false),
+        Field::LovedAnywhere => [Scope::Track, Scope::Album, Scope::Artist]
+            .into_iter()
+            .any(|scope| annotation(scope, context, track).is_some_and(|a| a.loved)),
         // Any other field used as a bare flag asks whether it holds anything.
         _ => {
             !texts_of(field, context, track).is_empty()

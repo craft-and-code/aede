@@ -3942,28 +3942,29 @@ fn a_conversion_with_nothing_to_convert_says_so() {
 
 #[test]
 fn an_empty_answer_says_where_what_you_wrote_actually_is() {
-    // A bare `loved` asks about the **track**, by design. The cost of that
-    // design is one badly misleading answer: somebody who marked an *album* a
-    // favourite types `loved`, is told nothing matches, and reasonably
-    // concludes the feature is broken. It is not; they asked a different
-    // question from the one they meant, and nothing on screen said so.
+    // A bare `rating`, `tag` or `note` asks about the **track**, by design.
+    // The cost of that design is one badly misleading answer: somebody who
+    // rated an *album* types `rating`, is told nothing matches, and
+    // reasonably concludes the feature is broken. It is not; they asked a
+    // different question from the one they meant, and nothing on screen said
+    // so. `loved` no longer has this problem — see the test below.
     let sandbox = Sandbox::new("query_scope_hint");
     let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
     assert!(ok);
-    let (_, err, ok) = sandbox.run(&["love", "album", "Duos"]);
+    let (_, err, ok) = sandbox.run(&["rate", "album", "Duos", "--stars", "5"]);
     assert!(ok, "stderr: {err}");
     let (_, _, ok) = sandbox.run(&["tag", "album", "Duos", "great"]);
     assert!(ok);
 
     for (asked, offered) in [
-        ("loved", "album.loved"),
+        ("rating:5", "album.rating:5"),
         ("tag:great", "album.tag:great"),
         // A negated term is rewritten too, and this one stays empty at track
-        // scope where a bare `-loved` would not: nothing is loved *on a
-        // track*, so `-loved` matches the whole library and needs no hint.
+        // scope where a bare `-rating:5` would not: nothing is rated *on a
+        // track*, so `-rating:5` matches the whole library and needs no hint.
         (
-            "loved -tag:nosuchlabel",
-            "album.loved -album.tag:nosuchlabel",
+            "rating:5 -tag:nosuchlabel",
+            "album.rating:5 -album.tag:nosuchlabel",
         ),
     ] {
         let (out, _, ok) = sandbox.run(&["query", asked]);
@@ -3992,9 +3993,33 @@ fn an_empty_answer_says_where_what_you_wrote_actually_is() {
     assert!(!out.contains("that is where you wrote it"), "{out}");
 
     // And neither does one that already found something.
-    let (out, _, ok) = sandbox.run(&["query", "album.loved"]);
+    let (out, _, ok) = sandbox.run(&["query", "album.rating:5"]);
     assert!(ok);
     assert!(!out.contains("that is where you wrote it"), "{out}");
+}
+
+#[test]
+fn a_bare_loved_finds_what_was_loved_at_the_album_or_the_artist() {
+    // The one field where the scope surprise above does not apply: a bare
+    // `loved` already looks at the album and the artist, not only the track,
+    // so loving a whole album is enough on its own — no hint needed, because
+    // there is nothing left to suggest.
+    let sandbox = Sandbox::new("query_loved_anywhere");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+    let (_, err, ok) = sandbox.run(&["love", "album", "Duos"]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, _, ok) = sandbox.run(&["query", "loved"]);
+    assert!(ok, "output: {out}");
+    assert!(!out.contains("nothing matches"), "output: {out}");
+    assert!(!out.contains("that is where you wrote it"), "{out}");
+
+    // The precise, track-only question still exists, and still says no:
+    // nothing was loved on the track itself, only on its album.
+    let (out, _, ok) = sandbox.run(&["query", "track.loved"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("nothing matches"), "output: {out}");
 }
 
 #[test]

@@ -620,12 +620,14 @@ fn quoted(labels: &[String]) -> String {
 /// Says where what the user wrote actually is, when the question found it
 /// nowhere.
 ///
-/// A bare `loved` asks about the **track**, by design: five stars on an artist
-/// is not five stars on a track, and a field that folded the scopes together
-/// could never say which was meant. The cost of that design is one badly
-/// misleading answer — somebody who marked an *album* a favourite types
-/// `loved`, is told nothing matches, and reasonably concludes the feature is
-/// broken.
+/// A bare `rating`, `tag` or `note` asks about the **track**, by design: five
+/// stars on an artist is not five stars on a track, and a field that folded
+/// the scopes together could never say which was meant. The cost of that
+/// design is one badly misleading answer — somebody who rated an *album*
+/// types `rating`, is told nothing matches, and reasonably concludes the
+/// feature is broken. (`loved` no longer has this problem: a bare `loved`
+/// already looks at the album and the artist too, see
+/// [`aede_core::query::Field::LovedAnywhere`].)
 ///
 /// So the empty answer asks the same question again of the album and of the
 /// artist, and names the scope that holds something. It changes nothing about

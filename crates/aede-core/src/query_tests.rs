@@ -208,6 +208,41 @@ fn a_flag_may_be_asked_either_way_round() {
 }
 
 #[test]
+fn a_bare_loved_reaches_the_album_and_the_artist_too() {
+    // Unlike `rating`, `tag` and `note`, a bare `loved` is not only the
+    // track's own question: a favourite is a blunter signal than a score —
+    // closer to "this matters to me" than to a precise judgement — so loving
+    // a whole album should not have to be repeated one track at a time.
+    let c = catalog();
+    let mut d = UserData::default();
+
+    let so_what = c
+        .tracks
+        .iter()
+        .find(|t| t.title == "So What")
+        .expect("the fixture has this track");
+    let kind_of_blue = EntityRef::of(&c, EntityKind::Release, so_what.release_id.unwrap())
+        .expect("the fixture gave this track an album");
+    d.entry(LOCAL_USER, &kind_of_blue, 1).loved = true;
+
+    let artist = EntityRef::new(EntityKind::Artist, "ozzy osbourne");
+    d.entry(LOCAL_USER, &artist, 1).loved = true;
+
+    // Loved through the album, and loved through the artist, both count —
+    // neither track was ever marked loved itself. (Catalog order is by
+    // path, so Miles sorts before Ozzy.)
+    assert_eq!(titles("loved", &c, &d), ["So What", "Crazy Train"]);
+    // The precise, track-only question still exists, and still says no.
+    assert!(titles("track.loved", &c, &d).is_empty());
+    // The exact scope is still reachable directly, exactly as before.
+    assert_eq!(titles("album.loved", &c, &d), ["So What"]);
+    assert_eq!(titles("artist.loved", &c, &d), ["Crazy Train"]);
+    // Negation excludes anything loved at any level, not only at the track's.
+    assert_eq!(titles("-loved", &c, &d), ["Satan Spawn"]);
+    assert_eq!(titles("loved:false", &c, &d), ["Satan Spawn"]);
+}
+
+#[test]
 fn the_credit_table_can_be_asked_who_did_what() {
     // `artist:` matches any credit in any role, which is why two of them
     // already mean "both are on it". A role field asks the finer question

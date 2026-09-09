@@ -7,7 +7,7 @@ lifts: there is no `--genre metal OR --genre jazz`, no "everything except this
 label", no "between 1990 and 1999" — and all three come free with one parser.
 
 ```sh
-aede query "genre:metal year:1990..1999 -label:earache"
+aede query "genre:metal year:1990..1999 label:earache"
 aede query "(artist:ozzy OR artist:dio) album.rating:>=4"
 aede query "loved played:0" --m3u          # what I love and have never played
 aede query "lossless:false size:>50000000" # big, and not lossless
@@ -48,7 +48,8 @@ thing, and accepting only one would make the other a silent trap.
 Those last four also read `album.rating`, `artist.loved` and so on, because
 **where** an opinion was written is part of what it says: five stars on the
 artist is not five stars on the track, and a field that folded the two together
-could never say which was meant.
+could never say which was meant. `loved` bears one exception to that — see
+below.
 
 ## Searching what you wrote
 
@@ -64,22 +65,38 @@ aede query "album.rating:>=4 -played"
 ```
 
 **The scope is part of the question, and it is the one thing that surprises
-people.** A bare `loved`, `rating`, `tag` or `note` asks about the **track**. If
-you marked an _album_ a favourite, `aede query "loved"` finds nothing — you
-asked a different question from the one you meant. So an empty answer says
-where what you wrote actually is, and offers the expression that finds it:
+people — for three of these four fields.** A bare `rating`, `tag` or `note`
+asks about the **track**. If you rated an _album_, `aede query "rating"` finds
+nothing — you asked a different question from the one you meant. So an empty
+answer says where what you wrote actually is, and offers the expression that
+finds it:
 
 ```
-$ aede query "loved"
-nothing matches "loved"
+$ aede query "rating"
+nothing matches "rating"
   1 track if you ask it of the album — that is where you wrote it
-  aede query "album.loved"
+  aede query "album.rating"
 ```
 
 The query still means exactly what it says; the line is a hint, not a
-correction. Folding the scopes together instead would be worse: five stars on
-an artist is not five stars on a track, and a field that merged them could
-never say which was meant.
+correction. Folding the scopes together instead would be worse for these
+three: five stars on an artist is not five stars on a track, and a field that
+merged them could never say which was meant.
+
+`loved` is the exception. A favourite is a blunter signal than a score —
+closer to "this matters to me" than to a precise judgement — and having loved
+a whole album is not something you should have to repeat one track at a time.
+So a bare `loved` asks about the track, or failing that its album, or failing
+that its artist, whichever actually holds it:
+
+```sh
+aede query "loved played:0"   # never played, and loved — directly, or through
+                               # its album, or through its artist
+```
+
+`track.loved` is still there for the precise question — exactly this track,
+nothing it belongs to — the same way `album.loved` and `artist.loved` already
+ask about exactly one level.
 
 **A field written alone asks whether there is one at all**, and `-field` asks
 the opposite — which is how a library is combed for what has _not_ been
