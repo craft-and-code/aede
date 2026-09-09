@@ -19,8 +19,10 @@ aede artists --csv --limit=100 --output=artists.csv
 
 ```sh
 aede album "To Hell With God" --csv --output=album.csv
-aede artist "Deicide" --csv | sort -t, -k9 -n     # sorted by size
+aede artist "Deicide" --csv --separator=tab | sort -t$'\t' -k9,9n     # sorted by size
 ```
+
+`sort -t,` on the plain comma-separated form is not safe here and elsewhere: a title with a comma in it — a reissue, a live album, anything worded "Compilation, Vol. 2" — comes back quoted, exactly as RFC 4180 asks (`"Once Upon the Cross, Reissue"`), but `sort` and `cut` know nothing about CSV quoting. They split on every comma they see, quoted or not, so a single row with one gains a column and every field after it — including the one `-k9` is asked for — lands one to the right of where it should be for that row alone. `--separator=tab` sidesteps it: nothing in a tag is ever tab-separated, so the field a title happens to hold never needs quoting in the first place.
 
 `aede album` takes **one** title — the words are joined so a title can be typed without quotes — and says which command lists several when given more.
 
@@ -34,7 +36,15 @@ aede track So What --artist Miles Davis --limit 1
 
 Put the positional before the option: `aede track --artist Miles Davis So What` gives the whole tail to `--artist`, and the command then says it was given no title — rather than answering a question you did not ask.
 
-`--output <file>`, or `-o`, writes wherever these produce text, and states where it went instead of filling the terminal.
+`--output <file>`, or `-o`, writes to a file instead of filling the terminal — but only alongside `--csv`, `--json` or `--m3u` on a selection or a listing, or on `export`, `sources --export` and `notes --export`: those are the only places with a file's worth of text to hand it. Everything else here is a page meant for the screen, and `--output` is refused on one rather than silently dropped — `--with` above included:
+
+```
+$ aede artist Ozzy --with Zakk Wylde -o test.txt
+Error: --output writes what --csv, --json or --m3u produce; this page has none of those to give it.
+Drop --output to see it on screen, or add one of the three to write it out.
+```
+
+`stats` is another page, with nothing of the kind to give it:
 
 ```
 $ aede stats
@@ -90,7 +100,7 @@ It is on disk, so this catalog was scanned 3 days ago and has not seen it — a 
 Add it: aede scan "/Users/kcell/Desktop/new-rips"
 ```
 
-It used to answer "nothing to extract", which reads as *your files already have their covers*. The date is there because it is the fact that explains it: you can weigh "scanned three days ago" against what you have been doing for three days, and you cannot weigh "run a scan".
+It used to answer "nothing to extract", which reads as _your files already have their covers_. The date is there because it is the fact that explains it: you can weigh "scanned three days ago" against what you have been doing for three days, and you cannot weigh "run a scan".
 
 ## Paging through a result
 

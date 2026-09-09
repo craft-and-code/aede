@@ -1904,6 +1904,60 @@ fn a_name_given_to_an_option_may_be_typed_without_quotes() {
 }
 
 #[test]
+fn output_is_refused_on_an_artist_page_with_nothing_to_write() {
+    // `--output` used to vanish without a word in front of `--with`,
+    // `--members` and the artist's own biography page: `main.rs` lets it
+    // through for `artist` in general (a plain `--csv --output` does write a
+    // file), so nothing there could tell that these three particular shapes
+    // never had a table, a JSON document or a playlist to hand it.
+    //
+    // `--with` is refused before the second artist is even resolved — the
+    // same order `--members` refuses in — so "Dave Brubeck" only has to be
+    // *a* real artist in the fixtures here, not one who shares a track with
+    // Miles Davis: this fixture set never credits two performers on the same
+    // track, so no pair here could reach the old, later check anyway.
+    let sandbox = Sandbox::new("artist_output_refused");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    let target = std::env::temp_dir().join("aede_e2e_artist_output_refused.md");
+    let _ = std::fs::remove_file(&target);
+    let target_str = target.to_str().unwrap();
+
+    for command in [
+        vec!["artist", "Miles Davis", "--output", target_str],
+        vec![
+            "artist",
+            "Miles Davis",
+            "--with",
+            "Dave Brubeck",
+            "--output",
+            target_str,
+        ],
+        vec!["artist", "Miles Davis", "--members", "--output", target_str],
+    ] {
+        let (_, err, ok) = sandbox.run(&command);
+        assert!(!ok, "{command:?} must be refused");
+        assert!(
+            err.contains("this page has none of those to give it"),
+            "{command:?} stderr: {err}"
+        );
+        assert!(
+            !target.exists(),
+            "{command:?} must not have written anything"
+        );
+    }
+
+    // The same command with a format to give `--output` still writes it: the
+    // refusal above is about these three shapes having none, not about
+    // `artist` losing `--output` altogether.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis", "--csv", "--output", target_str]);
+    assert!(ok, "output: {out}");
+    assert!(target.exists(), "--csv still has a table to write out");
+    let _ = std::fs::remove_file(&target);
+}
+
+#[test]
 fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
     // `roots --remove` runs the scan it makes necessary. When the folder
     // removed was the only one, that scan used to fail for want of a folder,

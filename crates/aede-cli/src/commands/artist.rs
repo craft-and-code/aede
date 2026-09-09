@@ -82,7 +82,7 @@ pub fn show_artist(args: &Args) -> Res {
     // `--with` turns one line of the collaboration table into the tracks it
     // counts: the graph is only useful if one can walk down it.
     if let Some(wanted) = args.value("with") {
-        return print_tracks_in_common(&catalog, artist.id, wanted);
+        return print_tracks_in_common(args, &catalog, artist.id, wanted);
     }
 
     // `--members` is the line-up, and it is its own answer rather than a
@@ -109,6 +109,11 @@ pub fn show_artist(args: &Args) -> Res {
     ) {
         return result;
     }
+    // Reached only when none of `--csv`, `--json` or `--m3u` was given, so
+    // the ordinary biography page below is what is about to print — and
+    // `main.rs` lets `--output` through for every `artist` invocation
+    // without knowing which of its several shapes was actually asked for.
+    super::refuse_output_without_a_format(args)?;
 
     println!("{}", ui::section(&artist.name));
     if artist.sort_name != artist.name {
@@ -318,6 +323,8 @@ fn say_who_played(args: &Args, catalog: &Catalog, artist: Id, name: &str) {
 /// artist is both — a soloist whose backing band carries their own name is
 /// exactly that, and picking one at write time would lose the other.
 fn print_members(args: &Args, catalog: &Catalog, artist: &Artist) -> Res {
+    // `--members` never had a `--csv`/`--json`/`--m3u` form to begin with.
+    super::refuse_output_without_a_format(args)?;
     let facts = super::artist_facts_for(args, catalog, artist.id);
     let Some(facts) = facts else {
         return Err(format!(
@@ -551,6 +558,9 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
     if let Some(result) = selection_output(catalog, &tracks, args) {
         return result;
     }
+    // Reached only when none of `--csv`, `--json` or `--m3u` was given, so
+    // `--output` — asked for on its own — has nothing here to write either.
+    super::refuse_output_without_a_format(args)?;
     print_track_table(
         catalog,
         &format!("{name} as {}", role_label(&role)),
@@ -558,7 +568,13 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
     )
 }
 
-fn print_tracks_in_common(catalog: &Catalog, artist_id: Id, wanted: &str) -> Res {
+fn print_tracks_in_common(args: &Args, catalog: &Catalog, artist_id: Id, wanted: &str) -> Res {
+    // `--with` has no `--csv`/`--json`/`--m3u` form of its own to hand
+    // `--output` to; it is a page, and always has been. Checked before the
+    // other artist is even resolved, the same order `--members` refuses in:
+    // an option that cannot be honoured is refused whether or not the rest
+    // of the command would have gone on to succeed.
+    super::refuse_output_without_a_format(args)?;
     let other = one_artist(catalog, wanted)?;
 
     let tracks = catalog.tracks_in_common(artist_id, other.id);

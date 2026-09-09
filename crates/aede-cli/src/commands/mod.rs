@@ -539,6 +539,26 @@ fn selection_output(catalog: &Catalog, tracks: &[Id], args: &Args) -> Option<Res
     None
 }
 
+/// Refuses `--output` on a page that has no file to write it to.
+///
+/// `-o`/`--output` only ever writes something through [`selection_output`] or
+/// a listing's `--csv`/`--json` table — everywhere else is a page meant for
+/// the screen, and until now `-o` vanished in front of one without a word.
+/// That is exactly the "wrong answer standing in for a missing one" this
+/// program refuses everywhere else an option cannot be honoured, and the rule
+/// stated at the top of `docs/commands.md`: an option a command cannot
+/// honour is refused, never ignored.
+pub fn refuse_output_without_a_format(args: &Args) -> Res {
+    if args.has("output") {
+        return Err(
+            "--output writes what --csv, --json or --m3u produce; this page has none of those to give it.\n\
+             Drop --output to see it on screen, or add one of the three to write it out."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 /// Prints the tracks shown as an M3U playlist instead of the usual page.
 ///
 /// Every command that puts a track list on screen can hand it to a player;
