@@ -101,6 +101,13 @@ pub fn show_track(args: &Args) -> Res {
         if words {
             print_lyrics(&catalog, track);
         }
+        // Right under the track it is about, in the same pass that printed
+        // it — not gathered into a second loop after every track has already
+        // been shown. Two matches means two "Yours"/"Notes" sections can
+        // appear back to back with nothing between them but a blank line;
+        // printed afterwards, the second one reads as belonging to whichever
+        // track happened to print last, which is only sometimes the truth.
+        super::panel_for(args, &catalog, EntityKind::Track, track.id);
     }
 
     // A truncated list must say so: a silent cut reads as "that is all there
@@ -114,9 +121,6 @@ pub fn show_track(args: &Args) -> Res {
         );
     } else if total > 1 {
         println!("  {}", ui::dim(&ui::plural(total, "track")));
-    }
-    for track in &matches {
-        super::panel_for(args, &catalog, EntityKind::Track, track.id);
     }
     Ok(())
 }
