@@ -76,6 +76,13 @@ pub fn search(args: &Args) -> Res {
             ids.push(id);
         }
     }
+    // Same reason as `track`: the JSON branch below returns on its own,
+    // before it would ever reach the shared gate inside `selection_output`,
+    // so the conflict has to be caught here too or `--json --csv` would
+    // print the JSON and drop the CSV without a word.
+    if let Some(message) = args.output_conflict(&["m3u", "csv", "json"]) {
+        return Err(message.into());
+    }
     // A command with a JSON shape of its own answers first: `search --json`
     // reports the hits — artists and albums included — which is a better answer
     // than the flat track table the shared selection path would give.

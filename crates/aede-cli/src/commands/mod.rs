@@ -520,6 +520,13 @@ fn copy_marker(catalog: &Catalog, release_id: Id) -> String {
 /// Every command that shows a track list offers the same two exits, so the
 /// option means the same thing wherever it is typed.
 fn selection_output(catalog: &Catalog, tracks: &[Id], args: &Args) -> Option<Res> {
+    // The one gate every one of these formats passes through, whichever
+    // command got them here: `--m3u --csv` used to hand back the playlist and
+    // drop the CSV without a word, because this function looked at `--m3u`
+    // first and never noticed the other flag was there at all.
+    if let Some(message) = args.output_conflict(&["m3u", "csv", "json"]) {
+        return Some(Err(message.into()));
+    }
     if args.has("m3u") {
         return Some(play_list(catalog, tracks, args));
     }

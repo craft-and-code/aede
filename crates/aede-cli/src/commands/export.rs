@@ -117,6 +117,14 @@ pub fn albums_table(catalog: &Catalog, releases: &[Id], args: &Args) -> Res {
 /// listing and read by none, which printed the ordinary table and dropped the
 /// word.
 pub fn rows_table(header: &[&str], rows: &[Vec<String>], args: &Args) -> Res {
+    // Every listing that can be written out as a table — `album`, `artist`,
+    // `facet`, `annotate`'s and `browse`'s own listings among them — ends up
+    // here, which makes this the one place `--csv` and `--json` together can
+    // be caught for all of them at once, rather than in each caller that
+    // happens to offer both.
+    if let Some(message) = args.output_conflict(&["csv", "json"]) {
+        return Err(message.into());
+    }
     if args.has("json") {
         return emit(args, &rows_json(header, rows));
     }

@@ -75,6 +75,13 @@ pub fn show_track(args: &Args) -> Res {
         .collect();
 
     let ids: Vec<Id> = matches.iter().map(|t| t.id).collect();
+    // Caught before either branch below can silently win: the JSON branch
+    // returns on its own, before ever reaching the shared gate inside
+    // `selection_output`, so `--json --m3u` would otherwise print the JSON
+    // and never mention the playlist that was also asked for.
+    if let Some(message) = args.output_conflict(&["m3u", "csv", "json"]) {
+        return Err(message.into());
+    }
     // Its own JSON shape answers first, for the same reason as `search`: this
     // one carries the credits and the technical detail, which no flat table of
     // a selection can.

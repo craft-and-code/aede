@@ -216,6 +216,33 @@ fn unknown_options_are_named_as_they_were_typed() {
 }
 
 #[test]
+fn two_output_formats_together_are_refused_and_named() {
+    let a = parse(&["album", "Scream", "--m3u", "--csv"]);
+    assert_eq!(
+        a.output_conflict(&["m3u", "csv", "json"]).as_deref(),
+        Some("--m3u and --csv ask for different outputs. Pick one.")
+    );
+    // One format, or none, is not a conflict.
+    let a = parse(&["album", "Scream", "--csv"]);
+    assert_eq!(a.output_conflict(&["m3u", "csv", "json"]), None);
+    let a = parse(&["album", "Scream"]);
+    assert_eq!(a.output_conflict(&["m3u", "csv", "json"]), None);
+    // A caller that only offers two of the three formats is not told about
+    // the third: `stats` never grows a phantom `--m3u` conflict.
+    let a = parse(&["stats", "--csv", "--m3u"]);
+    assert_eq!(a.output_conflict(&["csv", "json"]), None);
+}
+
+#[test]
+fn all_three_output_formats_are_named_together() {
+    let a = parse(&["album", "Scream", "--m3u", "--csv", "--json"]);
+    assert_eq!(
+        a.output_conflict(&["m3u", "csv", "json"]).as_deref(),
+        Some("--m3u, --csv and --json ask for different outputs. Pick one.")
+    );
+}
+
+#[test]
 fn a_dropped_letter_gets_a_suggestion_and_a_distant_word_does_not() {
     let known = &["limit", "label", "json", "all", "compilations"];
     assert_eq!(nearest("--limite", known).as_deref(), Some("--limit"));

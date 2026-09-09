@@ -296,6 +296,33 @@ impl Args {
             .collect()
     }
 
+    /// The formats asked for, among the ones a caller offers, when more than
+    /// one was given — `None` when at most one was.
+    ///
+    /// `--csv`, `--json` and `--m3u` each name a complete answer to "give me
+    /// this selection" on their own; two of them together do not merge into a
+    /// third format, they name two different files for the same question, and
+    /// picking one over the other silently — the way `--m3u --csv` used to
+    /// print the playlist and drop the CSV without a word — is a wrong answer
+    /// standing in for a missing one. Not every command offers every format
+    /// (`search` never writes a playlist; `stats` only ever answers in JSON),
+    /// so the caller passes exactly the formats *it* supports, and only those
+    /// are named back.
+    pub fn output_conflict(&self, formats: &[&str]) -> Option<String> {
+        let given: Vec<String> = formats
+            .iter()
+            .filter(|f| self.has(f))
+            .map(|f| format!("--{f}"))
+            .collect();
+        if given.len() < 2 {
+            return None;
+        }
+        Some(format!(
+            "{} ask for different outputs. Pick one.",
+            join_and(&given)
+        ))
+    }
+
     /// Options the program knows nothing about, each in the spelling it was
     /// typed in.
     ///
@@ -321,6 +348,20 @@ impl Args {
     /// wrote. Same rule as the role names: what is shown is what was accepted.
     fn as_typed<'a>(&'a self, name: &'a str) -> &'a str {
         self.spellings.get(name).map(|s| s.as_str()).unwrap_or(name)
+    }
+}
+
+/// Joins names the way a sentence does: "one" is that one word, "one and
+/// two" needs no comma, and only three or more get the Oxford list.
+fn join_and(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [a, b] => format!("{a} and {b}"),
+        _ => {
+            let (last, rest) = items.split_last().expect("checked above");
+            format!("{} and {last}", rest.join(", "))
+        }
     }
 }
 
