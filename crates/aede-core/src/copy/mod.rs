@@ -120,6 +120,17 @@ pub struct Plan {
     /// tree to keep. Reported rather than dropped, and rather than invented a
     /// place for.
     pub rootless: Vec<PathBuf>,
+    /// Audio files being encoded whose embedded cover cannot follow them into
+    /// the target format, because ffmpeg refuses to mux a picture stream into
+    /// it — see [`transcode::Target::keeps_embedded_art`]. Counted rather
+    /// than named: the loss is the same whichever file it happens to.
+    pub covers_the_target_cannot_hold: usize,
+    /// Audio files being encoded into a target whose tag format has no room
+    /// for one of the tags they carry — see
+    /// [`transcode::Target::tags_it_would_drop`]. In practice this is `wav`
+    /// and its fixed legacy vocabulary; every other target takes an
+    /// arbitrary key and never adds to this count.
+    pub tags_the_target_cannot_hold: usize,
 }
 
 impl Plan {
@@ -261,6 +272,17 @@ pub fn plan(catalog: &Catalog, tracks: &[Id], recipe: &Recipe) -> Plan {
             ItemKind::Audio => file.and_then(|f| conversion_for(f, recipe.convert)),
             _ => None,
         };
+        // Said once, before anything is written, rather than left for a
+        // player to discover: an encode that quietly drops a cover or a tag
+        // is a wrong answer standing in for a missing one.
+        if let (Some(target), Some(f)) = (convert, file) {
+            if !target.keeps_embedded_art() && f.has_embedded_art {
+                out.covers_the_target_cannot_hold += 1;
+            }
+            if !target.tags_it_would_drop(&f.tags).is_empty() {
+                out.tags_the_target_cannot_hold += 1;
+            }
+        }
         // The extension changes **before** the name is placed, so that two
         // sources landing on one name — `01.flac` and `01.wav` both becoming
         // `01.mp3` — are seen as the collision they are rather than one file
@@ -344,10 +366,37 @@ impl Plan {
 /// An unreadable folder yields nothing rather than stopping the plan — the
 /// audio is what was asked for, and the extras are extra.
 fn beside(folder: &str, extras: Extras) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return Vec::new();
-    };
+    let folder = Path::new(folder);
     let mut found: Vec<String> = Vec::new();
+    add_files_of(folder, extras, &mut found);
+    // Aède writes what it draws or keeps beside a track into a subfolder of
+    // its own rather than into the album folder directly — `spectrograms/`
+    // today, and both `Extras::Images` and `Extras::All` are documented to
+    // reach a spectrogram, not just the two of them that happen to be
+    // sitting loose next to the audio. One level down and no further: a
+    // folder inside `spectrograms/` would not be Aède's, and guessing at its
+    // shape is not this function's business.
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                add_files_of(&entry.path(), extras, &mut found);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Every plain file directly inside `folder` that this level of `extras`
+/// wants, appended as an absolute path.
+///
+/// Shared between the album folder itself and each subfolder [`beside`] steps
+/// into, so a dotfile or an audio file is refused the same way wherever it is
+/// found.
+fn add_files_of(folder: &Path, extras: Extras, found: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
     for entry in entries.flatten() {
         if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
             continue;
@@ -371,8 +420,6 @@ fn beside(folder: &str, extras: Extras) -> Vec<String> {
         }
         found.push(path.to_string_lossy().to_string());
     }
-    found.sort();
-    found
 }
 
 /// `true` when a file name ends in an extension pictures use.

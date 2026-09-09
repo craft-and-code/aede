@@ -282,6 +282,29 @@ fn announce(plan: &Plan, destination: &Path, restrict: bool, recipe: &Recipe) {
             )
         );
     }
+    // Said plainly and once, rather than left for a player to notice: an
+    // embedded cover or an extended tag an encode is about to drop is data
+    // lost silently unless something here says so.
+    if plan.covers_the_target_cannot_hold > 0 {
+        let target = recipe.convert.map(Target::extension).unwrap_or_default();
+        println!(
+            "  {}",
+            ui::yellow(&format!(
+                "{} will lose its embedded cover: .{target} cannot carry a picture stream",
+                ui::plural(plan.covers_the_target_cannot_hold, "file")
+            ))
+        );
+    }
+    if plan.tags_the_target_cannot_hold > 0 {
+        println!(
+            "  {}",
+            ui::yellow(&format!(
+                "{} will lose a tag wav's fixed vocabulary has no room for \
+                       (composer, album artist, disc or publisher)",
+                ui::plural(plan.tags_the_target_cannot_hold, "file")
+            ))
+        );
+    }
     if restrict {
         println!(
             "  {}",

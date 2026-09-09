@@ -3653,6 +3653,115 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
     windows,
     ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
 )]
+fn a_cover_and_a_tag_wav_cannot_hold_are_named_before_the_copy_runs() {
+    // `--compress wav` cannot carry a cover across — ffmpeg refuses outright
+    // to mux a picture stream into a WAV — and its legacy INFO chunk has no
+    // field for several ordinary tags. Both are said before a single byte is
+    // written, the same way a skipped re-encode already is: a loss nobody
+    // chose is not one that should be left for a player to discover.
+    if !ffmpeg_is_installed() {
+        return;
+    }
+    let sandbox = Sandbox::new("copy_compress_wav_loses");
+    let root = std::env::temp_dir().join("aede_e2e_compress_wav_loses_src");
+    let out = std::env::temp_dir().join("aede_e2e_compress_wav_loses_dest");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+    let album = root.join("Miles/Kind of Blue");
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::create_dir_all(&out).unwrap();
+
+    // The fixture FLAC already carries composer, publisher, disc and album
+    // artist — none of them the six fields WAV keeps — but no fixture on disk
+    // needed an embedded picture until now, so one is built here, directly
+    // with ffmpeg, the same way the source files this project ships were.
+    let cover = std::env::temp_dir().join("aede_e2e_compress_wav_loses_cover.png");
+    let status = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=16x16",
+            "-frames:v",
+            "1",
+        ])
+        .arg(&cover)
+        .status()
+        .unwrap();
+    assert!(status.success(), "could not build the test cover");
+    let with_cover = album.join("01 So What.flac");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-i"])
+        .arg(library().join("track.flac"))
+        .arg("-i")
+        .arg(&cover)
+        .args([
+            "-map",
+            "0:a",
+            "-map",
+            "1",
+            "-c:a",
+            "copy",
+            "-c:v",
+            "copy",
+            "-disposition:v:0",
+            "attached_pic",
+            "-map_metadata",
+            "0",
+        ])
+        .arg(&with_cover)
+        .status()
+        .unwrap();
+    assert!(status.success(), "could not embed the test cover");
+
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "wav",
+        "--dry-run",
+    ]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        report.contains("will lose its embedded cover"),
+        "the cover loss is named before anything is written: {report}"
+    );
+    assert!(
+        report.contains("will lose a tag"),
+        "the tag loss is named too: {report}"
+    );
+
+    // The same source converted to MP3 loses neither: the report says
+    // nothing about a loss that does not happen.
+    let (report, err, ok) = sandbox.run(&[
+        "copy",
+        out.to_str().unwrap(),
+        "--compress",
+        "mp3",
+        "--dry-run",
+    ]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        !report.contains("will lose"),
+        "mp3 carries the cover and its tag format takes an arbitrary key: {report}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&out);
+    let _ = std::fs::remove_file(&cover);
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn a_conversion_with_nothing_to_convert_says_so() {
     // The same silence as a swallowed option, seen from the other side:
     // `--compress mp3` over a selection that is already MP3 did exactly what

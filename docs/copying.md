@@ -81,7 +81,7 @@ Error: --compress needs ffmpeg, and it was not found.
   Debian/Ubuntu  sudo apt install ffmpeg
 ```
 
-**Metadata follows**: `-map_metadata` carries the tags across and the embedded cover is copied where the container holds one. Neither is perfect — no two tag formats hold quite the same fields — but arriving on a player with no artist and no title is not a trade anyone would accept.
+**Metadata follows**: `-map_metadata` carries the tags across, and `mp3`, `aac` and `flac` also copy the embedded cover into the container. `wav`, `vorbis` and `opus` cannot: ffmpeg refuses outright to mux a picture stream into any of the three, so a cover routed through one of them is lost at the encoder, not dropped by this code. Tags make the trip everywhere except `wav`, whose container only understands a fixed handful of fields — title, artist, album, genre, date, track — so composer, publisher, disc and album artist do not survive it; that is a limit of the RIFF format's legacy INFO chunk, not of `-map_metadata` itself. Neither loss is perfect, but arriving on a player with no artist and no title is not a trade anyone would accept.
 
 Sizes shown before a conversion are **estimates**, and labelled as such: what an encoder produces is not known until it has produced it, and answering "unknown" to "will this fit on my card" would be answering the wrong question.
 

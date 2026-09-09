@@ -14,6 +14,7 @@
 //! all depend on not being touched. A file that did not exist a second ago has
 //! none of those.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -103,6 +104,48 @@ impl Target {
     /// `true` when the target keeps every sample it was given.
     pub fn lossless(self) -> bool {
         self.row().2
+    }
+
+    /// Whether a cover embedded in the source can travel into this target at
+    /// all. `false` here is not this code declining to carry it — ffmpeg
+    /// itself refuses to mux a picture stream into `wav`, `opus` or `vorbis`
+    /// (verified directly: mapping a video stream into any of the three fails
+    /// outright and produces no file), so the loss happens at the encoder
+    /// whatever is asked of it. [`convert`] reads this same rule, once.
+    pub fn keeps_embedded_art(self) -> bool {
+        matches!(self, Target::Mp3 | Target::Aac | Target::Flac)
+    }
+
+    /// Canonical tag keys known to survive a conversion into this target, or
+    /// `None` when every key does.
+    ///
+    /// Only `wav` has a real answer here. ffmpeg's WAV muxer writes the
+    /// legacy RIFF `LIST`/`INFO` chunk, and that chunk's vocabulary is exactly
+    /// this short — verified against a real encode carrying ten canonical
+    /// tags, of which precisely these six arrived and no others. Every other
+    /// target's tag format takes an arbitrary key, so there is nothing here
+    /// worth naming.
+    fn known_tag_vocabulary(self) -> Option<&'static [&'static str]> {
+        match self {
+            Target::Wav => Some(&["title", "artist", "album", "genre", "date", "tracknumber"]),
+            _ => None,
+        }
+    }
+
+    /// Canonical tag keys `present` holds that this target is known to drop.
+    ///
+    /// Empty for every target but `wav`, and empty for `wav` too when nothing
+    /// present falls outside its vocabulary — a file tagged with only title,
+    /// artist and album loses nothing by becoming a WAV.
+    pub fn tags_it_would_drop(self, present: &BTreeMap<String, Vec<String>>) -> Vec<String> {
+        let Some(kept) = self.known_tag_vocabulary() else {
+            return Vec::new();
+        };
+        present
+            .keys()
+            .filter(|key| !kept.contains(&key.as_str()))
+            .cloned()
+            .collect()
     }
 
     /// Typical bitrate in kbps, used only to estimate a size before the work is
@@ -254,7 +297,7 @@ pub fn convert(
 
     // The cover, where the container holds one. `?` makes the stream optional,
     // so a file without art is converted rather than refused.
-    if matches!(target, Target::Mp3 | Target::Aac | Target::Flac) {
+    if target.keeps_embedded_art() {
         command.args([
             "-map",
             "0:v?",
@@ -391,6 +434,46 @@ mod tests {
         // A lossless target has no knob, so it is given none rather than one
         // that would be ignored.
         assert!(quality_arguments(Target::Flac, Some(Quality::Bitrate(320))).is_empty());
+    }
+
+    #[test]
+    fn only_mp3_aac_and_flac_can_carry_a_cover_across() {
+        // The three containers ffmpeg can mux a picture stream into — and,
+        // proven separately by running real ffmpeg against each target, the
+        // exact three it does not refuse outright.
+        assert!(Target::Mp3.keeps_embedded_art());
+        assert!(Target::Aac.keeps_embedded_art());
+        assert!(Target::Flac.keeps_embedded_art());
+        assert!(!Target::Wav.keeps_embedded_art());
+        assert!(!Target::Opus.keeps_embedded_art());
+        assert!(!Target::Vorbis.keeps_embedded_art());
+    }
+
+    #[test]
+    fn wav_drops_what_its_legacy_info_chunk_has_no_room_for() {
+        let mut present = BTreeMap::new();
+        for key in ["title", "artist", "album", "genre", "date", "tracknumber"] {
+            present.insert(key.to_string(), vec!["x".to_string()]);
+        }
+        assert!(
+            Target::Wav.tags_it_would_drop(&present).is_empty(),
+            "the six wav is known to keep"
+        );
+
+        present.insert("composer".to_string(), vec!["x".to_string()]);
+        present.insert("albumartist".to_string(), vec!["x".to_string()]);
+        let mut dropped = Target::Wav.tags_it_would_drop(&present);
+        dropped.sort();
+        assert_eq!(
+            dropped,
+            vec!["albumartist".to_string(), "composer".to_string()]
+        );
+
+        // Every other target's tag format takes an arbitrary key: nothing
+        // named here because nothing here is known to be lost.
+        assert!(Target::Mp3.tags_it_would_drop(&present).is_empty());
+        assert!(Target::Opus.tags_it_would_drop(&present).is_empty());
+        assert!(Target::Vorbis.tags_it_would_drop(&present).is_empty());
     }
 
     #[test]

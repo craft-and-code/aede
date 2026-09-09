@@ -355,9 +355,122 @@ fn a_title_whose_own_dot_is_not_an_extension_keeps_it() {
 }
 
 #[test]
+fn a_cover_and_an_extended_tag_lost_to_wav_are_both_counted() {
+    use transcode::Target;
+    // The source carries an embedded cover and a composer tag, neither of
+    // which a `--compress wav` file can hold — the first because ffmpeg
+    // refuses to mux a picture into a WAV at all, the second because the
+    // format's legacy INFO chunk has no field for it.
+    let mut f = file("/m/a/01.flac", "A");
+    f.tags.properties.lossless = true;
+    f.tags.properties.duration_ms = Some(1000);
+    f.tags.has_embedded_art = true;
+    f.tags.insert("composer", "Miles Davis");
+    let catalog = model::build(vec![f], vec!["/m".into()], 0, &[]);
+    let wav_plan = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            convert: Some(Target::Wav),
+            ..Default::default()
+        },
+    );
+    assert_eq!(wav_plan.covers_the_target_cannot_hold, 1);
+    assert_eq!(wav_plan.tags_the_target_cannot_hold, 1);
+
+    // The same file converted to MP3 loses neither: MP3 carries the cover and
+    // its tag format takes an arbitrary key.
+    let mp3_plan = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            convert: Some(Target::Mp3),
+            ..Default::default()
+        },
+    );
+    assert_eq!(mp3_plan.covers_the_target_cannot_hold, 0);
+    assert_eq!(mp3_plan.tags_the_target_cannot_hold, 0);
+
+    // A plain copy encodes nothing, so neither count applies to it either.
+    let uncoverted = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            ..Default::default()
+        },
+    );
+    assert_eq!(uncoverted.covers_the_target_cannot_hold, 0);
+    assert_eq!(uncoverted.tags_the_target_cannot_hold, 0);
+}
+
+#[test]
 fn a_word_that_names_no_extras_is_refused_rather_than_guessed_at() {
     assert_eq!(Extras::parse("cover"), Some(Extras::Cover));
     assert_eq!(Extras::parse("COVERS"), Some(Extras::Cover));
     assert_eq!(Extras::parse("none"), Some(Extras::None));
     assert_eq!(Extras::parse("everything"), None);
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
+fn extras_reach_one_level_into_a_subfolder_beside_the_audio() {
+    // Aède writes what it draws beside a track into a subfolder of its own —
+    // `spectrograms/` — rather than loose next to the audio file, and
+    // `beside` used to look at the album folder's own files only: a
+    // directory entry there failed `file_type().is_file()` and was skipped
+    // outright, whatever `--extras` asked for. Both `Extras::Images` and
+    // `Extras::All` document reaching a spectrogram; neither did.
+    let dir = std::env::temp_dir().join("aede_copy_extras_subfolder_test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let album = dir.join("Danzig").join("1994 Danzig 4");
+    std::fs::create_dir_all(album.join("spectrograms")).unwrap();
+    std::fs::write(album.join("02.flac"), b"fake audio").unwrap();
+    std::fs::write(album.join("cover.jpg"), b"fake cover").unwrap();
+    std::fs::write(album.join("spectrograms").join("02.png"), b"fake png").unwrap();
+    // A subfolder inside the subfolder is one level too many, and must not
+    // appear: nothing Aède writes today is shaped like that, and reaching
+    // for it would be a guess.
+    std::fs::create_dir_all(album.join("spectrograms").join("too-deep")).unwrap();
+    std::fs::write(
+        album.join("spectrograms").join("too-deep").join("x.png"),
+        b"should not travel",
+    )
+    .unwrap();
+
+    let audio_path = album.join("02.flac").to_string_lossy().to_string();
+    let catalog = catalog_of(&[(&audio_path, "Danzig 4")], &[dir.to_str().unwrap()]);
+    let plan = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::All,
+            ..Default::default()
+        },
+    );
+    let extras: Vec<String> = plan
+        .items
+        .iter()
+        .filter(|i| i.kind == ItemKind::Other)
+        .map(|i| i.relative.to_string_lossy().to_string())
+        .collect();
+    assert!(
+        extras.iter().any(|p| p.ends_with("spectrograms/02.png")),
+        "the spectrogram must travel too: {extras:?}"
+    );
+    assert!(
+        extras.iter().any(|p| p.ends_with("cover.jpg")),
+        "an ordinary file beside the audio must still travel: {extras:?}"
+    );
+    assert!(
+        !extras.iter().any(|p| p.contains("too-deep")),
+        "a second level down is not walked: {extras:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
