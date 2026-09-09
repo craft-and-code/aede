@@ -182,8 +182,14 @@ fn main() {
     // same fault as an option silently ignored, and the answer looks right,
     // which is what makes it worse.
     // `roots --remove <folder>` is the one place a listing does read an
-    // argument, because the folder is what is being removed.
-    let reads_an_argument = command == "roots" && args.has("remove");
+    // argument, because the folder is what is being removed. That is only
+    // true when `--remove` stands alone: `roots --exclude <folder> --remove`
+    // already has its folder from `--exclude`, so a stray word there (a
+    // mistyped `-no-scan`, say) is not the argument being read, and letting
+    // it through here was letting it through everywhere — silently, the one
+    // thing an argument must never be.
+    let reads_an_argument =
+        command == "roots" && args.has("remove") && args.value("exclude").is_none();
     if let Some(hint) = takes_no_argument(command)
         && !args.positionals.is_empty()
         && !reads_an_argument

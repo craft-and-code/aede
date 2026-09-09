@@ -12,16 +12,9 @@ If you would rather not run Picard, nothing breaks — Aède reads whatever the 
 
 ## When one musician is on the shelf twice
 
-A library that has been through Picard carries `MUSICBRAINZ_ARTISTID`, and two
-spellings under one identifier are merged by the scan with no guesswork at all —
-`Ozzy Osbourne` and `O. Osbourne` are one row, and the artist's page says which
-spellings it absorbed.
+A library that has been through Picard carries `MUSICBRAINZ_ARTISTID`, and two spellings under one identifier are merged by the scan with no guesswork at all — `Ozzy Osbourne` and `O. Osbourne` are one row, and the artist's page says which spellings it absorbed.
 
-For the files that never met MusicBrainz there is nothing to consult, and Aède
-will not guess: matching on a fragment of a name would merge Angus Young with
-Neil Young. `aede doctor` names the pairs worth looking at, and `aede merge`
-is how you answer. Neither ever touches a file. The whole of it is in
-[Identification](design/identification.md#who-is-the-same-person).
+For the files that never met MusicBrainz there is nothing to consult, and Aède will not guess: matching on a fragment of a name would merge Angus Young with Neil Young. `aede doctor` names the pairs worth looking at, and `aede merge` is how you answer. Neither ever touches a file. The whole of it is in [Identification](design/identification.md#who-is-the-same-person).
 
 ## Folders never read
 
@@ -160,7 +153,7 @@ What comes back is **what the library looked like**, not the library. A scan rec
 
 **A store the backup does not hold is never deleted.** A backup made before you had fetched anything carries no `sources.json`, and treating that as "there should be none" would silently throw away a layer that cost twenty minutes of requests. It is left alone and said out loud — you can decide about a file that is still there, and not about one that is gone.
 
-Two commands rather than `backup --restore`, for the reason `aede artwork` became `aede extract`: a command that writes is named for the writing. Restoring replaces three stores at once, and hiding that behind an option on a command called *backup* would put the dangerous half under the reassuring name. Both ask before overwriting, and `--yes` skips the question for scripts; without a terminal to ask on, both **refuse** rather than assuming an answer.
+Two commands rather than `backup --restore`, for the reason `aede artwork` became `aede extract`: a command that writes is named for the writing. Restoring replaces three stores at once, and hiding that behind an option on a command called _backup_ would put the dangerous half under the reassuring name. Both ask before overwriting, and `--yes` skips the question for scripts; without a terminal to ask on, both **refuse** rather than assuming an answer.
 
 ## Starting over
 

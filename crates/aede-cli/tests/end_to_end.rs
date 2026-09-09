@@ -4124,6 +4124,23 @@ fn a_folder_can_be_kept_out_of_the_library_for_good() {
     assert!(!ok);
     assert!(err.contains("is not excluded"), "stderr: {err}");
 
+    // A stray word after `--exclude … --remove` used to slip through
+    // silently: `roots --remove <folder>` alone reads a positional, and that
+    // allowance let this one through too, even though the folder here already
+    // comes from `--exclude`. A mistyped `-no-scan` (one dash, not recognised
+    // as an option) is exactly the word that slipped through before, running
+    // an unwanted rescan instead of being refused.
+    let (_, err, ok) = sandbox.run(&[
+        "roots",
+        "--exclude",
+        books.to_str().unwrap(),
+        "--remove",
+        "-no-scan",
+    ]);
+    assert!(!ok, "a stray argument must be refused, not absorbed");
+    assert!(err.contains("takes no argument"), "stderr: {err}");
+    assert!(err.contains("-no-scan"), "stderr: {err}");
+
     let _ = std::fs::remove_dir_all(&root);
 }
 
