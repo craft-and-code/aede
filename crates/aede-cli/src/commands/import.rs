@@ -104,6 +104,35 @@ pub fn import(args: &Args) -> Res {
     ]);
     print!("{}", table.render());
 
+    if !outcome.stale_folders.is_empty() {
+        // Named for the same reason `waiting_folders` is, and the same
+        // reason the count alone used to be the whole message: "some files
+        // changed" says how many, never which, and which is the one thing a
+        // reader needs to point FlacCompagnon at the right album again.
+        // These records are never stored — this printout is the only place
+        // they are ever named, so there is no `--stale` to list the rest of
+        // them later the way `--pending` can for waiting ones.
+        println!("{}", ui::section("Changed since the report"));
+        let shown: usize = outcome.stale_folders.values().sum();
+        let mut t = Table::new(&["Folder", "Analyses"]).align(1, Align::Right);
+        for (folder, count) in &outcome.stale_folders {
+            t.push(vec![folder.clone(), count.to_string()]);
+        }
+        print!("{}", t.render());
+        if outcome.stale > shown {
+            println!(
+                "  {}",
+                ui::dim(&format!(
+                    "… and {} elsewhere, not shown",
+                    ui::plural(outcome.stale - shown, "analysis")
+                ))
+            );
+        }
+        println!(
+            "  {}",
+            ui::yellow("run FlacCompagnon again on the folders above")
+        );
+    }
     if !outcome.waiting_folders.is_empty() {
         // Folders, written out whole — the same reasoning as `--pending`, and
         // the same bug before it: a path cut to a column width loses its head,
@@ -130,12 +159,6 @@ pub fn import(args: &Args) -> Res {
         println!(
             "  {}",
             ui::dim("they are stored; scan the folders above and they attach themselves")
-        );
-    }
-    if outcome.stale > 0 {
-        println!(
-            "  {}",
-            ui::yellow("some files changed after they were analysed: run FlacCompagnon again")
         );
     }
     Ok(())

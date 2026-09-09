@@ -85,7 +85,23 @@ Three rules govern what happens to those numbers.
 
 **They are never merged into Aède's own.** A verdict carries the method that produced it. Overwriting the bit depth read from the frames with one obtained by decoding would leave the catalog unable to say where the number came from — and unable to notice that the two disagree. Noticing is the point.
 
-**They expire with the bytes they describe.** An analysis is bound to the size and modification date the file had when it was measured, the same test the incremental scan uses. Edit the file and the panel says `— stale: the file changed since` rather than answering confidently about music that is no longer there. Re-importing that same report is refused for the same reason.
+**They expire with the bytes they describe.** An analysis is bound to the size and modification date the file had when it was measured, the same test the incremental scan uses. Edit the file and the panel says `— stale: the file changed since` rather than answering confidently about music that is no longer there. Importing a report against a file that has since changed is refused for the same reason — and, unlike a record still waiting for its folder to be scanned, a refused one is never stored: this is the only moment it is ever seen, so `aede import` names the **folders** it happened in, the same way it names folders still waiting:
+
+```
+$ aede import ~/Desktop/ozzy-report.json
+
+Import
+  ...
+  Changed since the report                                          2
+
+Changed since the report
+
+  Folder                                                  Analyses
+  /Users/…/Ozzy Osbourne/1988 No Rest for the Living             2
+  run FlacCompagnon again on the folders above
+```
+
+A count alone would answer "how many", not "which" — the same gap `--pending` closes for waiting records, except there is no `--stale` to ask again later: a discarded record leaves nothing behind to list.
 
 **A disagreement is a finding, not something to arbitrate.** `doctor` reports an MD5 mismatch as an **error** even when `aede check` found the file intact, because the two look at different things:
 

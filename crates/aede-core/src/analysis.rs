@@ -156,12 +156,13 @@ pub struct Report {
     pub files: Vec<FileAnalysis>,
 }
 
-/// Waiting **folders** listed by [`Attachment`]; the rest are counted only.
+/// Waiting and stale **folders** listed by [`Attachment`]; the rest are
+/// counted only.
 ///
 /// Bounded on folders rather than on files because that is the unit a reader
 /// acts on: one album of fourteen tracks is one decision, and fourteen rows
 /// saying so push the next album off the screen.
-const WAITING_SHOWN: usize = 10;
+const FOLDERS_SHOWN: usize = 10;
 
 /// What became of a batch of records handed to [`merge_into`].
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -185,12 +186,30 @@ pub struct Attachment {
     /// where the file name is, leaving the head that identifies the folder
     /// exactly where it cannot be read.
     pub waiting_folders: BTreeMap<String, usize>,
+    /// The first few **folders** holding a record dropped as stale, each with
+    /// how many, for the same reason `waiting_folders` names rather than
+    /// counts: "some files changed" answers how many, not which, and which is
+    /// the one thing a reader needs to know where to point FlacCompagnon again.
+    pub stale_folders: BTreeMap<String, usize>,
 }
 
 impl Attachment {
     /// Records that found their file, one way or the other.
     pub fn attached(&self) -> usize {
         self.matched + self.moved
+    }
+}
+
+/// Counts one more record against the folder it sits in, capping how many
+/// distinct folders are kept rather than how many records count against them
+/// — a folder already listed keeps counting past the cap, only a new one is
+/// refused room.
+fn note_folder(folders: &mut BTreeMap<String, usize>, path: &str) {
+    let folder = crate::text::folder(path);
+    if let Some(count) = folders.get_mut(folder) {
+        *count += 1;
+    } else if folders.len() < FOLDERS_SHOWN {
+        folders.insert(folder.to_string(), 1);
     }
 }
 
@@ -228,6 +247,7 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
                 Some(&(size, mtime)) => {
                     if !record.still_applies(size, mtime) {
                         out.stale += 1;
+                        note_folder(&mut out.stale_folders, &record.path);
                         continue;
                     }
                     out.matched += 1;
@@ -236,6 +256,7 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
                     Some(&(path, mtime)) => {
                         if !record.still_applies(record.size_bytes, mtime) {
                             out.stale += 1;
+                            note_folder(&mut out.stale_folders, path);
                             continue;
                         }
                         record.path = path.to_string();
@@ -243,14 +264,7 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
                     }
                     None => {
                         out.waiting += 1;
-                        let folder = crate::text::folder(&record.path);
-                        // A folder already listed keeps counting however many
-                        // are shown: the cap bounds the rows, not the totals.
-                        if let Some(count) = out.waiting_folders.get_mut(folder) {
-                            *count += 1;
-                        } else if out.waiting_folders.len() < WAITING_SHOWN {
-                            out.waiting_folders.insert(folder.to_string(), 1);
-                        }
+                        note_folder(&mut out.waiting_folders, &record.path);
                     }
                 },
             }

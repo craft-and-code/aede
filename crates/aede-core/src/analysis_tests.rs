@@ -205,6 +205,62 @@ fn matching_a_file_is_not_the_same_as_describing_it() {
     assert_eq!(outcome.moved, 0);
     assert_eq!(outcome.stale, 1);
     assert!(catalog.analyses.is_empty(), "nothing is stored");
+    // Named by where the *file* actually is, not by what the report called
+    // it — the record found the file by name and size, and that is the
+    // folder somebody needs to point FlacCompagnon at again.
+    assert_eq!(
+        outcome.stale_folders,
+        BTreeMap::from([("/music".to_string(), 1)]),
+        "a discarded record still says where FlacCompagnon has to run again"
+    );
+}
+
+#[test]
+fn a_record_stale_by_its_own_path_still_names_the_folder() {
+    // The other route to the same outcome: the path matches exactly, so
+    // there was never a name-and-size lookup to read a folder from — the
+    // record's own path is the only one there is.
+    let mut catalog = catalog_holding("/music/Blizzard of Ozz/01.flac", 500, 20);
+    let record = record_for("/music/Blizzard of Ozz/01.flac", 500, 10);
+
+    let outcome = merge_into(&mut catalog, vec![record], 0);
+    assert_eq!(outcome.matched, 0);
+    assert_eq!(outcome.stale, 1);
+    assert_eq!(
+        outcome.stale_folders,
+        BTreeMap::from([("/music/Blizzard of Ozz".to_string(), 1)])
+    );
+}
+
+#[test]
+fn stale_folders_are_capped_the_same_way_waiting_ones_are() {
+    // The exact shape `the_cap_bounds_the_rows_and_not_the_counts` checks
+    // for `waiting_folders`: more distinct folders than can be listed must
+    // not lose the true count of the ones that are.
+    let mut catalog = Catalog::default();
+    let mut records = Vec::new();
+    for folder in 0..FOLDERS_SHOWN + 5 {
+        let path = format!("/music/album{folder:02}/01.flac");
+        catalog.files.push(crate::model::AudioFile {
+            id: folder as u32,
+            path: path.clone(),
+            size: 500,
+            mtime: 20,
+            ..Default::default()
+        });
+        for track in 0..3 {
+            let _ = track;
+            records.push(record_for(&path, 500, 10));
+        }
+    }
+    let outcome = merge_into(&mut catalog, records, 0);
+    assert_eq!(outcome.stale, (FOLDERS_SHOWN + 5) * 3);
+    assert_eq!(outcome.stale_folders.len(), FOLDERS_SHOWN);
+    assert!(
+        outcome.stale_folders.values().all(|&n| n == 3),
+        "a folder that is shown is shown whole: {:?}",
+        outcome.stale_folders
+    );
 }
 
 #[test]
@@ -263,7 +319,7 @@ fn the_cap_bounds_the_rows_and_not_the_counts() {
     // very folders it does name.
     let mut catalog = Catalog::default();
     let mut records = Vec::new();
-    for folder in 0..WAITING_SHOWN + 5 {
+    for folder in 0..FOLDERS_SHOWN + 5 {
         for track in 0..3 {
             records.push(record_for(
                 &format!("/music/album{folder:02}/{track}.flac"),
@@ -273,8 +329,8 @@ fn the_cap_bounds_the_rows_and_not_the_counts() {
         }
     }
     let outcome = merge_into(&mut catalog, records, 0);
-    assert_eq!(outcome.waiting, (WAITING_SHOWN + 5) * 3);
-    assert_eq!(outcome.waiting_folders.len(), WAITING_SHOWN);
+    assert_eq!(outcome.waiting, (FOLDERS_SHOWN + 5) * 3);
+    assert_eq!(outcome.waiting_folders.len(), FOLDERS_SHOWN);
     assert!(
         outcome.waiting_folders.values().all(|&n| n == 3),
         "a folder that is shown is shown whole: {:?}",
