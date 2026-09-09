@@ -16,11 +16,27 @@ use super::{Res, load};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
+/// The size used when `--size` is not given.
+///
+/// Half of FlacCompagnon's own frame: a spectrogram is mostly noise, which a
+/// PNG cannot compress away, so its size on disk tracks its pixel count
+/// closely — halving both dimensions turns a few megabytes into a few
+/// hundred kilobytes. Most runs are drawing a whole library rather than
+/// comparing one picture against FlacCompagnon's, so the lighter default is
+/// the useful one; `--size full` still draws FlacCompagnon's own dimensions
+/// for when the comparison is the point.
+pub const DEFAULT_SIZE: spectrum::Size = spectrum::Size::Half;
+
 pub fn spectrum(args: &Args) -> Res {
     let catalog = load(args)?;
     let scope = super::scope_of(args, &catalog)?;
     let redraw_everything = args.has("full");
     let dry_run = args.has("dry-run");
+    let size = match args.value("size") {
+        Some(text) => spectrum::Size::parse(text)
+            .ok_or_else(|| format!("--size takes full or half; \"{text}\" is neither"))?,
+        None => DEFAULT_SIZE,
+    };
 
     let work = to_draw(&catalog, &scope, redraw_everything);
     println!("{}", ui::section("Spectrograms"));
@@ -41,6 +57,14 @@ pub fn spectrum(args: &Args) -> Res {
         );
         return Ok(());
     }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "pictures are drawn at {} size; changing --size does not redraw \
+             what is already there — --full does",
+            size.as_str()
+        ))
+    );
 
     if dry_run {
         let mut t = Table::new(&["Picture", "Track"]);
@@ -85,7 +109,7 @@ pub fn spectrum(args: &Args) -> Res {
                         break;
                     };
                     if let Err(said) =
-                        spectrum::render(&program, &audio, &picture, Some(caption.as_str()))
+                        spectrum::render(&program, &audio, &picture, size, Some(caption.as_str()))
                     {
                         failures
                             .lock()

@@ -406,7 +406,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["fetch"],
         "ask what the fingerprinted files sound like",
     ),
-    ("size", &["fetch"], "choose how large an image to keep"),
+    (
+        "size",
+        &["fetch", "spectrum"],
+        "choose how large a picture is",
+    ),
     ("lang", &["fetch"], "choose the language of the prose"),
     (
         "images",
@@ -917,7 +921,12 @@ fn print_help() {
                        Only what is missing or older than its track is drawn,
                        so a second run over an unchanged library draws nothing
                        (--full redraws everything, --dry-run only says what it
-                       would draw, --threads sets how many run at once)
+                       would draw, --threads sets how many run at once).
+                       --size half (the default) keeps a library's pictures in
+                       the megabytes rather than the gigabytes; --size full
+                       matches FlacCompagnon's own dimensions exactly, for
+                       putting the two side by side. Changing --size does not
+                       redraw what is already there on its own — --full does
   playlist [folder…]   Write an .m3u in every album folder, in album order and
                        with relative paths. --simple leaves out the #EXTINF
                        lines for players that choke on them, --artists adds one

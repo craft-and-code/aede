@@ -3520,6 +3520,61 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn size_changes_the_picture_but_never_by_itself() {
+    let sandbox = Sandbox::new("spectrum_size");
+    let root = std::env::temp_dir().join("aede_e2e_spectrum_size_src");
+    let album = root.join("Album");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::copy(library().join("track.flac"), album.join("01.flac")).unwrap();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // Refused before ffmpeg is even looked for: an unknown value is not
+    // something to guess at and silently fall back from.
+    let (out, err, ok) = sandbox.run(&["spectrum", "--size", "huge"]);
+    assert!(!ok, "output: {out}");
+    assert!(err.contains("--size"), "stderr: {err}");
+
+    if !ffmpeg_is_installed() {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+
+    let (_, err, ok) = sandbox.run(&["spectrum", "--size", "half"]);
+    assert!(ok, "stderr: {err}");
+    let picture = album.join("spectrograms").join("01.png");
+    let half = std::fs::metadata(&picture).unwrap().len();
+
+    // Switching --size alone redraws nothing: the picture is still current
+    // by date, exactly as an ordinary second run would leave it — the new
+    // size only takes effect on what --full (re)draws.
+    let (out, _, ok) = sandbox.run(&["spectrum", "--size", "full"]);
+    assert!(ok, "output: {out}");
+    assert!(out.contains("up to date"), "output: {out}");
+    assert_eq!(
+        std::fs::metadata(&picture).unwrap().len(),
+        half,
+        "nothing should have been redrawn"
+    );
+
+    // --full forces the redraw, and a full-size picture is a noticeably
+    // bigger file — a spectrogram is mostly noise, which a PNG cannot
+    // compress away, so four times the pixels means roughly four times the
+    // bytes.
+    let (_, err, ok) = sandbox.run(&["spectrum", "--full", "--size", "full"]);
+    assert!(ok, "stderr: {err}");
+    let full = std::fs::metadata(&picture).unwrap().len();
+    assert!(
+        full > half * 2,
+        "a full-size picture ({full} bytes) should be well over twice the \
+         half-size one ({half} bytes)"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn ffmpeg_is_installed() -> bool {
     let there = std::process::Command::new("ffmpeg")
         .arg("-version")

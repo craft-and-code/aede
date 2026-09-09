@@ -6,13 +6,17 @@
 //! itself — it hands the file to ffmpeg and puts the picture where the person
 //! looking for it will find it, beside the music.
 //!
-//! **The filter, the size and the layout are FlacCompagnon's**, deliberately
-//! and to the character. The two programs are used together on the same
-//! library, and a spectrogram that differed in scale, gain or colour map from
-//! one tool to the other would be unreadable *as a pair* — the whole point of
-//! looking at two is to compare them.
+//! **The filter and the layout are FlacCompagnon's**, deliberately and to the
+//! character. The two programs are used together on the same library, and a
+//! spectrogram that differed in gain or colour map from one tool to the other
+//! would be unreadable *as a pair* — the whole point of looking at two is to
+//! compare them. The frame size no longer has to match: see [`Size`].
+//! `--size full` still draws FlacCompagnon's own dimensions, character for
+//! character, for whoever wants the two side by side; the default is half of
+//! that, because most runs are not a side-by-side and a full-size picture is
+//! a few megabytes a track.
 //!
-//! The folder is the one thing that does not match: it is `spectrograms`, in
+//! The folder is another thing that does not match: it is `spectrograms`, in
 //! English like everything else here, where FlacCompagnon writes `spectres`.
 //! Matching a *picture* is what makes the pair comparable; matching a *folder
 //! name* buys nothing, and a French word in an otherwise English codebase is a
@@ -26,13 +30,62 @@ use crate::tags::AudioProperties;
 /// Folder written beside the audio, holding one picture per track.
 pub const FOLDER: &str = "spectrograms";
 
-/// The ffmpeg filter, character for character as FlacCompagnon draws it.
+/// How large a spectrogram picture is drawn.
+///
+/// [`Size::Full`] is FlacCompagnon's own frame, `1800x940`, for putting the
+/// two tools' pictures side by side. [`Size::Half`] is the default: halving
+/// both dimensions quarters the pixel count, and a spectrogram is mostly
+/// noise, which a PNG encoder cannot compress away — so the picture shrinks
+/// close to that same quarter instead of by half. A library of a few
+/// thousand tracks stays in the megabytes rather than the gigabytes, and the
+/// legend is still legible at this size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Size {
+    /// `1800x940`, character for character what FlacCompagnon draws.
+    Full,
+    /// `900x470`. Used unless `--size full` is given.
+    Half,
+}
+
+impl Size {
+    /// Reads what a reader typed after `--size`.
+    pub fn parse(text: &str) -> Option<Size> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "full" => Some(Size::Full),
+            "half" => Some(Size::Half),
+            _ => None,
+        }
+    }
+
+    /// The `WxH` fed to ffmpeg's `showspectrumpic`.
+    fn dimensions(self) -> &'static str {
+        match self {
+            Size::Full => "1800x940",
+            Size::Half => "900x470",
+        }
+    }
+
+    /// How this size reads in a message.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Size::Full => "full",
+            Size::Half => "half",
+        }
+    }
+}
+
+/// The ffmpeg filter, character for character as FlacCompagnon draws it,
+/// except for the frame size, which [`Size`] now chooses.
 ///
 /// `legend=1` draws the labelled frequency axis, whose top is the Nyquist
 /// limit — without it the picture is pretty and says nothing, because there is
 /// no way to tell 16 kHz from 22 kHz by eye.
-const FILTER: &str =
-    "showspectrumpic=s=1800x940:mode=combined:legend=1:color=intensity:scale=log:gain=3";
+fn filter(size: Size) -> String {
+    format!(
+        "showspectrumpic=s={}:mode=combined:legend=1:color=intensity:scale=log:gain=3",
+        size.dimensions()
+    )
+}
 
 /// Where the picture of a file belongs: `<its folder>/spectrograms/<name>.png`.
 pub fn picture_for(audio: &Path) -> PathBuf {
@@ -118,23 +171,25 @@ pub fn render(
     ffmpeg: &str,
     audio: &Path,
     picture: &Path,
+    size: Size,
     caption: Option<&str>,
 ) -> Result<(), String> {
     if let Some(parent) = picture.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
+    let base = filter(size);
     let with_text = caption.map(|text| {
         format!(
-            "{FILTER},drawtext=text='{text}':fontcolor=white:fontsize=24:\
+            "{base},drawtext=text='{text}':fontcolor=white:fontsize=24:\
              x=14:y=12:box=1:boxcolor=black@0.55"
         )
     });
-    if let Some(filter) = &with_text
-        && run(ffmpeg, audio, filter, picture).is_ok()
+    if let Some(with_text) = &with_text
+        && run(ffmpeg, audio, with_text, picture).is_ok()
     {
         return Ok(());
     }
-    run(ffmpeg, audio, FILTER, picture)
+    run(ffmpeg, audio, &base, picture)
 }
 
 fn run(ffmpeg: &str, audio: &Path, filter: &str, picture: &Path) -> Result<(), String> {
@@ -265,5 +320,24 @@ mod tests {
         // must not make every run redraw it.
         assert!(!out_of_date(&dir.join("gone.flac"), &picture));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn size_is_read_from_what_a_reader_typed() {
+        assert_eq!(Size::parse("full"), Some(Size::Full));
+        assert_eq!(Size::parse(" Half "), Some(Size::Half));
+        for unusable in ["", "1800x940", "large", "fullscreen"] {
+            assert_eq!(Size::parse(unusable), None, "unusable: {unusable:?}");
+        }
+    }
+
+    #[test]
+    fn half_shrinks_the_picture_by_a_quarter_not_by_half() {
+        // The whole point of offering it: a spectrogram is mostly noise,
+        // which a PNG encoder cannot compress away, so a picture's size on
+        // disk tracks its pixel count closely. Halving both dimensions is
+        // what actually shrinks the file on disk by about four times.
+        assert!(filter(Size::Full).contains("s=1800x940"));
+        assert!(filter(Size::Half).contains("s=900x470"));
     }
 }
