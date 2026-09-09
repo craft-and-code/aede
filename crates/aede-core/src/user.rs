@@ -217,7 +217,16 @@ impl Annotation {
     /// leave an empty one that a listing would then have to filter out — and
     /// that an export would carry for ever.
     pub fn is_empty(&self) -> bool {
-        !self.loved && self.rating.is_none() && self.note.is_none() && self.tags.is_empty()
+        // A note of `Some("")` says nothing, the same as `None` — the
+        // difference between the two is an implementation detail (typed
+        // empty text, an empty `--file`, a round trip through export and
+        // import) that nobody looking at this record should have to know
+        // about. Treating it as content would keep a record alive, and
+        // therefore visible, for having said nothing at all.
+        !self.loved
+            && self.rating.is_none()
+            && self.note.as_deref().is_none_or(|n| n.trim().is_empty())
+            && self.tags.is_empty()
     }
 }
 
@@ -706,8 +715,12 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
             if let Some(rating) = a.rating {
                 o.set("rating", u32::from(rating).into());
             }
-            if let Some(note) = &a.note {
-                o.set("note", note.as_str().into());
+            // A blank note — `Some("")`, or whitespace only — says nothing
+            // `None` did not already say, and writing the key anyway would
+            // hand a reader of this file (or the next `--import` of it) the
+            // exact record `forget_empty` exists to drop on the way in.
+            if let Some(note) = a.note.as_deref().filter(|n| !n.trim().is_empty()) {
+                o.set("note", note.into());
             }
             if !a.tags.is_empty() {
                 o.set(

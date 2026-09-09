@@ -664,6 +664,77 @@ fn a_note_is_a_written_thing_with_a_section_of_its_own() {
 }
 
 #[test]
+fn a_blank_note_is_refused_to_write_and_not_shown_once_it_exists() {
+    // Whether it is typed, read from an empty file, or arrives through
+    // export and reimport, `note: Some("")` says exactly as much as no note
+    // at all — and showing a "Notes" heading with a timestamp over nothing
+    // is a wrong answer standing in for a missing one.
+    let sandbox = Sandbox::new("blank_note");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // --- Writing nothing is refused, not silently accepted -----------------
+    let (_, err, ok) = sandbox.run(&["note", "artist", "Miles Davis", "--text", ""]);
+    assert!(!ok, "an empty --text must not create a note");
+    assert!(err.contains("not a note"), "stderr: {err}");
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(!out.contains("Notes"), "nothing was written: {out}");
+
+    let (_, err, ok) = sandbox.run(&["note", "artist", "Miles Davis", "--text", "   "]);
+    assert!(!ok, "whitespace is not text either");
+    assert!(err.contains("not a note"), "stderr: {err}");
+
+    let empty_file = std::env::temp_dir().join("aede_e2e_blank_note.md");
+    std::fs::write(&empty_file, "\n\n   \n").unwrap();
+    let (_, err, ok) = sandbox.run(&[
+        "note",
+        "artist",
+        "Miles Davis",
+        "--file",
+        empty_file.to_str().unwrap(),
+    ]);
+    assert!(!ok, "an empty file is not a note either");
+    assert!(err.contains("not a note"), "stderr: {err}");
+    let _ = std::fs::remove_file(&empty_file);
+
+    // --- A blank note that arrives from outside is not shown either --------
+    // The one shape `--text`/`--file` cannot be asked to refuse, because the
+    // empty string never passes through them: a backup written on another
+    // run, or edited by hand, that already holds `"note": ""`.
+    let source = Sandbox::new("blank_note_source");
+    let (_, _, ok) = source.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    let (_, err, ok) = source.run(&["note", "artist", "Dave Brubeck", "--text", "time out"]);
+    assert!(ok, "stderr: {err}");
+    let backup = std::env::temp_dir().join("aede_e2e_blank_note_backup.json");
+    let (_, err, ok) = source.run(&["notes", "--export", "-o", backup.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let exported = std::fs::read_to_string(&backup).unwrap();
+    let edited = exported.replace("\"note\": \"time out\"", "\"note\": \"\"");
+    assert_ne!(
+        exported, edited,
+        "the note this test wrote was found and blanked"
+    );
+    std::fs::write(&backup, edited).unwrap();
+
+    // A different sandbox, so the record is new rather than a merge racing
+    // an existing one on `updated_at`.
+    let (_, err, ok) = sandbox.run(&["notes", "--import", backup.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+    let (out, _, ok) = sandbox.run(&["artist", "Dave Brubeck"]);
+    assert!(ok);
+    assert!(
+        !out.contains("Notes"),
+        "a blank note imported from outside reads the same as none: {out}"
+    );
+
+    let _ = std::fs::remove_file(&backup);
+}
+
+#[test]
 fn a_query_expresses_what_options_never_could() {
     let sandbox = Sandbox::new("query");
     let root = library();

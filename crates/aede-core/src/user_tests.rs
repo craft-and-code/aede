@@ -128,6 +128,35 @@ fn a_record_that_says_nothing_is_forgotten() {
 }
 
 #[test]
+fn a_note_with_nothing_written_in_it_is_forgotten_too() {
+    // `Some("")` — typed as empty text, read from an empty `--file`, or
+    // arrived at through export and import — says exactly as much as no
+    // note at all, and a record kept alive for it would be a heading and a
+    // timestamp shown over nothing.
+    let mut data = UserData::default();
+    let target = EntityRef::new(EntityKind::Artist, "deicide");
+    data.entry(LOCAL_USER, &target, 10).note = Some(String::new());
+    data.forget_empty();
+    assert!(
+        data.annotations.is_empty(),
+        "a blank note is not content to keep the record for"
+    );
+
+    // Whitespace only is the same answer: a note of two blank lines says
+    // nothing more than one of zero.
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &target, 10).note = Some("  \n\n ".into());
+    data.forget_empty();
+    assert!(data.annotations.is_empty());
+
+    // Real text still keeps the record, exactly as before.
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &target, 10).note = Some("the reissue is better".into());
+    data.forget_empty();
+    assert_eq!(data.annotations.len(), 1, "a real note is content");
+}
+
+#[test]
 fn the_log_is_bounded_and_the_counters_are_not() {
     // The log answers "what did I listen to last night"; the counters
     // answer "what have I never heard", which a truncated log cannot.
@@ -179,6 +208,39 @@ fn a_round_trip_through_the_file_changes_nothing() {
     assert_eq!(back.annotations, data.annotations);
     assert_eq!(back.plays, data.plays);
     assert_eq!(back.counts, data.counts);
+}
+
+#[test]
+fn a_blank_note_leaves_no_key_for_an_import_to_read_back() {
+    // `forget_empty` already drops a record that says only a blank note
+    // before it is ever saved — this is the record that still has something
+    // else to say (a rating, here) and is written anyway. The key itself
+    // must not appear: a reader hand-inspecting the file, or another `aede`
+    // importing it, would otherwise meet exactly the record this project
+    // just spent a bug fixing.
+    let mut data = UserData::default();
+    let target = EntityRef::new(EntityKind::Track, "/m/a.flac");
+    {
+        let a = data.entry(LOCAL_USER, &target, 10);
+        a.rating = Some(3);
+        a.note = Some("   ".into());
+    }
+    let text = to_json(&data).to_string_pretty();
+    assert!(
+        !text.contains("\"note\""),
+        "the key itself is absent: {text}"
+    );
+
+    let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("user data");
+    assert_eq!(
+        back.annotations[0].note, None,
+        "read back as no note at all"
+    );
+    assert_eq!(
+        back.annotations[0].rating,
+        Some(3),
+        "the rest of the record survives"
+    );
 }
 
 #[test]

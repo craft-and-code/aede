@@ -209,7 +209,11 @@ pub fn panel(args: &Args, catalog: &Catalog, reference: &EntityRef) {
 /// The written note, with a heading of its own and the date it was last
 /// touched.
 fn print_note(entry: &Annotation) {
-    let Some(note) = &entry.note else {
+    // A note of `Some("")` — typed as empty text, read from an empty
+    // `--file`, or arrived at through export and import — says exactly as
+    // much as no note at all, and a heading with a timestamp over nothing
+    // under it is a wrong answer standing in for a missing one.
+    let Some(note) = entry.note.as_deref().filter(|n| !n.trim().is_empty()) else {
         return;
     };
     println!("{}", ui::section("Notes"));
@@ -353,6 +357,18 @@ pub fn note(args: &Args) -> Res {
         ),
         (None, None) => None,
     };
+    // Typed or read, empty is not a note: writing it anyway would create a
+    // record that looks noted — a heading, a timestamp — over nothing at
+    // all, the same wrong answer `tag`'s trailing comma is refused for.
+    if let Some(text) = &written
+        && text.trim().is_empty()
+    {
+        return Err(
+            "a note with nothing written in it is not a note: pass real text, \
+             or --remove to take one away"
+                .into(),
+        );
+    }
 
     let entry = data.entry(&owner(args), &reference, now);
     match (written, args.has("remove")) {
@@ -379,7 +395,8 @@ pub fn note(args: &Args) -> Res {
             );
         }
         (None, true) => {
-            let had = entry.note.take().is_some();
+            let had = entry.note.as_deref().is_some_and(|n| !n.trim().is_empty());
+            entry.note = None;
             entry.updated_at = now;
             write(args, &mut data)?;
             println!(
@@ -395,7 +412,7 @@ pub fn note(args: &Args) -> Res {
         // Naming a thing and saying nothing about it is a question, so it is
         // answered rather than refused.
         (None, false) => {
-            if entry.note.is_some() {
+            if entry.note.as_deref().is_some_and(|n| !n.trim().is_empty()) {
                 println!("{}", ui::section(&name));
                 print_note(entry);
             } else {
