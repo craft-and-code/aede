@@ -107,13 +107,10 @@ fn find(catalog: &Catalog, kind: EntityKind, name: &str) -> Result<EntityRef, Bo
             let (found, _) = catalog.find_releases(name);
             (found.iter().map(|r| r.id).collect::<Vec<Id>>(), "album")
         }
-        EntityKind::Artist => (
-            catalog
-                .find_artist(name)
-                .map(|a| vec![a.id])
-                .unwrap_or_default(),
-            "artist",
-        ),
+        EntityKind::Artist => {
+            let (found, _) = catalog.find_artists(name);
+            (found.iter().map(|a| a.id).collect::<Vec<Id>>(), "artist")
+        }
         EntityKind::Track => {
             let (found, _) = catalog.find_tracks(name);
             (found.iter().map(|t| t.id).collect(), "track")

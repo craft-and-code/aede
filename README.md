@@ -6,7 +6,7 @@ An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece
 
 **M0.6 is done**: read folders, turn them into a catalog of linked entities, answer questions about it, keep what you think of it, and get it back out to a player. No audio playback yet — that is deliberate, and the [roadmap](docs/design/roadmap.md) says when it arrives. The network is reached by exactly one command, `aede fetch`, and never on its own.
 
-**M1 — identification — has started**, with the layer that receives it: a value fetched from MusicBrainz will sit _beside_ the tag, attributed and removable, never on top of it. The reasoning is in [The attributed layer](docs/design/attribution.md), and nothing in this first step touches the network.
+**M1 — identification — is done**: MusicBrainz for relations, credits, and country and formation dates, AcoustID for badly tagged files, Cover Art Archive for artwork, Wikidata for a biography in your language, and LRCLIB for lyrics — all of it behind `aede fetch`, sitting _beside_ the tag rather than on top of it. The reasoning for that is in [The attributed layer](docs/design/attribution.md).
 
 The project has a page of its own: **<https://craft-and-code.github.io/aede/>** — what it does, and the roadmap.
 

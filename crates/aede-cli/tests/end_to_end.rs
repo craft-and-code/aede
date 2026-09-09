@@ -366,6 +366,30 @@ fn what_the_user_writes_survives_a_rescan() {
 }
 
 #[test]
+fn an_artist_is_found_by_a_partial_name_just_as_the_artist_command_finds_it() {
+    // `aede artist Brubeck` has always resolved a partial name to the one
+    // artist it matches. `note`, `love`, `rate` and `tag` share their target
+    // resolution through one function, and until now the artist branch of
+    // that function bypassed it: it called the older, exact-match-only
+    // `find_artist` instead of `find_artists`, so a name that was not spelled
+    // in full — "Brubeck" rather than "Dave Brubeck" — quietly matched nothing.
+    let sandbox = Sandbox::new("partial_artist_name");
+    let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok);
+
+    let (out, err, ok) = sandbox.run(&["note", "artist", "Brubeck", "--text", "time out"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Dave Brubeck"), "output: {out}");
+
+    let (out, _, ok) = sandbox.run(&["note", "artist", "Brubeck"]);
+    assert!(ok);
+    assert!(
+        out.contains("time out"),
+        "the note was actually stored: {out}"
+    );
+}
+
+#[test]
 fn tags_go_on_and_come_off_in_lists() {
     // Tagging is the one annotation that is naturally plural — a record is
     // vinyl *and* rare *and* to-rip-again — and putting them on one at a time,
