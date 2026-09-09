@@ -172,11 +172,21 @@ fn announce(catalog: &Catalog, queue: &[(Id, PathBuf)]) {
             "  {}",
             ui::yellow("this reads every byte: minutes on an SSD, longer on a mechanical disk")
         );
-        println!(
-            "  {}",
-            ui::dim("stopping it is safe — verified files are saved as the run goes")
-        );
+        println!("  {}", ui::dim(&interruption_hint()));
     }
+}
+
+/// What an interrupted run actually keeps.
+///
+/// A batch is only committed to the catalog once every file in it is done
+/// (see the loop in [`check`]), so a `Ctrl-C` mid-batch loses that whole
+/// batch, not just the file being read at that instant. Saying "saved as
+/// the run goes" without naming the batch size overstates that guarantee —
+/// which is exactly what decides whether someone lets the interrupt through.
+fn interruption_hint() -> String {
+    format!(
+        "stopping it is safe — verdicts are saved every {SAVE_EVERY} files, so at most the batch in progress is lost"
+    )
 }
 
 /// The state of the library, and what this run did to reach it.
@@ -284,3 +294,7 @@ fn resolve_threads(requested: usize) -> usize {
         .map(|n| n.get())
         .unwrap_or(4)
 }
+
+#[cfg(test)]
+#[path = "check_tests.rs"]
+mod tests;

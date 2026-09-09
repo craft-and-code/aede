@@ -43,7 +43,7 @@ That is why the check is opt-in, and why it announces itself before starting:
 $ aede check
 Verifying 20 148 files to read, 612.4 GB
   this reads every byte: minutes on an SSD, longer on a mechanical disk
-  stopping it is safe — verified files are saved as the run goes
+  stopping it is safe — verdicts are saved every 250 files, so at most the batch in progress is lost
 ```
 
 Two things make it manageable:
