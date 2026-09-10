@@ -1554,11 +1554,26 @@ fn a_command_that_reads_no_argument_refuses_one() {
         );
     }
 
+    // `sources` has the same fault, with one legitimate positional: the
+    // template it can generate is filtered by a name.
+    let (_, err, ok) = sandbox.run(&["sources", "ozzy"]);
+    assert!(!ok, "the argument must not be swallowed");
+    assert!(err.contains("takes no argument"), "stderr: {err}");
+    assert!(err.contains("\"ozzy\" was ignored"), "it names it: {err}");
+    assert!(
+        err.contains("aede artist"),
+        "and points at what does: {err}"
+    );
+    assert!(err.contains("aede album"), "and what else does: {err}");
+    assert!(err.contains("aede track"), "and what else does: {err}");
+
     // The commands that do take one are untouched.
     let (_, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
     assert!(ok);
     let (_, _, ok) = sandbox.run(&["artists", "--role", "composer"]);
     assert!(ok, "the option alone is still fine");
+    let (_, _, ok) = sandbox.run(&["sources", "--template", "Miles Davis"]);
+    assert!(ok, "--template reads the name it filters by");
 }
 
 #[test]

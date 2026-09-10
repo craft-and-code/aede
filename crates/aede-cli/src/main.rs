@@ -188,8 +188,12 @@ fn main() {
     // mistyped `-no-scan`, say) is not the argument being read, and letting
     // it through here was letting it through everywhere — silently, the one
     // thing an argument must never be.
+    // `sources --template <name>` is the other: the name narrows which empty
+    // records the template covers, so a positional there is the argument
+    // being read, not one slipping past unnoticed.
     let reads_an_argument =
-        command == "roots" && args.has("remove") && args.value("exclude").is_none();
+        (command == "roots" && args.has("remove") && args.value("exclude").is_none())
+            || (command == "sources" && args.has("template"));
     if let Some(hint) = takes_no_argument(command)
         && !args.positionals.is_empty()
         && !reads_an_argument
@@ -724,6 +728,10 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
         "genres" => "For one genre: aede genre <name>",
         "labels" => "For one label: aede label \"<name>\"",
         "years" => "For one year: aede albums --year=<year>",
+        "sources" => {
+            "For one artist, album or track: aede artist \"<name>\" | aede album \"<title>\" | aede track \"<name>\"\n\
+             To build one instead: aede sources --template \"<name>\""
+        }
         "stats" | "doctor" | "roots" => "It describes the whole catalog.",
         "collections" => {
             "It lists what you saved. To save one: aede collection <name> --query \"…\""
