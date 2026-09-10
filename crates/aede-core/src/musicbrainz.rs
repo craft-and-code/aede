@@ -12,7 +12,7 @@
 //! guessing one of those wrong produces a record that is silently empty.
 
 use crate::json::Json;
-use crate::sources::{ArtistFacts, Confidence, Membership, ReleaseFacts, Side};
+use crate::sources::{ArtistFacts, Confidence, LabelFacts, Membership, ReleaseFacts, Side};
 use crate::text;
 
 /// Base address of the web service, kept here so the client has nothing to
@@ -285,6 +285,8 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         // artist either, and `fetch --portraits` reaches one the same way
         // Wikipedia is reached, through the `wikidata` link above.
         portrait: None,
+        // Same story again: `fetch --logos` is the only pass that fills this.
+        logo: None,
     }
 }
 
@@ -494,6 +496,7 @@ fn release_facts(group: &Json) -> ReleaseFacts {
             .unwrap_or_default(),
         first_released: field(group, "first-release-date"),
         label: None,
+        label_mbid: None,
         // MusicBrainz holds no artwork: the images live at the Cover Art
         // Archive, which is a different service with its own answer — see
         // [`crate::coverart`].
@@ -531,7 +534,10 @@ pub fn release_group(response: &Json) -> Option<Candidate<ReleaseFacts>> {
 pub fn release(response: &Json) -> Option<Candidate<ReleaseFacts>> {
     let group = response.get("release-group");
     let mut facts = group.map(release_facts).unwrap_or_default();
-    facts.label = label_of_release(response);
+    if let Some(label) = label_of_release(response) {
+        facts.label = Some(label.name);
+        facts.label_mbid = label.mbid;
+    }
     // Falling back to the edition's own identifier: an answer with no group is
     // not one this program has seen, but storing it under the edition is
     // better than dropping a lookup that succeeded.
@@ -614,16 +620,80 @@ pub fn discography(response: &Json) -> (Vec<crate::sources::KnownRelease>, usize
     (page, total)
 }
 
+/// A label credited on a release: its name and, when the same entry carried
+/// one, its MusicBrainz identifier.
+pub struct LabelOfRelease {
+    /// The name, as the release lookup spells it.
+    pub name: String,
+    /// The label's own MusicBrainz identifier, when the same entry named
+    /// one.
+    pub mbid: Option<String>,
+}
+
 /// The label of a release, as a release lookup returns it.
 ///
 /// Separate from [`release_groups`] because it comes from a different request,
 /// and because it describes an edition rather than the album.
-pub fn label_of_release(response: &Json) -> Option<String> {
+///
+/// The name and the identifier are read from **the same** `label-info` entry
+/// — the first one that names a label — never a name from one row and an
+/// identifier from another: a release crediting several labels would
+/// otherwise risk pairing the name of one with the address of a different
+/// one. No tag carries a label's MusicBrainz identifier the way
+/// `MUSICBRAINZ_ARTISTID` does an artist's, so this is the only place one is
+/// ever read from.
+pub fn label_of_release(response: &Json) -> Option<LabelOfRelease> {
     response
         .get("label-info")
         .and_then(Json::as_arr)?
         .iter()
-        .find_map(|info| info.get("label").and_then(|l| field(l, "name")))
+        .find_map(|info| {
+            let label = info.get("label")?;
+            let name = field(label, "name")?;
+            Some(LabelOfRelease {
+                name,
+                mbid: field(label, "id"),
+            })
+        })
+}
+
+/// One label, as `/ws/2/label/{mbid}?fmt=json` returns it.
+///
+/// A **lookup**, asked only once an identifier is already known — see
+/// `crate::sources::ReleaseFacts::label_mbid` and the `fetch --labels`
+/// module doc for where that comes from: a release this catalog looked up
+/// sometimes already names its label's own identifier, and a lookup then
+/// turns that into a certainty instead of guessing by name all over again.
+/// No tag ever carries it directly, so unlike [`artist`] this is never asked
+/// with a value read out of the files.
+pub fn label(response: &Json) -> Option<Candidate<LabelFacts>> {
+    let mbid = field(response, "id")?;
+    Some(Candidate {
+        mbid,
+        name: field(response, "name").unwrap_or_default(),
+        // Nothing was ranked: the service was asked about this one thing.
+        score: 100,
+        facts: LabelFacts::default(),
+    })
+}
+
+/// Labels, as `/ws/2/label/?query=…&fmt=json` returns them.
+///
+/// A **search**: ranked guesses, asked when no identifier is known for this
+/// label yet. Prefer [`label`] whenever one is.
+pub fn labels(response: &Json) -> Vec<Candidate<LabelFacts>> {
+    let rows = response.get("labels").and_then(Json::as_arr).unwrap_or(&[]);
+    rows.iter()
+        .filter_map(|row| {
+            let mbid = field(row, "id")?;
+            Some(Candidate {
+                mbid,
+                name: field(row, "name").unwrap_or_default(),
+                score: score_of(row),
+                facts: LabelFacts::default(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

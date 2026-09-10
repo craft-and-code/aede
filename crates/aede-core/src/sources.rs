@@ -239,6 +239,13 @@ pub struct ArtistFacts {
     /// only the fact that a source was asked and what it answered, so a later
     /// run does not ask again for nothing: see `fetch --portraits`.
     pub portrait: Option<Picture>,
+    /// The artist's logo, when a source holds an address for one — see
+    /// [`Picture`].
+    ///
+    /// Same shape and same reason as [`ArtistFacts::portrait`]: the address
+    /// only, written to disk and rediscovered from there, kept here so a
+    /// later run does not ask again for nothing: see `fetch --logos`.
+    pub logo: Option<Picture>,
 }
 
 impl ArtistFacts {
@@ -479,6 +486,19 @@ pub struct ReleaseFacts {
     pub first_released: Option<String>,
     /// Label, as the source names it.
     pub label: Option<String>,
+    /// The label's own MusicBrainz identifier, when the same answer carried
+    /// one.
+    ///
+    /// Kept beside the name rather than instead of it, the same choice
+    /// [`ArtistFacts::country_code`] makes beside [`ArtistFacts::area`]: the
+    /// source states both, and a reader who only wants to see the label reads
+    /// the name, while `fetch --labels` reads the identifier. Read from the
+    /// very `label-info` entry the name came from — never from a different
+    /// one — so a release crediting several labels is never misattributed.
+    /// Never from a tag: no widely used tag carries a label's MusicBrainz
+    /// identifier, so this can only ever come from a release lookup, unlike
+    /// every other `mbid` in [`crate::model`].
+    pub label_mbid: Option<String>,
     /// Address of the front image, when a source holds one.
     ///
     /// The address rather than the picture: a catalog is a description of a
@@ -518,6 +538,9 @@ pub enum Facts {
     Release(ReleaseFacts),
     /// About one recorded performance, identified by its sound.
     Track(TrackFacts),
+    /// About a record label — see [`LabelFacts`] for why there is next to
+    /// nothing here.
+    Label(LabelFacts),
 }
 
 impl Facts {
@@ -531,6 +554,7 @@ impl Facts {
             Facts::Artist(_) => EntityKind::Artist,
             Facts::Release(_) => EntityKind::Release,
             Facts::Track(_) => EntityKind::Track,
+            Facts::Label(_) => EntityKind::Label,
         }
     }
 
@@ -544,8 +568,29 @@ impl Facts {
             Facts::Artist(a) => a == &ArtistFacts::default(),
             Facts::Release(r) => r == &ReleaseFacts::default(),
             Facts::Track(t) => t == &TrackFacts::default(),
+            // Always true, by construction — see the type's own doc. Kept as
+            // an arm rather than a wildcard so a fact ever added to this
+            // struct is forced to answer this question too.
+            Facts::Label(l) => l == &LabelFacts::default(),
         }
     }
+}
+
+/// What a MusicBrainz label search or lookup adds to a label already known by
+/// name.
+///
+/// Usually empty: the MusicBrainz pass exists for exactly one fact — the identifier —
+/// see [`ReleaseFacts::label_mbid`] for why it could not simply live on
+/// [`crate::model::Label`]. That identifier itself lives in
+/// [`SourceRecord::source_id`], the same place every other MusicBrainz
+/// identifier in this layer lives, never in the facts beside it. A record
+/// with no fields still says something real: a row that exists at all means
+/// "asked, and this MBID answered", which is exactly what a later run needs
+/// to know before it asks again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LabelFacts {
+    /// The label's logo, when Fanart.tv supplied one.
+    pub logo: Option<Picture>,
 }
 
 /// What a source says about one recorded performance.
@@ -1058,6 +1103,17 @@ pub fn to_json(sources: &Sources) -> Json {
                             None => Json::Null,
                         },
                     );
+                    facts.set(
+                        "logo",
+                        match &a.logo {
+                            Some(picture) => {
+                                let mut o = Json::obj();
+                                o.set("url", picture.url.clone().into());
+                                o
+                            }
+                            None => Json::Null,
+                        },
+                    );
                 }
                 Facts::Release(rel) => {
                     facts.set("primary_type", opt_str(&rel.primary_type));
@@ -1072,7 +1128,21 @@ pub fn to_json(sources: &Sources) -> Json {
                     );
                     facts.set("first_released", opt_str(&rel.first_released));
                     facts.set("label", opt_str(&rel.label));
+                    facts.set("label_mbid", opt_str(&rel.label_mbid));
                     facts.set("cover_art", opt_str(&rel.cover_art));
+                }
+                Facts::Label(label) => {
+                    facts.set(
+                        "logo",
+                        match &label.logo {
+                            Some(picture) => {
+                                let mut o = Json::obj();
+                                o.set("url", picture.url.clone().into());
+                                o
+                            }
+                            None => Json::Null,
+                        },
+                    );
                 }
             }
             o.set("facts", facts);
@@ -1198,6 +1268,12 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                         url: p.field_str("url")?,
                     })
                 }),
+                // Same absence, same reason: not asked for a logo yet.
+                logo: facts.and_then(|f| f.get("logo")).and_then(|p| {
+                    Some(Picture {
+                        url: p.field_str("url")?,
+                    })
+                }),
             }),
             EntityKind::Release => Facts::Release(ReleaseFacts {
                 primary_type: facts.and_then(|f| f.field_str("primary_type")),
@@ -1208,6 +1284,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .unwrap_or_default(),
                 first_released: facts.and_then(|f| f.field_str("first_released")),
                 label: facts.and_then(|f| f.field_str("label")),
+                label_mbid: facts.and_then(|f| f.field_str("label_mbid")),
                 cover_art: facts.and_then(|f| f.field_str("cover_art")),
             }),
             EntityKind::Track => Facts::Track(TrackFacts {
@@ -1222,6 +1299,13 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .map(|f| read_strings(f, "artists"))
                     .unwrap_or_default(),
                 album: facts.and_then(|f| f.field_str("album")),
+            }),
+            EntityKind::Label => Facts::Label(LabelFacts {
+                logo: facts.and_then(|f| f.get("logo")).and_then(|p| {
+                    Some(Picture {
+                        url: p.field_str("url")?,
+                    })
+                }),
             }),
             _ => continue,
         };

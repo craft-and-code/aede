@@ -1,17 +1,24 @@
-//! Fanart.tv: a portrait of the artist, when Wikidata has none.
+//! Fanart.tv: a portrait of the artist, when Wikidata has none, and its logo
+//! and banner, neither of which Wikidata ever carries at all.
 //!
 //! Deliberately **no network**, like [`crate::acoustid`] and
 //! [`crate::musicbrainz`]: this module builds the address to ask and reads
 //! the answer somebody else fetched.
 //!
-//! # Second, never first
+//! # Second for a portrait, only, for a logo
 //!
-//! [`crate::wikipedia::portrait_file`] is asked before this — a Commons image
-//! is reached through the identifier MusicBrainz already gave, and Commons
-//! hosts nothing whose licence is not stated. Fanart.tv is user-submitted:
-//! `fetch --portraits` uses it only where Wikidata has nothing, and the record
-//! it leaves says which service actually answered, so a reader who cares about
-//! that distinction can tell — see [`SOURCE`].
+//! [`crate::wikipedia::portrait_file`] is asked before this for a portrait —
+//! a Commons image is reached through the identifier MusicBrainz already
+//! gave, and Commons hosts nothing whose licence is not stated. Fanart.tv is
+//! user-submitted: `fetch --portraits` uses it only where Wikidata has
+//! nothing, and the record it leaves says which service actually answered, so
+//! a reader who cares about that distinction can tell — see [`SOURCE`].
+//!
+//! A logo has no such alternative to try first: Wikidata states no logo claim
+//! for an artist, so `fetch --logos` asks Fanart.tv directly, under its own
+//! record name — see [`LOGO_SOURCE`]. A banner rides the very same request:
+//! `fetch --logos --banners` reads [`banner_url`] out of the answer already
+//! fetched for the logo, rather than asking twice for one artist.
 //!
 //! # Indexed by the identifier that never needed a search
 //!
@@ -27,7 +34,22 @@ use crate::json::Json;
 pub const SOURCE: &str = "fanarttv";
 
 /// Base address of the service.
-pub const WEB_SERVICE: &str = "https://webservice.fanart.tv/v3/music";
+pub const WEB_SERVICE: &str = "https://webservice.fanart.tv/v3.2/music";
+
+/// The name a logo is stored under — not [`SOURCE`], though the same request
+/// answers both.
+///
+/// A portrait and a logo are two different claims about the same artist,
+/// fetched by `fetch --portraits` and `fetch --logos` on their own schedules,
+/// and a record that carried both could not be re-fetched for one without
+/// silently dropping the other — `Sources::set` replaces a record whole, it
+/// does not merge fields into it. Keeping them as two records under two names
+/// is what lets each pass redo its own work without undoing the other's — the
+/// same reasoning, and the same fix, as [`crate::wikipedia::PORTRAIT_SOURCE`].
+pub const LOGO_SOURCE: &str = "fanarttv-logo";
+
+/// The separate source record for a record label's logo.
+pub const LABEL_LOGO_SOURCE: &str = "fanarttv-label-logo";
 
 /// The environment variable holding the application key.
 ///
@@ -61,28 +83,59 @@ pub fn lookup_url(mbid: &str, key: &str) -> String {
     format!("{WEB_SERVICE}/{mbid}?api_key={key}")
 }
 
-/// A portrait the service knows of, and how well liked it is.
+/// Where to ask about one record label, by its MusicBrainz label identifier.
+pub fn label_lookup_url(mbid: &str, key: &str) -> String {
+    format!("{WEB_SERVICE}/labels/{mbid}?api_key={key}")
+}
+
+/// Refuses a response whose identity does not match the artist requested.
+///
+/// Fanart.tv v3.2 guarantees `mbid_id` on artist answers. Without this guard,
+/// an error object or a changed response shape reads indistinguishably from
+/// "this artist has no logo".
+pub fn artist_response(response: &Json, mbid: &str) -> Result<(), String> {
+    match response.field_str("mbid_id") {
+        Some(found) if found == mbid => Ok(()),
+        Some(found) => Err(format!(
+            "Fanart.tv answered for MusicBrainz id {found}, not {mbid}"
+        )),
+        None => Err(
+            "Fanart.tv returned no artist identifier; the response was not an artist answer"
+                .to_string(),
+        ),
+    }
+}
+
+/// Refuses a response whose identity does not match the label requested.
+pub fn label_response(response: &Json, mbid: &str) -> Result<(), String> {
+    match response.field_str("id") {
+        Some(found) if found == mbid => Ok(()),
+        Some(found) => Err(format!(
+            "Fanart.tv answered for MusicBrainz label id {found}, not {mbid}"
+        )),
+        None => Err(
+            "Fanart.tv returned no label identifier; the response was not a label answer"
+                .to_string(),
+        ),
+    }
+}
+
+/// One image the service knows of, and how well liked it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Thumb {
     url: String,
     likes: u32,
 }
 
-/// The most liked portrait the service holds for this artist, or `None`.
-///
-/// **`artistthumb` only.** Fanart.tv also serves banners, logos and backdrops
-/// for the same artist, and those answer a different question — the wallpaper
-/// behind a "now playing" screen, not "who is this". Bringing them in under
-/// one function would ask a caller wanting a portrait to filter what should
-/// never have been mixed together.
+/// The most liked image under `field`, or `None` when it is empty or absent.
 ///
 /// Sorted by `likes`, which is the only signal the service gives about which
 /// of several submissions is the one people chose — the same role a score
 /// plays for a search result, and unlike a search result these are not scored
 /// against the question at all, only against each other.
-fn best_thumb(response: &Json) -> Option<Thumb> {
+fn best(response: &Json, field: &str) -> Option<Thumb> {
     let mut found: Vec<Thumb> = response
-        .get("artistthumb")
+        .get(field)
         .and_then(Json::as_arr)
         .unwrap_or(&[])
         .iter()
@@ -99,9 +152,47 @@ fn best_thumb(response: &Json) -> Option<Thumb> {
     found.into_iter().next()
 }
 
+/// The most liked portrait the service holds for this artist, or `None`.
+///
+/// **`artistthumb` only.** Fanart.tv also serves banners, logos and backdrops
+/// for the same artist, and those answer a different question — the wallpaper
+/// behind a "now playing" screen, not "who is this". Bringing them in under
+/// one function would ask a caller wanting a portrait to filter what should
+/// never have been mixed together.
+fn best_thumb(response: &Json) -> Option<Thumb> {
+    best(response, "artistthumb")
+}
+
 /// The image address to download, or `None` when the service has nothing.
 pub fn portrait_url(response: &Json) -> Option<String> {
     best_thumb(response).map(|thumb| thumb.url)
+}
+
+/// The artist's logo address to download, or `None` when the service has
+/// none.
+///
+/// **`hdmusiclogo`, then `musiclogo`.** The two are the same submissions at
+/// two resolutions, not two different pools to rank against each other — an
+/// HD entry always wins over a standard one, however many likes the standard
+/// one has, and `musiclogo` is only consulted when `hdmusiclogo` is empty.
+pub fn logo_url(response: &Json) -> Option<String> {
+    best(response, "hdmusiclogo")
+        .or_else(|| best(response, "musiclogo"))
+        .map(|thumb| thumb.url)
+}
+
+/// The artist's banner address to download, or `None` when the service has
+/// none.
+///
+/// **`musicbanner`.** Unlike the logo, the service serves this at one
+/// resolution only — there is no `hdmusicbanner` to prefer first.
+pub fn banner_url(response: &Json) -> Option<String> {
+    best(response, "musicbanner").map(|thumb| thumb.url)
+}
+
+/// The record label's logo address, or `None` when it has none.
+pub fn label_logo_url(response: &Json) -> Option<String> {
+    best(response, "musiclabel").map(|thumb| thumb.url)
 }
 
 /// What to tell somebody who has no application key.
@@ -111,11 +202,16 @@ pub fn portrait_url(response: &Json) -> Option<String> {
 /// same fact stated twice, and a reader following one must not be sent to
 /// register at the other's address by an error message that forgot which it
 /// was talking about.
+///
+/// States only the key itself, never who is affected: `--portraits` can fall
+/// back to Wikidata and `--logos` cannot, so which artists a missing key
+/// leaves untouched is a different sentence for each — one this function does
+/// not know and must not guess at — and each pass says it in the line before
+/// this one is printed.
 pub fn no_key() -> String {
     format!(
         "\
-Fanart.tv images need an application key, and none is set. This only affects
-artists Wikidata has no portrait for — the rest are unaffected.
+Fanart.tv images need an application key, and none is set.
 
   1. Register at https://fanart.tv/get-an-api-key/
   2. export {KEY_VARIABLE}=<the key it gives you>"

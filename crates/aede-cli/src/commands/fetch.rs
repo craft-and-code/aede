@@ -247,6 +247,9 @@ struct Held {
     /// passes read the attributed layer instead of the catalog, and a stored
     /// record carries a key and no identifier.
     artists: BTreeSet<String>,
+    /// Labels credited on a release in scope, by their catalog key — the
+    /// same reason `artists` is keyed rather than indexed.
+    labels: BTreeSet<String>,
 }
 
 impl Scope {
@@ -277,9 +280,6 @@ impl Scope {
             if let Some(release) = track.release_id {
                 holds.releases.insert(release);
             }
-            for (artist, _role) in catalog.credits_on(EntityKind::Track, track.id) {
-                holds.artists.insert(artist.key.clone());
-            }
         }
         // The album artist is credited on the record rather than on each of
         // its tracks, so a folder holding a record whose tracks name only the
@@ -293,6 +293,19 @@ impl Scope {
                 continue;
             };
             holds.artists.insert(artist.key.clone());
+        }
+        // Every label credited on a release in scope, the same derivation as
+        // the artist above and for the same reason: a label is never itself
+        // under a folder, only the records that name it are.
+        for id in &holds.releases {
+            let Some(release) = catalog.release(*id) else {
+                continue;
+            };
+            for &label_id in &release.label_ids {
+                if let Some(label) = catalog.label(label_id) {
+                    holds.labels.insert(label.key.clone());
+                }
+            }
         }
         Ok(Scope {
             folders,
@@ -331,6 +344,24 @@ impl Scope {
             Some(held) => held.artists.contains(key),
         }
     }
+
+    /// `true` when the label filed under this key is credited on something in
+    /// reach.
+    pub(super) fn has_label(&self, key: &str) -> bool {
+        match &self.holds {
+            None => true,
+            Some(held) => held.labels.contains(key),
+        }
+    }
+}
+
+/// Whether this is an artist the library owns an album by, rather than an
+/// invited musician or another contributor credited on one track.
+pub(super) fn has_album(catalog: &Catalog, artist: Id) -> bool {
+    catalog
+        .releases
+        .iter()
+        .any(|release| release.album_artist_id == Some(artist))
 }
 
 /// How a run was narrowed, worded for a message; empty when it was not.
@@ -411,6 +442,9 @@ pub(super) struct Asked<'a> {
     pub size: aede_core::coverart::Size,
     /// `--images`: keep the pictures that are not the cover.
     pub images: bool,
+    /// `--banners`: with `--logos`, also keep a wide banner from the same
+    /// answer.
+    pub banners: bool,
     /// Which language the prose is wanted in, most wanted first.
     ///
     /// `--lang` when it was given, the shell's own locale otherwise, and
@@ -429,8 +463,9 @@ pub(super) struct Asked<'a> {
     /// The Fanart.tv key, from `AEDE_FANARTTV_KEY`, when this machine has one.
     ///
     /// Gathered here for the same reason [`Asked::key`] is — see
-    /// [`aede_core::fanarttv::key`]. `--portraits` is the only pass that reads
-    /// it; Wikidata is tried first and needs no key at all.
+    /// [`aede_core::fanarttv::key`]. `--portraits` and `--logos` are the only
+    /// passes that read it — a portrait tries Wikidata first and needs no key
+    /// at all, a logo has no such alternative and needs one for every artist.
     pub portrait_key: Option<String>,
 }
 
@@ -482,6 +517,11 @@ enum Pass {
     /// A picture of the artist, from Wikidata or Fanart.tv — see
     /// [`super::portraits`].
     Portraits,
+    /// The artist's logo, from Fanart.tv — see [`super::logos`].
+    Logos,
+    /// A label's own MusicBrainz identifier, closing the gap passive capture
+    /// leaves — see [`super::labels`].
+    Labels,
 }
 
 impl Pass {
@@ -493,7 +533,9 @@ impl Pass {
             ("covers", Pass::Covers),
             ("lyrics", Pass::Lyrics),
             ("identify", Pass::Identify),
+            ("labels", Pass::Labels),
             ("portraits", Pass::Portraits),
+            ("logos", Pass::Logos),
         ]
         .into_iter()
         .filter(|(flag, _)| args.has(flag))
@@ -510,6 +552,8 @@ impl Pass {
             Pass::Lyrics => "--lyrics",
             Pass::Identify => "--identify",
             Pass::Portraits => "--portraits",
+            Pass::Logos => "--logos",
+            Pass::Labels => "--labels",
         }
     }
 
@@ -605,6 +649,23 @@ fn second_passes(
                     asked,
                 )?;
             }
+            Pass::Logos => {
+                let catalog = catalog.expect("a catalog was loaded for it");
+                super::logos::run(
+                    catalog,
+                    transport,
+                    backoff,
+                    held,
+                    path,
+                    data_dir,
+                    asked.portrait_key.as_deref(),
+                    asked,
+                )?;
+            }
+            Pass::Labels => {
+                let catalog = catalog.expect("a catalog was loaded for it");
+                super::labels::run(catalog, transport, backoff, held, path, asked)?;
+            }
         }
     }
     Ok(())
@@ -634,6 +695,9 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 .into());
             }
         }
+    }
+    if !args.has("logos") && args.has("banners") {
+        return Err("--banners belongs to the logo pass: aede fetch --logos --banners".into());
     }
 
     // A second pass is a different question, often of a different service, so
@@ -711,6 +775,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             None => super::covers::DEFAULT_SIZE,
         },
         images: args.has("images"),
+        banners: args.has("banners"),
     };
 
     if !passes.is_empty() {
@@ -734,6 +799,9 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     // different thing wearing the same word. Naming artists narrows the run.
     let mut targets: Vec<(EntityRef, String, Option<String>)> = Vec::new();
     for artist in &catalog.artists {
+        if !has_album(&catalog, artist.id) {
+            continue;
+        }
         // A blank name would go out as an empty query, which the search server
         // does not answer politely: it fails, and the failure looks like a
         // rate limit three steps from its cause.
@@ -784,6 +852,8 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         offer_covers(&catalog, &held);
         offer_identify(&catalog, &held);
         offer_portraits(&catalog, &held, &data_dir);
+        offer_logos(&catalog, &held, &data_dir);
+        offer_labels(&catalog, &held);
         return Ok(());
     }
 
@@ -948,6 +1018,8 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     offer_covers(&catalog, &held);
     offer_identify(&catalog, &held);
     offer_portraits(&catalog, &held, &data_dir);
+    offer_logos(&catalog, &held, &data_dir);
+    offer_labels(&catalog, &held);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
 }
@@ -1046,6 +1118,34 @@ fn offer_portraits(
     );
 }
 
+/// Names the logos pass, when there is an artist to ask about.
+///
+/// Reads the Fanart.tv key the same way [`offer_portraits`] does, for the
+/// same reason: a door counted here without a key set is a door the pass
+/// itself would also find.
+fn offer_logos(
+    catalog: &aede_core::model::Catalog,
+    held: &sources::Sources,
+    data_dir: &std::path::Path,
+) {
+    let door = super::logos::waiting(
+        catalog,
+        held,
+        data_dir,
+        aede_core::fanarttv::key().as_deref(),
+    );
+    if door == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} with no logo yet — aede fetch --logos looks for one",
+            ui::plural(door, "artist")
+        ))
+    );
+}
+
 /// Names the discography pass, when there is something for it to browse.
 ///
 /// Separate from the summaries offer rather than folded into it: they are two
@@ -1061,6 +1161,23 @@ fn offer_discography(catalog: &aede_core::model::Catalog, held: &sources::Source
         ui::dim(&format!(
             "{door} of them can be browsed for what else they recorded — \
              aede fetch --discography, then aede missing"
+        ))
+    );
+}
+
+/// Names the labels pass, when there is a label with no MusicBrainz
+/// identifier of its own yet.
+fn offer_labels(catalog: &aede_core::model::Catalog, held: &sources::Sources) {
+    let door = super::labels::waiting(catalog, held);
+    if door == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} with no MusicBrainz identifier of their own yet — \
+             aede fetch --labels looks for one",
+            ui::plural(door, "label")
         ))
     );
 }

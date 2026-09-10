@@ -12,6 +12,7 @@ fn release(primary: &str, label: &str) -> Facts {
         secondary_types: vec!["Live".to_string()],
         first_released: Some("1973".to_string()),
         label: Some(label.to_string()),
+        label_mbid: None,
         cover_art: None,
     })
 }
@@ -284,6 +285,9 @@ fn a_round_trip_keeps_every_field() {
             portrait: Some(Picture {
                 url: "https://commons.wikimedia.org/wiki/Special:FilePath/Miles_Davis.jpg"
                     .to_string(),
+            }),
+            logo: Some(Picture {
+                url: "https://assets.fanart.tv/fanart/music/miles-davis/hd-logo.png".to_string(),
             }),
         }),
     });

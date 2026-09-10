@@ -290,6 +290,28 @@ fn the_other_images_are_written_into_a_folder_that_did_not_exist() {
 }
 
 #[test]
+fn exists_beside_finds_either_extension_write_image_can_produce() {
+    let dir = std::env::temp_dir().join("aede_coverart_exists_beside");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+    let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+    // Nothing written yet: not there under either name.
+    assert!(!exists_beside(&dir, Kind::Banner));
+
+    write_image(&dir, Kind::Banner, (0, 1), &jpeg).expect("written");
+    assert!(exists_beside(&dir, Kind::Banner));
+
+    // A different kind at the same stem's neighbour does not count.
+    assert!(!exists_beside(&dir, Kind::Logo));
+    write_image(&dir, Kind::Logo, (0, 1), &png).expect("written");
+    assert!(exists_beside(&dir, Kind::Logo));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn nothing_but_an_image_reaches_a_music_folder() {
     let dir = std::env::temp_dir().join("aede_coverart_write");
     let _ = std::fs::remove_dir_all(&dir);

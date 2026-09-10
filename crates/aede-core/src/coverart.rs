@@ -181,6 +181,13 @@ pub enum Kind {
     Media,
     /// A photograph of the artist.
     Artist,
+    /// An artist's logo — not a photograph of them, a mark that stands for
+    /// them. See [`crate::fanarttv::logo_url`], its only source today.
+    Logo,
+    /// A wide background image for the artist — a header or hero image, not
+    /// the small mark [`Kind::Logo`] is. See [`crate::fanarttv::banner_url`],
+    /// its only source today.
+    Banner,
     /// Anything else the source classifies, or nothing at all.
     Other,
 }
@@ -198,6 +205,8 @@ impl Kind {
             Kind::Booklet => "booklet",
             Kind::Media => "media",
             Kind::Artist => "artist",
+            Kind::Logo => "logo",
+            Kind::Banner => "banner",
             Kind::Other => "image",
         }
     }
@@ -335,6 +344,21 @@ pub enum Written {
     New(std::path::PathBuf),
     /// A file of that name was already there, and nothing overwrites.
     Already(std::path::PathBuf),
+}
+
+/// Whether an image of this kind is already sitting beside the music, under
+/// either extension [`write_image`] can produce.
+///
+/// For the one kind [`write_image`] tracks by disk presence alone rather than
+/// through `sources.json` — today, [`Kind::Banner`], see
+/// [`crate::fanarttv::banner_url`] — a pass needs to ask "is there one
+/// already" without a source record to consult. Checks both extensions
+/// because the writer picks jpg or png from the bytes it was given, never
+/// from what the caller asked for, so a caller checking ahead of the
+/// download cannot know which one a previous run wrote.
+pub fn exists_beside(folder: &std::path::Path, kind: Kind) -> bool {
+    folder.join(format!("{}.jpg", kind.stem())).exists()
+        || folder.join(format!("{}.png", kind.stem())).exists()
 }
 
 /// Writes one image of a known kind, under the name that says what it is.

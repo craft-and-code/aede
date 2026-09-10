@@ -117,6 +117,7 @@ fn asked(size: Size, images: bool, dry_run: bool) -> crate::commands::fetch::Ask
         dry_run,
         size,
         images,
+        banners: false,
         key: None,
         portrait_key: None,
         langs: vec!["en".to_string()],

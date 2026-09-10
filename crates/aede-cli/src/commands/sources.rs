@@ -16,7 +16,7 @@
 //! twice.
 
 use aede_core::model::{Catalog, EntityKind, Id};
-use aede_core::sources::{self, Confidence, Facts, SourceRecord, Sources, Verdict};
+use aede_core::sources::{self, Confidence, Facts, LabelFacts, SourceRecord, Sources, Verdict};
 use aede_core::user::EntityRef;
 
 use super::{Res, data_dir, load};
@@ -230,6 +230,11 @@ fn says(facts: &Facts) -> String {
             }
             if let Some(label) = &r.label {
                 parts.push(label.clone());
+            }
+        }
+        Facts::Label(LabelFacts { logo }) => {
+            if let Some(logo) = logo {
+                parts.push(format!("logo: {}", logo.url));
             }
         }
     }
@@ -785,6 +790,10 @@ fn compared(
                 ));
             }
         }
+        // Nothing to show — see `LabelFacts`. There is no tag for a label's
+        // own identifier to be compared against, the same reason an
+        // artist's row above compares no name either.
+        Facts::Label(LabelFacts { .. }) => {}
     }
     rows
 }

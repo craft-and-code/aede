@@ -17,6 +17,7 @@ fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
         dry_run: false,
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
+        banners: false,
         key: None,
         portrait_key: None,
         langs: vec!["en".to_string()],

@@ -131,6 +131,7 @@ fn a_lookup_is_a_certainty_and_a_search_is_scored() {
             secondary_types: vec![],
             first_released: Some("1959-08-17".to_string()),
             label: Some("Columbia".to_string()),
+            label_mbid: None,
             cover_art: None,
         }
     );

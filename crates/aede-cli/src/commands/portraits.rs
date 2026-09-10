@@ -442,6 +442,9 @@ fn targets(
         let Some(artist_row) = catalog.artists.iter().find(|a| a.key == record.key) else {
             continue;
         };
+        if !super::fetch::has_album(catalog, artist_row.id) {
+            continue;
+        }
         let entity = record.entity();
         let linked = artist.wikidata.as_deref().and_then(wikipedia::entity_id);
 

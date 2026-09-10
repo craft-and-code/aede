@@ -318,6 +318,9 @@ const OPTIONS: &[&str] = &[
     "identify",
     "lang",
     "portraits",
+    "logos",
+    "banners",
+    "labels",
 ];
 
 /// Where each restricted option means something.
@@ -412,6 +415,21 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "ask what the fingerprinted files sound like",
     ),
     ("portraits", &["fetch"], "look for a picture of the artist"),
+    (
+        "logos",
+        &["fetch"],
+        "look for artist and identified-label logos",
+    ),
+    (
+        "banners",
+        &["fetch"],
+        "keep a wide banner too, with --logos",
+    ),
+    (
+        "labels",
+        &["fetch"],
+        "ask MusicBrainz for a label's own identifier",
+    ),
     (
         "size",
         &["fetch", "spectrum"],
@@ -907,6 +925,32 @@ fn print_help() {
                        your data folder when there is no single folder to
                        write beside. An artist that already has a picture is
                        never touched
+                       --logos is a second pass that asks Fanart.tv for the
+                       artist's logo, and the logo of every label already
+                       identified by --labels — no other source carries one, so it
+                       needs the same free key in AEDE_FANARTTV_KEY and asks
+                       nothing without it. It is written as logo.jpg or
+                       logo.png beside the music, in the folder shared by
+                       every one of the artist's albums, or into assets/ under
+                       your data folder when there is no single folder to
+                       write beside. A label logo is written under
+                       assets/labels/<MusicBrainz ID>/, since no album folder
+                       belongs to a label. `aede fetch --labels --logos`
+                       identifies labels first, then asks Fanart.tv by that
+                       identifier. An artist that already has a logo is
+                       never touched. --banners, alongside --logos, keeps a
+                       wide banner.jpg or banner.png too, read from the very
+                       answer already fetched for the logo — no request of
+                       its own. An artist that already has a banner on disk
+                       is not asked again for one, even if it still needs a
+                       logo
+                       --labels is a second pass that asks MusicBrainz for a
+                       label's own identifier: fetching an album already reads
+                       one off the release when the same answer names it, but
+                       only for labels a release lookup happened to reach.
+                       This asks about the label directly, closing that gap —
+                       a certain lookup where a release elsewhere already named
+                       the identifier, a scored search otherwise
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
@@ -1136,6 +1180,26 @@ fn print_help() {
                        music when every album shares a folder, into assets/
                        under your data folder otherwise; an artist that
                        already has one is never touched
+  --logos              A second pass for fetch: artist logos, plus logos for
+                       labels already identified by --labels, from Fanart.tv.
+                       A missing key in AEDE_FANARTTV_KEY leaves them unasked.
+                       Artist logos are written
+                       as logo.jpg or logo.png beside the music when every
+                       album shares a folder, into assets/ under your data
+                       folder otherwise; label logos go in assets/labels/<id>/.
+                       `aede fetch --labels --logos` identifies labels first.
+                       An artist or label already asked is never touched
+  --banners            With --logos, also keep a wide banner.jpg or
+                       banner.png, read from the very answer already fetched
+                       for the logo rather than a request of its own. Tracked
+                       by whether the file is there, not in sources.json: an
+                       artist that already has a logo but no banner is still
+                       asked
+  --labels             A second pass for fetch: a record label's own
+                       MusicBrainz identifier. Asked by identifier when a
+                       release this catalog looked up already named one for
+                       that label, by name search otherwise. A label with an
+                       identifier of its own is never asked again
   --lang <code>        Which language to fetch the prose in (fetch): a
                        two-letter code, `fr`, `de`, `ja`. Without it, the
                        shell's own locale is used, and English is always the

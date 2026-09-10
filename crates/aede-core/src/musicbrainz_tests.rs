@@ -92,11 +92,39 @@ fn a_label_comes_from_a_release_and_not_from_the_group() {
         r#"{"id":"59211ea4","title":"x","date":"2003-12-04",
             "label-info":[{"label":{"name":"Phonometrography"}}]}"#,
     );
-    assert_eq!(
-        label_of_release(&response).as_deref(),
-        Some("Phonometrography")
+    let found = label_of_release(&response).expect("a label");
+    assert_eq!(found.name, "Phonometrography");
+    assert_eq!(found.mbid, None, "this answer named no identifier");
+    assert!(label_of_release(&parse(r#"{"id":"x"}"#)).is_none());
+}
+
+#[test]
+fn a_label_brings_its_musicbrainz_identifier_when_the_answer_carries_one() {
+    let response = parse(
+        r#"{"id":"59211ea4","title":"x","date":"2003-12-04",
+            "label-info":[{"label":{"id":"c029628b","name":"Columbia"}}]}"#,
     );
-    assert_eq!(label_of_release(&parse(r#"{"id":"x"}"#)), None);
+    let found = label_of_release(&response).expect("a label");
+    assert_eq!(found.name, "Columbia");
+    assert_eq!(found.mbid.as_deref(), Some("c029628b"));
+}
+
+#[test]
+fn the_name_and_the_identifier_never_come_from_two_different_labels() {
+    // The first `label-info` entry names no label at all; the second does,
+    // with an identifier. The name and the identifier read back must both
+    // belong to that second entry — never the first entry's (absent) name
+    // paired with the second entry's identifier, or vice versa.
+    let response = parse(
+        r#"{"id":"59211ea4","title":"x",
+            "label-info":[
+              {"catalog-number":"CAT-1"},
+              {"label":{"id":"c029628b","name":"Columbia"}}
+            ]}"#,
+    );
+    let found = label_of_release(&response).expect("a label");
+    assert_eq!(found.name, "Columbia");
+    assert_eq!(found.mbid.as_deref(), Some("c029628b"));
 }
 
 #[test]

@@ -85,6 +85,7 @@ fn asked_for(names: &[String]) -> crate::commands::fetch::Asked<'_> {
         langs: Vec::new(),
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
+        banners: false,
     }
 }
 

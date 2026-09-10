@@ -126,6 +126,7 @@ fn a_release_field_is_judged_against_the_tag_that_answers_it() {
             primary_type: Some("Album".to_string()),
             first_released: Some("1959-08-17".to_string()),
             label: Some("Blue Note".to_string()),
+            label_mbid: None,
             secondary_types: vec![],
             cover_art: None,
         }),
