@@ -87,30 +87,38 @@ pub fn search(args: &Args) -> Res {
     // reports the hits — artists and albums included — which is a better answer
     // than the flat track table the shared selection path would give.
     if args.has("json") {
-        return print_json(&catalog, &hits, &in_comments, &in_lyrics, window);
+        return print_json(&catalog, &hits, &in_comments, &in_lyrics, &in_notes, window);
     }
     if let Some(result) = selection_output(&catalog, &ids, args) {
         return result;
     }
 
     println!("{}", ui::section(&format!("Results for \"{query}\"")));
-    let mut t = Table::new(&["Type", "Name", "Context"])
-        .limit(1, 45)
-        .limit(2, 35);
-    for hit in &hits {
-        // "release" is the model's word; "album" is the user's. On screen the
-        // user's wins — the JSON keeps the model's, for a client that has to
-        // map it back onto a table.
-        let kind = match hit.kind {
-            EntityKind::Artist => "artist",
-            EntityKind::Release => "album",
-            EntityKind::Track => "track",
-            EntityKind::Label => "label",
-            EntityKind::Genre => "genre",
-        };
-        t.push(vec![kind.to_string(), hit.name.clone(), hit.detail.clone()]);
+    if hits.is_empty() {
+        // Symmetric with the three sections below it, each of which says what
+        // it did not find rather than falling back to the generic "(no
+        // results)" a reader could otherwise mistake for nothing at all
+        // having matched anywhere.
+        println!("  {}", ui::dim("nothing by name"));
+    } else {
+        let mut t = Table::new(&["Type", "Name", "Context"])
+            .limit(1, 45)
+            .limit(2, 35);
+        for hit in &hits {
+            // "release" is the model's word; "album" is the user's. On screen
+            // the user's wins — the JSON keeps the model's, for a client that
+            // has to map it back onto a table.
+            let kind = match hit.kind {
+                EntityKind::Artist => "artist",
+                EntityKind::Release => "album",
+                EntityKind::Track => "track",
+                EntityKind::Label => "label",
+                EntityKind::Genre => "genre",
+            };
+            t.push(vec![kind.to_string(), hit.name.clone(), hit.detail.clone()]);
+        }
+        print!("{}", t.render());
     }
-    print!("{}", t.render());
 
     if args.has("comments") {
         print_comment_hits(&catalog, &in_comments, window);
@@ -183,6 +191,7 @@ fn print_json(
     hits: &[aede_core::model::SearchHit],
     in_comments: &[Id],
     in_lyrics: &[(Id, String)],
+    in_notes: &[(aede_core::user::EntityRef, String)],
     window: Window,
 ) -> Res {
     let mut rows: Vec<Json> = hits
@@ -228,6 +237,20 @@ fn print_json(
         // song would ask for the track, not for a search result.
         o.set("context", line.clone().into());
         o.set("found_in", "lyrics".to_string().into());
+        rows.push(o);
+    }
+    // A note can land on anything the catalog holds, not only a track — the
+    // JSON says what kind it landed on, same as every other row here.
+    for (reference, note) in in_notes.iter().skip(window.offset).take(window.limit) {
+        let Some(id) = reference.resolve(catalog) else {
+            continue;
+        };
+        let mut o = Json::obj();
+        o.set("type", reference.kind.as_str().into());
+        o.set("id", id.into());
+        o.set("name", reference.display_name(catalog).into());
+        o.set("context", note.clone().into());
+        o.set("found_in", "note".to_string().into());
         rows.push(o);
     }
     println!("{}", Json::Arr(rows).to_string_pretty());

@@ -143,7 +143,7 @@ aede search "all aboard" --lyrics
 
 It shows **the line that matched**, not the song: a table cell holding four hundred lines is one nobody can read, and the line is what was half-remembered in the first place.
 
-The three are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you; the **words are the song**, and belong to nobody here. Searching one is searching the library, searching another is searching yourself — so they keep separate sections and separate options, and a hit says by which route it was found (`found_in: comment`, `lyrics` in the JSON). A note can be about anything, so its results name the kind: an artist, an album, a label.
+The three are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you; the **words are the song**, and belong to nobody here. Searching one is searching the library, searching another is searching yourself — so they keep separate sections and separate options, and a hit says by which route it was found (`found_in: comment`, `lyrics` or `note` in the JSON). A note can be about anything, so its results name the kind: an artist, an album, a label.
 
 ## Saving a question
 

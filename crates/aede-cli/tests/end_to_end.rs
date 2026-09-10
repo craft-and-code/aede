@@ -1665,6 +1665,13 @@ fn what_a_user_wrote_in_a_comment_can_be_found_again() {
         out.contains("needs replacing"),
         "the comment is shown: {out}"
     );
+    // No track, album or artist is named "vinyl", so the name section says so
+    // itself rather than falling back to the generic "(no results)" a reader
+    // could mistake for nothing having matched anywhere, comments included.
+    assert!(
+        out.contains("nothing by name"),
+        "the empty name section names itself: {out}"
+    );
 
     // A comment hit is a track, so it can become a playlist like any other.
     let (m3u, _, ok) = sandbox.run(&["search", "--comments", "vinyl", "--m3u"]);
@@ -4055,6 +4062,16 @@ fn a_search_can_look_in_what_you_wrote() {
     let (out, err, ok) = sandbox.run(&["search", "vinyle", "--notes"]);
     assert!(ok, "stderr: {err}");
     assert!(out.contains("In your notes"), "output: {out}");
+    assert!(out.contains("Duos"), "output: {out}");
+    assert!(out.contains("pressage vinyle"), "output: {out}");
+
+    // The JSON says where a note hit landed too, the same as a name, comment
+    // or lyrics hit: nothing --notes finds is dropped just because a note's
+    // shape (an entity, not a track) differs from the others.
+    let (out, err, ok) = sandbox.run(&["search", "vinyle", "--notes", "--json"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("\"found_in\""), "output: {out}");
+    assert!(out.contains("\"note\""), "output: {out}");
     assert!(out.contains("Duos"), "output: {out}");
     assert!(out.contains("pressage vinyle"), "output: {out}");
 
