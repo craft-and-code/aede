@@ -833,6 +833,71 @@ fn a_saved_query_keeps_the_question_and_not_the_answer() {
 }
 
 #[test]
+fn a_value_and_remove_are_refused_together_not_chosen_between() {
+    // `--stars 5 --remove`, `--text "…" --remove`, `--from … --remove`,
+    // `--query "…" --remove`: two answers to the same question each time, and
+    // letting one win in silence used to be exactly the ignored option this
+    // program refuses everywhere else.
+    let sandbox = Sandbox::new("value_and_remove");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let (_, err, ok) = sandbox.run(&["rate", "artist", "Miles Davis", "--stars", "5", "--remove"]);
+    assert!(!ok);
+    assert!(
+        err.contains("--stars and --remove both say what to do"),
+        "stderr: {err}"
+    );
+
+    let (_, err, ok) = sandbox.run(&[
+        "note",
+        "artist",
+        "Miles Davis",
+        "--text",
+        "the quintet",
+        "--remove",
+    ]);
+    assert!(!ok);
+    assert!(
+        err.contains("--text and --remove both say what to do"),
+        "stderr: {err}"
+    );
+
+    let (_, _, ok) = sandbox.run(&["note", "album", "Duos", "--text", "1963 pressing"]);
+    assert!(ok);
+    let (_, err, ok) = sandbox.run(&[
+        "note",
+        "artist",
+        "Miles Davis",
+        "--from",
+        "album:Duos",
+        "--remove",
+    ]);
+    assert!(!ok);
+    assert!(
+        err.contains("--from and --remove both say what to do"),
+        "stderr: {err}"
+    );
+
+    let (_, err, ok) = sandbox.run(&["collection", "jazz", "--query", "genre:jazz", "--remove"]);
+    assert!(!ok);
+    assert!(
+        err.contains("--query and --remove both say what to do"),
+        "stderr: {err}"
+    );
+
+    // None of the four refusals wrote anything: a command typed with
+    // contradictory options is not half-applied.
+    let (out, _, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok);
+    assert!(!out.contains("Yours"), "the refusals wrote nothing: {out}");
+    let (_, err, ok) = sandbox.run(&["collection", "jazz"]);
+    assert!(!ok);
+    assert!(err.contains("none is saved yet"), "stderr: {err}");
+}
+
+#[test]
 fn a_result_can_be_ordered_and_the_unknown_stays_last() {
     let sandbox = Sandbox::new("sorting");
     let root = library();

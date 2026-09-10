@@ -272,6 +272,13 @@ pub fn rate(args: &Args) -> Res {
     let mut data = read(args, &catalog)?;
     let now = clock::now_seconds();
 
+    // Both name a different outcome for the same rating. Letting --stars win
+    // in silence, the way it used to, is exactly the ignored option this
+    // program refuses to allow anywhere else.
+    if args.has("stars") && args.has("remove") {
+        return Err("--stars and --remove both say what to do; give one".into());
+    }
+
     let stars = match args.whole_number("stars")? {
         Some(n) if (1..=5).contains(&n) => Some(n as u8),
         Some(n) => {
@@ -303,6 +310,18 @@ pub fn note(args: &Args) -> Res {
     let mut data = read(args, &catalog)?;
     let now = clock::now_seconds();
     let name = reference.display_name(&catalog);
+
+    // --from, --text and --file each say what to write; --remove says to take
+    // it away. Two answers to "what happens to the note" is not something to
+    // pick between in silence.
+    if args.has("remove") {
+        let other = ["from", "text", "file"]
+            .into_iter()
+            .find(|flag| args.has(flag));
+        if let Some(flag) = other {
+            return Err(format!("--{flag} and --remove both say what to do; give one").into());
+        }
+    }
 
     // Copying everything said about one thing onto another, so that a note
     // written once is not retyped for every disc of a box set.
@@ -865,6 +884,10 @@ pub fn collection(args: &Args) -> Res {
     let mut data = read(args, &catalog)?;
     let owner = owner(args);
     let now = clock::now_seconds();
+
+    if args.has("query") && args.has("remove") {
+        return Err("--query and --remove both say what to do; give one".into());
+    }
 
     if let Some(expression) = args.value("query") {
         // Refused before it is saved rather than the next time it is run: a
