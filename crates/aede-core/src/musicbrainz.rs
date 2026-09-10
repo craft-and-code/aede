@@ -281,6 +281,10 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         // musician. The summary comes from Wikipedia, reached through the
         // `wikidata` link above, and carries its own licence with it.
         summary: None,
+        // Likewise filled by its own pass: MusicBrainz holds no picture of an
+        // artist either, and `fetch --portraits` reaches one the same way
+        // Wikipedia is reached, through the `wikidata` link above.
+        portrait: None,
     }
 }
 

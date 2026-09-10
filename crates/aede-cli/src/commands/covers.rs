@@ -62,7 +62,7 @@ use aede_core::{clock, musicbrainz};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, queue, worth_deferring};
 
 /// The width used when `--size` is not given.
 ///
@@ -338,24 +338,6 @@ fn download_others(
         }
     }
     Ok(written)
-}
-
-/// [`ask_with_backoff`], for bytes.
-fn ask_bytes(
-    transport: &mut dyn Ask,
-    url: &str,
-    backoff: &[std::time::Duration],
-) -> Result<Vec<u8>, Refusal> {
-    let mut attempt = 0;
-    loop {
-        match transport.get_bytes(url) {
-            Err(Refusal::RateLimited) if attempt < backoff.len() => {
-                std::thread::sleep(backoff[attempt]);
-                attempt += 1;
-            }
-            other => return other,
-        }
-    }
 }
 
 /// Files what the archive answered, including when the answer was nothing.

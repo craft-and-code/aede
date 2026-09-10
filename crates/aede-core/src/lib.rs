@@ -24,6 +24,7 @@ pub mod text;
 pub mod copy;
 pub mod coverart;
 pub mod doctor;
+pub mod fanarttv;
 pub mod ffmpeg;
 pub mod fingerprint;
 #[cfg(feature = "fetch")]

@@ -96,6 +96,26 @@ pub fn catalog_path(data_dir: &Path) -> PathBuf {
     data_dir.join(CATALOG_FILE)
 }
 
+/// Where a picture goes when no single folder on disk can hold it.
+///
+/// `fetch --portraits` prefers the folder shared by every album of an artist,
+/// the same place `cover.jpg` sits relative to a release — nothing here is
+/// involved and nothing needs backing up beyond the music library itself. This
+/// is the fallback for the artist that has no such folder: credited only on
+/// compilations, or with a discography spread across more than one watched
+/// root. Inside the data folder rather than beside anything on disk, because
+/// there is no "beside" to put it — the same reasoning that puts `sources.json`
+/// here and not in the library.
+pub const ASSETS_DIR: &str = "assets";
+
+/// The folder pictures without a home on disk are written into.
+///
+/// Nothing is created or checked here, the same as [`catalog_path`]: it is
+/// made to exist only when something is about to be written into it.
+pub fn assets_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join(ASSETS_DIR)
+}
+
 /// Saves the catalog atomically.
 pub fn save(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
     if let Some(parent) = path.parent() {

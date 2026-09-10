@@ -6,7 +6,7 @@
 //! folders on the command line narrow it; they do not replace it.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use aede_core::model::{Catalog, Id};
 use aede_core::playlist::{self, Style};
@@ -147,7 +147,7 @@ fn discographies(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(Path
     let roots: Vec<&str> = catalog.roots.iter().map(String::as_str).collect();
     let mut out = Vec::new();
     for (_, mut releases) in by_artist {
-        let Some(folder) = shared_folder(&releases) else {
+        let Some(folder) = super::shared_folder(&releases) else {
             continue;
         };
         let name = folder.to_string_lossy().to_string();
@@ -174,20 +174,4 @@ fn discographies(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(Path
         out.push((folder.join(playlist::file_name(&folder)), text));
     }
     out
-}
-
-/// The deepest folder holding every one of these releases, or `None`.
-fn shared_folder(releases: &[&aede_core::model::Release]) -> Option<PathBuf> {
-    let mut shared: Option<PathBuf> = None;
-    for release in releases {
-        let parent = Path::new(&release.folder).parent()?.to_path_buf();
-        shared = Some(match shared {
-            None => parent,
-            Some(so_far) if so_far == parent => so_far,
-            // Albums under different parents: no single artist folder to speak
-            // of, and inventing one would put the file somewhere arbitrary.
-            Some(_) => return None,
-        });
-    }
-    shared
 }

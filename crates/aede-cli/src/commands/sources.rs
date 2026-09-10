@@ -209,6 +209,9 @@ fn says(facts: &Facts) -> String {
                     false => "ended".to_string(),
                 });
             }
+            if a.portrait.is_some() {
+                parts.push("has a portrait".to_string());
+            }
             // Last, and left to the column's own limit. A truncated opening
             // line says more about what was stored than the word "summary"
             // would, and the whole of it is on the artist's own card, where it
@@ -723,6 +726,12 @@ fn compared(
                     },
                     None,
                 ));
+            }
+            // No verdict to compare it with — a tag has no field for a
+            // picture — so this is shown, not judged, the same as the
+            // discography and the members above it.
+            if let Some(picture) = &a.portrait {
+                rows.push(("portrait", picture.url.clone(), None));
             }
         }
         Facts::Release(r) => {

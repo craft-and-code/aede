@@ -18,6 +18,7 @@ fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
         key: None,
+        portrait_key: None,
         langs: vec!["en".to_string()],
     }
 }

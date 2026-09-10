@@ -125,6 +125,20 @@ impl Prose {
     }
 }
 
+/// A picture of an artist, as a source answered it.
+///
+/// Just the address, deliberately as thin as [`Prose`] is thick. `Prose`
+/// cannot exist without stating the page, the language and the licence
+/// because the words cannot be shown without them; a picture is written to
+/// disk as a file and shown as one, and the file itself is what a viewer
+/// looks at — the record here exists only so that `fetch --portraits` does
+/// not ask the same question of the same artist on every run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picture {
+    /// Where the image was downloaded from.
+    pub url: String,
+}
+
 /// What a source says about one artist.
 ///
 /// Every field is optional: a source may not hold it, and an empty answer is
@@ -215,6 +229,16 @@ pub struct ArtistFacts {
     /// ask, and getting it wrong for a person who is both — a soloist with a
     /// backing band under their own name is exactly that.
     pub members: Vec<Membership>,
+    /// A picture of the artist, when a source holds an address for one — see
+    /// [`Picture`].
+    ///
+    /// The address, never the bytes. The image itself is written to disk —
+    /// beside the music when one folder holds every album of theirs, an
+    /// `assets/` folder otherwise — and rediscovered from there, the same way
+    /// `cover.jpg` is never registered anywhere either. What is kept here is
+    /// only the fact that a source was asked and what it answered, so a later
+    /// run does not ask again for nothing: see `fetch --portraits`.
+    pub portrait: Option<Picture>,
 }
 
 impl ArtistFacts {
@@ -1023,6 +1047,17 @@ pub fn to_json(sources: &Sources) -> Json {
                             None => Json::Null,
                         },
                     );
+                    facts.set(
+                        "portrait",
+                        match &a.portrait {
+                            Some(picture) => {
+                                let mut o = Json::obj();
+                                o.set("url", picture.url.clone().into());
+                                o
+                            }
+                            None => Json::Null,
+                        },
+                    );
                 }
                 Facts::Release(rel) => {
                     facts.set("primary_type", opt_str(&rel.primary_type));
@@ -1153,6 +1188,14 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                         url: p.field_str("url")?,
                         lang: p.field_str("lang")?,
                         licence: p.field_str("licence")?,
+                    })
+                }),
+                // Absent from every record written before this field existed,
+                // the same as `country_code` above: those artists simply have
+                // not been asked for a portrait yet.
+                portrait: facts.and_then(|f| f.get("portrait")).and_then(|p| {
+                    Some(Picture {
+                        url: p.field_str("url")?,
                     })
                 }),
             }),

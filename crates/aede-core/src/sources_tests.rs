@@ -281,6 +281,10 @@ fn a_round_trip_keeps_every_field() {
                 lang: "en".to_string(),
                 licence: "CC BY-SA 4.0".to_string(),
             }),
+            portrait: Some(Picture {
+                url: "https://commons.wikimedia.org/wiki/Special:FilePath/Miles_Davis.jpg"
+                    .to_string(),
+            }),
         }),
     });
 

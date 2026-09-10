@@ -24,6 +24,7 @@ mod inspect;
 mod lyrics;
 mod merge;
 mod playlist;
+mod portraits;
 mod releases;
 mod reset;
 mod scan;
@@ -67,7 +68,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use aede_core::model::{Catalog, Id};
+use aede_core::model::{Catalog, Id, Release};
 use aede_core::store;
 use aede_core::tags::AudioProperties;
 use aede_core::text;
@@ -209,6 +210,29 @@ fn unknown_folder(raw: &str, catalog: &Catalog) -> String {
 /// `true` when the path is inside one of the folders given, or is one of them.
 pub fn in_scope(path: &str, scope: &[String]) -> bool {
     scope.is_empty() || scope.iter().any(|root| text::is_under(path, root))
+}
+
+/// The deepest folder holding every one of these releases, or `None`.
+///
+/// Not a thing the catalog holds — an artist folder is inferred, not scanned
+/// — so this is the one place that infers it, shared by `playlist`'s
+/// `--discography` mode and `fetch --portraits`. Both write a file into it,
+/// and both need the same refusal for the same reason: where an artist's
+/// albums do not share one folder, or share only a watched root, inventing a
+/// destination would put the file somewhere arbitrary — a library laid out
+/// flat would otherwise get a stray file dumped in its root for every artist
+/// in it.
+pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
+    let mut shared: Option<PathBuf> = None;
+    for release in releases {
+        let parent = Path::new(&release.folder).parent()?.to_path_buf();
+        shared = Some(match shared {
+            None => parent,
+            Some(so_far) if so_far == parent => so_far,
+            Some(_) => return None,
+        });
+    }
+    shared
 }
 
 /// Where the catalog lives: what `--data` names, or the default location.

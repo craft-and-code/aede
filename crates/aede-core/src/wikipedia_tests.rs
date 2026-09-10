@@ -248,3 +248,84 @@ fn the_language_of_the_answer_beats_the_language_that_was_asked() {
     let found = prose(&json(r#"{"lang":"fr","extract":"Un texte."}"#), &asked).expect("an extract");
     assert_eq!(found.lang, "fr");
 }
+
+/// `Special:EntityData/Q11649.json`, with a `P18` claim added.
+///
+/// Written from the documented Wikibase JSON shape — `claims.P18[0].mainsnak
+/// .datavalue.value` — rather than checked against the live endpoint: unlike
+/// [`ENTITY`] and [`SUMMARY`] above, this one could not be held next to a real
+/// answer from where it was written (the service was unreachable). Stated
+/// here rather than left implied, the same way [`crate::acoustid_tests`]
+/// states it about its own fixture.
+const ENTITY_WITH_PORTRAIT: &str = r#"{
+  "entities": {
+    "Q11649": {
+      "type": "item",
+      "id": "Q11649",
+      "claims": {
+        "P18": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P18",
+              "datavalue": {
+                "value": "Nirvana in Rome 1994.jpg",
+                "type": "string"
+              },
+              "datatype": "commonsMedia"
+            },
+            "type": "statement",
+            "rank": "normal"
+          }
+        ]
+      },
+      "sitelinks": {}
+    }
+  }
+}"#;
+
+#[test]
+fn the_portrait_is_read_from_the_p18_claim() {
+    assert_eq!(
+        portrait_file(&json(ENTITY_WITH_PORTRAIT), "Q11649").as_deref(),
+        Some("Nirvana in Rome 1994.jpg")
+    );
+}
+
+#[test]
+fn an_entity_with_no_p18_has_no_portrait() {
+    // `ENTITY` carries labels and sitelinks and no claims at all — the shape
+    // most artists actually answer with, since most have never had an image
+    // linked on Wikidata.
+    assert_eq!(portrait_file(&json(ENTITY), "Q11649"), None);
+    assert_eq!(
+        portrait_file(&json(r#"{"entities":{"Q1":{"claims":{}}}}"#), "Q1"),
+        None
+    );
+}
+
+#[test]
+fn a_redirected_entity_is_still_read() {
+    // The same reasoning `article`'s own redirect test proves: Wikidata
+    // answers a redirected entity under the target's id, and one entity in
+    // the document is no ambiguity about which that is.
+    let redirected = json(
+        r#"{"entities":{"Q99999999":{"claims":{"P18":[
+            {"mainsnak":{"datavalue":{"value":"Redirected.jpg"}}}
+        ]}}}}"#,
+    );
+    assert_eq!(
+        portrait_file(&redirected, "Q123").as_deref(),
+        Some("Redirected.jpg"),
+        "a redirect is followed rather than reported as nothing"
+    );
+}
+
+#[test]
+fn commons_file_url_encodes_the_filename_like_an_article_title() {
+    assert_eq!(
+        commons_file_url("Nirvana in Rome 1994.jpg", 1000),
+        "https://commons.wikimedia.org/wiki/Special:FilePath/\
+         Nirvana_in_Rome_1994.jpg?width=1000"
+    );
+}

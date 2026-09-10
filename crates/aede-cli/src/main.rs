@@ -317,6 +317,7 @@ const OPTIONS: &[&str] = &[
     "country",
     "identify",
     "lang",
+    "portraits",
 ];
 
 /// Where each restricted option means something.
@@ -410,6 +411,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["fetch"],
         "ask what the fingerprinted files sound like",
     ),
+    ("portraits", &["fetch"], "look for a picture of the artist"),
     (
         "size",
         &["fetch", "spectrum"],
@@ -880,7 +882,7 @@ fn print_help() {
                        to keep (1200 by default), --images downloads the back,
                        the booklet and the disc as well into an artwork/
                        subfolder, and --dry-run lists what would be asked for
-                       Any of the three second passes below may be given
+                       Any of the second passes below may be given
                        together — aede fetch --covers --discography runs both,
                        one after the other. Each takes names and folders, like
                        fetch itself: aede fetch --discography 'pink floyd'
@@ -895,6 +897,16 @@ fn print_help() {
                        article and keeps its opening paragraph, with the page
                        and the licence that text is under. Two more requests
                        per artist, which is why it is asked for
+                       --portraits is a second pass that asks for a picture of
+                       the artist: Wikidata first, through the same wikidata
+                       link, then Fanart.tv where Wikidata has none (needs a
+                       free key in AEDE_FANARTTV_KEY; without one, only
+                       Wikidata is asked). It is written as artist.jpg or
+                       artist.png beside the music, in the folder shared by
+                       every one of the artist's albums, or into assets/ under
+                       your data folder when there is no single folder to
+                       write beside. An artist that already has a picture is
+                       never touched
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
@@ -940,7 +952,6 @@ fn print_help() {
                        lines for players that choke on them, --artists adds one
                        per artist folder covering their whole discography,
                        --dry-run only says what it would write
-
   artists              List of artists (--role composer, producer…,
                        --country france, --sort tracks|name)
   countries            Where the artists on the shelf are from. Not a tag:
@@ -980,7 +991,6 @@ fn print_help() {
   genres               List of genres
   labels               List of labels
   years                Breakdown by year
-
   artist <name>        Artist card: discography, collaborations
                        (--with=<other> lists the tracks the two share).
                        --members is the dated line-up: who played in the band,
@@ -1116,6 +1126,12 @@ fn print_help() {
                        keep its opening paragraph with its credit. The
                        article is looked for in your own language first,
                        then in English
+  --portraits          A second pass for fetch: a picture of the artist, from
+                       Wikidata first and Fanart.tv where Wikidata has none
+                       (a free key in AEDE_FANARTTV_KEY). Written beside the
+                       music when every album shares a folder, into assets/
+                       under your data folder otherwise; an artist that
+                       already has one is never touched
   --lang <code>        Which language to fetch the prose in (fetch): a
                        two-letter code, `fr`, `de`, `ja`. Without it, the
                        shell's own locale is used, and English is always the

@@ -426,6 +426,12 @@ pub(super) struct Asked<'a> {
     /// every thread, so a pass that reaches for it cannot be handed a different
     /// answer by a test. Gathered at the edge, like everything else in here.
     pub key: Option<String>,
+    /// The Fanart.tv key, from `AEDE_FANARTTV_KEY`, when this machine has one.
+    ///
+    /// Gathered here for the same reason [`Asked::key`] is — see
+    /// [`aede_core::fanarttv::key`]. `--portraits` is the only pass that reads
+    /// it; Wikidata is tried first and needs no key at all.
+    pub portrait_key: Option<String>,
 }
 
 /// Prints the list a pass would have asked about, and says nothing was.
@@ -473,6 +479,9 @@ enum Pass {
     Lyrics,
     /// What AcoustID hears in the files that have been fingerprinted.
     Identify,
+    /// A picture of the artist, from Wikidata or Fanart.tv — see
+    /// [`super::portraits`].
+    Portraits,
 }
 
 impl Pass {
@@ -484,6 +493,7 @@ impl Pass {
             ("covers", Pass::Covers),
             ("lyrics", Pass::Lyrics),
             ("identify", Pass::Identify),
+            ("portraits", Pass::Portraits),
         ]
         .into_iter()
         .filter(|(flag, _)| args.has(flag))
@@ -499,6 +509,7 @@ impl Pass {
             Pass::Covers => "--covers",
             Pass::Lyrics => "--lyrics",
             Pass::Identify => "--identify",
+            Pass::Portraits => "--portraits",
         }
     }
 
@@ -523,6 +534,12 @@ impl Pass {
 /// could not be written, an option was unusable. Individual requests that fail
 /// are counted inside each pass and do not stop the next one, which is the
 /// distinction that lets a run over a large library survive a bad afternoon.
+///
+/// One argument per thing a pass might need to do its work — network, retry,
+/// storage, and where and whose library this is — because folding them into
+/// a context struct would still need one field per parameter and one
+/// accessor per call site, for no reader's benefit.
+#[allow(clippy::too_many_arguments)]
 fn second_passes(
     passes: &[Pass],
     args: &Args,
@@ -530,6 +547,7 @@ fn second_passes(
     backoff: &[std::time::Duration],
     held: &mut sources::Sources,
     path: &std::path::Path,
+    data_dir: &std::path::Path,
     asked: &Asked,
     catalog: Option<&Catalog>,
 ) -> Res {
@@ -574,6 +592,19 @@ fn second_passes(
                 let catalog = catalog.expect("a catalog was loaded for it");
                 super::identify::run(catalog, transport, backoff, held, path, asked)?;
             }
+            Pass::Portraits => {
+                let catalog = catalog.expect("a catalog was loaded for it");
+                super::portraits::run(
+                    catalog,
+                    transport,
+                    backoff,
+                    held,
+                    path,
+                    data_dir,
+                    asked.portrait_key.as_deref(),
+                    asked,
+                )?;
+            }
         }
     }
     Ok(())
@@ -587,7 +618,8 @@ pub fn run(args: &Args, transport: &mut dyn Ask) -> Res {
 /// [`run`], with the waits made explicit so a test does not have to sit
 /// through them.
 pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Duration]) -> Res {
-    let path = sources::sources_path(&super::data_dir(args));
+    let data_dir = super::data_dir(args);
+    let path = sources::sources_path(&data_dir);
     let mut held = sources::load(&path)?.unwrap_or_default();
 
     // An option that only means something to another pass, given on its own,
@@ -662,6 +694,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         again: args.has("full"),
         dry_run: args.has("dry-run"),
         key: aede_core::acoustid::key(),
+        portrait_key: aede_core::fanarttv::key(),
         // `--lang` is a statement of intent and the locale is a guess about
         // one, so the option wins. Neither is read anywhere but here.
         langs: super::summaries::preferred_langs(match args.value("lang") {
@@ -688,6 +721,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             backoff,
             &mut held,
             &path,
+            &data_dir,
             &asked,
             catalog.as_ref(),
         );
@@ -749,6 +783,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         offer_discography(&catalog, &held);
         offer_covers(&catalog, &held);
         offer_identify(&catalog, &held);
+        offer_portraits(&catalog, &held, &data_dir);
         return Ok(());
     }
 
@@ -912,6 +947,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     offer_discography(&catalog, &held);
     offer_covers(&catalog, &held);
     offer_identify(&catalog, &held);
+    offer_portraits(&catalog, &held, &data_dir);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
 }
@@ -982,6 +1018,34 @@ fn offer_covers(catalog: &aede_core::model::Catalog, held: &sources::Sources) {
     );
 }
 
+/// Names the portraits pass, when there is an artist to ask about.
+///
+/// Reads the Fanart.tv key the same way [`run_with`] does, so a door counted
+/// here without a key set is a door the pass itself would also find, not an
+/// offer that promises more than `--portraits` will actually try.
+fn offer_portraits(
+    catalog: &aede_core::model::Catalog,
+    held: &sources::Sources,
+    data_dir: &std::path::Path,
+) {
+    let door = super::portraits::waiting(
+        catalog,
+        held,
+        data_dir,
+        aede_core::fanarttv::key().as_deref(),
+    );
+    if door == 0 {
+        return;
+    }
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} with no picture yet — aede fetch --portraits looks for one",
+            ui::plural(door, "artist")
+        ))
+    );
+}
+
 /// Names the discography pass, when there is something for it to browse.
 ///
 /// Separate from the summaries offer rather than folded into it: they are two
@@ -1041,6 +1105,28 @@ pub(super) fn ask_with_backoff(
     let mut attempt = 0;
     loop {
         match transport.get_json(url) {
+            Err(Refusal::RateLimited) if attempt < backoff.len() => {
+                std::thread::sleep(backoff[attempt]);
+                attempt += 1;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// [`ask_with_backoff`], for bytes.
+///
+/// Promoted here once a second caller needed it — `fetch --covers` first,
+/// `fetch --portraits` after — rather than kept as two copies that would
+/// eventually differ.
+pub(super) fn ask_bytes(
+    transport: &mut dyn Ask,
+    url: &str,
+    backoff: &[std::time::Duration],
+) -> Result<Vec<u8>, Refusal> {
+    let mut attempt = 0;
+    loop {
+        match transport.get_bytes(url) {
             Err(Refusal::RateLimited) if attempt < backoff.len() => {
                 std::thread::sleep(backoff[attempt]);
                 attempt += 1;

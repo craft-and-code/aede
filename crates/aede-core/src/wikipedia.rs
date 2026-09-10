@@ -49,6 +49,18 @@ pub const SOURCE: &str = "wikipedia";
 /// taken under.
 pub const LICENCE: &str = "CC BY-SA 4.0";
 
+/// The name a portrait reached through Wikidata is stored under.
+///
+/// Not `wikipedia`, even though the same entity document is the source of
+/// both: an article's prose and an entity's `P18` image are two different
+/// claims, fetched to answer two different questions, and a record that
+/// carried both could not be re-fetched for one without silently dropping the
+/// other — `Sources::set` replaces a record whole, it does not merge fields
+/// into it. Keeping them as two records under two names is what lets
+/// `fetch --summaries` and `fetch --portraits` each redo their own work
+/// without undoing the other's.
+pub const PORTRAIT_SOURCE: &str = "wikidata";
+
 /// How long to leave between requests.
 ///
 /// Wikimedia's limits are far looser than MusicBrainz's, but the polite rate
@@ -94,6 +106,50 @@ pub fn entity_id(url: &str) -> Option<String> {
 /// a load.
 pub fn entity_data_url(id: &str) -> String {
     format!("https://www.wikidata.org/wiki/Special:EntityData/{id}.json")
+}
+
+/// The Commons filename in a Wikidata entity's `image` claim (`P18`), if it
+/// states one.
+///
+/// Mirrors the redirect handling [`article`] already does: the document may
+/// answer about a different id than the one asked for, and one entity in the
+/// document is no ambiguity about which that is — the same reasoning, applied
+/// to a claim instead of a sitelink.
+///
+/// `None` covers both an entity with no `P18` at all and one whose claim is
+/// there but not the ordinary "a filename" shape — a deprecated statement, a
+/// `novalue` — because a portrait fetch should not choke on either, only
+/// record that this entity had nothing usable.
+pub fn portrait_file(response: &Json, id: &str) -> Option<String> {
+    let entities = response.get("entities")?;
+    let entity = match entities.get(id) {
+        Some(entity) => entity,
+        None => only_value(entities)?,
+    };
+    entity
+        .get("claims")?
+        .get("P18")?
+        .as_arr()?
+        .first()?
+        .get("mainsnak")?
+        .get("datavalue")?
+        .get("value")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// Where to download a Commons file, at a given width.
+///
+/// `Special:FilePath` rather than resolving the MD5-sharded path Commons
+/// actually stores the file under: it is a stable redirect Commons maintains
+/// for exactly this, and following it costs one request, not a second API call
+/// to a different service to compute a hash Aède has no business working out
+/// itself.
+pub fn commons_file_url(filename: &str, width: u32) -> String {
+    format!(
+        "https://commons.wikimedia.org/wiki/Special:FilePath/{}?width={width}",
+        encode_title(filename)
+    )
 }
 
 /// An article on one language's Wikipedia.
