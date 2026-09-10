@@ -1008,7 +1008,11 @@ fn print_help() {
   search <text>        Search the whole catalog. --comments also looks in the
                        comment tag, --notes in what you wrote yourself,
                        --lyrics in the words of the songs
-  file <path>          Inspect a single file, outside the catalog
+  file <path>          Read one file straight off disk: its technical
+                       properties and raw tags, exactly as it carries them,
+                       with no catalog involved. Handy to see why a scanned
+                       file looks wrong, or to check one before adding it to
+                       the library
   import <report…>     Take in FlacCompagnon reports. --list says what is
                        held and what became of it, --pending lists the
                        folders whose analyses match no file yet, --forget

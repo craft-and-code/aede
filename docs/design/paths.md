@@ -25,7 +25,7 @@ is_under(..., "C:\Users\kcell\Music") -> false
 
 `text::folder` returning the empty string is the expensive one: it feeds `Release.folder` in the graph builder, which is a third of the release key, and it feeds the `EntityRef` an annotation is stored under. Everything folder-shaped follows it down — `--folder` restrictions, disc-folder folding, import grouping by folder, playlists written beside the music, spectrograms, the "is this destination inside your own library" refusal in `copy`.
 
-The Windows leg of CI reports **12 end-to-end failures**, and they are exactly that list. Album grouping survives, which is worth understanding rather than being relieved about: with `folder` empty for every file, all files share one folder, and the release key falls back to matching on the title alone. It looks like it works. On a library with two different albums of the same name it would silently merge them.
+The Windows leg of CI reports **16 end-to-end failures**, and they are exactly that list. Album grouping survives, which is worth understanding rather than being relieved about: with `folder` empty for every file, all files share one folder, and the release key falls back to matching on the title alone. It looks like it works. On a library with two different albums of the same name it would silently merge them.
 
 ## Why it is not a normalisation
 
@@ -79,9 +79,9 @@ assert_eq!(places, vec!["Danzig/1994 Danzig 4/02.flac".to_string(), …]);
 The two mechanisms, then, are:
 
 1. **Rendering** — the value is produced through `std::path` and compared against a `/` literal as text.
-2. **Behaviour** — `text::is_under`, `text::folder` or `text::file_name` answers wrongly for a native path, so the program does the wrong thing and an ordinary assertion fails. This is what the twelve end-to-end tests are really about.
+2. **Behaviour** — `text::is_under`, `text::folder` or `text::file_name` answers wrongly for a native path, so the program does the wrong thing and an ordinary assertion fails. This is what the fourteen end-to-end tests are really about.
 
-Fourteen tests carry the `cfg_attr` in total. One of them, `only_what_is_lossless_is_encoded_on_the_way_out`, is currently masked by the ffmpeg gate — CI installs no ffmpeg, so it skips everywhere — and it is marked anyway: the day ffmpeg reaches a runner it would fail on its _first_ assertion, which reads as "conversion is broken" rather than "paths are broken", and a misleading failure is worse than a loud one.
+Sixteen tests carry the `cfg_attr` in total. One of them, `only_what_is_lossless_is_encoded_on_the_way_out`, is currently masked by the ffmpeg gate — CI installs no ffmpeg, so it skips everywhere — and it is marked anyway: the day ffmpeg reaches a runner it would fail on its _first_ assertion, which reads as "conversion is broken" rather than "paths are broken", and a misleading failure is worse than a loud one.
 
 The dozens of remaining path tests pass on Windows for a reason worth naming: they feed `/`-spelled literals into `/`-only helpers, so the helper's assumption holds by construction. **They are not evidence that the code works there. They are the tests that would have caught this had their paths come from the platform**, and they are the first thing to change when `CatalogPath` is written.
 
@@ -89,13 +89,13 @@ The dozens of remaining path tests pass on Windows for a reason worth naming: th
 
 Windows is **not** in the release matrix. Publishing a binary that builds the catalog wrongly, on the platform where nobody would think to check, is worse than publishing nothing for it.
 
-The Windows leg of CI stays, and the twelve tests carry:
+The Windows leg of CI stays, and the sixteen tests carry:
 
 ```rust
 #[cfg_attr(windows, ignore = "catalog paths are `/`-separated; see docs/design/paths.md")]
 ```
 
-so that leg is green, still guards the parsers and everything else against regression on Windows, and prints twelve ignored tests every run. **The ignore list is the debt**: enumerable, attached to the reason, and it disappears line by line when the work is done. A permanently red pipeline is a pipeline nobody reads.
+so that leg is green, still guards the parsers and everything else against regression on Windows, and prints sixteen ignored tests every run. **The ignore list is the debt**: enumerable, attached to the reason, and it disappears line by line when the work is done. A permanently red pipeline is a pipeline nobody reads.
 
 ## The rule this leaves behind
 

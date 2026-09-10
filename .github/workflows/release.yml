@@ -45,7 +45,7 @@ jobs:
           # Windows is deliberately absent. It compiles, and CI still runs its
           # tests, but catalog paths are `/`-separated by design while the
           # scanner stores the platform's own spelling — so everything
-          # folder-shaped is wrong there. Twelve end-to-end tests say so and
+          # folder-shaped is wrong there. Sixteen end-to-end tests say so and
           # carry `#[cfg_attr(windows, ignore)]`; docs/design/paths.md has the
           # reasoning and the shape of the fix. Re-adding it is this one entry,
           # once that work lands:
