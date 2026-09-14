@@ -18,7 +18,7 @@ aede fetch --dry-run            # show what would be requested without sending a
 aede fetch --full               # re-query what is already kept
 ```
 
-A name and a folder correspond to two distinct questions, and `fetch` accepts both — see [Restricting an execution by folder](#Restricting an Execution by Folder).
+A name and a folder correspond to two distinct questions, and `fetch` accepts both — see [Restricting an execution by folder](#restricting-an-execution-by-folder).
 
 **Artists and albums, in a single pass**. Albums are the most important part: no tag indicates a musician's origin, so what MusicBrainz says about an artist can only be added alongside your library. It is different for an album — Picard records `RELEASETYPE`, `DATE`, and `LABEL`; so your files have an opinion, MusicBrainz has another, and the two can diverge. This disagreement is the reason for this storage model, and it applies to albums.
 

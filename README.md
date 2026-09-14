@@ -245,6 +245,47 @@ All metadata and state persist in a unified directory configured via `$AEDE_HOME
 
 ---
 
+## 📖 Documentation
+
+Complete guides to Aède's features and architecture:
+
+- [Library Fundamentals](docs/library.md) — Overview of the catalog structure
+- [Querying](docs/querying.md) — Complete query language and syntax
+- [Browsing](docs/browsing.md) — Interactive navigation and exploration
+- [Commands](docs/commands.md) — Full command reference
+- [Copying & Transfer](docs/copying.md) — Managing exports and transcoding
+- [Playlists](docs/playlists.md) — Playlist generation and management
+- [Annotations](docs/annotating.md) — User tags, ratings, and notes
+- [Audio Format Support](docs/formats.md) — Container and codec details
+- [Integrity Checking](docs/integrity.md) — Bit rot detection and verification
+- [Spectrogram Analysis](docs/spectrograms.md) — Visual spectral analysis
+- [Imported Analyses](docs/imported-analyses.md) — Integration of external metrics
+- [Source Attribution](docs/sources.md) — MusicBrainz and external metadata handling
+- [Licensing & Copyright](docs/licensing.md) — Licensing and usage rights
+
+### Design & Architecture
+
+- [Architecture Overview](docs/design/architecture.md) — System design principles
+- [Attribution & Provenance](docs/design/attribution.md) — Data source tracking
+- [Querying Design](docs/design/querying.md) — Query engine architecture
+- [Lyrics Handling](docs/design/lyrics.md) — Lyrics ingestion and formatting
+- [Playback & Gapless Audio](docs/design/playback.md) — Precise sample-accurate playback
+- [Release Identification](docs/design/identification.md) — Matching releases to recordings
+- [Annotations Design](docs/design/annotations.md) — User metadata model
+- [Library Paths](docs/design/paths.md) — Directory structure and organization
+- [Discogs Integration](docs/design/discogs.md) — Discogs source handling
+- [Interoperability](docs/design/interoperability.md) — Integration with other tools
+- [Plugin Architecture](docs/design/plugins.md) — Extension points and customization
+- [Strategic Conclusions](docs/design/conclusions.md) — Design decisions and trade-offs
+- [Roadmap & Milestones](docs/design/roadmap.md) — Future development plans
+
+### Development & Engineering
+
+- [Current State](docs/coding/current-state.md) — Project status and active work
+- [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
+
+---
+
 ## ⚖️ License & Archival Ethos
 
 Aède is open-source software released under the **MIT License**.

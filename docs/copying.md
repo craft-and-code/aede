@@ -48,7 +48,7 @@ Peace of mind is paramount. File size is checked on every single transfer. This 
 
 **Start a copy that won't fit.** Space is checked before the very first byte moves, saving you from discovering a "disk full" error two hours into transferring your discography.
 
-## Transcoding on the Way Out: Fitting FLACs on Phones
+## Transcoding on the Way Out
 
 A 64 GB micro-SD card cannot hold a sprawling FLAC CDthèque. `--compress` seamlessly encodes the audio as it leaves the library:
 
