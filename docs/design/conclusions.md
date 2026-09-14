@@ -8,19 +8,19 @@ a backup carry it at all?
 
 It reads as one file and it holds four:
 
-| | rebuilt by a scan? |
-|---|---|
-| files, tags, artists, releases, tracks, credits, relations | **yes**, entirely — read from the disk and derived from the tags |
-| `roots` and `excluded` | **no.** A scan re-reads the folders it already watches; from nothing, somebody has to name them again |
-| `integrity` and `fingerprint` on each file | **no.** Aède's own conclusions about the bytes: hours of reading and decoding |
-| `analyses` — imported FlacCompagnon reports | **no.** Somebody else's measurements, imported by hand |
+|                                                            | rebuilt by a scan?                                                                                    |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| files, tags, artists, releases, tracks, credits, relations | **yes**, entirely — read from the disk and derived from the tags                                      |
+| `roots` and `excluded`                                     | **no.** A scan re-reads the folders it already watches; from nothing, somebody has to name them again |
+| `integrity` and `fingerprint` on each file                 | **no.** Aède's own conclusions about the bytes: hours of reading and decoding                         |
+| `analyses` — imported FlacCompagnon reports                | **no.** Somebody else's measurements, imported by hand                                                |
 
 So "the catalog is derived from the disk" is true of most of it and false of
 the part that costs the most. That sentence was written in the `backup` module
 and in a question put to a reader, and it deserved the correction it got.
 
 The **decision** it was used to justify is unaffected: all three stores go into
-a backup, precisely *because* the catalog holds things a scan does not bring
+a backup, precisely _because_ the catalog holds things a scan does not bring
 back. What follows is a different change, for a different reason.
 
 ## The reason, and it is not size
@@ -28,11 +28,11 @@ back. What follows is a different change, for a different reason.
 A backup is a JSON document holding the three stores whole. Measured, on a
 synthetic library of twelve tracks an album:
 
-| tracks | catalog.json |
-| ------ | ------------ |
-| 10 000 | 12.4 MB |
-| 50 000 | 62.5 MB |
-| 200 000 | 252.0 MB |
+| tracks  | catalog.json |
+| ------- | ------------ |
+| 10 000  | 12.4 MB      |
+| 50 000  | 62.5 MB      |
+| 200 000 | 252.0 MB     |
 
 Twelve megabytes is not a problem worth an architecture. A chromaprint
 fingerprint measures **974 bytes** for a four-minute track (base64, algorithm
@@ -41,7 +41,7 @@ track library carries about 49 MB of fingerprint inside those 62.5 MB — most
 of the file, and still not a reason on its own.
 
 The reason is **durability**. `store::FORMAT_VERSION` guards the catalog, and
-a document of another version is *refused rather than read approximately* —
+a document of another version is _refused rather than read approximately_ —
 the right rule, and the same one `user.json`, `sources.json` and the backup
 envelope follow. But the consequence today is that the day that number
 changes, everybody's integrity verdicts and fingerprints go with it. Hours of
@@ -62,7 +62,7 @@ on, and the reasoning on `FileAnalysis::path` transfers word for word:
 
 - identifiers are positions a scan renumbers, so an identifier would have to be
   remapped after every scan — a path does not move;
-- a record may describe a file the catalog does not hold *yet*, and can wait
+- a record may describe a file the catalog does not hold _yet_, and can wait
   for the day a scan brings it in;
 - `still_applies(size, mtime)` is already the rule that expires one, and it is
   already the rule that carries an integrity verdict and a fingerprint across a
@@ -90,5 +90,5 @@ the meantime: the verdicts are safe as long as `FORMAT_VERSION` does not move,
 and a backup keeps them either way.
 
 **The trigger to do it sooner:** any change that would bump
-`store::FORMAT_VERSION`. Move the conclusions out *first*, in their own
+`store::FORMAT_VERSION`. Move the conclusions out _first_, in their own
 commit, and the bump then costs a rescan and nothing else.

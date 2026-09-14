@@ -42,7 +42,7 @@ Ozzy Osbourne
 ```
 
 And a name that reaches two artists is refused rather than arbitrated, with the
-identifiers on the lines, since two similar names under *different* identifiers
+identifiers on the lines, since two similar names under _different_ identifiers
 are genuinely two people:
 
 ```
@@ -84,7 +84,7 @@ carried them (`ARTISTS=Rob Zombie;Ozzy Osbourne`). They are read first, and
 band.
 
 **The rest of the same tag.** `ARTISTS` says nothing about `PERFORMER`, and a
-real file of *War Pigs (charity version)* carries:
+real file of _War Pigs (charity version)_ carries:
 
 ```
 PERFORMER=Ozzy Osbourne; Judas Priest; Judas Priest & Ozzy Osbourne
@@ -122,7 +122,7 @@ aede merge --list osbourne                 # narrowed, on either side of the arr
 aede merge --forget "O. Osbourne"          # take it back
 ```
 
-The statement is kept in `user.json` — the file that holds what *you* say —
+The statement is kept in `user.json` — the file that holds what _you_ say —
 with both names normalised, because that is the form every merge in this
 program is decided on. **Nothing in your files changes**, ever: not the audio,
 not the tags, not what any source said. What changes is how the shelf is read.
@@ -180,7 +180,7 @@ pair whose rows carry different identifiers is never reported at all.
 Angus Young and Neil Young survive both rules, which is the point: neither is
 the other abbreviated and neither is the other shortened.
 
-A note on a tempting wrong turn: *correcting MusicBrainz* does not help with
+A note on a tempting wrong turn: _correcting MusicBrainz_ does not help with
 either half. The two spellings are in **your files**; there is nothing at the
 source to correct. Fixing MusicBrainz is the right move for a different
 problem — a wrong release type, a missing date — and Aède prints the address of
@@ -201,7 +201,7 @@ said to use `relation` — an artist-to-artist link, which is what a line-up is.
 That would be wrong now: `relation` is rebuilt by the **scan** from your files,
 so a line-up written there would be erased by the first scan after the fetch,
 which is precisely the fault the attributed layer was built to prevent. A
-line-up is what *somebody else says*, so it lives in `ArtistFacts` beside the
+line-up is what _somebody else says_, so it lives in `ArtistFacts` beside the
 area and the formation date, and it rides on the lookup already being made —
 `artist-rels` in `ARTIST_INCLUDES`, no extra request.
 
@@ -247,8 +247,8 @@ responses for a person and for a band. All three of these were wrong before:
 
 **The direction is not what it looks like.** MusicBrainz states one relation and
 returns it on both artists with a `direction`. Both answers — the person's and
-the band's — say `"backward"`, because these relationships are defined *from the
-musician towards the group*: a backward one is being read from the group's end
+the band's — say `"backward"`, because these relationships are defined _from the
+musician towards the group_: a backward one is being read from the group's end
 and the artist it names is the player. Assuming a person's own record would read
 "forward" is reasonable, and wrong, and it does not lose data — it inverts it.
 Black Sabbath would have appeared in the list of Ozzy Osbourne's members.

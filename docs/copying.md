@@ -1,6 +1,6 @@
-# Copying to a player
+# Copying: Taking Your CDthèque on the Road
 
-`aede copy` is the one command that writes files, and it writes them **outside** the library. A player, an SD card, an external drive — somewhere that is not a catalog and will never be scanned.
+`aede copy` is the single command in this entire suite that writes audio files, and it does so strictly **outside** the sanctuary of your library. A portable player, a micro-SD card, an external drive in your car — these are destinations for your music, not catalogs to be scanned.
 
 ```sh
 aede copy /Volumes/Player                                   # the whole library
@@ -9,11 +9,13 @@ aede copy /Volumes/Card --collection wishlist --verify      # a saved query, rea
 aede copy /Volumes/Player --dry-run                         # what it would do, writing nothing
 ```
 
-**The selection is the grammar's**, not a set of filters of its own — the rule every listing already follows. Whatever `aede query` would have listed is what `aede copy --query` writes. With neither `--query` nor `--collection`, the whole library goes.
+**The selection uses the exact same grammar.** You don't have to learn a new filter system to export your music. Whatever `aede query` would have lovingly curated on your screen is exactly what `aede copy --query` packs for the trip. If you omit `--query` or `--collection`, your entire archive hits the road.
 
-**The tree is kept relative to the watched folder that holds each file.** A track scanned under `~/Music` at `Ozzy Osbourne/1980 Blizzard of Ozz/01.flac` arrives at exactly that path under the destination. Inventing a layout from the tags would be a different feature — organising — and one this project has not decided it wants. A file sitting under no watched folder has no tree to keep, so it is reported rather than dropped at the top level among the ones that do.
+**Your folder structure is honored, never reinvented.** A track carefully filed in your vault at `~/Music/Ozzy Osbourne/1980 Blizzard of Ozz/01.flac` will arrive at exactly that path on the destination device. Aède respects your curation; inventing a new layout from tags on the fly is a completely different feature (auto-organizing), and one that violates the principle of keeping your files exactly where you placed them. Tracks living outside any watched folder have no inherent tree to preserve, so they are cleanly deposited at the root level alongside the structured ones.
 
-## What travels beside the audio
+## Packing the Liner Notes and Artwork
+
+When you take an album off the shelf, the artwork comes with it. Aède lets you decide exactly how much of that visual history travels alongside the audio.
 
 | `--extras`          | What comes                                                                       |
 | ------------------- | -------------------------------------------------------------------------------- |
@@ -22,44 +24,45 @@ aede copy /Volumes/Player --dry-run                         # what it would do, 
 | `images`            | Every image in the folder                                                        |
 | `all`               | Everything beside the audio: logs, cue sheets, reports                           |
 
-The default is `cover` rather than `images` for a reason worth spelling out: **a rip folder's spectrograms and booklet scans are PNGs too.** Filtering on the extension copies exactly what you were trying to leave behind. The catalog already knows which file is the cover — the scan picked it by rank and stored it on the release — so `cover` is an exact answer where `images` can only be a guess.
+The default is `cover` rather than `images` for a very specific archivist reason: **a pristine rip folder often contains spectrograms, log files, and heavy high-res booklet scans saved as PNGs.** If Aède just blindly copied by file extension, it would drag all those heavy archival materials onto your portable device. Because the catalog already knows which specific image is the true "front cover" (assigned by rank during the scan), `cover` is a precise, deliberate choice, whereas `images` is just a blind scoop.
 
-## Names a player refuses
+## Navigating Fragile Filesystems
 
-FAT32 and exFAT — which is what a card or a player almost always is — reject `? * : " < > |`, trailing dots and spaces, and the old DOS device names. A music library is full of them: `Where Is My Mind?`, `Symphony No. 5: Allegro`. Left alone, the copy fails on those files one at a time, twenty minutes into a run.
+FAT32 and exFAT — the archaic formats nearly every SD card and portable player relies on — outright reject characters like `? * : " < > |`, trailing dots, spaces, and legacy DOS device names. A rich music library is full of these: _Where Is My Mind?_, _Symphony No. 5: Allegro_. Left unchecked, a mass copy would violently fail on these files twenty minutes into the transfer.
 
-Aède asks the destination what it accepts by **writing one probe file into it**, rather than reading the filesystem's name and inferring. The empirical answer is right where the inference is wrong: a FUSE mount, an SMB share of a Windows folder or a card reader all report something no table lists. `--safe-names` and `--raw-names` force it either way.
+Instead of guessing based on a fixed table of rules, Aède asks the destination exactly what it accepts by **writing a single, invisible probe file into it**. This empirical test succeeds exactly where blind inference fails (like on FUSE mounts, SMB shares, or quirky card readers). You can also use `--safe-names` and `--raw-names` to force the behavior manually.
 
-Every adapted name is **listed, not counted** — a copy whose names quietly differ from the library is a copy nobody can compare against the original afterwards. Where two different names adapt to the same one (`Vol. 1: Live` and `Vol. 1? Live` both become `Vol. 1_ Live`), a counter keeps them apart rather than letting one overwrite the other.
+Every adapted name is **listed, not just counted.** If a filename has to change to survive the journey, Aède tells you. A copy whose names quietly mutate is a copy you can never reliably compare against the original archive later. If two different tracks are forced into the same adapted filename (`Vol. 1: Live` and `Vol. 1? Live` both collapsing to `Vol. 1_ Live`), Aède intelligently counters them apart rather than letting one tragically overwrite the other.
 
-## Getting it there intact
+## Ensuring It Arrives Intact
 
-Size is checked on every file, always: it costs one metadata read and catches what actually goes wrong — a run interrupted mid-file, a disk that filled up. Each file is written under a temporary name and moved into place, so an interrupted run never leaves half a file wearing a whole one's name, and re-running skips what is already there at the right size.
+Peace of mind is paramount. File size is checked on every single transfer. This costs a mere metadata read but catches the real-world disasters: a cable pulled mid-transfer, or a disk silently running out of space. Each file is written under a temporary name and only moved into its final place upon completion. An interrupted run never leaves half a song masquerading as a whole one, and re-running the command simply skips what is already safely there.
 
-`--verify` adds a full read-back and CRC-32 comparison. Two honest limits: the file is flushed to the device before being read back, but a read can still be served from the kernel's cache — this proves the bytes made it through the program and the filesystem, not that they reached the platter; and a CRC-32 detects accidental corruption, it is not meant to resist anyone deliberately producing a collision. Nothing here is a security boundary.
+`--verify` adds a full read-back and CRC-32 integrity comparison. We are honest about the limits here: the file is flushed to the device before being read, but modern operating systems might still serve that read from the kernel's RAM cache. This proves the bytes safely cleared the program and the filesystem logic, though not necessarily that they magnetized the physical platter. CRC-32 is perfect for catching accidental corruption during transit, not for cryptographically securing a border.
 
-## What it refuses
+## What Aède Refuses to Do
 
-**A destination that does not exist.** The folder is never created for you: `aede copy /Volumes/Player` with the player unplugged would otherwise create that folder on the internal disk and quietly fill it.
+**Write to a destination that does not exist.** Aède will never create the base directory for you. If you type `aede copy /Volumes/Player` but forgot to plug the player in, Aède stops. Otherwise, it would quietly create a "Player" folder on your internal hard drive and fill it until your computer crashed.
 
-**A destination inside a watched folder.** The next scan would read the copies back in, the catalog would double, and `doctor` would report every album as its own duplicate.
+**Copy into a watched folder.** Dropping copies _inside_ your library's sanctuary means the next scan would read them all back in. Your catalog would double in size, and the `doctor` command would rightfully panic, reporting every single album as a duplicate.
 
-**Not enough room**, checked before the first byte rather than discovered on the last album.
+**Start a copy that won't fit.** Space is checked before the very first byte moves, saving you from discovering a "disk full" error two hours into transferring your discography.
 
-## Converting on the way out
+## Transcoding on the Way Out: Fitting FLACs on Phones
 
-A 64 GB card does not hold a FLAC library. `--compress` encodes as it copies:
+A 64 GB micro-SD card cannot hold a sprawling FLAC CDthèque. `--compress` seamlessly encodes the audio as it leaves the library:
 
 ```sh
 aede copy /Volumes/Phone --compress opus --quality 128k
 aede copy /Volumes/Phone --compress mp3 --quality V0 --query "loved"
 ```
 
-Targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `wav`. `--quality` takes `V0`…`V9` for MP3, `q0`…`q10` for Vorbis, or a bitrate like `192k`; each encoder has a sane default, and a value that parses as none of those is refused rather than quietly replaced.
+Supported targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `wav`.
+`--quality` takes `V0`…`V9` for MP3, `q0`…`q10` for Vorbis, or a strict bitrate like `192k`. Each encoder uses a sane, audiophile-approved default. If you type a value that doesn't make sense, Aède refuses it rather than quietly making a terrible sounding guess.
 
-`--quality` is refused on `flac` and `wav` rather than ignored, because there is nothing there to choose: a lossless format keeps every sample. `--compress wav --quality 128k` reads as a request for small files and would have produced files some eleven times larger than the number just typed — on the card this command exists to fill, that is the difference between fitting and not. The check happens before a single file is read, so being stopped costs nothing.
+`--quality` is strictly refused on `flac` and `wav` because a lossless format keeps _every_ sample. Asking for `--compress wav --quality 128k` to get smaller files would ironically produce files eleven times larger than the bitrate you requested! The check happens instantly, stopping a mistake that would flood your portable device.
 
-**Only lossless sources are encoded.** Everything else is copied exactly as it stands, and that one rule settles three cases at once:
+**Only lossless files are encoded.** Everything else is respectfully copied as-is. This single, elegant rule handles three massive headaches perfectly:
 
 | Source          | `--compress mp3` asks for | What happens                                                                              |
 | --------------- | ------------------------- | ----------------------------------------------------------------------------------------- |
@@ -68,11 +71,11 @@ Targets: `mp3`, `opus`, `aac` (in an `.m4a`), `vorbis` (in an `.ogg`), `flac`, `
 | MP3             | Opus                      | copied — a second lossy pass over a first one is audible, and the file was already small  |
 | MP3             | FLAC                      | copied — the result would be _larger_ and no better: lossless in name, lossy in substance |
 
-So a mixed library converted for a phone comes out with its lossless half encoded and its lossy half untouched, which is what you wanted and never had to ask for. The report says how many of each, because a silent skip looks like lost files.
+If your library is a mix of pristine FLACs and old MP3s, converting the whole thing for a phone results in the lossless half being carefully encoded, while the lossy half is copied untouched. It is exactly what you wanted, without ever having to script it yourself. The final report tells you exactly how many of each occurred, so a skipped encoding never looks like a missing file.
 
-**Encoding runs several files at a time; a plain copy does not.** The two are different kinds of work and the default follows the work rather than the machine. With `--compress`, each file is an ffmpeg run that no other file waits on, so one at a time would leave most of the processor idle. A plain copy is a queue at a single device — one card, one stick, one slow drive — where several writers do not go faster but seek against each other, markedly so on cheap flash, and `--verify` reads back everything just written on the same device. `--threads` overrides it in either direction, for the person copying to an NVMe or encoding on a laptop they still want to use.
+**Encoding uses every core; copying queues up.** When `--compress` is active, every file triggers an independent ffmpeg run. Doing this sequentially would leave your modern processor tragically idle. Conversely, a plain copy acts as a strict queue because writing to a single SD card with multiple threads just causes the write head to seek violently, drastically slowing down the transfer. `--threads` allows you to override this logic if you are copying to a blazing fast NVMe drive.
 
-**ffmpeg does the encoding, and it is an external program — not a dependency.** Nothing is linked or vendored; a checkout without ffmpeg builds fine and every other command works. `--compress` looks for it once, before the first byte is written, and says how to install it if it is missing. This is how beets drives its `convert` plugin, and for the same reason.
+**FFmpeg is the engine, but it is an external tool.** Aède does not vendor or link heavy media libraries. If you build Aède without ffmpeg, the core program and every other command works flawlessly. `--compress` simply checks for it once before starting, and if it's missing, it tells you exactly how to get it:
 
 ```
 $ aede copy /Volumes/Phone --compress mp3
@@ -81,10 +84,16 @@ Error: --compress needs ffmpeg, and it was not found.
   Debian/Ubuntu  sudo apt install ffmpeg
 ```
 
-**Metadata follows**: `-map_metadata` carries the tags across, and `mp3`, `aac` and `flac` also copy the embedded cover into the container. `wav`, `vorbis` and `opus` cannot: ffmpeg refuses outright to mux a picture stream into any of the three, so a cover routed through one of them is lost at the encoder, not dropped by this code. Tags make the trip everywhere except `wav`, whose container only understands a fixed handful of fields — title, artist, album, genre, date, track — so composer, publisher, disc and album artist do not survive it; that is a limit of the RIFF format's legacy INFO chunk, not of `-map_metadata` itself. Neither loss is perfect, but arriving on a player with no artist and no title is not a trade anyone would accept.
+**Your metadata survives the trip:** `-map_metadata` ensures your tags cross the threshold safely. For `mp3`, `aac`, and `flac`, the embedded cover art is successfully injected into the new container. However, `wav`, `vorbis`, and `opus` cannot accept embedded images via ffmpeg. That artwork is dropped by the encoder's limitations, not by Aède's lack of care.
 
-Sizes shown before a conversion are **estimates**, and labelled as such: what an encoder produces is not known until it has produced it, and answering "unknown" to "will this fit on my card" would be answering the wrong question.
+Similarly, metadata travels cleanly everywhere except into `wav`, which relies on the archaic RIFF INFO chunk. That legacy format only understands a rigid handful of fields (title, artist, album, genre, date, track). Composer, publisher, and album artist simply cannot survive the journey into a WAV file. It is not perfect, but arriving on a portable player with an "Unknown Artist" and "Unknown Title" is a tragedy no archivist would accept. Aède does its absolute best with the formats it is handed.
 
-`--verify` cannot compare checksums here — the bytes differ by construction, which is the point. It instead reads the result back **with Aède's own parsers** and checks that it holds audio of the right length, which catches the failure that actually happens: an encode cut short by a full disk or a killed process. A verification that asked ffmpeg whether ffmpeg had done its job would not be one.
+Sizes shown before a conversion are honest **estimates**. An encoder's final file size isn't known until the audio is processed. Answering "I don't know" when you ask "Will this fit on my card?" is unhelpful, so Aède provides the best mathematical guess possible.
 
-Note that writing tags into a _derived copy_ is not the same act as rewriting the tags of your library, which this project refuses to do. That refusal protects **your** files, whose modification date, integrity verdict and scan state all depend on not being touched; a file that did not exist a second ago has none of those. The distinction is deliberate, and recorded as such.
+When transcoding, `--verify` cannot simply compare file checksums—the bytes are entirely different by design! Instead, it reads the resulting file back **using Aède's own internal parsers** to ensure it holds valid audio of the exact correct length. This catches the real-world failures: an encode cut violently short by a full disk. Asking ffmpeg if ffmpeg did a good job is not a real verification.
+
+### A Final Note on Data Philosophy
+
+Notice that Aède _does_ write metadata tags into these exported files. This is fundamentally different from modifying the tags inside your master library, which this project strictly refuses to do.
+
+That refusal is the ultimate protection for your CDthèque. The modification date, the integrity hash, and the scan state of your original files all depend on them remaining completely untouched by Aède. But an exported file on an SD card? That file didn't exist a second ago. It is a derivative, a disposable copy meant for the road. Injecting tags there hurts nothing and helps everything. The distinction is highly deliberate, and your archive remains pristine.

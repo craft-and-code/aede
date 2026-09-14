@@ -1,10 +1,8 @@
-# Asking questions
+# Queries: Querying Your CDthèque with Precision
 
-## Asking a question
+Options on standard command-line tools compose by `AND` and by nothing else. That ceiling is what a real query grammar lifts: there is no `--genre metal OR --genre jazz`, no "everything except this label", no "between 1990 and 1999" in simple flags — and all three come free with Aède's unified parser.
 
-Options compose by AND and by nothing else. That ceiling is what a grammar
-lifts: there is no `--genre metal OR --genre jazz`, no "everything except this
-label", no "between 1990 and 1999" — and all three come free with one parser.
+Whether you are seeking to isolate overlooked masterpieces from the 1990s, retrieve a personal note scribbled about a Japanese pressing, or extract a set of tracks for the road, the syntax remains constant, predictable, and rigorous.
 
 ```sh
 aede query "genre:metal year:1990..1999 label:earache"
@@ -13,63 +11,83 @@ aede query "loved played:0" --m3u          # what I love and have never played
 aede query "lossless:false size:>50000000" # big, and not lossless
 ```
 
-Fields: `title`, `artist`, `album`, `albumartist`, `genre`, `label`, `comment`,
-`lyrics`, `path`, `codec`, `year`, `duration`, `size`, `bitrate`, `samplerate`,
-`lossless`, `compilation`, `played`, and what you wrote — `rating`, `loved`,
-`tag`, `note`.
+## Available Fields and Graph Relations
 
-`lyrics:` looks in the words the file carries — the `LYRICS`/`USLT`/`©lyr` tag,
-or a `.lrc` sitting beside the track — which is what makes "that song that goes
-something about a train" answerable: `aede query "lyrics:train"`. The tag costs
-nothing, since raw tags are in the catalog; a sidecar is opened only for the
-tracks that have one. `aede track "<title>" --lyrics` shows them in full, timed
-where the file gives times.
+The search engine explores the entirety of the catalog's relational structure. Fields can be prefixed to target specific structural levels (`album.`, `artist.`, `track.`) or inferred from the execution context.
 
-**And who did what**, which is what a graph is for: `composer`, `lyricist`,
-`producer`, `engineer`, `performer`, `conductor`, `remixer`, `featured`,
-`mainartist`, and `performing` for anyone audible on it — the class that
-counts a guest verse and not the words behind it. `artist:` matches any credit
-in any role, which is why
-`artist:ozzy artist:"zakk wylde"` already means "both are on it"; the role
-fields ask the finer question.
+| Field                    | Type         | Description                   | Examples                                   |
+| :----------------------- | :----------- | :---------------------------- | :----------------------------------------- |
+| `title`                  | Text         | Track title                   | `title:Interstellar`                       |
+| `artist` / `albumartist` | Text         | Performer or release artist   | `artist:Coltrane`, `albumartist:Metallica` |
+| `album`                  | Text         | Album title                   | `album:"Kind of Blue"`                     |
+| `genre`                  | Text         | Musical genre                 | `genre:=Jazz`, `genre:metal`               |
+| `label`                  | Text         | Record label imprint          | `label:"Blue Note"`                        |
+| `year`                   | Range/Number | Release year                  | `year:1994`, `year:1985..1995`             |
+| `duration`               | Duration     | Track length                  | `duration:..4:00`, `duration:3:30..5:00`   |
+| `size`                   | Bytes        | File size in bytes            | `size:>50000000`                           |
+| `codec` / `format`       | Text         | Audio codec or container      | `codec:flac`, `format:mp3`                 |
+| `bitrate` / `samplerate` | Number       | Audio stream parameters       | `bitrate:>=320k`, `samplerate:96000`       |
+| `lossless`               | Boolean      | Lossless compression status   | `lossless:true`, `-lossless`               |
+| `compilation`            | Boolean      | Multi-artist compilation flag | `compilation:true`                         |
+| `played`                 | Counter      | Play count                    | `played:0`, `played:>=10`                  |
+| `comment`                | Text         | File-level comment tag        | `comment:"vinyl rip"`                      |
+| `lyrics`                 | Text         | Embedded or sidecar lyrics    | `lyrics:train`                             |
+| `path`                   | Text         | Absolute file path            | `path:"/FLAC/Ozzy"`                        |
+| **Annotations**          |              |                               |                                            |
+| `rating`                 | Numeric      | Personal star rating (1–5)    | `rating:>=4`, `album.rating:5`             |
+| `loved`                  | Boolean      | Personal favorite status      | `loved`, `-loved`, `track.loved`           |
+| `tag`                    | Text         | User tag/label                | `tag:vinyl`, `album.tag:audiophile`        |
+| `note`                   | Text         | User Markdown note content    | `note:remaster`, `artist.note:concert`     |
+
+### Credits and Who Did What
+
+A music catalog is a graph, not a flat table. Aède indexes distinct creative roles so you can query liner notes with surgical accuracy:
+
+- **Role Fields:** `composer`, `lyricist`, `producer`, `engineer`, `performer`, `conductor`, `remixer`, `featured`, `mainartist`.
+- **Audible Class (`performing`):** Matches anyone audible on the recording — capturing a guest rapper's verse without matching the songwriter behind the scenes.
+- **Global Credit (`artist:`):** Matches any credit in any role across the track or album. `artist:ozzy artist:"zakk wylde"` requires both individuals to appear anywhere on the record, while role fields isolate their specific contributions.
 
 ```sh
 aede query "composer:rhoads mainartist:ozzy"   # Ozzy singing what Randy wrote
 aede query "producer:\"rick rubin\" year:1990.."
 ```
 
-A value naming nothing in the library — a genre that does not exist, an artist
-nobody ever heard of — is an **error**, not an empty result: the two are
-different questions and deserve different answers.
+### Strict Semantics and Boolean Symmetry
 
-A flag reads either way round: `lossless:false` and `-lossless` ask the same
-thing, and accepting only one would make the other a silent trap.
+1. **Errors over Silent Emptiness:** A query naming an entity that does not exist in the vault (e.g., a non-existent genre or unknown artist) returns an explicit **error** rather than an empty result set. An empty list says "no tracks match these constraints," while an error tells you "this term does not exist in your catalog."
+2. **Boolean Symmetry:** Flags evaluate identically regardless of notation: `lossless:false` and `-lossless` produce identical execution plans.
 
-Those last four also read `album.rating`, `artist.loved` and so on, because
-**where** an opinion was written is part of what it says: five stars on the
-artist is not five stars on the track, and a field that folded the two together
-could never say which was meant. `loved` bears one exception to that — see
-below.
+## Lyrics, Sidecars, and Text Precision
 
-## Searching what you wrote
+The `lyrics:` field inspects text embedded directly inside audio containers (such as Vorbis `LYRICS`, ID3 `USLT` or `©lyr` atoms) as well as external `.lrc` sidecar files residing alongside the audio track.
 
-Everything you write is queryable, and searching _inside_ a note or a tag is
-the same field with a value:
+```sh
+aede query "lyrics:train"
+```
+
+Catalog scanning indexes embedded tags instantly at zero runtime I/O cost. Sidecar `.lrc` files are opened and parsed strictly when queried. To read full, time-synced lyrics on screen, run:
+
+```sh
+aede track "Crazy Train" --lyrics
+```
+
+## Searching What You Wrote: Annotations & Scopes
+
+Every annotation added via `aede note`, `aede rating`, or `aede tag` is immediately searchable.
 
 ```sh
 aede query "tag:vinyl"              # tracks carrying that label
 aede query "album.tag:vinyl"        # tracks whose album carries it
-aede query "note:remaster"          # the note says "remaster" somewhere
-aede query "artist.note:live"       # something written about the artist
+aede query "note:remaster"          # notes containing "remaster"
+aede query "artist.note:live"       # notes attached to the artist
 aede query "album.rating:>=4 -played"
 ```
 
-**The scope is part of the question, and it is the one thing that surprises
-people — for three of these four fields.** A bare `rating`, `tag` or `note`
-asks about the **track**. If you rated an _album_, `aede query "rating"` finds
-nothing — you asked a different question from the one you meant. So an empty
-answer says where what you wrote actually is, and offers the expression that
-finds it:
+### Scope Isolation and Diagnostic Guidance
+
+The structural scope (`track`, `album`, `artist`) is part of the question. A bare `rating`, `tag`, or `note` queries the **track**. If you rated an _album_ rather than individual tracks, `aede query "rating"` returns no matches because track-level ratings were requested.
+
+Rather than failing silently, Aède detects when annotations exist at adjacent structural levels and offers diagnostic guidance:
 
 ```
 $ aede query "rating"
@@ -78,90 +96,65 @@ nothing matches "rating"
   aede query "album.rating"
 ```
 
-The query still means exactly what it says; the line is a hint, not a
-correction. Folding the scopes together instead would be worse for these
-three: five stars on an artist is not five stars on a track, and a field that
-merged them could never say which was meant.
+### The `loved` Inheritance Exception
 
-`loved` is the exception. A favourite is a blunter signal than a score —
-closer to "this matters to me" than to a precise judgement — and having loved
-a whole album is not something you should have to repeat one track at a time.
-So a bare `loved` asks about the track, or failing that its album, or failing
-that its artist, whichever actually holds it:
+Unlike ratings or notes, a favorite flag (`loved`) represents a broad qualitative signal ("this matters to me"). Requiring a curator to flag every individual track on a beloved 12-track album is redundant.
+
+Therefore, a bare `loved` query evaluates hierarchically: it matches if the favorite flag is set on the **track**, or inherited from its **album**, or inherited from its **artist**:
 
 ```sh
-aede query "loved played:0"   # never played, and loved — directly, or through
-                               # its album, or through its artist
+aede query "loved played:0"   # unplayed tracks loved directly or via album/artist
 ```
 
-`track.loved` is still there for the precise question — exactly this track,
-nothing it belongs to — the same way `album.loved` and `artist.loved` already
-ask about exactly one level.
+To restrict the query to an exact structural level, specify the prefix explicitly: `track.loved`, `album.loved`, or `artist.loved`.
 
-**A field written alone asks whether there is one at all**, and `-field` asks
-the opposite — which is how a library is combed for what has _not_ been
-annotated yet:
+### Querying Field Existence
+
+To search for the presence or absence of an annotation rather than matching text inside it, pass the field name alone or prefixed with a negation sign `-`:
 
 ```sh
-aede query "note"        # everything you have written a note on
-aede query "-rating"     # everything you have never rated
-aede query "tag"         # everything carrying at least one label
+aede query "note"        # any item holding a user note
+aede query "-rating"     # items that have never been rated
+aede query "tag"         # items carrying at least one custom tag
 ```
 
-The two questions were one predicate here until it turned out they were two,
-and the consequence was that "which things have I written a note on" could not
-be asked at all: a bare `note` fell through to a text search for the word, and
-`note:true` searched for the word "true". The cost of separating them is that a
-bare `note`, `tag` or `rating` is no longer a text search for those three
-words; written with a field they still are, as `title:note`.
+To perform a text search for literal words like "note" or "rating", scope them to a text field: `title:note`.
 
-## Comments
+## Disambiguating Comments, Notes, and Lyrics
 
-The `comment` tag is the one field _you_ write: where a rip came from, which pressing this is, what still needs replacing. It is read from every format and it is searchable, but only when asked:
+Aède distinguishes between three types of textual metadata based on data provenance:
+
+1. **File Comments (`comment`):** Metadata embedded inside the audio file container by tagging software (e.g., rip source, pressing details).
+2. **User Notes (`note`):** External Markdown text authored by you and stored safely in `user.json`.
+3. **Lyrics (`lyrics`):** The performance text itself, stored in embedded tags or `.lrc` files.
+
+When running `aede search`, comment, note, and lyrics searching are opt-in flags to prevent free prose from obscuring exact title or artist matches:
 
 ```sh
 aede search --comments "vinyl rip"
-aede search --comments "to replace" --m3u --output=todo.m3u8
-aede track "So What" --comment "2009 remaster"
-aede albums --comment "vinyl"
+aede search --notes "remaster"
+aede search --lyrics "all aboard"
 ```
 
-Off by default on `search`, because a comment is free prose: a common word in one would bury the album that actually bears the name. Comment hits are shown in **their own section** and marked `found_in: comment` in the JSON — a hit says by which route it was found, the same rule that keeps an imported analysis in its own panel.
+### Output Formatting and Provenance Tracking
 
-`--notes` does the same for what _you_ wrote:
+- **Line-Level Matches for Lyrics:** Searching lyrics prints the exact matching line rather than dumping multi-line poem blocks into terminal result tables.
+- **JSON Provenance:** Search results in JSON output explicitly identify match origin via the `found_in` key (`found_in: comment`, `found_in: note`, or `found_in: lyrics`).
 
-```sh
-aede search "vinyle" --notes
-aede search "remaster" --notes
-```
+## Saved Collections & Smart Playlists
 
-And `--lyrics` searches the words themselves, from the tag that carries them or from a `.lrc` beside the track:
-
-```sh
-aede search "all aboard" --lyrics
-```
-
-It shows **the line that matched**, not the song: a table cell holding four hundred lines is one nobody can read, and the line is what was half-remembered in the first place.
-
-The three are deliberately not folded together, and the difference is worth stating: a **comment lives inside the audio file**, put there by whoever tagged it; a **note lives in `user.json`**, put there by you; the **words are the song**, and belong to nobody here. Searching one is searching the library, searching another is searching yourself — so they keep separate sections and separate options, and a hit says by which route it was found (`found_in: comment`, `lyrics` or `note` in the JSON). A note can be about anything, so its results name the kind: an artist, an album, a label.
-
-## Saving a question
-
-A query worth typing twice is worth a name.
+A query worth typing twice can be converted into a **saved collection**:
 
 ```sh
 aede collection wishlist --query "loved played:0"
-aede collection wishlist                 # what it holds now
-aede collection wishlist --m3u           # …as a playlist
-aede collections                         # every saved query, and its size
+aede collection wishlist                 # view current contents
+aede collection wishlist --m3u           # export as an M3U playlist
+aede collections                         # list all saved collections and track counts
 aede collection wishlist --remove
 ```
 
-It keeps the **question**, not the answer, which is the whole difference
-between a smart collection and a playlist: it answers with what the library
-holds now. And since running one produces a selection, `--m3u`, `--csv` and
-`--json` apply to it with nothing written for the purpose.
+### Smart Collections vs. Static Playlists
 
-An expression that does not parse is refused **when it is saved**, not the next
-time somebody opens it: a collection that only fails when you reach for it is a
-trap left for later.
+A saved collection stores the **formula**, not a static list of files. Every time a collection is queried or exported (`--m3u`, `--csv`, `--json`), Aède re-evaluates the query against the current catalog state. As new albums are scanned or tags are updated, collections refresh automatically.
+
+Syntax validation occurs at definition time: passing an invalid query expression to `aede collection --query` is rejected immediately, preventing silent failures during future exports.

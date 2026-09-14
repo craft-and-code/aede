@@ -95,12 +95,12 @@ The folder is read the way every option of `fetch` reads one — anything typed
 that exists on the disk is a folder, anything else is a name — and
 [the manual](../sources.md#narrowing-a-run-by-folder) has the rule. It matters
 most here: a shelf is the natural unit for a decision about somebody else's
-rights, and *the words for this record* should not have to be spelled as a
+rights, and _the words for this record_ should not have to be spelled as a
 search for a word that happens to match nothing else.
 
 **The typed option is the consent.** The caveat above is printed on every run,
 before anything is asked — not once, not in a file nobody opens. It is
-deliberately *not* doubled by a prompt each time: a confirmation asked every
+deliberately _not_ doubled by a prompt each time: a confirmation asked every
 time is a confirmation nobody reads, which would leave the caveat less read
 than printing it plainly does. A long run is still agreed to, on the same
 threshold as the ordinary fetch, and that is about the ten minutes rather than
@@ -160,7 +160,7 @@ be stated as ours: a song has a studio take, a live one and three covers, they
 share a title, and the length is what tells them apart. The catalog measures it
 on the stream rather than reading it from a tag, so asking the narrow question
 costs nothing. A track whose length could not be read is skipped, and the line
-that skips it now says why *this program* declined rather than blaming the
+that skips it now says why _this program_ declined rather than blaming the
 service.
 
 **An empty album is left out of the address, not sent empty.** They are two
@@ -170,7 +170,7 @@ been seen to work.
 
 **A miss is a `404` with a well-formed body**, `{"name":"TrackNotFound",…}`.
 Read on its own that document is indistinguishable from a service having a bad
-day: it is the *status* that says "not found". Which is what made
+day: it is the _status_ that says "not found". Which is what made
 `Refusal::Missing` necessary rather than merely tidy.
 
 Two smaller ones, both kept in the fixture because a parser written from the

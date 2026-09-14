@@ -1,10 +1,8 @@
-# What you think of it
+# Your Thoughts, Your Data: Annotating in Aède
 
-## Writing things down
+Your music library is more than just a collection of audio files; it is a personal journey. Aède treats your thoughts on a track, an album, an artist, a label, or a genre with the reverence they deserve.
 
-One note per thing — a track, an album, an artist, a label, a genre — and it is
-kept **exactly as typed**, blank lines and all. A note is not a field to be
-tidied: no wrapping, no trimming, no reflowing.
+One note per entity, preserved **exactly as typed**. Blank lines and all. A note in Aède is not a sterile database field to be tidied up: there is no auto-wrapping, no silent trimming, and no reflowing. Your words remain entirely yours.
 
 ```sh
 aede note album "Kind of Blue" --text "the 1997 remaster is the one"
@@ -16,14 +14,11 @@ aede note artist "Miles Davis" --remove
 aede note album "Legion" --from album:"Once Upon the Cross"
 ```
 
-`--file` is what makes a note a _written_ thing rather than a command-line
-argument: write it in a real editor, pipe it in with `-`. `--append` adds to
-what is there, separated by a blank line, because two thoughts a month apart
-are not one paragraph.
+The `--file` flag elevates a simple note into a crafted piece of writing. Draft it in your favorite editor, or pipe it in directly with `-`. Use `--append` to add new thoughts over time—because a revelation you have today shouldn't overwrite the memory you recorded a month ago. They are simply separated by a blank line.
 
-It gets a section of its own on every page, below the marks:
+When displayed, your writing takes its rightful place on the page, cleanly separated from the technical metadata:
 
-```
+```text
 Yours
 
   ★★★★★   ♥   vinyl
@@ -38,28 +33,29 @@ Notes
   written 3 days ago
 ```
 
-**Markdown is the intended format**, and deliberately not handled here. Aède
-stores the bytes it was given and prints them unchanged; rendering headings and
-emphasis is the front end's job at M2. Two things follow for whoever writes that
-front end: the text is **untrusted user input**, so it must be escaped before it
-reaches any HTML, and the storage must never start "helpfully" rewriting it —
-the day Aède reformats a note is the day the note stops being the user's.
+### The Elegance of Markdown and Pure Ownership
 
-## Backing up what cannot be rebuilt
+**Markdown is the soul of your notes.** Aède embraces Markdown's simple elegance by getting completely out of its way. We store the exact bytes you provide and hand them back untouched. Rendering headings, bold text, and emphasis is a joyous task left to the front end (like M2).
+
+Two critical principles of **data ownership** follow from this design:
+
+1. **Security:** The text is strictly **untrusted user input**. The front end must meticulously escape it before weaving it into HTML to protect the community of users.
+2. **Integrity:** The storage layer must _never_ "helpfully" rewrite your input. The day Aède silently reformats a note is the day that note stops belonging to you. We refuse to cross that line.
+
+## Preserving Your Legacy
 
 ```sh
 aede notes --export -o backup.json
 aede notes --import backup.json
 ```
 
-Lose the catalog and a scan rebuilds it in a minute. Lose this and it is gone,
-so it is the one file worth a backup — and the export is the file itself:
-readable, greppable, repairable by hand.
+If you lose your catalog database, a quick scan rebuilds the index in minutes. But if you lose your annotations, a piece of your musical history is gone forever. This makes your notes the single most precious asset in your library. The export tool respects this by generating a file that is beautifully simple: readable, searchable, and fully repairable by hand.
 
-**Import merges, it never replaces.** Someone restoring half a backup wants
-their two halves, and an import that emptied what was already there would be
-the one operation in this program able to lose everything at once. Where both
-sides know a thing, the one written **last** wins, and the one that lost is
-counted out loud rather than dropped in silence. Play counters take the larger
-of the two, since a count is a total and neither side ever counted the other's
-listens. Importing the same backup twice changes nothing.
+**Importing is an act of merging, never destroying.** If you restore a partial backup, Aède gracefully combines it with your current library. An import will _never_ wipe out what is already there—that would be a catastrophic violation of your trust.
+
+When both datasets contain information about the same entity, Aède resolves it logically:
+
+- **Notes:** The note written **last** wins. The overwritten note isn't silently deleted; it is respectfully counted and reported out loud.
+- **Play Counts:** Aède keeps the larger of the two numbers. Since counts always grow, neither dataset invalidates the other's listening sessions.
+
+And because it is built on solid, predictable logic, importing the exact same backup twice changes absolutely nothing. Peace of mind, guaranteed.

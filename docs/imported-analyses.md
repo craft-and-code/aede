@@ -2,9 +2,9 @@
 
 Entirely optional, and it changes nothing if you never use it.
 
-Aède reads the _structure_ of a file. It does not decode, so there are questions it cannot answer yet: is this FLAC a re-encoded MP3, was it upsampled, where does the spectrum stop, how loud is it really — and the decisive one, does the decoded audio still match the MD5 the encoder wrote into the file.
+Aède is a master of structure. It reads the physical "digital grooves" of your files—the tags, the frames, the containers. But it does not decode the audio itself, which means there are forensic questions it respectfully leaves unanswered: Is this "lossless" FLAC actually a re-encoded 128kbps MP3? Was it artificially upsampled? Where does its high-frequency spectrum truly stop? And critically, does the fully decoded audio still perfectly match the MD5 signature the original encoder stamped into the file?
 
-[FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) already does that pass. If you have run it, `aede import` puts the results into the catalog:
+[FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) performs exactly this kind of microscopic acoustic pass. If you have run it across your collection, `aede import` gracefully folds these external insights into your catalog:
 
 ```sh
 aede import ~/Desktop/danzig-report.json
@@ -17,29 +17,31 @@ aede import --forget --pending            # remove only what will never attach
 aede import --forget --pending "/Volumes/OldDrive"   # …and only under that folder
 ```
 
-A folder is walked **recursively**, because reports are kept the way the albums they describe are: one folder per artist, one per album.
+A folder is walked **recursively**, because Aède understands that you keep your reports the same way you curate your albums: filed elegantly by artist and release.
 
 ## The order does not matter
 
-An analysis is filed under the **path** it describes, not under a catalog entry. So the two operations can be done either way round, which matters because analysing a folder and _then_ building the library from it is the natural order for someone who already owns the other tool.
+An analysis is filed under the **path** it describes, not inherently tied to a catalog entry. Therefore, you can build your CDthèque in whatever order feels natural. Analysing a folder _before_ officially shelving it in the library is a perfectly valid archivist's workflow.
 
-- **Import first.** The records are stored and reported as `Waiting for a scan`. The scan that brings those files in makes them attach by themselves, and says so (`Analyses now attached`). `doctor` says how many are still waiting rather than letting them sit there unmentioned.
-- **Scan first.** Files are matched by path, then by name and size for a library that has moved since — a name and a byte count together are very nearly unique.
-- **Leave the report in the album folder.** A scan walks over it anyway: any `.json` announcing itself as a FlacCompagnon report is read and taken in, and the scan report says how many. Half a kilobyte is read from each `.json` met to recognise one, so nothing else in the library is parsed.
+- **Import first.** The acoustic records are securely stored and reported as `Waiting for a scan`. The moment you scan the actual audio files into the sanctuary, the analyses attach themselves automatically, proudly declaring `Analyses now attached`. The `doctor` command keeps track of how many are still waiting, ensuring no analysis is forgotten in the dark.
+- **Scan first.** Files are matched by path, then intelligently by name and size to accommodate a library that might have been moved. A precise filename paired with an exact byte count is nearly as unique as a fingerprint.
+- **Leave the report in the album folder.** An Aède scan gracefully steps over your archival materials. Any `.json` file announcing itself as a FlacCompagnon report is read, digested, and reported in the scan summary. Only half a kilobyte is peeked at to recognise it; the rest of your meticulously saved non-audio files remain untouched and unparsed.
 
-Matching never relies on the two paths being written the same way. Watched folders are stored canonical, so a report produced against a symbolic link — or against `/var` where macOS says `/private/var` — names the very same file by a string that will never compare equal; the name and the size bridge the two, and the record is then refiled under the path the catalog uses.
+Matching is resilient. Watched folders are stored canonically, so a report produced against a symbolic link—or against `/var` where macOS says `/private/var`—still identifies the true file. The name and size bridge any path discrepancies, safely refiling the analysis under the master path your catalog trusts.
 
 ## When a scan does not make it go away
 
-Attaching only ever happens two ways: the path matches exactly, or the **name and size together** match a file the catalog holds. Neither is guaranteed by the mere fact that a scan ran. A report exported against a library that has since moved, been renamed track by track, or was never under a scanned folder in the first place will sit waiting forever — re-running `aede scan` cannot fix what the paths themselves do not agree on.
+Attaching only ever happens two ways: the path matches exactly, or the **name and size together** match a file already preserved in the catalog.
 
-`doctor` only ever says how many are stuck like that:
+A report exported against a library that has since been shifted to a new drive, heavily renamed, or was simply never under a watched folder, will sit waiting forever. Re-running `aede scan` cannot magically fix what the foundational paths disagree on.
+
+`doctor` will alert you to these archival ghosts, but only with a count:
 
 ```
 149 imported analyses waiting for the folders they name to be scanned
 ```
 
-which answers "how many", not "which" — the one thing a count cannot show, and the one thing needed to tell "not scanned yet" apart from "will never match". `aede import --pending` names them, **grouped by folder**:
+A count tells you "how many," not "which"—the one crucial detail needed to distinguish "I haven't scanned this yet" from "This hard drive died three years ago." `aede import --pending` answers this by naming them, **grouped logically by folder**:
 
 ```
 $ aede import --pending
@@ -54,22 +56,20 @@ Waiting for a scan
   aede import --forget --pending <folder>
 ```
 
-Grouped by folder because that is the unit you act on: a report covering a fourteen-track album is _one_ decision — scan that folder, or decide it is gone — and fourteen rows bury it. And the folder is written out **whole**, never cut to a column width: a path trimmed to fit loses its head, which is exactly the half that distinguishes a drive merely unplugged from a folder that was renamed.
+They are grouped by folder because that is the unit an archivist acts upon. A report covering a fourteen-track album represents _one_ curation decision—scan it, or discard it. Fourteen separate rows would only bury the truth. And the folder path is written out **whole**, never brutally truncated to fit a terminal width. A trimmed path loses its head, which is the very information you need to realize you are looking at an unplugged external drive rather than a renamed folder.
 
-Once a folder is confirmed to be dead weight, `--forget --pending` removes exactly what waits in it, leaving every analysis that did attach untouched:
+Once you confirm a folder is truly gone, `--forget --pending` elegantly purges only what is waiting, leaving every successfully attached analysis strictly untouched:
 
 ```sh
 aede import --forget --pending "/Volumes/OldDrive/Music"   # that folder only
 aede import --forget --pending                             # everything waiting
 ```
 
-Both `--pending` and `--forget --pending` accept folders, and `--source` narrows either to one tool. A folder given to a plain `--forget` is refused rather than silently ignored — on a command that deletes, a swallowed argument is the worst kind.
+Both `--pending` and `--forget --pending` accept specific folders, and `--source` can narrow the focus to a single tool. A folder passed to a bare `--forget` is rightfully refused rather than silently ignored. When a command exists to delete data, a swallowed argument is the most dangerous kind of error.
 
-Being _about_ a file is not the same as _describing_ it: a record that matches by name and size is still checked against that file's modification date, and dropped if the file was written to since.
+Crucially, being _about_ a file is not the same as accurately _describing_ its current state. A record that perfectly matches by name and size is still rigorously checked against the file's modification date. If the audio was edited after the report was generated, the analysis is dropped. Imported analyses survive a scan, as they are the _only_ data in your CDthèque that reading the files cannot recompute on its own.
 
-Imported analyses survive a scan — they are the one thing in the catalog that reading the files again cannot recompute.
-
-`aede track` then shows a second panel, named after whoever measured it:
+`aede track` then displays a secondary panel, explicitly attributed to the tool that measured it:
 
 ```
 Analysed by flaccompagnon
@@ -81,11 +81,11 @@ Analysed by flaccompagnon
   True peak        0.28 dBTP
 ```
 
-Three rules govern what happens to those numbers.
+Three absolute rules govern how Aède handles these numbers.
 
-**They are never merged into Aède's own.** A verdict carries the method that produced it. Overwriting the bit depth read from the frames with one obtained by decoding would leave the catalog unable to say where the number came from — and unable to notice that the two disagree. Noticing is the point.
+**They are never merged into Aède's own findings.** A verdict carries the signature of the method that produced it. Silently overwriting the bit depth read from a FLAC frame with one obtained by spectral decoding would destroy provenance—leaving the catalog unable to say where the number came from, and blind to the fact that the two methods disagree. _Noticing the disagreement is the entire point._
 
-**They expire with the bytes they describe.** An analysis is bound to the size and modification date the file had when it was measured, the same test the incremental scan uses. Edit the file and the panel says `— stale: the file changed since` rather than answering confidently about music that is no longer there. Importing a report against a file that has since changed is refused for the same reason — and, unlike a record still waiting for its folder to be scanned, a refused one is never stored: this is the only moment it is ever seen, so `aede import` names the **folders** it happened in, the same way it names folders still waiting:
+**They expire with the bytes they describe.** An analysis is permanently bound to the file's size and modification date at the exact moment it was measured. Edit the file's tags, and the panel respectfully steps back, stating `— stale: the file changed since`, rather than confidently lying about audio it can no longer guarantee. Importing a report against a changed file is refused for this exact reason. Since a refused stale record is never stored, `aede import` lists the **folders** it happened in immediately:
 
 ```
 $ aede import ~/Desktop/ozzy-report.json
@@ -101,9 +101,7 @@ Changed since the report
   run FlacCompagnon again on the folders above
 ```
 
-A count alone would answer "how many", not "which" — the same gap `--pending` closes for waiting records, except there is no `--stale` to ask again later: a discarded record leaves nothing behind to list.
-
-**A disagreement is a finding, not something to arbitrate.** `doctor` reports an MD5 mismatch as an **error** even when `aede check` found the file intact, because the two look at different things:
+**A disagreement is a finding, not something to arbitrate.** `doctor` reports an MD5 mismatch as a critical **error** even if `aede check` found the file perfectly intact, because the two tools are interrogating different realities:
 
 ```
 error  audio does not match its MD5
@@ -111,15 +109,15 @@ error  audio does not match its MD5
        although the frame checksums are valid: the stream was re-encoded
 ```
 
-The frame checksums prove the _container_ was not corrupted; the MD5 proves the _audio_ is the audio that was encoded. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but kept the old signature — exactly the case Aède cannot see before it decodes anything itself.
+Frame checksums prove the _container_ survived the journey; the MD5 proves the _audio_ is mathematically identical to the source. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but lazily copied the old signature—an archival tragedy Aède cannot see until the audio is fully decoded.
 
-**And that is the only thing `doctor` says about an imported report.** The spectral verdicts — transcoded, upscaled, upsampled — are imported, stored, kept up to date, and reported nowhere. The distinction is not about which tool is better; it is about what kind of statement each verdict is. A failed MD5 is a _fact_: two methods compared a checksum and disagreed, and `aede check` can be pointed at the file to settle it. "Early roll-off at 33 kHz, possible transcoding" is an _inference_, hedged by the tool that made it — and rightly, since a 1988 analogue master genuinely holds nothing above 30 kHz, so a faithful 24/96 transfer of one looks exactly like an upsample. A report that turns another program's "possibly" into a warning of its own has stopped describing the library and started arguing about it.
+**And that is the only thing `doctor` says about an imported report.** The spectral inferences—"transcoded," "upscaled," "upsampled"—are dutifully imported, stored, and kept up to date, but they are _reported nowhere as errors_. A failed MD5 is a mathematical _fact_. "Early roll-off at 33 kHz, possible transcoding" is an _inference_. A faithful 24/96 transfer of a 1988 analogue master genuinely holds nothing above 30 kHz; it will look exactly like an upsample to an algorithm. A report that turns another program's "possibly" into an Aède warning has stopped describing your library and started arguing with it. Aède remains an archivist, not an audio critic.
 
-What the inference was drawn _from_ stays on the file's page, attributed: the cutoff frequency, the real bit depth, the dynamic range, the peaks. Those are measurements, and a reader who knows their master can conclude what they like from them.
+What the inference was drawn _from_ stays on the file's page: the cutoff frequency, the real bit depth, the dynamic range. These are objective measurements. A curator who knows the history of their masters can draw their own conclusions.
 
 ## Seeing what is held
 
-`--pending` answers what failed to attach. For a long time nothing answered the other half, and the asymmetry was worse than it sounds: a report imported over an artist whose files are all clean produces no waiting line, no `doctor` entry and no message of any kind — every symptom of having done nothing at all. The only way to see otherwise was to open a track page and hope to land on a file the report covered.
+`--pending` answers what failed to attach. But a store that only shows its failures cannot be fully trusted about its successes.
 
 ```
 $ aede import --list
@@ -133,13 +131,11 @@ Imported analyses
   in all: 305 attached, 2 stale, 4 waiting
 ```
 
-Three fates, not two. **Stale** — attached to a file whose bytes have changed since the report was written — is the one that shows up nowhere else, and it is the one that silently voids a verdict.
-
-A store that can only show its failures cannot be trusted about its successes, which is the whole reason to look.
+Three fates, not two. **Stale**—attached to a file whose bytes have shifted since the report was written—silently voids a verdict. This complete list gives you the absolute truth of your external data.
 
 ## What an album page says about it
 
-The same asymmetry, one level up: both readings lived on the track page alone, so verifying an album — the unit anybody actually verifies — took one command per track. An album page now carries one line, and only when there is something to say:
+Verifying the integrity of an album is usually done at the album level, not track-by-track. Aède's album page now proudly carries a single line of summary, but only when there is something meaningful to say:
 
 ```
 Antichrist Superstar
@@ -150,10 +146,10 @@ Antichrist Superstar
   checked: 16 intact · flaccompagnon: 16 MD5 matches
 ```
 
-Both methods are named because they do not prove the same thing — one read the container checksums, the other decoded the audio — and when they disagree, that is the most interesting fact on the page. The denominator appears only when a method did not cover the whole album (`9 of 12 intact`), because "12 of 12" on every page is a fraction nobody reads twice, and its absence is what makes the one page saying `9 of 12` visible.
+Both methods are named because they prove different truths. When they disagree, it is the most vital fact on the page. A denominator (`9 of 12 intact`) only appears when a method didn't cover the entire album, ensuring that when you do see a fraction, it demands your attention.
 
 ## Where it is all stored
 
-In the catalog, and nowhere else: `~/.local/share/aede/catalog.json` grows one more table, `analysis`, one row per path and per source. The report you imported is never referred to again — you can move it or throw it away. `aede export` includes the table, `aede import --forget` empties it, and `aede reset` warns about it before removing the catalog.
+In the vault, and nowhere else: `~/.local/share/aede/catalog.json` simply grows a new table, `analysis`, tracking one row per path and per source. The `.json` report you imported is never required again—you are free to archive it elsewhere or discard it. `aede export` faithfully includes this table, `aede import --forget` cleanses it, and `aede reset` politely warns you about it before dismantling the catalog.
 
-`--data <folder>` puts the catalog elsewhere, `$AEDE_HOME` does the same by environment. `aede roots` ends by naming the file it just read, so the answer to "where is all this kept" is on the screen that lists what is watched.
+`--data <folder>` lets you move the catalog to a custom location, and `$AEDE_HOME` does the same via environment variables. `aede roots` concludes by naming the exact catalog file it just consulted, ensuring the answer to "where is all this kept?" is always plainly visible.

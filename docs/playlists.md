@@ -1,21 +1,42 @@
-# Playlists in the folders
+# Playlists: Living in the Folders
 
-```sh
+Generating playlists for an entire CDthèque shouldn't be a tedious manual chore. The `aede playlist` command gracefully walks your library, pressing a ready-to-play `.m3u` file directly into the physical folders where your audio resides.
+
+```
 aede playlist                       # an .m3u in every album folder
-aede playlist ~/Music/Ozzy          # only under that folder
-aede playlist --simple              # paths only, no #EXTINF
-aede playlist --artists             # and one per artist, their whole discography
-aede playlist --dry-run             # say what it would write, write nothing
+aede playlist ~/Music/Ozzy          # only under that specific path
+aede playlist --simple              # paths only, stripping the #EXTINF metadata
+aede playlist --artists             # add one master playlist per artist discography
+aede playlist --dry-run             # preview the sweep without writing a single byte
 ```
 
-With no folder it writes into every album folder of the library. That is fast — a few kilobytes of text per album, no decoding — but it does touch a lot of folders, so `--dry-run` first is the way to see the extent of it.
+When run without a specific folder argument, it writes into every album folder across your entire library. It is incredibly fast—producing just a few kilobytes of text per album with zero audio decoding required. However, because it touches so many directories, running `--dry-run` first is a wise habit to gauge the exact scope of the operation.
 
-The file is named after its **folder** — `1959 Kind of Blue [FLAC].m3u` — not after the album title. Two folders can hold the same title (a rip and a remaster), and a title carries `/` and `:` on records named by people rather than by filesystems; the folder name is unique where the file goes and already legal there.
+## Naming and Portability: The Archivist's Rules
 
-Paths are **relative**, which is the whole point of a playlist that lives beside its music: the folder can be moved, copied to a card or read on another machine and the playlist still plays. (`--m3u` on a selection keeps absolute paths — that file may be saved anywhere and has no folder to be relative to. Both go through the same renderer, so they cannot drift apart on what an `#EXTINF` line looks like.)
+A playlist file generated this way is named after its **folder**—e.g., `1959 Kind of Blue [FLAC].m3u`—rather than the album title in the metadata tags.
 
-The order is the album's own — disc, then track number, from the tags. **A box set laid out as `Disc 1`, `Disc 2` gets one playlist in the parent folder, spanning the discs**, which is exactly the file wanted when the tracks are numbered 1..17 twice over.
+This is a deliberate, defensive design choice:
 
-`--artists` infers the artist folder as the one every album of that artist sits in. Where they do not share one, or share only a watched root, nothing is written: a library laid out flat would otherwise get one playlist per artist dumped at its top, which is littering rather than tidying.
+- **Filesystem Legality:** An album title like _1/2: The Early Years_ contains characters (`/`, `:`) that are strictly forbidden by operating systems. A folder name is already guaranteed to be legally permitted exactly where the playlist is being written.
+- **Uniqueness:** Two distinct folders can hold albums with the exact same title (e.g., an original CD rip and a high-res remaster). Naming the playlist after the folder ensures neither overwrites the other.
 
-**A second run writes nothing.** The test is on the _text_: a playlist is derived from the set of tracks, not from their bytes, so adding a track changes what it should say without touching any file it already names. Comparing the rendered text answers both questions at once, and leaves the file's date alone when nothing changed — which matters to whatever syncs the folder afterwards.
+Crucially, the paths inside these playlists are strictly **relative**. The entire point of a playlist living beside its music is portability: you can move the folder to a new drive, copy it to a micro-SD card, or share it over a network, and the playlist will still function perfectly.
+
+_(Note: This is the exact opposite of using `--m3u` on a curated `aede search` or `aede artist` selection, which generates absolute paths so the exported file can be saved and played from anywhere on your system. Both methods use the same internal renderer, ensuring the `#EXTINF` duration and title lines remain perfectly consistent.)_
+
+## Box Sets and Discographies
+
+The track order respects the tags: disc number first, then track number.
+
+**Box sets are handled with elegance.** If a release is laid out across subfolders like `Disc 1` and `Disc 2`, Aède intelligently places a single, unified playlist in the **parent folder** spanning all discs. This is exactly what a curator wants when faced with tracks numbered 1 through 17 twice over.
+
+When `--artists` is passed, Aède attempts to create a master playlist for an artist's entire discography. It does this by inferring the artist's root folder—the one directory that contains every album by that artist. If the albums are scattered, or if they only share a top-level watched root (like `~/Music`), Aède politely refuses to write the artist playlist. A library laid out completely flat would otherwise suffer a dump of hundreds of artist playlists at its root, which is digital littering rather than thoughtful organization.
+
+## The Second Run: Silent and Safe
+
+**A second run writes nothing.**
+
+Aède does not simply check if the `.m3u` file exists; it tests the _text_. A playlist's truth is derived from the current set of tracks in the catalog, not from the physical bytes on disk. If you add a missing track to an album and re-run the command, Aède compares the newly rendered text against what is already on disk.
+
+If the text matches perfectly, the file is left completely alone. This preserves the file's original modification date—a vital detail for backup software and synchronization tools that rely on timestamps to know when an archive has truly changed.

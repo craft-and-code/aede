@@ -1,6 +1,8 @@
 # Are the files still intact?
 
-`aede check` answers the one question the tags cannot: has the audio been damaged since it was written? It reads no reference copy and decodes nothing — it verifies the checksums the containers already carry.
+The quietest enemy of any digital CDthèque is not accidental deletion; it is silent corruption. A bit flips on an old hard drive, a sector dies, a transfer drops over the network, and your pristine rip is permanently scarred.
+
+`aede check` answers the one existential question your metadata tags cannot: has the audio been damaged since it was written? It reads no reference copy and decodes nothing — it meticulously verifies the checksums the containers themselves already carry.
 
 | Container                 | What is verified                                              |
 | ------------------------- | ------------------------------------------------------------- |
@@ -8,16 +10,16 @@
 | Ogg (Vorbis, Opus, Speex) | The CRC-32 of every page                                      |
 | MP3, MP4, WAV, AIFF       | Nothing: these formats carry no checksum                      |
 
-That catches what actually happens to stored files — a flipped bit, a bad sector, a truncated copy. A truncated file is caught even though every frame it still holds is valid, because the last one has to end where the file does.
+This catches what actually happens to stored files in the real world — a flipped bit, a bad sector, a violently truncated copy. A truncated file is caught even though every frame it _still_ holds is mathematically valid, because the last frame is strictly required to end where the file itself ends.
 
-Four states, and the fourth is the one usually forgotten:
+There are four states of integrity in your vault, and the fourth is the one too often forgotten by other tools:
 
-- **not verified** — no check has been run on this file yet;
-- **nothing to check** — the container carries no checksum, and no amount of re-running will change that;
-- **intact** — every checksum matched;
-- **damaged** — one did not, with the frame or page named.
+- **not verified** — no check has been run on this file yet; it remains an unknown.
+- **nothing to check** — the container fundamentally carries no checksum, and no amount of re-running will magically change that.
+- **intact** — every checksum matched perfectly.
+- **damaged** — one did not, with the exact corrupted frame or page named.
 
-The verdict is stored per file and survives across scans, so the cost is paid once: a second `aede check` has nothing to read — and says so **while showing the verdicts all the same**, since the question the command answers is "are my files intact?", not "was there work to do":
+This verdict is permanently stored per file and survives across your regular library scans. The heavy cost of reading the audio is paid exactly once. A second `aede check` has absolutely nothing to read — and crucially, it says so **while showing the verdicts all the same**. The question the command answers is "are my files intact?", not just "was there work to do right now":
 
 ```
 $ aede check
@@ -31,13 +33,13 @@ Integrity
   aede check --full verifies them again
 ```
 
-The table describes every file in scope, whatever run established each verdict; the line under it describes **this** run. Mixing the two is what makes "137 files to read" and "1304 intact" look like one figure. A file that changed loses its verdict, since it is no longer the file that was verified. `doctor` reports damage as an error and says how many files have never been verified rather than letting a library look healthy.
+The table describes every file currently in scope, regardless of which historical run established the verdict; the line underneath describes **this specific run**. Mixing the two is a classic trap that makes "137 files to read" and "1304 intact" look like one confusing figure. Aède separates the effort from the truth. Naturally, a file that has been modified loses its verdict, since it is no longer the exact file that was verified. `doctor` reports any damage as a critical error and honestly states how many files have never been verified, rather than letting a partially checked library falsely masquerade as a perfectly healthy one.
 
-## How long it takes, and how to start small
+## The Physical Toll: How long it takes, and how to start small
 
-Verifying means **reading every byte** of the files concerned. On a library of 20 000 tracks — some 600 GB — that is a few minutes on an NVMe drive, and it can be well over an hour on a mechanical disk or a NAS. The time is spent on input/output, not on computation, so more cores barely help.
+Verifying means **reading every single byte** of the files concerned. On a true archivist's library of 20,000 tracks — some 600 GB — that takes a few minutes on a blazing fast NVMe drive, but it can take well over an hour on a mechanical spinning disk or a NAS. The time is entirely spent on input/output moving the platters, not on computation, so throwing more CPU cores at it barely helps.
 
-That is why the check is opt-in, and why it announces itself before starting:
+That is exactly why the check is strictly opt-in, and why it announces its intentions before starting the heavy lifting:
 
 ```
 $ aede check
@@ -46,10 +48,14 @@ Verifying 20 148 files to read, 612.4 GB
   stopping it is safe — verdicts are saved every 250 files, so at most the batch in progress is lost
 ```
 
-Two things make it manageable:
+Two deliberate design choices make auditing a massive archive manageable:
 
-**Start on a corner.** `aede check ~/Music/Deicide` restricts the run to a folder, as many as you like. Useful for a first look, and for re-verifying a drive you suspect without touching the rest.
+**Start on a corner.** Running `aede check ~/Music/Deicide` restricts the deep read to a specific folder, or as many as you like. This is perfect for a quick first look, or for immediately re-verifying a suspicious external drive without dragging the rest of your sanctuary into the process.
 
-**Interrupting is safe.** Verdicts are written to the catalog every 250 files rather than at the end, so a `Ctrl-C` — or a laptop closing, or a drive going away — costs at most the batch in progress. Everything already verified is kept, and the next run picks up exactly where the last one stopped, since a file that has a verdict is no longer in the queue. A second full run therefore has nothing left to read.
+**Interrupting is entirely safe.** Verdicts are written to the catalog every 250 files rather than held hostage until the very end. If you hit `Ctrl-C` — or your laptop closes, or a drive unexpectedly disconnects — you lose at most the small batch currently in progress. Every file already verified is securely kept, and the next run elegantly picks up exactly where the last one stopped, since a file holding a verdict is immediately removed from the queue. A second full run therefore has nothing left to read.
 
-What this does **not** prove is that the audio itself is untouched — a stream re-encoded consistently would pass. FLAC also stores an MD5 of the _decoded_ audio, and checking it means decoding; that verdict arrives with the playback engine at M3, and the stored shape already accommodates it. Until then, [taking in another tool's analysis](imported-analyses.md#what-another-tool-found) fills the gap for whoever already has one.
+### The Limits of the Container
+
+What this check does **not** prove is that the audio itself is mathematically untouched by human hands — a stream that was lazily re-encoded by a bad tool would consistently pass a container check.
+
+FLAC also stores a master MD5 of the _decoded_ audio, and verifying that requires a full decode; that ultimate verdict arrives natively with the playback engine at milestone M3, and Aède's database structure is already prepared for it. Until then, [taking in another tool's analysis](imported-analyses.md#what-another-tool-found) seamlessly fills the gap for the curator who already demands that level of microscopic acoustic scrutiny.

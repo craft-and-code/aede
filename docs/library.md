@@ -1,99 +1,99 @@
-# Building the library
+# Building the Library: Archival Management & Vault Structure
 
-## Tagging: use Picard
+## Tagging: Metadata Integrity with MusicBrainz Picard
 
-Aède **never writes to your files** — not tags, not names, not folders. That is a deliberate limit, and it leaves a real job undone: something has to put good metadata in there in the first place.
+Aède maintains a strict boundary: **it never writes to your master audio files**. Tags, file names, and folder hierarchies on your hard drive remain completely untouched. This immutability guarantees archival integrity, but it means high-quality initial metadata must be provided by dedicated tagging tools.
 
-[MusicBrainz Picard](https://picard.musicbrainz.org/) is the tool for it, and the two compose rather than compete. Picard identifies your files against MusicBrainz and writes the tags; Aède reads them, never touches them, and builds the catalog. A library tagged with Picard already carries the MusicBrainz identifiers (`MUSICBRAINZ_*`), which is precisely what M1 will use to reach relations and credits without having to guess at a match — the hard and error-prone part of identification is then already done, by a tool built for it, under your eye.
+[MusicBrainz Picard](https://picard.musicbrainz.org/) is the recommended companion for this task. The two tools work in harmony rather than competition: Picard inspects your audio, queries the MusicBrainz database, and writes standardized tags (`MUSICBRAINZ_*` tags); Aède reads these tags, indexes the structure, and builds your searchable catalog.
 
-It also makes the divergences M1 reports rare by construction: if your tags came from MusicBrainz, MusicBrainz will mostly agree with them, and the layer will be there to fill gaps rather than to argue.
+When a library is pre-tagged with Picard, Aède seamlessly binds entity IDs to global MusicBrainz relationships and credits without guessing. Metadata conflicts become exceptionally rare because your local tags and the global registry share a common origin. If you choose not to use Picard, Aède will still parse standard ID3, Vorbis, or MP4 tags gracefully, and `aede doctor` will point out any missing or incomplete metadata fields.
 
-If you would rather not run Picard, nothing breaks — Aède reads whatever the tags say and `aede doctor` tells you where they are thin.
+## Resolving Identity: When One Artist Appears Twice
 
-## When one musician is on the shelf twice
+When files are processed through Picard, they carry unique `MUSICBRAINZ_ARTISTID` tags. During a catalog scan, Aède automatically merges variant spellings—such as `Ozzy Osbourne` and `O. Osbourne`—into a single artist entry without heuristic guesswork. The artist’s detailed page explicitly lists all absorbed aliases.
 
-A library that has been through Picard carries `MUSICBRAINZ_ARTISTID`, and two spellings under one identifier are merged by the scan with no guesswork at all — `Ozzy Osbourne` and `O. Osbourne` are one row, and the artist's page says which spellings it absorbed.
+For untagged or non-MusicBrainz files, Aède strictly avoids risky string-matching heuristics; guessing on partial names risks disastrously merging unrelated artists (such as Angus Young and Neil Young). Instead, `aede doctor` highlights suspicious duplicate pairs for review, allowing you to manually unify entities with `aede merge`. Neither operation ever modifies an audio file on disk.
 
-For the files that never met MusicBrainz there is nothing to consult, and Aède will not guess: matching on a fragment of a name would merge Angus Young with Neil Young. `aede doctor` names the pairs worth looking at, and `aede merge` is how you answer. Neither ever touches a file. The whole of it is in [Identification](design/identification.md#who-is-the-same-person).
+## Folder Exclusions: Guarding the Vault Boundaries
 
-## Folders never read
+An audio directory often contains material that does not belong in a music CDthèque—such as audiobooks, podcasts, staging folders (`_incoming`), or DAW sample packs. Rather than forcing you to alter your file system layout to fit the application, Aède lets you exclude specific paths:
 
-A music folder is rarely only music. `Audiobooks`, `Podcasts`, `_incoming`, a `Samples` folder for a DAW — none of it belongs in a music catalog, and reorganising the disk to suit the program is the wrong way round.
-
-```sh
-aede roots --exclude ~/Music/Audiobooks     # never read it again
-aede roots                                  # shows what is watched and what is not
+```
+aede roots --exclude ~/Music/Audiobooks     # permanently ignore this directory
+aede roots                                  # display all watched and excluded roots
 aede roots --exclude ~/Music/Audiobooks --remove
 ```
 
-The exclusions live **in the catalog**, beside the watched roots, not in the options of one run. A plain `aede scan` re-reads every root, so an exclusion that had to be retyped would be forgotten precisely when it mattered. They also survive the rebuild a scan performs — the same rule that carries imported analyses across: **a scan may not destroy what it cannot recompute**, and an exclusion is typed, not read from any file. (The first version of this feature dropped them exactly there; the symptom was an exclusion that worked once and then vanished.)
+Exclusion rules are stored directly inside the catalog alongside watched roots. This design choice ensures that exclusions persist across full library rescans. **A scan must never destroy data it cannot recompute**, and user-defined exclusions are explicit curation rules.
 
-Matching is on the canonical path, so a folder reached through a symbolic link is excluded too.
+Path matching uses canonical resolution, meaning symbolic links pointing to excluded folders are properly honored.
 
-**And the change takes effect straight away.** Each of these three commands rescans on the spot, because each of them makes a scan necessary and there is no reason to hand that back to the person who just asked for the change. "Run `aede scan` to drop them" was an instruction the program could carry out itself — and one that is forgotten, leaving a catalog describing a library nobody has any more, with nothing on screen saying so.
+Exclusion updates take effect immediately by running a target rescan in the background:
 
-`--no-scan` keeps the old behaviour, and it is not decoration: dropping four folders one after another would otherwise rescan four times, which on a slow drive is minutes. The message then names what is pending, so the state is never silent.
+- Adding or removing an exclusion automatically re-indexes the relevant paths.
+- Pass `--no-scan` to defer indexing when batching multiple exclusion changes across slow storage.
+- `aede reset` leaves root configuration intact until explicitly cleared, preserving your administrative preferences.
 
-**`aede reset` deliberately stays out of this.** It destroys what a scan cannot rebuild, it is the only command that asks for confirmation, and rebuilding a catalog somebody has just chosen to throw away would answer a question they did not ask.
+## Disc Anatomy: Box Sets & Multi-Disc Releases
 
-## Box sets, and where a release lives
-
-A box set is almost always laid out with one folder per disc:
+Box sets and special editions are frequently organized into multi-disc subfolders:
 
 ```
 Nobuo Uematsu/1997 FINAL FANTASY VII [FLAC]/Disc 1/
 Nobuo Uematsu/1997 FINAL FANTASY VII [FLAC]/Disc 2/
 ```
 
-The folder is part of what identifies a release — it is what tells a CD rip from a vinyl rip of the same record by the same artist. But a **disc folder is a subdivision of a release, not another edition of it**, so `Disc 1`, `CD2`, `Disque 3` and the like are folded into their parent: the release lives where the album does. Without that, one soundtrack came back as two albums of the same name, each numbering its tracks from one, with nothing on screen saying which disc was which except the path.
+While top-level album folders distinguish separate masterings or editions, subdirectories such as `Disc 1`, `CD2`, or `Disque 3` represent physical subdivisions of a single release. Aède automatically folds these subdirectories into the parent album entry.
 
-The number then shows in the track column, as `1-01`, `2-07`, and only on albums that span more than one disc — a column of `1-` on every single-disc album in a library is noise. The column set does not change, which is the same rule that keeps `check` reporting in one shape.
+Track listings represent disc numbering using standard notation (`1-01`, `2-07`). Multi-disc notation is displayed only on multi-volume albums to keep single-disc tracklists clean. Disc numbers are extracted from `DISCNUMBER` tags when present, or inferred from folder structures when tags are missing.
 
-Where the tags carry `discnumber` it is used; where a rip split the discs into folders and left the tag empty, the folder supplies it. The tag wins when both are there — it is what the person who made the file said.
-
-The line under the tracks counts them too:
+Album summaries report the actual number of physical discs present:
 
 ```
   4 discs · 85 tracks · 4:34:11 · 1.5 GB
 ```
 
-It says how many discs are **there**, not how many the tags claim — a set missing its fourth disc reads as three, which is the question actually being asked of a box set. Like the column, it appears only past one disc.
+If a four-disc set is missing its final disc on disk, Aède accurately reports `3 discs`, reflecting the physical state of your archive rather than theoretical tag metadata.
 
-## Compilations
+## Managing Compilations
 
-A **compilation** is a release with no album artist: several artists share it, which is why it stays out of every discography. Nothing else in the program singles them out, so `albums` does:
+Compilations—releases featuring tracks by multiple distinct artists without a single release-level artist—are flagged automatically during scanning. They are excluded from individual artist discographies to prevent catalog clutter.
 
-```sh
-aede albums --compilations       # only the ones several artists share
-aede albums --no-compilations    # everything except those
+You can query compilations directly using dedicated flags:
+
+```
+aede albums --compilations       # list only multi-artist compilations
+aede albums --no-compilations    # list only single-artist releases
 ```
 
-Asking for both is refused — they are opposites, and an empty answer would look like a library with nothing in it.
+Passing both flags simultaneously is rejected as a logical contradiction.
 
-## Reading the scan report
+## Interpreting the Scan Report
 
-| Line                      | What it counts                                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Files found               | Audio files seen while walking the folders, duplicates removed                                                                          |
-| Read from disk            | Files whose tags were parsed: new ones, and those changed since the last scan                                                           |
-| Reused from previous scan | Files identical in path, size and modification time; their tags came from the catalog, untouched on disk                                |
-| Gone since last scan      | Files the catalog knew and that are no longer there; they leave the catalog                                                             |
-| Analyses imported         | [FlacCompagnon reports](imported-analyses.md#what-another-tool-found) found in the folders and taken in; only shown when there were any |
-| Analyses now attached     | Imported analyses that were waiting for a file and found it this time                                                                   |
-| Elapsed                   | Wall-clock time of the whole scan, folder walk included                                                                                 |
+Every `aede scan` concludes with a comprehensive diagnostic breakdown:
 
-`Files found` is always the sum of the two middle lines. A file that could not be read is listed underneath with the reason, and stays out of the catalog without stopping the scan.
+| Metric                        | Description                                                                                           |
+| :---------------------------- | :---------------------------------------------------------------------------------------------------- |
+| **Files found**               | Total audio files discovered during directory traversal (duplicates removed).                         |
+| **Read from disk**            | Files whose metadata tags were parsed (new or modified since last scan).                              |
+| **Reused from previous scan** | Files unchanged in path, size, and modification timestamp; metadata loaded instantly from catalog.    |
+| **Gone since last scan**      | Files previously indexed but no longer present on disk; safely purged from catalog.                   |
+| **Analyses imported**         | External [FlacCompagnon reports](imported-analyses.md#what-another-tool-found) detected and ingested. |
+| **Analyses now attached**     | Previously pending external analyses successfully linked to newly scanned files.                      |
+| **Elapsed**                   | Total wall-clock duration for storage walk and metadata ingestion.                                    |
 
-## Where your files are, and how big it gets
+The total `Files found` equals the sum of `Read from disk` and `Reused from previous scan`. Files that encounter read errors are flagged below the summary table and skipped without aborting the scan.
 
-Everything Aède keeps sits in one folder, and you decide which:
+## Vault Location, Storage Footprint & Scaling
 
-```sh
-aede --data=/volume1/aede stats     # for this command only
-export AEDE_HOME=/volume1/aede      # for good
+Catalog metadata and system state are stored in a unified configuration directory:
+
+```
+aede --data=/volume1/aede stats     # override catalog path for a single command
+export AEDE_HOME=/volume1/aede      # globally relocate catalog storage
 ```
 
-`aede stats` ends by saying where they are, what they weigh and how old the catalog is, so the question has one place that answers it rather than three that mention it in passing:
+`aede stats` provides clear visibility into catalog footprint and storage location:
 
 ```
 This catalog
@@ -101,29 +101,35 @@ This catalog
   Kept in       /Users/kcell/.local/share/aede
   Weighs        11.2 MB
   Last scanned  3 days ago
-  aede backup writes all three to one file; AEDE_HOME moves them
+  aede backup writes all three stores to one file; AEDE_HOME moves them
 ```
 
-`XDG_DATA_HOME` is honoured too; failing all three, it is `~/.local/share/aede`. On a NAS, or anywhere the home directory is not where you want megabytes to accumulate, `AEDE_HOME` is the answer. The whole group moves together — the catalog and the file holding what you wrote stay side by side, because a backup that catches one and misses the other is worse than no backup.
+If `AEDE_HOME` is unset, Aède falls back to `$XDG_DATA_HOME/aede` or `~/.local/share/aede`.
 
-The catalog is one JSON file, read whole into memory by every command. That is a deliberate choice and it has a ceiling, so here is where the ceiling actually sits — measured, on a synthetic library of twelve tracks an album:
+The catalog uses an in-memory JSON document model optimized for high-speed queries. Benchmark performance metrics across synthetic libraries (assuming 12 tracks per album) illustrate scalability:
 
-| tracks  | catalog.json | scan: save | load    | memory while loading |
-| ------- | ------------ | ---------- | ------- | -------------------- |
-| 10 000  | 12.4 MB      | 0.79 s     | 0.41 s  | 181 MB               |
-| 50 000  | 62.5 MB      | 3.88 s     | 2.17 s  | 897 MB               |
-| 200 000 | 252.0 MB     | 16.37 s    | 13.42 s | 3 586 MB             |
+| Tracks      | `catalog.json` Size | Save Time | Load Time | Memory Usage (Peak) |
+| :---------- | :------------------ | :-------- | :-------- | :------------------ |
+| **10,000**  | 12.4 MB             | 0.79 s    | 0.41 s    | 181 MB              |
+| **50,000**  | 62.5 MB             | 3.88 s    | 2.17 s    | 897 MB              |
+| **200,000** | 252.0 MB            | 16.37 s   | 13.42 s   | 3,586 MB            |
 
-Fifty thousand tracks is roughly four thousand albums, and up to there the catalog costs two seconds and under a gigabyte — you will not notice it. Past a hundred thousand you will, and it is the memory you will notice first, not the wait. If that is your library, say so: the reasoning, and what would have to change, is in [Architecture](design/architecture.md#when-this-becomes-a-database).
+Libraries up to 50,000 tracks load in approximately two seconds with under 1 GB RAM usage. For archives exceeding 100,000 tracks, RAM usage increases proportionally. Advanced architectural options for massive collections are detailed in [Architecture](design/architecture.md#when-this-becomes-a-database).
 
-## Putting it somewhere safe
+## Safeguarding Your Data: Backups & Disaster Recovery
 
-```sh
-aede backup ~/aede-2026-09-03.json    # everything, in one document
-aede restore ~/aede-2026-09-03.json   # put it back
+Aède consolidates complete system state into a portable, versioned backup file:
+
+```
+aede backup ~/aede-2026-09-03.json    # export catalog state and annotations
+aede restore ~/aede-2026-09-03.json   # restore system state from backup
 ```
 
-Three stores go in, and they are worth wildly different amounts. `catalog.json` is **derived from your disk**: lose it and a scan rebuilds it — except the integrity verdicts and the fingerprints, which are hours of decoding. `sources.json` is **re-fetchable**, at one polite request a second. `user.json` **cannot be rebuilt by anything**: your notes, your ratings, your play counts, your collections, the records you set aside, the artists you said were one person. All three go in, because the cheap-to-rebuild one is also cheap to store, and a backup that made you choose is a backup you get wrong once.
+The backup bundle preserves three critical stores:
+
+1. **Catalog Store (`catalog.json`):** Derived metadata, file hashes, and integrity verdicts.
+2. **User Store (`user.json`):** Irreplaceable user data—notes, ratings, play counts, custom collections, manual merges, and ignored items.
+3. **Source Store (`sources.json`):** Remote metadata fetched from external services (e.g., MusicBrainz).
 
 ```
 Backup
@@ -134,9 +140,9 @@ Backup
 → /Users/kcell/aede-2026-09-03.json (9.7 MB)
 ```
 
-The three documents are nested **exactly as each module writes them**, each keeping its own `format_version`. Nothing re-encodes a catalog, so a field added tomorrow is in the backup tomorrow, with no second writer to forget it. And each store is refused on its own: a backup written by an older Aède whose catalog format has since moved still restores your notes, because the catalog's version check has nothing to say about `user.json`.
+Each store maintains its own format version within the backup payload. When restoring, Aède inspects store versions independently. If a backup lacks a specific store (e.g., an export created before remote metadata was fetched), existing local stores of that type remain untouched rather than being overwritten or deleted.
 
-`aede restore` says what it will replace **before** it asks, since agreeing to "replace three files" is agreeing to nothing you can picture:
+Before performing a restore, Aède summarizes the operation and prompts for confirmation:
 
 ```
 Restore
@@ -146,18 +152,13 @@ Restore
   catalog            20 148 tracks, 1 604 albums — replaces what is there
   what you said      312 annotations — replaces what is there
   what sources said  not in this backup — left as it is
-  a store this backup does not hold is left exactly as it is, never deleted
 ```
 
-What comes back is **what the library looked like**, not the library. A scan reconciles the two, in both directions — files added since are read in, files gone since are dropped — and the command gives you the date rather than the advice, because "this describes your library as it was twelve days ago" is something you can weigh and "run a scan" is not. If a watched folder is not on the machine you are restoring onto — the drive not plugged in yet, which is the ordinary case when the point of the exercise is a disk that failed — it is named first, because a scan run before mounting it would drop every file under it. That is the one way a restore can lose more than it gave back.
+If a restored watched directory is unmounted or unreachable, Aède issues an explicit warning prior to restoration to prevent accidental catalog truncation during subsequent scans. In non-interactive environments, pass `--yes` to acknowledge prompts.
 
-**A store the backup does not hold is never deleted.** A backup made before you had fetched anything carries no `sources.json`, and treating that as "there should be none" would silently throw away a layer that cost twenty minutes of requests. It is left alone and said out loud — you can decide about a file that is still there, and not about one that is gone.
+## Catalog Management & Resetting State
 
-Two commands rather than `backup --restore`, for the reason `aede artwork` became `aede extract`: a command that writes is named for the writing. Restoring replaces three stores at once, and hiding that behind an option on a command called _backup_ would put the dangerous half under the reassuring name. Both ask before overwriting, and `--yes` skips the question for scripts; without a terminal to ask on, both **refuse** rather than assuming an answer.
-
-## Starting over
-
-`aede roots` weighs each watched folder, so the list answers "what is on this drive" and not merely "which drives":
+`aede roots` summarizes watched storage directories:
 
 ```
 Watched folders
@@ -169,9 +170,7 @@ Watched folders
   (no longer watched)         92   6 h        8.1 GB
 ```
 
-The last row appears only after `roots --remove --no-scan`: those files stay in the catalog until the next scan, and a table that hid them would make that promise unverifiable. Without `--no-scan` the removal rescans on the spot, and there is nothing left to show.
-
-`aede reset` removes the catalog. It first says what it holds — tracks, albums, artists, watched folders, integrity verdicts, imported analyses — and what a rescan does not bring back:
+To clear catalog indexes without affecting physical audio files, use `aede reset`:
 
 ```
 $ aede reset
@@ -189,14 +188,16 @@ About to remove the catalog
   Type "yes" to confirm:
 ```
 
-`--yes` skips the question, for scripts and tests. Without a terminal to ask on, the command **refuses** rather than assuming an answer either way. Once done, it prints the `aede scan` that rebuilds what it removed, watched folders included — that line is the only trace left of them.
+Passing `--yes` bypasses interactive confirmation for automated scripts.
 
-## Trying it without a library at hand
+## Testing with Synthetic Datasets
 
-```sh
-tools/demo-library.sh /tmp/demo-music   # requires ffmpeg
+You can test library features using the bundled test suite generator:
+
+```
+tools/demo-library.sh /tmp/demo-music   # generates synthetic test audio (requires ffmpeg)
 aede scan /tmp/demo-music
 aede doctor
 ```
 
-The demo library is deliberately damaged: untagged files, a duplicate, an album missing a track, an album with mixed formats. Enough for `doctor` to have something to bite on.
+The generated test environment includes intentional metadata issues—such as missing tags, duplicate files, missing tracks, and mixed codecs—providing a complete sandbox to evaluate `aede doctor` and catalog management workflows.

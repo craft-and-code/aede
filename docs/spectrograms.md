@@ -1,23 +1,48 @@
-# Spectrograms
+# Spectrograms: The Ultimate Acoustic Truth
 
-A spectrogram is the last arbiter when the provenance of a file is in doubt: a lossless container filled from an MP3 shows a wall at 16 kHz that no tag will ever mention.
+A spectrogram is the final, unarguable arbiter when the provenance of a file is in doubt. Metadata can be forged, and tags can lie. A "lossless" FLAC container lazily filled from a transcoded MP3 will happily report a pristine bitrate, but its visual spectrum will violently reveal a brick-wall cutoff at 16 kHz that no tag will ever confess to.
+
+Aède provides the microscope to see exactly what you are archiving.
 
 ```sh
-aede spectrum                       # every track the catalog holds
-aede spectrum ~/Music/Ozzy          # only what is under that folder
-aede spectrum --dry-run             # say what it would draw, write nothing
-aede spectrum --full                # redraw everything, even what is current
-aede spectrum --size full           # FlacCompagnon's own dimensions, for comparing the two
+aede spectrum                       # reveal the acoustic truth of the entire catalog
+aede spectrum ~/Music/Ozzy          # focus the microscope on a specific shelf
+aede spectrum --dry-run             # preview the effort without drawing a single pixel
+aede spectrum --full                # fiercely redraw everything, overriding current files
+aede spectrum --size full           # match FlacCompagnon's exact dimensions for direct comparison
 ```
 
-**With no folder it does the whole library, and on a large one that is long.** Each picture means decoding a whole track and running an FFT over it — seconds per track, so tens of thousands of tracks is hours, however many run at once. `--dry-run` says how many would be drawn before committing to it, and naming a folder is how the work is cut down to what is actually in question. There is no penalty for stopping half way: the run picks up where it left off, since what is already drawn is left alone.
+## The Physical Toll of Acoustic Analysis
 
-One PNG per track, in a `spectrograms/` folder beside the music, **drawn with the same ffmpeg filter and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)** — deliberately and to the character. The two are used on the same library, and pictures that differed in gain or colour map from one tool to the other would be unreadable _as a pair_, which is the whole reason to look at two.
+**With no folder specified, Aède meticulously analyzes the entire library.** For a vast CDthèque, this is a monumental mathematical effort. Every single track must be fully decoded, and an intricate Fast Fourier Transform (FFT) is swept across the audio. At several seconds per track, a sprawling archive of tens of thousands of tracks requires hours to visualize, regardless of how many processor cores are engaged.
 
-The frame size is a reader's choice: `--size half` (the default) draws a picture at `900x470`, a quarter of the pixels of FlacCompagnon's own `1800x940` — a spectrogram is mostly noise, which a PNG cannot compress away, so the file on disk shrinks by roughly the same quarter. A library of a few thousand tracks stays in the megabytes rather than the gigabytes this way. `--size full` draws FlacCompagnon's own dimensions exactly, for putting the two side by side. Switching `--size` does not redraw what is already there — a picture is only ever redrawn when it is missing or out of date (or with `--full`), so changing the default size on an existing library needs `aede spectrum --full` to take effect everywhere.
+Because of this physical toll, running `--dry-run` first is the archivist's standard habit to gauge the exact scope of the operation. Naming a specific folder (e.g., `~/Music/Ozzy`) is the surgical way to focus the heavy lifting strictly on newly acquired or suspicious rips.
 
-Several run at once — drawing a spectrogram decodes the whole file and runs an FFT over it, and no two pictures share anything. `--threads` sets how many, and means what it means on `aede scan`.
+There is zero penalty for stopping halfway through a massive run. If you cancel the command, Aède elegantly picks up exactly where it left off on the next run, leaving everything already drawn perfectly intact.
 
-Aède does not decode: it hands the file to ffmpeg, which must be installed (`brew install ffmpeg`, `apt install ffmpeg`). It is looked for once, before the first file, so a missing install is one sentence rather than one per track.
+## Visual Provenance and FlacCompagnon
 
-**A second run over an unchanged library draws nothing.** A picture is redrawn only when it is missing, or when the track's modification date has moved past the picture's — both read from the disk rather than from the catalog, because the question is whether this picture was drawn from the bytes that are there _now_.
+Each rendered image is deposited as a PNG into a dedicated `spectrograms/` subdirectory, sitting immediately beside the master audio files it describes.
+
+Crucially, these are drawn using the **exact same ffmpeg filter and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**. This is a deliberate, uncompromising design choice. An archivist often relies on both tools, and spectrograms that differ in gain or colour mapping from one program to the other would be impossible to read _as a pair_. We ensure the acoustic reality looks mathematically identical across your entire forensic suite.
+
+## Frame Size and Storage Footprint
+
+The dimensions of the frame are left to the curator's discretion:
+
+- **`--size half` (The Default):** Draws a picture at `900x470`—exactly a quarter of the pixels of FlacCompagnon's original `1800x940`. Because a spectrogram is essentially high-frequency noise that a PNG algorithm cannot efficiently compress, the resulting file on disk shrinks by roughly the same quarter. For a library of thousands of tracks, this keeps the visual archive in the manageable megabytes rather than bloating into gigabytes.
+- **`--size full`:** Reproduces the exact FlacCompagnon dimensions for flawless, pixel-perfect side-by-side analysis.
+
+Note that switching the `--size` flag does not automatically redraw what is already safely in the vault. An image is only redrawn when it is missing or out of date. To force a library-wide resize, you must use `aede spectrum --full`.
+
+## Orchestration and Dependencies
+
+Aède harnesses your machine's full potential by running several tracks concurrently. Because drawing a picture requires decoding the file and computing the FFT independently, no two pictures share any state. The `--threads` flag dictates exactly how many parallel microscopes are active, sharing the same logic used in `aede scan`.
+
+While Aède orchestrates the analysis, it relies on an external engine to decode the audio. **FFmpeg must be installed** on your system (`brew install ffmpeg` on macOS, or `sudo apt install ffmpeg` on Debian/Ubuntu). Aède checks for this dependency exactly once before touching the first file, delivering a single, polite notification if it is missing, rather than flooding your terminal with an error for every track.
+
+## The Second Run: Silent and Safe
+
+**A second run over an unchanged library draws absolutely nothing.**
+
+A picture is only redrawn if it is completely absent, or if the audio track's modification timestamp has moved past the picture's creation date. This vital check is read directly from the physical disk rather than the catalog. It constantly asks the only question that matters: _was this visual record drawn from the exact bytes that exist here right now?_

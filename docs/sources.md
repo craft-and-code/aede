@@ -1,98 +1,98 @@
-# What other sources say
+# What Other Sources Say
 
-There are three voices in this program, and keeping them apart is the whole design:
+Three voices coexist in this program, and separating them is the core of the project:
 
-- **what the files say** — the catalog, rebuilt from your folders by every scan;
-- **what you say** — favourites, ratings, notes and tags, in a file no rescan touches;
-- **what somebody else says** — MusicBrainz today, another source tomorrow, in `sources.json`.
+- **what the files say** — the catalog, rebuilt from your folders with each scan;
+- **what you say** — favorites, notes, ratings, and tags, in a file that a new scan never touches;
+- **what a third party says** — MusicBrainz today, another source tomorrow, in `sources.json`.
 
-A value from a source **sits beside your tags and never on top of them**. Nothing is rewritten, nothing is merged, and every value can be traced to whoever said it, dated, and removed. Where a source and your tags disagree, both are shown and `doctor` reports it — which of the two is right is not something this program can know.
+A value coming from a source **sits alongside your tags and never overwrites them**. Nothing is rewritten, nothing is merged, and every piece of data can be traced back to its author, dated, and removed. When a source and your tags disagree, both are displayed and `doctor` flags it — determining which one is right is beyond the scope of this program.
 
-## Asking MusicBrainz
+## Querying MusicBrainz
 
 ```sh
-aede fetch                      # every artist and every album
-aede fetch manson               # only what the name matches — person or record
-aede fetch ~/Music/Alastis      # only what is on that shelf
-aede fetch --dry-run            # say what would be asked, ask nothing
-aede fetch --full               # ask again about what is already held
+aede fetch                      # all artists and all albums
+aede fetch manson               # only matching the name (artist or release)
+aede fetch ~/Music/Alastis      # only what is on this shelf
+aede fetch --dry-run            # show what would be requested without sending anything
+aede fetch --full               # re-query what is already kept
 ```
 
-A name and a folder are two different questions, and `fetch` takes both — see [Narrowing a run by folder](#narrowing-a-run-by-folder).
+A name and a folder correspond to two distinct questions, and `fetch` accepts both — see Restricting an execution by folder.
 
-**Artists and albums, in one run.** The albums are the half that matters most, and it is worth saying why: there is no tag for where a musician is from, so what MusicBrainz says about an *artist* can only ever be added beside your library. An album is different — Picard writes `RELEASETYPE`, `DATE` and `LABEL`, so your files have an opinion and MusicBrainz has one, and the two can disagree. That disagreement is the whole point of this store, and it lives on the albums.
+> TODO A name and a folder are two different questions, and `fetch` takes both — see [Narrowing a run by folder](#narrowing-a-run-by-folder).
 
-The most common one is the date. Your `DATE` tag says 1997 because that is the reissue you ripped; MusicBrainz says the album first appeared in 1959. Neither is wrong, and Aède shows both rather than choosing.
+**Artists and albums, in a single pass**. Albums are the most important part: no tag indicates a musician's origin, so what MusicBrainz says about an artist can only be added alongside your library. It is different for an album — Picard records `RELEASETYPE`, `DATE`, and `LABEL`; so your files have an opinion, MusicBrainz has another, and the two can diverge. This disagreement is the reason for this storage model, and it applies to albums.
 
-**One request per album, whatever your tags carry.** If they hold the MusicBrainz album identifier, the answer comes back as a certainty and brings the label with it in the same request. If they hold only the release-group identifier, it is still a certainty, without the label — a release group has none, and filling it from whichever pressing answered first would attribute one edition's label to the album itself. If they hold neither, the title and the album artist are searched, scored, and refused below 70 rather than guessed.
+Date is the most common case. Your `DATE` tag says 1997 because that is the year of the reissue you ripped; MusicBrainz indicates that the album was first released in 1959. Neither is wrong, and Aède displays both rather than choosing one.
 
-MusicBrainz allows **one request per second**, so a large library takes a while: the command says how long before it starts, and asks you to confirm past twenty artists. It saves after every single answer, so an interrupted run loses nothing and a second run costs only what is left.
+**One request per album, regardless of your tags**. If they contain the MusicBrainz album ID, the response arrives with certainty and brings the label in the same request. If they only contain the release group ID (release-group), the response remains certain, but without the label — a release group doesn't have one, and completing it with the label of the first matching pressing would attribute an edition's label to the album itself. If they contain neither, the album title and artist are searched, evaluated, and rejected below 70% instead of being guessed.
 
-Its search server sometimes answers `503` for a moment even when you are well within the rate. That is waited out — three attempts, waiting longer each time — and the run only stops if the refusals keep coming, which is what a real rate limit looks like from the outside.
+MusicBrainz allows **one request per second**; scanning a large library therefore takes time. The program displays the estimated duration before starting and asks for confirmation above 20 artists. It saves after each response, so an interrupted run loses nothing and a second run only costs the remaining requests.
 
-A second run asks about nothing it already holds. **`--full` is what re-asks**, and it is also what you need after an update that reads a field the previous answer did not store:
+Its search server sometimes returns a temporary `503` code, even when respecting the rate limit. The program waits — three attempts, with increasing delays — and stops only if the rejections persist.
+
+A second run queries nothing it already possesses. `--full` **allows re-querying**, which is also required after an update that reads a field not previously stored:
 
 ```sh
 aede fetch --full manson
 ```
 
-Some artists come back with nothing stored, and that is the design working.
+Some artists return with no data stored, which confirms the system is working properly. A response that does not clearly concern your artist is ignored rather than guessed.
 
-An answer that is not clearly about your artist is left alone rather than guessed at. Nothing arbitrary is ever filed.
+## Prose Language
 
-### The language of the prose
-
-The summary is fetched in **one** language and kept in one language, so the choice belongs to `fetch` and not to whatever displays it later:
+The summary is fetched in a **single** language and kept as such; the choice belongs to `fetch` and not to the subsequent display:
 
 ```sh
-aede fetch --summaries                       # your shell's locale, English as a fallback
-aede fetch --summaries --lang=fr             # French, English as a fallback
-aede fetch --summaries --full --lang=fr ozzy # and replace what is already held
+aede fetch --summaries                       # terminal language, English fallback
+aede fetch --summaries --lang=fr             # French, English fallback
+aede fetch --summaries --full --lang=fr ozzy # replaces already stored data
 ```
 
-Without `--lang`, the shell's own `LANG` or `LC_ALL` is read — `fr_FR.UTF-8` means French. **English is always last**, never displaced: for a great many artists it is the only article there is. The pass says what it will look for before it asks:
+Without `--lang`, the terminal's `LANG` or `LC_ALL` variable is read (`fr_FR.UTF-8` for French). **English always remains the last resort**, never excluded: for many artists, it is the only available article. The pass indicates what it is looking for before sending the request:
 
 ```
-  articles are looked for in fr, en, in that order
+searching for articles in fr, en, in that order
 ```
 
-An artist with no French article gets the English one, and the credit under the paragraph says which you are reading:
+An artist without a French article gets the English version, and the credit below the paragraph specifies the source read:
 
 ```
   https://en.wikipedia.org/wiki/Ozzy_Osbourne — in en — CC BY-SA 4.0
   aede fetch --summaries --full --lang=fr "ozzy osbourne" asks for another
 ```
 
-That last line matters more than it looks: a paragraph in the wrong language is indistinguishable from a preference that was ignored, from an article that does not exist in your language, and from prose fetched before you had a preference at all. Naming the language tells the three apart.
+This last line makes it possible to differentiate between an ignored preference, a non-existent article in your language, or data retrieved before setting a preference.
 
-`--full` is needed to replace prose already held — a second run asks about nothing it already has, and the language is part of what it has.
+`--full` is necessary to replace text that is already stored.
 
-## Identified, or matched
+## Identified or Matched
 
-If your files have been through **Picard**, they already carry MusicBrainz identifiers, and `fetch` uses them: it looks the artist up rather than searching for a name. That is worth two things.
+If your files went through **Picard**, they already contain MusicBrainz IDs, and `fetch` uses them: it queries the artist directly instead of searching for a name.
 
-It is **exact** — the answer is about the identifier that was asked for, so the record reads `identified` instead of a percentage. A percentage is a search saying how well its index matched, never a statement that the artist is 88% the right one.
+It is **exact** — the response concerns the requested ID, so the registry displays `identified` instead of a percentage. A percentage indicates search indexing quality, never that an artist is 88% correct.
 
-And it is a **fuller answer**: a search result is abbreviated, while a lookup returns the entity — whether a band is still active, and the one-line description MusicBrainz uses to tell same-named artists apart.
+And the **response is more complete**: a search result is abbreviated, whereas a direct lookup returns the full entity — current band activity or the disambiguation line used by MusicBrainz to distinguish homonymous artists.
 
-Without an identifier, the name is searched and the result carries a score. Below 70 nothing is stored, and two equally good answers are refused rather than arbitrated:
+Without an ID, the name is searched and the result comes with a score. Below 70%, nothing is saved, and two equivalent answers are rejected rather than arbitrated:
 
 ```
 ? Nirvana: several answers are equally good: Nirvana, Nirvana (UK)
 ? Sh: the closest was "Shellac" at 61%, not close enough
 ```
 
-## Correcting it by hand
+## Manual Corrections
 
-Fetched values are not the last word. Records are keyed on **(entity, source)**, which means anything you file under a source of your own is not something MusicBrainz can overwrite: a later `aede fetch --full` adds its row beside yours and leaves yours alone.
+Retrieved values are not the final word. Records are indexed by **(entity, source)**, which means anything you classify under your own source won't be overwritten by MusicBrainz: a subsequent `aede fetch --full` will add its line next to yours without touching it.
 
-Three steps. First, ask for a document with the right keys — an entity's key is how it names itself, and it is the one thing you cannot guess:
+Generate a document with the right keys:
 
 ```sh
 aede sources --template --source=manual --output=fix.json "Kind of Blue"
 ```
 
-Then fill in what you want. Everything is optional; leave `null` where you have nothing to say:
+Fill in the desired fields (`null` if data is missing):
 
 ```json
 {
@@ -107,15 +107,15 @@ Then fill in what you want. Everything is optional; leave `null` where you have 
 }
 ```
 
-Then take it back in:
+Import it:
 
 ```sh
 aede sources --import=fix.json
 ```
 
-`--source=manual` is what protects it. Any name works — `manual`, your own, `discogs` if you copied it from there — and the point is only that it is not `musicbrainz`, because a source only ever replaces what **it** said before.
+`--source=manual` protects this entry. Any name works (`manual`, yours, `discogs`…), the key being to avoid `musicbrainz`, as a source only replaces what **it** previously stated.
 
-## Seeing and removing it
+## Viewing and Deleting
 
 ```sh
 aede sources                    # one line per source: how much, how much lands
@@ -124,7 +124,7 @@ aede sources --export --output=backup.json
 aede sources --forget --source=musicbrainz
 ```
 
-`aede artist` and `aede album` show a "What sources say" block, with each value next to the tag it can be judged against:
+`aede artist` and `aede album` display a "What sources say" block, matching each value against your tag:
 
 ```
   Source                        Field           Says        Your tags
@@ -135,19 +135,20 @@ aede sources --forget --source=musicbrainz
   musicbrainz: https://musicbrainz.org/release-group/c9fdb94c-…
 ```
 
-**The last line is the address the answer came from**, one per source. It is there because the identifier is what you need to check anything by hand — to open the page, to ask the service the same question with `curl`, or to correct the data at its source. It was stored from the first version and shown nowhere, and the nearest thing on screen was the Wikidata link: a different identifier that looks enough like an answer to send you off with a query that cannot work.
+**The last line indicates the source address of the response**, one per source. This identifier is essential for any manual verification — opening the page, running the request with `curl`, or fixing data at the source.
 
-The identifier is inside the address, so it can still be copied on its own. And the page it opens is where a wrong type or a missing date is actually fixed — for everyone, not only here. An album's address points at its **release group**, which is the album rather than the pressing, and is where its type is set.
+The ID is included in the URL and can be copied separately. An album address points to its **release group**, which defines the album as a whole rather than a specific pressing.
 
-Three different things, deliberately distinguished: a value your tags confirm, one they contradict, and one they say nothing about. A field with no tag counterpart at all — where an artist is from, for instance — leaves the last column empty rather than claiming your tags are missing something they were never meant to hold.
+Three distinct states are differentiated: a value confirmed by your tags, a value in contradiction, and a value missing from your tags.
 
-Two labels are worth explaining, because both were wrong at first. **from** is MusicBrainz's *area*, which may be a country, a city or a region: "Seattle" is a valid answer, so calling the column "country" was a mistake. **note** is its `disambiguation`, written to tell two artists who share a name apart rather than to describe either — so it is often useful ("US industrial metal band") and sometimes not ("the band"), and labelling it "known as" oversold it.
+Two labels deserve clarification:
 
-A record that waits is not a failure either: it describes something this catalog does not hold yet, and it is kept until it does.
+- `from` corresponds to the geographical area according to MusicBrainz (country, city, or region).
+- `note` corresponds to disambiguation, written to distinguish homonymous artists.
 
-## The second passes, and running several at once
+## Secondary Passes and Combined Runs
 
-`aede fetch` on its own asks MusicBrainz about your artists and albums. Three options ask a further question instead, over what that fetch already stored:
+Running `aede fetch` alone queries MusicBrainz for your artists and albums. Three options allow running complementary passes on stored data:
 
 ```sh
 aede fetch --summaries      # the Wikipedia article behind each wikidata link
@@ -155,7 +156,7 @@ aede fetch --discography    # everything MusicBrainz credits to each artist
 aede fetch --covers         # the front image of every album that has none
 ```
 
-**Each of them takes names and folders**, like `aede fetch` itself — one or several:
+**Each accepts names and folders**:
 
 ```sh
 aede fetch --discography "pink floyd"
@@ -164,11 +165,11 @@ aede fetch --summaries mika                # nothing here matches mika
 aede fetch --lyrics ~/Music/Alastis        # that shelf, whatever it is called
 ```
 
-A name reaches an artist by their name, and an album by its title **or** its artist — so `--covers manson` finds the records as well as the person. A name that reaches nothing says so, and says which of the two nothings it is: nobody here answers to it, or they do and the pass has already been run on them (`--full` asks again). The passes used to ignore the word entirely and run over the whole library.
+A name targets an artist by name, and an album by title **or** artist.
 
-## Narrowing a run by folder
+## Restricting an Execution by Folder
 
-Every option of `fetch` also takes **folders**, and reads them the same way [`check`, `playlist` and `fingerprint`](commands.md) do:
+All `fetch` options accept folders, following the same logic as `check`, `playlist`, and `fingerprint`:
 
 ```sh
 aede fetch ~/Music/Alastis                 # the artists and albums on that shelf
@@ -177,7 +178,7 @@ aede fetch --covers --lyrics ~/Music/80s   # several passes, one shelf
 aede fetch ozzy ~/Music/80s                # that person, on that shelf
 ```
 
-**Anything you type that exists on the disk is a folder; anything else is a name.** One rule, for every option, so a path never has to be introduced by a flag — and the run prints the folders back before it asks anything, so the reading is visible:
+**Any existing path on disk is treated as a folder; everything else is treated as a name**. The run displays the folders taken into account before querying:
 
 ```
   only what is under /Users/you/Music/Alastis
@@ -185,11 +186,9 @@ aede fetch ozzy ~/Music/80s                # that person, on that shelf
 Lyrics
 ```
 
-The two narrow independently, because they answer different questions: a name asks **who**, a folder asks **where**. `aede fetch ozzy ~/Music/80s` is that person on that shelf, and neither half is dropped.
+Both criteria apply independently: name defines **who**, folder defines **where**.
 
-A folder is turned into the artists, albums and tracks it holds **once**, before any pass runs, so every pass means the same thing by it — including `--summaries`, which otherwise never reads the catalog at all.
-
-A folder the catalog has never scanned is **refused**, not quietly ignored:
+A folder not scanned by the catalog is **rejected**:
 
 ```
 no file in the catalog is under "~/Music/New".
@@ -197,53 +196,36 @@ It is on disk, so this catalog was scanned 3 days ago and has not seen it — a 
 Add it: aede scan "~/Music/New"
 ```
 
-That refusal is the same one `check` makes, and it exists because the alternative is worse than an error: a run with nothing to do, and a cheerful line saying so, which reads as *your library is already done*.
-
-Before this, a path typed after `fetch` was normalised into words like any other name, matched nothing, and the pass ran over the **whole library** — the one kind of swallowed argument that looks like it worked.
-
-**They can be combined**, and then they run one after another:
+Options can be combined and execute sequentially:
 
 ```sh
 aede fetch --covers --discography          # both, in one go
 aede fetch --summaries --discography --covers --dry-run
 ```
 
-They always run in the order listed above, whatever order you type them in. That order is not arbitrary: the passes go outward from the artist — who they are, what they recorded, what the records look like — and running them the other way round would be asking about albums before the fetch that names them.
+Execution order follows a centrifugal logic starting from the artist: identity, discography, visuals.
 
-This used to be three `return`s in a row, so `aede fetch --covers --discography` ran the covers and **dropped the discography without a word**. Nothing else in this program swallows an option it cannot honour; this one could be honoured and was not.
+## Querying Wikipedia
 
-## Asking Wikipedia
-
-MusicBrainz holds no biography, but it holds the link to one. Following it is **an option on `fetch`**, not a command of its own:
+MusicBrainz does not store full biographies, but keeps a link to them. Fetching them is an **option of** `fetch`:
 
 ```sh
 aede fetch --summaries          # follow it, for every artist already fetched
 aede fetch --summaries --full   # ask again about what is already held
 ```
 
-`aede fetch` tells you when there is something to follow, so you do not have to remember the option — including when there is nothing left to fetch and it only has that to say:
-
 ```
 → 402 stored, 3 left alone, 0 failed
   381 of them have a wikidata link — aede fetch --summaries reads the article
 ```
 
-```
-Fetch
+This is a **second pass on** `fetch` **data**, not a new search. The program reads the `wikidata` link, queries Wikidata to get the corresponding article, then retrieves the first paragraph from Wikipedia (two queries per artist).
 
-  every artist has already been asked about (--full asks again)
-  381 of them have a wikidata link — aede fetch --summaries reads the article
-```
+Articles are searched **primarily in the system language** (`LANG` variable), then in English.
 
-This is a **second pass over what `fetch` already stored**, not a second search. It reads the `wikidata` link MusicBrainz gave for each artist, asks Wikidata which article that entity has, and then asks Wikipedia for that article's opening paragraph. Two requests per artist, on top of the one already made — which is why you ask for it rather than getting it by default.
+## Credit is Part of the Text
 
-The article is looked for **in your own language first**, taken from your `LANG` setting, and in English after. For a great many artists English is the only article there is, so it is always the fallback and never the first choice.
-
-Artists MusicBrainz gave no Wikidata link for are not asked about at all. An artist with a link but no article in either language is recorded as *asked, and there is nothing* — so the next run does not ask again.
-
-### The credit is part of the text
-
-Wikipedia articles are **CC BY-SA**. Reusing the text obliges naming where it came from and under what terms, so Aède stores the paragraph, the page, the language and the licence as **one inseparable value**: there is no way to keep the words without the credit, because the program offers none. Wherever the paragraph is shown, the credit is shown under it:
+Wikipedia articles are licensed under **CC BY-SA**. Using the text requires citing the source and license. Aède stores the paragraph, page, language, and license as **an inseparable value**:
 
 ```
   Marilyn Manson is an American rock band formed in Fort Lauderdale,
@@ -251,11 +233,11 @@ Wikipedia articles are **CC BY-SA**. Reusing the text obliges naming where it ca
   https://en.wikipedia.org/wiki/Marilyn_Manson_(band) — CC BY-SA 4.0
 ```
 
-`aede sources --forget --source=wikipedia` removes all of it, the same as any other source.
+`aede sources --forget --source=wikipedia` deletes the whole set.
 
-## The picture your files already carry
+## Images Already Present in Your Files
 
-Before downloading anything, there is a cheaper answer. An album can have no `cover.jpg` in its folder and still not want one, because the artwork is **inside the audio files** — and players and file managers differ on which of the two they read.
+Before downloading anything, a local solution exists. An album without a `cover.jpg` file in its folder can extract its visual **from inside the audio files**:
 
 ```sh
 aede extract                    # write it out, everywhere it is missing
@@ -264,28 +246,13 @@ aede extract --images           # the back and the booklet too, in artwork/
 aede extract --dry-run          # say which folders, write nothing
 ```
 
-It was called `aede extract`, which named the subject and not the act — and a reader who ran it and saw a list of counts took it for a report rather than a command that writes. `artwork` still works as an alias.
+**The program reads your files without ever modifying them**. No writing occurs inside audio files. The image is created alongside (folder, playlist, spectrogram). Works across **all formats** (FLAC, ID3, MP4, Ogg).
 
-No network, no chance of fetching the wrong edition's artwork, instant.
+Extraction runs **per folder**. A folder that already contains an image is skipped.
 
-**It reads your files and never writes to them.** Nothing in Aède writes into an audio file — not a cover, not a corrected tag, not ever. It writes *beside* them: an image in the folder, a playlist, a spectrogram. Your tags are yours, edited with your tagger; this program is not one. **And it works on every format**, not on FLAC alone: a FLAC metadata block, an ID3 `APIC` frame, an MP4 `covr` atom, a base64-wrapped block inside an Ogg comment — the picture comes out the same way. Seven container formats are exercised by the tests, on real files rather than on hand-written fixtures.
+## Other Embedded Visuals
 
-It works **per folder**, not per album: a double album in `CD1` and `CD2` is one release and two folders, and a cover image belongs to a folder — that is where every player looks. A folder that already holds an image is left alone, and nothing is ever overwritten.
-
-```
-Artwork
-
-  1 folder whose files carry a picture and whose folder has none
-  1 folder already has an image in it
-  1 folder holds no picture inside its files: aede fetch --covers looks for one
-  → /music/Miles Davis/Kind of Blue/cover.png
-```
-
-That last skipped line is the handover: what this command cannot do — because the files hold nothing — is exactly what the next one is for.
-
-### `--images`: everything else the files carry
-
-A tagged file often holds more than the front cover: the back of the sleeve, the pages of a booklet, the label printed on the disc. Without `--images` those are ignored, because the cover is the one image the rest of your library actually reads. With it, they are written out too:
+In addition to the front cover, `--images` extracts back cover, booklet, or disc into an `artwork/` subfolder so as not to interfere with front cover detection by media players:
 
 ```
 /music/Miles Davis/Kind of Blue/
@@ -297,13 +264,9 @@ A tagged file often holds more than the front cover: the back of the sleeve, the
         media.jpg
 ```
 
-**A subfolder, and not beside the music, on purpose.** Any image sitting next to your tracks is taken for the album's cover — by this program's scanner and by most players. A `back.jpg` there would become the album art: the wrong picture, and one nothing would ever look at again. So the front keeps the name everything looks for and the rest go one level down, into `artwork/`, alongside the `spectrograms/` that `aede spectrum` writes.
+## Album Cover Art
 
-`--images` also opens folders that already have a cover, because the cover is not the question there. A folder that already has an `artwork/` in it is not opened again — that folder is the record, the same way `cover.jpg` is. Nothing is ever overwritten, and a picture already on disk is not counted as a failure.
-
-## Cover art
-
-The front image of an album, from the Cover Art Archive — the picture library MusicBrainz keeps.
+Retrieving visuals from Cover Art Archive (MusicBrainz).
 
 ```sh
 aede fetch --covers                 # albums with no cover, at 1200 px
@@ -312,51 +275,11 @@ aede fetch --covers --images        # the back and the booklet too, in artwork/
 aede fetch --covers --dry-run       # say which albums, ask nothing
 ```
 
-**Run `aede extract` first.** This command downloads and does nothing else. An album whose picture is inside its files needs no download at all, and `--covers` says so on the line where it skips one:
+**Run** `aede extract` **first**. `--covers` only downloads if no image is present (neither embedded nor in the folder). There is no `--replace` flag to prevent accidental overwrites.
 
-```
-  312 albums carry the image inside their files: aede extract writes it out beside them
-```
+Downloaded images are saved as `cover.jpg` alongside audio tracks. Audio files are never altered. Only valid files (JPEG/PNG) are saved to avoid corruption from HTML error pages.
 
-For a day it ran the extraction itself before downloading. That was reverted: two commands both writing into music folders, one of them not named for it, cost more to hold in the head than the requests it saved.
-
-**It never touches an album that already has artwork.** The catalog answers that offline and exactly: whether the image sits inside the files, and whether one sits beside them — `cover.jpg`, `folder.jpg` and the other names the scanner recognises. Either of them, and the album is not asked about at all. There is deliberately **no `--replace`**: overwriting a cover you chose is not something this command should be able to do by accident, and the way to change one stays what it always was — put the file there yourself.
-
-**It says what it left alone, and why.** Four quite different states used to print the same sentence, and a reader who deleted a cover to see what would happen had no way to learn that the image was inside the files all along:
-
-```
-Cover art
-
-  nothing to ask about
-  312 albums carry the image inside their files: aede extract writes it out beside them
-  44 albums already have an image in their folder
-  3 albums have no cover and nothing identifying them: aede fetch names them first
-```
-
-That first line is the one that surprises people: **an album can have no `cover.jpg` at all and still not want one**, because the artwork is inside the audio files. Deleting the folder image changes nothing there — the picture is still in every track. The answer is `aede extract`, which writes out what the files already hold, rather than a download of a second copy of it.
-
-The image is written as `cover.jpg` beside the music. Nothing registers it anywhere: the next `aede scan` simply discovers it, exactly as it would one you put there.
-
-**Two requests, and the first one is small.** The archive answers a record with an *index* — a short document naming every image it holds and, for each, the thumbnail widths it has generated. So the sizes come out of the answer rather than being guessed at, and an album with no artwork costs one small request instead of a failed download. An album the archive has nothing for is recorded as asked, so the next run does not ask again.
-
-**A cover you delete comes back.** When the archive answered with an image, the address is kept — so if the file later goes missing, the picture is fetched again straight from it: one request, no index, and nothing to remember. Only "asked, and there was nothing" is a finished question.
-
-**`--images` downloads the rest of what the archive holds.** The back, the booklet, the disc — into the same `artwork/` subfolder `aede extract --images` writes into, under the same names, for the same reason. It widens what is asked about: an album that has a cover is skipped by the ordinary pass and is *not* skipped by this one, so the first run over a whole library asks about most of it, at one request a second. The header says how long that will take before it starts. As above, an existing `artwork/` folder is the record that it has been done.
-
-Nothing is written into your audio files by any of this — not with `--images`, not with anything. Putting a downloaded cover *into* the files that lack one is the obvious symmetrical feature, and it does not exist on purpose: a program that rewrites a music library's audio files is a program that can destroy one.
-
-**What is not an image is not written.** A download that goes wrong — an error page, a redirect gone astray, a truncated transfer — arrives as bytes like any other. Those bytes are checked before anything reaches your folder, and anything that is not a JPEG or a PNG is refused. Writing an error page into a music folder under the name `cover.jpg` is silent corruption that surfaces months later, when something tries to display it.
-
-## What is missing from the shelf
-
-`aede artist "<name>"` names it at the foot of the records, so the question does not have to be remembered:
-
-```
-  3 studio albums MusicBrainz credits to them and this shelf does not hold: aede missing "Portishead"
-```
-
-
-MusicBrainz knows what your artists recorded. Comparing that with what you have is a wish list:
+## Missing from the Shelf
 
 ```sh
 aede fetch --discography    # browse everything credited to each artist
@@ -364,7 +287,7 @@ aede missing                # what is credited to them and not here
 aede missing davis          # narrowed, by artist or by title
 ```
 
-**Nothing is fetched by `missing`.** The answer is worked out, each time you ask, from the discography `fetch --discography` stored — so an album stops being listed the day you add it, with nothing to update and nothing to go stale. That is the same rule this whole store follows: keep the answer, derive the verdict.
+`missing` performs **no network request**. It calculates the result from stored discography data.
 
 ```
 Missing
@@ -378,33 +301,7 @@ Missing
   live records, compilations, demos, and anything you set aside
 ```
 
-### Seeing everything that was fetched
-
-The report holds two things back: records MusicBrainz does not type as studio albums, and records you set aside yourself. `--all` lifts both — the same word it is on every listing here, *hold nothing back* — and each row then says why it would not normally be there:
-
-```
-Missing
-
-  Artist      Album               Year  Left out
-  ──────────  ──────────────────  ────  ────────────────────────────
-  Air         Demo Tapes          1995  Album · Demo
-  Air         Premiers Symptomes  1999  set aside
-  Air         Everybody Hertz     2002  Album · Remix
-  Air         Late Night Tales    2014  Album · Compilation · DJ-mix
-  Portishead  Sour Times          1994  Single
-  Portishead  Roseland NYC Live   1998  Album · Live
-  8 records
-  nothing held back: everything the discography pass brought back, and the last
-  column is what MusicBrainz calls each one
-```
-
-The words in that column are **MusicBrainz's own** — `Album · Live`, not "a live record". If a type is wrong, the page where it is set is where you would go to fix it, and a paraphrase would send you looking for a word that is not written there.
-
-The last column only appears on a run that has something to put in it, and `missing` pages like every other listing: `--limit`, `--offset`, and `--all` for every row.
-
-### When MusicBrainz is wrong about what an album is
-
-A demo, a compilation and a single all arrive typed `Album` until somebody says otherwise on MusicBrainz — so a record you would never call an album can turn up on the list. Aède will not overrule the source: this whole store exists so that what somebody else said stays what they said. It will record that **you** disagree.
+## Exclude or Re-include an Album
 
 ```sh
 aede missing --forget "Sweet Dreams"            # stop listing it
@@ -413,35 +310,13 @@ aede missing --list manson                      # narrowed, by artist or by titl
 aede missing --forget "Sweet Dreams" --remove   # put it back
 ```
 
-The decision is kept in `user.json` — the file that holds what *you* say — and keyed on the MusicBrainz release-group identifier, which survives a re-fetch and a rescan where a title would not. **What the source said is untouched**: the record stays in `sources.json` exactly as it arrived, and only what you are shown changes. Deleting it would lose one claim in order to record the other, when they are two different claims.
+Choices are saved in `user.json` and indexed on the MusicBrainz release group ID.
 
-`missing` says how many records you set aside whenever any are, for the same reason it says that singles and live records are left out: a filter you cannot see is a trap, and the day you wonder why an album is not listed the answer should be on screen. And a filter you cannot turn off is only half an answer, which is what `--all` above is for.
+The default filter only keeps **studio albums** from artists having at least one complete album in the local library.
 
-`--list` takes a name too, and narrows to it — by the title of the record or by the artist it belongs to. A name that matches nothing says so and lists nothing, rather than quietly answering the wider question:
+## Identifying a File by Acoustic Fingerprint
 
-```
-Set aside
-
-  nothing set aside matches mika — 2 records in all
-```
-
-The artist on that table is not stored with the decision — a release-group identifier is unique, so nothing else is needed to tell two apart. It is looked up in the discographies each time you ask, like everything else in this report. A record whose discography has since been forgotten still shows, with no artist beside it: a decision you took must not disappear because a fetch was undone.
-
-Two records answering to the same words are refused rather than arbitrated — setting aside the wrong one is a decision nobody would see being taken. `--list` shows the address of each, which is where the type is corrected on MusicBrainz itself: fixing it there fixes it for everybody, and `aede fetch --full --discography` picks it up.
-
-**Studio albums only**, and that filter is deliberate. A full discography holds every single, every live recording and every compilation somebody ever assembled; reporting all of them as missing would be true and useless, since nobody's shelf holds every single ever pressed.
-
-An album already here is recognised by its **MusicBrainz release-group identifier** when your tags carry one, and by its **title** otherwise — with the same spelling rules that decide two artists are one name, so "Kind Of Blue" on your shelf is not reported as missing "Kind of Blue".
-
-**Only artists who have a shelf here.** The catalog holds an artist for every credit it reads — a guest on one track, a composer, one name among fifty on a compilation. Being in the catalog is not the same as having a place in the library, and the first version did not draw that line: one Rolling Stones track on a compilation produced their entire studio discography as *missing*, and it did so for every passing credit at once until the report was mostly that.
-
-So an artist is only considered when at least one album **of their own** is here — when they are the album artist of something on the shelf. What this reports is an *incomplete* discography, which means one that was started. The same rule decides who `fetch --discography` bothers to browse, so the pass does not spend a request a second on answers the report would never show.
-
-## Identifying a file by its sound
-
-Every other identifier in Aède comes out of the tags, so a badly tagged file cannot be identified at all: `track03.flac` with no title and no artist is invisible to MusicBrainz, because there is nothing to ask about. A **fingerprint** is computed from the decoded audio, so it answers for a file whose tags say nothing — and disagrees with one whose tags say the wrong thing.
-
-Two commands, and the split matters:
+Acoustic fingerprint computed from decoded audio signal to identify mislabelled files or missing metadata.
 
 ```sh
 aede fingerprint                # decode and work out what the audio is
@@ -451,61 +326,11 @@ aede fingerprint --list         # print what is stored, to compare it
 aede fetch --identify           # ask AcoustID what it hears
 ```
 
-`fingerprint` decodes, which is minutes of work over a library. `--identify` asks, which is one small request per file. Folded into one command, a network pass that failed halfway would have to decode everything again to be retried.
+By default, properly tagged files or files already holding a MusicBrainz ID are skipped.
 
-**Only the files that need it, by default.** Four things get a file skipped, and the sharpest is worth knowing:
+## Comparison and Duplicate Detection
 
-- it **already carries a MusicBrainz recording id** — which is exactly what a lookup would answer with. A file that has been through Picard has one, so for a well-tagged library this feature has almost nothing to do, and that is the correct outcome rather than a disappointment;
-- its tags name it (a title and an artist);
-- it has been fingerprinted before;
-- the catalog knows no length for it, and a lookup needs one.
-
-`--full` lifts the first three. That is how you find a rip whose tags look perfectly correct and are **wrong** — the one case nothing else in Aède can catch, and the one where you have to already suspect something.
-
-### Seeing the values, and comparing them
-
-A fingerprint is the one thing Aède works out that you can check from outside, so it is printed on request — whole, one value to a line, never in a table. A fingerprint cut to a column width compares equal to nothing; on its own line it survives a pipe, a `grep` and a `diff`.
-
-```
-Fingerprint
-
-  /Music/Billy Martin/Illy B Eats/01.flac
-  241 s
-  AQADtEmiRFEmJXqOH0ePH8dxHT9yHD9y…
-
-→ 12 fingerprints held
-  compare with: fpcalc "<file>" — its default, not -algorithm 1, which is another one
-  aede doctor reports files whose fingerprints are identical
-```
-
-**Mind that last flag.** The two programs number the algorithms differently, and it was measured rather than assumed: on one file, `ffmpeg -algorithm 1` — what Aède runs — and a bare `fpcalc` answer the same string byte for byte, while `fpcalc -algorithm 1` answers a different one. ffmpeg's number is the version byte the fingerprint starts with; fpcalc's is that plus one. Compare with a plain `fpcalc` and the two agree; add the flag whose number you have just read and you will conclude Aède is wrong.
-
-Comparing two copies of an album by eye is what `aede doctor` is for: it groups files whose fingerprints are identical and reports them as **the same audio**, whatever their tags say.
-
-### When this is worth running, and when it is not
-
-**Worth it:** files that never went through a tagger — old rips, downloads, things off a friend's drive; and a folder you suspect is mislabelled, with `--full`.
-
-**Not worth it:** a library Picard has been over. Those files already hold the answer, and Aède reads it out of the tags.
-
-**And it will not help with an album MusicBrainz has never heard of.** AcoustID's index maps fingerprints *to MusicBrainz recordings*: if the record is not in MusicBrainz, no fingerprint will find it, because there is nothing on the other end to find. The two are not independent sources — the second is a different way in to the first.
-
-**What it needs.** Chromaprint, through either ffmpeg built with it — likely already installed, since Aède uses ffmpeg for spectrograms — or `fpcalc`. Neither is shipped or linked; a checkout without them builds and passes its tests, and the command says which to install. AcoustID also asks every program using it to register, so `--identify` needs a free key in `AEDE_ACOUSTID_KEY`. Aède ships none on purpose: a key inside an open-source program is a key every copy shares, and the quota with it.
-
-**It identifies. It never corrects.** What comes back is filed beside your tags and shown next to them by `aede sources`:
-
-```
-  Source              Field         Says                Your tags
-  ──────────────────  ────────────  ──────────────────  ───────────
-  acoustid · 97%      heard artist  Miles Davis         Miles Davis
-  acoustid · 97%      heard title   So What             Track 03  ✗
-```
-
-Nothing is written into an audio file, here or anywhere in Aède. That is not an apology: a fingerprint match is a strong guess and is wrong in ways that are easy to picture — two masterings of one recording fingerprint alike — so a program that rewrote tags on the strength of one would trade a library nobody has checked for a library nobody *can* check. It is stored as **matched**, never identified, with the score kept and shown, and what to do about a disagreement is your decision, made in your own tagger.
-
-### Comparing two files, and finding the copies
-
-A fingerprint is deterministic: the same audio always gives the same string. So two files that fingerprint alike **are the same recording**, whatever their tags say — and `aede doctor` reports it:
+`aede doctor` groups files sharing the same acoustic fingerprint to identify strictly identical recordings, regardless of their tags:
 
 ```
   ! the same audio — 2 files are the same recording (379.1 kB recoverable)
@@ -513,22 +338,9 @@ A fingerprint is deterministic: the same audio always gives the same string. So 
       /music/Original/01.flac
 ```
 
-This is what a fingerprint buys beyond naming a file, and for a library kept over years it is worth more than the naming. The older duplicate check compares artist, title and duration, so it can only find copies whose *tags* already agree; two rips of one track filed under different names — or under none — are invisible to it and obvious here. Note the wording: **"the same audio", not "likely duplicate"**. One is a measurement, the other a guess, and a reader deciding whether to delete a file needs to know which they are looking at.
+Prerequisites: Chromaprint (`ffmpeg` or `fpcalc`) and an AcoustID API key configured in `AEDE_ACOUSTID_KEY`. The system identifies and suggests matches, but never alters audio files.
 
-Only fingerprinted files take part, so a library where nothing has been fingerprinted reports no identical audio. That is a silence, not a clean bill of health — `aede fingerprint --full` is what fills it in.
+## What MusicBrainz Does Not Contain
 
-**A recording, not a release.** AcoustID answers what is *playing*. The same performance sits on the album, the compilation and the reissue alike, so the answer names the track and says nothing about which pressing your file came from — which your tags answer better than any fingerprint could.
-
-## What MusicBrainz does not have
-
-**No biography.** MusicBrainz is a database of identifiers and relationships, not of prose. What Aède reads today is what an artist lookup answers: type, area, formation and end dates, whether the group is still active, and the short `disambiguation` — "US industrial metal band" — which is written to tell two artists apart rather than to describe one.
-
-A lookup also brings the **genres** its editors voted for, other **names** the artist goes by, and the **links** it holds — official site, Discogs, and Wikidata. All from the same request: `inc=genres+tags+aliases+url-rels` rides on the call already being made, which matters at one request per second.
-
-Genres are shown beside your genre tag rather than over it, like everything else here — and compared as **sets**, not as sentences. MusicBrainz answers `pop, dance-pop, electropop, europop` where your files say `Rock, Pop`; that is not a disagreement. Your tags say the record is pop *and* rock, MusicBrainz says pop and three finer words for it, and nobody is contradicting anybody. A shared name is agreement; only two lists with nothing at all in common are reported as a difference. Where MusicBrainz has no voted genre it falls back to its free **tags**, which are a different thing — a crowd writes "seen live" there — so the two lists are never merged.
-
-Still not read: **relationships between artists**, which is band membership with instruments and dates. The roadmap wants those as dated links in the graph, a change to the model rather than a field to display, so asking for them now would store an answer with nowhere to put it.
-
-**Wikipedia fills that gap, and Wikidata is the door** — see [Asking Wikipedia](#asking-wikipedia) below.
-
-**No opinion about your files.** Nothing fetched is ever written into a tag, and no fetched value changes what a scan finds. If you delete `sources.json`, you lose only the time it took to ask.
+- **No full biography** (only type, area, dates, and disambiguation note are provided). Wikipedia/Wikidata fills this gap.
+- **No overwriting of your files**: retrieved data remains independent of your original tags, and deleting `sources.json` does not affect your local files.

@@ -32,13 +32,13 @@ The third belongs beside the second, not inside the first. Imported analyses do 
 
 **A rebuild would cost a re-fetch.** An analysis lost costs re-running an import over files that are sitting right there; a fetched value lost costs hundreds of network round trips at one request per second — for a six-hundred-artist library, ten minutes of politely waiting on somebody else's server. That is a different order of loss, and it is the argument that decides it.
 
-**And `reset` would take it with it.** `reset` removes `catalog.json` and nothing else — it already prints *"your notes stay: they are not in this file"*, because annotations live elsewhere. A fetched layer inside the catalog would be destroyed by an operation whose stated purpose is to rebuild from the files, and rebuilding from the files is exactly the case where you least want to ask MusicBrainz for everything again. In its own file it survives, and `reset` says so in the same breath as it says it about notes.
+**And `reset` would take it with it.** `reset` removes `catalog.json` and nothing else — it already prints _"your notes stay: they are not in this file"_, because annotations live elsewhere. A fetched layer inside the catalog would be destroyed by an operation whose stated purpose is to rebuild from the files, and rebuilding from the files is exactly the case where you least want to ask MusicBrainz for everything again. In its own file it survives, and `reset` says so in the same breath as it says it about notes.
 
 The cost is honest and should be stated: a third store, a third load and save, a third reconciliation pass. The reconciliation is the only part that is hard, and it is not new work — it is `EntityRef`'s, already written for `user.json` and reused here, which is the second reason decision 1 above pays for itself.
 
 ## 3. Its shape: typed fields per entity kind, not a bag of strings
 
-The tempting shape is a generic `(entity, field, value, source)` row. It is refused for the reason the catalog is not a table of strings: the display, the query grammar and `doctor` all have to know what a field *means*, and a generic bag pushes that knowledge into string literals scattered across the program. `FileAnalysis` made the same choice — typed optional fields, every one of them absent-able — and that is what lets `doctor` compare two sources of the same measurement.
+The tempting shape is a generic `(entity, field, value, source)` row. It is refused for the reason the catalog is not a table of strings: the display, the query grammar and `doctor` all have to know what a field _means_, and a generic bag pushes that knowledge into string literals scattered across the program. `FileAnalysis` made the same choice — typed optional fields, every one of them absent-able — and that is what lets `doctor` compare two sources of the same measurement.
 
 One record per (entity, source), so two sources describing one artist are two records that can disagree in the open. Each carries:
 
@@ -51,7 +51,7 @@ Fields are added when a fetcher fills them, not in advance. A field nothing writ
 
 ## 4. Agreement is stored, but the verdict is derived
 
-The roadmap requires that agreement be recorded: *"checked against MusicBrainz and it matches"* and *"never checked"* are two different states, and a layer that only kept disagreements could not tell them apart.
+The roadmap requires that agreement be recorded: _"checked against MusicBrainz and it matches"_ and _"never checked"_ are two different states, and a layer that only kept disagreements could not tell them apart.
 
 The way to honour that is **not** to store a verdict. A stored "agrees" goes stale the moment the user re-tags the file, and then the catalog holds a claim it has stopped being able to justify. What is stored is the **answer itself, whole**; the verdict — agrees, differs, no tag to compare — is computed on read, from the value beside the tag.
 
@@ -65,7 +65,7 @@ M1.1 then adds MusicBrainz — `ureq` with `rustls`, decided ahead of time and r
 
 ## M1.2 — prose, and the licence that comes with it
 
-MusicBrainz answers with identifiers, dates and relationships. It never answers with a sentence about the artist, because that is not what it is for. The sentence exists on Wikipedia, and the way from one to the other is the `wikidata` relationship MusicBrainz already returns: the entity holds a *sitelink* per language, and the sitelink is the article title.
+MusicBrainz answers with identifiers, dates and relationships. It never answers with a sentence about the artist, because that is not what it is for. The sentence exists on Wikipedia, and the way from one to the other is the `wikidata` relationship MusicBrainz already returns: the entity holds a _sitelink_ per language, and the sitelink is the article title.
 
 So reaching a paragraph is two requests on top of the one already made:
 
@@ -79,7 +79,7 @@ That is why it is `fetch --summaries` rather than part of `fetch`: it triples a 
 
 ### Why the text and its credit are one value, not two fields
 
-Wikipedia text is **CC BY-SA**. It may be reused, and attribution has to travel with it. A `summary` field beside a separate optional `source_url` would make it *possible* — and therefore eventually certain — to hold the words without the credit: one code path that fills the first and forgets the second, one export that copies one and not the other, and the project is quietly out of compliance.
+Wikipedia text is **CC BY-SA**. It may be reused, and attribution has to travel with it. A `summary` field beside a separate optional `source_url` would make it _possible_ — and therefore eventually certain — to hold the words without the credit: one code path that fills the first and forgets the second, one export that copies one and not the other, and the project is quietly out of compliance.
 
 So they are the same value. `Prose { text, url, lang, licence }` cannot be constructed without all four, is written to `sources.json` as one nested object, and is read back only when all four are present — a row that lost its attribution somewhere is a row this build will not repeat. There is deliberately no function anywhere that returns bare article text as a `String`.
 
