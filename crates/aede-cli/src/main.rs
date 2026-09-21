@@ -5,6 +5,7 @@
 
 mod args;
 mod commands;
+mod help;
 mod ui;
 
 use args::Args;
@@ -81,7 +82,12 @@ fn main() {
         return;
     }
     if args.has("help") {
-        print_help();
+        let command = canonical(&args.command);
+        if command.is_empty() || !help::is_command(command) {
+            help::print_index();
+        } else {
+            help::print_command(command);
+        }
         return;
     }
     if args.command.is_empty() {
@@ -95,7 +101,7 @@ fn main() {
         // the help itself to act on, so it is not left with nothing.
         let idle = args.options_given_except(PRESENTATION_OPTIONS);
         if idle.is_empty() {
-            print_help();
+            help::print_index();
             return;
         }
         eprintln!(
@@ -191,9 +197,10 @@ fn main() {
     // `sources --template <name>` is the other: the name narrows which empty
     // records the template covers, so a positional there is the argument
     // being read, not one slipping past unnoticed.
-    let reads_an_argument =
-        (command == "roots" && args.has("remove") && args.value("exclude").is_none())
-            || (command == "sources" && args.has("template"));
+    let asks_for_command_help = command == "help" && args.positionals.len() == 1;
+    let reads_an_argument = asks_for_command_help
+        || (command == "roots" && args.has("remove") && args.value("exclude").is_none())
+        || (command == "sources" && args.has("template"));
     if let Some(hint) = takes_no_argument(command)
         && !args.positionals.is_empty()
         && !reads_an_argument
@@ -679,7 +686,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("search", None, commands::search),
     ("file", None, commands::inspect),
     ("export", None, commands::export),
-    ("help", None, run_help),
+    ("help", None, help::run),
 ];
 
 /// The one name a command is known by everywhere except on the command line.
@@ -699,13 +706,6 @@ fn canonical(typed: &str) -> &str {
         .find(|(_, alias, _)| alias.is_some_and(|a| a == typed))
         .map(|(name, _, _)| *name)
         .unwrap_or(typed)
-}
-
-/// `help` as a function, so that it sits in the table like every other command
-/// rather than being a special case the table could forget.
-fn run_help(_args: &Args) -> commands::Res {
-    print_help();
-    Ok(())
 }
 
 /// Options that shape what is printed rather than what is answered, and so are
@@ -799,10 +799,10 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
         "favourites" | "notes" | "history" => {
             "It lists what you wrote. To write: aede love|rate|note <kind> \"<name>\""
         }
-        // `aede help scan` reads like a request for one command's page, and
-        // there is no such page: printing the whole help as though the word had
-        // not been typed answers a question that was not asked.
-        "help" => "It prints the whole help; there is no page per command.",
+        // `aede help fetch` is deliberately the one detailed page: fetch has
+        // several independent sources and image families, too much to make
+        // the front page pleasant to scan.
+        "help" => "For one command: aede help <command>",
         _ => return None,
     })
 }
@@ -860,549 +860,6 @@ const OUTPUT_COMMANDS: &[&str] = &[
     "query",
     "collection",
 ];
-
-fn print_help() {
-    println!(
-        "{}",
-        ui::bold(&format!("aede {VERSION} — local music library"))
-    );
-    println!(
-        "
-{}
-  aede <command> [options]
-
-{}
-  scan [folder…]       Scan the watched folders; any folder given is added to them
-  roots                List the watched folders and the ones never read
-                       (--remove <folder> drops a watched folder;
-                       --exclude <folder> keeps one out of the catalog for
-                       good, --exclude <folder> --remove reads it again).
-                       Any of the three rescans straight away so the change
-                       takes effect; --no-scan leaves that for later
-  stats                Library statistics
-  doctor               Diagnosis: missing tags, duplicates, incomplete albums
-                       (--severity=error|warning|info)
-  copy <destination>   Copy a selection somewhere that is not a library — a
-                       player, a card, a drive — keeping its folder tree.
-                       --query or --collection choose what; without either,
-                       the whole library. --extras none|cover|images|all
-                       (default: cover), --verify reads back what it wrote,
-                       --dry-run says what it would do and writes nothing.
-                       --compress <format> encodes on the way out, through
-                       ffmpeg, several files at a time; what is already
-                       compressed is copied as it is. A plain copy writes one
-                       file at a time — one card is one queue — and --threads
-                       overrides that either way
-  check [folder…]      Verify the checksums the files carry, all of them or
-                       only those under the folders given (--full re-verifies).
-                       Nothing left to check prints the current report instead
-  fetch [name… | folder…] Ask MusicBrainz about your artists and albums and
-                       store what it says, beside your tags. The albums are
-                       where your tags can be contradicted: RELEASETYPE, DATE and
-                       LABEL have an answer on both sides. One request per
-                       second, which the service requires, and one request per
-                       album whatever your tags carry: a large library takes a
-                       while, and the command says how long before it starts.
-                       --dry-run lists what would be asked, --full asks again
-                       about what is already held. A name narrows it, and
-                       reaches the records as well as the person.
-                       A folder narrows it too, and asks the other question:
-                       aede fetch --lyrics ~/Music/Alastis is that shelf, not
-                       that word. Anything you type that is on the disk is
-                       read as a folder, anything else as a name, and the run
-                       prints the folders back before it asks anything. It
-                       works the same way for every option of fetch, and for
-                       several folders and names at once
-                       --discography is a second pass, over what fetch
-                       already stored: it browses everything MusicBrainz
-                       credits to each artist, so that aede missing can say
-                       which studio albums your shelf does not hold. One more
-                       request per artist.
-                       --lyrics is a second pass that asks LRCLIB for the
-                       words of every track that has none, and writes each
-                       answer as a .lrc beside its track. It never runs on
-                       its own: lyrics are the song's copyright, which owning
-                       the file grants no rights in, so going and getting
-                       them is a decision left to you and the run says so
-                       before it asks anything. A track that already has
-                       words — in its tags or in a .lrc — is never touched,
-                       and nothing is ever written into an audio file.
-                       --covers is a second pass that downloads the front
-                       image of every album that has none — nothing inside the
-                       files, nothing beside them — and writes it as cover.jpg
-                       in the album's folder. It downloads only: an album whose
-                       picture is already inside its files is skipped, and the
-                       line that skips it names aede extract, which writes that
-                       one out without a network. An album that already has a
-                       cover is never touched, and there is no way to overwrite
-                       one.
-                       --size 250|500|1200|original chooses how large an image
-                       to keep (1200 by default), --images downloads the back,
-                       the booklet and the disc as well into an artwork/
-                       subfolder, and --dry-run lists what would be asked for
-                       Any of the second passes below may be given
-                       together — aede fetch --covers --discography runs both,
-                       one after the other. Each takes names and folders, like
-                       fetch itself: aede fetch --discography 'pink floyd'
-                       browses that artist alone, aede fetch --covers
-                       ~/Music/Alastis asks about that shelf alone, and a list
-                       of either is fine. They always run in the order they
-                       are listed here, whatever order you type them in, since
-                       they go out from the artist: who they are, what they
-                       recorded, what the records look like.
-                       --summaries is a second pass, over what fetch already
-                       stored: it follows the wikidata link to a Wikipedia
-                       article and keeps its opening paragraph, with the page
-                       and the licence that text is under. Two more requests
-                       per artist, which is why it is asked for
-                       --portraits is a second pass that asks for a picture of
-                       the artist: Wikidata first, through the same wikidata
-                       link, then Fanart.tv where Wikidata has none (needs a
-                       free key in AEDE_FANARTTV_KEY; without one, only
-                       Wikidata is asked). It is written as artist.jpg or
-                       artist.png beside the music, in the folder shared by
-                       every one of the artist's albums, or into assets/ under
-                       your data folder when there is no single folder to
-                       write beside. An artist that already has a picture is
-                       never touched
-                       --logos is a second pass that asks Fanart.tv for the
-                       artist's logo, and the logo of every label already
-                       identified by --labels — no other source carries one, so it
-                       needs the same free key in AEDE_FANARTTV_KEY and asks
-                       nothing without it. It is written as logo.jpg or
-                       logo.png beside the music, in the folder shared by
-                       every one of the artist's albums, or into assets/ under
-                       your data folder when there is no single folder to
-                       write beside. A label logo is written under
-                       assets/labels/<MusicBrainz ID>/, since no album folder
-                       belongs to a label. `aede fetch --labels --logos`
-                       identifies labels first, then asks Fanart.tv by that
-                       identifier. An artist that already has a logo is
-                       never touched. --banners, alongside --logos, keeps a
-                       wide banner.jpg or banner.png too, read from the very
-                       answer already fetched for the logo — no request of
-                       its own. An artist that already has a banner on disk
-                       is not asked again for one, even if it still needs a
-                       logo
-                       --fanart widens that pass to every useful music image
-                       in the same Fanart.tv answer: portrait, banner,
-                       background (4K before 1080p), album cover and cdART.
-                       Album images are kept in artwork/; artist images stay
-                       beside the music or in assets/. Existing files are
-                       never overwritten. Each family can be excluded with
-                       --no-logo, --no-label-logo, --no-portrait,
-                       --no-background, --no-banner, --no-album-cover or
-                       --no-cdart
-                       --labels is a second pass that asks MusicBrainz for a
-                       label's own identifier: fetching an album already reads
-                       one off the release when the same answer names it, but
-                       only for labels a release lookup happened to reach.
-                       This asks about the label directly, closing that gap —
-                       a certain lookup where a release elsewhere already named
-                       the identifier, a scored search otherwise
-  sources              What other sources say, beside your tags and never on
-                       top of them. --list shows each record, --forget drops
-                       them, --source narrows to one. --template writes a
-                       document with the keys and nothing filled in, --import
-                       <file> takes one back, --export writes out what is held
-                       (both through --output, or to the terminal)
-  fingerprint [folder…] Work out what each file's audio is, by decoding it.
-                       The local half of identifying by sound: it touches no
-                       network and stores what it computes in the catalog, so
-                       it is never computed twice. By default only the files
-                       your tags cannot identify — no title, or no artist —
-                       since decoding a well-tagged library is hours of work
-                       to confirm what the tags say. --full takes everything.
-                       --list prints what is stored, whole and one value to a
-                       line: the same string fpcalc prints, so two copies of an
-                       album can be compared, and aede doctor reports the ones
-                       that match.
-                       Needs ffmpeg built with chromaprint, or fpcalc; it says
-                       which, and how to install either
-  extract [folder…]    Write the picture your files already carry into their
-                       own folder, as cover.jpg. No network: it comes out of
-                       the audio files, whatever the format — FLAC, MP3, MP4,
-                       Ogg, AIFF, WAV. A folder that already holds an image is
-                       left alone, and nothing is ever overwritten. Reach for
-                       this before fetch --covers: an album whose artwork is
-                       inside its files needs no download. --images writes out
-                       the back, the booklet and the disc as well, into an
-                       artwork/ subfolder (--dry-run says which folders, and
-                       writes nothing). Also answers to: artwork
-  spectrum [folder…]   Draw a spectrogram of every track into a spectrograms/
-                       folder beside it, through ffmpeg, several at a time.
-                       Only what is missing or older than its track is drawn,
-                       so a second run over an unchanged library draws nothing
-                       (--full redraws everything, --dry-run only says what it
-                       would draw, --threads sets how many run at once).
-                       --size half (the default) keeps a library's pictures in
-                       the megabytes rather than the gigabytes; --size full
-                       matches FlacCompagnon's own dimensions exactly, for
-                       putting the two side by side. Changing --size does not
-                       redraw what is already there on its own — --full does
-  playlist [folder…]   Write an .m3u in every album folder, in album order and
-                       with relative paths. --simple leaves out the #EXTINF
-                       lines for players that choke on them, --artists adds one
-                       per artist folder covering their whole discography,
-                       --dry-run only says what it would write
-  artists              List of artists (--role composer, producer…,
-                       --country france, --sort tracks|name)
-  countries            Where the artists on the shelf are from. Not a tag:
-                       there is no usable one for it, so the fact comes from
-                       MusicBrainz and this reads what aede fetch stored. An
-                       artist nobody has asked about has no country, and the
-                       listing says how many those are rather than leaving
-                       them out in silence
-  missing [name…]      Studio albums MusicBrainz credits to your artists that
-                       this catalog does not hold. Nothing is fetched here:
-                       the answer is worked out from what fetch
-                       --discography already stored, so an album stops being
-                       listed the day you add it. Singles, live records and
-                       compilations are left out; --all holds nothing back
-                       and says of each row why it would not be there.
-                       MusicBrainz is sometimes wrong about what an album is —
-                       a demo or a compilation nobody has typed as one — so
-                       --forget <title> sets a record aside and stops listing
-                       it, --list shows what you set aside — narrowed by a
-                       name, like the report itself — and --forget --remove
-                       <title> puts it back. What the source said is
-                       never altered: only what you are shown
-  merge <a> <b>        Say that two spellings are one musician: the first
-                       gives way to the second. Files tagged by Picard need
-                       none of this — a shared MUSICBRAINZ_ARTISTID already
-                       merges them — but nobody outside can know that your
-                       O. Osbourne is Ozzy, so this is where you say it.
-                       Nothing in your files changes: it is how the shelf is
-                       read, and it takes effect on the next aede scan.
-                       --list shows the statements, narrowed by a name;
-                       --forget <spelling> takes one back. aede doctor names
-                       the pairs worth looking at and merges none of them
-  albums               List of albums (--artist, --year, --genre, --label,
-                       --comment, --compilations, --no-compilations).
-                       --query narrows it by anything the grammar can say:
-                       aede albums --query \"album.rating:>=4\"
-  genres               List of genres
-  labels               List of labels
-  years                Breakdown by year
-  artist <name>        Artist card: discography, collaborations
-                       (--with=<other> lists the tracks the two share).
-                       --members is the dated line-up: who played in the band,
-                       on what, and between which years, in MusicBrainz's own
-                       words — and for a person, the bands they played in. It
-                       comes from aede fetch, and the album pages use the same
-                       dates to name the band as it stood the year each record
-                       came out
-  album <title>        Album card: tracks and credits
-  track <title>        Track card: album, credits, technical details, tags
-                       (--lyrics adds the words, from the tags or from a .lrc
-                       file sitting beside the track)
-  genre <name>         Genre page: albums and artists carrying it
-  label <name>         Label page: its catalogue and its artists
-  search <text>        Search the whole catalog. --comments also looks in the
-                       comment tag, --notes in what you wrote yourself,
-                       --lyrics in the words of the songs
-  file <path>          Read one file straight off disk: its technical
-                       properties and raw tags, exactly as it carries them,
-                       with no catalog involved. Handy to see why a scanned
-                       file looks wrong, or to check one before adding it to
-                       the library
-  import <report…>     Take in FlacCompagnon reports. --list says what is
-                       held and what became of it, --pending lists the
-                       folders whose analyses match no file yet, --forget
-                       removes analyses; --forget --pending [folder…] drops
-                       only what is waiting, and keeps what did attach
-  reset                Remove the catalog, after confirmation (--yes skips it)
-  backup <file>        Everything Aède knows in one document: the catalog,
-                       what you said and what sources said. The catalog can
-                       be rebuilt by a scan; your notes, ratings and play
-                       counts cannot be rebuilt by anything, and the fetched
-                       layer costs twenty minutes of polite requests. An
-                       existing file is overwritten only after confirmation
-                       (--yes skips it)
-  restore <file>       Put a backup back, after confirmation (--yes skips
-                       it). It says what it will replace before asking. A
-                       store the backup does not hold is left exactly as it
-                       is and never deleted, and a store this build cannot
-                       read does not stop the other two
-  export               Export the catalog as JSON, or as CSV with --csv
-                       (one row per album; --tracks for one row per track)
-  query <expression>   (also: find) Every track an expression matches; the
-                       result is a selection, so --csv, --json and --m3u apply
-                         genre:metal year:1990..1999 -label:earache
-                         (artist:ozzy OR artist:dio) album.rating:>=4 played:0
-                       From the tags: title artist album albumartist genre
-                       label comment path codec year duration size bitrate
-                       samplerate lossless compilation
-                       What you wrote: rating loved tag note played — each
-                       also as album.<field> and artist.<field>, since stars
-                       on a track and on its album are different claims
-                       A scope is part of the question: a bare rating, loved,
-                       tag or note asks about the **track**, and what you
-                       wrote on an album is album.<field>. An answer that
-                       finds nothing says where it actually is.
-                         tag:vinyl                 the track carries it
-                         album.tag:vinyl           its album does
-                         note:remaster             the note says so
-                         rating:>=4  album.rating:5  loved
-                       A field alone asks whether there is one at all, and
-                       -field asks the opposite:
-                         note        what you have written a note on
-                         -rating     what you have never rated
-                       Who did what: composer, lyricist, producer, engineer,
-                       performer, conductor, remixer, featured, mainartist,
-                       performing
-  love <kind> <name>   Mark a favourite (--remove takes it back)
-  rate <kind> <name>   Give it 1 to 5 stars: --stars 4, or --remove
-  note <kind> <name>   Write a note. One note per thing, kept as typed.
-                       --text <words>, or --file <path> (- reads a pipe),
-                       --append adds to it, --remove takes it away,
-                       --from <reference> copies another one.
-                       With none of those, it reads the note back
-  tag <kind> <name> <label[,label…]>
-                       Attach free labels, several at once: vinyl,rare
-                       --remove takes off the ones named, or every one of
-                       them when none is named
-  played <track>       Record a listen, until playback records its own
-                       (--remove takes back the most recent one)
-  collection <name>    Save a query under a name (--query), run it, or
-                       drop it with --remove. It keeps the question, not the
-                       answer, so it says what the library holds now
-  collections          The saved queries, and how much each one holds now
-  favourites           (also: favorites) Everything marked a favourite
-  notes                Everything written (--tag <label> narrows)
-                       --export writes it all out, --import <file> merges it
-                       back in — never replaces
-  history              What was played, most recent first
-                       (--remove forgets the lot, after confirmation)
-  help                 This page, which is also what running aede alone shows
-
-{}
-  --data <folder>      Catalog location
-                       (default: $AEDE_HOME or ~/.local/share/aede)
-  --limit <n>          Number of rows displayed
-  --offset <n>         Rows skipped first, to walk a result page by page
-  --all                Every row, however many there are
-  --json               Machine-readable output: the same rows as --csv,
-                       plus stats, doctor, search and track
-  --csv                Spreadsheet output: export, the listings, and any
-                       selection (--separator=; or tab)
-  --m3u                Playlist of the tracks shown (album, artist, track,
-                       search); --output=<file> writes it instead of printing
-  -o, --output <file>  Write to a file rather than to standard output
-  --no-color           Turn colours off
-  -h, --help           Show this help
-  -V, --version        Show the version
-
-{}
-  --full               Ignore the tag cache and re-read every file
-                       (scan, check); on fetch, ask again about what is
-                       already held
-  --identify           A second pass for fetch: ask AcoustID what the
-                       fingerprinted files sound like, and store the answer
-                       beside your tags. Needs an application key in
-                       AEDE_ACOUSTID_KEY, and aede fingerprint first. Nothing
-                       is ever written into an audio file: a file whose sound
-                       and whose tags disagree is reported, not rewritten
-  --covers             A second pass for fetch: download the front image of
-                       albums that have none, from the Cover Art Archive.
-                       Downloads only — aede extract is what writes out the
-                       picture your own files carry
-  --size <what>        250, 500, 1200 or original, for the images --covers
-                       keeps. 1200 by default: right on any screen, and a few
-                       hundred megabytes rather than a few gigabytes
-  --images             Keep the images that are not the cover — the back, the
-                       booklet, the disc — in an artwork/ subfolder of each
-                       album's folder, never beside the music where any image
-                       is taken for the cover. On extract, out of your own
-                       files; on fetch --covers, from the archive
-  --discography        A second pass for fetch: browse everything MusicBrainz
-                       credits to each artist, which is what the missing
-                       command then reads
-  --summaries          A second pass for fetch: follow the wikidata link
-                       each artist already has to a Wikipedia article, and
-                       keep its opening paragraph with its credit. The
-                       article is looked for in your own language first,
-                       then in English
-  --portraits          A second pass for fetch: a picture of the artist, from
-                       Wikidata first and Fanart.tv where Wikidata has none
-                       (a free key in AEDE_FANARTTV_KEY). Written beside the
-                       music when every album shares a folder, into assets/
-                       under your data folder otherwise; an artist that
-                       already has one is never touched
-  --logos              A second pass for fetch: artist logos, plus logos for
-                       labels already identified by --labels, from Fanart.tv.
-                       A missing key in AEDE_FANARTTV_KEY leaves them unasked.
-                       Artist logos are written
-                       as logo.jpg or logo.png beside the music when every
-                       album shares a folder, into assets/ under your data
-                       folder otherwise; label logos go in assets/labels/<id>/.
-                       `aede fetch --labels --logos` identifies labels first.
-                       An artist or label already asked is never touched
-  --fanart             Fetch every useful Fanart.tv music artwork category in
-                       one artist request: HD logo, banner, portrait,
-                       background, album cover and cdART, plus identified-label
-                       logos. A 4K background is always preferred over 1080p.
-                       Artist files go beside the music (or under assets/);
-                       album cover and disc images go into artwork/. Existing
-                       files are never overwritten
-  --no-logo            With --fanart, skip artist logos
-  --no-label-logo      With --fanart, skip record-label logos
-  --no-portrait        With --fanart, skip artist portraits
-  --no-background      With --fanart, skip artist backgrounds
-  --no-banner          With --fanart, skip artist banners
-  --no-album-cover     With --fanart, skip Fanart.tv album covers
-  --no-cdart           With --fanart, skip cdART disc images
-  --banners            With --logos, also keep a wide banner.jpg or
-                       banner.png, read from the very answer already fetched
-                       for the logo rather than a request of its own. Tracked
-                       by whether the file is there, not in sources.json: an
-                       artist that already has a logo but no banner is still
-                       asked
-  --labels             A second pass for fetch: a record label's own
-                       MusicBrainz identifier. Asked by identifier when a
-                       release this catalog looked up already named one for
-                       that label, by name search otherwise. A label with an
-                       identifier of its own is never asked again
-  --lang <code>        Which language to fetch the prose in (fetch): a
-                       two-letter code, `fr`, `de`, `ja`. Without it, the
-                       shell's own locale is used, and English is always the
-                       last resort — for a great many artists it is the only
-                       article there is. The prose is stored in the language
-                       it was fetched in, so asking for another means asking
-                       again: aede fetch --summaries --full --lang=fr <name>
-  --replace            Forget the watched folders and keep only those given
-  --threads <n>        Number of reader threads (scan, check;
-                       default: available cores)
-  --follow-symlinks    Follow symbolic links
-  --include-hidden     Include hidden files and folders
-  --exclude <folder>   Never read this folder (roots). Kept in the catalog,
-                       so a plain `aede scan` goes on honouring it
-
-{}
-  Each says where it applies; a command that cannot honour one refuses it.
-  --artist <name>      Of one artist (albums, track)
-  --year <year>        Of one year (albums)
-  --genre <name>       Carrying a genre (albums)
-  --label <name>       Published under a label (albums)
-  --compilations       Only what several artists share (albums)
-  --no-compilations    Everything except those (albums)
-  --comment <text>     Only what a comment mentions (albums, track)
-  --comments           Search the comment tag as well (search)
-  --notes              Search your own notes as well (search)
-  --stars <1-5>        How many stars (rate)
-  --text <words>       The note itself (note)
-  --file <path>        Read the note from a file, or from a pipe with - (note)
-  --append             Add to the note instead of replacing it (note)
-  --query <expression> An expression from the query grammar (collection,
-                       copy, albums). On albums it keeps those holding a
-                       track it matches: --query \"album.rating:>=4\"
-  --export             Write out everything you wrote (notes)
-  --import <file>      Merge a previous export back in (notes)
-  --from <reference>   Copy what was said about another thing (note)
-  --tag <label>        Only what carries this label (notes)
-  --remove             Take back what was set (love, rate, note, tag, roots,
-                       played, history); on tag with no label named, takes
-                       off every one
-  --role <role>        On artists: who is credited that way.
-                       On artist <name>: what they did in that role.
-  --country <name>     On artists: where they are from, as MusicBrainz says.
-                       Not from a tag — there is no usable one — so it reads
-                       what aede fetch stored, and an artist nobody has asked
-                       about is not in the answer. A name, not a code:
-                       --country france, --country 'united kingdom'. One word
-                       reaching several countries covers all of them and says
-                       so. Run aede countries for the list.
-  --album <title>      Of one album (track)
-  --with <name>        The tracks two artists share (artist)
-  --severity <level>   error, warning or info (doctor)
-  --sort <order>       On the listings: name, artist, tracks, albums,
-                       duration, size, year — each listing accepts the ones
-                       it has a column for. On query and collection: title,
-                       artist, album, year, duration, size, rating, played,
-                       catalog. A trailing - reverses it, everywhere
-
-{}
-  --extras <what>      What travels beside the audio: none, cover (default),
-                       images, all. The cover is the one the catalog picked,
-                       so it leaves spectrograms and booklet scans behind
-  --collection <name>  Copy what a saved query holds
-  --verify             Read each file back and compare it with the source
-  --dry-run            Say what would be copied, and write nothing
-  --safe-names         Adapt names a destination refuses: ? : * < > and more
-  --raw-names          Leave names exactly as they are
-  --replace            Write files again even when they are already there
-  --compress <format>  Encode on the way out: mp3, opus, aac, vorbis, flac,
-                       wav. Needs ffmpeg installed. Only lossless sources are
-                       encoded — what is already compressed is copied as it
-                       stands rather than losing a second time
-  --quality <setting>  V0…V9 for MP3, q0…q10 for Vorbis, or a bitrate like
-                       192k. Only for the formats that have one: flac and
-                       wav keep every sample, so there is nothing to choose
-
-{}
-  --list               List every analysis held, by folder, and say what
-                       became of each: attached, waiting for a scan, or
-                       stale because the file changed since
-  --forget             Remove the imported analyses instead of adding any
-  --pending            List the folders whose analyses match no file yet;
-                       with --forget, remove only those. Both accept
-                       folders, to act on one rather than on all of them
-  --source <name>      Restrict to one tool (--list, --forget, --pending)
-
-{}
-  aede scan ~/Music
-  aede stats
-  aede doctor --severity=error --limit=50
-  aede artist \"Miles Davis\"
-  aede track \"So What\" --artist=\"Miles Davis\"
-  aede albums --year=1969
-  aede albums --compilations
-  aede genre metal
-  aede artists --role producer
-  aede artist Ozzy --role performer --m3u
-  aede search --comments \"vinyl rip\" --m3u
-  aede search coltrane
-  aede albums --limit 50 --offset 50
-  aede albums --all -o everything.csv --csv
-  aede query \"genre:metal year:1990..1999 -label:earache\"
-  aede query \"album.rating:>=4 played:0\" --m3u
-  aede query \"loved\" --sort played- --limit 20
-  aede albums --query \"album.rating:>=4\"
-  aede albums --query \"album.tag:vinyl\"
-  aede query \"note:remaster\"
-  aede query \"album.tag:vinyl OR album.tag:rare\"
-  aede query \"-rating loved\"
-  aede collection wishlist --query \"loved played:0\"
-  aede collection wishlist --m3u
-  aede notes --export -o backup.json
-  aede love album \"Kind of Blue\"
-  aede rate artist \"Miles Davis\" --stars 5
-  aede note album \"Legion\" --text \"the 1992 pressing\"
-  aede tag album \"Legion\" vinyl,rare,to rip again
-  aede tag album \"Legion\" rare --remove
-  aede tag album \"Legion\" --remove
-  aede notes --tag vinyl
-  aede search vinyle --notes
-  aede roots --exclude ~/Music/Audiobooks
-  aede played \"So What\" --remove
-  aede history --remove
-  aede copy /Volumes/Player --query \"loved rating:>=4\" --verify
-  aede copy /Volumes/Card --collection wishlist --extras none
-  aede copy /Volumes/Phone --compress opus --quality 128k
-  aede copy /Volumes/Phone --compress mp3 --quality V0 --query \"loved\"
-  aede import ~/Desktop/report.json
-  aede import --pending
-  aede import --forget --pending \"/Volumes/OldDrive/Music\"",
-        ui::cyan("USAGE"),
-        ui::cyan("COMMANDS"),
-        ui::cyan("GLOBAL OPTIONS"),
-        ui::cyan("SCAN OPTIONS"),
-        ui::cyan("FILTER OPTIONS"),
-        ui::cyan("COPY OPTIONS"),
-        ui::cyan("IMPORT OPTIONS"),
-        ui::cyan("EXAMPLES")
-    );
-}
 
 #[cfg(test)]
 #[path = "main_tests.rs"]

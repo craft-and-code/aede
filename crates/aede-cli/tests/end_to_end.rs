@@ -1044,9 +1044,9 @@ fn the_options_and_the_grammar_are_one_evaluator() {
 
 #[test]
 fn help_is_a_command_like_the_others() {
-    // It answers, so it is listed; it reads no argument, so it refuses one.
-    // `aede help scan` reads as a request for one command's page and printed
-    // the whole help as though nothing had been typed.
+    // It answers, so it is listed. `fetch` is deliberately the one detailed
+    // page: its independent metadata, text and artwork passes would otherwise
+    // turn the front page into an unreadable wall of prose.
     let sandbox = Sandbox::new("help_command");
 
     let (out, _, ok) = sandbox.run(&["help"]);
@@ -1056,11 +1056,55 @@ fn help_is_a_command_like_the_others() {
         "a command that works is a command the help names:\n{out}"
     );
 
-    let (out, err, ok) = sandbox.run(&["help", "scan"]);
+    let (fetch, err, ok) = sandbox.run(&["help", "fetch"]);
+    assert!(ok, "stderr: {err}");
+    assert!(fetch.contains("METADATA & TEXT"), "output: {fetch}");
+    assert!(fetch.contains("FANART.TV EXCLUSIONS"), "output: {fetch}");
+    assert!(fetch.contains("4K background"), "output: {fetch}");
+
+    let (flag, err, ok) = sandbox.run(&["fetch", "--help"]);
+    assert!(ok, "stderr: {err}");
+    assert_eq!(flag, fetch, "both conventional forms show one page");
+
+    let (scan, err, ok) = sandbox.run(&["help", "scan"]);
+    assert!(ok, "stderr: {err}");
+    assert!(scan.contains("aede scan — command help"), "output: {scan}");
+    assert!(scan.contains("--follow-symlinks"), "output: {scan}");
+
+    let (albums, err, ok) = sandbox.run(&["albums", "--help"]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        albums.contains("aede albums — command help"),
+        "output: {albums}"
+    );
+    assert!(albums.contains("--compilations"), "output: {albums}");
+
+    let (find, err, ok) = sandbox.run(&["help", "find"]);
+    assert!(ok, "stderr: {err}");
+    assert!(find.contains("aede query — command help"), "output: {find}");
+    assert!(
+        find.contains("Also available as: aede find"),
+        "output: {find}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["help", "not-a-command"]);
     assert!(!ok, "output: {out}");
-    assert!(err.contains("takes no argument"), "stderr: {err}");
-    assert!(err.contains("\"scan\" was ignored"), "stderr: {err}");
-    assert!(!out.contains("COMMANDS"), "and prints nothing else: {out}");
+    assert!(err.contains("no command named"), "stderr: {err}");
+}
+
+#[test]
+fn the_front_help_separates_fetch_and_artwork_from_library_options() {
+    let sandbox = Sandbox::new("help_sections");
+    let (out, err, ok) = sandbox.run(&["help"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("LIBRARY OPTIONS"), "output: {out}");
+    assert!(out.contains("FETCH OPTIONS"), "output: {out}");
+    assert!(out.contains("ARTWORK OPTIONS"), "output: {out}");
+    assert!(!out.contains("SCAN OPTIONS"), "output: {out}");
+    assert!(
+        out.contains("aede help fetch"),
+        "the concise front page points to the detailed page: {out}"
+    );
 }
 
 #[test]

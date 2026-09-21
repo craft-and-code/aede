@@ -4,6 +4,8 @@
 
 Three groups, and an option that a command cannot honour is **refused**, never ignored. So is an **argument**: `aede artists ozzy` used to list every artist and drop the word, which looks like an answer. It now tells you exactly what to type instead, guiding you rather than leaving you guessing.
 
+The main `aede help` page is an index: it groups library, fetch, artwork, filtering, copy, and import options without turning the terminal into a manual. Every command has its own page through `aede help <command>` or `aede <command> --help`; aliases work there too. `aede help fetch` adds its metadata, lyrics, artwork, Fanart.tv, and exclusion details.
+
 `export` describes your entire **catalog**: `--csv` gives one row per album, `--tracks` one row per track. It takes no argument.
 
 The **listings** — `albums`, `artists`, `genres`, `labels`, `years` — turn into a precise table of exactly what they show, filters included. This is how you gather several albums into one focused file:

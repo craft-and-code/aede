@@ -7,6 +7,18 @@
 
 use super::*;
 
+#[test]
+fn every_command_has_a_dedicated_help_page() {
+    for (command, _, _) in COMMANDS {
+        let page = help::command_page(command);
+        assert!(
+            page.usage.starts_with("aede "),
+            "{command} has no usable syntax"
+        );
+        assert!(!page.summary.is_empty(), "{command} has no summary");
+    }
+}
+
 /// Every `.rs` file of this crate's `src`, as text.
 fn sources() -> Vec<(String, String)> {
     fn walk(dir: &std::path::Path, found: &mut Vec<(String, String)>) {
@@ -160,11 +172,12 @@ fn no_sentence_carries_the_whitespace_of_the_source_it_was_written_in() {
     // how a test becomes something people switch off.
     let mut ragged: Vec<String> = Vec::new();
     for (file, text) in sources() {
-        // The help page is a laid-out block where the spacing *is* the layout.
-        // And this file holds the needle it is looking for — a check whose
+        // Help pages are laid-out blocks where the spacing *is* the layout.
+        // This file holds the needle it is looking for — a check whose
         // subject is source text must not read its own example, which is the
         // same rule that stops the manual's link check at `docs/`.
-        if file.ends_with("main.rs") || file.ends_with("main_tests.rs") {
+        if file.ends_with("help.rs") || file.ends_with("main.rs") || file.ends_with("main_tests.rs")
+        {
             continue;
         }
         for (number, line) in text.lines().enumerate() {
