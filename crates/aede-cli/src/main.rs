@@ -319,6 +319,14 @@ const OPTIONS: &[&str] = &[
     "lang",
     "portraits",
     "logos",
+    "fanart",
+    "no-logo",
+    "no-label-logo",
+    "no-portrait",
+    "no-background",
+    "no-banner",
+    "no-album-cover",
+    "no-cdart",
     "banners",
     "labels",
 ];
@@ -420,6 +428,38 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["fetch"],
         "look for artist and identified-label logos",
     ),
+    (
+        "fanart",
+        &["fetch"],
+        "keep all available Fanart.tv music artwork",
+    ),
+    ("no-logo", &["fetch"], "exclude artist logos from --fanart"),
+    (
+        "no-label-logo",
+        &["fetch"],
+        "exclude label logos from --fanart",
+    ),
+    (
+        "no-portrait",
+        &["fetch"],
+        "exclude artist portraits from --fanart",
+    ),
+    (
+        "no-background",
+        &["fetch"],
+        "exclude artist backgrounds from --fanart",
+    ),
+    (
+        "no-banner",
+        &["fetch"],
+        "exclude artist banners from --fanart",
+    ),
+    (
+        "no-album-cover",
+        &["fetch"],
+        "exclude album covers from --fanart",
+    ),
+    ("no-cdart", &["fetch"], "exclude disc artwork from --fanart"),
     (
         "banners",
         &["fetch"],
@@ -944,6 +984,15 @@ fn print_help() {
                        its own. An artist that already has a banner on disk
                        is not asked again for one, even if it still needs a
                        logo
+                       --fanart widens that pass to every useful music image
+                       in the same Fanart.tv answer: portrait, banner,
+                       background (4K before 1080p), album cover and cdART.
+                       Album images are kept in artwork/; artist images stay
+                       beside the music or in assets/. Existing files are
+                       never overwritten. Each family can be excluded with
+                       --no-logo, --no-label-logo, --no-portrait,
+                       --no-background, --no-banner, --no-album-cover or
+                       --no-cdart
                        --labels is a second pass that asks MusicBrainz for a
                        label's own identifier: fetching an album already reads
                        one off the release when the same answer names it, but
@@ -1189,6 +1238,20 @@ fn print_help() {
                        folder otherwise; label logos go in assets/labels/<id>/.
                        `aede fetch --labels --logos` identifies labels first.
                        An artist or label already asked is never touched
+  --fanart             Fetch every useful Fanart.tv music artwork category in
+                       one artist request: HD logo, banner, portrait,
+                       background, album cover and cdART, plus identified-label
+                       logos. A 4K background is always preferred over 1080p.
+                       Artist files go beside the music (or under assets/);
+                       album cover and disc images go into artwork/. Existing
+                       files are never overwritten
+  --no-logo            With --fanart, skip artist logos
+  --no-label-logo      With --fanart, skip record-label logos
+  --no-portrait        With --fanart, skip artist portraits
+  --no-background      With --fanart, skip artist backgrounds
+  --no-banner          With --fanart, skip artist banners
+  --no-album-cover     With --fanart, skip Fanart.tv album covers
+  --no-cdart           With --fanart, skip cdART disc images
   --banners            With --logos, also keep a wide banner.jpg or
                        banner.png, read from the very answer already fetched
                        for the logo rather than a request of its own. Tracked

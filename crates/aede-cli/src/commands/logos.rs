@@ -46,6 +46,17 @@
 //! bytes, and the folder already says whether one is there. An artist that
 //! already has a logo is still asked when `--banners` wants one it does not
 //! yet have.
+//!
+//! # Complete Fanart.tv artwork
+//!
+//! `--fanart` widens this pass without adding a second metadata request. It
+//! keeps the best portrait and banner, a 4K background whenever that pool is
+//! non-empty (1080p otherwise), and the cover plus one cdART image per disc
+//! for every local album identified by release-group MBID. Album images live
+//! in the album's `artwork/` folder; artist images share the artist target
+//! folder above. Separate completion records for every image family make an
+//! installation which ran the older logo-only pass eligible once, while
+//! allowing a later run to ask for a family that was previously excluded.
 
 // Compiled in every build, for the reason `fetch` is.
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
@@ -55,7 +66,7 @@ use std::path::{Path, PathBuf};
 
 use aede_core::coverart::{self, Kind};
 use aede_core::model::{Catalog, EntityKind, Id};
-use aede_core::sources::{self, Facts, LabelFacts, Picture, SourceRecord};
+use aede_core::sources::{self, Facts, LabelFacts, Picture, ReleaseFacts, SourceRecord};
 use aede_core::store;
 use aede_core::user::EntityRef;
 use aede_core::{clock, fanarttv};
@@ -63,7 +74,9 @@ use aede_core::{clock, fanarttv};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{
+    Ask, FanartOptions, Refusal, ask_bytes, ask_with_backoff, queue, worth_deferring,
+};
 
 /// An artist to ask about, and where the logo would be written.
 struct Target {
@@ -75,6 +88,15 @@ struct Target {
     mbid: String,
     /// The folder the logo is written into — see the module doc for how it
     /// is chosen.
+    destination: PathBuf,
+    /// Local albums belonging to this artist, paired with their release-group
+    /// identifiers so the album section of the same response can be used.
+    albums: Vec<AlbumTarget>,
+}
+
+struct AlbumTarget {
+    entity: EntityRef,
+    release_group: String,
     destination: PathBuf,
 }
 
@@ -101,6 +123,27 @@ enum Outcome {
     Nothing,
 }
 
+#[derive(Default)]
+struct ExtraReport {
+    written: usize,
+    failed: Vec<String>,
+}
+
+fn excluded_names(selected: FanartOptions) -> Vec<&'static str> {
+    [
+        (!selected.logo, "logo"),
+        (!selected.label_logo, "label logo"),
+        (!selected.portrait, "portrait"),
+        (!selected.background, "background"),
+        (!selected.banner, "banner"),
+        (!selected.album_cover, "album cover"),
+        (!selected.cdart, "cdART"),
+    ]
+    .into_iter()
+    .filter_map(|(excluded, name)| excluded.then_some(name))
+    .collect()
+}
+
 /// The pass.
 pub fn run(
     catalog: &Catalog,
@@ -112,7 +155,14 @@ pub fn run(
     fanarttv_key: Option<&str>,
     asked: &super::fetch::Asked,
 ) -> Res {
-    println!("{}", ui::section("Logos"));
+    println!(
+        "{}",
+        ui::section(if asked.fanart.all {
+            "Fanart.tv artwork"
+        } else {
+            "Logos"
+        })
+    );
     let Some(key) = fanarttv_key else {
         // Unlike a portrait, a logo has no Wikidata fallback — a missing key
         // does not narrow what this pass can do, it is the whole of it.
@@ -129,9 +179,11 @@ pub fn run(
     // Labels have no folder of their own. Once `fetch --labels` has established
     // their MusicBrainz id, Fanart.tv can answer them just as certainly as an
     // artist; their images live in the stable per-label assets directory.
-    run_label_logos(
-        catalog, transport, backoff, held, path, data_dir, key, asked,
-    )?;
+    if asked.fanart.label_logo {
+        run_label_logos(
+            catalog, transport, backoff, held, path, data_dir, key, asked,
+        )?;
+    }
 
     let targets = targets(
         catalog,
@@ -140,7 +192,7 @@ pub fn run(
         asked.scope,
         data_dir,
         asked.again,
-        asked.banners,
+        asked.fanart,
     );
     if targets.is_empty() {
         let narrowed = super::fetch::narrowing(asked.names, asked.scope);
@@ -155,21 +207,30 @@ pub fn run(
     }
 
     let least = targets.len() as u64 * fanarttv::REQUEST_INTERVAL.as_millis() as u64;
-    println!(
-        "  {}, one to two requests each, {} to {}",
-        ui::plural(targets.len(), "artist"),
-        ui::long_duration(least),
-        ui::long_duration(least * 2)
-    );
-    println!(
-        "  {}",
-        ui::dim(
-            "written as logo.jpg or logo.png beside the music when every \
-             album shares a folder, in assets/ otherwise; an artist that \
-             already has one is never touched",
-        )
-    );
-    if asked.banners {
+    match asked.fanart.all {
+        true => println!(
+            "  {}, one metadata request each plus the images found, at least {}",
+            ui::plural(targets.len(), "artist"),
+            ui::long_duration(least)
+        ),
+        false => println!(
+            "  {}, one to two requests each, {} to {}",
+            ui::plural(targets.len(), "artist"),
+            ui::long_duration(least),
+            ui::long_duration(least * 2)
+        ),
+    }
+    if asked.fanart.logo {
+        println!(
+            "  {}",
+            ui::dim(
+                "written as logo.jpg or logo.png beside the music when every \
+                 album shares a folder, in assets/ otherwise; an artist that \
+                 already has one is never touched",
+            )
+        );
+    }
+    if asked.fanart.banner && !asked.fanart.all {
         println!(
             "  {}",
             ui::dim(
@@ -178,6 +239,16 @@ pub fn run(
                  for the logo; a folder that has one is not asked about \
                  again",
             )
+        );
+    }
+    if asked.fanart.all {
+        let excluded = excluded_names(asked.fanart);
+        println!(
+            "  {}",
+            ui::dim(&match excluded.is_empty() {
+                true => "--fanart: every available image family is enabled".to_string(),
+                false => format!("--fanart: excluded {}", excluded.join(", ")),
+            })
         );
     }
 
@@ -189,7 +260,7 @@ pub fn run(
     }
 
     let (mut written, mut already, mut none, mut failed) = (0usize, 0usize, 0usize, 0usize);
-    let mut banners_written = 0usize;
+    let mut extras_written = 0usize;
     let mut pending = queue(&targets);
     let mut done = 0usize;
     let total = targets.len();
@@ -197,22 +268,25 @@ pub fn run(
         print!("\r  asking: {}/{}", done + 1, total);
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
-        match attempt(transport, backoff, target, key, asked.banners) {
-            Ok((outcome, banner)) => {
-                store(held, target, &outcome);
+        match attempt(transport, backoff, target, key, asked.fanart) {
+            Ok((outcome, extras)) => {
+                if let Some(outcome) = &outcome {
+                    store(held, target, outcome);
+                }
+                if extras.failed.is_empty() {
+                    store_artwork(held, target, asked.fanart);
+                }
                 sources::save(held, path)?;
                 match outcome {
-                    Outcome::Written { new: true, .. } => written += 1,
-                    Outcome::Written { new: false, .. } => already += 1,
-                    Outcome::Nothing => none += 1,
+                    Some(Outcome::Written { new: true, .. }) => written += 1,
+                    Some(Outcome::Written { new: false, .. }) => already += 1,
+                    Some(Outcome::Nothing) => none += 1,
+                    None => {}
                 }
-                match banner {
-                    Ok(true) => banners_written += 1,
-                    Ok(false) => {}
-                    Err(why) => {
-                        failed += 1;
-                        eprintln!("\r  {} {} (banner): {why}", ui::red("×"), target.name);
-                    }
+                extras_written += extras.written;
+                for why in extras.failed {
+                    failed += 1;
+                    eprintln!("\r  {} {} (artwork): {why}", ui::red("×"), target.name);
                 }
                 done += 1;
             }
@@ -229,16 +303,26 @@ pub fn run(
     }
     println!();
 
-    match asked.banners {
-        true => println!(
-            "{} {written} written, {banners_written} banners, {none} with \
+    let has_extras = asked.fanart.banner
+        || asked.fanart.portrait
+        || asked.fanart.background
+        || asked.fanart.album_cover
+        || asked.fanart.cdart;
+    match (asked.fanart.logo, has_extras) {
+        (true, true) => println!(
+            "{} {written} logos, {extras_written} other images, {none} with \
              no logo found, {failed} failed",
             ui::green("→")
         ),
-        false => println!(
+        (true, false) => println!(
             "{} {written} written, {none} with no logo found, {failed} failed",
             ui::green("→")
         ),
+        (false, true) => println!(
+            "{} {extras_written} images written, {failed} failed",
+            ui::green("→")
+        ),
+        (false, false) => {}
     }
     if already > 0 {
         println!(
@@ -268,23 +352,16 @@ pub fn run(
 /// `portraits::attempt` is one: a retry simply redoes the whole thing on the
 /// next pass through the queue.
 ///
-/// `banners` reads the banner out of the very same answer used for the logo
-/// — see the module doc — so asking for one costs nothing beyond what asking
-/// for the logo alone already costs. Its outcome travels back separately
-/// from [`Outcome`] — `Ok(true)` for a newly written banner, `Ok(false)` for
-/// everything worth no comment (`--banners` not given, nothing the service
-/// had, or one already on disk), `Err` for a real failure — because nothing
-/// records a banner in `sources.json` the way [`Outcome`] is stored. It is
-/// tried first, while the answer is still in hand, precisely so that a
-/// banner failure never costs the logo this attempt would otherwise still
-/// write.
+/// Every selected artist image is read from the same metadata answer. Image
+/// download failures travel back separately from [`Outcome`] so a failure on
+/// one optional family never costs the logo this attempt can still write.
 fn attempt(
     transport: &mut dyn Ask,
     backoff: &[std::time::Duration],
     target: &Target,
     key: &str,
-    banners: bool,
-) -> Result<(Outcome, Result<bool, String>), Refusal> {
+    selected: FanartOptions,
+) -> Result<(Option<Outcome>, ExtraReport), Refusal> {
     let doc = match ask_with_backoff(transport, &fanarttv::lookup_url(&target.mbid, key), backoff) {
         // The service answers `404` for an artist it holds nothing of, which
         // is a real answer, not a failure — the same distinction
@@ -297,34 +374,119 @@ fn attempt(
         fanarttv::artist_response(response, &target.mbid).map_err(Refusal::Failed)?;
     }
 
-    let banner = match banners
-        .then(|| doc.as_ref().and_then(fanarttv::banner_url))
-        .flatten()
-    {
-        Some(url) => fetch_banner(transport, backoff, target, &url),
-        None => Ok(false),
-    };
+    let mut extras = ExtraReport::default();
+    if let Some(response) = &doc {
+        if selected.banner {
+            fetch_extra(
+                transport,
+                backoff,
+                target,
+                Kind::Banner,
+                fanarttv::banner_url(response),
+                &mut extras,
+            );
+        }
+        if selected.background {
+            fetch_extra(
+                transport,
+                backoff,
+                target,
+                Kind::Background,
+                fanarttv::background_url(response),
+                &mut extras,
+            );
+        }
+        if selected.portrait {
+            fetch_extra(
+                transport,
+                backoff,
+                target,
+                Kind::Artist,
+                fanarttv::portrait_url(response),
+                &mut extras,
+            );
+        }
+        if selected.album_cover || selected.cdart {
+            fetch_album_artwork(transport, backoff, target, response, selected, &mut extras);
+        }
+    }
 
+    if !selected.logo {
+        return Ok((None, extras));
+    }
     if let Some(url) = doc.as_ref().and_then(fanarttv::logo_url) {
         let bytes = ask_bytes(transport, &url, backoff)?;
         let new = write(target, Kind::Logo, &bytes)?;
-        return Ok((Outcome::Written { url, new }, banner));
+        return Ok((Some(Outcome::Written { url, new }), extras));
     }
-    Ok((Outcome::Nothing, banner))
+    Ok((Some(Outcome::Nothing), extras))
 }
 
-/// Downloads and writes the banner, folding any failure into the `String`
-/// [`attempt`] hands back rather than the [`Refusal`] a logo failure raises
-/// — a banner that fails to download must not be read as a reason to retry
-/// or fail the artist it was asked about alongside.
-fn fetch_banner(
+fn fetch_extra(
     transport: &mut dyn Ask,
     backoff: &[std::time::Duration],
     target: &Target,
-    url: &str,
-) -> Result<bool, String> {
-    let bytes = ask_bytes(transport, url, backoff).map_err(|why| why.to_string())?;
-    write(target, Kind::Banner, &bytes).map_err(|why| why.to_string())
+    kind: Kind,
+    url: Option<String>,
+    report: &mut ExtraReport,
+) {
+    let Some(url) = url else { return };
+    if coverart::exists_beside(&target.destination, kind) {
+        return;
+    }
+    let result = ask_bytes(transport, &url, backoff)
+        .map_err(|why| why.to_string())
+        .and_then(|bytes| write(target, kind, &bytes).map_err(|why| why.to_string()));
+    match result {
+        Ok(true) => report.written += 1,
+        Ok(false) => {}
+        Err(why) => report.failed.push(why),
+    }
+}
+
+fn fetch_album_artwork(
+    transport: &mut dyn Ask,
+    backoff: &[std::time::Duration],
+    target: &Target,
+    response: &aede_core::json::Json,
+    selected: FanartOptions,
+    report: &mut ExtraReport,
+) {
+    for album in &target.albums {
+        let Some(artwork) = fanarttv::album_artwork(response, &album.release_group) else {
+            continue;
+        };
+        let folder = coverart::extras_in(&album.destination);
+        let mut images = Vec::new();
+        if selected.album_cover
+            && let Some(cover) = artwork.cover
+        {
+            images.push((Kind::Front, cover, (0, 1)));
+        }
+        if selected.cdart {
+            let disc_count = artwork.discs.len();
+            images.extend(
+                artwork
+                    .discs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, url)| (Kind::Media, url, (index, disc_count))),
+            );
+        }
+        for (kind, url, position) in images {
+            let result = ask_bytes(transport, &url, backoff)
+                .map_err(|why| why.to_string())
+                .and_then(|bytes| {
+                    coverart::write_image(&folder, kind, position, &bytes)
+                        .map(|written| matches!(written, coverart::Written::New(_)))
+                });
+            match result {
+                Ok(true) => report.written += 1,
+                Ok(false) => {}
+                Err(why) => report.failed.push(why),
+            }
+        }
+    }
 }
 
 /// Writes an image into the target's folder, unless one of that kind is
@@ -367,6 +529,47 @@ fn store(held: &mut sources::Sources, target: &Target, outcome: &Outcome) {
     });
 }
 
+fn store_artwork(held: &mut sources::Sources, target: &Target, selected: FanartOptions) {
+    let now = clock::now_seconds();
+    for source in [
+        selected
+            .portrait
+            .then_some(fanarttv::PORTRAIT_ARTWORK_SOURCE),
+        selected.background.then_some(fanarttv::BACKGROUND_SOURCE),
+        selected.banner.then_some(fanarttv::BANNER_SOURCE),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        held.set(SourceRecord {
+            key: target.entity.key.clone(),
+            source: source.to_string(),
+            source_id: Some(target.mbid.clone()),
+            fetched_at: now,
+            confidence: sources::Confidence::Identified,
+            facts: Facts::Artist(Default::default()),
+        });
+    }
+    for album in &target.albums {
+        for source in [
+            selected.album_cover.then_some(fanarttv::ALBUM_COVER_SOURCE),
+            selected.cdart.then_some(fanarttv::CDART_SOURCE),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            held.set(SourceRecord {
+                key: album.entity.key.clone(),
+                source: source.to_string(),
+                source_id: Some(album.release_group.clone()),
+                fetched_at: now,
+                confidence: sources::Confidence::Identified,
+                facts: Facts::Release(ReleaseFacts::default()),
+            });
+        }
+    }
+}
+
 /// How many artists this pass would ask about, if it ran now.
 ///
 /// The same function as the walk, counted rather than re-derived — see
@@ -392,7 +595,11 @@ pub fn waiting(
         &super::fetch::EVERYTHING,
         data_dir,
         false,
-        false,
+        FanartOptions {
+            logo: true,
+            label_logo: true,
+            ..FanartOptions::default()
+        },
     )
     .len()
 }
@@ -406,7 +613,7 @@ fn targets(
     scope: &super::fetch::Scope,
     data_dir: &Path,
     again: bool,
-    banners: bool,
+    selected: FanartOptions,
 ) -> Vec<Target> {
     let mut releases_by_artist: BTreeMap<Id, Vec<&aede_core::model::Release>> = BTreeMap::new();
     for release in &catalog.releases {
@@ -462,9 +669,54 @@ fn targets(
             })
             .unwrap_or_else(|| store::assets_dir(data_dir).join("artists").join(mbid));
 
-        let needs_logo = again || !has_logo(held, &entity);
-        let needs_banner = banners && !coverart::exists_beside(&destination, Kind::Banner);
-        if !needs_logo && !needs_banner {
+        let albums = releases_by_artist
+            .get(&artist_row.id)
+            .into_iter()
+            .flat_map(|releases| releases.iter().copied())
+            .filter(|release| scope.has_release(release.id))
+            .filter_map(|release| {
+                let album_entity = EntityRef::of(catalog, EntityKind::Release, release.id)?;
+                let release_group = release.release_group_mbid.clone().or_else(|| {
+                    held.get(&album_entity, sources::MUSICBRAINZ)
+                        .and_then(|record| record.source_id.clone())
+                })?;
+                Some(AlbumTarget {
+                    entity: album_entity,
+                    release_group,
+                    destination: PathBuf::from(&release.folder),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let legacy_complete = held.get(&entity, fanarttv::ARTWORK_SOURCE).is_some();
+        let needs_logo = selected.logo && (again || !has_logo(held, &entity));
+        let needs_artist_art = [
+            (selected.portrait, fanarttv::PORTRAIT_ARTWORK_SOURCE),
+            (selected.background, fanarttv::BACKGROUND_SOURCE),
+            (selected.banner, fanarttv::BANNER_SOURCE),
+        ]
+        .into_iter()
+        .any(|(wanted, source)| {
+            let already_on_disk = source == fanarttv::BANNER_SOURCE
+                && coverart::exists_beside(&destination, Kind::Banner);
+            wanted
+                && (again
+                    || (!legacy_complete
+                        && !already_on_disk
+                        && held.get(&entity, source).is_none()))
+        });
+        let needs_album_art = albums.iter().any(|album| {
+            let legacy = held.get(&album.entity, fanarttv::ARTWORK_SOURCE).is_some();
+            [
+                (selected.album_cover, fanarttv::ALBUM_COVER_SOURCE),
+                (selected.cdart, fanarttv::CDART_SOURCE),
+            ]
+            .into_iter()
+            .any(|(wanted, source)| {
+                wanted && (again || (!legacy && held.get(&album.entity, source).is_none()))
+            })
+        });
+        if !needs_logo && !needs_artist_art && !needs_album_art {
             continue;
         }
 
@@ -473,6 +725,7 @@ fn targets(
             name: artist_row.name.clone(),
             mbid: mbid.clone(),
             destination,
+            albums,
         });
     }
     targets

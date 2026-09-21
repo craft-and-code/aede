@@ -97,6 +97,59 @@ fn args(dir: &std::path::Path, extra: &[&str]) -> Args {
     Args::parse(raw)
 }
 
+#[test]
+fn fanart_exclusions_select_each_image_family_independently() {
+    let parsed = args(
+        std::path::Path::new("/tmp"),
+        &["--fanart", "--no-logo", "--no-background", "--no-cdart"],
+    );
+    let selected = FanartOptions::from_args(&parsed);
+
+    assert!(selected.all);
+    assert!(!selected.logo);
+    assert!(selected.label_logo);
+    assert!(selected.portrait);
+    assert!(!selected.background);
+    assert!(selected.banner);
+    assert!(selected.album_cover);
+    assert!(!selected.cdart);
+
+    for (excluded, expected) in [
+        ("--no-logo", [false, true, true, true, true, true, true]),
+        (
+            "--no-label-logo",
+            [true, false, true, true, true, true, true],
+        ),
+        ("--no-portrait", [true, true, false, true, true, true, true]),
+        (
+            "--no-background",
+            [true, true, true, false, true, true, true],
+        ),
+        ("--no-banner", [true, true, true, true, false, true, true]),
+        (
+            "--no-album-cover",
+            [true, true, true, true, true, false, true],
+        ),
+        ("--no-cdart", [true, true, true, true, true, true, false]),
+    ] {
+        let parsed = args(std::path::Path::new("/tmp"), &["--fanart", excluded]);
+        let selected = FanartOptions::from_args(&parsed);
+        assert_eq!(
+            [
+                selected.logo,
+                selected.label_logo,
+                selected.portrait,
+                selected.background,
+                selected.banner,
+                selected.album_cover,
+                selected.cdart,
+            ],
+            expected,
+            "{excluded} must disable only its own family"
+        );
+    }
+}
+
 /// The album in the reference library, as a release-group search answers.
 const ONE_ALBUM: &str = r#"{"release-groups":[
     {"id":"c9fdb94c","score":100,"title":"Kind of Blue",
@@ -607,6 +660,15 @@ fn the_passes_run_in_their_own_order_and_not_the_typed_one() {
     assert_eq!(
         typed_one_way, typed_another,
         "two orders of the same three options are one run"
+    );
+
+    assert_eq!(
+        Pass::asked_for(&args(
+            std::path::Path::new("/tmp"),
+            &["--fanart", "--logos", "--banners"],
+        )),
+        vec![Pass::Logos],
+        "the broad and legacy flags share one Fanart.tv metadata pass"
     );
 
     assert!(Pass::asked_for(&args(std::path::Path::new("/tmp"), &[])).is_empty());

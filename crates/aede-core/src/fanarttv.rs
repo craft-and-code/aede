@@ -1,5 +1,5 @@
-//! Fanart.tv: a portrait of the artist, when Wikidata has none, and its logo
-//! and banner, neither of which Wikidata ever carries at all.
+//! Fanart.tv music artwork: artist portraits, logos, banners and backgrounds,
+//! album covers and disc art, plus record-label logos.
 //!
 //! Deliberately **no network**, like [`crate::acoustid`] and
 //! [`crate::musicbrainz`]: this module builds the address to ask and reads
@@ -50,6 +50,26 @@ pub const LOGO_SOURCE: &str = "fanarttv-logo";
 
 /// The separate source record for a record label's logo.
 pub const LABEL_LOGO_SOURCE: &str = "fanarttv-label-logo";
+
+/// The legacy record left after the complete Fanart.tv artwork pass inspected
+/// an artist or album before artwork families became independently selectable.
+/// Kept so those completed passes are not needlessly repeated.
+pub const ARTWORK_SOURCE: &str = "fanarttv-artwork";
+
+/// The completion record for Fanart.tv artist portraits.
+pub const PORTRAIT_ARTWORK_SOURCE: &str = "fanarttv-artwork-portrait";
+
+/// The completion record for Fanart.tv artist backgrounds.
+pub const BACKGROUND_SOURCE: &str = "fanarttv-artwork-background";
+
+/// The completion record for Fanart.tv artist banners.
+pub const BANNER_SOURCE: &str = "fanarttv-artwork-banner";
+
+/// The completion record for Fanart.tv album covers.
+pub const ALBUM_COVER_SOURCE: &str = "fanarttv-artwork-album-cover";
+
+/// The completion record for Fanart.tv disc artwork.
+pub const CDART_SOURCE: &str = "fanarttv-artwork-cdart";
 
 /// The environment variable holding the application key.
 ///
@@ -188,6 +208,73 @@ pub fn logo_url(response: &Json) -> Option<String> {
 /// resolution only — there is no `hdmusicbanner` to prefer first.
 pub fn banner_url(response: &Json) -> Option<String> {
     best(response, "musicbanner").map(|thumb| thumb.url)
+}
+
+/// The best artist background, preferring the native 4K pool.
+///
+/// Fanart.tv exposes 3840×2160 images separately from its 1920×1080
+/// backgrounds.  They are alternative resolutions for the same use, so any
+/// 4K image wins; likes only choose within one resolution.
+pub fn background_url(response: &Json) -> Option<String> {
+    best(response, "artist4kbackground")
+        .or_else(|| best(response, "artistbackground"))
+        .map(|thumb| thumb.url)
+}
+
+/// Fanart.tv artwork belonging to one MusicBrainz release group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlbumArtwork {
+    /// The most liked album cover, when present.
+    pub cover: Option<String>,
+    /// The best disc image for each disc number, in disc order.
+    pub discs: Vec<String>,
+}
+
+/// Reads the album artwork embedded in an artist response from API v3.2.
+///
+/// Covers are interchangeable alternatives, hence one most-liked image.
+/// Disc art is not: disc one and disc two depict different objects, so the
+/// most-liked image for every distinct `disc` value is retained.
+pub fn album_artwork(response: &Json, release_group: &str) -> Option<AlbumArtwork> {
+    let album = response
+        .get("albums")?
+        .as_arr()?
+        .iter()
+        .find(|album| album.field_str("release_group_id").as_deref() == Some(release_group))?;
+    let cover = best(album, "albumcover").map(|thumb| thumb.url);
+
+    let mut discs: Vec<(String, Thumb)> = Vec::new();
+    for row in album.get("cdart").and_then(Json::as_arr).unwrap_or(&[]) {
+        let Some(url) = row.field_str("url").filter(|url| !url.is_empty()) else {
+            continue;
+        };
+        let disc = row.field_str("disc").unwrap_or_else(|| "1".to_string());
+        let likes = row
+            .field_str("likes")
+            .and_then(|likes| likes.parse::<u32>().ok())
+            .unwrap_or(0);
+        let candidate = Thumb { url, likes };
+        match discs.iter_mut().find(|(number, _)| number == &disc) {
+            Some((_, current))
+                if candidate.likes > current.likes
+                    || (candidate.likes == current.likes && candidate.url < current.url) =>
+            {
+                *current = candidate;
+            }
+            Some(_) => {}
+            None => discs.push((disc, candidate)),
+        }
+    }
+    discs.sort_by(|(a, _), (b, _)| {
+        a.parse::<u32>()
+            .unwrap_or(u32::MAX)
+            .cmp(&b.parse::<u32>().unwrap_or(u32::MAX))
+            .then_with(|| a.cmp(b))
+    });
+    Some(AlbumArtwork {
+        cover,
+        discs: discs.into_iter().map(|(_, image)| image.url).collect(),
+    })
 }
 
 /// The record label's logo address, or `None` when it has none.

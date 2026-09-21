@@ -39,6 +39,7 @@ fn one_album(dir: &std::path::Path) -> Catalog {
     tags.insert("albumartist", "Miles Davis");
     tags.insert("album", "Kind of Blue");
     tags.insert("title", "So What");
+    tags.insert("musicbrainz_releasegroupid", "release-group-1");
     build(
         vec![ScannedFile {
             path: folder.join("01.flac").to_string_lossy().to_string(),
@@ -111,6 +112,34 @@ fn entity() -> EntityRef {
     }
 }
 
+fn logo_options() -> FanartOptions {
+    FanartOptions {
+        logo: true,
+        label_logo: true,
+        ..Default::default()
+    }
+}
+
+fn banner_options() -> FanartOptions {
+    FanartOptions {
+        banner: true,
+        ..logo_options()
+    }
+}
+
+fn all_options() -> FanartOptions {
+    FanartOptions {
+        all: true,
+        logo: true,
+        label_logo: true,
+        portrait: true,
+        background: true,
+        banner: true,
+        album_cover: true,
+        cdart: true,
+    }
+}
+
 #[test]
 fn a_single_shared_folder_is_the_destination() {
     let dir = sandbox("shared_folder");
@@ -122,7 +151,7 @@ fn a_single_shared_folder_is_the_destination() {
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        false,
+        logo_options(),
     );
     assert_eq!(list.len(), 1);
     assert_eq!(
@@ -143,7 +172,7 @@ fn albums_that_share_no_folder_fall_back_to_assets() {
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        false,
+        logo_options(),
     );
     assert_eq!(list.len(), 1);
     assert_eq!(
@@ -188,7 +217,7 @@ fn a_watched_root_is_never_treated_as_an_artist_folder() {
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        false,
+        logo_options(),
     );
     assert_eq!(list.len(), 1);
     assert_eq!(
@@ -223,7 +252,7 @@ fn an_artist_with_a_stored_logo_is_not_a_target_again() {
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        false,
+        logo_options(),
     );
     assert!(list.is_empty(), "a logo is already on record");
 
@@ -234,16 +263,120 @@ fn an_artist_with_a_stored_logo_is_not_a_target_again() {
         &crate::commands::fetch::EVERYTHING,
         &dir,
         true,
-        false,
+        logo_options(),
     );
     assert_eq!(again.len(), 1, "--full asks again even with a logo on file");
+}
+
+#[test]
+fn the_full_fanart_pass_revisits_an_old_logo_then_records_artist_and_album() {
+    let dir = sandbox("fanart_completion");
+    let catalog = one_album(&dir);
+    let mut layer = held();
+    layer.set(SourceRecord {
+        key: "miles davis".to_string(),
+        source: fanarttv::LOGO_SOURCE.to_string(),
+        source_id: Some("mbid-1".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts {
+            logo: Some(Picture {
+                url: "https://x/logo.png".to_string(),
+            }),
+            ..Default::default()
+        }),
+    });
+
+    let list = targets(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        &dir,
+        false,
+        all_options(),
+    );
+    assert_eq!(list.len(), 1, "an old logo did not fetch the newer kinds");
+    assert_eq!(list[0].albums.len(), 1);
+    assert_eq!(list[0].albums[0].release_group, "release-group-1");
+
+    store_artwork(&mut layer, &list[0], all_options());
+    assert!(
+        targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            &dir,
+            false,
+            all_options(),
+        )
+        .is_empty(),
+        "a completed full-artwork lookup should not be repeated"
+    );
+}
+
+#[test]
+fn completing_one_fanart_family_does_not_complete_the_others() {
+    let dir = sandbox("fanart_family_completion");
+    let catalog = one_album(&dir);
+    let mut layer = held();
+    let background_only = FanartOptions {
+        all: true,
+        background: true,
+        ..Default::default()
+    };
+
+    let list = targets(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        &dir,
+        false,
+        background_only,
+    );
+    assert_eq!(list.len(), 1);
+    store_artwork(&mut layer, &list[0], background_only);
+    assert!(
+        targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            &dir,
+            false,
+            background_only,
+        )
+        .is_empty(),
+        "the selected family is complete"
+    );
+
+    let portrait_only = FanartOptions {
+        all: true,
+        portrait: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            &dir,
+            false,
+            portrait_only,
+        )
+        .len(),
+        1,
+        "an excluded family remains available for a later run"
+    );
 }
 
 #[test]
 fn an_artist_with_a_logo_but_no_banner_is_still_a_target_when_banners_are_asked_for() {
     // The logo alone satisfies an ordinary run — proved just above — but
     // `--banners` asks a second question about the very same folder, and a
-    // "yes" to the first must not silence the second.
     let dir = sandbox("has_logo_no_banner");
     let catalog = one_album(&dir);
     let mut layer = held();
@@ -268,7 +401,7 @@ fn an_artist_with_a_logo_but_no_banner_is_still_a_target_when_banners_are_asked_
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        false,
+        logo_options(),
     );
     assert!(
         without_banners.is_empty(),
@@ -282,7 +415,7 @@ fn an_artist_with_a_logo_but_no_banner_is_still_a_target_when_banners_are_asked_
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        true,
+        banner_options(),
     );
     assert_eq!(
         with_banners.len(),
@@ -323,7 +456,7 @@ fn a_banner_already_on_disk_is_not_asked_about_again() {
         &crate::commands::fetch::EVERYTHING,
         &dir,
         false,
-        true,
+        banner_options(),
     );
     assert!(
         list.is_empty(),
@@ -340,6 +473,7 @@ fn store_records_a_written_logo_under_its_own_source_name() {
         name: "Miles Davis".to_string(),
         mbid: "mbid-1".to_string(),
         destination: dir.join("Miles Davis"),
+        albums: Vec::new(),
     };
     store(
         &mut layer,
@@ -369,6 +503,7 @@ fn store_records_nothing_found_too() {
         name: "Miles Davis".to_string(),
         mbid: "mbid-1".to_string(),
         destination: std::env::temp_dir().join("wherever"),
+        albums: Vec::new(),
     };
     store(&mut layer, &target, &Outcome::Nothing);
     let record = layer
@@ -408,6 +543,7 @@ fn store_writing_a_logo_never_erases_a_portrait_already_on_record() {
         name: "Miles Davis".to_string(),
         mbid: "mbid-1".to_string(),
         destination: std::env::temp_dir().join("wherever"),
+        albums: Vec::new(),
     };
     store(
         &mut layer,
@@ -473,6 +609,7 @@ fn an_artist_already_asked_with_no_logo_is_not_asked_forever() {
             name: "Miles Davis".to_string(),
             mbid: "mbid-1".to_string(),
             destination: dir.join("Miles Davis"),
+            albums: Vec::new(),
         },
         &Outcome::Nothing,
     );
@@ -484,7 +621,7 @@ fn an_artist_already_asked_with_no_logo_is_not_asked_forever() {
             &crate::commands::fetch::EVERYTHING,
             &dir,
             false,
-            false,
+            logo_options(),
         )
         .is_empty()
     );

@@ -19,6 +19,35 @@ fn root() -> PathBuf {
         .expect("the repository root")
 }
 
+#[test]
+fn the_readmes_document_every_fanart_exclusion() {
+    let repository = root();
+    let front = std::fs::read_to_string(repository.join("README.md")).expect("the front page");
+    let sources =
+        std::fs::read_to_string(repository.join("docs/sources.md")).expect("the sources guide");
+
+    for option in [
+        "--no-logo",
+        "--no-label-logo",
+        "--no-portrait",
+        "--no-background",
+        "--no-banner",
+        "--no-album-cover",
+        "--no-cdart",
+    ] {
+        assert!(front.contains(option), "README.md does not name {option}");
+        assert!(
+            sources.contains(option),
+            "docs/sources.md does not name {option}"
+        );
+    }
+    assert!(front.contains("4K"), "README.md must state the preference");
+    assert!(
+        sources.contains("4K first"),
+        "the sources guide must explain the 4K fallback rule"
+    );
+}
+
 /// Every Markdown file of the repository, ignoring what is not ours.
 fn markdown_files(dir: &Path, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {

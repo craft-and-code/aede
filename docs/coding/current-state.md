@@ -168,6 +168,8 @@ Current external sources include:
 - Wikipedia
 - AcoustID
 - Cover Art Archive
+- Fanart.tv (artist and label logos, portraits, banners, 4K-preferred
+  backgrounds, album covers, and cdART)
 
 Network access is explicit and does not occur during ordinary local catalog operations.
 

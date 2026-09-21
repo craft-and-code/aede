@@ -442,9 +442,8 @@ pub(super) struct Asked<'a> {
     pub size: aede_core::coverart::Size,
     /// `--images`: keep the pictures that are not the cover.
     pub images: bool,
-    /// `--banners`: with `--logos`, also keep a wide banner from the same
-    /// answer.
-    pub banners: bool,
+    /// Which parts of a Fanart.tv answer this run should keep.
+    pub fanart: FanartOptions,
     /// Which language the prose is wanted in, most wanted first.
     ///
     /// `--lang` when it was given, the shell's own locale otherwise, and
@@ -467,6 +466,36 @@ pub(super) struct Asked<'a> {
     /// passes that read it — a portrait tries Wikidata first and needs no key
     /// at all, a logo has no such alternative and needs one for every artist.
     pub portrait_key: Option<String>,
+}
+
+/// The independently selectable image families in a Fanart.tv music answer.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct FanartOptions {
+    /// The broad `--fanart` pass was explicitly requested.
+    pub all: bool,
+    pub logo: bool,
+    pub label_logo: bool,
+    pub portrait: bool,
+    pub background: bool,
+    pub banner: bool,
+    pub album_cover: bool,
+    pub cdart: bool,
+}
+
+impl FanartOptions {
+    fn from_args(args: &Args) -> Self {
+        let all = args.has("fanart");
+        Self {
+            all,
+            logo: args.has("logos") || (all && !args.has("no-logo")),
+            label_logo: args.has("logos") || (all && !args.has("no-label-logo")),
+            portrait: all && !args.has("no-portrait"),
+            background: all && !args.has("no-background"),
+            banner: args.has("banners") || (all && !args.has("no-banner")),
+            album_cover: all && !args.has("no-album-cover"),
+            cdart: all && !args.has("no-cdart"),
+        }
+    }
 }
 
 /// Prints the list a pass would have asked about, and says nothing was.
@@ -536,11 +565,17 @@ impl Pass {
             ("labels", Pass::Labels),
             ("portraits", Pass::Portraits),
             ("logos", Pass::Logos),
+            ("fanart", Pass::Logos),
         ]
         .into_iter()
         .filter(|(flag, _)| args.has(flag))
         .map(|(_, pass)| pass)
-        .collect()
+        .fold(Vec::new(), |mut passes, pass| {
+            if !passes.contains(&pass) {
+                passes.push(pass);
+            }
+            passes
+        })
     }
 
     /// The option that asks for it, for a message to name.
@@ -696,8 +731,30 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             }
         }
     }
-    if !args.has("logos") && args.has("banners") {
-        return Err("--banners belongs to the logo pass: aede fetch --logos --banners".into());
+    if !args.has("logos") && !args.has("fanart") && args.has("banners") {
+        return Err("--banners belongs to a Fanart.tv pass: aede fetch --logos --banners".into());
+    }
+    let exclusions = [
+        "no-logo",
+        "no-label-logo",
+        "no-portrait",
+        "no-background",
+        "no-banner",
+        "no-album-cover",
+        "no-cdart",
+    ];
+    if !args.has("fanart")
+        && let Some(option) = exclusions.iter().find(|option| args.has(option))
+    {
+        return Err(format!(
+            "--{option} belongs to the complete pass: aede fetch --fanart --{option}"
+        )
+        .into());
+    }
+    for (positive, negative) in [("logos", "no-logo"), ("banners", "no-banner")] {
+        if args.has("fanart") && args.has(positive) && args.has(negative) {
+            return Err(format!("--{positive} and --{negative} ask for opposite things").into());
+        }
     }
 
     // A second pass is a different question, often of a different service, so
@@ -775,7 +832,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             None => super::covers::DEFAULT_SIZE,
         },
         images: args.has("images"),
-        banners: args.has("banners"),
+        fanart: FanartOptions::from_args(args),
     };
 
     if !passes.is_empty() {

@@ -94,7 +94,7 @@ fn with_key(
         dry_run,
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
-        banners: false,
+        fanart: Default::default(),
         key: key.map(str::to_string),
         portrait_key: None,
         langs: vec!["en".to_string()],

@@ -2,10 +2,10 @@
 
 > _A digital sanctuary for serious music collectors, archivists, and audio curators._
 
+**Aède** is a high-precision, read-only local music library manager and cataloging system written in Rust. Designed with an uncompromising commitment to archival integrity, Aède treats your master music collection as a sanctuary: it reads metadata, verifies audio container integrity, indexes complex credit graphs, and generates derivative assets—**without ever writing a single byte back into your original audio files**.
+
 > [!TIP]
 > An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and playing, in one word — which is exactly what this program is for.
-
-**Aède** is a high-precision, read-only local music library manager and cataloging system written in Rust. Designed with an uncompromising commitment to archival integrity, Aède treats your master music collection as a sanctuary: it reads metadata, verifies audio container integrity, indexes complex credit graphs, and generates derivative assets—**without ever writing a single byte back into your original audio files**.
 
 ---
 
@@ -133,6 +133,30 @@ aede doctor
 | `aede labels`    | `[name]`       | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                         |
 | `aede countries` | None           | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz. |
 | `aede missing`   | `<artist>`     | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.        |
+
+### External Metadata & Artwork
+
+| Command      | Arguments          | Key Options                                                                                                                                              | Description                                                                                                      |
+| :----------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
+| `aede fetch` | `[name\|folder…]` | `--summaries`, `--discography`, `--lyrics`, `--covers`, `--portraits`, `--logos`, `--labels`, `--fanart`, `--dry-run`, `--full`                           | Retrieves attributed metadata and derivative assets without modifying audio files.                              |
+| `aede fetch` | `[name\|folder…]` | `--fanart` with `--no-logo`, `--no-label-logo`, `--no-portrait`, `--no-background`, `--no-banner`, `--no-album-cover`, `--no-cdart`                        | Retrieves all useful Fanart.tv image families, minus any explicitly excluded families; 4K backgrounds win.      |
+| `aede fetch` | `[name\|folder…]` | `--covers --size <250\|500\|1200\|original>`, `--images`                                                                                                | Retrieves missing Cover Art Archive images while leaving every existing local image untouched.                  |
+
+Fanart.tv access requires a free key in `AEDE_FANARTTV_KEY`. A complete run can then be tailored without enumerating what should remain enabled:
+
+```sh
+# Everything Fanart.tv offers for the local library
+aede fetch --fanart
+
+# Everything except portraits and disc artwork
+aede fetch --fanart --no-portrait --no-cdart
+
+# Restrict the same selection to one artist or one part of the shelf
+aede fetch --fanart --no-banner "Miles Davis"
+aede fetch --fanart --no-album-cover ~/Music/Jazz
+```
+
+Artist logos, portraits, banners, and backgrounds are written beside the artist's music when there is one shared folder, or under Aède's `assets/` directory otherwise. Label logos live under `assets/labels/<MusicBrainz ID>/`; Fanart.tv album covers and cdART live in each album's `artwork/` directory. Existing files are never overwritten.
 
 ### Transfer, Export & Derivative Generation
 
@@ -288,6 +312,6 @@ Complete guides to Aède's features and architecture:
 
 ## ⚖️ License & Archival Ethos
 
-Aède is open-source software released under the **MIT License**.
+Aède is open-source software released under the **Mozilla Public License v2.0**.
 
 Designed for collectors who view digital music not as disposable streams, but as an irreplaceable historical record requiring meticulous care, clear provenance, and persistent ownership.

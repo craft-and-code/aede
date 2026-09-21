@@ -188,6 +188,8 @@ pub enum Kind {
     /// the small mark [`Kind::Logo`] is. See [`crate::fanarttv::banner_url`],
     /// its only source today.
     Banner,
+    /// A full-screen artist background. Fanart.tv's 4K pool is preferred.
+    Background,
     /// Anything else the source classifies, or nothing at all.
     Other,
 }
@@ -207,6 +209,7 @@ impl Kind {
             Kind::Artist => "artist",
             Kind::Logo => "logo",
             Kind::Banner => "banner",
+            Kind::Background => "background",
             Kind::Other => "image",
         }
     }
@@ -349,10 +352,8 @@ pub enum Written {
 /// Whether an image of this kind is already sitting beside the music, under
 /// either extension [`write_image`] can produce.
 ///
-/// For the one kind [`write_image`] tracks by disk presence alone rather than
-/// through `sources.json` — today, [`Kind::Banner`], see
-/// [`crate::fanarttv::banner_url`] — a pass needs to ask "is there one
-/// already" without a source record to consult. Checks both extensions
+/// Fanart.tv's auxiliary artist images are tracked by disk presence, so a pass
+/// needs to ask "is there one already" before downloading it. Checks both extensions
 /// because the writer picks jpg or png from the bytes it was given, never
 /// from what the caller asked for, so a caller checking ahead of the
 /// download cannot know which one a previous run wrote.

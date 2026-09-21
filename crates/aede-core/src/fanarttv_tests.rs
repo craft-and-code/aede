@@ -190,6 +190,59 @@ fn a_banner_with_no_address_is_skipped_rather_than_answered_as_blank() {
 }
 
 #[test]
+fn a_4k_background_wins_over_a_more_liked_hd_background() {
+    let response = json(
+        r#"{
+          "artist4kbackground":[{"url":"https://x/4k.jpg","likes":"1"}],
+          "artistbackground":[{"url":"https://x/hd.jpg","likes":"999"}]
+        }"#,
+    );
+    assert_eq!(
+        background_url(&response).as_deref(),
+        Some("https://x/4k.jpg")
+    );
+}
+
+#[test]
+fn an_hd_background_is_the_fallback_when_no_4k_image_exists() {
+    let response = json(
+        r#"{"artistbackground":[
+          {"url":"https://x/a.jpg","likes":"2"},
+          {"url":"https://x/b.jpg","likes":"8"}
+        ]}"#,
+    );
+    assert_eq!(
+        background_url(&response).as_deref(),
+        Some("https://x/b.jpg")
+    );
+}
+
+#[test]
+fn album_artwork_keeps_one_cover_and_one_image_per_disc() {
+    let response = json(
+        r#"{"albums":[{
+          "release_group_id":"wanted",
+          "albumcover":[
+            {"url":"https://x/cover-a.jpg","likes":"2"},
+            {"url":"https://x/cover-b.jpg","likes":"7"}
+          ],
+          "cdart":[
+            {"url":"https://x/disc-2-a.png","disc":"2","likes":"3"},
+            {"url":"https://x/disc-1.png","disc":"1","likes":"1"},
+            {"url":"https://x/disc-2-b.png","disc":"2","likes":"9"}
+          ]
+        }]}"#,
+    );
+    let artwork = album_artwork(&response, "wanted").expect("the album");
+    assert_eq!(artwork.cover.as_deref(), Some("https://x/cover-b.jpg"));
+    assert_eq!(
+        artwork.discs,
+        ["https://x/disc-1.png", "https://x/disc-2-b.png"]
+    );
+    assert!(album_artwork(&response, "another").is_none());
+}
+
+#[test]
 fn v32_addresses_artist_and_label_by_their_musicbrainz_identifiers() {
     assert_eq!(
         lookup_url("artist-id", "key"),

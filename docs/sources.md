@@ -4,7 +4,7 @@ Three voices coexist in this program, and separating them is the core of the pro
 
 - **what the files say** — the catalog, rebuilt from your folders with each scan;
 - **what you say** — favorites, notes, ratings, and tags, in a file that a new scan never touches;
-- **what a third party says** — MusicBrainz today, another source tomorrow, in `sources.json`.
+- **what a third party says** — MusicBrainz, Wikipedia, Fanart.tv, and the other explicit sources, in `sources.json`.
 
 A value coming from a source **sits alongside your tags and never overwrites them**. Nothing is rewritten, nothing is merged, and every piece of data can be traced back to its author, dated, and removed. When a source and your tags disagree, both are displayed and `doctor` flags it — determining which one is right is beyond the scope of this program.
 
@@ -146,12 +146,17 @@ Two labels deserve clarification:
 
 ## Secondary Passes and Combined Runs
 
-Running `aede fetch` alone queries MusicBrainz for your artists and albums. Three options allow running complementary passes on stored data:
+Running `aede fetch` alone queries MusicBrainz for your artists and albums. Options enable complementary passes over the identified catalog:
 
 ```sh
 aede fetch --summaries      # the Wikipedia article behind each wikidata link
 aede fetch --discography    # everything MusicBrainz credits to each artist
+aede fetch --lyrics         # missing words from LRCLIB, as .lrc sidecars
 aede fetch --covers         # the front image of every album that has none
+aede fetch --portraits      # Wikidata first, then Fanart.tv as fallback
+aede fetch --labels         # identify record labels through MusicBrainz
+aede fetch --logos          # artist and identified-label logos from Fanart.tv
+aede fetch --fanart         # every supported Fanart.tv image family
 ```
 
 **Each accepts names and folders**:
@@ -276,6 +281,47 @@ aede fetch --covers --dry-run       # say which albums, ask nothing
 **Run** `aede extract` **first**. `--covers` only downloads if no image is present (neither embedded nor in the folder). There is no `--replace` flag to prevent accidental overwrites.
 
 Downloaded images are saved as `cover.jpg` alongside audio tracks. Audio files are never altered. Only valid files (JPEG/PNG) are saved to avoid corruption from HTML error pages.
+
+## Fanart.tv Artwork
+
+Fanart.tv complements the Cover Art Archive with artist artwork, label marks, and additional album visuals. It requires a free application key in `AEDE_FANARTTV_KEY`:
+
+```sh
+export AEDE_FANARTTV_KEY="your-key"
+aede fetch --fanart
+```
+
+`--fanart` enables every supported family in one pass:
+
+| Family          | Selection rule                                        | Destination                                                                                  |
+| --------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Artist logo     | HD first, standard resolution as fallback             | `logo.jpg` or `logo.png` beside the artist's music, or in `assets/artists/<MusicBrainz ID>/` |
+| Label logo      | Best-liked available logo                             | `assets/labels/<MusicBrainz ID>/`                                                            |
+| Artist portrait | Best-liked portrait                                   | `artist.jpg` or `artist.png` beside the artist's music, or in `assets/`                      |
+| Background      | **4K first**, 1080p only when no 4K background exists | `background.jpg` or `background.png` beside the artist's music, or in `assets/`              |
+| Banner          | Best-liked wide banner                                | `banner.jpg` or `banner.png` beside the artist's music, or in `assets/`                      |
+| Album cover     | Best-liked Fanart.tv album cover                      | `artwork/cover.jpg` or `artwork/cover.png` inside the album folder                           |
+| cdART           | One image per disc                                    | `artwork/media.jpg`, or numbered `media-01.jpg`, `media-02.jpg`, and so on                   |
+
+Start from everything and remove only what you do not want:
+
+```sh
+aede fetch --fanart --no-logo
+aede fetch --fanart --no-label-logo --no-banner
+aede fetch --fanart --no-portrait --no-background
+aede fetch --fanart --no-album-cover --no-cdart
+```
+
+The complete exclusion list is `--no-logo`, `--no-label-logo`, `--no-portrait`, `--no-background`, `--no-banner`, `--no-album-cover`, and `--no-cdart`. An exclusion without `--fanart` is refused instead of silently ignored. Contradictory requests such as `--fanart --logos --no-logo` or `--fanart --banners --no-banner` are refused as well.
+
+The narrower forms remain available for compatibility and focused runs:
+
+```sh
+aede fetch --logos              # artist and identified-label logos only
+aede fetch --logos --banners    # the same artist response also yields a banner
+```
+
+Each family has its own completion record. If backgrounds are excluded today, a later `aede fetch --fanart --no-portrait` can still fetch them without repeating image families already completed. `--full` deliberately asks again. Existing JPEG and PNG files are never overwritten, and downloaded bytes are checked as images before anything is written.
 
 ## Missing from the Shelf
 

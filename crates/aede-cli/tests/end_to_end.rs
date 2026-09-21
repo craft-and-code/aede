@@ -1198,6 +1198,57 @@ fn help_and_version() {
 }
 
 #[test]
+fn help_lists_every_fanart_family_and_the_4k_preference() {
+    let sandbox = Sandbox::new("help_fanart");
+    let (out, err, ok) = sandbox.run(&["help"]);
+    assert!(ok, "stderr: {err}");
+    for option in [
+        "--fanart",
+        "--no-logo",
+        "--no-label-logo",
+        "--no-portrait",
+        "--no-background",
+        "--no-banner",
+        "--no-album-cover",
+        "--no-cdart",
+    ] {
+        assert!(out.contains(option), "the help must name {option}:\n{out}");
+    }
+    assert!(
+        out.contains("4K"),
+        "the background preference must be visible"
+    );
+}
+
+#[cfg(feature = "fetch")]
+#[test]
+fn fanart_exclusions_are_scoped_and_contradictions_are_refused() {
+    let sandbox = Sandbox::new("fanart_exclusion_guards");
+    for option in [
+        "--no-logo",
+        "--no-label-logo",
+        "--no-portrait",
+        "--no-background",
+        "--no-banner",
+        "--no-album-cover",
+        "--no-cdart",
+    ] {
+        let (_, err, ok) = sandbox.run(&["fetch", option]);
+        assert!(!ok, "{option} without --fanart must be refused");
+        assert!(err.contains("--fanart"), "stderr for {option}: {err}");
+    }
+
+    for pair in [
+        ["--fanart", "--logos", "--no-logo"],
+        ["--fanart", "--banners", "--no-banner"],
+    ] {
+        let (_, err, ok) = sandbox.run(&["fetch", pair[0], pair[1], pair[2]]);
+        assert!(!ok, "opposite options must be refused");
+        assert!(err.contains("opposite"), "stderr: {err}");
+    }
+}
+
+#[test]
 fn watched_folders_accumulate_across_scans() {
     // Scanning a second library used to replace the catalog instead of adding
     // to it, silently losing everything scanned before.
