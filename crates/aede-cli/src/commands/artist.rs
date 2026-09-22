@@ -370,13 +370,20 @@ fn print_members(args: &Args, catalog: &Catalog, artist: &Artist) -> Res {
         // where `original` marks an original member. And "Relation" carries
         // MusicBrainz's own phrase — a founding member and a guitarist hired
         // for one tour are both on the record, and only one was in the band.
-        let mut table = Table::new(&["Name", "Relation", "As", "Years"]).limit(1, 32);
+        let mut table = Table::new(&["Name", "Relation", "As", "Years", "Identity"])
+            .limit(1, 32)
+            .limit(4, 40);
         for row in rows_in_order(rows) {
+            let local = catalog
+                .artists
+                .iter()
+                .any(|artist| artist.mbid.as_deref() == Some(&row.mbid));
             table.push(vec![
                 row.name.clone(),
                 row.kind.clone(),
                 row.attributes.join(", "),
                 row.years(),
+                format!("{}{}", row.mbid, if local { " · local" } else { "" }),
             ]);
         }
         println!("{}", table.render());

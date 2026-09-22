@@ -112,6 +112,9 @@ pub fn search(args: &Args) -> Res {
                 EntityKind::Artist => "artist",
                 EntityKind::Release => "album",
                 EntityKind::Track => "track",
+                EntityKind::Recording => "recording",
+                EntityKind::Work => "work",
+                EntityKind::ReleaseGroup => "release group",
                 EntityKind::Label => "label",
                 EntityKind::Genre => "genre",
             };

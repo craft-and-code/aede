@@ -187,7 +187,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "search" => CommandPage {
             usage: "aede search <text>",
-            summary: "Search names, tags, notes, comments, or lyrics.",
+            summary: "Search every graph object, plus optional notes, comments, or lyrics.",
         },
         "file" => CommandPage {
             usage: "aede file <path>",
@@ -372,8 +372,9 @@ pub fn print_index() {
   genre <name>         Genre page: albums and artists carrying it
   label <name>         Label page: its catalogue, artists, and MusicBrainz
                        identity status (local, confirmed, proposed, conflict)
-  search <text>        Search the whole catalog. --comments also looks in the
-                       comment tag, --notes in what you wrote yourself,
+  search <text>        Search artists, albums, tracks, recordings, works,
+                       release groups and labels. --comments also looks in the
+                       comment tag, --notes in what you wrote yourself, and
                        --lyrics in the words of the songs
   file <path>          Read one file straight off disk: its technical
                        properties and raw tags, exactly as it carries them,

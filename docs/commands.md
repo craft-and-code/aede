@@ -35,6 +35,14 @@ shown by `track`, `album`, `artist`, `recording` and `work`; `track --json`
 keeps them separate from credits read locally from tags. The older
 `--recordings` spelling remains an alias.
 
+The local graph is traversable in both directions. `track` names the abstract
+recording, its works and its release group; `recording` lists every local album
+placement; `work` lists every recording; `album` identifies the release group
+and its other local editions; `label` lists its releases; and `artist` keeps
+discography, guest appearances, compilation appearances, writing/production
+contributions, collaborations and dated memberships distinct. Ordinary
+`search` also finds recordings, works and release groups by title or identity.
+
 `label` applies the same rule to identity. It says whether the MusicBrainz ID
 came from a local tag, was confirmed by an identifier lookup, is only a
 name-search proposal, or conflicts with the local tag. Proposals and conflicts

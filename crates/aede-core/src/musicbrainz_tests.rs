@@ -545,10 +545,12 @@ const OZZY_RELATIONS: &str = r#"{
   "id": "8aa5b65a-5b3c-4029-92bf-47a544356934",
   "name": "Ozzy Osbourne",
   "relations": [
-    { "type": "instrumental supporting musician",
+    { "id": "ozzy-randy-relation",
+      "type": "instrumental supporting musician",
       "type-id": "ed6a7891-ce70-4e08-9839-1f2f62270497",
       "target-type": "artist",
       "direction": "backward",
+      "target-credit": "Randy Rhoads",
       "begin": "1979-11",
       "end": "1982-03-19",
       "ended": true,
@@ -646,6 +648,13 @@ fn a_solo_artist_has_supporting_musicians_and_no_members() {
         .find(|m| m.name == "Randy Rhoads")
         .expect("Randy");
     assert_eq!(randy.mbid, "19dccaac-efa8-413f-9042-28006792e0f2");
+    assert_eq!(randy.relation_id.as_deref(), Some("ozzy-randy-relation"));
+    assert_eq!(
+        randy.role_id.as_deref(),
+        Some("ed6a7891-ce70-4e08-9839-1f2f62270497")
+    );
+    assert_eq!(randy.direction.as_deref(), Some("backward"));
+    assert_eq!(randy.credited_as.as_deref(), Some("Randy Rhoads"));
     assert_eq!(randy.attributes, vec!["guitar"]);
     // A partial date is a date: `1979-11` places him in 1980 as surely as
     // `1979` would, because only the year is ever compared.

@@ -1,6 +1,6 @@
 # The canonical music graph: audit and model
 
-**Status: stages 0–3 implemented.** The catalog now separates placements,
+**Status: stages 0–4 implemented.** The catalog now separates placements,
 recordings, releases, release groups and works. External relationships remain
 attributed evidence, and rich recording and work credits keep their exact
 scope, role details and provenance without rewriting local tags. SQLite remains
@@ -127,6 +127,39 @@ and the source comparison panel. The track JSON view exports local and sourced
 credits separately, so provenance and scope cannot disappear in a machine-
 readable view. `--recordings` remains a compatibility alias for `--credits`.
 
+## Stage 4 — relations between objects
+
+Every canonical object can now participate in the typed relation graph. The
+following links are derived from local identities and stored in both directions:
+
+- track placement ↔ recording and track placement ↔ release;
+- recording ↔ work;
+- release edition ↔ release group;
+- release ↔ label and release ↔ album artist;
+- artist ↔ recording for each exact credit role;
+- artist ↔ release for guest appearances, compilation appearances and
+  non-performing contributions;
+- artist ↔ artist collaborations;
+- duplicate and other-edition release relationships.
+
+The inverse link is explicit rather than reconstructed differently by every
+caller. A label therefore reaches the same releases that each release identifies
+as its label; a work reaches the same recordings that name that work; an artist's
+discography, guest appearances and compilation appearances cannot silently
+collapse into one list.
+
+Rich source relationships are not copied into this local relation table.
+MusicBrainz memberships remain dated source evidence, but now expose both the
+local endpoint and the related local artist when that MusicBrainz identity is
+also present. Source-backed works and credits follow the same rule established
+in stages 2 and 3.
+
+The existing entity pages expose these links where they are useful: a track
+shows its recording, canonical or sourced works and release group; an album
+shows every local edition in its release group; membership rows expose the
+related MusicBrainz identity; and global name search includes recordings,
+works and release groups.
+
 ## Completed delivery order
 
 1. Add `Recording` and connect each local placement to exactly one recording.
@@ -143,9 +176,14 @@ readable view. `--recordings` remains a compatibility alias for `--credits`.
    details, identifiers, exact scope and provenance.
 7. Retrieve recording and nested work relationships in one request, then expose
    them consistently across the entity views and JSON output.
+8. Derive the complete bidirectional local relation graph, with separate
+   participation kinds for discography, guest work, compilations and
+   non-performing contributions.
+9. Make recording, work and release-group identities searchable and preserve
+   externally dated memberships as navigable source evidence.
 
-The next graph stage expands the relations between objects and the navigation
-that follows them in both directions.
+The next graph stage concentrates on dedicated navigation views and concise
+cross-links rather than adding more relationship semantics.
 
 SQLite is intentionally outside these stages. The graph must first be proven
 in the current model and JSON persistence; M2 can then migrate one established

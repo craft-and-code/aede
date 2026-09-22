@@ -175,6 +175,36 @@ fn print_album(
         println!("  {}", ui::dim(&genres.join(", ")));
     }
     println!("  {}", ui::dim(&release.folder));
+    if let Some(group_id) = release.release_group_id
+        && let Some(group) = catalog.release_group(group_id)
+    {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "release group: {} · {}",
+                group.mbid,
+                ui::plural(group.release_ids.len(), "local edition")
+            ))
+        );
+        for &edition_id in &group.release_ids {
+            if edition_id == release.id {
+                continue;
+            }
+            if let Some(edition) = catalog.release(edition_id) {
+                let year = edition
+                    .year
+                    .map(|year| format!(" ({year})"))
+                    .unwrap_or_default();
+                println!(
+                    "  {}",
+                    ui::dim(&format!(
+                        "another edition: {}{year} · {}",
+                        edition.title, edition.folder
+                    ))
+                );
+            }
+        }
+    }
     // Directly under the year, because that is the fact it is derived from and
     // the two are read together. Printed at the foot of the page — where it
     // first went — it read as a note about the track list rather than as an

@@ -417,3 +417,37 @@ fn a_set_aside_row_without_an_identifier_is_not_read_back() {
     assert_eq!(back.set_aside.len(), 1);
     assert_eq!(back.set_aside[0].release_group, "aa11");
 }
+
+#[test]
+fn externally_identified_graph_objects_have_stable_references() {
+    let catalog = model::build(
+        vec![model::tests::track(
+            "/m/Band/Record/01.flac",
+            &[
+                ("title", "Song"),
+                ("artist", "Band"),
+                ("album", "Record"),
+                ("musicbrainz_recordingid", "recording-id"),
+                ("musicbrainz_workid", "work-id"),
+                ("musicbrainz_releasegroupid", "group-id"),
+            ],
+            1,
+        )],
+        vec!["/m".into()],
+        1,
+        &[],
+    );
+    for (kind, id, key) in [
+        (EntityKind::Recording, 0, "recording-id"),
+        (EntityKind::Work, 0, "work-id"),
+        (EntityKind::ReleaseGroup, 0, "group-id"),
+    ] {
+        let reference = EntityRef::of(&catalog, kind, id).expect("stable external identity");
+        assert_eq!(reference.key, key);
+        assert_eq!(reference.resolve(&catalog), Some(id));
+        assert_eq!(
+            EntityRef::parse_token(&reference.to_token()),
+            Some(reference)
+        );
+    }
+}

@@ -16,8 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::text;
 
 use super::{
-    Artist, AudioFile, Catalog, EntityKind, Genre, Id, Label, Recording, Release, ReleaseGroup,
-    Track, Work, is_performing_role,
+    Artist, AudioFile, Catalog, EntityKind, Genre, Id, Label, Recording, Relation, Release,
+    ReleaseGroup, Track, Work, is_performing_role,
 };
 
 impl Catalog {
@@ -87,9 +87,46 @@ impl Catalog {
             .collect()
     }
 
+    /// Release groups whose title or MusicBrainz identifier matches.
+    pub fn find_release_groups(&self, query: &str) -> Vec<&ReleaseGroup> {
+        let key = text::normalize(query);
+        self.release_groups
+            .iter()
+            .filter(|group| group.key == key || group.key.contains(&key) || group.mbid == query)
+            .collect()
+    }
+
     /// The file an id designates, or `None` when the id is out of range.
     pub fn file(&self, id: Id) -> Option<&AudioFile> {
         self.files.get(id as usize)
+    }
+
+    /// Every outgoing graph relationship from one entity.
+    pub fn relations_from(&self, kind: EntityKind, id: Id) -> Vec<&Relation> {
+        self.relations
+            .iter()
+            .filter(|relation| relation.source_kind == kind && relation.source_id == id)
+            .collect()
+    }
+
+    /// Targets reached through one typed relationship.
+    pub fn related_entities(
+        &self,
+        kind: EntityKind,
+        id: Id,
+        relation_kind: &str,
+        target_kind: EntityKind,
+    ) -> Vec<Id> {
+        self.relations
+            .iter()
+            .filter(|relation| {
+                relation.source_kind == kind
+                    && relation.source_id == id
+                    && relation.target_kind == target_kind
+                    && relation.kind == relation_kind
+            })
+            .map(|relation| relation.target_id)
+            .collect()
     }
 
     /// Every imported analysis that describes this file, whatever the source.
@@ -321,7 +358,12 @@ impl Catalog {
         let mut out: Vec<(&Artist, u32, &str)> = self
             .relations
             .iter()
-            .filter(|r| r.source_kind == EntityKind::Artist && r.source_id == artist_id)
+            .filter(|r| {
+                r.source_kind == EntityKind::Artist
+                    && r.source_id == artist_id
+                    && r.target_kind == EntityKind::Artist
+                    && r.kind == "collaborated"
+            })
             .filter_map(|r| {
                 self.artist(r.target_id)
                     .map(|a| (a, r.weight, r.kind.as_str()))
@@ -360,7 +402,10 @@ impl Catalog {
         self.relations
             .iter()
             .filter(|r| {
-                r.source_kind == EntityKind::Release && r.source_id == release_id && r.kind == kind
+                r.source_kind == EntityKind::Release
+                    && r.source_id == release_id
+                    && r.target_kind == EntityKind::Release
+                    && r.kind == kind
             })
             .map(|r| r.target_id)
             .collect()
@@ -418,6 +463,33 @@ impl Catalog {
                 .map(|r| r.title.clone())
                 .unwrap_or_default();
             push(EntityKind::Track, t.id, &t.title, &key, detail);
+        }
+        for recording in &self.recordings {
+            push(
+                EntityKind::Recording,
+                recording.id,
+                &recording.title,
+                &recording.key,
+                ui_count(recording.track_ids.len(), "local placement"),
+            );
+        }
+        for work in &self.works {
+            push(
+                EntityKind::Work,
+                work.id,
+                &work.title,
+                &work.key,
+                ui_count(work.recording_ids.len(), "recording"),
+            );
+        }
+        for group in &self.release_groups {
+            push(
+                EntityKind::ReleaseGroup,
+                group.id,
+                &group.title,
+                &group.key,
+                ui_count(group.release_ids.len(), "local edition"),
+            );
         }
         for l in &self.labels {
             push(EntityKind::Label, l.id, &l.name, &l.key, String::new());
@@ -587,7 +659,12 @@ impl Catalog {
                         tracks.extend(release.track_ids.iter().copied());
                     }
                 }
-                EntityKind::Artist | EntityKind::Label | EntityKind::Genre => {}
+                EntityKind::Artist
+                | EntityKind::Recording
+                | EntityKind::Work
+                | EntityKind::ReleaseGroup
+                | EntityKind::Label
+                | EntityKind::Genre => {}
             }
         }
         tracks.into_iter().collect()
@@ -674,7 +751,12 @@ impl Catalog {
                         tracks.extend(release.track_ids.iter().copied());
                     }
                 }
-                EntityKind::Artist | EntityKind::Label | EntityKind::Genre => {}
+                EntityKind::Artist
+                | EntityKind::Recording
+                | EntityKind::Work
+                | EntityKind::ReleaseGroup
+                | EntityKind::Label
+                | EntityKind::Genre => {}
             }
         }
         tracks.into_iter().collect()
@@ -775,6 +857,10 @@ impl Catalog {
         let track = self.track(track_id)?;
         self.file(track.file_id)?.first_tag("comment")
     }
+}
+
+fn ui_count(count: usize, noun: &str) -> String {
+    format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
 }
 
 /// How [`Catalog::find_tracks`] reached its results.

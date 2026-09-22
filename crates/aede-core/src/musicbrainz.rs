@@ -347,11 +347,15 @@ fn memberships(row: &Json) -> Vec<Membership> {
         .filter_map(|r| {
             let artist = r.get("artist")?;
             Some(Membership {
+                relation_id: field(r, "id"),
+                role_id: field(r, "type-id"),
+                direction: field(r, "direction"),
                 // No identifier, no membership: a name alone cannot be
                 // followed to the artist it names, and the whole value of this
                 // list is that each row leads somewhere.
                 mbid: field(artist, "id")?,
                 name: field(artist, "name").unwrap_or_default(),
+                credited_as: field(r, "target-credit").filter(|value| !value.is_empty()),
                 kind: field(r, "type").unwrap_or_default(),
                 side: match r.field_str("direction").as_deref() {
                     Some("backward") => Side::Player,

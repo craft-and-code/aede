@@ -40,6 +40,41 @@ fn recordings_and_works_are_found_by_title_or_external_identity() {
 }
 
 #[test]
+fn global_search_includes_the_canonical_graph_objects() {
+    let c = build(
+        vec![track(
+            "/m/Band/Record/01.flac",
+            &[
+                ("title", "Shared Song"),
+                ("artist", "Band"),
+                ("albumartist", "Band"),
+                ("album", "Shared Record"),
+                ("musicbrainz_recordingid", "recording-id"),
+                ("musicbrainz_workid", "work-id"),
+                ("musicbrainz_releasegroupid", "group-id"),
+            ],
+            1,
+        )],
+        vec!["/m".into()],
+        1,
+        &[],
+    );
+    let song_kinds: std::collections::BTreeSet<_> = c
+        .search("Shared Song", 20)
+        .into_iter()
+        .map(|hit| hit.kind)
+        .collect();
+    assert!(song_kinds.contains(&EntityKind::Track));
+    assert!(song_kinds.contains(&EntityKind::Recording));
+    assert!(song_kinds.contains(&EntityKind::Work));
+    assert!(
+        c.search("Shared Record", 20)
+            .iter()
+            .any(|hit| hit.kind == EntityKind::ReleaseGroup)
+    );
+}
+
+#[test]
 fn the_shared_tracks_match_the_collaboration_weight() {
     // The weight of a `collaborated` relation is a count; the tracks it
     // counts must be reachable, or the graph cannot be walked.

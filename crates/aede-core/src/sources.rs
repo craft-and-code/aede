@@ -316,11 +316,19 @@ pub enum Side {
 /// MusicBrainz states them as two relations and they are kept as two rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Membership {
+    /// MusicBrainz relationship row identifier, when exposed.
+    pub relation_id: Option<String>,
+    /// Stable MusicBrainz relationship type identifier.
+    pub role_id: Option<String>,
+    /// Direction exactly as returned by MusicBrainz.
+    pub direction: Option<String>,
     /// The other artist's MusicBrainz identifier, which is what makes a later
     /// fetch about them an update rather than a second opinion.
     pub mbid: String,
     /// The other artist's name, as the source spells it.
     pub name: String,
+    /// Exact spelling used for the related artist in this relationship.
+    pub credited_as: Option<String>,
     /// Which end of the relation that name is — see [`Side`].
     pub side: Side,
     /// How the source names the relationship, in its own words: `member of
@@ -744,6 +752,23 @@ pub struct SourcedCreditLink {
     pub fetched_at: u64,
 }
 
+/// A dated artist-to-artist membership placed beside the canonical catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedMembershipLink {
+    /// Local artist whose source record carried the relationship.
+    pub artist_id: Id,
+    /// The other endpoint when its MusicBrainz identity is also local.
+    pub related_artist_id: Option<Id>,
+    /// The complete source relationship, including side, dates and attributes.
+    pub membership: Membership,
+    /// Service making the assertion.
+    pub source: String,
+    /// Firmness of the source record's attachment to the local artist.
+    pub confidence: Confidence,
+    /// Time at which this assertion was fetched.
+    pub fetched_at: u64,
+}
+
 /// A MusicBrainz identity evidence record placed on its local label.
 ///
 /// Unlike a name-search match, this view contains only identifier lookups.
@@ -973,6 +998,36 @@ impl Sources {
                         fetched_at: record.fetched_at,
                     });
                 }
+            }
+        }
+        links
+    }
+
+    /// Dated group memberships, retaining external endpoints when the related
+    /// artist is not part of the local catalog.
+    pub fn membership_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedMembershipLink> {
+        let mut links = Vec::new();
+        for record in &self.records {
+            let Facts::Artist(facts) = &record.facts else {
+                continue;
+            };
+            let Some(artist_id) = record.entity().resolve(catalog) else {
+                continue;
+            };
+            for membership in &facts.members {
+                let related_artist_id = catalog
+                    .artists
+                    .iter()
+                    .find(|artist| artist.mbid.as_deref() == Some(&membership.mbid))
+                    .map(|artist| artist.id);
+                links.push(SourcedMembershipLink {
+                    artist_id,
+                    related_artist_id,
+                    membership: membership.clone(),
+                    source: record.source.clone(),
+                    confidence: record.confidence,
+                    fetched_at: record.fetched_at,
+                });
             }
         }
         links
@@ -1542,8 +1597,12 @@ pub fn to_json(sources: &Sources) -> Json {
                                 .iter()
                                 .map(|m| {
                                     let mut o = Json::obj();
+                                    o.set("relation_id", opt_str(&m.relation_id));
+                                    o.set("role_id", opt_str(&m.role_id));
+                                    o.set("direction", opt_str(&m.direction));
                                     o.set("mbid", m.mbid.clone().into());
                                     o.set("name", m.name.clone().into());
+                                    o.set("credited_as", opt_str(&m.credited_as));
                                     // Spelt out rather than written as a flag:
                                     // a hand-editable file where the direction
                                     // is `true` is a file nobody can correct.
@@ -1729,8 +1788,12 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                                 // end of the relation it is, and guessing
                                 // would put a band among a person's members.
                                 Some(Membership {
+                                    relation_id: row.field_str("relation_id"),
+                                    role_id: row.field_str("role_id"),
+                                    direction: row.field_str("direction"),
                                     mbid: row.field_str("mbid")?,
                                     name: row.field_str("name").unwrap_or_default(),
+                                    credited_as: row.field_str("credited_as"),
                                     side: match row.field_str("side")?.as_str() {
                                         "player" => Side::Player,
                                         "group" => Side::Group,

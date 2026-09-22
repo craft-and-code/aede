@@ -92,7 +92,7 @@ fn parse_entity_kind(word: &str) -> Option<EntityKind> {
 
 fn usage() -> String {
     "Name what it is about: aede love album \"Legion\"\n\
-     Kinds: track, album, artist, label, genre"
+     Kinds: track, recording, work, album, release_group, artist, label, genre"
         .to_string()
 }
 
@@ -115,6 +115,22 @@ fn find(catalog: &Catalog, kind: EntityKind, name: &str) -> Result<EntityRef, Bo
             let (found, _) = catalog.find_tracks(name);
             (found.iter().map(|t| t.id).collect(), "track")
         }
+        EntityKind::Recording => (
+            catalog.find_recordings(name).iter().map(|r| r.id).collect(),
+            "recording",
+        ),
+        EntityKind::Work => (
+            catalog.find_works(name).iter().map(|w| w.id).collect(),
+            "work",
+        ),
+        EntityKind::ReleaseGroup => (
+            catalog
+                .find_release_groups(name)
+                .iter()
+                .map(|g| g.id)
+                .collect(),
+            "release group",
+        ),
         EntityKind::Label => {
             let (found, _) = catalog.find_labels(name);
             (found.iter().map(|l| l.id).collect(), "label")

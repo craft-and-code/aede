@@ -5,12 +5,11 @@
 //! and what lets a stored catalog rebuild them on load without touching the
 //! disk — the reason the raw tags are kept per file in the first place.
 //!
-//! Two families so far. Artists who appear on the same recording are linked to
-//! one another, weighted by how often. And an album that is present twice is
-//! two releases and one relation between them, qualified as [`DUPLICATE`] or
-//! [`OTHER_EDITION`] depending on whether the second copy is encoded the same
-//! way — because the folder is what the user acts on, and merging two folders
-//! into one release would take that away.
+//! Structural links are derived alongside the two original inferred families:
+//! placements, recordings, works, editions, release groups, labels and album
+//! artists can all be traversed in either direction. Artist participation is
+//! derived from credits without copying credit details into the relation row.
+//! Collaborations and duplicate/other-edition links remain weighted summaries.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -26,7 +25,7 @@ use super::{Catalog, EntityKind, Id, Relation, is_performing_role};
 /// `store::FORMAT_VERSION` — refusing to load would be out of proportion, and
 /// would throw away integrity verdicts that cost hours to obtain. Bump this
 /// instead, and every catalog rebuilds its relations on the next load.
-pub const RELATION_RULES: u32 = 1;
+pub const RELATION_RULES: u32 = 2;
 
 /// Recomputes every inferred relation from the entities already in place.
 ///
@@ -34,6 +33,7 @@ pub const RELATION_RULES: u32 = 1;
 /// exactly what keeping the raw tags per file was for.
 pub fn rebuild_relations(catalog: &mut Catalog) {
     catalog.relations.clear();
+    build_entity_graph(catalog);
     build_collaboration_graph(catalog);
     build_release_relations(catalog);
 }
@@ -42,6 +42,197 @@ pub fn rebuild_relations(catalog: &mut Catalog) {
 pub const DUPLICATE: &str = "duplicate";
 /// Same album, encoded differently: a deliberate second copy.
 pub const OTHER_EDITION: &str = "other_edition";
+/// A local track placement points to the abstract recording it carries.
+pub const PLACEMENT_OF: &str = "placement_of";
+/// Reverse of [`PLACEMENT_OF`].
+pub const PLACED_AS: &str = "placed_as";
+/// A local track belongs to one edition.
+pub const PART_OF_RELEASE: &str = "part_of_release";
+/// Reverse of [`PART_OF_RELEASE`].
+pub const HAS_TRACK: &str = "has_track";
+/// A recording realizes a musical work.
+pub const PERFORMANCE_OF: &str = "performance_of";
+/// Reverse of [`PERFORMANCE_OF`].
+pub const HAS_RECORDING: &str = "has_recording";
+/// A release is one edition of a release group.
+pub const EDITION_OF: &str = "edition_of";
+/// Reverse of [`EDITION_OF`].
+pub const HAS_EDITION: &str = "has_edition";
+/// A release was issued by a label.
+pub const RELEASED_BY: &str = "released_by";
+/// Reverse of [`RELEASED_BY`].
+pub const RELEASED: &str = "released";
+/// A release is primarily credited to an album artist.
+pub const ALBUM_BY: &str = "album_by";
+/// Reverse of [`ALBUM_BY`].
+pub const DISCOGRAPHY: &str = "discography";
+/// A guest performer appears on another artist's release.
+pub const APPEARS_ON: &str = "appears_on";
+/// A performer appears on a compilation.
+pub const COMPILATION_APPEARANCE: &str = "compilation_appearance";
+/// A non-performing credit contributes to a release.
+pub const CONTRIBUTED_TO: &str = "contributed_to";
+
+/// Adds the structural and credit-derived edges of the local graph.
+fn build_entity_graph(catalog: &mut Catalog) {
+    let mut links: Vec<(EntityKind, Id, EntityKind, Id, String, u32)> = Vec::new();
+    let mut pair = |a_kind, a, forward: &str, b_kind, b, backward: &str| {
+        links.push((a_kind, a, b_kind, b, forward.to_string(), 1));
+        links.push((b_kind, b, a_kind, a, backward.to_string(), 1));
+    };
+
+    for track in &catalog.tracks {
+        pair(
+            EntityKind::Track,
+            track.id,
+            PLACEMENT_OF,
+            EntityKind::Recording,
+            track.recording_id,
+            PLACED_AS,
+        );
+        if let Some(release_id) = track.release_id {
+            pair(
+                EntityKind::Track,
+                track.id,
+                PART_OF_RELEASE,
+                EntityKind::Release,
+                release_id,
+                HAS_TRACK,
+            );
+        }
+    }
+    for recording in &catalog.recordings {
+        for &work_id in &recording.work_ids {
+            pair(
+                EntityKind::Recording,
+                recording.id,
+                PERFORMANCE_OF,
+                EntityKind::Work,
+                work_id,
+                HAS_RECORDING,
+            );
+        }
+    }
+    for release in &catalog.releases {
+        if let Some(group_id) = release.release_group_id {
+            pair(
+                EntityKind::Release,
+                release.id,
+                EDITION_OF,
+                EntityKind::ReleaseGroup,
+                group_id,
+                HAS_EDITION,
+            );
+        }
+        for &label_id in &release.label_ids {
+            pair(
+                EntityKind::Release,
+                release.id,
+                RELEASED_BY,
+                EntityKind::Label,
+                label_id,
+                RELEASED,
+            );
+        }
+        if let Some(artist_id) = release.album_artist_id {
+            pair(
+                EntityKind::Release,
+                release.id,
+                ALBUM_BY,
+                EntityKind::Artist,
+                artist_id,
+                DISCOGRAPHY,
+            );
+        }
+    }
+
+    let mut recording_credits: BTreeMap<(Id, Id, String), u32> = BTreeMap::new();
+    let mut release_participations: BTreeMap<(Id, Id, &'static str), BTreeSet<Id>> =
+        BTreeMap::new();
+    for credit in &catalog.credits {
+        if credit.entity_kind != EntityKind::Track {
+            continue;
+        }
+        let Some(track) = catalog.track(credit.entity_id) else {
+            continue;
+        };
+        *recording_credits
+            .entry((credit.artist_id, track.recording_id, credit.role.clone()))
+            .or_insert(0) += 1;
+        let Some(release_id) = track.release_id else {
+            continue;
+        };
+        let Some(release) = catalog.release(release_id) else {
+            continue;
+        };
+        let kind = if is_performing_role(&credit.role) {
+            if release.album_artist_id == Some(credit.artist_id) {
+                continue;
+            }
+            if release.is_compilation {
+                COMPILATION_APPEARANCE
+            } else {
+                APPEARS_ON
+            }
+        } else {
+            CONTRIBUTED_TO
+        };
+        release_participations
+            .entry((credit.artist_id, release_id, kind))
+            .or_default()
+            .insert(track.id);
+    }
+    for ((artist_id, recording_id, role), weight) in recording_credits {
+        let kind = format!("credit:{role}");
+        links.push((
+            EntityKind::Artist,
+            artist_id,
+            EntityKind::Recording,
+            recording_id,
+            kind.clone(),
+            weight,
+        ));
+        links.push((
+            EntityKind::Recording,
+            recording_id,
+            EntityKind::Artist,
+            artist_id,
+            kind,
+            weight,
+        ));
+    }
+    for ((artist_id, release_id, kind), tracks) in release_participations {
+        let weight = tracks.len() as u32;
+        links.push((
+            EntityKind::Artist,
+            artist_id,
+            EntityKind::Release,
+            release_id,
+            kind.to_string(),
+            weight,
+        ));
+        links.push((
+            EntityKind::Release,
+            release_id,
+            EntityKind::Artist,
+            artist_id,
+            kind.to_string(),
+            weight,
+        ));
+    }
+
+    catalog.relations.extend(links.into_iter().map(
+        |(source_kind, source_id, target_kind, target_id, kind, weight)| Relation {
+            source_kind,
+            source_id,
+            target_kind,
+            target_id,
+            kind,
+            weight,
+            source: "tags".into(),
+        },
+    ));
+}
 
 /// Links the releases that are the same album twice.
 ///
@@ -284,5 +475,192 @@ mod tests {
         );
         assert_eq!(c.releases.len(), 2, "the folder tells the editions apart");
         assert_eq!(c.artists.len(), 1, "but the artist is shared");
+    }
+
+    #[test]
+    fn every_canonical_object_link_is_navigable_both_ways() {
+        let c = build(
+            vec![track(
+                "/m/Band/Record/01.flac",
+                &[
+                    ("title", "Song"),
+                    ("artist", "Band"),
+                    ("albumartist", "Band"),
+                    ("album", "Record"),
+                    ("label", "A Label"),
+                    ("musicbrainz_recordingid", "recording-id"),
+                    ("musicbrainz_workid", "work-id"),
+                    ("musicbrainz_releasegroupid", "group-id"),
+                    ("performer", "Guest"),
+                    ("composer", "Writer"),
+                ],
+                1000,
+            )],
+            vec!["/m".into()],
+            0,
+            &[],
+        );
+        let track = &c.tracks[0];
+        let recording = &c.recordings[0];
+        let release = &c.releases[0];
+        let work = &c.works[0];
+        let group = &c.release_groups[0];
+        let label = &c.labels[0];
+        let band = c.find_artist("Band").expect("band");
+        let guest = c.find_artist("Guest").expect("guest");
+        let writer = c.find_artist("Writer").expect("writer");
+
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Track,
+                track.id,
+                PLACEMENT_OF,
+                EntityKind::Recording
+            ),
+            vec![recording.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Recording,
+                recording.id,
+                PLACED_AS,
+                EntityKind::Track
+            ),
+            vec![track.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Recording,
+                recording.id,
+                PERFORMANCE_OF,
+                EntityKind::Work
+            ),
+            vec![work.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Work,
+                work.id,
+                HAS_RECORDING,
+                EntityKind::Recording
+            ),
+            vec![recording.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Release,
+                release.id,
+                EDITION_OF,
+                EntityKind::ReleaseGroup
+            ),
+            vec![group.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::ReleaseGroup,
+                group.id,
+                HAS_EDITION,
+                EntityKind::Release
+            ),
+            vec![release.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Release,
+                release.id,
+                RELEASED_BY,
+                EntityKind::Label
+            ),
+            vec![label.id]
+        );
+        assert_eq!(
+            c.related_entities(EntityKind::Label, label.id, RELEASED, EntityKind::Release),
+            vec![release.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Artist,
+                band.id,
+                DISCOGRAPHY,
+                EntityKind::Release
+            ),
+            vec![release.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Artist,
+                guest.id,
+                APPEARS_ON,
+                EntityKind::Release
+            ),
+            vec![release.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Artist,
+                writer.id,
+                CONTRIBUTED_TO,
+                EntityKind::Release
+            ),
+            vec![release.id]
+        );
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Artist,
+                writer.id,
+                "credit:composer",
+                EntityKind::Recording
+            ),
+            vec![recording.id]
+        );
+    }
+
+    #[test]
+    fn a_compilation_appearance_is_not_a_discography_or_guest_album() {
+        let c = build(
+            vec![track(
+                "/m/Various/Collection/01.flac",
+                &[
+                    ("title", "Song"),
+                    ("artist", "Guest"),
+                    ("albumartist", "Various Artists"),
+                    ("album", "Collection"),
+                    ("compilation", "1"),
+                ],
+                1000,
+            )],
+            vec!["/m".into()],
+            0,
+            &[],
+        );
+        let guest = c.find_artist("Guest").expect("guest");
+        let release = &c.releases[0];
+        assert_eq!(
+            c.related_entities(
+                EntityKind::Artist,
+                guest.id,
+                COMPILATION_APPEARANCE,
+                EntityKind::Release
+            ),
+            vec![release.id]
+        );
+        assert!(
+            c.related_entities(
+                EntityKind::Artist,
+                guest.id,
+                APPEARS_ON,
+                EntityKind::Release
+            )
+            .is_empty()
+        );
+        assert!(
+            c.related_entities(
+                EntityKind::Artist,
+                guest.id,
+                DISCOGRAPHY,
+                EntityKind::Release
+            )
+            .is_empty()
+        );
     }
 }

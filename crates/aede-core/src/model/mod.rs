@@ -42,7 +42,12 @@ pub mod relations;
 
 pub use builder::{ScannedFile, build};
 pub use query::{SearchHit, TitleMatch};
-pub use relations::{DUPLICATE, OTHER_EDITION, RELATION_RULES, rebuild_relations};
+pub use relations::{
+    ALBUM_BY, APPEARS_ON, COMPILATION_APPEARANCE, CONTRIBUTED_TO, DISCOGRAPHY, DUPLICATE,
+    EDITION_OF, HAS_EDITION, HAS_RECORDING, HAS_TRACK, OTHER_EDITION, PART_OF_RELEASE,
+    PERFORMANCE_OF, PLACED_AS, PLACEMENT_OF, RELATION_RULES, RELEASED, RELEASED_BY,
+    rebuild_relations,
+};
 
 /// Dense index into the catalog's vectors: `catalog.artists[id]` is artist `id`.
 pub type Id = u32;
@@ -56,6 +61,12 @@ pub enum EntityKind {
     Release,
     /// A local placement of one recording on one release.
     Track,
+    /// A recorded performance, independent of its local placements.
+    Recording,
+    /// A musical composition realized by recordings.
+    Work,
+    /// The album identity shared by several release editions.
+    ReleaseGroup,
     /// A record label.
     Label,
     /// A genre. Never carried by a credit or a relation — a genre performs
@@ -71,6 +82,9 @@ impl EntityKind {
             EntityKind::Artist => "artist",
             EntityKind::Release => "release",
             EntityKind::Track => "track",
+            EntityKind::Recording => "recording",
+            EntityKind::Work => "work",
+            EntityKind::ReleaseGroup => "release_group",
             EntityKind::Label => "label",
             EntityKind::Genre => "genre",
         }
@@ -83,6 +97,9 @@ impl EntityKind {
             "artist" => EntityKind::Artist,
             "release" => EntityKind::Release,
             "track" => EntityKind::Track,
+            "recording" => EntityKind::Recording,
+            "work" => EntityKind::Work,
+            "release_group" => EntityKind::ReleaseGroup,
             "label" => EntityKind::Label,
             "genre" => EntityKind::Genre,
             _ => return None,
@@ -409,12 +426,11 @@ pub struct Credit {
     pub source_id: Option<String>,
 }
 
-/// A typed and dated link between two entities.
+/// A typed link between two canonical entities.
 ///
-/// Until M1 only what the tags allow us to infer is available: collaboration
-/// (two artists credited on the same track). MusicBrainz will then bring
-/// `member_of`, `founded`, `signed_to`… — the last of which needs a period on
-/// the link, since a line-up is a fact with dates.
+/// Structural links and summaries inferred from local tags live here. Rich
+/// dated external relationships stay in the attributed source layer, where
+/// their source identity and every relationship detail remain intact.
 #[derive(Debug, Clone)]
 pub struct Relation {
     /// Which table `source_id` indexes.
@@ -425,7 +441,8 @@ pub struct Relation {
     pub target_kind: EntityKind,
     /// Entity the link reaches.
     pub target_id: Id,
-    /// Nature of the link; only `collaborated` exists until M1.
+    /// Nature of the link: `placement_of`, `performance_of`, `edition_of`,
+    /// `released_by`, `discography`, `credit:<role>`, `collaborated`…
     pub kind: String,
     /// Number of observed occurrences: used to rank links by strength.
     pub weight: u32,

@@ -1364,6 +1364,14 @@ fn a_track_is_reachable_by_its_title() {
     assert!(out.contains("Kind of Blue"), "the album is shown: {out}");
     assert!(out.contains("Miles Davis"), "the credits are shown: {out}");
     assert!(out.contains("Sample rate"), "the technical panel is shown");
+    assert!(
+        out.contains("Graph"),
+        "the canonical links are shown: {out}"
+    );
+    assert!(
+        out.contains("recording") && out.contains("local placement"),
+        "the local placement reaches its recording: {out}"
+    );
 
     // Several files carry that title: all of them are printed.
     let pages = out.matches("Album artist").count();
@@ -6217,8 +6225,12 @@ fn played(
     over: Option<bool>,
 ) -> aede_core::sources::Membership {
     aede_core::sources::Membership {
+        relation_id: None,
+        role_id: None,
+        direction: None,
         mbid: format!("mbid-{name}"),
         name: name.to_string(),
+        credited_as: None,
         kind: kind.to_string(),
         side: aede_core::sources::Side::Player,
         attributes: as_.iter().map(|s| s.to_string()).collect(),

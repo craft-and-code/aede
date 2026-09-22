@@ -121,6 +121,9 @@ impl EntityRef {
                 )
             }
             EntityKind::Artist => catalog.artist(id).map(|a| a.key.clone())?,
+            EntityKind::Recording => catalog.recording(id).and_then(|r| r.mbid.clone())?,
+            EntityKind::Work => catalog.work(id).map(|w| w.mbid.clone())?,
+            EntityKind::ReleaseGroup => catalog.release_group(id).map(|g| g.mbid.clone())?,
             EntityKind::Label => catalog.label(id).map(|l| l.key.clone())?,
             EntityKind::Genre => catalog.genres.get(id as usize).map(|g| g.key.clone())?,
         };
@@ -145,6 +148,21 @@ impl EntityRef {
                 .iter()
                 .find(|a| a.key == self.key)
                 .map(|a| a.id),
+            EntityKind::Recording => catalog
+                .recordings
+                .iter()
+                .find(|recording| recording.mbid.as_deref() == Some(&self.key))
+                .map(|recording| recording.id),
+            EntityKind::Work => catalog
+                .works
+                .iter()
+                .find(|work| work.mbid == self.key)
+                .map(|work| work.id),
+            EntityKind::ReleaseGroup => catalog
+                .release_groups
+                .iter()
+                .find(|group| group.mbid == self.key)
+                .map(|group| group.id),
             EntityKind::Label => catalog
                 .labels
                 .iter()
@@ -164,6 +182,9 @@ impl EntityRef {
             EntityKind::Track => catalog.track(id).map(|t| t.title.clone()),
             EntityKind::Release => catalog.release(id).map(|r| r.title.clone()),
             EntityKind::Artist => catalog.artist(id).map(|a| a.name.clone()),
+            EntityKind::Recording => catalog.recording(id).map(|r| r.title.clone()),
+            EntityKind::Work => catalog.work(id).map(|w| w.title.clone()),
+            EntityKind::ReleaseGroup => catalog.release_group(id).map(|g| g.title.clone()),
             EntityKind::Label => catalog.label(id).map(|l| l.name.clone()),
             EntityKind::Genre => catalog.genres.get(id as usize).map(|g| g.name.clone()),
         });

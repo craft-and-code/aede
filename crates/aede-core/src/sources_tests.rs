@@ -267,8 +267,12 @@ fn a_round_trip_keeps_every_field() {
                 secondary_types: vec![],
             }],
             members: vec![Membership {
+                relation_id: Some("membership-row".to_string()),
+                role_id: Some("membership-type".to_string()),
+                direction: Some("forward".to_string()),
                 mbid: "b1a9c0e9".to_string(),
                 name: "The Miles Davis Quintet".to_string(),
+                credited_as: Some("Miles Davis Quintet".to_string()),
                 side: Side::Group,
                 kind: "member of band".to_string(),
                 attributes: vec!["trumpet".to_string()],
@@ -470,6 +474,69 @@ fn rich_credits_keep_their_recording_or_work_scope_and_provenance() {
     );
     assert_eq!(links[1].source, MUSICBRAINZ);
     assert_eq!(links[1].fetched_at, 42);
+}
+
+#[test]
+fn memberships_keep_external_identity_and_link_a_local_other_endpoint() {
+    let catalog = crate::model::build(
+        vec![
+            crate::model::tests::track(
+                "/music/Band/01.flac",
+                &[
+                    ("title", "Band Song"),
+                    ("artist", "The Band"),
+                    ("musicbrainz_artistid", "band-id"),
+                ],
+                1,
+            ),
+            crate::model::tests::track(
+                "/music/Player/01.flac",
+                &[
+                    ("title", "Solo Song"),
+                    ("artist", "A Player"),
+                    ("musicbrainz_artistid", "player-id"),
+                ],
+                1,
+            ),
+        ],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    let band = catalog.find_artist("The Band").expect("band");
+    let player = catalog.find_artist("A Player").expect("player");
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: band.key.clone(),
+        source: MUSICBRAINZ.into(),
+        source_id: Some("band-id".into()),
+        fetched_at: 42,
+        confidence: Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts {
+            members: vec![Membership {
+                relation_id: Some("membership-id".into()),
+                role_id: Some("membership-type".into()),
+                direction: Some("backward".into()),
+                mbid: "player-id".into(),
+                name: "A Player".into(),
+                credited_as: None,
+                side: Side::Player,
+                kind: "member of band".into(),
+                attributes: vec!["guitar".into()],
+                began: Some("2000".into()),
+                ended: None,
+                over: Some(false),
+            }],
+            ..Default::default()
+        }),
+    });
+
+    let links = sources.membership_links(&catalog);
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].artist_id, band.id);
+    assert_eq!(links[0].related_artist_id, Some(player.id));
+    assert_eq!(links[0].membership.years(), "2000–");
+    assert_eq!(links[0].source, MUSICBRAINZ);
 }
 
 #[test]
@@ -771,8 +838,12 @@ fn a_row_this_build_cannot_read_is_skipped_and_the_rest_survives() {
 /// One membership, with only the fields a test cares about.
 fn played(name: &str, began: Option<&str>, ended: Option<&str>, over: Option<bool>) -> Membership {
     Membership {
+        relation_id: None,
+        role_id: None,
+        direction: None,
         mbid: format!("mbid-{name}"),
         name: name.to_string(),
+        credited_as: None,
         side: Side::Player,
         kind: "member of band".to_string(),
         attributes: Vec::new(),

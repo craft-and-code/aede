@@ -126,7 +126,7 @@ aede doctor
 | Command          | Arguments       | Key Options                                                                                                               | Description                                                                          |
 | :--------------- | :-------------- | :------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------- |
 | `aede query`     | `<expression>`  | `--m3u`, `--csv`, `--json`                                                                                                | Evaluates a relational search expression across the catalog graph.                   |
-| `aede search`    | `<term>`        | `--comments`, `--notes`, `--lyrics`                                                                                       | Free-text search across titles, artists, albums, or prose metadata.                  |
+| `aede search`    | `<term>`        | `--comments`, `--notes`, `--lyrics`                                                                                       | Search artists, albums, tracks, recordings, works, release groups and optional prose. |
 | `aede albums`    | None            | `--artist`, `--genre`, `--year`, `--compilations`, `--no-compilations`, `--limit`, `--offset`, `--all`, `--csv`, `--json` | List and filter album records with pagination support.                               |
 | `aede artists`   | None            | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.                    |
 | `aede genres`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.                      |
@@ -179,6 +179,13 @@ lyricists, writers and arrangers. Credited-as names, instruments, qualifiers,
 dates, ordering and MusicBrainz relationship identifiers keep their provenance
 in `sources.json`. The former `--recordings` option remains a compatibility
 alias for `--credits`.
+
+The local graph links placements, recordings, works, editions, release groups,
+artists and labels in both directions. Guest appearances, compilation
+appearances, discography entries and writing or production contributions remain
+distinct relations. `aede track`, `recording`, `work`, `album`, `artist` and
+`label` expose the relevant paths, while `aede search` also finds recordings,
+works and release groups directly.
 
 ### Transfer, Export & Derivative Generation
 

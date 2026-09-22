@@ -114,6 +114,7 @@ pub fn show_track(args: &Args) -> Res {
     let words = args.has("lyrics");
     for track in &matches {
         print_track(&catalog, track);
+        print_graph_links(&catalog, track, &held);
         super::print_sourced_credits(
             &catalog,
             sourced_credits
@@ -147,6 +148,64 @@ pub fn show_track(args: &Args) -> Res {
         println!("  {}", ui::dim(&ui::plural(total, "track")));
     }
     Ok(())
+}
+
+fn print_graph_links(catalog: &Catalog, track: &Track, held: &sources::Sources) {
+    let Some(recording) = catalog.recording(track.recording_id) else {
+        return;
+    };
+    let mut rows = Table::new(&["Relation", "Target", "Identity", "Evidence"])
+        .limit(1, 42)
+        .limit(2, 38)
+        .limit(3, 32);
+    rows.push(vec![
+        "recording".into(),
+        recording.title.clone(),
+        recording.mbid.clone().unwrap_or_else(|| "local".into()),
+        format!("{} local placement(s)", recording.track_ids.len()),
+    ]);
+    for &work_id in &recording.work_ids {
+        if let Some(work) = catalog.work(work_id) {
+            rows.push(vec![
+                "work".into(),
+                work.title.clone(),
+                work.mbid.clone(),
+                "tags".into(),
+            ]);
+        }
+    }
+    let canonical: std::collections::BTreeSet<&str> = recording
+        .work_ids
+        .iter()
+        .filter_map(|&id| catalog.work(id))
+        .map(|work| work.mbid.as_str())
+        .collect();
+    for link in held
+        .work_links(catalog)
+        .into_iter()
+        .filter(|link| link.recording_id == recording.id)
+        .filter(|link| !canonical.contains(link.work.mbid.as_str()))
+    {
+        rows.push(vec![
+            "source work".into(),
+            link.work.title,
+            link.work.mbid,
+            format!("{} · {}", link.source, ui::since(link.fetched_at)),
+        ]);
+    }
+    if let Some(release) = track.release_id.and_then(|id| catalog.release(id))
+        && let Some(group_id) = release.release_group_id
+        && let Some(group) = catalog.release_group(group_id)
+    {
+        rows.push(vec![
+            "release group".into(),
+            group.title.clone(),
+            group.mbid.clone(),
+            format!("{} local edition(s)", group.release_ids.len()),
+        ]);
+    }
+    println!("{}", ui::section("Graph"));
+    print!("{}", rows.render());
 }
 
 /// Turns the filter options into one expression.
