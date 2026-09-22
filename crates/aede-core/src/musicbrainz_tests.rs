@@ -64,6 +64,25 @@ fn an_entry_without_an_identifier_is_skipped() {
 }
 
 #[test]
+fn a_recording_lookup_keeps_only_explicit_work_relationships() {
+    let response = parse(
+        r#"{
+          "id":"recording-id", "title":"All Along the Watchtower",
+          "relations":[
+            {"target-type":"work", "work":{"id":"work-id", "title":"All Along the Watchtower"}},
+            {"target-type":"artist", "artist":{"id":"artist-id", "name":"Bob Dylan"}}
+          ]
+        }"#,
+    );
+    let found = recording(&response).expect("recording");
+    assert_eq!(found.mbid, "recording-id");
+    assert_eq!(found.facts.recording.as_deref(), Some("recording-id"));
+    assert_eq!(found.facts.works.len(), 1);
+    assert_eq!(found.facts.works[0].mbid, "work-id");
+    assert_eq!(found.facts.works[0].title, "All Along the Watchtower");
+}
+
+#[test]
 fn a_release_group_carries_its_types_and_not_a_label() {
     let response = parse(
         r#"{

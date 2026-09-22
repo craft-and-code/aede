@@ -17,7 +17,7 @@ use crate::text;
 use super::relations::rebuild_relations;
 use super::{
     Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, IntegrityRecord, Label,
-    Release, Track,
+    Recording, Release, ReleaseGroup, Track, Work,
 };
 
 // --------------------------------------------------------------------------
@@ -90,6 +90,9 @@ struct Builder {
     labels: HashMap<String, Id>,
     genres: HashMap<String, Id>,
     releases: HashMap<String, Id>,
+    release_groups: HashMap<String, Id>,
+    recordings: HashMap<String, Id>,
+    works: HashMap<String, Id>,
     credits: HashSet<CreditKey>,
     release_genres: HashSet<(Id, Id)>,
 }
@@ -120,6 +123,9 @@ impl Builder {
             labels: HashMap::new(),
             genres: HashMap::new(),
             releases: HashMap::new(),
+            release_groups: HashMap::new(),
+            recordings: HashMap::new(),
+            works: HashMap::new(),
             credits: HashSet::new(),
             release_genres: HashSet::new(),
         }
@@ -130,6 +136,8 @@ impl Builder {
     fn add_file(&mut self, item: &ScannedFile) {
         let entities = self.add_entities(item);
         let track_id = self.add_track(item, &entities);
+        let recording_id = self.catalog.tracks[track_id as usize].recording_id;
+        self.add_works(item, recording_id);
         self.add_credits(item, &entities, track_id);
         self.add_labels(item, &entities);
         self.add_genres(item, &entities, track_id);
@@ -260,6 +268,12 @@ impl Builder {
 
         if let Some(&id) = self.releases.get(&key) {
             // A field missing from the first track may show up on another one.
+            let missing_group = self
+                .catalog
+                .releases
+                .get(id as usize)
+                .filter(|release| release.release_group_id.is_none())
+                .map(|release| release.title.clone());
             if let Some(release) = self.catalog.releases.get_mut(id as usize) {
                 if release.cover_path.is_none() {
                     release.cover_path = item.folder_cover.clone();
@@ -271,10 +285,21 @@ impl Builder {
                     release.mbid = tags.first("musicbrainz_albumid").map(String::from);
                 }
             }
+            if let Some(title) = missing_group
+                && let Some(group_id) =
+                    self.release_group_for(&title, tags.first("musicbrainz_releasegroupid"))
+            {
+                self.catalog.releases[id as usize].release_group_id = Some(group_id);
+                self.catalog.release_groups[group_id as usize]
+                    .release_ids
+                    .push(id);
+            }
             return Some(id);
         }
 
         let id = self.catalog.releases.len() as Id;
+        let release_group_mbid = tags.first("musicbrainz_releasegroupid").map(String::from);
+        let release_group_id = self.release_group_for(&title, release_group_mbid.as_deref());
         self.catalog.releases.push(Release {
             id,
             key: text::normalize(&title),
@@ -287,13 +312,40 @@ impl Builder {
             barcode: tags.first("barcode").map(String::from),
             media: tags.first("media").map(String::from),
             mbid: tags.first("musicbrainz_albumid").map(String::from),
-            release_group_mbid: tags.first("musicbrainz_releasegroupid").map(String::from),
+            release_group_mbid,
+            release_group_id,
             is_compilation,
             folder: folder.to_string(),
             cover_path: item.folder_cover.clone(),
             track_ids: Vec::new(),
         });
+        if let Some(group_id) = release_group_id {
+            self.catalog.release_groups[group_id as usize]
+                .release_ids
+                .push(id);
+        }
         self.releases.insert(key, id);
+        Some(id)
+    }
+
+    /// Resolves a release group only from its explicit MusicBrainz identifier.
+    fn release_group_for(&mut self, title: &str, mbid: Option<&str>) -> Option<Id> {
+        let mbid = mbid?.trim();
+        if mbid.is_empty() {
+            return None;
+        }
+        if let Some(&id) = self.release_groups.get(mbid) {
+            return Some(id);
+        }
+        let id = self.catalog.release_groups.len() as Id;
+        self.catalog.release_groups.push(ReleaseGroup {
+            id,
+            title: title.to_string(),
+            key: text::normalize(title),
+            mbid: mbid.to_string(),
+            release_ids: Vec::new(),
+        });
+        self.release_groups.insert(mbid.to_string(), id);
         Some(id)
     }
 
@@ -320,11 +372,13 @@ impl Builder {
         // made the file said.
         let disc_no = disc_no.or(entities.disc_from_folder);
 
+        let recording_id = self.recording_for(item, &title);
         let track_id = self.catalog.tracks.len() as Id;
         self.catalog.tracks.push(Track {
             id: track_id,
             file_id: entities.file_id,
             release_id: entities.release_id,
+            recording_id,
             title,
             disc_no,
             track_no: track_no.or_else(|| track_from_filename(&item.path)),
@@ -332,6 +386,9 @@ impl Builder {
             isrc: tags.first("isrc").map(String::from),
             mbid: tags.first("musicbrainz_recordingid").map(String::from),
         });
+        self.catalog.recordings[recording_id as usize]
+            .track_ids
+            .push(track_id);
 
         if let Some(rid) = entities.release_id
             && let Some(release) = self.catalog.releases.get_mut(rid as usize)
@@ -339,6 +396,75 @@ impl Builder {
             release.track_ids.push(track_id);
         }
         track_id
+    }
+
+    /// Finds the recorded performance this placement carries, or gives an
+    /// un-identified placement a recording of its own. A shared title is not
+    /// enough to merge music: only an explicit MusicBrainz recording ID is.
+    fn recording_for(&mut self, item: &ScannedFile, title: &str) -> Id {
+        let mbid = item
+            .tags
+            .first("musicbrainz_recordingid")
+            .map(str::to_owned);
+        let key = match &mbid {
+            Some(id) => format!("mbid:{id}"),
+            None => format!("local:{}", item.path),
+        };
+        if let Some(&id) = self.recordings.get(&key) {
+            return id;
+        }
+        let id = self.catalog.recordings.len() as Id;
+        self.catalog.recordings.push(Recording {
+            id,
+            title: title.to_string(),
+            key: text::normalize(title),
+            isrc: item.tags.first("isrc").map(String::from),
+            mbid,
+            track_ids: Vec::new(),
+            work_ids: Vec::new(),
+        });
+        self.recordings.insert(key, id);
+        id
+    }
+
+    /// Connects one recording to every explicitly identified work its tags
+    /// name. Several works are allowed: a medley is not forced into one title.
+    fn add_works(&mut self, item: &ScannedFile, recording_id: Id) {
+        for (position, mbid) in item.tags.all("musicbrainz_workid").iter().enumerate() {
+            let mbid = mbid.trim();
+            if mbid.is_empty() {
+                continue;
+            }
+            let work_id = match self.works.get(mbid) {
+                Some(&id) => id,
+                None => {
+                    let title = item
+                        .tags
+                        .all("work")
+                        .get(position)
+                        .map(String::as_str)
+                        .or_else(|| item.tags.first("work"))
+                        .unwrap_or(&self.catalog.recordings[recording_id as usize].title);
+                    let id = self.catalog.works.len() as Id;
+                    self.catalog.works.push(Work {
+                        id,
+                        title: title.to_string(),
+                        key: text::normalize(title),
+                        mbid: mbid.to_string(),
+                        recording_ids: Vec::new(),
+                    });
+                    self.works.insert(mbid.to_string(), id);
+                    id
+                }
+            };
+            let recording = &mut self.catalog.recordings[recording_id as usize];
+            if !recording.work_ids.contains(&work_id) {
+                recording.work_ids.push(work_id);
+                self.catalog.works[work_id as usize]
+                    .recording_ids
+                    .push(recording_id);
+            }
+        }
     }
 
     /// Records who did what on this track, and who signs the album.
@@ -369,8 +495,14 @@ impl Builder {
         let Some(rid) = entities.release_id else {
             return;
         };
-        for value in item.tags.all("label") {
-            let label_id = self.intern_label(value);
+        for (position, value) in item.tags.all("label").iter().enumerate() {
+            let mbid = item
+                .tags
+                .all("musicbrainz_labelid")
+                .get(position)
+                .map(String::as_str)
+                .or_else(|| item.tags.first("musicbrainz_labelid"));
+            let label_id = self.intern_label(value, mbid);
             if let Some(release) = self.catalog.releases.get_mut(rid as usize)
                 && !release.label_ids.contains(&label_id)
             {
@@ -464,9 +596,12 @@ impl Builder {
         artist.sort_name = text::sort_name(name.trim());
     }
 
-    fn intern_label(&mut self, name: &str) -> Id {
+    fn intern_label(&mut self, name: &str, mbid: Option<&str>) -> Id {
         let key = text::normalize(name);
         if let Some(&id) = self.labels.get(&key) {
+            if self.catalog.labels[id as usize].mbid.is_none() {
+                self.catalog.labels[id as usize].mbid = mbid.map(str::to_owned);
+            }
             return id;
         }
         let id = self.catalog.labels.len() as Id;
@@ -474,6 +609,7 @@ impl Builder {
             id,
             name: name.trim().to_string(),
             key: key.clone(),
+            mbid: mbid.map(str::to_owned),
         });
         self.labels.insert(key, id);
         id

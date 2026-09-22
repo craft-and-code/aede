@@ -686,6 +686,97 @@ fn an_identified_label_becomes_a_fanart_label_target() {
 }
 
 #[test]
+fn an_approximate_label_match_never_becomes_a_fanart_target() {
+    let dir = sandbox("label_suggestion");
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Miles Davis");
+    tags.insert("albumartist", "Miles Davis");
+    tags.insert("album", "Kind of Blue");
+    tags.insert("title", "So What");
+    tags.insert("label", "Columbia");
+    let catalog = build(
+        vec![ScannedFile {
+            path: dir.join("music/01.flac").to_string_lossy().to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec![dir.join("music").to_string_lossy().to_string()],
+        1,
+        &[],
+    );
+    let entity = EntityRef::of(
+        &catalog,
+        aede_core::model::EntityKind::Label,
+        catalog.labels[0].id,
+    )
+    .expect("label");
+    let mut layer = Sources::default();
+    layer.set(SourceRecord {
+        key: entity.key,
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("candidate-only".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::matched(99),
+        facts: Facts::Label(LabelFacts::default()),
+    });
+
+    assert!(
+        label_targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            &dir,
+            false,
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn an_explicit_local_label_id_is_enough_for_a_fanart_target() {
+    let dir = sandbox("label_local_id");
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Miles Davis");
+    tags.insert("albumartist", "Miles Davis");
+    tags.insert("album", "Kind of Blue");
+    tags.insert("title", "So What");
+    tags.insert("label", "Columbia");
+    tags.insert("musicbrainz_labelid", "local-label-id");
+    let catalog = build(
+        vec![ScannedFile {
+            path: dir.join("music/01.flac").to_string_lossy().to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec![dir.join("music").to_string_lossy().to_string()],
+        1,
+        &[],
+    );
+
+    let targets = label_targets(
+        &catalog,
+        &Sources::default(),
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        &dir,
+        false,
+    );
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].mbid, "local-label-id");
+}
+
+#[test]
 fn no_key_means_nothing_is_ever_waiting() {
     let dir = sandbox("waiting_no_key");
     let catalog = one_album(&dir);

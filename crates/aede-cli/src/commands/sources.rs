@@ -184,6 +184,9 @@ fn says(facts: &Facts) -> String {
             if let Some(album) = &t.album {
                 parts.push(album.clone());
             }
+            if !t.works.is_empty() {
+                parts.push(format!("{} work link(s)", t.works.len()));
+            }
             if let Some(score) = t.score {
                 parts.push(format!("{score}% sure"));
             }
@@ -667,6 +670,9 @@ fn compared(
                 if let Some(value) = value {
                     rows.push((field, value.clone(), None));
                 }
+            }
+            for work in &t.works {
+                rows.push(("work", format!("{} ({})", work.title, work.mbid), None));
             }
             if let Some(score) = t.score {
                 // Shown, never hidden behind a threshold: a reader deciding

@@ -12,7 +12,9 @@
 //! guessing one of those wrong produces a record that is silently empty.
 
 use crate::json::Json;
-use crate::sources::{ArtistFacts, Confidence, LabelFacts, Membership, ReleaseFacts, Side};
+use crate::sources::{
+    ArtistFacts, Confidence, LabelFacts, Membership, ReleaseFacts, Side, TrackFacts, WorkLink,
+};
 use crate::text;
 
 /// Base address of the web service, kept here so the client has nothing to
@@ -45,6 +47,9 @@ pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// made, and the dates are what let an album page name the band as it stood
 /// the year that record came out.
 pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels+artist-rels";
+
+/// What a recording lookup needs in order to describe its composition links.
+pub const RECORDING_INCLUDES: &str = "work-rels";
 
 /// What to ask for alongside a *release*, in one request.
 ///
@@ -423,6 +428,43 @@ pub fn artist(response: &Json) -> Option<Candidate<ArtistFacts>> {
         // Nothing was ranked: the service was asked about this one thing.
         score: 100,
         facts: artist_facts(response),
+    })
+}
+
+/// One recording, as `/ws/2/recording/<mbid>?inc=work-rels` returns it.
+///
+/// A lookup is evidence about the identifier we asked for, never a title
+/// match. Its work relationships remain source facts: reconciliation decides
+/// later whether and how they join the local canonical graph.
+pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
+    let mbid = field(response, "id")?;
+    let works = response
+        .get("relations")
+        .and_then(Json::as_arr)
+        .map(|relations| {
+            relations
+                .iter()
+                .filter(|relation| relation.field_str("target-type").as_deref() == Some("work"))
+                .filter_map(|relation| {
+                    let work = relation.get("work")?;
+                    Some(WorkLink {
+                        mbid: field(work, "id")?,
+                        title: field(work, "title").unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(Candidate {
+        mbid: mbid.clone(),
+        name: field(response, "title").unwrap_or_default(),
+        score: 100,
+        facts: TrackFacts {
+            recording: Some(mbid),
+            title: field(response, "title"),
+            works,
+            ..Default::default()
+        },
     })
 }
 

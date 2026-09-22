@@ -543,6 +543,8 @@ enum Pass {
     Lyrics,
     /// What AcoustID hears in the files that have been fingerprinted.
     Identify,
+    /// Work relationships of recordings already identified in local tags.
+    Recordings,
     /// A picture of the artist, from Wikidata or Fanart.tv — see
     /// [`super::portraits`].
     Portraits,
@@ -562,6 +564,7 @@ impl Pass {
             ("covers", Pass::Covers),
             ("lyrics", Pass::Lyrics),
             ("identify", Pass::Identify),
+            ("recordings", Pass::Recordings),
             ("labels", Pass::Labels),
             ("portraits", Pass::Portraits),
             ("logos", Pass::Logos),
@@ -586,6 +589,7 @@ impl Pass {
             Pass::Covers => "--covers",
             Pass::Lyrics => "--lyrics",
             Pass::Identify => "--identify",
+            Pass::Recordings => "--recordings",
             Pass::Portraits => "--portraits",
             Pass::Logos => "--logos",
             Pass::Labels => "--labels",
@@ -701,8 +705,123 @@ fn second_passes(
                 let catalog = catalog.expect("a catalog was loaded for it");
                 super::labels::run(catalog, transport, backoff, held, path, asked)?;
             }
+            Pass::Recordings => {
+                let catalog = catalog.expect("a catalog was loaded for it");
+                recording_links(catalog, transport, backoff, held, path, asked, args)?;
+            }
         }
     }
+    Ok(())
+}
+
+/// Retrieves MusicBrainz work relationships for recordings local tags already
+/// identify. No title search is offered: without a recording MBID there is no
+/// safe question to ask.
+fn recording_links(
+    catalog: &Catalog,
+    transport: &mut dyn Ask,
+    backoff: &[std::time::Duration],
+    held: &mut sources::Sources,
+    path: &std::path::Path,
+    asked: &Asked,
+    args: &Args,
+) -> Res {
+    let mut targets = Vec::new();
+    for recording in &catalog.recordings {
+        let Some(mbid) = recording.mbid.as_deref() else {
+            continue;
+        };
+        let Some(&track_id) = recording
+            .track_ids
+            .iter()
+            .find(|&&track_id| asked.scope.has_track(track_id))
+        else {
+            continue;
+        };
+        let Some(entity) = EntityRef::of(catalog, EntityKind::Track, track_id) else {
+            continue;
+        };
+        if !asked.again && held.get(&entity, sources::MUSICBRAINZ).is_some() {
+            continue;
+        }
+        if !reaches(asked.names, &[recording.title.as_str()]) {
+            continue;
+        }
+        targets.push((entity, recording.title.as_str(), mbid));
+    }
+    println!("{}", ui::section("Recording relationships"));
+    if targets.is_empty() {
+        println!("  {}", ui::dim("no identified recording is waiting"));
+        return Ok(());
+    }
+    if asked.dry_run {
+        for (_, title, _) in &targets {
+            println!("  {}", ui::dim(title));
+        }
+        println!("  {}", ui::dim("nothing was asked: --dry-run"));
+        return Ok(());
+    }
+    let total = targets.len();
+    let estimate_ms = total as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
+    println!(
+        "  {} at one request per second, about {}",
+        ui::plural(total, "recording"),
+        ui::long_duration(estimate_ms)
+    );
+    if total > CONFIRM_ABOVE && !super::confirmed(args, "ask about all of them")? {
+        println!("  {}", ui::dim("nothing was asked"));
+        return Ok(());
+    }
+    let (mut stored, mut refused, mut failed) = (0, 0, 0);
+    for (index, (entity, title, mbid)) in targets.into_iter().enumerate() {
+        print!("\r  asking: {}/{}", index + 1, total);
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let url = format!(
+            "{}/recording/{mbid}?fmt=json&inc={}",
+            musicbrainz::WEB_SERVICE,
+            musicbrainz::RECORDING_INCLUDES
+        );
+        match ask_with_backoff(transport, &url, backoff) {
+            Ok(answer) => match musicbrainz::recording(&answer) {
+                Some(candidate) => {
+                    held.set(SourceRecord {
+                        key: entity.key,
+                        source: sources::MUSICBRAINZ.to_string(),
+                        source_id: Some(candidate.mbid),
+                        fetched_at: clock::now_seconds(),
+                        confidence: sources::Confidence::Identified,
+                        facts: Facts::Track(candidate.facts),
+                    });
+                    sources::save(held, path)?;
+                    stored += 1;
+                }
+                None => {
+                    refused += 1;
+                    eprintln!(
+                        "  {} {title}: no readable MusicBrainz recording",
+                        ui::yellow("?")
+                    );
+                }
+            },
+            Err(Refusal::RateLimited) => {
+                println!();
+                sources::save(held, path)?;
+                return Err(
+                    "MusicBrainz is rate limiting requests; saved answers are safe, try later"
+                        .into(),
+                );
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!("\n  {} {title}: {error}", ui::red("×"));
+            }
+        }
+    }
+    println!();
+    println!(
+        "{} {stored} stored, {refused} left alone, {failed} failed",
+        ui::green("→")
+    );
     Ok(())
 }
 

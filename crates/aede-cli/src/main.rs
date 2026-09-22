@@ -323,6 +323,7 @@ const OPTIONS: &[&str] = &[
     "images",
     "country",
     "identify",
+    "recordings",
     "lang",
     "portraits",
     "logos",
@@ -428,6 +429,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "identify",
         &["fetch"],
         "ask what the fingerprinted files sound like",
+    ),
+    (
+        "recordings",
+        &["fetch"],
+        "ask MusicBrainz for explicitly identified recording relationships",
     ),
     ("portraits", &["fetch"], "look for a picture of the artist"),
     (
@@ -683,6 +689,8 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("artist", None, commands::show_artist),
     ("album", None, commands::show_album),
     ("track", None, commands::show_track),
+    ("recording", None, commands::show_recording),
+    ("work", None, commands::show_work),
     ("search", None, commands::search),
     ("file", None, commands::inspect),
     ("export", None, commands::export),

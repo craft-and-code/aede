@@ -16,7 +16,7 @@ use crate::audit;
 use crate::json::{self, Json};
 use crate::model::{
     self, Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, IntegrityRecord,
-    Label, Relation, Release, Track,
+    Label, Recording, Relation, Release, ReleaseGroup, Track, Work,
 };
 use crate::tags::AudioProperties;
 
@@ -169,7 +169,13 @@ pub fn to_json(catalog: &Catalog) -> Json {
     root.set("file", array(&catalog.files, file_to_json));
     root.set("artist", array(&catalog.artists, artist_to_json));
     root.set("release", array(&catalog.releases, release_to_json));
+    root.set(
+        "release_group",
+        array(&catalog.release_groups, release_group_to_json),
+    );
     root.set("track", array(&catalog.tracks, track_to_json));
+    root.set("recording", array(&catalog.recordings, recording_to_json));
+    root.set("work", array(&catalog.works, work_to_json));
     root.set("label", array(&catalog.labels, label_to_json));
     root.set("genre", array(&catalog.genres, genre_to_json));
     root.set("credit", array(&catalog.credits, credit_to_json));
@@ -373,6 +379,7 @@ fn release_to_json(r: &Release) -> Json {
     o.set("media", opt_str(&r.media));
     o.set("mbid", opt_str(&r.mbid));
     o.set("release_group_mbid", opt_str(&r.release_group_mbid));
+    o.set("release_group_id", opt_num(&r.release_group_id));
     o.set("is_compilation", r.is_compilation.into());
     o.set("folder", r.folder.clone().into());
     o.set("cover_path", opt_str(&r.cover_path));
@@ -383,11 +390,49 @@ fn release_to_json(r: &Release) -> Json {
     o
 }
 
+fn work_to_json(work: &Work) -> Json {
+    let mut o = Json::obj();
+    o.set("id", work.id.into());
+    o.set("title", work.title.clone().into());
+    o.set("key", work.key.clone().into());
+    o.set("mbid", work.mbid.clone().into());
+    o.set(
+        "recording_ids",
+        Json::Arr(
+            work.recording_ids
+                .iter()
+                .map(|&id| Json::Num(id as f64))
+                .collect(),
+        ),
+    );
+    o
+}
+
+fn release_group_to_json(group: &ReleaseGroup) -> Json {
+    let mut o = Json::obj();
+    o.set("id", group.id.into());
+    o.set("title", group.title.clone().into());
+    o.set("key", group.key.clone().into());
+    o.set("mbid", group.mbid.clone().into());
+    o.set(
+        "release_ids",
+        Json::Arr(
+            group
+                .release_ids
+                .iter()
+                .map(|&id| Json::Num(id as f64))
+                .collect(),
+        ),
+    );
+    o
+}
+
 fn track_to_json(t: &Track) -> Json {
     let mut o = Json::obj();
     o.set("id", t.id.into());
     o.set("file_id", t.file_id.into());
     o.set("release_id", opt_num(&t.release_id));
+    o.set("recording_id", t.recording_id.into());
     o.set("title", t.title.clone().into());
     o.set("disc_no", opt_num(&t.disc_no));
     o.set("track_no", opt_num(&t.track_no));
@@ -397,11 +442,42 @@ fn track_to_json(t: &Track) -> Json {
     o
 }
 
+fn recording_to_json(recording: &Recording) -> Json {
+    let mut o = Json::obj();
+    o.set("id", recording.id.into());
+    o.set("title", recording.title.clone().into());
+    o.set("key", recording.key.clone().into());
+    o.set("isrc", opt_str(&recording.isrc));
+    o.set("mbid", opt_str(&recording.mbid));
+    o.set(
+        "track_ids",
+        Json::Arr(
+            recording
+                .track_ids
+                .iter()
+                .map(|&id| Json::Num(id as f64))
+                .collect(),
+        ),
+    );
+    o.set(
+        "work_ids",
+        Json::Arr(
+            recording
+                .work_ids
+                .iter()
+                .map(|&id| Json::Num(id as f64))
+                .collect(),
+        ),
+    );
+    o
+}
+
 fn label_to_json(l: &Label) -> Json {
     let mut o = Json::obj();
     o.set("id", l.id.into());
     o.set("name", l.name.clone().into());
     o.set("key", l.key.clone().into());
+    o.set("mbid", opt_str(&l.mbid));
     o
 }
 
@@ -510,11 +586,26 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             media: item.field_str("media"),
             mbid: item.field_str("mbid"),
             release_group_mbid: item.field_str("release_group_mbid"),
+            release_group_id: item.field_u32("release_group_id"),
             is_compilation: item.field_bool("is_compilation"),
             folder: item.field_str("folder").unwrap_or_default(),
             cover_path: item.field_str("cover_path"),
             track_ids: id_list(item.get("track_ids")),
         });
+    }
+    for item in rows(value, "release_group") {
+        catalog.release_groups.push(ReleaseGroup {
+            id: item
+                .field_u32("id")
+                .ok_or(StoreError::Invalid("release group without identifier"))?,
+            title: item.field_str("title").unwrap_or_default(),
+            key: item.field_str("key").unwrap_or_default(),
+            mbid: item.field_str("mbid").unwrap_or_default(),
+            release_ids: id_list(item.get("release_ids")),
+        });
+    }
+    if catalog.release_groups.is_empty() {
+        rebuild_legacy_release_groups(&mut catalog);
     }
     for item in rows(value, "track") {
         catalog.tracks.push(Track {
@@ -525,12 +616,47 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
                 .field_u32("file_id")
                 .ok_or(StoreError::Invalid("track without file"))?,
             release_id: item.field_u32("release_id"),
+            // Catalogs written before recordings existed gain their canonical
+            // rows below. Their track ids were dense already, so each one is
+            // a valid temporary local recording id during that migration.
+            recording_id: item
+                .field_u32("recording_id")
+                .unwrap_or_else(|| item.field_u32("id").unwrap_or(0)),
             title: item.field_str("title").unwrap_or_default(),
             disc_no: item.field_u32("disc_no"),
             track_no: item.field_u32("track_no"),
             duration_ms: item.field_u64("duration_ms"),
             isrc: item.field_str("isrc"),
             mbid: item.field_str("mbid"),
+        });
+    }
+    for item in rows(value, "recording") {
+        catalog.recordings.push(Recording {
+            id: item
+                .field_u32("id")
+                .ok_or(StoreError::Invalid("recording without identifier"))?,
+            title: item.field_str("title").unwrap_or_default(),
+            key: item.field_str("key").unwrap_or_default(),
+            isrc: item.field_str("isrc"),
+            mbid: item.field_str("mbid"),
+            track_ids: id_list(item.get("track_ids")),
+            work_ids: id_list(item.get("work_ids")),
+        });
+    }
+    if catalog.recordings.is_empty() && !catalog.tracks.is_empty() {
+        rebuild_legacy_recordings(&mut catalog);
+    }
+    for item in rows(value, "work") {
+        catalog.works.push(Work {
+            id: item
+                .field_u32("id")
+                .ok_or(StoreError::Invalid("work without identifier"))?,
+            title: item.field_str("title").unwrap_or_default(),
+            key: item.field_str("key").unwrap_or_default(),
+            mbid: item
+                .field_str("mbid")
+                .ok_or(StoreError::Invalid("work without MusicBrainz identifier"))?,
+            recording_ids: id_list(item.get("recording_ids")),
         });
     }
     for item in rows(value, "label") {
@@ -540,6 +666,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
                 .ok_or(StoreError::Invalid("label without identifier"))?,
             name: item.field_str("name").unwrap_or_default(),
             key: item.field_str("key").unwrap_or_default(),
+            mbid: item.field_str("mbid"),
         });
     }
     for item in rows(value, "genre") {
@@ -626,6 +753,21 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
         if release.id as usize != index {
             return Err(StoreError::Invalid("non-contiguous release identifiers"));
         }
+        if release
+            .release_group_id
+            .is_some_and(|id| id as usize >= catalog.release_groups.len())
+        {
+            return Err(StoreError::Invalid(
+                "release attached to a missing release group",
+            ));
+        }
+    }
+    for (index, group) in catalog.release_groups.iter().enumerate() {
+        if group.id as usize != index {
+            return Err(StoreError::Invalid(
+                "non-contiguous release group identifiers",
+            ));
+        }
     }
     for (index, track) in catalog.tracks.iter().enumerate() {
         if track.id as usize != index {
@@ -634,8 +776,119 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
         if track.file_id as usize >= catalog.files.len() {
             return Err(StoreError::Invalid("track attached to a missing file"));
         }
+        if track.recording_id as usize >= catalog.recordings.len() {
+            return Err(StoreError::Invalid("track attached to a missing recording"));
+        }
+    }
+    for (index, recording) in catalog.recordings.iter().enumerate() {
+        if recording.id as usize != index {
+            return Err(StoreError::Invalid("non-contiguous recording identifiers"));
+        }
+        if recording.track_ids.iter().any(|&id| {
+            catalog
+                .track(id)
+                .is_none_or(|track| track.recording_id != recording.id)
+        }) {
+            return Err(StoreError::Invalid("recording attached to a missing track"));
+        }
+        if recording.work_ids.iter().any(|&id| {
+            catalog
+                .works
+                .get(id as usize)
+                .is_none_or(|work| !work.recording_ids.contains(&recording.id))
+        }) {
+            return Err(StoreError::Invalid("recording attached to a missing work"));
+        }
+    }
+    for (index, work) in catalog.works.iter().enumerate() {
+        if work.id as usize != index {
+            return Err(StoreError::Invalid("non-contiguous work identifiers"));
+        }
+        if work.mbid.trim().is_empty() {
+            return Err(StoreError::Invalid("work without MusicBrainz identifier"));
+        }
+        if work.recording_ids.iter().any(|&id| {
+            catalog
+                .recording(id)
+                .is_none_or(|recording| !recording.work_ids.contains(&work.id))
+        }) {
+            return Err(StoreError::Invalid("work attached to a missing recording"));
+        }
     }
     Ok(())
+}
+
+/// Adds groups to a pre-canonical catalog from explicit release-group MBIDs.
+fn rebuild_legacy_release_groups(catalog: &mut Catalog) {
+    let mut known: BTreeMap<String, Id> = BTreeMap::new();
+    for index in 0..catalog.releases.len() {
+        let Some(mbid) = catalog.releases[index].release_group_mbid.clone() else {
+            continue;
+        };
+        if mbid.trim().is_empty() {
+            continue;
+        }
+        let group_id = match known.get(&mbid) {
+            Some(&id) => id,
+            None => {
+                let id = catalog.release_groups.len() as Id;
+                let release = &catalog.releases[index];
+                catalog.release_groups.push(ReleaseGroup {
+                    id,
+                    title: release.title.clone(),
+                    key: release.key.clone(),
+                    mbid: mbid.clone(),
+                    release_ids: Vec::new(),
+                });
+                known.insert(mbid, id);
+                id
+            }
+        };
+        let release_id = catalog.releases[index].id;
+        catalog.releases[index].release_group_id = Some(group_id);
+        catalog.release_groups[group_id as usize]
+            .release_ids
+            .push(release_id);
+    }
+}
+
+/// Builds recordings for a pre-canonical catalog without title-based claims.
+///
+/// A recording MBID is explicit enough to join placements. Without it, one
+/// legacy placement becomes one local recording and can be joined later only
+/// by sourced evidence.
+fn rebuild_legacy_recordings(catalog: &mut Catalog) {
+    let mut known: BTreeMap<String, Id> = BTreeMap::new();
+    for index in 0..catalog.tracks.len() {
+        let track = &catalog.tracks[index];
+        let key = track
+            .mbid
+            .as_ref()
+            .map(|mbid| format!("mbid:{mbid}"))
+            .unwrap_or_else(|| format!("local:{}", track.file_id));
+        let recording_id = match known.get(&key) {
+            Some(&id) => id,
+            None => {
+                let id = catalog.recordings.len() as Id;
+                catalog.recordings.push(Recording {
+                    id,
+                    title: track.title.clone(),
+                    key: crate::text::normalize(&track.title),
+                    isrc: track.isrc.clone(),
+                    mbid: track.mbid.clone(),
+                    track_ids: Vec::new(),
+                    work_ids: Vec::new(),
+                });
+                known.insert(key, id);
+                id
+            }
+        };
+        let track_id = catalog.tracks[index].id;
+        catalog.tracks[index].recording_id = recording_id;
+        catalog.recordings[recording_id as usize]
+            .track_ids
+            .push(track_id);
+    }
 }
 
 fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
@@ -798,6 +1051,44 @@ mod tests {
         let text = to_json(&original).to_string_compact();
         let read_back = from_json(&json::parse(&text).unwrap()).unwrap();
         assert_eq!(read_back.tracks[0].title, "So What");
+    }
+
+    #[test]
+    fn works_and_their_recording_links_survive_the_round_trip() {
+        let mut original = example_catalog();
+        original.works.push(Work {
+            id: 0,
+            title: "So What".into(),
+            key: "so what".into(),
+            mbid: "composition-so-what".into(),
+            recording_ids: vec![0],
+        });
+        original.recordings[0].work_ids.push(0);
+
+        let decoded = from_json(&to_json(&original)).expect("read back");
+        assert_eq!(decoded.works.len(), 1);
+        assert_eq!(decoded.works[0].mbid, "composition-so-what");
+        assert_eq!(decoded.works[0].recording_ids, vec![0]);
+        assert_eq!(decoded.recordings[0].work_ids, vec![0]);
+    }
+
+    #[test]
+    fn a_catalog_written_before_recordings_gains_them_without_title_matching() {
+        let original = example_catalog();
+        let mut encoded = to_json(&original);
+        // An empty table is how a pre-canonical document is represented in this
+        // fixture; old documents simply have no `recording` key, which the
+        // reader treats the same way.
+        encoded.set("recording", Json::Arr(Vec::new()));
+
+        let migrated = from_json(&encoded).expect("legacy catalog migrates");
+        assert_eq!(migrated.recordings.len(), migrated.tracks.len());
+        let placement = &migrated.tracks[0];
+        let recording = migrated
+            .recording(placement.recording_id)
+            .expect("recording");
+        assert_eq!(recording.track_ids, vec![placement.id]);
+        assert_eq!(recording.title, placement.title);
     }
 
     #[test]

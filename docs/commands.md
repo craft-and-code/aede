@@ -19,6 +19,18 @@ aede artists --csv --limit=100 --output=artists.csv
 
 `album`, `artist`, `track` and `search` describe a curated **selection**: `--csv` and `--m3u` both apply to it, acting as a table of tracks or as a ready-to-play playlist. For an artist, that means the tracks they are audible on; for a search, the track hits and not the artists or albums found.
 
+`recording` and `work` traverse the canonical music graph. A recording gathers
+the local album placements that share its MusicBrainz recording identity and
+shows attributed work relationships. A work gathers the recordings that
+realize the composition. `aede work` also accepts a work obtained by `aede
+fetch --recordings`: it is clearly marked as external evidence and does not
+pretend that the fetch added a tag to the audio file.
+
+`label` applies the same rule to identity. It says whether the MusicBrainz ID
+came from a local tag, was confirmed by an identifier lookup, is only a
+name-search proposal, or conflicts with the local tag. Proposals and conflicts
+are never applied silently.
+
 ```sh
 aede album "To Hell With God" --csv --output=album.csv
 aede artist "Deicide" --csv --separator=tab | sort -t$'\t' -k9,9n     # sorted by size

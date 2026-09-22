@@ -16,7 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::text;
 
 use super::{
-    Artist, AudioFile, Catalog, EntityKind, Genre, Id, Label, Release, Track, is_performing_role,
+    Artist, AudioFile, Catalog, EntityKind, Genre, Id, Label, Recording, Release, ReleaseGroup,
+    Track, Work, is_performing_role,
 };
 
 impl Catalog {
@@ -30,9 +31,60 @@ impl Catalog {
         self.releases.get(id as usize)
     }
 
+    /// The canonical group an id designates, if this catalog identified it.
+    pub fn release_group(&self, id: Id) -> Option<&ReleaseGroup> {
+        self.release_groups.get(id as usize)
+    }
+
     /// The track an id designates, or `None` when the id is out of range.
     pub fn track(&self, id: Id) -> Option<&Track> {
         self.tracks.get(id as usize)
+    }
+
+    /// The recorded performance an id designates, if it is in this catalog.
+    pub fn recording(&self, id: Id) -> Option<&Recording> {
+        self.recordings.get(id as usize)
+    }
+
+    /// Every local placement of one recording, in catalog order.
+    pub fn tracks_of_recording(&self, recording_id: Id) -> Vec<Id> {
+        self.recording(recording_id)
+            .map(|recording| recording.track_ids.clone())
+            .unwrap_or_default()
+    }
+
+    /// The composition an id designates, if this catalog explicitly knows it.
+    pub fn work(&self, id: Id) -> Option<&Work> {
+        self.works.get(id as usize)
+    }
+
+    /// Every recording explicitly known to realize this composition.
+    pub fn recordings_of_work(&self, work_id: Id) -> Vec<Id> {
+        self.work(work_id)
+            .map(|work| work.recording_ids.clone())
+            .unwrap_or_default()
+    }
+
+    /// Recordings whose title or MusicBrainz identifier matches the query.
+    pub fn find_recordings(&self, query: &str) -> Vec<&Recording> {
+        let key = text::normalize(query);
+        self.recordings
+            .iter()
+            .filter(|recording| {
+                recording.key == key
+                    || recording.key.contains(&key)
+                    || recording.mbid.as_deref() == Some(query)
+            })
+            .collect()
+    }
+
+    /// Works whose title or MusicBrainz identifier matches the query.
+    pub fn find_works(&self, query: &str) -> Vec<&Work> {
+        let key = text::normalize(query);
+        self.works
+            .iter()
+            .filter(|work| work.key == key || work.key.contains(&key) || work.mbid == query)
+            .collect()
     }
 
     /// The file an id designates, or `None` when the id is out of range.

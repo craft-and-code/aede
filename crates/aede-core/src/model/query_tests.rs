@@ -9,6 +9,37 @@ use crate::model::build;
 use crate::model::tests::{example_catalog, first_release, track};
 
 #[test]
+fn recordings_and_works_are_found_by_title_or_external_identity() {
+    let mut catalog = example_catalog();
+    catalog.recordings = vec![
+        Recording {
+            id: 0,
+            title: "Patient Number 9".to_string(),
+            key: crate::text::normalize("Patient Number 9"),
+            mbid: Some("recording-id".to_string()),
+            ..Default::default()
+        },
+        Recording {
+            id: 1,
+            title: "Patient Number 9 (live)".to_string(),
+            key: crate::text::normalize("Patient Number 9 (live)"),
+            ..Default::default()
+        },
+    ];
+    catalog.works = vec![Work {
+        id: 0,
+        title: "Patient Number 9".to_string(),
+        key: crate::text::normalize("Patient Number 9"),
+        mbid: "work-id".to_string(),
+        recording_ids: vec![0, 1],
+    }];
+
+    assert_eq!(catalog.find_recordings("recording-id")[0].id, 0);
+    assert_eq!(catalog.find_recordings("patient number").len(), 2);
+    assert_eq!(catalog.find_works("work-id")[0].recording_ids, vec![0, 1]);
+}
+
+#[test]
 fn the_shared_tracks_match_the_collaboration_weight() {
     // The weight of a `collaborated` relation is a count; the tracks it
     // counts must be reachable, or the graph cannot be walked.

@@ -20,6 +20,168 @@ fn entities_are_deduplicated() {
 }
 
 #[test]
+fn one_musicbrainz_recording_can_have_several_local_placements() {
+    // The same performance on an album and a compilation is one recording in
+    // two release positions. A title alone never makes this assertion; the
+    // shared MusicBrainz recording identifier does.
+    let mut album = track(
+        "/music/Album/01.flac",
+        &[
+            ("title", "So What"),
+            ("artist", "Miles Davis"),
+            ("album", "Kind of Blue"),
+            ("musicbrainz_recordingid", "recording-so-what"),
+        ],
+        545_000,
+    );
+    album.tags.insert("tracknumber", "1");
+    let compilation = track(
+        "/music/Compilation/04.flac",
+        &[
+            ("title", "So What"),
+            ("artist", "Miles Davis"),
+            ("album", "Jazz Classics"),
+            ("musicbrainz_recordingid", "recording-so-what"),
+        ],
+        545_000,
+    );
+
+    let catalog = build(vec![album, compilation], vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.tracks.len(), 2);
+    assert_eq!(catalog.recordings.len(), 1);
+    let recording = &catalog.recordings[0];
+    assert_eq!(recording.mbid.as_deref(), Some("recording-so-what"));
+    assert_eq!(recording.track_ids, vec![0, 1]);
+    assert_eq!(catalog.tracks[0].recording_id, recording.id);
+    assert_eq!(catalog.tracks[1].recording_id, recording.id);
+}
+
+#[test]
+fn equal_titles_without_an_identifier_stay_different_recordings() {
+    let first = track(
+        "/music/Studio/01.flac",
+        &[
+            ("title", "Changes"),
+            ("artist", "Black Sabbath"),
+            ("album", "Vol. 4"),
+        ],
+        280_000,
+    );
+    let live = track(
+        "/music/Live/01.flac",
+        &[
+            ("title", "Changes"),
+            ("artist", "Black Sabbath"),
+            ("album", "Live"),
+        ],
+        280_000,
+    );
+
+    let catalog = build(vec![first, live], vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.recordings.len(), 2, "a title is not identity");
+    assert_ne!(
+        catalog.tracks[0].recording_id,
+        catalog.tracks[1].recording_id
+    );
+}
+
+#[test]
+fn recordings_with_one_musicbrainz_work_identifier_share_a_work() {
+    let studio = track(
+        "/music/Studio/01.flac",
+        &[
+            ("title", "All Along the Watchtower"),
+            ("artist", "Jimi Hendrix"),
+            ("album", "Electric Ladyland"),
+            ("musicbrainz_recordingid", "hendrix-recording"),
+            ("musicbrainz_workid", "dylan-work"),
+            ("work", "All Along the Watchtower"),
+        ],
+        240_000,
+    );
+    let cover = track(
+        "/music/Cover/01.flac",
+        &[
+            ("title", "All Along the Watchtower"),
+            ("artist", "Bob Dylan"),
+            ("album", "John Wesley Harding"),
+            ("musicbrainz_recordingid", "dylan-recording"),
+            ("musicbrainz_workid", "dylan-work"),
+            ("work", "All Along the Watchtower"),
+        ],
+        150_000,
+    );
+
+    let catalog = build(vec![studio, cover], vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.recordings.len(), 2);
+    assert_eq!(catalog.works.len(), 1);
+    let work = &catalog.works[0];
+    assert_eq!(work.mbid, "dylan-work");
+    assert_eq!(work.recording_ids, vec![0, 1]);
+    assert_eq!(catalog.recordings[0].work_ids, vec![work.id]);
+    assert_eq!(catalog.recordings[1].work_ids, vec![work.id]);
+}
+
+#[test]
+fn work_titles_without_identifiers_do_not_create_or_merge_works() {
+    let first = track(
+        "/music/First/01.flac",
+        &[
+            ("title", "Changes"),
+            ("artist", "Black Sabbath"),
+            ("album", "Vol. 4"),
+            ("work", "Changes"),
+        ],
+        280_000,
+    );
+    let second = track(
+        "/music/Second/01.flac",
+        &[
+            ("title", "Changes"),
+            ("artist", "David Bowie"),
+            ("album", "Hunky Dory"),
+            ("work", "Changes"),
+        ],
+        210_000,
+    );
+
+    let catalog = build(vec![first, second], vec!["/music".into()], 0, &[]);
+    assert!(catalog.works.is_empty(), "a title is not a work identity");
+}
+
+#[test]
+fn editions_with_one_release_group_identifier_share_a_group() {
+    let original = track(
+        "/music/Original/01.flac",
+        &[
+            ("title", "War Pigs"),
+            ("artist", "Black Sabbath"),
+            ("album", "Paranoid"),
+            ("musicbrainz_releasegroupid", "paranoid-group"),
+        ],
+        470_000,
+    );
+    let remaster = track(
+        "/music/Remaster/01.flac",
+        &[
+            ("title", "War Pigs"),
+            ("artist", "Black Sabbath"),
+            ("album", "Paranoid (Remaster)"),
+            ("musicbrainz_releasegroupid", "paranoid-group"),
+        ],
+        470_000,
+    );
+
+    let catalog = build(vec![original, remaster], vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.release_groups.len(), 1);
+    let group = &catalog.release_groups[0];
+    assert_eq!(group.mbid, "paranoid-group");
+    assert_eq!(group.release_ids, vec![0, 1]);
+    assert_eq!(catalog.releases[0].release_group_id, Some(group.id));
+    assert_eq!(catalog.releases[1].release_group_id, Some(group.id));
+}
+
+#[test]
 fn featuring_creates_two_artists_and_one_link() {
     let c = example_catalog();
     let garou = c.find_artist("Garou").expect("Garou present");
@@ -176,13 +338,31 @@ fn interning_reuses_entities_and_keeps_ids_contiguous() {
         "normalization matches them"
     );
     assert_eq!(b.intern_artist("Björk"), 1, "a new name takes the next id");
-    assert_eq!(b.intern_label("Columbia"), 0);
+    assert_eq!(b.intern_label("Columbia", None), 0);
     assert_eq!(b.intern_genre("Jazz"), 0);
     let catalog = b.finish();
     assert_eq!(catalog.artists.len(), 2);
     for (index, artist) in catalog.artists.iter().enumerate() {
         assert_eq!(artist.id as usize, index, "ids index the vector");
     }
+}
+
+#[test]
+fn an_explicit_label_identifier_becomes_canonical_without_name_matching() {
+    let item = track(
+        "/music/Album/01.flac",
+        &[
+            ("title", "Song"),
+            ("artist", "Artist"),
+            ("album", "Album"),
+            ("label", "Columbia"),
+            ("musicbrainz_labelid", "label-id"),
+        ],
+        60_000,
+    );
+    let catalog = build(vec![item], vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.labels.len(), 1);
+    assert_eq!(catalog.labels[0].mbid.as_deref(), Some("label-id"));
 }
 
 #[test]

@@ -131,6 +131,12 @@ aede doctor
 | `aede artists`   | None           | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.    |
 | `aede genres`    | `[name]`       | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.      |
 | `aede labels`    | `[name]`       | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                         |
+| `aede artist`    | `<name>`       | `--with <artist>`, `--members`, `--m3u`, `--csv`                                                                           | Show one artist's albums, collaborations, credits, and relationships. |
+| `aede album`     | `<title>`      | `--m3u`, `--csv`                                                                                                           | Show one local edition, its tracks, credits, and graph links.         |
+| `aede track`     | `<title>`      | `--artist`, `--lyrics`, `--limit`                                                                                           | Show a local placement, tags, credits, and technical facts.           |
+| `aede recording` | `<title\|MBID>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works. |
+| `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.     |
+| `aede label`     | `<name>`       | `--m3u`, `--csv`                                                                                                           | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
 | `aede countries` | None           | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz. |
 | `aede missing`   | `<artist>`     | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.        |
 
@@ -138,7 +144,7 @@ aede doctor
 
 | Command      | Arguments          | Key Options                                                                                                                                              | Description                                                                                                      |
 | :----------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
-| `aede fetch` | `[name\|folder…]` | `--summaries`, `--discography`, `--lyrics`, `--covers`, `--portraits`, `--logos`, `--labels`, `--fanart`, `--dry-run`, `--full`                           | Retrieves attributed metadata and derivative assets without modifying audio files.                              |
+| `aede fetch` | `[name\|folder…]` | `--summaries`, `--discography`, `--lyrics`, `--covers`, `--portraits`, `--logos`, `--labels`, `--recordings`, `--fanart`, `--dry-run`, `--full`             | Retrieves attributed metadata and derivative assets without modifying audio files.                              |
 | `aede fetch` | `[name\|folder…]` | `--fanart` with `--no-logo`, `--no-label-logo`, `--no-portrait`, `--no-background`, `--no-banner`, `--no-album-cover`, `--no-cdart`                        | Retrieves all useful Fanart.tv image families, minus any explicitly excluded families; 4K backgrounds win.      |
 | `aede fetch` | `[name\|folder…]` | `--covers --size <250\|500\|1200\|original>`, `--images`                                                                                                | Retrieves missing Cover Art Archive images while leaving every existing local image untouched.                  |
 
@@ -291,6 +297,7 @@ Complete guides to Aède's features and architecture:
 
 - [Architecture Overview](docs/design/architecture.md) — System design principles
 - [Attribution & Provenance](docs/design/attribution.md) — Data source tracking
+- [Canonical Music Graph](docs/design/music-graph.md) — Canonical entities and relationship assertions
 - [Querying Design](docs/design/querying.md) — Query engine architecture
 - [Lyrics Handling](docs/design/lyrics.md) — Lyrics ingestion and formatting
 - [Playback & Gapless Audio](docs/design/playback.md) — Precise sample-accurate playback

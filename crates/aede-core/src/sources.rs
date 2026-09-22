@@ -16,8 +16,9 @@
 //! request.
 
 use crate::json::Json;
-use crate::model::EntityKind;
+use crate::model::{EntityKind, Id};
 use crate::user::EntityRef;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Version of the `sources.json` document this build writes and accepts.
@@ -623,6 +624,129 @@ pub struct TrackFacts {
     pub artists: Vec<String>,
     /// One release group the recording appears on, when the source named one.
     pub album: Option<String>,
+    /// Compositions MusicBrainz explicitly says this recording realizes.
+    ///
+    /// Kept as source evidence rather than copied into the catalog: the same
+    /// recording may be linked to several works (for example a medley), and a
+    /// later reconciliation must be able to show exactly who made each claim.
+    pub works: Vec<WorkLink>,
+}
+
+/// One work relationship asserted by a source about a recording.
+///
+/// The identifier is mandatory. A title is useful for a reader, but it is not
+/// identity and must never be used to join two compositions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkLink {
+    /// MusicBrainz work identifier.
+    pub mbid: String,
+    /// Title as the source spells it.
+    pub title: String,
+}
+
+/// A work relationship placed on a local recording, while retaining its source.
+///
+/// This is a read-only reconciliation view. It deliberately does not alter
+/// [`crate::model::Catalog`]: a scan rebuilds that catalog from local files,
+/// whereas a source claim must remain attributable, reviewable and removable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedWorkLink {
+    /// The local recording the source record is attached to through its track.
+    pub recording_id: Id,
+    /// The composition MusicBrainz linked to that recording.
+    pub work: WorkLink,
+    /// The service making the assertion.
+    pub source: String,
+    /// How firmly the source record was attached to the local file.
+    pub confidence: Confidence,
+    /// When the assertion was fetched.
+    pub fetched_at: u64,
+}
+
+/// One externally described composition, grouped without losing its evidence.
+///
+/// A work fetched from MusicBrainz is useful for navigation before the audio
+/// files carry a `MUSICBRAINZ_WORKID`, but it does not thereby become a local
+/// fact. Every relationship remains available in `links`, with its source,
+/// confidence and fetch date.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedWork {
+    /// MusicBrainz work identifier; the only identity used for grouping.
+    pub mbid: String,
+    /// Best non-empty title supplied by the source.
+    pub title: String,
+    /// Recording relationships that justify this external work view.
+    pub links: Vec<SourcedWorkLink>,
+}
+
+/// A MusicBrainz identity evidence record placed on its local label.
+///
+/// Unlike a name-search match, this view contains only identifier lookups.
+/// It is therefore safe for callers to use as an external identity link while
+/// still keeping the source record that justifies it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedLabelIdentity {
+    /// The local label identified by the source record.
+    pub label_id: Id,
+    /// MusicBrainz label identifier.
+    pub mbid: String,
+    /// When MusicBrainz confirmed this identity.
+    pub fetched_at: u64,
+}
+
+/// Reconciliation of a label's tag identity with MusicBrainz evidence.
+///
+/// Nothing in this enum changes the catalog. It makes the decision explicit:
+/// an identifier lookup may confirm a tag or supply a missing identity, a
+/// name search is only a proposal, and two different identifiers are a
+/// conflict to review rather than a winner chosen in silence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelIdentityResolution {
+    /// Only the audio tags carry an identifier.
+    Local {
+        /// Identifier explicitly read from the file tags.
+        mbid: String,
+    },
+    /// MusicBrainz identified the label and local tags had no identifier.
+    Confirmed {
+        /// Identifier asserted by the source.
+        mbid: String,
+        /// Service making the assertion.
+        source: String,
+        /// Time of the lookup.
+        fetched_at: u64,
+    },
+    /// Local tags and the identified source independently agree.
+    Agrees {
+        /// Identifier shared by both claims.
+        mbid: String,
+        /// Service confirming the local value.
+        source: String,
+        /// Time of the lookup.
+        fetched_at: u64,
+    },
+    /// A name search returned a candidate; it is not an identity.
+    Suggested {
+        /// Candidate identifier.
+        mbid: String,
+        /// Service returning the candidate.
+        source: String,
+        /// Approximate attachment score.
+        confidence: Confidence,
+        /// Time of the search.
+        fetched_at: u64,
+    },
+    /// A certain source lookup contradicts the explicit local identifier.
+    Conflict {
+        /// Identifier read from the file tags, which remains authoritative.
+        local_mbid: String,
+        /// Different identifier asserted by the source.
+        sourced_mbid: String,
+        /// Service making the contradictory assertion.
+        source: String,
+        /// Time of the lookup.
+        fetched_at: u64,
+    },
 }
 
 /// One entity, as one source describes it.
@@ -711,6 +835,161 @@ impl Sources {
                 false
             }
         }
+    }
+
+    /// Source-asserted recording-to-work links that this catalog can place.
+    ///
+    /// The source record is keyed by a local track path, while the graph's
+    /// relationship belongs to the canonical recording carrying that track.
+    /// Resolving this only when read keeps rescans and source updates
+    /// independent. Conflicting sources are intentionally all returned.
+    pub fn work_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedWorkLink> {
+        self.records
+            .iter()
+            .filter_map(|record| {
+                let Facts::Track(facts) = &record.facts else {
+                    return None;
+                };
+                let track_id = record.entity().resolve(catalog)?;
+                let recording_id = catalog.track(track_id)?.recording_id;
+                Some(
+                    facts
+                        .works
+                        .iter()
+                        .cloned()
+                        .map(move |work| SourcedWorkLink {
+                            recording_id,
+                            work,
+                            source: record.source.clone(),
+                            confidence: record.confidence,
+                            fetched_at: record.fetched_at,
+                        }),
+                )
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// Certain source-backed works matching a title or MusicBrainz ID.
+    ///
+    /// Approximate attachment records stay visible through [`Sources::work_links`]
+    /// but do not become navigation targets. This is the boundary between
+    /// evidence and a relationship safe enough to traverse.
+    pub fn find_sourced_works(
+        &self,
+        catalog: &crate::model::Catalog,
+        query: &str,
+    ) -> Vec<SourcedWork> {
+        let key = crate::text::normalize(query);
+        let mut grouped: BTreeMap<String, SourcedWork> = BTreeMap::new();
+        for link in self
+            .work_links(catalog)
+            .into_iter()
+            .filter(|link| link.confidence.is_certain())
+            .filter(|link| {
+                let title = crate::text::normalize(&link.work.title);
+                link.work.mbid == query || title == key || title.contains(&key)
+            })
+        {
+            let entry = grouped
+                .entry(link.work.mbid.clone())
+                .or_insert_with(|| SourcedWork {
+                    mbid: link.work.mbid.clone(),
+                    title: link.work.title.clone(),
+                    links: Vec::new(),
+                });
+            if entry.title.is_empty() && !link.work.title.is_empty() {
+                entry.title = link.work.title.clone();
+            }
+            if !entry.links.contains(&link) {
+                entry.links.push(link);
+            }
+        }
+        grouped.into_values().collect()
+    }
+
+    /// Reconciles one label's explicit tag identity with its source record.
+    pub fn label_identity(
+        &self,
+        catalog: &crate::model::Catalog,
+        label_id: Id,
+    ) -> Option<LabelIdentityResolution> {
+        let label = catalog.label(label_id)?;
+        let entity = EntityRef::of(catalog, EntityKind::Label, label_id)?;
+        let source = self.get(&entity, MUSICBRAINZ);
+        let local = label
+            .mbid
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let Some(record) = source else {
+            return local.map(|mbid| LabelIdentityResolution::Local {
+                mbid: mbid.to_string(),
+            });
+        };
+        let sourced = record
+            .source_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let Some(sourced) = sourced else {
+            return local.map(|mbid| LabelIdentityResolution::Local {
+                mbid: mbid.to_string(),
+            });
+        };
+
+        if !record.confidence.is_certain() {
+            return Some(LabelIdentityResolution::Suggested {
+                mbid: sourced.to_string(),
+                source: record.source.clone(),
+                confidence: record.confidence,
+                fetched_at: record.fetched_at,
+            });
+        }
+        match local {
+            None => Some(LabelIdentityResolution::Confirmed {
+                mbid: sourced.to_string(),
+                source: record.source.clone(),
+                fetched_at: record.fetched_at,
+            }),
+            Some(local) if local == sourced => Some(LabelIdentityResolution::Agrees {
+                mbid: local.to_string(),
+                source: record.source.clone(),
+                fetched_at: record.fetched_at,
+            }),
+            Some(local) => Some(LabelIdentityResolution::Conflict {
+                local_mbid: local.to_string(),
+                sourced_mbid: sourced.to_string(),
+                source: record.source.clone(),
+                fetched_at: record.fetched_at,
+            }),
+        }
+    }
+
+    /// MusicBrainz label identities that this catalog can place.
+    ///
+    /// Searches are deliberately absent: an equally named label is not an
+    /// identity. The `Identified` confidence records are identifier lookups.
+    pub fn label_identities(&self, catalog: &crate::model::Catalog) -> Vec<SourcedLabelIdentity> {
+        catalog
+            .labels
+            .iter()
+            .filter_map(|label| match self.label_identity(catalog, label.id)? {
+                LabelIdentityResolution::Confirmed {
+                    mbid, fetched_at, ..
+                }
+                | LabelIdentityResolution::Agrees {
+                    mbid, fetched_at, ..
+                } => Some(SourcedLabelIdentity {
+                    label_id: label.id,
+                    mbid,
+                    fetched_at,
+                }),
+                LabelIdentityResolution::Local { .. }
+                | LabelIdentityResolution::Suggested { .. }
+                | LabelIdentityResolution::Conflict { .. } => None,
+            })
+            .collect()
     }
 
     /// Drops everything one source ever said, and reports how much that was.
@@ -997,6 +1276,20 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("title", opt_str(&t.title));
                     facts.set("artists", strings(&t.artists));
                     facts.set("album", opt_str(&t.album));
+                    facts.set(
+                        "works",
+                        Json::Arr(
+                            t.works
+                                .iter()
+                                .map(|work| {
+                                    let mut row = Json::obj();
+                                    row.set("mbid", work.mbid.clone().into());
+                                    row.set("title", work.title.clone().into());
+                                    row
+                                })
+                                .collect(),
+                        ),
+                    );
                 }
                 Facts::Artist(a) => {
                     facts.set("area", opt_str(&a.area));
@@ -1299,6 +1592,20 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .map(|f| read_strings(f, "artists"))
                     .unwrap_or_default(),
                 album: facts.and_then(|f| f.field_str("album")),
+                works: facts
+                    .and_then(|f| f.get("works"))
+                    .and_then(Json::as_arr)
+                    .map(|rows| {
+                        rows.iter()
+                            .filter_map(|work| {
+                                Some(WorkLink {
+                                    mbid: work.field_str("mbid")?,
+                                    title: work.field_str("title").unwrap_or_default(),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             }),
             EntityKind::Label => Facts::Label(LabelFacts {
                 logo: facts.and_then(|f| f.get("logo")).and_then(|p| {

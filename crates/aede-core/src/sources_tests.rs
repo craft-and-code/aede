@@ -298,6 +298,227 @@ fn a_round_trip_keeps_every_field() {
 }
 
 #[test]
+fn recording_work_evidence_survives_the_round_trip() {
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: "/music/01.flac".to_string(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("recording-id".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            recording: Some("recording-id".to_string()),
+            works: vec![WorkLink {
+                mbid: "work-id".to_string(),
+                title: "The Work".to_string(),
+            }],
+            ..Default::default()
+        }),
+    });
+
+    let encoded = to_json(&sources);
+    let decoded = from_json(&encoded).expect("read back");
+    let Facts::Track(facts) = &decoded.records[0].facts else {
+        panic!("track facts");
+    };
+    assert_eq!(facts.works[0].mbid, "work-id");
+    assert_eq!(facts.works[0].title, "The Work");
+}
+
+#[test]
+fn sourced_work_links_attach_to_the_recording_without_mutating_it() {
+    let catalog = crate::model::tests::example_catalog();
+    let track = &catalog.tracks[0];
+    let path = catalog.file(track.file_id).expect("file").path.clone();
+    let original_links = catalog.recordings[track.recording_id as usize]
+        .work_ids
+        .clone();
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: path,
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("recording-id".to_string()),
+        fetched_at: 42,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            works: vec![WorkLink {
+                mbid: "work-id".to_string(),
+                title: "The Work".to_string(),
+            }],
+            ..Default::default()
+        }),
+    });
+
+    let links = sources.work_links(&catalog);
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].recording_id, track.recording_id);
+    assert_eq!(links[0].work.mbid, "work-id");
+    assert_eq!(links[0].source, MUSICBRAINZ);
+    assert_eq!(
+        catalog.recordings[track.recording_id as usize].work_ids,
+        original_links
+    );
+}
+
+#[test]
+fn only_a_confirmed_musicbrainz_label_record_is_an_identity_link() {
+    let catalog = crate::model::tests::example_catalog();
+    let label = &catalog.labels[0];
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: label.key.clone(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("confirmed-label".to_string()),
+        fetched_at: 42,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    sources.set(SourceRecord {
+        key: "another label".to_string(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("search-result".to_string()),
+        fetched_at: 43,
+        confidence: Confidence::matched(100),
+        facts: Facts::Label(LabelFacts::default()),
+    });
+
+    let identities = sources.label_identities(&catalog);
+    assert_eq!(identities.len(), 1);
+    assert_eq!(identities[0].label_id, label.id);
+    assert_eq!(identities[0].mbid, "confirmed-label");
+}
+
+#[test]
+fn sourced_works_are_navigable_only_when_the_attachment_is_certain() {
+    let catalog = crate::model::tests::example_catalog();
+    let paths: Vec<_> = catalog
+        .tracks
+        .iter()
+        .take(2)
+        .map(|track| catalog.file(track.file_id).expect("file").path.clone())
+        .collect();
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: paths[0].clone(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("recording-one".to_string()),
+        fetched_at: 10,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            works: vec![WorkLink {
+                mbid: "shared-work".to_string(),
+                title: "Shared Composition".to_string(),
+            }],
+            ..Default::default()
+        }),
+    });
+    sources.set(SourceRecord {
+        key: paths[1].clone(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("recording-two".to_string()),
+        fetched_at: 11,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            works: vec![WorkLink {
+                mbid: "shared-work".to_string(),
+                title: "Shared Composition".to_string(),
+            }],
+            ..Default::default()
+        }),
+    });
+    sources.set(SourceRecord {
+        key: paths[0].clone(),
+        source: "fingerprint".to_string(),
+        source_id: Some("possible-recording".to_string()),
+        fetched_at: 12,
+        confidence: Confidence::matched(98),
+        facts: Facts::Track(TrackFacts {
+            works: vec![WorkLink {
+                mbid: "possible-work".to_string(),
+                title: "Possible Composition".to_string(),
+            }],
+            ..Default::default()
+        }),
+    });
+
+    let works = sources.find_sourced_works(&catalog, "shared-work");
+    assert_eq!(works.len(), 1);
+    assert_eq!(works[0].mbid, "shared-work");
+    assert_eq!(works[0].links.len(), 2, "evidence remains per recording");
+    assert!(
+        sources
+            .find_sourced_works(&catalog, "possible-work")
+            .is_empty(),
+        "an approximate attachment remains evidence, not navigation"
+    );
+}
+
+#[test]
+fn label_identity_reconciliation_reports_agreement_proposals_and_conflicts() {
+    let mut catalog = crate::model::tests::example_catalog();
+    let label_id = catalog.labels[0].id;
+    let key = catalog.labels[0].key.clone();
+    catalog.labels[0].mbid = Some("tag-id".to_string());
+
+    let mut sources = Sources::default();
+    assert_eq!(
+        sources.label_identity(&catalog, label_id),
+        Some(LabelIdentityResolution::Local {
+            mbid: "tag-id".to_string()
+        })
+    );
+
+    sources.set(SourceRecord {
+        key: key.clone(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("tag-id".to_string()),
+        fetched_at: 20,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    assert!(matches!(
+        sources.label_identity(&catalog, label_id),
+        Some(LabelIdentityResolution::Agrees { .. })
+    ));
+
+    sources.set(SourceRecord {
+        key: key.clone(),
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("candidate-id".to_string()),
+        fetched_at: 21,
+        confidence: Confidence::matched(92),
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    assert!(matches!(
+        sources.label_identity(&catalog, label_id),
+        Some(LabelIdentityResolution::Suggested { .. })
+    ));
+
+    sources.set(SourceRecord {
+        key,
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("different-id".to_string()),
+        fetched_at: 22,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    assert_eq!(
+        sources.label_identity(&catalog, label_id),
+        Some(LabelIdentityResolution::Conflict {
+            local_mbid: "tag-id".to_string(),
+            sourced_mbid: "different-id".to_string(),
+            source: MUSICBRAINZ.to_string(),
+            fetched_at: 22,
+        })
+    );
+    assert_eq!(catalog.labels[0].mbid.as_deref(), Some("tag-id"));
+    assert!(
+        sources.label_identities(&catalog).is_empty(),
+        "a conflicting source ID is not exposed as a safe identity link"
+    );
+}
+
+#[test]
 fn a_summary_without_its_attribution_is_not_read_back() {
     // The type makes it impossible to hold the words without the credit; a
     // document written by another build, or edited by hand, can still try.

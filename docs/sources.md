@@ -155,6 +155,7 @@ aede fetch --lyrics         # missing words from LRCLIB, as .lrc sidecars
 aede fetch --covers         # the front image of every album that has none
 aede fetch --portraits      # Wikidata first, then Fanart.tv as fallback
 aede fetch --labels         # identify record labels through MusicBrainz
+aede fetch --recordings     # retrieve work links for recordings with an MBID
 aede fetch --logos          # artist and identified-label logos from Fanart.tv
 aede fetch --fanart         # every supported Fanart.tv image family
 ```

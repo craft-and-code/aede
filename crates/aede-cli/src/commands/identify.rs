@@ -202,6 +202,7 @@ fn store(held: &mut sources::Sources, target: &Target, heard: Option<acoustid::H
                 .map(|h| h.artists.clone())
                 .unwrap_or_default(),
             album: heard.as_ref().and_then(|h| h.album.clone()),
+            works: Vec::new(),
         }),
     });
 }

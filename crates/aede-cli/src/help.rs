@@ -73,6 +73,14 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede fetch [name… | folder…] [options]",
             summary: "Enrich artists, albums, tracks, and artwork from chosen sources.",
         },
+        "recording" => CommandPage {
+            usage: "aede recording <title|MusicBrainz ID>",
+            summary: "Show one recording, its local placements, and sourced work links.",
+        },
+        "work" => CommandPage {
+            usage: "aede work <title|MusicBrainz ID>",
+            summary: "Show one composition and the recordings that realize it.",
+        },
         "missing" => CommandPage {
             usage: "aede missing [name…]",
             summary: "List credited studio albums that the local shelf does not hold.",
@@ -355,8 +363,15 @@ pub fn print_index() {
   track <title>        Track card: album, credits, technical details, tags
                        (--lyrics adds the words, from the tags or from a .lrc
                        file sitting beside the track)
+  recording <title|id> Recorded performance: every local album placement and
+                       each attributed work relationship. An ID removes title
+                       ambiguity
+  work <title|id>      Composition and the recordings that realize it. Works
+                       fetched from MusicBrainz remain explicitly sourced and
+                       never rewrite the file tags
   genre <name>         Genre page: albums and artists carrying it
-  label <name>         Label page: its catalogue and its artists
+  label <name>         Label page: its catalogue, artists, and MusicBrainz
+                       identity status (local, confirmed, proposed, conflict)
   search <text>        Search the whole catalog. --comments also looks in the
                        comment tag, --notes in what you wrote yourself,
                        --lyrics in the words of the songs
@@ -465,6 +480,7 @@ pub fn print_index() {
 
 {}
   --identify           Identify fingerprinted files through AcoustID
+  --recordings         Retrieve MusicBrainz work relationships for identified recordings
   --summaries          Retrieve the opening Wikipedia paragraph
   --discography        Browse an artist's MusicBrainz releases
   --lyrics             Retrieve missing lyrics as .lrc sidecars
@@ -637,6 +653,7 @@ fn print_fetch_help() {
   --labels             Record-label identifiers from MusicBrainz
   --lyrics             Missing lyrics from LRCLIB, written as .lrc sidecars
   --identify           Identify fingerprinted files through AcoustID
+  --recordings         Work relationships for recordings with a MusicBrainz ID
 
 {}
   --covers             Missing front cover from Cover Art Archive

@@ -14,9 +14,10 @@
 use std::collections::BTreeMap;
 
 use aede_core::model::{Catalog, Id, TitleMatch};
+use aede_core::sources::{self, LabelIdentityResolution};
 use aede_core::text;
 
-use super::{Res, announce_window, load, selection_output, totals};
+use super::{Res, announce_window, data_dir, load, selection_output, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -98,6 +99,12 @@ pub fn show_label(args: &Args) -> Res {
 
     println!("{}", ui::section(&names.join(", ")));
     announce_match(kind, &name, &names, "label");
+    let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
+    for &id in &ids {
+        if let Some(identity) = held.label_identity(&catalog, id) {
+            print_label_identity(&identity);
+        }
+    }
     print_totals(&catalog, &tracks);
     print_albums(&catalog, &releases, args)?;
     print_artists(&catalog, &tracks, args)?;
@@ -105,6 +112,55 @@ pub fn show_label(args: &Args) -> Res {
         super::panel_for(args, &catalog, aede_core::model::EntityKind::Label, id);
     }
     Ok(())
+}
+
+fn print_label_identity(identity: &LabelIdentityResolution) {
+    let line = match identity {
+        LabelIdentityResolution::Local { mbid } => {
+            format!("MusicBrainz label: {mbid} · local tag")
+        }
+        LabelIdentityResolution::Confirmed {
+            mbid,
+            source,
+            fetched_at,
+        } => format!(
+            "MusicBrainz label: {mbid} · confirmed by {source} · {}",
+            ui::since(*fetched_at)
+        ),
+        LabelIdentityResolution::Agrees {
+            mbid,
+            source,
+            fetched_at,
+        } => format!(
+            "MusicBrainz label: {mbid} · local tag agrees with {source} · {}",
+            ui::since(*fetched_at)
+        ),
+        LabelIdentityResolution::Suggested {
+            mbid,
+            source,
+            confidence,
+            fetched_at,
+        } => {
+            let score = match confidence {
+                sources::Confidence::Matched(score) => format!("{score}%"),
+                sources::Confidence::Identified => "identified".into(),
+            };
+            format!(
+                "proposed MusicBrainz label: {mbid} · {source} {score} · {} · not applied",
+                ui::since(*fetched_at)
+            )
+        }
+        LabelIdentityResolution::Conflict {
+            local_mbid,
+            sourced_mbid,
+            source,
+            fetched_at,
+        } => format!(
+            "identity conflict: local {local_mbid} · {source} {sourced_mbid} · {} · not resolved",
+            ui::since(*fetched_at)
+        ),
+    };
+    println!("  {}", ui::dim(&line));
 }
 
 /// Says what the page ended up covering, when the heading does not say it

@@ -390,6 +390,8 @@ fn freeform_key(name: &str) -> String {
         "musicbrainz album artist id" => "musicbrainz_albumartistid".into(),
         "musicbrainz release group id" => "musicbrainz_releasegroupid".into(),
         "musicbrainz track id" => "musicbrainz_recordingid".into(),
+        "musicbrainz work id" => "musicbrainz_workid".into(),
+        "musicbrainz label id" => "musicbrainz_labelid".into(),
         "acoustid id" => "acoustid_id".into(),
         "catalognumber" => "catalognumber".into(),
         "label" => "label".into(),

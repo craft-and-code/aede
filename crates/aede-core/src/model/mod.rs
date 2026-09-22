@@ -54,7 +54,7 @@ pub enum EntityKind {
     Artist,
     /// An album, in the release sense.
     Release,
-    /// A single recording, paired with one file.
+    /// A local placement of one recording on one release.
     Track,
     /// A record label.
     Label,
@@ -234,6 +234,8 @@ pub struct Release {
     pub mbid: Option<String>,
     /// MusicBrainz identifier of the work every edition of it shares.
     pub release_group_mbid: Option<String>,
+    /// Canonical release group this edition belongs to, when tags identify it.
+    pub release_group_id: Option<Id>,
     /// Set when the tags declare a compilation or name a placeholder album
     /// artist; the same condition is what leaves `album_artist_id` empty.
     pub is_compilation: bool,
@@ -245,7 +247,26 @@ pub struct Release {
     pub track_ids: Vec<Id>,
 }
 
-/// A track: the pairing of a file with a position within a release.
+/// A work's release identity shared by its editions.
+///
+/// This is MusicBrainz's release group, not a title-based folder grouping:
+/// original pressings, remasters and regional editions meet here only when an
+/// explicit release-group identifier says they are the same musical release.
+#[derive(Debug, Clone, Default)]
+pub struct ReleaseGroup {
+    /// Position in [`Catalog::release_groups`].
+    pub id: Id,
+    /// Title from the first local edition carrying the identifier.
+    pub title: String,
+    /// Normalized title for display, never identity on its own.
+    pub key: String,
+    /// MusicBrainz release-group identifier.
+    pub mbid: String,
+    /// Local editions belonging to this group.
+    pub release_ids: Vec<Id>,
+}
+
+/// A local placement of a recording: one file at one position within a release.
 #[derive(Debug, Clone, Default)]
 pub struct Track {
     /// Position in [`Catalog::tracks`].
@@ -254,6 +275,12 @@ pub struct Track {
     pub file_id: Id,
     /// Release it belongs to; absent when the file carried no `album` tag.
     pub release_id: Option<Id>,
+    /// Recording heard at this position.
+    ///
+    /// Every local placement names exactly one recording. Several placements
+    /// share it only when the files carry the same MusicBrainz recording ID;
+    /// a matching title alone is never evidence that two performances are one.
+    pub recording_id: Id,
     /// Title as tagged, or rebuilt from the file name when the tag is missing.
     pub title: String,
     /// Disc within a multi-disc set; a missing value is ordered as the first.
@@ -269,6 +296,50 @@ pub struct Track {
     pub mbid: Option<String>,
 }
 
+/// One recorded performance, independent of the local files and editions
+/// carrying it.
+///
+/// A recording without a MusicBrainz identifier starts as local to one track
+/// placement. It is deliberately not merged by title, duration or ISRC alone:
+/// the studio take, a live take and a cover often share some of those clues.
+#[derive(Debug, Clone, Default)]
+pub struct Recording {
+    /// Position in [`Catalog::recordings`].
+    pub id: Id,
+    /// Display title from the first local placement that identified it.
+    pub title: String,
+    /// Normalized title, useful for display searches but never identity alone.
+    pub key: String,
+    /// Industry code when the local placement carried one.
+    pub isrc: Option<String>,
+    /// MusicBrainz recording identifier, when local metadata supplied one.
+    pub mbid: Option<String>,
+    /// Every local placement carrying this recording.
+    pub track_ids: Vec<Id>,
+    /// Compositions this performance realizes, when explicitly identified.
+    pub work_ids: Vec<Id>,
+}
+
+/// A musical composition, distinct from every recording that realizes it.
+///
+/// An œuvre is created only from an explicit MusicBrainz work identifier. A
+/// title is descriptive, not identity: a cover, a live performance and an
+/// unrelated song may all share it.
+#[derive(Debug, Clone, Default)]
+pub struct Work {
+    /// Position in [`Catalog::works`].
+    pub id: Id,
+    /// Title supplied by the local work tag, or the recording title as a
+    /// display fallback when the identifier is known but no title is tagged.
+    pub title: String,
+    /// Normalized display/search key; never used to merge works.
+    pub key: String,
+    /// MusicBrainz work identifier.
+    pub mbid: String,
+    /// Recordings known to realize this composition.
+    pub recording_ids: Vec<Id>,
+}
+
 /// A record company, as named by the `label` tag.
 #[derive(Debug, Clone, Default)]
 pub struct Label {
@@ -278,6 +349,10 @@ pub struct Label {
     pub name: String,
     /// Normalized key, so that spelling variants land on one label.
     pub key: String,
+    /// MusicBrainz label identifier when local metadata explicitly carries it.
+    /// A fetched search result remains in the attributed source layer until a
+    /// later review accepts it; a name is never promoted into this field.
+    pub mbid: Option<String>,
 }
 
 /// A genre, interned once however many entities carry it.
@@ -392,8 +467,14 @@ pub struct Catalog {
     pub artists: Vec<Artist>,
     /// Releases, one entry per title, owner and folder.
     pub releases: Vec<Release>,
+    /// Release groups shared by explicitly identified local editions.
+    pub release_groups: Vec<ReleaseGroup>,
     /// Tracks, one entry per file that carried readable tags.
     pub tracks: Vec<Track>,
+    /// Recorded performances, distinct from their local track placements.
+    pub recordings: Vec<Recording>,
+    /// Musical compositions explicitly linked to local recordings.
+    pub works: Vec<Work>,
     /// Labels, one entry per normalized key.
     pub labels: Vec<Label>,
     /// Genres, one entry per normalized key.

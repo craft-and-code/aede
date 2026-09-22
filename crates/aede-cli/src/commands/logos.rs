@@ -873,7 +873,17 @@ fn label_targets(
             if !again && held.get(&entity, fanarttv::LABEL_LOGO_SOURCE).is_some() {
                 return None;
             }
-            let mbid = held.get(&entity, sources::MUSICBRAINZ)?.source_id.clone()?;
+            let mbid =
+                label
+                    .mbid
+                    .clone()
+                    .or_else(|| match held.label_identity(catalog, label.id)? {
+                        sources::LabelIdentityResolution::Confirmed { mbid, .. }
+                        | sources::LabelIdentityResolution::Agrees { mbid, .. } => Some(mbid),
+                        sources::LabelIdentityResolution::Local { .. }
+                        | sources::LabelIdentityResolution::Suggested { .. }
+                        | sources::LabelIdentityResolution::Conflict { .. } => None,
+                    })?;
             Some(LabelTarget {
                 entity,
                 name: label.name.clone(),

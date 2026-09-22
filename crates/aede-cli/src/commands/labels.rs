@@ -220,7 +220,7 @@ fn targets(
         targets.push(Target {
             entity,
             name: label.name.clone(),
-            known_mbid: known_mbid(held, &label.key),
+            known_mbid: label.mbid.clone().or_else(|| known_mbid(held, &label.key)),
         });
     }
     targets

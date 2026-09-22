@@ -308,6 +308,8 @@ pub fn canonical_key(key: &str) -> String {
         "musicbrainz_albumartistid" => "musicbrainz_albumartistid",
         "musicbrainz_releasegroupid" => "musicbrainz_releasegroupid",
         "musicbrainz release group id" => "musicbrainz_releasegroupid",
+        "musicbrainz_workid" | "musicbrainz work id" => "musicbrainz_workid",
+        "musicbrainz_labelid" | "musicbrainz label id" => "musicbrainz_labelid",
         "acoustid_id" | "acoustid id" => "acoustid_id",
         "acoustid_fingerprint" => "acoustid_fingerprint",
         "replaygain_track_gain" => "replaygain_track_gain",
@@ -330,6 +332,8 @@ mod tests {
         assert_eq!(canonical_key("Album Artist"), "albumartist");
         assert_eq!(canonical_key("PUBLISHER"), "label");
         assert_eq!(canonical_key("YEAR"), "date");
+        assert_eq!(canonical_key("MusicBrainz Work Id"), "musicbrainz_workid");
+        assert_eq!(canonical_key("MusicBrainz Label Id"), "musicbrainz_labelid");
     }
 
     #[test]
