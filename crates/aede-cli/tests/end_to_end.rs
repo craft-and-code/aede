@@ -1236,6 +1236,10 @@ fn help_and_version() {
     assert!(ok);
     assert!(out.starts_with("aede "), "output: {out}");
 
+    let (short, _, ok) = sandbox.run(&["-v"]);
+    assert!(ok);
+    assert_eq!(short, out, "-v and --version are the same answer");
+
     let (out, _, ok) = sandbox.run(&["--help"]);
     assert!(ok);
     assert!(out.contains("COMMANDS"));

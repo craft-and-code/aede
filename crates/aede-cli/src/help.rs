@@ -472,7 +472,7 @@ pub fn print_index() {
   -o, --output <file>  Write to a file rather than to standard output
   --no-color           Turn colours off
   -h, --help           Show this help
-  -V, --version        Show the version
+  -v, -V, --version    Show the version
 
 {}
   --full               Re-read every file (scan, check), or re-query stored
@@ -583,48 +583,14 @@ pub fn print_index() {
 
 {}
   aede scan ~/Music
-  aede stats
-  aede doctor --severity=error --limit=50
   aede artist \"Miles Davis\"
+  aede album \"Kind of Blue\"
   aede track \"So What\" --artist=\"Miles Davis\"
-  aede albums --year=1969
-  aede albums --compilations
-  aede genre metal
-  aede artists --role producer
-  aede artist Ozzy --role performer --m3u
-  aede search --comments \"vinyl rip\" --m3u
   aede search coltrane
-  aede albums --limit 50 --offset 50
-  aede albums --all -o everything.csv --csv
-  aede query \"genre:metal year:1990..1999 -label:earache\"
-  aede query \"album.rating:>=4 played:0\" --m3u
-  aede query \"loved\" --sort played- --limit 20
-  aede albums --query \"album.rating:>=4\"
-  aede albums --query \"album.tag:vinyl\"
-  aede query \"note:remaster\"
-  aede query \"album.tag:vinyl OR album.tag:rare\"
-  aede query \"-rating loved\"
-  aede collection wishlist --query \"loved played:0\"
-  aede collection wishlist --m3u
-  aede notes --export -o backup.json
-  aede love album \"Kind of Blue\"
-  aede rate artist \"Miles Davis\" --stars 5
-  aede note album \"Legion\" --text \"the 1992 pressing\"
-  aede tag album \"Legion\" vinyl,rare,to rip again
-  aede tag album \"Legion\" rare --remove
-  aede tag album \"Legion\" --remove
-  aede notes --tag vinyl
-  aede search vinyle --notes
-  aede roots --exclude ~/Music/Audiobooks
-  aede played \"So What\" --remove
-  aede history --remove
+  aede query \"genre:metal year:1990..1999\"
+  aede fetch --fanart --no-background ~/Music/Jazz
   aede copy /Volumes/Player --query \"loved rating:>=4\" --verify
-  aede copy /Volumes/Card --collection wishlist --extras none
-  aede copy /Volumes/Phone --compress opus --quality 128k
-  aede copy /Volumes/Phone --compress mp3 --quality V0 --query \"loved\"
-  aede import ~/Desktop/report.json
-  aede import --pending
-  aede import --forget --pending \"/Volumes/OldDrive/Music\"",
+  aede help fetch",
         ui::cyan("USAGE"),
         ui::cyan("COMMANDS"),
         ui::cyan("GLOBAL OPTIONS"),
@@ -636,6 +602,25 @@ pub fn print_index() {
         ui::cyan("IMPORT OPTIONS"),
         ui::cyan("EXAMPLES")
     );
+}
+
+/// A few examples belong to the command they explain; the index keeps only a
+/// compact cross-section so it remains a map rather than a second manual.
+fn command_examples(command: &str) -> &'static [&'static str] {
+    match command {
+        "artist" => &["aede artist \"Miles Davis\" --members"],
+        "album" => &["aede album \"Kind of Blue\""],
+        "track" => &["aede track \"So What\" --artist=\"Miles Davis\""],
+        "recording" => &["aede recording <MusicBrainz-recording-ID>"],
+        "work" => &["aede work <MusicBrainz-work-ID>"],
+        "release-group" => &["aede release-group <MusicBrainz-release-group-ID>"],
+        "label" => &["aede label \"Blue Note\""],
+        "search" => &["aede search coltrane"],
+        "query" => &["aede query \"genre:metal year:1990..1999\""],
+        "fetch" => &["aede fetch --fanart --no-background ~/Music/Jazz"],
+        "copy" => &["aede copy /Volumes/Player --query \"loved rating:>=4\" --verify"],
+        _ => &[],
+    }
 }
 
 /// The detailed page for the one command that combines several independent
@@ -743,8 +728,15 @@ pub fn print_command(command: &str) {
             println!("  --{option:<19} {what}");
         }
     }
+    let examples = command_examples(command);
+    if !examples.is_empty() {
+        println!("\n{}", ui::cyan("EXAMPLES"));
+        for example in examples {
+            println!("  {example}");
+        }
+    }
     println!(
-        "\n{}\n  --data <folder>      Catalog location\n  --no-color           Turn colours off\n  -h, --help           Show this page",
+        "\n{}\n  --data <folder>      Catalog location\n  --no-color           Turn colours off\n  -h, --help           Show this page\n  -v, -V, --version   Show the version",
         ui::cyan("GLOBAL OPTIONS")
     );
 }

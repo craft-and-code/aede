@@ -61,6 +61,7 @@ fn a_short_option_is_the_long_one_written_shorter() {
     }
     // The valueless ones keep working.
     assert!(parse(&["-h"]).has("help"));
+    assert!(parse(&["-v"]).has("version"));
     assert!(parse(&["-V"]).has("version"));
     assert!(parse(&["stats", "-j"]).has("json"));
 }

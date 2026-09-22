@@ -110,6 +110,7 @@ const VALUED_NAME: &[&str] = &[
 /// constantly.
 const SHORT: &[(&str, &str)] = &[
     ("h", "help"),
+    ("v", "version"),
     ("V", "version"),
     ("j", "json"),
     ("o", "output"),
