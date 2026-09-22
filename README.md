@@ -132,10 +132,11 @@ aede doctor
 | `aede genres`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.                      |
 | `aede labels`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                                         |
 | `aede artist`    | `<name>`        | `--with <artist>`, `--members`, `--m3u`, `--csv`                                                                          | Show one artist's albums, collaborations, credits, and relationships.                |
-| `aede album`     | `<title>`       | `--m3u`, `--csv`                                                                                                          | Show one local edition, its tracks, credits, and graph links.                        |
+| `aede album`     | `<title\|MBID>` | `--m3u`, `--csv`                                                                                                          | Show one local edition, its tracks, credits, and graph links.                        |
 | `aede track`     | `<title>`       | `--artist`, `--lyrics`, `--limit`                                                                                         | Show a local placement, tags, credits, and technical facts.                          |
 | `aede recording` | `<title\|MBID>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works.               |
 | `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.                    |
+| `aede release-group` | `<title\|MBID>` | None                                                                                                                   | Show the album identity shared by every local edition.                               |
 | `aede label`     | `<name>`        | `--m3u`, `--csv`                                                                                                          | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
 | `aede countries` | None            | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz.                 |
 | `aede missing`   | `<artist>`      | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.                        |
@@ -186,6 +187,12 @@ appearances, discography entries and writing or production contributions remain
 distinct relations. `aede track`, `recording`, `work`, `album`, `artist` and
 `label` expose the relevant paths, while `aede search` also finds recordings,
 works and release groups directly.
+
+Entity pages end with copyable `Continue` commands for their related objects.
+Search results carry the command that opens each hit, and MusicBrainz
+identifiers are preferred wherever they remove title ambiguity. In particular,
+`aede release-group <MBID>` leads to every local edition and each edition can
+now be opened precisely with `aede album <release-MBID>`.
 
 ### Transfer, Export & Derivative Generation
 

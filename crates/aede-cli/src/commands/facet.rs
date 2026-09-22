@@ -111,6 +111,35 @@ pub fn show_label(args: &Args) -> Res {
     for &id in &ids {
         super::panel_for(args, &catalog, aede_core::model::EntityKind::Label, id);
     }
+    let mut navigation = super::navigation::Navigation::default();
+    // The current page may cover several partial matches; one exact command
+    // per matched label keeps each resulting catalogue independently reachable.
+    for label in &found {
+        navigation.add(
+            "Filtered albums",
+            format!(
+                "aede albums --label={}",
+                super::navigation::shell_arg(&label.name)
+            ),
+        );
+    }
+    for &release_id in &releases {
+        navigation.entity(
+            &catalog,
+            "Edition",
+            aede_core::model::EntityKind::Release,
+            release_id,
+        );
+    }
+    for (artist_id, _) in tracks_per_artist(&catalog, &tracks) {
+        navigation.entity(
+            &catalog,
+            "Artist",
+            aede_core::model::EntityKind::Artist,
+            artist_id,
+        );
+    }
+    navigation.print();
     Ok(())
 }
 

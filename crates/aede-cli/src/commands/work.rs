@@ -2,9 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use aede_core::sources;
+use aede_core::{model::EntityKind, sources};
 
-use super::{Res, data_dir, load};
+use super::{Res, data_dir, load, navigation::Navigation};
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -31,6 +31,10 @@ pub fn show_work(args: &Args) -> Res {
         println!("  {}", ui::dim(&format!("MusicBrainz work: {}", work.mbid)));
         let recording_ids: BTreeSet<_> = work.recording_ids.iter().copied().collect();
         print_recordings(&catalog, &recording_ids);
+        let mut navigation = Navigation::default();
+        for &recording_id in &recording_ids {
+            navigation.entity(&catalog, "Recording", EntityKind::Recording, recording_id);
+        }
         for link in held
             .work_links(&catalog)
             .into_iter()
@@ -50,17 +54,27 @@ pub fn show_work(args: &Args) -> Res {
                 ))
             );
         }
-        super::print_sourced_credits(
-            &catalog,
-            held.credit_links(&catalog)
-                .into_iter()
-                .filter(|link| {
-                    link.work
-                        .as_ref()
-                        .is_some_and(|linked| linked.mbid == work.mbid)
-                })
-                .collect(),
-        );
+        let credits: Vec<_> = held
+            .credit_links(&catalog)
+            .into_iter()
+            .filter(|link| {
+                link.work
+                    .as_ref()
+                    .is_some_and(|linked| linked.mbid == work.mbid)
+            })
+            .collect();
+        for link in &credits {
+            if let Some(artist) = catalog
+                .artists
+                .iter()
+                .find(|artist| artist.mbid.as_deref() == Some(&link.credit.artist_mbid))
+            {
+                navigation.entity(&catalog, "Credited artist", EntityKind::Artist, artist.id);
+            }
+        }
+        super::print_sourced_credits(&catalog, credits);
+        super::panel_for(args, &catalog, EntityKind::Work, work.id);
+        navigation.print();
         return Ok(());
     }
 
@@ -78,6 +92,10 @@ pub fn show_work(args: &Args) -> Res {
     );
     let recording_ids: BTreeSet<_> = work.links.iter().map(|link| link.recording_id).collect();
     print_recordings(&catalog, &recording_ids);
+    let mut navigation = Navigation::default();
+    for &recording_id in &recording_ids {
+        navigation.entity(&catalog, "Recording", EntityKind::Recording, recording_id);
+    }
     for link in &work.links {
         let attributes = link
             .work
@@ -98,17 +116,26 @@ pub fn show_work(args: &Args) -> Res {
             ))
         );
     }
-    super::print_sourced_credits(
-        &catalog,
-        held.credit_links(&catalog)
-            .into_iter()
-            .filter(|link| {
-                link.work
-                    .as_ref()
-                    .is_some_and(|linked| linked.mbid == work.mbid)
-            })
-            .collect(),
-    );
+    let credits: Vec<_> = held
+        .credit_links(&catalog)
+        .into_iter()
+        .filter(|link| {
+            link.work
+                .as_ref()
+                .is_some_and(|linked| linked.mbid == work.mbid)
+        })
+        .collect();
+    for link in &credits {
+        if let Some(artist) = catalog
+            .artists
+            .iter()
+            .find(|artist| artist.mbid.as_deref() == Some(&link.credit.artist_mbid))
+        {
+            navigation.entity(&catalog, "Credited artist", EntityKind::Artist, artist.id);
+        }
+    }
+    super::print_sourced_credits(&catalog, credits);
+    navigation.print();
     Ok(())
 }
 

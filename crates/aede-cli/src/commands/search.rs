@@ -101,9 +101,10 @@ pub fn search(args: &Args) -> Res {
         // having matched anywhere.
         println!("  {}", ui::dim("nothing by name"));
     } else {
-        let mut t = Table::new(&["Type", "Name", "Context"])
-            .limit(1, 45)
-            .limit(2, 35);
+        let mut t = Table::new(&["Type", "Name", "Context", "Open"])
+            .limit(1, 32)
+            .limit(2, 22)
+            .limit(3, 64);
         for hit in &hits {
             // "release" is the model's word; "album" is the user's. On screen
             // the user's wins — the JSON keeps the model's, for a client that
@@ -118,7 +119,12 @@ pub fn search(args: &Args) -> Res {
                 EntityKind::Label => "label",
                 EntityKind::Genre => "genre",
             };
-            t.push(vec![kind.to_string(), hit.name.clone(), hit.detail.clone()]);
+            t.push(vec![
+                kind.to_string(),
+                hit.name.clone(),
+                hit.detail.clone(),
+                super::navigation::open_command(&catalog, hit.kind, hit.id).unwrap_or_default(),
+            ]);
         }
         print!("{}", t.render());
     }

@@ -693,6 +693,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("track", None, commands::show_track),
     ("recording", None, commands::show_recording),
     ("work", None, commands::show_work),
+    ("release-group", None, commands::show_release_group),
     ("search", None, commands::search),
     ("file", None, commands::inspect),
     ("export", None, commands::export),

@@ -40,6 +40,30 @@ fn recordings_and_works_are_found_by_title_or_external_identity() {
 }
 
 #[test]
+fn one_album_edition_can_be_opened_by_its_release_identity() {
+    let c = build(
+        vec![track(
+            "/m/Band/Record/01.flac",
+            &[
+                ("title", "Song"),
+                ("artist", "Band"),
+                ("albumartist", "Band"),
+                ("album", "Record"),
+                ("musicbrainz_albumid", "release-id"),
+            ],
+            1,
+        )],
+        vec!["/m".into()],
+        1,
+        &[],
+    );
+    let (found, kind) = c.find_releases("release-id");
+    assert_eq!(kind, TitleMatch::Exact);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].title, "Record");
+}
+
+#[test]
 fn global_search_includes_the_canonical_graph_objects() {
     let c = build(
         vec![track(

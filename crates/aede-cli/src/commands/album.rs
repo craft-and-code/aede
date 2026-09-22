@@ -68,9 +68,10 @@ pub fn show_album(args: &Args) -> Res {
         );
     }
     for release in &matches {
-        print_album(args, &catalog, release, &sourced_credits);
+        let navigation = print_album(args, &catalog, release, &sourced_credits);
         super::sources_panel_for(args, &catalog, EntityKind::Release, release.id);
         super::panel_for(args, &catalog, EntityKind::Release, release.id);
+        navigation.print();
     }
     if total > matches.len() {
         println!(
@@ -141,12 +142,16 @@ fn print_album(
     catalog: &Catalog,
     release: &Release,
     sourced_credits: &[sources::SourcedCreditLink],
-) {
+) -> super::navigation::Navigation {
+    let mut navigation = super::navigation::Navigation::default();
     let artist = release
         .album_artist_id
         .and_then(|id| catalog.artist(id))
         .map(|a| a.name.clone())
         .unwrap_or_else(|| "Various Artists".into());
+    if let Some(artist_id) = release.album_artist_id {
+        navigation.entity(catalog, "Album artist", EntityKind::Artist, artist_id);
+    }
 
     println!("{}", ui::section(&release.title));
     println!("  {}", ui::bold(&artist));
@@ -159,6 +164,9 @@ fn print_album(
         .filter_map(|&id| catalog.label(id))
         .map(|l| l.name.clone())
         .collect();
+    for &label_id in &release.label_ids {
+        navigation.entity(catalog, "Label", EntityKind::Label, label_id);
+    }
     if !labels.is_empty() {
         let mut line = labels.join(", ");
         if let Some(cat) = &release.catalog_number {
@@ -178,6 +186,7 @@ fn print_album(
     if let Some(group_id) = release.release_group_id
         && let Some(group) = catalog.release_group(group_id)
     {
+        navigation.entity(catalog, "Release group", EntityKind::ReleaseGroup, group.id);
         println!(
             "  {}",
             ui::dim(&format!(
@@ -230,6 +239,7 @@ fn print_album(
     ] {
         for other in catalog.related_releases(release.id, kind) {
             if let Some(other) = catalog.release(other) {
+                navigation.entity(catalog, "Related edition", EntityKind::Release, other.id);
                 let line = format!("  {wording} {}", other.folder);
                 println!(
                     "{}",
@@ -313,6 +323,7 @@ fn print_album(
             if credit.role != "main"
                 && let Some(artist) = catalog.artist(credit.artist_id)
             {
+                navigation.entity(catalog, "Credited artist", EntityKind::Artist, artist.id);
                 let attributes = credit
                     .attributes
                     .iter()
@@ -343,6 +354,9 @@ fn print_album(
         .filter_map(|&track_id| catalog.track(track_id))
         .map(|track| track.recording_id)
         .collect();
+    for &recording_id in &recording_ids {
+        navigation.entity(catalog, "Recording", EntityKind::Recording, recording_id);
+    }
     super::print_sourced_credits(
         catalog,
         sourced_credits
@@ -351,6 +365,7 @@ fn print_album(
             .cloned()
             .collect(),
     );
+    navigation
 }
 
 /// How many discs the release actually spans.

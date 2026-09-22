@@ -1372,6 +1372,11 @@ fn a_track_is_reachable_by_its_title() {
         out.contains("recording") && out.contains("local placement"),
         "the local placement reaches its recording: {out}"
     );
+    assert!(out.contains("Continue"), "the page is navigable: {out}");
+    assert!(
+        out.contains("aede recording"),
+        "the recording can be opened from the placement: {out}"
+    );
 
     // Several files carry that title: all of them are printed.
     let pages = out.matches("Album artist").count();
@@ -5948,6 +5953,63 @@ fn tagged_with(path: &std::path::Path, tags: &[(&str, &str)]) {
     let ok = command.arg(&retagged).status().is_ok_and(|s| s.success());
     assert!(ok, "ffmpeg tagged the fixture: {path:?}");
     std::fs::rename(&retagged, path).unwrap();
+}
+
+#[test]
+fn a_release_group_is_an_openable_page_between_search_and_its_editions() {
+    if !ffmpeg_is_installed() {
+        return;
+    }
+    let sandbox = Sandbox::new("release_group_navigation");
+    let music = sandbox.dir.join("music");
+    for (folder, release_id, year) in [
+        ("original", "release-original", "1980"),
+        ("remaster", "release-remaster", "2020"),
+    ] {
+        let dir = music.join(folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        tagged_with(
+            &dir.join("01.flac"),
+            &[
+                ("artist", "A Band"),
+                ("album_artist", "A Band"),
+                ("album", "One Album"),
+                ("title", "One Song"),
+                ("date", year),
+                ("MUSICBRAINZ_ALBUMID", release_id),
+                ("MUSICBRAINZ_RELEASEGROUPID", "release-group-id"),
+            ],
+        );
+    }
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["release-group", "release-group-id"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("Local editions"), "{out}");
+    assert!(
+        out.contains("release-original") && out.contains("release-remaster"),
+        "both precise editions are shown: {out}"
+    );
+    assert!(
+        out.contains("aede album 'release-original'")
+            && out.contains("aede album 'release-remaster'"),
+        "each edition is directly openable: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["album", "release-remaster"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("2020"),
+        "the requested edition is shown: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["search", "One Album"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("aede release-group 'release-group-id'"),
+        "search gives the next command: {out}"
+    );
 }
 
 #[test]

@@ -43,6 +43,14 @@ discography, guest appearances, compilation appearances, writing/production
 contributions, collaborations and dated memberships distinct. Ordinary
 `search` also finds recordings, works and release groups by title or identity.
 
+These pages are navigation points rather than terminal reports. Their
+`Continue` section prints copyable commands for adjacent objects and `search`
+includes an `Open` command on every named result. Stable MusicBrainz IDs are
+used for recordings, works, release groups and precise editions whenever they
+exist. `release-group <title|MBID>` is the page between an album identity and
+all its local editions; `album` accepts a release MBID so two same-titled
+pressings do not lead back to an ambiguous page.
+
 `label` applies the same rule to identity. It says whether the MusicBrainz ID
 came from a local tag, was confirmed by an identifier lookup, is only a
 name-search proposal, or conflicts with the local tag. Proposals and conflicts

@@ -1,8 +1,9 @@
 //! The `recording` command: one recorded performance and its local placements.
 
+use aede_core::model::EntityKind;
 use aede_core::sources;
 
-use super::{Res, data_dir, load};
+use super::{Res, data_dir, load, navigation::Navigation, navigation::shell_arg};
 use crate::args::Args;
 use crate::ui::{self, Table};
 
@@ -28,6 +29,7 @@ pub fn show_recording(args: &Args) -> Res {
     if let Some(mbid) = &recording.mbid {
         println!("  {}", ui::dim(&format!("MusicBrainz recording: {mbid}")));
     }
+    let mut navigation = Navigation::default();
     let mut placements = Table::new(&["Album", "Track", "File"]);
     for &track_id in &recording.track_ids {
         let Some(track) = catalog.track(track_id) else {
@@ -38,6 +40,10 @@ pub fn show_recording(args: &Args) -> Res {
             .and_then(|id| catalog.release(id))
             .map(|r| r.title.as_str())
             .unwrap_or("—");
+        if let Some(release_id) = track.release_id {
+            navigation.entity(&catalog, "Album placement", EntityKind::Release, release_id);
+        }
+        navigation.entity(&catalog, "Track placement", EntityKind::Track, track.id);
         let file = catalog
             .file(track.file_id)
             .map(|f| f.path.as_str())
@@ -52,6 +58,7 @@ pub fn show_recording(args: &Args) -> Res {
     for &work_id in &recording.work_ids {
         if let Some(work) = catalog.work(work_id) {
             println!("  work: {} ({})", work.title, work.mbid);
+            navigation.entity(&catalog, "Work", EntityKind::Work, work.id);
         }
     }
     let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
@@ -78,14 +85,28 @@ pub fn show_recording(args: &Args) -> Res {
             confidence_label(link.confidence),
             ui::since(link.fetched_at)
         );
+        navigation.add(
+            "Source work",
+            format!("aede work {}", shell_arg(&link.work.mbid)),
+        );
     }
-    super::print_sourced_credits(
-        &catalog,
-        held.credit_links(&catalog)
-            .into_iter()
-            .filter(|link| link.recording_id == recording.id)
-            .collect(),
-    );
+    let source_credits: Vec<_> = held
+        .credit_links(&catalog)
+        .into_iter()
+        .filter(|link| link.recording_id == recording.id)
+        .collect();
+    for link in &source_credits {
+        if let Some(artist) = catalog
+            .artists
+            .iter()
+            .find(|artist| artist.mbid.as_deref() == Some(&link.credit.artist_mbid))
+        {
+            navigation.entity(&catalog, "Credited artist", EntityKind::Artist, artist.id);
+        }
+    }
+    super::print_sourced_credits(&catalog, source_credits);
+    super::panel_for(args, &catalog, EntityKind::Recording, recording.id);
+    navigation.print();
     Ok(())
 }
 

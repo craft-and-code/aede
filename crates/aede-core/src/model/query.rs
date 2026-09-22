@@ -544,14 +544,22 @@ impl Catalog {
         (partial, TitleMatch::Partial)
     }
 
-    /// Every release whose title matches, exactly or failing that partially.
+    /// One release by MusicBrainz identity, or every title match.
     ///
     /// Same rule as [`Catalog::find_tracks`], and for the same reason: a
     /// command must not pick one answer out of several without saying so.
-    /// Unlike tracks, though, two matching albums are two *different* albums —
-    /// a shared prefix is not an ambiguity — which is why the exact match is
-    /// what usually ends the search.
+    /// An identifier wins before names. Unlike tracks, two matching albums are
+    /// two *different* editions — a shared prefix is not an ambiguity — which
+    /// is why an exact title usually ends the name search without choosing one.
     pub fn find_releases(&self, title: &str) -> (Vec<&Release>, TitleMatch) {
+        let identified: Vec<&Release> = self
+            .releases
+            .iter()
+            .filter(|release| release.mbid.as_deref() == Some(title))
+            .collect();
+        if !identified.is_empty() {
+            return (identified, TitleMatch::Exact);
+        }
         let key = text::normalize(title);
         if key.is_empty() {
             return (Vec::new(), TitleMatch::Exact);

@@ -1,6 +1,6 @@
 # The canonical music graph: audit and model
 
-**Status: stages 0–4 implemented.** The catalog now separates placements,
+**Status: stages 0–5 implemented.** The catalog now separates placements,
 recordings, releases, release groups and works. External relationships remain
 attributed evidence, and rich recording and work credits keep their exact
 scope, role details and provenance without rewriting local tags. SQLite remains
@@ -160,6 +160,32 @@ shows every local edition in its release group; membership rows expose the
 related MusicBrainz identity; and global name search includes recordings,
 works and release groups.
 
+## Stage 5 — navigation views
+
+Every graph page now names the exact command that continues to adjacent
+objects. These are ordinary, copyable CLI commands rather than terminal-only
+links, so they remain useful through a pipe, over SSH and in saved output.
+
+- `track` leads to its recording, works, album, release group, label and
+  credited artists;
+- `recording` leads to each local placement, album, work and locally known
+  credited artist;
+- `work` leads back to every recording and locally known credited artist;
+- `album` leads to its album artist, labels, release group, related editions
+  and credited artists;
+- `artist` exposes direct commands for the filtered album list, dated
+  memberships and missing-album report;
+- `label` leads to an exact filtered album listing;
+- the new `release-group` page lists every local edition and validates both
+  directions of the edition relationship;
+- `search` carries a command that opens every result.
+
+Navigation prefers MusicBrainz identifiers for recordings, works, release
+groups and editions. `album` therefore accepts a precise release MBID in
+addition to a title, preventing two pressings with the same title from becoming
+an ambiguous dead end. Names are shell-quoted centrally, including apostrophes,
+so the displayed commands can be copied without being reassembled by hand.
+
 ## Completed delivery order
 
 1. Add `Recording` and connect each local placement to exactly one recording.
@@ -181,9 +207,15 @@ works and release groups.
    non-performing contributions.
 9. Make recording, work and release-group identities searchable and preserve
    externally dated memberships as navigable source evidence.
+10. Add the missing release-group page and precise edition lookup by release
+    MBID.
+11. Give every entity page concise, copyable paths to its adjacent objects.
+12. Turn global search results into entry points by printing their open
+    command.
 
-The next graph stage concentrates on dedicated navigation views and concise
-cross-links rather than adding more relationship semantics.
+The next graph stage extends the query language across these relationships:
+roles, instruments, works, recordings and linked entities become filters rather
+than only navigation paths.
 
 SQLite is intentionally outside these stages. The graph must first be proven
 in the current model and JSON persistence; M2 can then migrate one established

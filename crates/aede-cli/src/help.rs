@@ -81,6 +81,10 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede work <title|MusicBrainz ID>",
             summary: "Show one composition and the recordings that realize it.",
         },
+        "release-group" => CommandPage {
+            usage: "aede release-group <title|MusicBrainz ID>",
+            summary: "Show the album identity shared by every local edition.",
+        },
         "missing" => CommandPage {
             usage: "aede missing [name…]",
             summary: "List credited studio albums that the local shelf does not hold.",
@@ -178,7 +182,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Show one artist's discography, credits, and sources.",
         },
         "album" => CommandPage {
-            usage: "aede album <title>",
+            usage: "aede album <title|MusicBrainz release ID>",
             summary: "Show one album's tracks, credits, and sources.",
         },
         "track" => CommandPage {
@@ -359,7 +363,7 @@ pub fn print_index() {
                        comes from aede fetch, and the album pages use the same
                        dates to name the band as it stood the year each record
                        came out
-  album <title>        Album card: tracks and credits
+  album <title|id>     Album edition card: tracks, credits and graph links
   track <title>        Track card: album, credits, technical details, tags
                        (--lyrics adds the words, from the tags or from a .lrc
                        file sitting beside the track)
@@ -369,6 +373,8 @@ pub fn print_index() {
   work <title|id>      Composition and the recordings that realize it. Works
                        fetched from MusicBrainz remain explicitly sourced and
                        never rewrite the file tags
+  release-group <id>   Album identity shared by its local editions. The
+                       MusicBrainz ID removes ambiguity between equal titles
   genre <name>         Genre page: albums and artists carrying it
   label <name>         Label page: its catalogue, artists, and MusicBrainz
                        identity status (local, confirmed, proposed, conflict)

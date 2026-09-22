@@ -140,6 +140,12 @@ pub fn show_artist(args: &Args) -> Res {
     }
 
     let artist_id = artist.id;
+    let quoted_name = super::navigation::shell_arg(&artist.name);
+    let mut navigation = super::navigation::Navigation::default();
+    navigation.add(
+        "Filtered albums",
+        format!("aede albums --artist={quoted_name}"),
+    );
     let own = catalog.releases_as_album_artist(artist_id);
     let guest = catalog.guest_appearances(artist_id);
     let tracks = catalog.performed_tracks_of_artist(artist_id);
@@ -234,7 +240,7 @@ pub fn show_artist(args: &Args) -> Res {
         print!("{}", t.render());
     }
     let held = super::sources_held(args)?;
-    let source_credits = held
+    let source_credits: Vec<_> = held
         .credit_links(&catalog)
         .into_iter()
         .filter(|link| match artist.mbid.as_deref() {
@@ -249,11 +255,44 @@ pub fn show_artist(args: &Args) -> Res {
             }
         })
         .collect();
+    for relation in catalog
+        .relations_from(EntityKind::Artist, artist.id)
+        .into_iter()
+        .filter(|relation| {
+            relation.target_kind == EntityKind::Recording && relation.kind.starts_with("credit:")
+        })
+    {
+        navigation.entity(
+            &catalog,
+            "Credited recording",
+            EntityKind::Recording,
+            relation.target_id,
+        );
+    }
+    for link in &source_credits {
+        navigation.entity(
+            &catalog,
+            "Sourced recording",
+            EntityKind::Recording,
+            link.recording_id,
+        );
+        if let Some(work) = &link.work {
+            if let Some(local) = catalog.works.iter().find(|local| local.mbid == work.mbid) {
+                navigation.entity(&catalog, "Credited work", EntityKind::Work, local.id);
+            } else {
+                navigation.add(
+                    "Sourced work",
+                    format!("aede work {}", super::navigation::shell_arg(&work.mbid)),
+                );
+            }
+        }
+    }
     super::print_sourced_credits(&catalog, source_credits);
     super::sources_panel_for(args, &catalog, EntityKind::Artist, artist.id);
     say_who_played(args, &catalog, artist.id, &artist.name);
     // A rating given and never shown again is a rating nobody trusts.
     super::panel_for(args, &catalog, EntityKind::Artist, artist.id);
+    navigation.print();
     Ok(())
 }
 

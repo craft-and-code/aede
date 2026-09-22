@@ -114,7 +114,7 @@ pub fn show_track(args: &Args) -> Res {
     let words = args.has("lyrics");
     for track in &matches {
         print_track(&catalog, track);
-        print_graph_links(&catalog, track, &held);
+        let navigation = print_graph_links(&catalog, track, &held);
         super::print_sourced_credits(
             &catalog,
             sourced_credits
@@ -133,6 +133,7 @@ pub fn show_track(args: &Args) -> Res {
         // printed afterwards, the second one reads as belonging to whichever
         // track happened to print last, which is only sometimes the truth.
         super::panel_for(args, &catalog, EntityKind::Track, track.id);
+        navigation.print();
     }
 
     // A truncated list must say so: a silent cut reads as "that is all there
@@ -150,14 +151,20 @@ pub fn show_track(args: &Args) -> Res {
     Ok(())
 }
 
-fn print_graph_links(catalog: &Catalog, track: &Track, held: &sources::Sources) {
+fn print_graph_links(
+    catalog: &Catalog,
+    track: &Track,
+    held: &sources::Sources,
+) -> super::navigation::Navigation {
     let Some(recording) = catalog.recording(track.recording_id) else {
-        return;
+        return super::navigation::Navigation::default();
     };
     let mut rows = Table::new(&["Relation", "Target", "Identity", "Evidence"])
         .limit(1, 42)
         .limit(2, 38)
         .limit(3, 32);
+    let mut navigation = super::navigation::Navigation::default();
+    navigation.entity(catalog, "Recording", EntityKind::Recording, recording.id);
     rows.push(vec![
         "recording".into(),
         recording.title.clone(),
@@ -172,6 +179,7 @@ fn print_graph_links(catalog: &Catalog, track: &Track, held: &sources::Sources) 
                 work.mbid.clone(),
                 "tags".into(),
             ]);
+            navigation.entity(catalog, "Work", EntityKind::Work, work.id);
         }
     }
     let canonical: std::collections::BTreeSet<&str> = recording
@@ -189,23 +197,52 @@ fn print_graph_links(catalog: &Catalog, track: &Track, held: &sources::Sources) 
         rows.push(vec![
             "source work".into(),
             link.work.title,
-            link.work.mbid,
+            link.work.mbid.clone(),
             format!("{} · {}", link.source, ui::since(link.fetched_at)),
         ]);
+        navigation.add(
+            "Source work",
+            format!(
+                "aede work {}",
+                super::navigation::shell_arg(&link.work.mbid)
+            ),
+        );
     }
-    if let Some(release) = track.release_id.and_then(|id| catalog.release(id))
-        && let Some(group_id) = release.release_group_id
-        && let Some(group) = catalog.release_group(group_id)
-    {
-        rows.push(vec![
-            "release group".into(),
-            group.title.clone(),
-            group.mbid.clone(),
-            format!("{} local edition(s)", group.release_ids.len()),
-        ]);
+    if let Some(release) = track.release_id.and_then(|id| catalog.release(id)) {
+        navigation.entity(catalog, "Album", EntityKind::Release, release.id);
+        if let Some(artist_id) = release.album_artist_id {
+            navigation.entity(catalog, "Artist", EntityKind::Artist, artist_id);
+        }
+        for &label_id in &release.label_ids {
+            navigation.entity(catalog, "Label", EntityKind::Label, label_id);
+        }
+        if let Some(group_id) = release.release_group_id
+            && let Some(group) = catalog.release_group(group_id)
+        {
+            rows.push(vec![
+                "release group".into(),
+                group.title.clone(),
+                group.mbid.clone(),
+                format!("{} local edition(s)", group.release_ids.len()),
+            ]);
+            navigation.entity(catalog, "Release group", EntityKind::ReleaseGroup, group.id);
+        }
     }
     println!("{}", ui::section("Graph"));
     print!("{}", rows.render());
+    for credit in catalog
+        .credits
+        .iter()
+        .filter(|credit| credit.entity_kind == EntityKind::Track && credit.entity_id == track.id)
+    {
+        navigation.entity(
+            catalog,
+            "Credited artist",
+            EntityKind::Artist,
+            credit.artist_id,
+        );
+    }
+    navigation
 }
 
 /// Turns the filter options into one expression.
