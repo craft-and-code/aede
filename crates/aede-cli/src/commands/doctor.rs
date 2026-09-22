@@ -3,7 +3,7 @@
 use aede_core::doctor::{self, Issue, Severity};
 use aede_core::json::Json;
 
-use super::{Res, announce_window, load};
+use super::{Res, announce_window, data_dir, load};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
@@ -11,6 +11,17 @@ pub fn show_doctor(args: &Args) -> Res {
     let catalog = load(args)?;
     let sources = super::sources_held(args)?;
     let mut issues = doctor::diagnose(&catalog, &sources);
+    let user =
+        aede_core::user::load(&aede_core::user::user_path(&data_dir(args)))?.unwrap_or_default();
+    issues.extend(doctor::orphaned_relation_annotations(
+        &catalog, &sources, &user,
+    ));
+    issues.sort_by(|left, right| {
+        left.severity()
+            .cmp(&right.severity())
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.detail.cmp(&right.detail))
+    });
 
     // A level nobody recognises used to leave the filter off entirely: the
     // whole diagnosis came back under a name that had asked for a third of it,

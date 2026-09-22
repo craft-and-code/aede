@@ -30,7 +30,7 @@ use crate::text;
 /// The two change for different reasons and at different times, so they are
 /// counted separately. Reading a newer file must fail loudly rather than lose
 /// what it did not understand.
-pub const USER_FORMAT_VERSION: u32 = 1;
+pub const USER_FORMAT_VERSION: u32 = 2;
 
 /// Name of the user file inside the data folder.
 pub const USER_FILE: &str = "user.json";
@@ -121,7 +121,17 @@ impl EntityRef {
                 )
             }
             EntityKind::Artist => catalog.artist(id).map(|a| a.key.clone())?,
-            EntityKind::Recording => catalog.recording(id).and_then(|r| r.mbid.clone())?,
+            EntityKind::Recording => {
+                let recording = catalog.recording(id)?;
+                recording.mbid.clone().or_else(|| {
+                    recording
+                        .track_ids
+                        .first()
+                        .and_then(|track| catalog.track(*track))
+                        .and_then(|track| catalog.file(track.file_id))
+                        .map(|file| format!("local:{}", file.path))
+                })?
+            }
             EntityKind::Work => catalog.work(id).map(|w| w.mbid.clone())?,
             EntityKind::ReleaseGroup => catalog.release_group(id).map(|g| g.mbid.clone())?,
             EntityKind::Label => catalog.label(id).map(|l| l.key.clone())?,
@@ -151,7 +161,17 @@ impl EntityRef {
             EntityKind::Recording => catalog
                 .recordings
                 .iter()
-                .find(|recording| recording.mbid.as_deref() == Some(&self.key))
+                .find(|recording| {
+                    recording.mbid.as_deref() == Some(&self.key)
+                        || self.key.strip_prefix("local:").is_some_and(|path| {
+                            recording.track_ids.iter().any(|track| {
+                                catalog
+                                    .track(*track)
+                                    .and_then(|track| catalog.file(track.file_id))
+                                    .is_some_and(|file| file.path == path)
+                            })
+                        })
+                })
                 .map(|recording| recording.id),
             EntityKind::Work => catalog
                 .works
@@ -247,6 +267,38 @@ impl Annotation {
         !self.loved
             && self.rating.is_none()
             && self.note.as_deref().is_none_or(|n| n.trim().is_empty())
+            && self.tags.is_empty()
+    }
+}
+
+/// A personal note and free-form labels attached to one relationship.
+///
+/// Relations are not entities: the opinion belongs to the edge itself, not to
+/// either endpoint. Keeping it in the user layer also preserves the invariant
+/// that the shared catalog contains facts while each person's notes remain
+/// private.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationAnnotation {
+    /// Whose opinion it is.
+    pub owner: UserRef,
+    /// Stable relationship being described.
+    pub relation: crate::graph::RelationRef,
+    /// Free text about this exact relationship.
+    pub note: Option<String>,
+    /// Personal labels such as `dubious`, `favourite collaboration`…
+    pub tags: BTreeSet<String>,
+    /// When the annotation was first written.
+    pub created_at: u64,
+    /// When it was last changed.
+    pub updated_at: u64,
+}
+
+impl RelationAnnotation {
+    /// Whether the annotation says nothing and can be removed.
+    pub fn is_empty(&self) -> bool {
+        self.note
+            .as_deref()
+            .is_none_or(|note| note.trim().is_empty())
             && self.tags.is_empty()
     }
 }
@@ -385,6 +437,8 @@ pub struct SameArtist {
 pub struct UserData {
     /// One record per owner and target.
     pub annotations: Vec<Annotation>,
+    /// Notes and labels attached to graph relationships.
+    pub relation_annotations: Vec<RelationAnnotation>,
     /// The most recent plays, oldest first, bounded by [`HISTORY_LIMIT`].
     pub plays: Vec<Play>,
     /// All-time counts, which never forget.
@@ -436,6 +490,46 @@ impl UserData {
     /// loved leaves nothing behind.
     pub fn forget_empty(&mut self) {
         self.annotations.retain(|a| !a.is_empty());
+        self.relation_annotations.retain(|a| !a.is_empty());
+    }
+
+    /// Personal annotation for one relation, if one exists.
+    pub fn find_relation(
+        &self,
+        owner: &str,
+        relation: &crate::graph::RelationRef,
+    ) -> Option<&RelationAnnotation> {
+        self.relation_annotations
+            .iter()
+            .find(|annotation| annotation.owner == owner && &annotation.relation == relation)
+    }
+
+    /// Opens the personal annotation for one relation.
+    pub fn relation_entry(
+        &mut self,
+        owner: &str,
+        relation: &crate::graph::RelationRef,
+        now: u64,
+    ) -> &mut RelationAnnotation {
+        let found = self
+            .relation_annotations
+            .iter()
+            .position(|annotation| annotation.owner == owner && &annotation.relation == relation);
+        let index = match found {
+            Some(index) => index,
+            None => {
+                self.relation_annotations.push(RelationAnnotation {
+                    owner: owner.to_string(),
+                    relation: relation.clone(),
+                    note: None,
+                    tags: BTreeSet::new(),
+                    created_at: now,
+                    updated_at: now,
+                });
+                self.relation_annotations.len() - 1
+            }
+        };
+        &mut self.relation_annotations[index]
     }
 
     /// Copies everything said about one target onto another.
@@ -756,6 +850,45 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         .collect();
     root.set("annotations", Json::Arr(annotations));
 
+    let relation_annotations: Vec<Json> = data
+        .relation_annotations
+        .iter()
+        .map(|annotation| {
+            let mut row = Json::obj();
+            row.set("owner", annotation.owner.as_str().into());
+            row.set("source", annotation.relation.source.to_token().into());
+            row.set("relation", annotation.relation.kind.as_str().into());
+            row.set("target", annotation.relation.target.to_token().into());
+            row.set("provenance", annotation.relation.provenance.as_str().into());
+            if let Some(source_id) = &annotation.relation.source_id {
+                row.set("source_id", source_id.as_str().into());
+            }
+            if let Some(note) = annotation
+                .note
+                .as_deref()
+                .filter(|note| !note.trim().is_empty())
+            {
+                row.set("note", note.into());
+            }
+            if !annotation.tags.is_empty() {
+                row.set(
+                    "tags",
+                    Json::Arr(
+                        annotation
+                            .tags
+                            .iter()
+                            .map(|tag| tag.as_str().into())
+                            .collect(),
+                    ),
+                );
+            }
+            row.set("created_at", annotation.created_at.into());
+            row.set("updated_at", annotation.updated_at.into());
+            row
+        })
+        .collect();
+    root.set("relation_annotations", Json::Arr(relation_annotations));
+
     let plays: Vec<Json> = data
         .plays
         .iter()
@@ -840,7 +973,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
 pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::StoreError> {
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
-    if found != USER_FORMAT_VERSION {
+    if !matches!(found, 1 | USER_FORMAT_VERSION) {
         return Err(StoreError::Version {
             found,
             expected: USER_FORMAT_VERSION,
@@ -873,6 +1006,49 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             created_at: row.field_u64("created_at").unwrap_or(0),
             updated_at: row.field_u64("updated_at").unwrap_or(0),
         });
+    }
+
+    for row in value
+        .get("relation_annotations")
+        .and_then(|value| value.as_arr())
+        .unwrap_or(&[])
+    {
+        let (Some(source), Some(kind), Some(target), Some(provenance)) = (
+            row.field_str("source")
+                .and_then(|value| EntityRef::parse_token(&value)),
+            row.field_str("relation"),
+            row.field_str("target")
+                .and_then(|value| EntityRef::parse_token(&value)),
+            row.field_str("provenance"),
+        ) else {
+            continue;
+        };
+        let annotation = RelationAnnotation {
+            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            relation: crate::graph::RelationRef {
+                source,
+                kind,
+                target,
+                provenance,
+                source_id: row.field_str("source_id"),
+            },
+            note: row.field_str("note"),
+            tags: row
+                .get("tags")
+                .and_then(|value| value.as_arr())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_string())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            created_at: row.field_u64("created_at").unwrap_or(0),
+            updated_at: row.field_u64("updated_at").unwrap_or(0),
+        };
+        if !annotation.is_empty() {
+            data.relation_annotations.push(annotation);
+        }
     }
 
     for row in value.get("plays").and_then(|v| v.as_arr()).unwrap_or(&[]) {
@@ -1016,6 +1192,22 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
             }
             None => {
                 into.annotations.push(annotation);
+                report.added += 1;
+            }
+        }
+    }
+
+    for annotation in incoming.relation_annotations {
+        match into.relation_annotations.iter_mut().find(|existing| {
+            existing.owner == annotation.owner && existing.relation == annotation.relation
+        }) {
+            Some(existing) if existing.updated_at >= annotation.updated_at => report.kept += 1,
+            Some(existing) => {
+                *existing = annotation;
+                report.updated += 1;
+            }
+            None => {
+                into.relation_annotations.push(annotation);
                 report.added += 1;
             }
         }

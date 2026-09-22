@@ -105,6 +105,8 @@ pub enum IssueKind {
     /// A trusted recording identity exists, but its relationship pass has not
     /// completed, so credits and works may be missing.
     IncompleteSourceCredits,
+    /// A personal note points to a relationship no longer in the current graph.
+    OrphanedRelationAnnotation,
 }
 
 impl IssueKind {
@@ -131,6 +133,7 @@ impl IssueKind {
             | IssueKind::SourceNeedsReview
             | IssueKind::SourceIdentityConflict
             | IssueKind::IncompleteSourceCredits
+            | IssueKind::OrphanedRelationAnnotation
             | IssueKind::SameArtistMaybe
             | IssueKind::OtherEdition => Severity::Info,
         }
@@ -144,6 +147,7 @@ impl IssueKind {
             IssueKind::SourceNeedsReview => "source claim needs review",
             IssueKind::SourceIdentityConflict => "source identity conflict",
             IssueKind::IncompleteSourceCredits => "source credits incomplete",
+            IssueKind::OrphanedRelationAnnotation => "relation annotation is waiting",
             // "possibly", and the word is doing work: nothing here is a
             // finding, and a line reading "the same artist" would be a claim
             // this program has no way to make.
@@ -253,6 +257,36 @@ pub fn diagnose(catalog: &Catalog, sources: &crate::sources::Sources) -> Vec<Iss
             .then_with(|| a.files.cmp(&b.files))
     });
     issues
+}
+
+/// Personal relationship annotations whose edge is absent from the current graph.
+///
+/// They are kept rather than deleted: a disconnected drive, a rejected source
+/// claim, or a later rescan can make the relationship visible again.
+pub fn orphaned_relation_annotations(
+    catalog: &Catalog,
+    sources: &crate::sources::Sources,
+    user: &crate::user::UserData,
+) -> Vec<Issue> {
+    let current = crate::graph::edges(catalog, sources)
+        .into_iter()
+        .map(|edge| edge.reference)
+        .collect::<BTreeSet<_>>();
+    user.relation_annotations
+        .iter()
+        .filter(|annotation| !current.contains(&annotation.relation))
+        .map(|annotation| Issue {
+            kind: IssueKind::OrphanedRelationAnnotation,
+            detail: format!(
+                "{} → {} → {} is not in the current graph; it is kept — aede relation {} --remove drops your annotation",
+                annotation.relation.source.to_token(),
+                annotation.relation.kind,
+                annotation.relation.target.to_token(),
+                annotation.relation.id()
+            ),
+            files: Vec::new(),
+        })
+        .collect()
 }
 
 /// Number of problems per severity.

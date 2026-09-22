@@ -6,7 +6,10 @@ Three groups, and an option that a command cannot honour is **refused**, never i
 
 The main `aede help` page is an index: it groups library, fetch, artwork, filtering, copy, and import options without turning the terminal into a manual. Every command has its own page through `aede help <command>` or `aede <command> --help`; aliases work there too. `aede help fetch` adds its metadata, lyrics, artwork, Fanart.tv, and exclusion details.
 
-`export` describes your entire **catalog**: `--csv` gives one row per album, `--tracks` one row per track. It takes no argument.
+`export` describes the whole library and takes no argument. Its ordinary JSON
+is the derived **catalog**; `--csv` gives one row per album and `--tracks` one
+row per track. `--graph` instead keeps the catalog, source evidence, review
+decisions, personal data and a materialized attributed edge list together.
 
 The **listings** — `albums`, `artists`, `genres`, `labels`, `years` — turn into a precise table of exactly what they show, filters included. This is how you gather several albums into one focused file:
 
@@ -74,6 +77,39 @@ decision without touching the files. `aede doctor` also reports pending
 claims, conflicting identities, incomplete fetched credits and disagreements
 between trusted sources.
 
+`relations` is the inventory underneath those entity pages. It assigns every
+directed local or sourced edge a stable ID without hiding where the assertion
+came from or whether it is trusted. A name searches either endpoint and the
+relationship kind; `--source` and `--tag` narrow the list:
+
+```sh
+aede relations "Andrew Watt"
+aede relations --source=musicbrainz
+aede relation <ID>
+aede relation <ID> --text="Verify against booklet" --tag=dubious,liner-notes
+aede relations --tag=dubious
+```
+
+`relation --remove` removes the whole personal annotation, while
+`--tag=dubious --remove` removes only that label. The edge and its endpoints
+are never changed. An annotation whose edge disappears is retained and
+reported by `doctor`; its ID can still be passed to `relation --remove`.
+
+`rules` separates reproducible human choices from a complete backup. It lists
+them without an option, exports them as one versioned document, and merges that
+document on import:
+
+```sh
+aede rules
+aede rules --export --output=rules.json
+aede rules --import=rules.json
+```
+
+The bundle contains source-review decisions, manual source records, artist
+filing rules, set-aside missing releases, saved queries and relationship
+annotations. It deliberately excludes listening history and remote prose:
+those are data, not correction rules.
+
 ```sh
 aede album "To Hell With God" --csv --output=album.csv
 aede artist "Deicide" --csv --separator=tab | sort -t$'\t' -k9,9n     # sorted by size
@@ -93,7 +129,7 @@ aede track So What --artist Miles Davis --limit 1
 
 Always put the positional argument before the option: `aede track --artist Miles Davis So What` gives the whole tail to `--artist`, and the command will simply tell you it was given no title — ensuring it never pretends to answer a question you didn't ask.
 
-`--output <file>`, or `-o`, writes to a file instead of filling your terminal — but only alongside `--csv`, `--json` or `--m3u` on a selection or a listing, or on `export`, `sources --export` and `notes --export`. Those are the only commands with a tangible file's worth of text to deliver. Everything else here is a vibrant page meant for the screen, and `--output` is explicitly refused rather than silently ignored:
+`--output <file>`, or `-o`, writes to a file instead of filling your terminal — but only alongside `--csv`, `--json` or `--m3u` on a selection or a listing, or on `export`, `sources --export`, `notes --export` and `rules --export`. Those are the only commands with a tangible file's worth of text to deliver. Everything else here is a vibrant page meant for the screen, and `--output` is explicitly refused rather than silently ignored:
 
 ```
 $ aede artist Ozzy --with Zakk Wylde -o test.txt
@@ -128,7 +164,14 @@ Quality
 
 Three formats, because you ask your collection three different types of questions.
 
-**JSON** (`aede export`) is the faithful, structural dump: ten linked tables, capturing the complete soul of the model. It is the raw material that rebuilds a catalog or feeds another program.
+**JSON** (`aede export`) is the faithful structural catalog dump. It is the raw
+material that rebuilds the derived catalog or feeds another program.
+
+**Graph JSON** (`aede export --graph`) preserves all three voices in one
+document: what the files say, what external sources assert, and what the user
+decided or annotated. Its materialized `relations` array makes traversal easy,
+while the unflattened catalog, source and user sections preserve every detail
+and provenance field.
 
 **CSV** (`aede export --csv`) is built for the spreadsheet, the ultimate sorting tool. It writes **one row per album** — artist, title, year, track and disc counts, duration, size, formats, sample rates, bit depths, label, catalogue number, genres, integrity, folder. This is your view from above: sort by size to pinpoint what to re-rip, filter on `lossless` to uncover what is left to upgrade. `--tracks` shifts focus to one row per track when you need microscopic precision.
 

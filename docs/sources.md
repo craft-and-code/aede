@@ -139,6 +139,20 @@ aede sources --import=fix.json
 
 `--source=manual` protects this entry. Any name works (`manual`, yours, `discogs`…), the key being to avoid `musicbrainz`, as a source only replaces what **it** previously stated.
 
+When the correction and the review decisions must be repeated on another Aède
+catalog, export the rules rather than the whole fetched source layer:
+
+```sh
+aede rules --export --output=rules.json
+aede rules --import=rules.json
+```
+
+The versioned bundle includes manual source records and accepted or rejected
+source identities, together with the personal filing and relationship rules.
+Import merges those choices; it does not copy biographies, artwork, listening
+history, or change any audio file. Use `aede export --graph` when the goal is
+instead to preserve every catalog, source and user layer for analysis.
+
 ## Viewing and Deleting
 
 ```sh

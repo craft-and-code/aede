@@ -27,6 +27,7 @@ pub mod doctor;
 pub mod fanarttv;
 pub mod ffmpeg;
 pub mod fingerprint;
+pub mod graph;
 #[cfg(feature = "fetch")]
 pub mod http;
 pub mod model;

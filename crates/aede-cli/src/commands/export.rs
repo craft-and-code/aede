@@ -21,7 +21,7 @@ use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::store;
 
-use super::{Res, load};
+use super::{Res, data_dir, load};
 use crate::args::Args;
 use crate::ui;
 
@@ -39,6 +39,12 @@ pub fn export(args: &Args) -> Res {
     }
 
     let catalog = load(args)?;
+    if args.has("graph") {
+        if args.has("csv") || args.has("tracks") {
+            return Err("--graph is a linked JSON document; drop --csv and --tracks".into());
+        }
+        return export_graph(args, &catalog);
+    }
     // `--csv` flattens the graph into one table; without it the dump is the
     // faithful one, and `--json` on `export` asks for exactly that.
     if args.has("csv") {
@@ -51,6 +57,39 @@ pub fn export(args: &Args) -> Res {
         };
     }
     emit(args, &store::to_json(&catalog).to_string_pretty())
+}
+
+/// Exports the complete local-first graph: derived catalog, attributed source
+/// evidence, personal statements, and one materialized edge list joining the
+/// three without flattening their provenance.
+fn export_graph(args: &Args, catalog: &Catalog) -> Res {
+    let directory = data_dir(args);
+    let sources = aede_core::sources::load(&aede_core::sources::sources_path(&directory))?
+        .unwrap_or_default();
+    let user = aede_core::user::load(&aede_core::user::user_path(&directory))?.unwrap_or_default();
+    let edges = aede_core::graph::edges(catalog, &sources);
+
+    let mut root = Json::obj();
+    root.set("format", "aede-graph".into());
+    root.set("format_version", 1u32.into());
+    root.set("exported_at", aede_core::clock::now_seconds().into());
+    root.set("catalog", store::to_json(catalog));
+    root.set("sources", aede_core::sources::to_json(&sources));
+    root.set("user", aede_core::user::to_json(&user));
+    root.set(
+        "relations",
+        Json::Arr(
+            edges
+                .iter()
+                .map(|edge| {
+                    let annotation =
+                        user.find_relation(aede_core::user::LOCAL_USER, &edge.reference);
+                    super::relation::edge_json(edge, annotation)
+                })
+                .collect(),
+        ),
+    );
+    emit(args, &root.to_string_pretty())
 }
 
 /// Writes the tracks on screen as a table, in whichever format was asked for.

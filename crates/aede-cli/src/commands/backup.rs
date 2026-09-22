@@ -321,11 +321,12 @@ fn catalog_of(catalog: &aede_core::model::Catalog) -> String {
 /// The zeros are left out: "2 annotations, 0 collection, 0 record set aside"
 /// spends two thirds of a line saying nothing, and a reader checking that their
 /// notes are in the file has to find the one number that is not a zero. A store
-/// holding none of the four does not exist on disk in the first place, so there
+/// holding none of these does not exist on disk in the first place, so there
 /// is always something to say.
 fn user_of(data: &aede_core::user::UserData) -> String {
     let counts = [
         (data.annotations.len(), "annotation"),
+        (data.relation_annotations.len(), "relation annotation"),
         (data.collections.len(), "collection"),
         (data.set_aside.len(), "record set aside"),
         (data.plays.len(), "play"),

@@ -139,6 +139,8 @@ aede doctor
 | `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.                    |
 | `aede release-group` | `<title\|MBID>` | None                                                                                                                   | Show the album identity shared by every local edition.                               |
 | `aede label`     | `<name>`        | `--m3u`, `--csv`                                                                                                          | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
+| `aede relations` | `[name]`        | `--source`, `--tag`, `--limit`, `--json`, `--output=<file>`                                                              | List every local or sourced graph edge with its stable ID and provenance.            |
+| `aede relation`  | `<ID>`          | `--text`, `--tag`, `--remove`                                                                                             | Inspect one edge or attach personal notes and labels to the relationship itself.      |
 | `aede countries` | None            | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz.                 |
 | `aede missing`   | `<artist>`      | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.                        |
 
@@ -212,6 +214,20 @@ identifiers are preferred wherever they remove title ambiguity. In particular,
 `aede release-group <MBID>` leads to every local edition and each edition can
 now be opened precisely with `aede album <release-MBID>`.
 
+The whole graph can also be inspected independently of an entity page. Every
+edge has a stable selector and keeps its source and trust state:
+
+```sh
+aede relations "Andrew Watt"
+aede relation <ID>
+aede relation <ID> --text="Check the original booklet" --tag=dubious
+aede relations --tag=dubious
+```
+
+The note belongs to that exact relationship, not to either endpoint. It lives
+in `user.json`, survives scans, and is kept waiting if the edge temporarily
+disappears; `aede doctor --severity=info` then makes it visible.
+
 ### Transfer, Export & Derivative Generation
 
 | Command           | Arguments       | Key Options                                                                                                                             | Description                                                                                            |
@@ -220,7 +236,7 @@ now be opened precisely with `aede album <release-MBID>`.
 | `aede spectrum`   | `[path]`        | `--size <half\|full>`, `--dry-run`, `--full`, `--threads`                                                                               | Generates $900 \times 470$ or $1800 \times 940$ FFT acoustic spectrogram PNGs via FFmpeg.              |
 | `aede playlist`   | `[path]`        | `--simple`, `--artists`, `--dry-run`                                                                                                    | Writes relative `.m3u` playlist files directly into physical album directories.                        |
 | `aede collection` | `<name>`        | `--query <expr>`, `--m3u`, `--csv`, `--json`, `--remove`                                                                                | Defines or manages dynamic, self-refreshing smart playlists.                                           |
-| `aede export`     | None            | `--csv`, `--tracks`, `--json`, `--output=<file>`                                                                                        | Complete structural vault export in JSON or CSV (album/track level).                                   |
+| `aede export`     | None            | `--csv`, `--tracks`, `--graph`, `--json`, `--output=<file>`                                                                             | Export the catalog, a flat table, or every attributed graph layer in one JSON document.                 |
 
 ### Forensic Ingestion & Annotations
 
@@ -231,8 +247,24 @@ now be opened precisely with `aede album <release-MBID>`.
 | `aede rating`  | `<entity> <name>` | `<1-5>`, `--remove`                                     | Sets a personal star rating ($1\text{--}5$).                                 |
 | `aede tag`     | `<entity> <name>` | `<tag_name>`, `--remove`                                | Assigns or removes custom tags.                                              |
 | `aede notes`   | None              | `--export`, `--import`, `--output=<file>`               | Backs up or restores user annotations across systems.                        |
+| `aede rules`   | None              | `--export`, `--import`, `--output=<file>`               | Lists or transports reproducible decisions without copying fetched prose or listening history. |
 | `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, user annotations, and remote sources into a backup payload. |
 | `aede restore` | `<file.json>`     | `--yes`                                                 | Restores vault state from a versioned Aède backup bundle.                    |
+
+`aede export --graph --output=graph.json` is the complete local-first export:
+the derived catalog, attributed source evidence, confidence and review states,
+personal data, and a materialized relation list are kept side by side. For a
+smaller, replayable file containing only human decisions, use:
+
+```sh
+aede rules --export --output=rules.json
+aede rules --import=rules.json
+```
+
+That bundle carries accepted or rejected identities, manual source records,
+artist filing rules, releases set aside from the missing-album report, saved
+queries, and relationship annotations. It does not copy artwork, biographies,
+listening history, or replace any audio tag.
 
 ---
 

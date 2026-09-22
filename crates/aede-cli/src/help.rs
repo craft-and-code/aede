@@ -73,6 +73,18 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede review [name] [--interactive] | aede review --accept=<ID> | --reject=<ID> | --undo=<ID>",
             summary: "Resolve uncertain or conflicting source identities without changing tags.",
         },
+        "relations" => CommandPage {
+            usage: "aede relations [name]",
+            summary: "List local and sourced graph relationships with stable IDs.",
+        },
+        "relation" => CommandPage {
+            usage: "aede relation <ID>",
+            summary: "Inspect, annotate, or label one graph relationship.",
+        },
+        "rules" => CommandPage {
+            usage: "aede rules",
+            summary: "List, export, or import reproducible personal decisions.",
+        },
         "fetch" => CommandPage {
             usage: "aede fetch [name… | folder…] [options]",
             summary: "Enrich artists, albums, tracks, and artwork from chosen sources.",
@@ -287,6 +299,16 @@ pub fn print_index() {
                        --undo=<ID> returns either decision to pending.
                        Decisions never rewrite tags, and --all shows resolved
                        claims alongside those still waiting
+  relations [name]     Every local and sourced graph relationship, with a
+                       stable ID and its provenance. --source narrows it;
+                       --tag finds links carrying one of your labels
+  relation <ID>        Open one relationship. --text writes a personal note,
+                       --tag adds comma-separated labels, and --remove takes
+                       the annotation back without changing either endpoint
+  rules                Personal decisions that can be replayed: identity
+                       reviews, artist filing, set-aside releases, manual
+                       source records, saved queries and relation notes.
+                       --export writes a portable bundle; --import takes one in
   fingerprint [folder…] Work out what each file's audio is, by decoding it.
                        The local half of identifying by sound: it touches no
                        network and stores what it computes in the catalog, so
@@ -416,7 +438,10 @@ pub fn print_index() {
                        is and never deleted, and a store this build cannot
                        read does not stop the other two
   export               Export the catalog as JSON, or as CSV with --csv
-                       (one row per album; --tracks for one row per track)
+                       (one row per album; --tracks for one row per track).
+                       --graph exports the catalog, source evidence,
+                       provenance, review decisions, personal data and the
+                       materialized relation graph in one document
   query <expression>   (also: find) Every track an expression matches; the
                        result is a selection, so --csv, --json and --m3u apply
                          genre:metal year:1990..1999 -label:earache
@@ -638,6 +663,17 @@ fn command_examples(command: &str) -> &'static [&'static str] {
             "aede review --accept=<ID>",
             "aede review --all",
         ],
+        "relations" => &["aede relations watt", "aede relations --tag=dubious"],
+        "relation" => &[
+            "aede relation <ID>",
+            "aede relation <ID> --text=\"Needs verification\" --tag=dubious",
+        ],
+        "rules" => &[
+            "aede rules",
+            "aede rules --export --output=rules.json",
+            "aede rules --import=rules.json",
+        ],
+        "export" => &["aede export --graph --output=graph.json"],
         "fetch" => &["aede fetch --fanart --no-background ~/Music/Jazz"],
         "copy" => &["aede copy /Volumes/Player --query \"loved rating:>=4\" --verify"],
         _ => &[],

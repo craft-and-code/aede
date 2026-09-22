@@ -978,6 +978,216 @@ fn source_review_can_be_understood_and_decided_interactively() {
 }
 
 #[test]
+fn graph_relations_are_annotatable_exportable_and_reproducible() {
+    let sandbox = Sandbox::new("relation_annotations");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let source = sandbox.dir.join("graph-source.json");
+    std::fs::write(
+        &source,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":"track:{}","source":"musicbrainz",
+              "source_id":"recording-graph","fetched_at":1756600000,
+              "confidence":"identified","facts":{{
+                "recording":"recording-graph","title":"So What",
+                "artists":["Miles Davis"],"relationships_complete":true,
+                "credits":[{{
+                  "relation_id":"credit-graph","role_id":"producer-role",
+                  "role":"producer","direction":"backward",
+                  "artist_mbid":"producer-id","artist_name":"Teo Macero",
+                  "credited_as":"Teo","attributes":[{{"name":"executive"}}],
+                  "began":"1959","ended":"1960","over":true,"order":2
+                }}],
+                "works":[{{
+                  "mbid":"work-graph","title":"So What",
+                  "relation_id":"work-link-graph","relation_type":"performance",
+                  "relation_type_id":"performance-role","direction":"forward",
+                  "attributes":[{{"name":"instrumental"}}],"credits":[]
+                }}]
+              }}
+            }}]}}"#,
+            library_flac().display()
+        ),
+    )
+    .expect("source graph fixture");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", source.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let manual = sandbox.dir.join("manual-rule.json");
+    std::fs::write(
+        &manual,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":"track:{}","source":"manual",
+              "source_id":"manual-correction","fetched_at":1756600001,
+              "confidence":"identified","facts":{{
+                "recording":"recording-graph","title":"So What",
+                "artists":["Miles Davis"],"relationships_complete":false
+              }}
+            }}]}}"#,
+            library_flac().display()
+        ),
+    )
+    .expect("manual rule fixture");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", manual.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["relations", "--source=musicbrainz", "--json", "--all"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let relations = aede_core::json::parse(&out).expect("source relations JSON");
+    let producer = relations
+        .as_arr()
+        .expect("relation list")
+        .iter()
+        .find(|relation| relation.field_str("relation").as_deref() == Some("credit:producer"))
+        .expect("sourced producer relation");
+    assert_eq!(
+        producer.field_str("relationship_type_id").as_deref(),
+        Some("producer-role")
+    );
+    assert_eq!(producer.field_str("credited_as").as_deref(), Some("Teo"));
+    assert_eq!(producer.field_str("began").as_deref(), Some("1959"));
+    assert_eq!(producer.field_u32("order"), Some(2));
+    assert_eq!(
+        producer
+            .get("attributes")
+            .and_then(aede_core::json::Json::as_arr)
+            .and_then(|attributes| attributes.first())
+            .and_then(|attribute| attribute.field_str("name"))
+            .as_deref(),
+        Some("executive")
+    );
+
+    let (out, err, ok) = sandbox.run(&["relations", "--limit=1"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let id = out
+        .split_whitespace()
+        .find(|word| {
+            word.len() == 16 && word.chars().all(|character| character.is_ascii_hexdigit())
+        })
+        .expect("stable relation ID")
+        .to_string();
+
+    let (out, err, ok) = sandbox.run(&[
+        "relation",
+        &id,
+        "--text=Check the original booklet",
+        "--tag=dubious,liner notes",
+    ]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("Check the original booklet"), "output: {out}");
+    assert!(out.contains("dubious"), "output: {out}");
+
+    let (out, err, ok) = sandbox.run(&["relations", "--tag=dubious"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains(&id), "the label finds the relationship: {out}");
+
+    let graph = sandbox.dir.join("graph.json");
+    let (out, err, ok) = sandbox.run(&["export", "--graph", "--output", graph.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let document = aede_core::json::parse(&std::fs::read_to_string(&graph).unwrap())
+        .expect("complete graph JSON");
+    assert_eq!(document.field_str("format").as_deref(), Some("aede-graph"));
+    assert!(document.get("catalog").is_some());
+    assert!(document.get("sources").is_some());
+    assert!(document.get("user").is_some());
+    let exported = document
+        .get("relations")
+        .and_then(aede_core::json::Json::as_arr)
+        .expect("materialized relation graph")
+        .iter()
+        .find(|relation| relation.field_str("id").as_deref() == Some(id.as_str()))
+        .expect("annotated relation in export");
+    assert_eq!(
+        exported
+            .get("annotation")
+            .and_then(|annotation| annotation.field_str("note"))
+            .as_deref(),
+        Some("Check the original booklet")
+    );
+
+    let rules = sandbox.dir.join("rules.json");
+    let (_, err, ok) = sandbox.run(&["rules", "--export", "--output", rules.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let restored = Sandbox::new("relation_rules_restored");
+    let (_, _, ok) = restored.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    let (out, err, ok) = restored.run(&["rules", "--import", rules.to_str().unwrap()]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let restored_sources =
+        aede_core::sources::load(&aede_core::sources::sources_path(&restored.dir))
+            .unwrap()
+            .unwrap();
+    assert!(restored_sources.records.iter().any(|record| {
+        record.source == "manual" && record.source_id.as_deref() == Some("manual-correction")
+    }));
+    let (out, err, ok) = restored.run(&["relation", &id]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        out.contains("Check the original booklet"),
+        "the personal rule was replayed: {out}"
+    );
+
+    let (out, err, ok) = restored.run(&["relation", &id, "--tag=dubious", "--remove"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        !out.contains("dubious"),
+        "only the chosen label was removed: {out}"
+    );
+    assert!(
+        out.contains("Check the original booklet"),
+        "the note remains: {out}"
+    );
+}
+
+#[test]
+fn doctor_keeps_and_reports_a_relation_annotation_whose_edge_is_gone() {
+    let sandbox = Sandbox::new("orphan_relation_annotation");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let relation = aede_core::graph::RelationRef {
+        source: aede_core::user::EntityRef::new(
+            aede_core::model::EntityKind::Artist,
+            "gone artist",
+        ),
+        kind: "credit:producer".into(),
+        target: aede_core::user::EntityRef::new(
+            aede_core::model::EntityKind::Recording,
+            "gone recording",
+        ),
+        provenance: "manual".into(),
+        source_id: Some("gone-relation".into()),
+    };
+    let id = relation.id();
+    let mut user = aede_core::user::UserData::default();
+    user.relation_entry(aede_core::user::LOCAL_USER, &relation, 1)
+        .note = Some("Keep this while the drive is disconnected".into());
+    aede_core::user::save(&user, &aede_core::user::user_path(&sandbox.dir)).unwrap();
+
+    let (out, err, ok) = sandbox.run(&["doctor", "--severity=info"]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        out.contains("relation annotation is waiting"),
+        "output: {out}"
+    );
+    assert!(out.contains(&id), "the reversible action is named: {out}");
+
+    let (out, err, ok) = sandbox.run(&["relation", &id, "--remove"]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("orphaned relation annotation removed"));
+    let saved = aede_core::user::load(&aede_core::user::user_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    assert!(saved.relation_annotations.is_empty());
+}
+
+#[test]
 fn a_saved_query_keeps_the_question_and_not_the_answer() {
     // A collection that stored its result would be a playlist. Keeping the
     // expression is what makes it answer with what the library holds now.

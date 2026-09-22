@@ -1,10 +1,11 @@
 # The canonical music graph: audit and model
 
-**Status: stages 0–7 implemented.** The catalog now separates placements,
+**Status: stages 0–8 implemented.** The catalog now separates placements,
 recordings, releases, release groups and works. External relationships remain
 attributed evidence, and rich recording and work credits keep their exact
-scope, role details and provenance without rewriting local tags. SQLite remains
-later.
+scope, role details and provenance without rewriting local tags. The complete
+attributed graph and the user's reproducible decisions are now portable.
+SQLite remains later.
 
 The objective is to make every musical fact addressable in both directions:
 from a performer to the
@@ -252,6 +253,39 @@ trusted explicitly; pending, rejected and unresolved conflicting claims remain
 evidence only. Entity pages and JSON output expose that state instead of
 flattening it into a misleading certainty.
 
+## Stage 8 — local-first knowledge and reproducible corrections
+
+`aede relations` projects the derived catalog and attributed source layer into
+one edge vocabulary. Each directed relationship has a stable selector built
+from durable endpoint references, its kind, provenance and source relationship
+ID. The projection keeps confidence, review decision, fetch time and effective
+trust; it never promotes evidence into the catalog.
+
+The relationship is itself annotatable:
+
+```sh
+aede relations "Andrew Watt"
+aede relation <ID> --text="Confirmed by the original booklet" --tag=verified
+aede relations --tag=verified
+```
+
+Notes and labels live in the personal store, not on either endpoint and not in
+the shared catalog. A scan cannot erase them. If a drive, tag or fetched claim
+temporarily removes the edge, the annotation waits and `aede doctor` reports
+it instead of deleting it.
+
+Two exports answer different recovery questions:
+
+- `aede export --graph` writes the catalog, every source assertion, provenance,
+  confidence and review state, personal data, and a materialized edge list;
+- `aede rules --export` writes only the decisions worth replaying elsewhere:
+  source reviews, manual source facts, artist filing, missing releases set
+  aside, saved queries, and relationship annotations. Import merges them and
+  does not rewrite audio tags.
+
+This completes the local-first advantage: a result is not merely navigable,
+but explainable, personally enrichable, exportable, and reproducible.
+
 ## Completed delivery order
 
 1. Add `Recording` and connect each local placement to exactly one recording.
@@ -287,6 +321,15 @@ flattening it into a misleading certainty.
 14. Add a persistent and reversible source-review workflow, make every graph
     traversal obey it, and diagnose pending identities, incomplete credits and
     contradictions between sources.
+
+15. Materialize local and source-backed relationships through one stable,
+    provenance-preserving edge view.
+16. Attach personal notes and labels to relationships without changing their
+    endpoints or the shared catalog.
+17. Export the complete attributed graph and all of its original layers in one
+    versioned document.
+18. Export and merge a smaller rules bundle so manual corrections and review
+    decisions can be reproduced independently of fetched content.
 
 The pre-M2 graph programme is complete. SQLite is intentionally outside these
 stages: M2 can now migrate one established model rather than using a database

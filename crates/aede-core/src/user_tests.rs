@@ -451,3 +451,57 @@ fn externally_identified_graph_objects_have_stable_references() {
         );
     }
 }
+
+#[test]
+fn a_local_recording_without_an_external_id_still_has_a_stable_reference() {
+    let catalog = library(&["/m/album/01.flac"]);
+    let reference = EntityRef::of(&catalog, EntityKind::Recording, 0)
+        .expect("the track path is a stable local fallback");
+    assert_eq!(reference.key, "local:/m/album/01.flac");
+    assert_eq!(reference.resolve(&catalog), Some(0));
+}
+
+#[test]
+fn a_relation_annotation_survives_export_import_and_merge() {
+    let relation = crate::graph::RelationRef {
+        source: EntityRef::new(EntityKind::Artist, "miles davis"),
+        kind: "credit:trumpet".into(),
+        target: EntityRef::new(EntityKind::Recording, "recording-id"),
+        provenance: "musicbrainz".into(),
+        source_id: Some("relationship-id".into()),
+    };
+    let mut data = UserData::default();
+    let annotation = data.relation_entry(LOCAL_USER, &relation, 10);
+    annotation.note = Some("The liner notes disagree".into());
+    annotation.tags.insert("check booklet".into());
+    annotation.updated_at = 20;
+
+    let document = to_json(&data).to_string_pretty();
+    let back = from_json(&crate::json::parse(&document).expect("valid JSON"))
+        .expect("relation annotation");
+    assert_eq!(back.relation_annotations, data.relation_annotations);
+
+    let mut older = UserData::default();
+    older.relation_entry(LOCAL_USER, &relation, 1).note = Some("old".into());
+    let report = merge(&mut older, back);
+    assert_eq!(report.updated, 1);
+    assert_eq!(
+        older.relation_annotations[0].note.as_deref(),
+        Some("The liner notes disagree")
+    );
+}
+
+#[test]
+fn version_one_user_data_migrates_with_no_invented_relation_annotations() {
+    let old = crate::json::parse(
+        r#"{"format_version":1,"annotations":[],"plays":[],"counts":[],
+            "collections":[],"set_aside":[],"same_artist":[]}"#,
+    )
+    .expect("old user document");
+    let migrated = from_json(&old).expect("version one remains readable");
+    assert!(migrated.relation_annotations.is_empty());
+    assert_eq!(
+        to_json(&migrated).field_u32("format_version"),
+        Some(USER_FORMAT_VERSION)
+    );
+}

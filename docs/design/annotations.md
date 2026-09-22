@@ -35,6 +35,21 @@ Any entity can be a target: track, release, artist, label, genre. Not just
 albums — a note on a label ("great remasters, bad pressings") is exactly the
 kind of thing that gets lost otherwise.
 
+A graph relationship is not an entity, so it has a parallel annotation keyed
+by the complete directed edge: stable source endpoint, relation kind, stable
+target endpoint, provenance, and the source's relationship ID when available.
+That is what lets a user say “this producer credit is dubious” without putting
+the doubt on the artist or recording as a whole:
+
+```sh
+aede relation <ID> --text="Check the original booklet" --tag=dubious
+aede relations --tag=dubious
+```
+
+Like entity annotations, relationship annotations carry an owner and remain in
+`user.json`. A missing edge leaves the annotation waiting; it never deletes
+what the user wrote.
+
 **Tags are the one annotation that is naturally plural**, and the command reads
 that way. A record is vinyl _and_ rare _and_ to-rip-again, so all three go on in
 one go, and come off the same way:
@@ -132,7 +147,10 @@ Not in `catalog.json`. Two reasons, and the second is the real one:
 A separate file, human-readable, hand-editable, and small. Export and import are
 then almost free, and worth having from the first day: `aede notes --export` /
 `--import`, merging rather than replacing, because a merge is what someone
-restoring half a backup actually wants.
+restoring half a backup actually wants. Relationship annotations follow the
+same merge rule, and `aede rules --export` carries them with the personal
+corrections and source-review decisions that can be replayed on another
+catalog.
 
 ## Which is the same question as "several users"
 
@@ -178,8 +196,9 @@ decision rather than an oversight.
 
 ## Which is also what makes the move to SQLite cheap
 
-M1 replaces JSON with SQLite **as the store**. That is not the end of JSON here:
-`aede export` is the faithful dump, a different job, and it stays.
+M2 replaces JSON with SQLite **as the store**. That is not the end of JSON here:
+`aede export` and `aede rules --export` are portable interchange formats, a
+different job, and they stay.
 
 The migration is smaller than it looks, because **most of the catalog does not
 need migrating at all.** Everything in it was read from disk and a scan rebuilds
@@ -193,10 +212,10 @@ names the list, since it is the same one — what a rescan does _not_ bring back
 - the **imported analyses**, which cost a run of another program entirely;
 - and, once they exist, the **annotations**.
 
-All three live inside the very file M1 replaces. So M1 either reads the last
-JSON catalog once to carry them over, or — better — the annotations are already
-in a file of their own by then, which is what the section above argues for on
-grounds that have nothing to do with SQLite. Doing M0.5 first shrinks the M1
+All three live inside files M2 replaces. So M2 either reads the last JSON stores
+once to carry them over, or — better — the annotations are already in a file of
+their own by then, which is what the section above argues for on grounds that
+have nothing to do with SQLite. Doing M0.5 first shrinks the M2
 migration to two tables and makes it a non-event.
 
 Worth noting while on the subject of where things live: `--data <folder>`

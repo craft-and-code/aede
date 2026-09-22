@@ -342,6 +342,7 @@ const OPTIONS: &[&str] = &[
     "reject",
     "undo",
     "interactive",
+    "graph",
 ];
 
 /// Where each restricted option means something.
@@ -372,6 +373,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["review"],
         "review claims one at a time with their context",
     ),
+    ("graph", &["export"], "include every attributed graph layer"),
     (
         "compilations",
         ALBUM_LIST_COMMANDS,
@@ -419,6 +421,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
             "played",
             "history",
             "missing",
+            "relation",
         ],
         "take something back",
     ),
@@ -523,7 +526,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ("follow-symlinks", &["scan"], "follow symbolic links"),
     ("include-hidden", &["scan"], "walk hidden files"),
     ("stars", &["rate"], "carry a rating"),
-    ("text", &["note"], "carry a note"),
+    ("text", &["note", "relation"], "carry a note"),
     ("file", &["note"], "read a note from a file"),
     ("append", &["note"], "add to a note"),
     (
@@ -565,7 +568,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ),
     (
         "export",
-        &["notes", "sources"],
+        &["notes", "sources", "rules"],
         "write what is held to a file",
     ),
     (
@@ -575,11 +578,15 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ),
     (
         "import",
-        &["notes", "sources"],
+        &["notes", "sources", "rules"],
         "take back in what was exported",
     ),
     ("from", &["note"], "copy what was said elsewhere"),
-    ("tag", &["notes"], "filter on a tag"),
+    (
+        "tag",
+        &["notes", "relation", "relations"],
+        "write, remove, or filter on a tag",
+    ),
 ];
 
 /// Commands that can render what they show as a CSV table.
@@ -628,7 +635,14 @@ const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing", "merg
 /// Commands where one external source can be selected. Review joins the
 /// attributed-data commands here without inheriting their destructive
 /// `--forget` option.
-const SOURCE_COMMANDS: &[&str] = &["import", "sources", "missing", "merge", "review"];
+const SOURCE_COMMANDS: &[&str] = &[
+    "import",
+    "sources",
+    "missing",
+    "merge",
+    "review",
+    "relations",
+];
 
 /// Commands that can list what they hold rather than go and get more.
 ///
@@ -682,6 +696,9 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("import", None, commands::import),
     ("sources", None, commands::sources),
     ("review", None, commands::review),
+    ("rules", None, commands::rules),
+    ("relations", None, commands::relations),
+    ("relation", None, commands::relation),
     ("fetch", None, commands::fetch),
     ("missing", None, commands::missing),
     ("merge", None, commands::merge),
@@ -767,6 +784,7 @@ const JSON_COMMANDS: &[&str] = &[
     "notes",
     "query",
     "collection",
+    "relations",
 ];
 
 /// The one listing whose order can be chosen.
@@ -822,6 +840,7 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
              To build one instead: aede sources --template \"<name>\""
         }
         "stats" | "doctor" | "roots" => "It describes the whole catalog.",
+        "rules" => "It lists, exports, or imports personal rules.",
         "collections" => {
             "It lists what you saved. To save one: aede collection <name> --query \"…\""
         }
@@ -867,12 +886,15 @@ const PAGING_COMMANDS: &[&str] = &[
     // honours every option on it.
     "missing",
     "review",
+    "relations",
 ];
 
 /// Commands whose output can go to a file instead of the terminal.
 const OUTPUT_COMMANDS: &[&str] = &[
     "export",
     "sources",
+    "rules",
+    "relations",
     "album",
     "artist",
     "track",
