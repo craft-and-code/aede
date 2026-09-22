@@ -32,6 +32,7 @@ mod recording;
 mod release_group;
 mod releases;
 mod reset;
+mod review;
 mod scan;
 mod search;
 mod sources;
@@ -65,6 +66,7 @@ pub use playlist::playlist;
 pub use recording::show_recording;
 pub use release_group::show_release_group;
 pub use reset::reset;
+pub use review::review;
 pub use scan::{roots, scan};
 pub use search::search;
 pub use sources::{panel_for as sources_panel_for, sources};
@@ -293,7 +295,11 @@ pub(super) fn artist_facts_for(
     let held = sources_held(args).ok()?;
     let entity =
         aede_core::user::EntityRef::of(catalog, aede_core::model::EntityKind::Artist, artist)?;
-    match &held.get(&entity, aede_core::sources::MUSICBRAINZ)?.facts {
+    let record = held.get(&entity, aede_core::sources::MUSICBRAINZ)?;
+    if !held.is_trusted(catalog, record) {
+        return None;
+    }
+    match &record.facts {
         aede_core::sources::Facts::Artist(facts) => Some(facts.clone()),
         _ => None,
     }
@@ -505,10 +511,7 @@ fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::Sourc
                 false => " · ended",
             });
         }
-        let confidence = match link.confidence {
-            core_sources::Confidence::Identified => "identified".to_string(),
-            core_sources::Confidence::Matched(score) => format!("matched {score}%"),
-        };
+        let confidence = source_status(link.confidence, link.review, link.trusted);
         let relation = link
             .credit
             .relation_id
@@ -531,6 +534,24 @@ fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::Sourc
         ]);
     }
     print!("{}", table.render());
+}
+
+/// Human reading of confidence after an explicit review has had its say.
+fn source_status(
+    confidence: core_sources::Confidence,
+    review: Option<core_sources::ReviewDecision>,
+    trusted: bool,
+) -> String {
+    let evidence = match confidence {
+        core_sources::Confidence::Identified => "identified".to_string(),
+        core_sources::Confidence::Matched(score) => format!("matched {score}%"),
+    };
+    match review {
+        Some(core_sources::ReviewDecision::Accepted) => format!("{evidence} · accepted"),
+        Some(core_sources::ReviewDecision::Rejected) => format!("{evidence} · rejected"),
+        None if !trusted => format!("{evidence} · pending review"),
+        None => evidence,
+    }
 }
 
 /// Playing time and size on disk of a set of tracks.

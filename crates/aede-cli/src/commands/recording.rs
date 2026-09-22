@@ -82,13 +82,15 @@ pub fn show_recording(args: &Args) -> Res {
             link.work.title,
             link.work.mbid,
             link.source,
-            confidence_label(link.confidence),
+            super::source_status(link.confidence, link.review, link.trusted),
             ui::since(link.fetched_at)
         );
-        navigation.add(
-            "Source work",
-            format!("aede work {}", shell_arg(&link.work.mbid)),
-        );
+        if link.trusted {
+            navigation.add(
+                "Source work",
+                format!("aede work {}", shell_arg(&link.work.mbid)),
+            );
+        }
     }
     let source_credits: Vec<_> = held
         .credit_links(&catalog)
@@ -96,6 +98,9 @@ pub fn show_recording(args: &Args) -> Res {
         .filter(|link| link.recording_id == recording.id)
         .collect();
     for link in &source_credits {
+        if !link.trusted {
+            continue;
+        }
         if let Some(artist) = catalog
             .artists
             .iter()
@@ -108,11 +113,4 @@ pub fn show_recording(args: &Args) -> Res {
     super::panel_for(args, &catalog, EntityKind::Recording, recording.id);
     navigation.print();
     Ok(())
-}
-
-fn confidence_label(confidence: sources::Confidence) -> String {
-    match confidence {
-        sources::Confidence::Identified => "identified".into(),
-        sources::Confidence::Matched(score) => format!("matched {score}%"),
-    }
 }

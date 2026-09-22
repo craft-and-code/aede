@@ -962,7 +962,7 @@ impl SourcedRelations {
         for link in sources
             .work_links(catalog)
             .into_iter()
-            .filter(|link| link.confidence.is_certain())
+            .filter(|link| link.trusted)
         {
             let works = indexed.works.entry(link.recording_id).or_default();
             if !works.contains(&link.work) {
@@ -972,7 +972,7 @@ impl SourcedRelations {
         for link in sources
             .credit_links(catalog)
             .into_iter()
-            .filter(|link| link.confidence.is_certain())
+            .filter(|link| link.trusted)
         {
             let credits = indexed.credits.entry(link.recording_id).or_default();
             if !credits.contains(&link.credit) {
@@ -985,7 +985,8 @@ impl SourcedRelations {
             };
             let mbid = match identity {
                 crate::sources::LabelIdentityResolution::Confirmed { mbid, .. }
-                | crate::sources::LabelIdentityResolution::Agrees { mbid, .. } => mbid,
+                | crate::sources::LabelIdentityResolution::Agrees { mbid, .. }
+                | crate::sources::LabelIdentityResolution::Accepted { mbid, .. } => mbid,
                 _ => continue,
             };
             indexed.label_mbids.insert(label.id, mbid);

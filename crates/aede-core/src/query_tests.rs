@@ -539,6 +539,22 @@ fn relational_fields_include_certain_source_evidence_without_promoting_it() {
         titles_with_sources("work:\"A Sourced Work\"", &c, &d, &uncertain).is_empty(),
         "an approximate attachment remains evidence, not a query relationship"
     );
+    let review = uncertain.review_items(&c)[0].id.clone();
+    uncertain
+        .decide(&c, &review, crate::sources::ReviewDecision::Accepted, 2)
+        .expect("accepted source identity");
+    assert_eq!(
+        titles_with_sources("work:\"A Sourced Work\"", &c, &d, &uncertain),
+        ["A Recording"],
+        "an accepted proposal becomes a query relationship"
+    );
+    uncertain
+        .decide(&c, &review, crate::sources::ReviewDecision::Rejected, 3)
+        .expect("rejected source identity");
+    assert!(
+        titles_with_sources("work:\"A Sourced Work\"", &c, &d, &uncertain).is_empty(),
+        "rejecting it removes the relationship without deleting the evidence"
+    );
 }
 
 #[test]

@@ -81,6 +81,12 @@ fn summary(held: &Sources, catalog: &Catalog) -> Res {
                 .filter(|r| r.source == *name)
                 .cloned()
                 .collect(),
+            reviews: held
+                .reviews
+                .iter()
+                .filter(|review| review.source == *name)
+                .cloned()
+                .collect(),
         };
         let reach = sources::attachment(&mine, catalog);
         let last = mine.records.iter().map(|r| r.fetched_at).max().unwrap_or(0);
@@ -146,7 +152,11 @@ fn list(held: &Sources, catalog: &Catalog, args: &Args) -> Res {
         table.push(vec![
             format!("{} {}", entity.kind.as_str(), entity.key),
             record.source.clone(),
-            confidence_label(record.confidence),
+            super::source_status(
+                record.confidence,
+                held.review_for(record).map(|review| review.decision),
+                held.is_trusted(catalog, record),
+            ),
             says(&record.facts),
             match entity.resolve(catalog).is_some() {
                 true => "in the catalog".to_string(),
@@ -160,6 +170,7 @@ fn list(held: &Sources, catalog: &Catalog, args: &Args) -> Res {
 }
 
 /// `identified`, or a matched score — the distinction the roadmap insists on.
+#[cfg(test)]
 fn confidence_label(confidence: Confidence) -> String {
     match confidence {
         Confidence::Identified => "identified".to_string(),
@@ -266,6 +277,9 @@ fn import(args: &Args, path: &std::path::Path) -> Res {
             true => updated += 1,
             false => added += 1,
         }
+    }
+    for review in incoming.reviews {
+        held.set_review(review);
     }
     sources::save(&held, path)?;
 
@@ -402,7 +416,11 @@ fn forget(args: &Args, path: &std::path::Path) -> Res {
             }
             gone
         }
-        None => std::mem::take(&mut held.records).len(),
+        None => {
+            let removed = std::mem::take(&mut held.records).len();
+            held.reviews.clear();
+            removed
+        }
     };
 
     sources::save(&held, path)?;
@@ -478,10 +496,15 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
 
     for record in &records {
         let age = ui::since(record.fetched_at);
-        let attribution = match record.confidence {
-            Confidence::Identified => format!("{} · {age}", record.source),
-            Confidence::Matched(score) => format!("{} {score}% · {age}", record.source),
-        };
+        let attribution = format!(
+            "{} · {} · {age}",
+            record.source,
+            super::source_status(
+                record.confidence,
+                held.review_for(record).map(|review| review.decision),
+                held.is_trusted(catalog, record),
+            )
+        );
         for (field, theirs, verdict) in compared(catalog, &entity, &record.facts) {
             table.push(vec![
                 attribution.clone(),

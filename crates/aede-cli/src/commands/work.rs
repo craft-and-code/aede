@@ -40,10 +40,7 @@ pub fn show_work(args: &Args) -> Res {
             .into_iter()
             .filter(|link| link.work.mbid == work.mbid)
         {
-            let confidence = match link.confidence {
-                sources::Confidence::Identified => "identified".to_string(),
-                sources::Confidence::Matched(score) => format!("matched {score}%"),
-            };
+            let confidence = super::source_status(link.confidence, link.review, link.trusted);
             println!(
                 "  {}",
                 ui::dim(&format!(
@@ -64,6 +61,9 @@ pub fn show_work(args: &Args) -> Res {
             })
             .collect();
         for link in &credits {
+            if !link.trusted {
+                continue;
+            }
             if let Some(artist) = catalog
                 .artists
                 .iter()

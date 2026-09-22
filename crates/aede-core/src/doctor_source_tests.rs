@@ -6,7 +6,9 @@
 
 use super::*;
 use crate::model::EntityKind;
-use crate::sources::{Confidence, Facts, ReleaseFacts, SourceRecord, Sources};
+use crate::sources::{
+    Confidence, Facts, LabelFacts, ReleaseFacts, ReviewDecision, SourceRecord, Sources, TrackFacts,
+};
 use crate::user::EntityRef;
 
 /// A one-album catalog whose tags say what is given.
@@ -80,6 +82,105 @@ fn a_source_contradicting_a_tag_is_reported_and_not_resolved() {
     );
     // Information, not a defect: a tag may be wrong and so may a source.
     assert_eq!(found[0].severity(), Severity::Info);
+}
+
+#[test]
+fn an_approximate_identity_is_reviewed_before_incomplete_credits_are_trusted() {
+    let catalog = catalog_with("Columbia", "1959");
+    let entity = EntityRef::of(&catalog, EntityKind::Track, 0).expect("a track");
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: entity.key,
+        source: "musicbrainz".to_string(),
+        source_id: Some("possible-recording".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::matched(96),
+        facts: Facts::Track(TrackFacts {
+            recording: Some("possible-recording".to_string()),
+            relationships_complete: false,
+            ..Default::default()
+        }),
+    });
+
+    let issues = diagnose(&catalog, &sources);
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::SourceNeedsReview)
+    );
+    assert!(
+        !issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::IncompleteSourceCredits),
+        "untrusted evidence must not claim that a graph relationship is incomplete"
+    );
+
+    let id = sources.review_items(&catalog)[0].id.clone();
+    sources
+        .decide(&catalog, &id, ReviewDecision::Accepted, 2)
+        .expect("accepted");
+    let issues = diagnose(&catalog, &sources);
+    assert!(
+        !issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::SourceNeedsReview)
+    );
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::IncompleteSourceCredits)
+    );
+}
+
+#[test]
+fn an_exact_identity_conflict_points_to_the_review_command() {
+    let mut catalog = catalog_with("Columbia", "1959");
+    catalog.labels[0].mbid = Some("local-label".to_string());
+    let entity = EntityRef::of(&catalog, EntityKind::Label, 0).expect("a label");
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: entity.key,
+        source: "musicbrainz".to_string(),
+        source_id: Some("other-label".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    let issues = diagnose(&catalog, &sources);
+    let issue = issues
+        .iter()
+        .find(|issue| issue.kind == IssueKind::SourceIdentityConflict)
+        .expect("identity conflict");
+    assert!(issue.detail.contains("aede review --accept="));
+    assert!(issue.detail.contains("local-label"));
+    assert!(issue.detail.contains("other-label"));
+}
+
+#[test]
+fn two_trusted_sources_contradicting_each_other_are_reported() {
+    let catalog = catalog_with("Columbia", "1959");
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).expect("a release");
+    let mut sources = Sources::default();
+    for (source, label) in [("musicbrainz", "Columbia"), ("discogs", "CBS")] {
+        sources.set(SourceRecord {
+            key: entity.key.clone(),
+            source: source.to_string(),
+            source_id: None,
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(ReleaseFacts {
+                label: Some(label.to_string()),
+                ..Default::default()
+            }),
+        });
+    }
+    let issues = diagnose(&catalog, &sources);
+    let issue = issues
+        .iter()
+        .find(|issue| issue.kind == IssueKind::SourcesDisagree)
+        .expect("source-to-source disagreement");
+    assert!(issue.detail.contains("Columbia"));
+    assert!(issue.detail.contains("CBS"));
 }
 
 #[test]

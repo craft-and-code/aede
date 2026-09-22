@@ -1,6 +1,6 @@
 # The canonical music graph: audit and model
 
-**Status: stages 0–6 implemented.** The catalog now separates placements,
+**Status: stages 0–7 implemented.** The catalog now separates placements,
 recordings, releases, release groups and works. External relationships remain
 attributed evidence, and rich recording and work credits keep their exact
 scope, role details and provenance without rewriting local tags. SQLite remains
@@ -97,7 +97,8 @@ time. The two layers meet only through read-only reconciliation views:
 
 Agreement is retained rather than discarded: “checked and equal” is a
 different state from “never checked”. Conflicts likewise remain unresolved
-until an explicit future review action can choose one.
+until `aede review --accept=<ID>` or `--reject=<ID>` chooses one, with `--undo`
+available to take that decision back.
 
 ## Stage 3 — rich credits
 
@@ -203,14 +204,52 @@ compose with the existing Boolean, range and annotation syntax:
 Certain relationships from `sources.json` participate without being copied
 into the tag-built graph. This makes works, roles and instruments obtained by
 `fetch --credits` queryable while preserving their provenance boundary;
-approximately matched source records remain evidence only. Those relationships
-are indexed once when a query starts rather than re-walked for every track.
+approximately matched source records remain evidence until explicitly accepted.
+Those relationships are indexed once when a query starts rather than re-walked
+for every track.
 
 For example, `aede query 'work:"War Pigs" instrument:guitar'` finds guitar
 performances of a composition, while `aede query 'guest:"Zakk Wylde"'` finds
 guest appearances without confusing them with the artist's own discography.
 The query tests include a shared work, a compilation appearance, a guest with
 an instrument, and a non-performing contributor.
+
+## Stage 7 — quality and explicit resolution
+
+`aede review` is the boundary between evidence and a user-approved graph link.
+It lists approximate attachments and exact MusicBrainz identities that
+contradict an identifier in local tags. Every item has a stable review ID:
+
+```sh
+aede review
+aede review manson
+aede review --accept=<ID>
+aede review --reject=<ID>
+aede review --undo=<ID>
+aede review --all
+```
+
+Acceptance does not change the original confidence and never writes a tag. It
+allows that exact source claim to participate in navigation and relational
+queries. Rejection keeps the claim visible and attributable, but prevents it
+from becoming a relationship. Either choice is persisted in `sources.json`,
+bound to the entity, source and proposed source ID; a later fetch proposing a
+different identity invalidates the old decision. `--undo` makes the choice
+pending again.
+
+The quality report now covers the states that cannot safely resolve
+themselves: pending approximate matches, local/source identity conflicts,
+trusted recordings whose credit relationships have not yet been fetched, and
+contradictions between two trusted external sources. `doctor` names the review
+commands for actionable identity problems. Existing duplicate-artist
+suggestions remain explicit `aede merge` proposals rather than automatic name
+merges.
+
+Every source-backed traversal uses the same effective-trust rule: an exact,
+non-conflicting lookup is trusted automatically; an accepted proposal is
+trusted explicitly; pending, rejected and unresolved conflicting claims remain
+evidence only. Entity pages and JSON output expose that state instead of
+flattening it into a misleading certainty.
 
 ## Completed delivery order
 
@@ -244,12 +283,13 @@ an instrument, and a non-performing contributor.
     `compilationartist`, `contributor` and `with` participation filters now
     project canonical relationships back onto matching tracks.
 
-The remaining graph work is quality and resolution: explicit conflict handling,
-confidence-aware proposals, and a review path for ambiguous source claims.
+14. Add a persistent and reversible source-review workflow, make every graph
+    traversal obey it, and diagnose pending identities, incomplete credits and
+    contradictions between sources.
 
-SQLite is intentionally outside these stages. The graph must first be proven
-in the current model and JSON persistence; M2 can then migrate one established
-model rather than using a database migration to decide musical semantics.
+The pre-M2 graph programme is complete. SQLite is intentionally outside these
+stages: M2 can now migrate one established model rather than using a database
+migration to decide musical semantics.
 
 ## Reference fixtures
 

@@ -823,6 +823,77 @@ fn a_relational_query_reads_certain_source_evidence() {
 }
 
 #[test]
+fn source_review_is_persistent_reversible_and_controls_graph_queries() {
+    let sandbox = Sandbox::new("source_review");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let document = sandbox.dir.join("review.json");
+    std::fs::write(
+        &document,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":"track:{}","source":"musicbrainz",
+              "source_id":"possible-recording","fetched_at":1756600000,
+              "confidence":"matched","score":96,"facts":{{
+                "recording":"possible-recording","relationships_complete":true,
+                "works":[{{"mbid":"possible-work","title":"A Reviewed Work"}}]
+              }}
+            }}]}}"#,
+            library_flac().display()
+        ),
+    )
+    .expect("source document");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["review"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("approximate match (96%)"), "output: {out}");
+    let id = out
+        .split_whitespace()
+        .find(|word| {
+            word.len() == 16 && word.chars().all(|character| character.is_ascii_hexdigit())
+        })
+        .expect("review ID")
+        .to_string();
+
+    let (out, _, ok) = sandbox.run(&["query", "work:\"A Reviewed Work\""]);
+    assert!(ok);
+    assert!(
+        !out.contains("So What"),
+        "pending evidence is not a link: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["review", &format!("--accept={id}")]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("may now participate"), "output: {out}");
+    let (out, err, ok) = sandbox.run(&["query", "work:\"A Reviewed Work\""]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        out.contains("So What"),
+        "accepted evidence is traversable: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["review", &format!("--reject={id}")]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    let (out, _, ok) = sandbox.run(&["query", "work:\"A Reviewed Work\""]);
+    assert!(ok);
+    assert!(
+        !out.contains("So What"),
+        "rejected evidence is not a link: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run(&["review", &format!("--undo={id}")]);
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("pending"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["review"]);
+    assert!(ok);
+    assert!(out.contains(&id), "the pending claim returns: {out}");
+}
+
+#[test]
 fn a_saved_query_keeps_the_question_and_not_the_answer() {
     // A collection that stored its result would be a playlist. Keeping the
     // expression is what makes it answer with what the library holds now.

@@ -117,7 +117,8 @@ aede doctor
 | `aede roots`  | `[paths...]` | `--exclude <path>`, `--remove`, `--no-scan` | Display, add, or exclude watched storage directories.                                       |
 | `aede scan`   | `[path]`     | `--full`                                    | Traverses roots to index audio files, tags, and structure.                                  |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
-| `aede doctor` | None         | None                                        | Run a health check: missing metadata, duplicates, bit rot, broken links.                    |
+| `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
+| `aede review` | None         | `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
 | `aede stats`  | None         | None                                        | Displays catalog metrics, audio quality distribution, and credit roles.                     |
 | `aede reset`  | None         | `--yes`                                     | Wipes indexed catalog data while preserving root configurations.                            |
 
@@ -181,6 +182,22 @@ dates, ordering and MusicBrainz relationship identifiers keep their provenance
 in `sources.json`. The former `--recordings` option remains a compatibility
 alias for `--credits`.
 
+Approximate attachments and exact source identities that conflict with local
+tags are reviewed explicitly:
+
+```sh
+aede review
+aede review manson          # narrow the pending list by entity name
+aede review --accept=<ID>   # allow this claim into navigation and queries
+aede review --reject=<ID>   # retain it as evidence only
+aede review --undo=<ID>
+```
+
+The decision is persistent and reversible. It is bound to the exact proposed
+identifier, never changes the original confidence, and never rewrites an audio
+file. `aede doctor` also reports unresolved identities, trusted recordings with
+incomplete credits, and contradictions between trusted sources.
+
 The local graph links placements, recordings, works, editions, release groups,
 artists and labels in both directions. Guest appearances, compilation
 appearances, discography entries and writing or production contributions remain
@@ -240,9 +257,9 @@ aede query "work:\"War Pigs\" instrument:guitar"
 aede query "guest:\"Zakk Wylde\" -compilationartist"
 ```
 
-Relational fields include both explicit tags and exact-identity relationships
-stored by `aede fetch --credits`; approximate source matches remain evidence
-and are not promoted into query results.
+Relational fields include explicit tags, exact non-conflicting identities and
+source claims accepted through `aede review`. Pending and rejected matches
+remain evidence and are not promoted into query results.
 
 ### Available Query Fields
 
@@ -306,7 +323,7 @@ All metadata and state persist in a unified directory configured via `$AEDE_HOME
 ~/.local/share/aede/
 ├── catalog.json      # Derived index, file hashes, integrity verdicts
 ├── user.json         # Irreplaceable annotations, collections, merges, roots
-└── sources.json      # Cached MusicBrainz relationship data
+└── sources.json      # Attributed source data and reversible review decisions
 ```
 
 ### Storage Benchmarks

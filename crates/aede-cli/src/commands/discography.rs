@@ -318,6 +318,9 @@ pub fn absent<'a>(
         if record.source != sources::MUSICBRAINZ {
             continue;
         }
+        if !held.is_trusted(catalog, record) {
+            continue;
+        }
         let Facts::Artist(facts) = &record.facts else {
             continue;
         };
@@ -453,10 +456,10 @@ pub fn missing(args: &crate::args::Args) -> Res {
     let everything = args.has("all");
     let window = args.window(50)?;
 
-    let browsed = held
-        .records
-        .iter()
-        .any(|r| matches!(&r.facts, Facts::Artist(a) if !a.discography.is_empty()));
+    let browsed = held.records.iter().any(|r| {
+        held.is_trusted(&catalog, r)
+            && matches!(&r.facts, Facts::Artist(a) if !a.discography.is_empty())
+    });
     if !browsed {
         println!("{}", ui::section("Missing"));
         // Nothing browsed is not an empty shelf, and a reader who cannot tell

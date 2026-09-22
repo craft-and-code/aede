@@ -21,8 +21,9 @@ use crate::user::EntityRef;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Version of the `sources.json` document this build writes and accepts.
-pub const SOURCES_FORMAT_VERSION: u32 = 1;
+/// Version of the `sources.json` document this build writes. Version 1 is
+/// accepted as the review-free predecessor and migrated on the next save.
+pub const SOURCES_FORMAT_VERSION: u32 = 2;
 
 /// Name of the file, inside the data folder that holds the catalog.
 pub const SOURCES_FILE: &str = "sources.json";
@@ -63,6 +64,78 @@ impl Confidence {
     pub fn is_certain(self) -> bool {
         matches!(self, Confidence::Identified)
     }
+}
+
+/// A user's explicit decision about one external identity claim.
+///
+/// This is deliberately separate from [`Confidence`]. Confidence says how a
+/// service found the candidate; a review says whether the library owner chose
+/// to trust that candidate. Accepting a 92% name match must not rewrite history
+/// and pretend it was an identifier lookup, while rejecting an exact lookup
+/// that conflicts with a local tag must remain possible too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewDecision {
+    /// The source claim may participate in graph traversal.
+    Accepted,
+    /// The source claim remains visible evidence but must not become a link.
+    Rejected,
+}
+
+/// One durable review decision, bound to the exact claim that was reviewed.
+///
+/// `source_id` is part of the identity on purpose. If a later fetch proposes a
+/// different MusicBrainz object, the old answer cannot silently approve it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceReview {
+    /// Stable entity reference, independent of catalog vector positions.
+    pub entity: EntityRef,
+    /// Service that made the claim.
+    pub source: String,
+    /// Identifier that was accepted or rejected.
+    pub source_id: Option<String>,
+    /// The explicit choice.
+    pub decision: ReviewDecision,
+    /// Time at which the choice was made.
+    pub reviewed_at: u64,
+}
+
+/// Why a current source record needs a human decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewReason {
+    /// A name, metadata or fingerprint match rather than an identifier lookup.
+    Approximate {
+        /// Score supplied by the matching process.
+        score: u8,
+    },
+    /// An exact MusicBrainz lookup contradicts the identifier in local tags.
+    IdentityConflict {
+        /// Identifier explicitly carried by the local catalog.
+        local_id: String,
+        /// Different identifier asserted by MusicBrainz.
+        sourced_id: String,
+    },
+    /// A previous decision is retained although a newer fetch no longer needs
+    /// human help. It remains listed with `--all` so it can still be undone.
+    PriorDecision,
+}
+
+/// One reviewable claim as presented by the quality-resolution workflow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewItem {
+    /// Stable short selector accepted by `aede review`.
+    pub id: String,
+    /// Local entity the claim is attached to.
+    pub entity: EntityRef,
+    /// Service that made the claim.
+    pub source: String,
+    /// Identifier under review.
+    pub source_id: Option<String>,
+    /// Why automatic traversal is unsafe.
+    pub reason: ReviewReason,
+    /// Existing decision, absent while the item is pending.
+    pub decision: Option<ReviewDecision>,
+    /// When the existing decision was made.
+    pub reviewed_at: Option<u64>,
 }
 
 // --------------------------------------------------------------------------
@@ -715,6 +788,11 @@ pub struct SourcedWorkLink {
     pub source: String,
     /// How firmly the source record was attached to the local file.
     pub confidence: Confidence,
+    /// Explicit review decision, when the owner made one.
+    pub review: Option<ReviewDecision>,
+    /// Whether this claim is safe to traverse after confidence, conflicts and
+    /// the explicit review have all been considered.
+    pub trusted: bool,
     /// When the assertion was fetched.
     pub fetched_at: u64,
 }
@@ -748,6 +826,10 @@ pub struct SourcedCreditLink {
     pub source: String,
     /// Firmness of the source record's attachment to the local track.
     pub confidence: Confidence,
+    /// Explicit review decision, when the owner made one.
+    pub review: Option<ReviewDecision>,
+    /// Whether this relationship may participate in traversal and queries.
+    pub trusted: bool,
     /// Time at which this assertion was fetched.
     pub fetched_at: u64,
 }
@@ -765,6 +847,10 @@ pub struct SourcedMembershipLink {
     pub source: String,
     /// Firmness of the source record's attachment to the local artist.
     pub confidence: Confidence,
+    /// Explicit review decision, when the owner made one.
+    pub review: Option<ReviewDecision>,
+    /// Whether this relationship may participate in traversal.
+    pub trusted: bool,
     /// Time at which this assertion was fetched.
     pub fetched_at: u64,
 }
@@ -837,6 +923,33 @@ pub enum LabelIdentityResolution {
         /// Time of the lookup.
         fetched_at: u64,
     },
+    /// An approximate proposal or conflicting source identity was explicitly
+    /// accepted without rewriting the local tag.
+    Accepted {
+        /// Identifier chosen for source-backed traversal.
+        mbid: String,
+        /// Identifier still carried by local tags, when this resolved a
+        /// conflict rather than an approximate proposal.
+        local_mbid: Option<String>,
+        /// Service whose claim was accepted.
+        source: String,
+        /// Time at which the underlying source claim was fetched.
+        fetched_at: u64,
+        /// Time of the review.
+        reviewed_at: u64,
+    },
+    /// A proposal or conflict was explicitly rejected; the local identifier,
+    /// when present, remains the usable one.
+    Rejected {
+        /// Identifier retained from local tags, if one exists.
+        local_mbid: Option<String>,
+        /// Source identifier that was rejected.
+        sourced_mbid: String,
+        /// Service whose claim was rejected.
+        source: String,
+        /// Time of the review.
+        reviewed_at: u64,
+    },
 }
 
 /// One entity, as one source describes it.
@@ -882,6 +995,8 @@ impl SourceRecord {
 pub struct Sources {
     /// One row per entity and source.
     pub records: Vec<SourceRecord>,
+    /// Explicit answers to claims that could not safely resolve themselves.
+    pub reviews: Vec<SourceReview>,
 }
 
 impl Sources {
@@ -903,6 +1018,131 @@ impl Sources {
             .filter(move |r| r.key == entity.key && r.facts.kind() == entity.kind)
     }
 
+    /// The current decision for this exact source claim.
+    pub fn review_for(&self, record: &SourceRecord) -> Option<&SourceReview> {
+        let entity = record.entity();
+        self.reviews.iter().find(|review| {
+            review.entity == entity
+                && review.source == record.source
+                && review.source_id == record.source_id
+        })
+    }
+
+    /// Whether a source record is safe to use as a graph relationship.
+    ///
+    /// A decision wins over the mechanical confidence. With no decision, only
+    /// exact attachments that do not contradict a local MusicBrainz identity
+    /// are trusted.
+    pub fn is_trusted(&self, catalog: &crate::model::Catalog, record: &SourceRecord) -> bool {
+        if let Some(review) = self.review_for(record) {
+            return review.decision == ReviewDecision::Accepted;
+        }
+        record.confidence.is_certain() && identity_conflict(catalog, record).is_none()
+    }
+
+    /// Every current claim requiring or carrying an explicit review.
+    pub fn review_items(&self, catalog: &crate::model::Catalog) -> Vec<ReviewItem> {
+        let mut items = Vec::new();
+        for record in &self.records {
+            let review = self.review_for(record);
+            let reason = match record.confidence {
+                Confidence::Matched(score) => ReviewReason::Approximate { score },
+                Confidence::Identified => match identity_conflict(catalog, record) {
+                    Some((local_id, sourced_id)) => ReviewReason::IdentityConflict {
+                        local_id,
+                        sourced_id,
+                    },
+                    None if review.is_some() => ReviewReason::PriorDecision,
+                    None => continue,
+                },
+            };
+            items.push(ReviewItem {
+                id: review_id(record),
+                entity: record.entity(),
+                source: record.source.clone(),
+                source_id: record.source_id.clone(),
+                reason,
+                decision: review.map(|review| review.decision),
+                reviewed_at: review.map(|review| review.reviewed_at),
+            });
+        }
+        items.sort_by(|left, right| {
+            left.entity
+                .kind
+                .as_str()
+                .cmp(right.entity.kind.as_str())
+                .then_with(|| left.entity.key.cmp(&right.entity.key))
+                .then_with(|| left.source.cmp(&right.source))
+                .then_with(|| left.source_id.cmp(&right.source_id))
+        });
+        items
+    }
+
+    /// Accepts or rejects one review item selected by its full ID or an
+    /// unambiguous prefix. Returns the reviewed item as it now stands.
+    pub fn decide(
+        &mut self,
+        catalog: &crate::model::Catalog,
+        selector: &str,
+        decision: ReviewDecision,
+        reviewed_at: u64,
+    ) -> Result<ReviewItem, String> {
+        let item = select_review_item(self.review_items(catalog), selector)?;
+        self.set_review(SourceReview {
+            entity: item.entity.clone(),
+            source: item.source.clone(),
+            source_id: item.source_id.clone(),
+            decision,
+            reviewed_at,
+        });
+        let mut decided = item;
+        decided.decision = Some(decision);
+        decided.reviewed_at = Some(reviewed_at);
+        Ok(decided)
+    }
+
+    /// Removes one explicit decision, returning the item to pending state.
+    pub fn clear_review(
+        &mut self,
+        catalog: &crate::model::Catalog,
+        selector: &str,
+    ) -> Result<ReviewItem, String> {
+        let item = select_review_item(self.review_items(catalog), selector)?;
+        let before = self.reviews.len();
+        self.reviews.retain(|review| {
+            !(review.entity == item.entity
+                && review.source == item.source
+                && review.source_id == item.source_id)
+        });
+        if self.reviews.len() == before {
+            return Err(format!("review {} has no decision to undo", item.id));
+        }
+        let mut cleared = item;
+        cleared.decision = None;
+        cleared.reviewed_at = None;
+        Ok(cleared)
+    }
+
+    /// Stores one review, replacing the previous decision about the same
+    /// exact claim.
+    pub fn set_review(&mut self, review: SourceReview) -> bool {
+        let same = |held: &SourceReview| {
+            held.entity == review.entity
+                && held.source == review.source
+                && held.source_id == review.source_id
+        };
+        match self.reviews.iter().position(same) {
+            Some(index) => {
+                self.reviews[index] = review;
+                true
+            }
+            None => {
+                self.reviews.push(review);
+                false
+            }
+        }
+    }
+
     /// Files a record, replacing whatever that same source said before.
     ///
     /// Returns `true` when it replaced an existing row. A second fetch is an
@@ -917,6 +1157,11 @@ impl Sources {
         };
         match self.records.iter().position(same) {
             Some(i) => {
+                if self.records[i].source_id != record.source_id {
+                    let old = self.records[i].entity();
+                    self.reviews
+                        .retain(|review| !(review.entity == old && review.source == record.source));
+                }
                 self.records[i] = record;
                 true
             }
@@ -942,6 +1187,8 @@ impl Sources {
                 };
                 let track_id = record.entity().resolve(catalog)?;
                 let recording_id = catalog.track(track_id)?.recording_id;
+                let review = self.review_for(record).map(|review| review.decision);
+                let trusted = self.is_trusted(catalog, record);
                 Some(
                     facts
                         .works
@@ -952,6 +1199,8 @@ impl Sources {
                             work,
                             source: record.source.clone(),
                             confidence: record.confidence,
+                            review,
+                            trusted,
                             fetched_at: record.fetched_at,
                         }),
                 )
@@ -977,6 +1226,8 @@ impl Sources {
             let Some(recording_id) = catalog.track(track_id).map(|track| track.recording_id) else {
                 continue;
             };
+            let review = self.review_for(record).map(|review| review.decision);
+            let trusted = self.is_trusted(catalog, record);
             for credit in &facts.credits {
                 links.push(SourcedCreditLink {
                     recording_id,
@@ -984,6 +1235,8 @@ impl Sources {
                     credit: credit.clone(),
                     source: record.source.clone(),
                     confidence: record.confidence,
+                    review,
+                    trusted,
                     fetched_at: record.fetched_at,
                 });
             }
@@ -995,6 +1248,8 @@ impl Sources {
                         credit: credit.clone(),
                         source: record.source.clone(),
                         confidence: record.confidence,
+                        review,
+                        trusted,
                         fetched_at: record.fetched_at,
                     });
                 }
@@ -1014,6 +1269,8 @@ impl Sources {
             let Some(artist_id) = record.entity().resolve(catalog) else {
                 continue;
             };
+            let review = self.review_for(record).map(|review| review.decision);
+            let trusted = self.is_trusted(catalog, record);
             for membership in &facts.members {
                 let related_artist_id = catalog
                     .artists
@@ -1026,6 +1283,8 @@ impl Sources {
                     membership: membership.clone(),
                     source: record.source.clone(),
                     confidence: record.confidence,
+                    review,
+                    trusted,
                     fetched_at: record.fetched_at,
                 });
             }
@@ -1048,7 +1307,7 @@ impl Sources {
         for link in self
             .work_links(catalog)
             .into_iter()
-            .filter(|link| link.confidence.is_certain())
+            .filter(|link| link.trusted)
             .filter(|link| {
                 let title = crate::text::normalize(&link.work.title);
                 link.work.mbid == query || title == key || title.contains(&key)
@@ -1101,6 +1360,24 @@ impl Sources {
             });
         };
 
+        if let Some(review) = self.review_for(record) {
+            return Some(match review.decision {
+                ReviewDecision::Accepted => LabelIdentityResolution::Accepted {
+                    mbid: sourced.to_string(),
+                    local_mbid: local.map(str::to_string),
+                    source: record.source.clone(),
+                    fetched_at: record.fetched_at,
+                    reviewed_at: review.reviewed_at,
+                },
+                ReviewDecision::Rejected => LabelIdentityResolution::Rejected {
+                    local_mbid: local.map(str::to_string),
+                    sourced_mbid: sourced.to_string(),
+                    source: record.source.clone(),
+                    reviewed_at: review.reviewed_at,
+                },
+            });
+        }
+
         if !record.confidence.is_certain() {
             return Some(LabelIdentityResolution::Suggested {
                 mbid: sourced.to_string(),
@@ -1143,6 +1420,9 @@ impl Sources {
                 }
                 | LabelIdentityResolution::Agrees {
                     mbid, fetched_at, ..
+                }
+                | LabelIdentityResolution::Accepted {
+                    mbid, fetched_at, ..
                 } => Some(SourcedLabelIdentity {
                     label_id: label.id,
                     mbid,
@@ -1150,7 +1430,8 @@ impl Sources {
                 }),
                 LabelIdentityResolution::Local { .. }
                 | LabelIdentityResolution::Suggested { .. }
-                | LabelIdentityResolution::Conflict { .. } => None,
+                | LabelIdentityResolution::Conflict { .. }
+                | LabelIdentityResolution::Rejected { .. } => None,
             })
             .collect()
     }
@@ -1163,6 +1444,7 @@ impl Sources {
     pub fn forget(&mut self, source: &str) -> usize {
         let before = self.records.len();
         self.records.retain(|r| r.source != source);
+        self.reviews.retain(|review| review.source != source);
         before - self.records.len()
     }
 
@@ -1171,8 +1453,82 @@ impl Sources {
         let before = self.records.len();
         self.records
             .retain(|r| !(r.key == entity.key && r.facts.kind() == entity.kind));
+        self.reviews.retain(|review| review.entity != *entity);
         before - self.records.len()
     }
+}
+
+fn local_musicbrainz_id(catalog: &crate::model::Catalog, entity: &EntityRef) -> Option<String> {
+    let id = entity.resolve(catalog)?;
+    match entity.kind {
+        EntityKind::Artist => catalog.artist(id)?.mbid.clone(),
+        EntityKind::Release => catalog
+            .release(id)?
+            .release_group_id
+            .and_then(|group| catalog.release_group(group))
+            .map(|group| group.mbid.clone()),
+        EntityKind::Track => catalog
+            .track(id)
+            .and_then(|track| catalog.recording(track.recording_id))
+            .and_then(|recording| recording.mbid.clone()),
+        EntityKind::Label => catalog.label(id)?.mbid.clone(),
+        _ => None,
+    }
+}
+
+fn identity_conflict(
+    catalog: &crate::model::Catalog,
+    record: &SourceRecord,
+) -> Option<(String, String)> {
+    if record.source != MUSICBRAINZ {
+        return None;
+    }
+    let sourced = record.source_id.as_deref()?.trim();
+    if sourced.is_empty() {
+        return None;
+    }
+    let local = local_musicbrainz_id(catalog, &record.entity())?;
+    let local = local.trim();
+    (local != sourced).then(|| (local.to_string(), sourced.to_string()))
+}
+
+fn review_id(record: &SourceRecord) -> String {
+    // FNV-1a is used only as a stable compact selector, never as identity or
+    // security. The command still rejects an ambiguous prefix.
+    let mut hash = 0xcbf29ce484222325u64;
+    for part in [
+        record.facts.kind().as_str(),
+        record.key.as_str(),
+        record.source.as_str(),
+        record.source_id.as_deref().unwrap_or(""),
+    ] {
+        for byte in part.as_bytes().iter().copied().chain(std::iter::once(0)) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+fn select_review_item(items: Vec<ReviewItem>, selector: &str) -> Result<ReviewItem, String> {
+    let selector = selector.trim().to_ascii_lowercase();
+    if selector.is_empty() {
+        return Err("a review ID is required; run aede review to list them".to_string());
+    }
+    let mut matched = items
+        .into_iter()
+        .filter(|item| item.id.starts_with(&selector));
+    let Some(item) = matched.next() else {
+        return Err(format!(
+            "no review starts with \"{selector}\"; run aede review --all for the current list"
+        ));
+    };
+    if matched.next().is_some() {
+        return Err(format!(
+            "review ID \"{selector}\" is ambiguous; copy more characters from aede review --all"
+        ));
+    }
+    Ok(item)
 }
 
 // --------------------------------------------------------------------------
@@ -1705,17 +2061,45 @@ pub fn to_json(sources: &Sources) -> Json {
         })
         .collect();
     root.set("records", Json::Arr(records));
+    root.set(
+        "reviews",
+        Json::Arr(
+            sources
+                .reviews
+                .iter()
+                .map(|review| {
+                    let mut row = Json::obj();
+                    row.set("entity", review.entity.to_token().into());
+                    row.set("source", review.source.clone().into());
+                    row.set("source_id", opt_str(&review.source_id));
+                    row.set(
+                        "decision",
+                        match review.decision {
+                            ReviewDecision::Accepted => "accepted",
+                            ReviewDecision::Rejected => "rejected",
+                        }
+                        .into(),
+                    );
+                    row.set("reviewed_at", review.reviewed_at.into());
+                    row
+                })
+                .collect(),
+        ),
+    );
     root
 }
 
 /// Reads back what [`to_json`] wrote.
 ///
-/// A document of another version is refused rather than read approximately:
-/// the same rule the catalog and `user.json` already follow.
+/// Unknown versions are refused rather than read approximately. Version 1 is
+/// the one explicit migration: its record shape is unchanged and it simply
+/// predates the `reviews` array.
 pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
-    if found != SOURCES_FORMAT_VERSION {
+    // Version 1 had no review decisions. It migrates losslessly to an empty
+    // review list; every other unknown shape is refused.
+    if found != 1 && found != SOURCES_FORMAT_VERSION {
         return Err(StoreError::Version {
             found,
             expected: SOURCES_FORMAT_VERSION,
@@ -1930,6 +2314,28 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
             confidence,
             facts,
         });
+    }
+    if found >= 2 {
+        for row in value.get("reviews").and_then(Json::as_arr).unwrap_or(&[]) {
+            let Some(entity) = row
+                .field_str("entity")
+                .and_then(|token| EntityRef::parse_token(&token))
+            else {
+                continue;
+            };
+            let decision = match row.field_str("decision").as_deref() {
+                Some("accepted") => ReviewDecision::Accepted,
+                Some("rejected") => ReviewDecision::Rejected,
+                _ => continue,
+            };
+            sources.set_review(SourceReview {
+                entity,
+                source: row.field_str("source").unwrap_or_default(),
+                source_id: row.field_str("source_id"),
+                decision,
+                reviewed_at: row.field_u64("reviewed_at").unwrap_or(0),
+            });
+        }
     }
     Ok(sources)
 }

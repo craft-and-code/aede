@@ -270,6 +270,9 @@ pub fn show_artist(args: &Args) -> Res {
         );
     }
     for link in &source_credits {
+        if !link.trusted {
+            continue;
+        }
         navigation.entity(
             &catalog,
             "Sourced recording",

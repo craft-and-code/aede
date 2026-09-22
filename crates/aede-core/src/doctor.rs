@@ -96,6 +96,15 @@ pub enum IssueKind {
     /// on top of it is that the disagreement stays visible and the user
     /// decides.
     SourceDisagrees,
+    /// Two trusted external sources contradict one another.
+    SourcesDisagree,
+    /// An approximate attachment has not been accepted or rejected yet.
+    SourceNeedsReview,
+    /// An exact MusicBrainz identity contradicts the identifier in local tags.
+    SourceIdentityConflict,
+    /// A trusted recording identity exists, but its relationship pass has not
+    /// completed, so credits and works may be missing.
+    IncompleteSourceCredits,
 }
 
 impl IssueKind {
@@ -118,6 +127,10 @@ impl IssueKind {
             | IssueKind::MissingTrackNumber
             | IssueKind::MissingCover
             | IssueKind::SourceDisagrees
+            | IssueKind::SourcesDisagree
+            | IssueKind::SourceNeedsReview
+            | IssueKind::SourceIdentityConflict
+            | IssueKind::IncompleteSourceCredits
             | IssueKind::SameArtistMaybe
             | IssueKind::OtherEdition => Severity::Info,
         }
@@ -127,6 +140,10 @@ impl IssueKind {
     pub fn label(self) -> &'static str {
         match self {
             IssueKind::SourceDisagrees => "source disagrees",
+            IssueKind::SourcesDisagree => "sources disagree",
+            IssueKind::SourceNeedsReview => "source claim needs review",
+            IssueKind::SourceIdentityConflict => "source identity conflict",
+            IssueKind::IncompleteSourceCredits => "source credits incomplete",
             // "possibly", and the word is doing work: nothing here is a
             // finding, and a line reading "the same artist" would be a claim
             // this program has no way to make.
@@ -220,6 +237,7 @@ pub fn diagnose(catalog: &Catalog, sources: &crate::sources::Sources) -> Vec<Iss
     check_tracks(catalog, &mut issues);
     check_integrity(catalog, &mut issues);
     check_imported_analyses(catalog, &mut issues);
+    check_source_quality(catalog, sources, &mut issues);
     check_sources(catalog, sources, &mut issues);
     check_duplicate_albums(catalog, &mut issues);
     check_other_editions(catalog, &mut issues);
@@ -344,11 +362,246 @@ fn check_integrity(catalog: &Catalog, issues: &mut Vec<Issue>) {
 /// A record the catalog cannot place is skipped rather than reported, exactly
 /// as a waiting analysis is: it is not a defect that MusicBrainz holds
 /// something about an album nobody has scanned yet.
+fn check_source_quality(
+    catalog: &Catalog,
+    sources: &crate::sources::Sources,
+    issues: &mut Vec<Issue>,
+) {
+    use crate::sources::{Facts, ReviewReason};
+
+    for item in sources
+        .review_items(catalog)
+        .into_iter()
+        .filter(|item| item.decision.is_none())
+    {
+        let (kind, detail) = match item.reason {
+            ReviewReason::Approximate { score } => (
+                IssueKind::SourceNeedsReview,
+                format!(
+                    "{} {}: {} proposed {} at {score}% — aede review --accept={} or --reject={}",
+                    item.entity.kind.as_str(),
+                    item.entity.key,
+                    item.source,
+                    item.source_id
+                        .as_deref()
+                        .unwrap_or("an unidentified candidate"),
+                    item.id,
+                    item.id
+                ),
+            ),
+            ReviewReason::IdentityConflict {
+                local_id,
+                sourced_id,
+            } => (
+                IssueKind::SourceIdentityConflict,
+                format!(
+                    "{} {}: local identity {local_id}, {} says {sourced_id} — \
+                     aede review --accept={} or --reject={}",
+                    item.entity.kind.as_str(),
+                    item.entity.key,
+                    item.source,
+                    item.id,
+                    item.id
+                ),
+            ),
+            ReviewReason::PriorDecision => continue,
+        };
+        issues.push(Issue {
+            kind,
+            files: files_for_entity(catalog, &item.entity),
+            detail,
+        });
+    }
+
+    // A trusted recording may still carry only identification facts. That is
+    // not an ambiguous identity any more, but it does mean the graph cannot
+    // claim its credits are complete.
+    let mut reported_recordings = BTreeSet::new();
+    let mut incomplete_files = Vec::new();
+    for record in &sources.records {
+        let Facts::Track(facts) = &record.facts else {
+            continue;
+        };
+        if !sources.is_trusted(catalog, record)
+            || facts.recording.is_none()
+            || facts.relationships_complete
+        {
+            continue;
+        }
+        let entity = record.entity();
+        let Some(track_id) = entity.resolve(catalog) else {
+            continue;
+        };
+        let Some(recording_id) = catalog.track(track_id).map(|track| track.recording_id) else {
+            continue;
+        };
+        if !reported_recordings.insert(recording_id) {
+            continue;
+        }
+        incomplete_files.extend(files_for_entity(catalog, &entity));
+    }
+    if !reported_recordings.is_empty() {
+        issues.push(Issue {
+            kind: IssueKind::IncompleteSourceCredits,
+            detail: format!(
+                "{} identified without a complete relationship pass — run aede fetch --credits",
+                match reported_recordings.len() {
+                    1 => "1 recording is".to_string(),
+                    count => format!("{count} recordings are"),
+                }
+            ),
+            files: incomplete_files,
+        });
+    }
+
+    check_source_disagreements(catalog, sources, issues);
+}
+
+fn files_for_entity(catalog: &Catalog, entity: &crate::user::EntityRef) -> Vec<String> {
+    let Some(id) = entity.resolve(catalog) else {
+        return Vec::new();
+    };
+    let track_ids: Vec<Id> = match entity.kind {
+        model::EntityKind::Track => vec![id],
+        model::EntityKind::Release => catalog
+            .release(id)
+            .map(|release| release.track_ids.clone())
+            .unwrap_or_default(),
+        model::EntityKind::Artist => catalog.tracks_of_artist(id),
+        model::EntityKind::Label => catalog.tracks_of_label(id),
+        _ => Vec::new(),
+    };
+    track_ids
+        .into_iter()
+        .filter_map(|track| catalog.track(track))
+        .filter_map(|track| catalog.file(track.file_id))
+        .map(|file| file.path.clone())
+        .take(1)
+        .collect()
+}
+
+fn check_source_disagreements(
+    catalog: &Catalog,
+    sources: &crate::sources::Sources,
+    issues: &mut Vec<Issue>,
+) {
+    use crate::sources::Facts;
+
+    let mut by_entity: BTreeMap<(model::EntityKind, String), Vec<&crate::sources::SourceRecord>> =
+        BTreeMap::new();
+    for record in &sources.records {
+        if sources.is_trusted(catalog, record) {
+            by_entity
+                .entry((record.facts.kind(), record.key.clone()))
+                .or_default()
+                .push(record);
+        }
+    }
+    for ((kind, key), records) in by_entity {
+        if records.len() < 2 {
+            continue;
+        }
+        let entity = crate::user::EntityRef {
+            kind,
+            key: key.clone(),
+        };
+        for left_index in 0..records.len() {
+            for right in records.iter().skip(left_index + 1) {
+                let left = records[left_index];
+                for (field, a, b) in conflicting_fields(&left.facts, &right.facts) {
+                    issues.push(Issue {
+                        kind: IssueKind::SourcesDisagree,
+                        detail: format!(
+                            "{} {key}: {} says {field} is \"{a}\", {} says \"{b}\"",
+                            kind.as_str(),
+                            left.source,
+                            right.source
+                        ),
+                        files: files_for_entity(catalog, &entity),
+                    });
+                }
+            }
+        }
+    }
+
+    fn conflicting_fields(left: &Facts, right: &Facts) -> Vec<(&'static str, String, String)> {
+        let mut out = Vec::new();
+        let compare = |out: &mut Vec<(&'static str, String, String)>,
+                       field: &'static str,
+                       a: Option<&str>,
+                       b: Option<&str>| {
+            let (Some(a), Some(b)) = (a, b) else {
+                return;
+            };
+            if !a.trim().is_empty()
+                && !b.trim().is_empty()
+                && crate::text::normalize(a) != crate::text::normalize(b)
+            {
+                out.push((field, a.to_string(), b.to_string()));
+            }
+        };
+        match (left, right) {
+            (Facts::Artist(a), Facts::Artist(b)) => {
+                compare(&mut out, "type", a.kind.as_deref(), b.kind.as_deref());
+                compare(&mut out, "area", a.area.as_deref(), b.area.as_deref());
+                compare(
+                    &mut out,
+                    "begin date",
+                    a.began.as_deref(),
+                    b.began.as_deref(),
+                );
+                compare(&mut out, "end date", a.ended.as_deref(), b.ended.as_deref());
+            }
+            (Facts::Release(a), Facts::Release(b)) => {
+                compare(
+                    &mut out,
+                    "release type",
+                    a.primary_type.as_deref(),
+                    b.primary_type.as_deref(),
+                );
+                if let (Some(a), Some(b)) = (&a.first_released, &b.first_released)
+                    && matches!(
+                        crate::sources::verdict_date(a, Some(b)),
+                        crate::sources::Verdict::Differs { .. }
+                    )
+                {
+                    out.push(("first release date", a.clone(), b.clone()));
+                }
+                compare(&mut out, "label", a.label.as_deref(), b.label.as_deref());
+            }
+            (Facts::Track(a), Facts::Track(b)) => {
+                compare(
+                    &mut out,
+                    "recording",
+                    a.recording.as_deref(),
+                    b.recording.as_deref(),
+                );
+                compare(&mut out, "title", a.title.as_deref(), b.title.as_deref());
+                compare(&mut out, "album", a.album.as_deref(), b.album.as_deref());
+                if !a.artists.is_empty()
+                    && !b.artists.is_empty()
+                    && !matches!(
+                        crate::sources::verdict_set(&a.artists, &b.artists),
+                        crate::sources::Verdict::Agrees
+                    )
+                {
+                    out.push(("artists", a.artists.join(", "), b.artists.join(", ")));
+                }
+            }
+            _ => {}
+        }
+        out
+    }
+}
+
 fn check_sources(catalog: &Catalog, sources: &crate::sources::Sources, issues: &mut Vec<Issue>) {
     use crate::sources::{Facts, Verdict};
     use crate::user::EntityRef;
 
     for record in &sources.records {
+        if !sources.is_trusted(catalog, record) {
+            continue;
+        }
         let Facts::Release(facts) = &record.facts else {
             continue;
         };

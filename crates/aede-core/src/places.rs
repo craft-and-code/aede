@@ -79,6 +79,9 @@ fn said_about(catalog: &Catalog, held: &Sources, artist: Id) -> (Option<String>,
     let Some(record) = held.get(&entity, crate::sources::MUSICBRAINZ) else {
         return (None, None);
     };
+    if !held.is_trusted(catalog, record) {
+        return (None, None);
+    }
     match &record.facts {
         Facts::Artist(facts) => {
             let keep = |value: &Option<String>| {

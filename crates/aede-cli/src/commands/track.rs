@@ -195,15 +195,22 @@ fn print_graph_links(
             "source work".into(),
             link.work.title,
             link.work.mbid.clone(),
-            format!("{} · {}", link.source, ui::since(link.fetched_at)),
-        ]);
-        navigation.add(
-            "Source work",
             format!(
-                "aede work {}",
-                super::navigation::shell_arg(&link.work.mbid)
+                "{} · {} · {}",
+                link.source,
+                super::source_status(link.confidence, link.review, link.trusted),
+                ui::since(link.fetched_at)
             ),
-        );
+        ]);
+        if link.trusted {
+            navigation.add(
+                "Source work",
+                format!(
+                    "aede work {}",
+                    super::navigation::shell_arg(&link.work.mbid)
+                ),
+            );
+        }
     }
     if let Some(release) = track.release_id.and_then(|id| catalog.release(id)) {
         navigation.entity(catalog, "Album", EntityKind::Release, release.id);
@@ -565,6 +572,16 @@ fn as_json(catalog: &Catalog, track: &Track, sourced: &[SourcedCreditLink]) -> J
                     };
                     credit.set("confidence", confidence.into());
                     credit.set("confidence_score", score.into());
+                    credit.set("trusted", link.trusted.into());
+                    credit.set(
+                        "review",
+                        link.review
+                            .map(|decision| match decision {
+                                sources::ReviewDecision::Accepted => "accepted".to_string(),
+                                sources::ReviewDecision::Rejected => "rejected".to_string(),
+                            })
+                            .into(),
+                    );
                     credit.set("fetched_at", link.fetched_at.into());
                     credit
                 })
@@ -782,6 +799,8 @@ mod tests {
             },
             source: "musicbrainz".into(),
             confidence: Confidence::Identified,
+            review: None,
+            trusted: true,
             fetched_at: 42,
         }];
 

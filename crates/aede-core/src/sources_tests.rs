@@ -633,6 +633,37 @@ fn sourced_works_are_navigable_only_when_the_attachment_is_certain() {
             .is_empty(),
         "an approximate attachment remains evidence, not navigation"
     );
+
+    let review = sources
+        .review_items(&catalog)
+        .into_iter()
+        .find(|item| item.source_id.as_deref() == Some("possible-recording"))
+        .expect("the approximate attachment needs review");
+    sources
+        .decide(&catalog, &review.id, ReviewDecision::Accepted, 20)
+        .expect("accepted");
+    assert_eq!(
+        sources.find_sourced_works(&catalog, "possible-work").len(),
+        1,
+        "accepting an approximate identity makes its relationships traversable"
+    );
+
+    let back = from_json(&to_json(&sources)).expect("review round trip");
+    assert_eq!(back.reviews.len(), 1);
+    assert_eq!(back.reviews[0].decision, ReviewDecision::Accepted);
+    sources
+        .decide(&catalog, &review.id, ReviewDecision::Rejected, 21)
+        .expect("rejected");
+    assert!(
+        sources
+            .find_sourced_works(&catalog, "possible-work")
+            .is_empty(),
+        "a rejection keeps the evidence but removes the traversal"
+    );
+    sources
+        .clear_review(&catalog, &review.id)
+        .expect("decision undone");
+    assert!(sources.reviews.is_empty());
 }
 
 #[test]
@@ -697,6 +728,85 @@ fn label_identity_reconciliation_reports_agreement_proposals_and_conflicts() {
     assert!(
         sources.label_identities(&catalog).is_empty(),
         "a conflicting source ID is not exposed as a safe identity link"
+    );
+
+    let review = sources
+        .review_items(&catalog)
+        .into_iter()
+        .next()
+        .expect("the conflict needs review");
+    sources
+        .decide(&catalog, &review.id, ReviewDecision::Accepted, 30)
+        .expect("source accepted");
+    assert!(matches!(
+        sources.label_identity(&catalog, label_id),
+        Some(LabelIdentityResolution::Accepted { .. })
+    ));
+    assert_eq!(sources.label_identities(&catalog)[0].mbid, "different-id");
+    assert_eq!(
+        catalog.labels[0].mbid.as_deref(),
+        Some("tag-id"),
+        "review never rewrites the tag-built catalog"
+    );
+
+    sources
+        .decide(&catalog, &review.id, ReviewDecision::Rejected, 31)
+        .expect("source rejected");
+    assert!(matches!(
+        sources.label_identity(&catalog, label_id),
+        Some(LabelIdentityResolution::Rejected { .. })
+    ));
+    assert!(sources.label_identities(&catalog).is_empty());
+}
+
+#[test]
+fn a_refetch_only_keeps_a_review_when_the_claim_identity_is_unchanged() {
+    let catalog = crate::model::tests::example_catalog();
+    let track = &catalog.tracks[0];
+    let path = catalog.file(track.file_id).expect("file").path.clone();
+    let claim = |source_id: &str, fetched_at| SourceRecord {
+        key: path.clone(),
+        source: "fingerprint".to_string(),
+        source_id: Some(source_id.to_string()),
+        fetched_at,
+        confidence: Confidence::matched(95),
+        facts: Facts::Track(TrackFacts::default()),
+    };
+    let mut sources = Sources::default();
+    sources.set(claim("candidate-a", 1));
+    let id = sources.review_items(&catalog)[0].id.clone();
+    sources
+        .decide(&catalog, &id, ReviewDecision::Accepted, 2)
+        .expect("reviewed");
+
+    sources.set(claim("candidate-a", 3));
+    assert_eq!(
+        sources.reviews.len(),
+        1,
+        "refreshing the same claim preserves the decision"
+    );
+    sources.set(claim("candidate-b", 4));
+    assert!(
+        sources.reviews.is_empty(),
+        "a different candidate must be reviewed on its own merits"
+    );
+}
+
+#[test]
+fn version_one_sources_migrate_with_no_invented_reviews() {
+    let old = crate::json::parse(
+        r#"{"format_version":1,"records":[
+          {"entity":"artist:test","source":"musicbrainz",
+           "confidence":"matched","score":90,"fetched_at":1,"facts":{}}
+        ]}"#,
+    )
+    .expect("valid old document");
+    let migrated = from_json(&old).expect("version one remains readable");
+    assert_eq!(migrated.records.len(), 1);
+    assert!(migrated.reviews.is_empty());
+    assert_eq!(
+        to_json(&migrated).field_u32("format_version"),
+        Some(SOURCES_FORMAT_VERSION)
     );
 }
 

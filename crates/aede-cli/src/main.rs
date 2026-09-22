@@ -338,6 +338,9 @@ const OPTIONS: &[&str] = &[
     "no-cdart",
     "banners",
     "labels",
+    "accept",
+    "reject",
+    "undo",
 ];
 
 /// Where each restricted option means something.
@@ -359,7 +362,10 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "list or restrict to what is waiting",
     ),
     ("list", LIST_COMMANDS, "list what is held"),
-    ("source", SAID_ELSEWHERE_COMMANDS, "select a source"),
+    ("source", SOURCE_COMMANDS, "select a source"),
+    ("accept", &["review"], "accept one source claim by ID"),
+    ("reject", &["review"], "reject one source claim by ID"),
+    ("undo", &["review"], "undo one source-review decision by ID"),
     (
         "compilations",
         ALBUM_LIST_COMMANDS,
@@ -613,6 +619,11 @@ const IMPORT_COMMANDS: &[&str] = &["import"];
 /// again on the other.
 const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing", "merge"];
 
+/// Commands where one external source can be selected. Review joins the
+/// attributed-data commands here without inheriting their destructive
+/// `--forget` option.
+const SOURCE_COMMANDS: &[&str] = &["import", "sources", "missing", "merge", "review"];
+
 /// Commands that can list what they hold rather than go and get more.
 ///
 /// Not [`SAID_ELSEWHERE_COMMANDS`], although it started as a copy of it. Those
@@ -664,6 +675,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("restore", None, commands::restore),
     ("import", None, commands::import),
     ("sources", None, commands::sources),
+    ("review", None, commands::review),
     ("fetch", None, commands::fetch),
     ("missing", None, commands::missing),
     ("merge", None, commands::merge),
@@ -848,6 +860,7 @@ const PAGING_COMMANDS: &[&str] = &[
     // by the table's own author. An option list is a promise that the command
     // honours every option on it.
     "missing",
+    "review",
 ];
 
 /// Commands whose output can go to a file instead of the terminal.

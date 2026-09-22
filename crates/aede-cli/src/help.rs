@@ -69,6 +69,10 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede sources",
             summary: "Inspect, export, import, or remove externally sourced data.",
         },
+        "review" => CommandPage {
+            usage: "aede review [name] | aede review --accept=<ID> | --reject=<ID> | --undo=<ID>",
+            summary: "Resolve uncertain or conflicting source identities without changing tags.",
+        },
         "fetch" => CommandPage {
             usage: "aede fetch [name… | folder…] [options]",
             summary: "Enrich artists, albums, tracks, and artwork from chosen sources.",
@@ -277,6 +281,12 @@ pub fn print_index() {
                        document with the keys and nothing filled in, --import
                        <file> takes one back, --export writes out what is held
                        (both through --output, or to the terminal)
+  review               Pending approximate matches and identity conflicts.
+                       --accept=<ID> trusts one for graph navigation and
+                       queries; --reject=<ID> keeps it as evidence only;
+                       --undo=<ID> returns either decision to pending.
+                       Decisions never rewrite tags, and --all shows resolved
+                       claims alongside those still waiting
   fingerprint [folder…] Work out what each file's audio is, by decoding it.
                        The local half of identifying by sound: it touches no
                        network and stores what it computes in the catalog, so
@@ -620,6 +630,12 @@ fn command_examples(command: &str) -> &'static [&'static str] {
             "aede query \"genre:metal year:1990..1999\"",
             r#"aede query "work:\"War Pigs\" instrument:guitar""#,
             r#"aede query "guest:\"Zakk Wylde\" -compilationartist""#,
+        ],
+        "review" => &[
+            "aede review",
+            "aede review manson",
+            "aede review --accept=<ID>",
+            "aede review --all",
         ],
         "fetch" => &["aede fetch --fanart --no-background ~/Music/Jazz"],
         "copy" => &["aede copy /Volumes/Player --query \"loved rating:>=4\" --verify"],

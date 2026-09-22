@@ -879,10 +879,12 @@ fn label_targets(
                     .clone()
                     .or_else(|| match held.label_identity(catalog, label.id)? {
                         sources::LabelIdentityResolution::Confirmed { mbid, .. }
-                        | sources::LabelIdentityResolution::Agrees { mbid, .. } => Some(mbid),
+                        | sources::LabelIdentityResolution::Agrees { mbid, .. }
+                        | sources::LabelIdentityResolution::Accepted { mbid, .. } => Some(mbid),
                         sources::LabelIdentityResolution::Local { .. }
                         | sources::LabelIdentityResolution::Suggested { .. }
-                        | sources::LabelIdentityResolution::Conflict { .. } => None,
+                        | sources::LabelIdentityResolution::Conflict { .. }
+                        | sources::LabelIdentityResolution::Rejected { .. } => None,
                     })?;
             Some(LabelTarget {
                 entity,

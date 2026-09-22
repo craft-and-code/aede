@@ -60,6 +60,13 @@ fn sources() -> Sources {
             ..Default::default()
         }),
     });
+    held.set_review(crate::sources::SourceReview {
+        entity: crate::user::EntityRef::new(crate::model::EntityKind::Artist, "miles davis"),
+        source: crate::sources::MUSICBRAINZ.to_string(),
+        source_id: Some("561d854a".to_string()),
+        decision: crate::sources::ReviewDecision::Accepted,
+        reviewed_at: 2,
+    });
     held
 }
 
@@ -99,6 +106,7 @@ fn the_three_stores_are_nested_exactly_as_they_write_themselves() {
     assert_eq!(back.catalog.held().map(|c| c.tracks.len()), Some(1));
     assert_eq!(back.user.held().map(|u| u.set_aside.len()), Some(1));
     assert_eq!(back.sources.held().map(|s| s.records.len()), Some(1));
+    assert_eq!(back.sources.held().map(|s| s.reviews.len()), Some(1));
 }
 
 #[test]

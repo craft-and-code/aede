@@ -68,10 +68,12 @@ the tracks they explain. The aliases `collaborator` and `compilation-artist`
 are accepted as well.
 
 These fields read both explicit local tags and relationships obtained with
-`aede fetch --credits`. Only source records attached by an exact identifier are
-eligible: an approximate match remains visible evidence, but does not silently
-turn into a query relationship. The source index is built once per query, so a
-large library is not rescanned for every track and every term.
+`aede fetch --credits`. Source records attached by an exact, non-conflicting
+identifier are eligible automatically; an approximate or conflicting claim is
+eligible only after `aede review --accept=<ID>`. Pending and rejected claims
+remain visible evidence and do not silently turn into query relationships. The
+source index is built once per query, so a large library is not rescanned for
+every track and every term.
 
 ### Strict Semantics and Boolean Symmetry
 

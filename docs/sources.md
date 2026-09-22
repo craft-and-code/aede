@@ -80,6 +80,25 @@ Without an ID, the name is searched and the result comes with a score. Below 70%
 ? Sh: the closest was "Shellac" at 61%, not close enough
 ```
 
+An approximate match is stored as evidence, but it is not a graph identity
+until you decide it is the right one. Exact MusicBrainz answers that contradict
+an identifier already present in your tags follow the same review path:
+
+```sh
+aede review                         # unresolved claims
+aede review manson                  # narrow them by entity name
+aede review --accept=<ID>           # trust this exact claim
+aede review --reject=<ID>           # keep it visible, but never traverse it
+aede review --undo=<ID>             # return the decision to pending
+aede review --all                   # include accepted and rejected claims
+```
+
+Acceptance never changes `matched 92%` into `identified`: the original
+confidence remains visible. It only records that you approved this precise
+entity/source/identifier tuple for navigation and queries. A different
+candidate returned by a later fetch needs its own decision. Rejection is not
+deletion, and every choice can be undone.
+
 ## Manual Corrections
 
 Retrieved values are not the final word. Records are indexed by **(entity, source)**, which means anything you classify under your own source won't be overwritten by MusicBrainz: a subsequent `aede fetch --full` will add its line next to yours without touching it.
@@ -120,6 +139,7 @@ aede sources                    # one line per source: how much, how much lands
 aede sources --list             # every record, and whether the catalog places it
 aede sources --export --output=backup.json
 aede sources --forget --source=musicbrainz
+aede review                     # ambiguous identities needing a decision
 ```
 
 `aede artist` and `aede album` display a "What sources say" block, matching each value against your tag:

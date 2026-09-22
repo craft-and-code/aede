@@ -188,6 +188,38 @@ fn print_label_identity(identity: &LabelIdentityResolution) {
             "identity conflict: local {local_mbid} · {source} {sourced_mbid} · {} · not resolved",
             ui::since(*fetched_at)
         ),
+        LabelIdentityResolution::Accepted {
+            mbid,
+            local_mbid,
+            source,
+            reviewed_at,
+            ..
+        } => {
+            let conflict = local_mbid
+                .as_deref()
+                .filter(|local| *local != mbid)
+                .map(|local| format!(" · local tag remains {local}"))
+                .unwrap_or_default();
+            format!(
+                "MusicBrainz label: {mbid} · accepted from {source}{conflict} · {}",
+                ui::since(*reviewed_at)
+            )
+        }
+        LabelIdentityResolution::Rejected {
+            local_mbid,
+            sourced_mbid,
+            source,
+            reviewed_at,
+        } => {
+            let kept = local_mbid
+                .as_deref()
+                .map(|local| format!("; kept local {local}"))
+                .unwrap_or_default();
+            format!(
+                "rejected {source} identity {sourced_mbid}{kept} · {}",
+                ui::since(*reviewed_at)
+            )
+        }
     };
     println!("  {}", ui::dim(&line));
 }
