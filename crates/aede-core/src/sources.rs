@@ -16,7 +16,7 @@
 //! request.
 
 use crate::json::Json;
-use crate::model::{EntityKind, Id};
+use crate::model::{CreditAttribute, EntityKind, Id};
 use crate::user::EntityRef;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -601,11 +601,12 @@ pub struct LabelFacts {
 /// deluxe reissue alike — so this identifies the track and says nothing about
 /// which pressing the file was ripped from, which the tags answer better.
 ///
-/// Everything here arrives as [`Confidence::Matched`], never `Identified`: a
-/// fingerprint match is a strong guess and is wrong in ways that are easy to
-/// picture — two masterings of one recording fingerprint alike, and a very
-/// short or silent track matches a great deal. The score is kept so that a
-/// reader can see what they are being told.
+/// AcoustID records arrive as [`Confidence::Matched`]: a fingerprint match is
+/// a strong guess and is wrong in ways that are easy to picture — two
+/// masterings of one recording fingerprint alike, and a very short or silent
+/// track matches a great deal. A later MusicBrainz identifier lookup is
+/// [`Confidence::Identified`] and can add relationship evidence to the same
+/// source record without turning it into a local tag.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TrackFacts {
     /// The MusicBrainz recording identifier the source named.
@@ -630,18 +631,65 @@ pub struct TrackFacts {
     /// recording may be linked to several works (for example a medley), and a
     /// later reconciliation must be able to show exactly who made each claim.
     pub works: Vec<WorkLink>,
+    /// Credits attached directly to the recorded performance.
+    pub credits: Vec<CreditLink>,
+    /// Whether the recording relationship lookup completed, including when it
+    /// returned no work or credit. This distinguishes “nothing there” from an
+    /// older record that has never been asked for rich relationships.
+    pub relationships_complete: bool,
+}
+
+/// One artist relationship asserted by MusicBrainz.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreditLink {
+    /// Relationship row identifier, when the web service exposes it.
+    pub relation_id: Option<String>,
+    /// Stable identifier of the relationship type.
+    pub role_id: Option<String>,
+    /// Human-readable relationship type: performer, producer, composer…
+    pub role: String,
+    /// Direction of the MusicBrainz relationship from the queried entity.
+    pub direction: Option<String>,
+    /// MusicBrainz artist identifier.
+    pub artist_mbid: String,
+    /// Canonical artist name returned by MusicBrainz.
+    pub artist_name: String,
+    /// Name under which the artist was actually credited.
+    pub credited_as: Option<String>,
+    /// Instruments, qualifiers and other relationship attributes.
+    pub attributes: Vec<CreditAttribute>,
+    /// Optional beginning of the relationship's validity period.
+    pub began: Option<String>,
+    /// Optional end of the relationship's validity period.
+    pub ended: Option<String>,
+    /// Whether MusicBrainz explicitly marks the relationship as ended.
+    pub over: Option<bool>,
+    /// Ordering key supplied by MusicBrainz.
+    pub order: Option<u32>,
 }
 
 /// One work relationship asserted by a source about a recording.
 ///
 /// The identifier is mandatory. A title is useful for a reader, but it is not
 /// identity and must never be used to join two compositions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WorkLink {
     /// MusicBrainz work identifier.
     pub mbid: String,
     /// Title as the source spells it.
     pub title: String,
+    /// Identifier of the recording-to-work relationship, when exposed.
+    pub relation_id: Option<String>,
+    /// Relationship type, normally `performance`.
+    pub relation_type: Option<String>,
+    /// Stable identifier of the recording-to-work relationship type.
+    pub relation_type_id: Option<String>,
+    /// Direction of the relationship from the queried recording.
+    pub direction: Option<String>,
+    /// Attributes such as live, cover, instrumental, partial or medley.
+    pub attributes: Vec<CreditAttribute>,
+    /// Artist relationships attached to the composition itself.
+    pub credits: Vec<CreditLink>,
 }
 
 /// A work relationship placed on a local recording, while retaining its source.
@@ -677,6 +725,23 @@ pub struct SourcedWork {
     pub title: String,
     /// Recording relationships that justify this external work view.
     pub links: Vec<SourcedWorkLink>,
+}
+
+/// A rich external credit placed on a local recording or one of its works.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedCreditLink {
+    /// Local recorded performance reached through the source record's track.
+    pub recording_id: Id,
+    /// Work carrying the credit; absent for recording-level credits.
+    pub work: Option<WorkLink>,
+    /// Who did what, with the relationship's own details.
+    pub credit: CreditLink,
+    /// Service making the assertion.
+    pub source: String,
+    /// Firmness of the source record's attachment to the local track.
+    pub confidence: Confidence,
+    /// Time at which this assertion was fetched.
+    pub fetched_at: u64,
 }
 
 /// A MusicBrainz identity evidence record placed on its local label.
@@ -868,6 +933,49 @@ impl Sources {
             })
             .flatten()
             .collect()
+    }
+
+    /// Rich recording and work credits that can be placed on this catalog.
+    ///
+    /// The relationship remains external evidence. Mapping the source record's
+    /// track to its canonical recording makes it traversable without copying
+    /// the claim into the tag-built catalog.
+    pub fn credit_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedCreditLink> {
+        let mut links = Vec::new();
+        for record in &self.records {
+            let Facts::Track(facts) = &record.facts else {
+                continue;
+            };
+            let Some(track_id) = record.entity().resolve(catalog) else {
+                continue;
+            };
+            let Some(recording_id) = catalog.track(track_id).map(|track| track.recording_id) else {
+                continue;
+            };
+            for credit in &facts.credits {
+                links.push(SourcedCreditLink {
+                    recording_id,
+                    work: None,
+                    credit: credit.clone(),
+                    source: record.source.clone(),
+                    confidence: record.confidence,
+                    fetched_at: record.fetched_at,
+                });
+            }
+            for work in &facts.works {
+                for credit in &work.credits {
+                    links.push(SourcedCreditLink {
+                        recording_id,
+                        work: Some(work.clone()),
+                        credit: credit.clone(),
+                        source: record.source.clone(),
+                        confidence: record.confidence,
+                        fetched_at: record.fetched_at,
+                    });
+                }
+            }
+        }
+        links
     }
 
     /// Certain source-backed works matching a title or MusicBrainz ID.
@@ -1241,6 +1349,77 @@ fn opt_str(value: &Option<String>) -> Json {
     }
 }
 
+fn credit_attribute_to_json(attribute: &CreditAttribute) -> Json {
+    let mut row = Json::obj();
+    row.set("id", opt_str(&attribute.id));
+    row.set("name", attribute.name.clone().into());
+    row.set("value", opt_str(&attribute.value));
+    row.set("credited_as", opt_str(&attribute.credited_as));
+    row
+}
+
+fn credit_link_to_json(credit: &CreditLink) -> Json {
+    let mut row = Json::obj();
+    row.set("relation_id", opt_str(&credit.relation_id));
+    row.set("role_id", opt_str(&credit.role_id));
+    row.set("role", credit.role.clone().into());
+    row.set("direction", opt_str(&credit.direction));
+    row.set("artist_mbid", credit.artist_mbid.clone().into());
+    row.set("artist_name", credit.artist_name.clone().into());
+    row.set("credited_as", opt_str(&credit.credited_as));
+    row.set(
+        "attributes",
+        Json::Arr(
+            credit
+                .attributes
+                .iter()
+                .map(credit_attribute_to_json)
+                .collect(),
+        ),
+    );
+    row.set("began", opt_str(&credit.began));
+    row.set("ended", opt_str(&credit.ended));
+    row.set("over", credit.over.map(Json::Bool).unwrap_or(Json::Null));
+    row.set(
+        "order",
+        credit
+            .order
+            .map(|value| Json::Num(value as f64))
+            .unwrap_or(Json::Null),
+    );
+    row
+}
+
+fn credit_attribute_from_json(row: &Json) -> Option<CreditAttribute> {
+    Some(CreditAttribute {
+        id: row.field_str("id"),
+        name: row.field_str("name")?,
+        value: row.field_str("value"),
+        credited_as: row.field_str("credited_as"),
+    })
+}
+
+fn credit_link_from_json(row: &Json) -> Option<CreditLink> {
+    Some(CreditLink {
+        relation_id: row.field_str("relation_id"),
+        role_id: row.field_str("role_id"),
+        role: row.field_str("role")?,
+        direction: row.field_str("direction"),
+        artist_mbid: row.field_str("artist_mbid")?,
+        artist_name: row.field_str("artist_name").unwrap_or_default(),
+        credited_as: row.field_str("credited_as"),
+        attributes: row
+            .get("attributes")
+            .and_then(Json::as_arr)
+            .map(|rows| rows.iter().filter_map(credit_attribute_from_json).collect())
+            .unwrap_or_default(),
+        began: row.field_str("began"),
+        ended: row.field_str("ended"),
+        over: row.field_optional_bool("over"),
+        order: row.field_u32("order"),
+    })
+}
+
 /// The document: a version, and one array of records.
 pub fn to_json(sources: &Sources) -> Json {
     let mut root = Json::obj();
@@ -1276,6 +1455,11 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("title", opt_str(&t.title));
                     facts.set("artists", strings(&t.artists));
                     facts.set("album", opt_str(&t.album));
+                    facts.set("relationships_complete", t.relationships_complete.into());
+                    facts.set(
+                        "credits",
+                        Json::Arr(t.credits.iter().map(credit_link_to_json).collect()),
+                    );
                     facts.set(
                         "works",
                         Json::Arr(
@@ -1285,6 +1469,25 @@ pub fn to_json(sources: &Sources) -> Json {
                                     let mut row = Json::obj();
                                     row.set("mbid", work.mbid.clone().into());
                                     row.set("title", work.title.clone().into());
+                                    row.set("relation_id", opt_str(&work.relation_id));
+                                    row.set("relation_type", opt_str(&work.relation_type));
+                                    row.set("relation_type_id", opt_str(&work.relation_type_id));
+                                    row.set("direction", opt_str(&work.direction));
+                                    row.set(
+                                        "attributes",
+                                        Json::Arr(
+                                            work.attributes
+                                                .iter()
+                                                .map(credit_attribute_to_json)
+                                                .collect(),
+                                        ),
+                                    );
+                                    row.set(
+                                        "credits",
+                                        Json::Arr(
+                                            work.credits.iter().map(credit_link_to_json).collect(),
+                                        ),
+                                    );
                                     row
                                 })
                                 .collect(),
@@ -1592,6 +1795,15 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .map(|f| read_strings(f, "artists"))
                     .unwrap_or_default(),
                 album: facts.and_then(|f| f.field_str("album")),
+                credits: facts
+                    .and_then(|f| f.get("credits"))
+                    .and_then(Json::as_arr)
+                    .map(|rows| rows.iter().filter_map(credit_link_from_json).collect())
+                    .unwrap_or_default(),
+                relationships_complete: facts
+                    .and_then(|f| f.get("relationships_complete"))
+                    .and_then(Json::as_bool)
+                    .unwrap_or(false),
                 works: facts
                     .and_then(|f| f.get("works"))
                     .and_then(Json::as_arr)
@@ -1601,6 +1813,26 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                                 Some(WorkLink {
                                     mbid: work.field_str("mbid")?,
                                     title: work.field_str("title").unwrap_or_default(),
+                                    relation_id: work.field_str("relation_id"),
+                                    relation_type: work.field_str("relation_type"),
+                                    relation_type_id: work.field_str("relation_type_id"),
+                                    direction: work.field_str("direction"),
+                                    attributes: work
+                                        .get("attributes")
+                                        .and_then(Json::as_arr)
+                                        .map(|rows| {
+                                            rows.iter()
+                                                .filter_map(credit_attribute_from_json)
+                                                .collect()
+                                        })
+                                        .unwrap_or_default(),
+                                    credits: work
+                                        .get("credits")
+                                        .and_then(Json::as_arr)
+                                        .map(|rows| {
+                                            rows.iter().filter_map(credit_link_from_json).collect()
+                                        })
+                                        .unwrap_or_default(),
                                 })
                             })
                             .collect()

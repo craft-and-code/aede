@@ -12,8 +12,10 @@
 //! guessing one of those wrong produces a record that is silently empty.
 
 use crate::json::Json;
+use crate::model::CreditAttribute;
 use crate::sources::{
-    ArtistFacts, Confidence, LabelFacts, Membership, ReleaseFacts, Side, TrackFacts, WorkLink,
+    ArtistFacts, Confidence, CreditLink, LabelFacts, Membership, ReleaseFacts, Side, TrackFacts,
+    WorkLink,
 };
 use crate::text;
 
@@ -48,8 +50,13 @@ pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// the year that record came out.
 pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels+artist-rels";
 
-/// What a recording lookup needs in order to describe its composition links.
-pub const RECORDING_INCLUDES: &str = "work-rels";
+/// What a recording lookup needs for performance, production and composition
+/// credits in a single request.
+///
+/// `work-level-rels` is a switch: `work-rels` first attaches each work and
+/// `artist-rels` then asks for artist relationships both on the recording and
+/// on those linked works.
+pub const RECORDING_INCLUDES: &str = "artist-rels+work-rels+work-level-rels";
 
 /// What to ask for alongside a *release*, in one request.
 ///
@@ -431,13 +438,15 @@ pub fn artist(response: &Json) -> Option<Candidate<ArtistFacts>> {
     })
 }
 
-/// One recording, as `/ws/2/recording/<mbid>?inc=work-rels` returns it.
+/// One recording, as a lookup with [`RECORDING_INCLUDES`] returns it.
 ///
 /// A lookup is evidence about the identifier we asked for, never a title
-/// match. Its work relationships remain source facts: reconciliation decides
-/// later whether and how they join the local canonical graph.
+/// match. Its recording credits, work relationships and work credits remain
+/// source facts: reconciliation decides later whether and how they join the
+/// local canonical graph.
 pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
     let mbid = field(response, "id")?;
+    let credits = relationship_credits(response);
     let works = response
         .get("relations")
         .and_then(Json::as_arr)
@@ -450,6 +459,12 @@ pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
                     Some(WorkLink {
                         mbid: field(work, "id")?,
                         title: field(work, "title").unwrap_or_default(),
+                        relation_id: field(relation, "id"),
+                        relation_type: field(relation, "type"),
+                        relation_type_id: field(relation, "type-id"),
+                        direction: field(relation, "direction"),
+                        attributes: relationship_attributes(relation),
+                        credits: relationship_credits(work),
                     })
                 })
                 .collect()
@@ -463,9 +478,73 @@ pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
             recording: Some(mbid),
             title: field(response, "title"),
             works,
+            credits,
+            relationships_complete: true,
             ..Default::default()
         },
     })
+}
+
+/// Artist relationships carried by one recording or work response.
+fn relationship_credits(entity: &Json) -> Vec<CreditLink> {
+    entity
+        .get("relations")
+        .and_then(Json::as_arr)
+        .map(|relations| {
+            relations
+                .iter()
+                .filter(|relation| relation.field_str("target-type").as_deref() == Some("artist"))
+                .filter_map(|relation| {
+                    let artist = relation.get("artist")?;
+                    let credited_as = field(relation, "target-credit").filter(|s| !s.is_empty());
+                    Some(CreditLink {
+                        relation_id: field(relation, "id"),
+                        role_id: field(relation, "type-id"),
+                        role: field(relation, "type")?,
+                        direction: field(relation, "direction"),
+                        artist_mbid: field(artist, "id")?,
+                        artist_name: field(artist, "name").unwrap_or_default(),
+                        credited_as,
+                        attributes: relationship_attributes(relation),
+                        began: field(relation, "begin"),
+                        ended: field(relation, "end"),
+                        over: relation.field_optional_bool("ended"),
+                        order: relation.field_u32("ordering-key"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Attributes of one relationship, retaining values and credited spellings.
+fn relationship_attributes(relation: &Json) -> Vec<CreditAttribute> {
+    relation
+        .get("attributes")
+        .and_then(Json::as_arr)
+        .map(|attributes| {
+            attributes
+                .iter()
+                .filter_map(Json::as_string)
+                .map(|name| CreditAttribute {
+                    id: relation
+                        .get("attribute-ids")
+                        .and_then(|ids| ids.get(&name))
+                        .and_then(Json::as_string),
+                    value: relation
+                        .get("attribute-values")
+                        .and_then(|values| values.get(&name))
+                        .and_then(Json::as_string),
+                    credited_as: relation
+                        .get("attribute-credits")
+                        .and_then(|credits| credits.get(&name))
+                        .and_then(Json::as_string)
+                        .filter(|value| !value.is_empty()),
+                    name,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Artists, as `/ws/2/artist/?query=…&fmt=json` returns them.

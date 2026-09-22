@@ -366,6 +366,19 @@ pub struct Genre {
     pub key: String,
 }
 
+/// One attribute modifying a credit relationship.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreditAttribute {
+    /// Stable source identifier of the attribute type, when one exists.
+    pub id: Option<String>,
+    /// Stable attribute name, such as `guitar`, `additional` or `guest`.
+    pub name: String,
+    /// Structured value when the attribute type accepts one.
+    pub value: Option<String>,
+    /// Exact wording printed in the original credit.
+    pub credited_as: Option<String>,
+}
+
 /// "Who does what, on what". The heart of the graph.
 #[derive(Debug, Clone)]
 pub struct Credit {
@@ -380,6 +393,20 @@ pub struct Credit {
     /// [`is_performing_role`] splits these in two: heard on the recording, or
     /// merely behind it.
     pub role: String,
+    /// Exact name used by the credit when it differs from the artist entity.
+    pub credited_as: Option<String>,
+    /// Instruments and qualifiers carried by the relationship itself.
+    pub attributes: Vec<CreditAttribute>,
+    /// Optional beginning of the credit's date span.
+    pub began: Option<String>,
+    /// Optional end of the credit's date span.
+    pub ended: Option<String>,
+    /// Explicit relationship order, when supplied.
+    pub order: Option<u32>,
+    /// Provenance, normally `tags` for catalog credits.
+    pub source: String,
+    /// Identifier of the source relationship, when one exists.
+    pub source_id: Option<String>,
 }
 
 /// A typed and dated link between two entities.

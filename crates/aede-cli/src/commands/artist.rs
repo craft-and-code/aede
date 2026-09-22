@@ -233,6 +233,23 @@ pub fn show_artist(args: &Args) -> Res {
         }
         print!("{}", t.render());
     }
+    let held = super::sources_held(args)?;
+    let source_credits = held
+        .credit_links(&catalog)
+        .into_iter()
+        .filter(|link| match artist.mbid.as_deref() {
+            Some(mbid) => link.credit.artist_mbid == mbid,
+            None => {
+                text::normalize(&link.credit.artist_name) == artist.key
+                    || link
+                        .credit
+                        .credited_as
+                        .as_deref()
+                        .is_some_and(|name| text::normalize(name) == artist.key)
+            }
+        })
+        .collect();
+    super::print_sourced_credits(&catalog, source_credits);
     super::sources_panel_for(args, &catalog, EntityKind::Artist, artist.id);
     say_who_played(args, &catalog, artist.id, &artist.name);
     // A rating given and never shown again is a rating nobody trusts.

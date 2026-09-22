@@ -69,8 +69,25 @@ fn a_recording_lookup_keeps_only_explicit_work_relationships() {
         r#"{
           "id":"recording-id", "title":"All Along the Watchtower",
           "relations":[
-            {"target-type":"work", "work":{"id":"work-id", "title":"All Along the Watchtower"}},
-            {"target-type":"artist", "artist":{"id":"artist-id", "name":"Bob Dylan"}}
+            {"id":"performance-rel", "type-id":"performance-type",
+             "type":"performance", "target-type":"work", "direction":"forward",
+             "attributes":["cover"], "attribute-ids":{"cover":"cover-type"},
+             "work":{"id":"work-id", "title":"All Along the Watchtower",
+               "relations":[
+                 {"id":"composer-rel", "type-id":"composer-type", "type":"composer",
+                  "target-type":"artist", "direction":"backward", "ordering-key":1,
+                  "target-credit":"Robert Dylan", "begin":"1967", "end":null,
+                  "ended":false, "attributes":[],
+                  "artist":{"id":"dylan-id", "name":"Bob Dylan"}}
+               ]}},
+            {"id":"guitar-rel", "type-id":"instrument-type", "type":"instrument",
+             "target-type":"artist", "direction":"backward",
+             "target-credit":"Jimi Hendrix",
+             "attributes":["guitar"],
+             "attribute-ids":{"guitar":"guitar-type"},
+             "attribute-values":{"guitar":"electric guitar"},
+             "attribute-credits":{"guitar":"Fender Stratocaster"},
+             "artist":{"id":"hendrix-id", "name":"Jimi Hendrix"}}
           ]
         }"#,
     );
@@ -80,6 +97,44 @@ fn a_recording_lookup_keeps_only_explicit_work_relationships() {
     assert_eq!(found.facts.works.len(), 1);
     assert_eq!(found.facts.works[0].mbid, "work-id");
     assert_eq!(found.facts.works[0].title, "All Along the Watchtower");
+    assert_eq!(
+        found.facts.works[0].relation_id.as_deref(),
+        Some("performance-rel")
+    );
+    assert_eq!(
+        found.facts.works[0].relation_type_id.as_deref(),
+        Some("performance-type")
+    );
+    assert_eq!(found.facts.works[0].direction.as_deref(), Some("forward"));
+    assert_eq!(found.facts.works[0].attributes[0].name, "cover");
+    assert_eq!(
+        found.facts.works[0].attributes[0].id.as_deref(),
+        Some("cover-type")
+    );
+    assert_eq!(found.facts.works[0].credits.len(), 1);
+    let composer = &found.facts.works[0].credits[0];
+    assert_eq!(composer.role, "composer");
+    assert_eq!(composer.artist_mbid, "dylan-id");
+    assert_eq!(composer.credited_as.as_deref(), Some("Robert Dylan"));
+    assert_eq!(composer.began.as_deref(), Some("1967"));
+    assert_eq!(composer.order, Some(1));
+
+    assert_eq!(found.facts.credits.len(), 1);
+    let performer = &found.facts.credits[0];
+    assert_eq!(performer.role, "instrument");
+    assert_eq!(performer.direction.as_deref(), Some("backward"));
+    assert_eq!(performer.relation_id.as_deref(), Some("guitar-rel"));
+    assert_eq!(performer.attributes[0].name, "guitar");
+    assert_eq!(performer.attributes[0].id.as_deref(), Some("guitar-type"));
+    assert_eq!(
+        performer.attributes[0].value.as_deref(),
+        Some("electric guitar")
+    );
+    assert_eq!(
+        performer.attributes[0].credited_as.as_deref(),
+        Some("Fender Stratocaster")
+    );
+    assert!(found.facts.relationships_complete);
 }
 
 #[test]

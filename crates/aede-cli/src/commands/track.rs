@@ -11,10 +11,12 @@
 
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id, TitleMatch, Track};
+use aede_core::sources::{self, SourcedCreditLink};
 use aede_core::{lyrics, text};
 
 use super::{
-    Res, announce_window, load, properties_table, role_label, selection_output, tags_table,
+    Res, announce_window, data_dir, load, properties_table, role_label, selection_output,
+    tags_table,
 };
 use crate::args::Args;
 use crate::ui::{self, Table};
@@ -25,6 +27,8 @@ const DEFAULT_LIMIT: usize = 10;
 
 pub fn show_track(args: &Args) -> Res {
     let catalog = load(args)?;
+    let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
+    let sourced_credits = held.credit_links(&catalog);
     let title = args.positionals.join(" ");
     if title.trim().is_empty() {
         return Err("give a title: aede track \"Patient Number 9\"".into());
@@ -86,7 +90,12 @@ pub fn show_track(args: &Args) -> Res {
     // one carries the credits and the technical detail, which no flat table of
     // a selection can.
     if args.has("json") {
-        let json = Json::Arr(matches.iter().map(|t| as_json(&catalog, t)).collect());
+        let json = Json::Arr(
+            matches
+                .iter()
+                .map(|t| as_json(&catalog, t, &sourced_credits))
+                .collect(),
+        );
         println!("{}", json.to_string_pretty());
         return Ok(());
     }
@@ -105,6 +114,14 @@ pub fn show_track(args: &Args) -> Res {
     let words = args.has("lyrics");
     for track in &matches {
         print_track(&catalog, track);
+        super::print_sourced_credits(
+            &catalog,
+            sourced_credits
+                .iter()
+                .filter(|link| link.recording_id == track.recording_id)
+                .cloned()
+                .collect(),
+        );
         if words {
             print_lyrics(&catalog, track);
         }
@@ -216,21 +233,60 @@ fn print_track(catalog: &Catalog, track: &Track) {
         );
     }
 
-    let credits = catalog.credits_on(EntityKind::Track, track.id);
-    if !credits.is_empty() {
+    let credit_rows: Vec<_> = catalog
+        .credits
+        .iter()
+        .filter(|credit| credit.entity_kind == EntityKind::Track && credit.entity_id == track.id)
+        .collect();
+    if !credit_rows.is_empty() {
         println!("{}", ui::section("Credits"));
-        let mut by_role: std::collections::BTreeMap<String, Vec<String>> = Default::default();
-        for (artist, role) in credits {
-            by_role
-                .entry(role_label(role))
-                .or_default()
-                .push(artist.name.clone());
+        let rich = credit_rows.iter().any(|credit| {
+            credit.credited_as.is_some()
+                || !credit.attributes.is_empty()
+                || credit.began.is_some()
+                || credit.ended.is_some()
+        });
+        if rich {
+            let mut table = Table::new(&["Artist", "Role", "Credited as", "Details", "Source"])
+                .limit(0, 30)
+                .limit(2, 25)
+                .limit(3, 40);
+            for credit in credit_rows {
+                let artist = catalog
+                    .artist(credit.artist_id)
+                    .map(|artist| artist.name.clone())
+                    .unwrap_or_default();
+                let details = credit
+                    .attributes
+                    .iter()
+                    .map(|attribute| attribute.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                table.push(vec![
+                    artist,
+                    role_label(&credit.role),
+                    credit.credited_as.clone().unwrap_or_default(),
+                    details,
+                    credit.source.clone(),
+                ]);
+            }
+            print!("{}", table.render());
+        } else {
+            let mut by_role: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+            for credit in credit_rows {
+                if let Some(artist) = catalog.artist(credit.artist_id) {
+                    by_role
+                        .entry(role_label(&credit.role))
+                        .or_default()
+                        .push(artist.name.clone());
+                }
+            }
+            let mut table = Table::new(&["Role", "Artists"]).limit(1, 60);
+            for (role, names) in by_role {
+                table.push(vec![role, dedupe(names).join(", ")]);
+            }
+            print!("{}", table.render());
         }
-        let mut t = Table::new(&["Role", "Artists"]).limit(1, 60);
-        for (role, names) in by_role {
-            t.push(vec![role, dedupe(names).join(", ")]);
-        }
-        print!("{}", t.render());
     }
 
     if let Some(file) = file {
@@ -316,7 +372,7 @@ fn dedupe(mut names: Vec<String>) -> Vec<String> {
     names
 }
 
-fn as_json(catalog: &Catalog, track: &Track) -> Json {
+fn as_json(catalog: &Catalog, track: &Track, sourced: &[SourcedCreditLink]) -> Json {
     let mut o = Json::obj();
     o.set("id", track.id.into());
     o.set("title", track.title.clone().into());
@@ -343,17 +399,85 @@ fn as_json(catalog: &Catalog, track: &Track) -> Json {
 
     let credits = Json::Arr(
         catalog
-            .credits_on(EntityKind::Track, track.id)
-            .into_iter()
-            .map(|(artist, role)| {
+            .credits
+            .iter()
+            .filter(|credit| {
+                credit.entity_kind == EntityKind::Track && credit.entity_id == track.id
+            })
+            .filter_map(|assertion| {
+                let artist = catalog.artist(assertion.artist_id)?;
                 let mut c = Json::obj();
                 c.set("artist", artist.name.clone().into());
-                c.set("role", role.to_string().into());
-                c
+                c.set("role", assertion.role.clone().into());
+                c.set("credited_as", assertion.credited_as.clone().into());
+                c.set(
+                    "attributes",
+                    Json::Arr(assertion.attributes.iter().map(attribute_json).collect()),
+                );
+                c.set("began", assertion.began.clone().into());
+                c.set("ended", assertion.ended.clone().into());
+                c.set("order", assertion.order.into());
+                c.set("source", assertion.source.clone().into());
+                c.set("source_id", assertion.source_id.clone().into());
+                Some(c)
             })
             .collect(),
     );
     o.set("credits", credits);
+    o.set(
+        "sourced_credits",
+        Json::Arr(
+            sourced
+                .iter()
+                .filter(|link| link.recording_id == track.recording_id)
+                .map(|link| {
+                    let mut credit = Json::obj();
+                    credit.set("artist", link.credit.artist_name.clone().into());
+                    credit.set("artist_mbid", link.credit.artist_mbid.clone().into());
+                    credit.set("role", link.credit.role.clone().into());
+                    credit.set("role_id", link.credit.role_id.clone().into());
+                    credit.set("relation_id", link.credit.relation_id.clone().into());
+                    credit.set("direction", link.credit.direction.clone().into());
+                    credit.set("credited_as", link.credit.credited_as.clone().into());
+                    credit.set(
+                        "attributes",
+                        Json::Arr(link.credit.attributes.iter().map(attribute_json).collect()),
+                    );
+                    credit.set("began", link.credit.began.clone().into());
+                    credit.set("ended", link.credit.ended.clone().into());
+                    credit.set("ended_explicitly", link.credit.over.into());
+                    credit.set("order", link.credit.order.into());
+                    credit.set(
+                        "scope",
+                        if link.work.is_some() {
+                            "work"
+                        } else {
+                            "recording"
+                        }
+                        .into(),
+                    );
+                    credit.set("recording_id", link.recording_id.into());
+                    credit.set(
+                        "work_mbid",
+                        link.work.as_ref().map(|work| work.mbid.clone()).into(),
+                    );
+                    credit.set(
+                        "work_title",
+                        link.work.as_ref().map(|work| work.title.clone()).into(),
+                    );
+                    credit.set("source", link.source.clone().into());
+                    let (confidence, score) = match link.confidence {
+                        sources::Confidence::Identified => ("identified", None),
+                        sources::Confidence::Matched(score) => ("matched", Some(score as u32)),
+                    };
+                    credit.set("confidence", confidence.into());
+                    credit.set("confidence_score", score.into());
+                    credit.set("fetched_at", link.fetched_at.into());
+                    credit
+                })
+                .collect(),
+        ),
+    );
 
     if let Some(file) = catalog.file(track.file_id) {
         o.set("path", file.path.clone().into());
@@ -372,6 +496,15 @@ fn as_json(catalog: &Catalog, track: &Track) -> Json {
         o.set("tags", tags);
     }
     o
+}
+
+fn attribute_json(attribute: &aede_core::model::CreditAttribute) -> Json {
+    let mut value = Json::obj();
+    value.set("id", attribute.id.clone().into());
+    value.set("name", attribute.name.clone().into());
+    value.set("value", attribute.value.clone().into());
+    value.set("credited_as", attribute.credited_as.clone().into());
+    value
 }
 
 /// What the last integrity check said about the file behind a track.
@@ -463,6 +596,9 @@ fn yes_no(value: bool) -> String {
 mod tests {
     use super::*;
     use crate::args::Args;
+    use aede_core::model::{CreditAttribute, ScannedFile, build};
+    use aede_core::sources::{Confidence, CreditLink, WorkLink};
+    use aede_core::tags::RawTags;
 
     fn expression(words: &[&str]) -> String {
         track_query(&Args::parse(words.iter().map(|w| w.to_string())))
@@ -498,6 +634,99 @@ mod tests {
         assert_eq!(
             expression(&["track", "x", "--album", "Legion", "--comment", "rip"]),
             "album:Legion comment:rip"
+        );
+    }
+
+    #[test]
+    fn json_keeps_every_rich_credit_detail_and_its_scope() {
+        let mut tags = RawTags::default();
+        tags.insert("artist", "Band");
+        tags.insert("albumartist", "Band");
+        tags.insert("album", "Record");
+        tags.insert("title", "Song");
+        tags.insert("performer:guitar", "Local Player");
+        let catalog = build(
+            vec![ScannedFile {
+                path: "/music/song.flac".into(),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }],
+            vec!["/music".into()],
+            1,
+            &[],
+        );
+        let track = &catalog.tracks[0];
+        let sourced = vec![SourcedCreditLink {
+            recording_id: track.recording_id,
+            work: Some(WorkLink {
+                mbid: "work-id".into(),
+                title: "Song Work".into(),
+                ..Default::default()
+            }),
+            credit: CreditLink {
+                relation_id: Some("relation-id".into()),
+                role_id: Some("role-id".into()),
+                role: "composer".into(),
+                direction: Some("backward".into()),
+                artist_mbid: "artist-id".into(),
+                artist_name: "Canonical Writer".into(),
+                credited_as: Some("The Writer".into()),
+                attributes: vec![CreditAttribute {
+                    id: Some("attribute-id".into()),
+                    name: "additional".into(),
+                    value: Some("yes".into()),
+                    credited_as: Some("additional lyrics".into()),
+                }],
+                began: Some("1970".into()),
+                ended: Some("1971".into()),
+                over: Some(true),
+                order: Some(2),
+            },
+            source: "musicbrainz".into(),
+            confidence: Confidence::Identified,
+            fetched_at: 42,
+        }];
+
+        let json = as_json(&catalog, track, &sourced);
+        let local = json
+            .get("credits")
+            .and_then(Json::as_arr)
+            .expect("local credits")
+            .iter()
+            .find(|credit| credit.field_str("role").as_deref() == Some("performer"))
+            .expect("performer credit");
+        let local_attribute = local
+            .get("attributes")
+            .and_then(Json::as_arr)
+            .and_then(|attributes| attributes.first())
+            .expect("instrument attribute");
+        assert_eq!(local_attribute.field_str("name").as_deref(), Some("guitar"));
+        assert_eq!(local.field_str("source").as_deref(), Some("tags"));
+
+        let external = json
+            .get("sourced_credits")
+            .and_then(Json::as_arr)
+            .and_then(|credits| credits.first())
+            .expect("sourced credit");
+        assert_eq!(external.field_str("scope").as_deref(), Some("work"));
+        assert_eq!(external.field_str("work_mbid").as_deref(), Some("work-id"));
+        assert_eq!(
+            external.field_str("relation_id").as_deref(),
+            Some("relation-id")
+        );
+        assert_eq!(
+            external.field_str("credited_as").as_deref(),
+            Some("The Writer")
+        );
+        assert_eq!(external.field_u32("order"), Some(2));
+        assert_eq!(
+            external.field_str("confidence").as_deref(),
+            Some("identified")
         );
     }
 }

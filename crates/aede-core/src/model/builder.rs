@@ -482,6 +482,40 @@ impl Builder {
                 self.push_credit(id, EntityKind::Track, track_id, role);
             }
         }
+        // Picard and the Vorbis Comment convention encode instruments in the
+        // field name itself: `PERFORMER:guitar=Name`. Preserve the instrument
+        // on the relationship instead of flattening every such row into an
+        // indistinguishable performer credit.
+        for key in item
+            .tags
+            .fields
+            .keys()
+            .filter(|key| key.starts_with("performer:") && key.len() > "performer:".len())
+        {
+            let instrument = key["performer:".len()..].trim();
+            for (order, name) in credited_under(&item.tags, key).into_iter().enumerate() {
+                let id = self.intern_artist(&name);
+                let credited_as = self
+                    .catalog
+                    .artist(id)
+                    .filter(|artist| artist.name != name)
+                    .map(|_| name.clone());
+                self.push_credit_details(
+                    id,
+                    EntityKind::Track,
+                    track_id,
+                    "performer",
+                    credited_as,
+                    vec![super::CreditAttribute {
+                        id: None,
+                        name: instrument.to_string(),
+                        value: None,
+                        credited_as: None,
+                    }],
+                    Some(order as u32),
+                );
+            }
+        }
         if let Some(rid) = entities.release_id
             && !entities.is_compilation
         {
@@ -632,12 +666,46 @@ impl Builder {
 
     /// Adds a credit unless the same one is already recorded.
     fn push_credit(&mut self, artist_id: Id, kind: EntityKind, id: Id, role: &str) {
-        if self.credits.insert((artist_id, kind, id, role.to_string())) {
+        self.push_credit_details(artist_id, kind, id, role, None, Vec::new(), None);
+    }
+
+    fn push_credit_details(
+        &mut self,
+        artist_id: Id,
+        kind: EntityKind,
+        id: Id,
+        role: &str,
+        credited_as: Option<String>,
+        attributes: Vec<super::CreditAttribute>,
+        order: Option<u32>,
+    ) {
+        let attribute_key = attributes
+            .iter()
+            .map(|attribute| {
+                format!(
+                    "{}\u{1f}{}\u{1f}{}",
+                    attribute.name,
+                    attribute.value.as_deref().unwrap_or(""),
+                    attribute.credited_as.as_deref().unwrap_or("")
+                )
+            })
+            .collect();
+        if self
+            .credits
+            .insert((artist_id, kind, id, role.to_string(), attribute_key))
+        {
             self.catalog.credits.push(Credit {
                 artist_id,
                 entity_kind: kind,
                 entity_id: id,
                 role: role.to_string(),
+                credited_as,
+                attributes,
+                began: None,
+                ended: None,
+                order,
+                source: "tags".to_string(),
+                source_id: None,
             });
         }
     }
@@ -650,17 +718,22 @@ impl Builder {
 
 /// Tag names read as credits, each one giving its role its name.
 const ROLE_TAGS: &[&str] = &[
+    "arranger",
     "composer",
     "conductor",
+    "writer",
     "remixer",
     "lyricist",
     "performer",
     "producer",
     "engineer",
+    "mixer",
+    "djmixer",
+    "mastering_engineer",
 ];
 
 /// Key of a credit, used to reject duplicates in constant time.
-type CreditKey = (Id, EntityKind, Id, String);
+type CreditKey = (Id, EntityKind, Id, String, Vec<String>);
 
 /// The unambiguous (identifier, name) pairs one file states.
 ///

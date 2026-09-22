@@ -21,10 +21,19 @@ aede artists --csv --limit=100 --output=artists.csv
 
 `recording` and `work` traverse the canonical music graph. A recording gathers
 the local album placements that share its MusicBrainz recording identity and
-shows attributed work relationships. A work gathers the recordings that
-realize the composition. `aede work` also accepts a work obtained by `aede
-fetch --recordings`: it is clearly marked as external evidence and does not
-pretend that the fetch added a tag to the audio file.
+shows attributed work relationships and recording-level credits. A work gathers
+the recordings that realize the composition and shows its composers, lyricists,
+writers and arrangers when MusicBrainz provides them. `aede work` also accepts
+a work obtained by `aede fetch --credits`: it is clearly marked as external
+evidence and does not pretend that the fetch added a tag to the audio file.
+
+`aede fetch --credits` uses recording identifiers already present in the local
+tags. It keeps performers and production roles on the recording, creative roles
+on the work, and preserves credited-as names, instruments or qualifiers, dates,
+order and MusicBrainz relationship identifiers. The same sourced credits are
+shown by `track`, `album`, `artist`, `recording` and `work`; `track --json`
+keeps them separate from credits read locally from tags. The older
+`--recordings` spelling remains an alias.
 
 `label` applies the same rule to identity. It says whether the MusicBrainz ID
 came from a local tag, was confirmed by an identifier lookup, is only a

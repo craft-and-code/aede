@@ -155,10 +155,18 @@ aede fetch --lyrics         # missing words from LRCLIB, as .lrc sidecars
 aede fetch --covers         # the front image of every album that has none
 aede fetch --portraits      # Wikidata first, then Fanart.tv as fallback
 aede fetch --labels         # identify record labels through MusicBrainz
-aede fetch --recordings     # retrieve work links for recordings with an MBID
+aede fetch --credits        # recording/work credits and work links for recordings with an MBID
 aede fetch --logos          # artist and identified-label logos from Fanart.tv
 aede fetch --fanart         # every supported Fanart.tv image family
 ```
+
+`--credits` never searches a recording by title: it follows only a
+`MUSICBRAINZ_RECORDINGID` already attached to a local recording. One lookup
+then keeps direct recording roles, the linked works and their creative roles,
+including credited-as spellings, instruments and qualifiers, dates, ordering
+and relationship identifiers. Existing data fetched with the former
+`--recordings` option is refreshed once into this richer form; `--recordings`
+continues to work as an alias.
 
 **Each accepts names and folders**:
 

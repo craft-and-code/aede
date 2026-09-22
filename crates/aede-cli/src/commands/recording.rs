@@ -60,8 +60,18 @@ pub fn show_recording(args: &Args) -> Res {
         .into_iter()
         .filter(|link| link.recording_id == recording.id)
     {
+        let attributes = link
+            .work
+            .attributes
+            .iter()
+            .map(|attribute| attribute.name.as_str())
+            .collect::<Vec<_>>();
+        let qualified = match attributes.is_empty() {
+            true => String::new(),
+            false => format!(" · {}", attributes.join(", ")),
+        };
         println!(
-            "  source work: {} ({}) — {} · {} · {}",
+            "  source work: {} ({}){qualified} — {} · {} · {}",
             link.work.title,
             link.work.mbid,
             link.source,
@@ -69,6 +79,13 @@ pub fn show_recording(args: &Args) -> Res {
             ui::since(link.fetched_at)
         );
     }
+    super::print_sourced_credits(
+        &catalog,
+        held.credit_links(&catalog)
+            .into_iter()
+            .filter(|link| link.recording_id == recording.id)
+            .collect(),
+    );
     Ok(())
 }
 

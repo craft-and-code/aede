@@ -349,6 +349,13 @@ mod tests {
             entity_kind: EntityKind::Track,
             entity_id: track,
             role: role.into(),
+            credited_as: None,
+            attributes: Vec::new(),
+            began: None,
+            ended: None,
+            order: None,
+            source: "tags".into(),
+            source_id: None,
         }
     }
 

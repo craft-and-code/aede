@@ -123,30 +123,30 @@ aede doctor
 
 ### Query, Search & Catalog Browsing
 
-| Command          | Arguments      | Key Options                                                                                                               | Description                                                          |
-| :--------------- | :------------- | :------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------- |
-| `aede query`     | `<expression>` | `--m3u`, `--csv`, `--json`                                                                                                | Evaluates a relational search expression across the catalog graph.   |
-| `aede search`    | `<term>`       | `--comments`, `--notes`, `--lyrics`                                                                                       | Free-text search across titles, artists, albums, or prose metadata.  |
-| `aede albums`    | None           | `--artist`, `--genre`, `--year`, `--compilations`, `--no-compilations`, `--limit`, `--offset`, `--all`, `--csv`, `--json` | List and filter album records with pagination support.               |
-| `aede artists`   | None           | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.    |
-| `aede genres`    | `[name]`       | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.      |
-| `aede labels`    | `[name]`       | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                         |
-| `aede artist`    | `<name>`       | `--with <artist>`, `--members`, `--m3u`, `--csv`                                                                           | Show one artist's albums, collaborations, credits, and relationships. |
-| `aede album`     | `<title>`      | `--m3u`, `--csv`                                                                                                           | Show one local edition, its tracks, credits, and graph links.         |
-| `aede track`     | `<title>`      | `--artist`, `--lyrics`, `--limit`                                                                                           | Show a local placement, tags, credits, and technical facts.           |
-| `aede recording` | `<title\|MBID>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works. |
-| `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.     |
-| `aede label`     | `<name>`       | `--m3u`, `--csv`                                                                                                           | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
-| `aede countries` | None           | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz. |
-| `aede missing`   | `<artist>`     | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.        |
+| Command          | Arguments       | Key Options                                                                                                               | Description                                                                          |
+| :--------------- | :-------------- | :------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------- |
+| `aede query`     | `<expression>`  | `--m3u`, `--csv`, `--json`                                                                                                | Evaluates a relational search expression across the catalog graph.                   |
+| `aede search`    | `<term>`        | `--comments`, `--notes`, `--lyrics`                                                                                       | Free-text search across titles, artists, albums, or prose metadata.                  |
+| `aede albums`    | None            | `--artist`, `--genre`, `--year`, `--compilations`, `--no-compilations`, `--limit`, `--offset`, `--all`, `--csv`, `--json` | List and filter album records with pagination support.                               |
+| `aede artists`   | None            | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.                    |
+| `aede genres`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.                      |
+| `aede labels`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                                         |
+| `aede artist`    | `<name>`        | `--with <artist>`, `--members`, `--m3u`, `--csv`                                                                          | Show one artist's albums, collaborations, credits, and relationships.                |
+| `aede album`     | `<title>`       | `--m3u`, `--csv`                                                                                                          | Show one local edition, its tracks, credits, and graph links.                        |
+| `aede track`     | `<title>`       | `--artist`, `--lyrics`, `--limit`                                                                                         | Show a local placement, tags, credits, and technical facts.                          |
+| `aede recording` | `<title\|MBID>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works.               |
+| `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.                    |
+| `aede label`     | `<name>`        | `--m3u`, `--csv`                                                                                                          | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
+| `aede countries` | None            | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz.                 |
+| `aede missing`   | `<artist>`      | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.                        |
 
 ### External Metadata & Artwork
 
-| Command      | Arguments          | Key Options                                                                                                                                              | Description                                                                                                      |
-| :----------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
-| `aede fetch` | `[name\|folder…]` | `--summaries`, `--discography`, `--lyrics`, `--covers`, `--portraits`, `--logos`, `--labels`, `--recordings`, `--fanart`, `--dry-run`, `--full`             | Retrieves attributed metadata and derivative assets without modifying audio files.                              |
-| `aede fetch` | `[name\|folder…]` | `--fanart` with `--no-logo`, `--no-label-logo`, `--no-portrait`, `--no-background`, `--no-banner`, `--no-album-cover`, `--no-cdart`                        | Retrieves all useful Fanart.tv image families, minus any explicitly excluded families; 4K backgrounds win.      |
-| `aede fetch` | `[name\|folder…]` | `--covers --size <250\|500\|1200\|original>`, `--images`                                                                                                | Retrieves missing Cover Art Archive images while leaving every existing local image untouched.                  |
+| Command      | Arguments         | Key Options                                                                                                                                  | Description                                                                                                |
+| :----------- | :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- |
+| `aede fetch` | `[name\|folder…]` | `--summaries`, `--discography`, `--lyrics`, `--covers`, `--portraits`, `--logos`, `--labels`, `--credits`, `--fanart`, `--dry-run`, `--full` | Retrieves attributed metadata, rich credits and derivative assets without modifying audio files.           |
+| `aede fetch` | `[name\|folder…]` | `--fanart` with `--no-logo`, `--no-label-logo`, `--no-portrait`, `--no-background`, `--no-banner`, `--no-album-cover`, `--no-cdart`          | Retrieves all useful Fanart.tv image families, minus any explicitly excluded families; 4K backgrounds win. |
+| `aede fetch` | `[name\|folder…]` | `--covers --size <250\|500\|1200\|original>`, `--images`                                                                                     | Retrieves missing Cover Art Archive images while leaving every existing local image untouched.             |
 
 Fanart.tv access requires a free key in `AEDE_FANARTTV_KEY`. A complete run can then be tailored without enumerating what should remain enabled:
 
@@ -163,6 +163,22 @@ aede fetch --fanart --no-album-cover ~/Music/Jazz
 ```
 
 Artist logos, portraits, banners, and backgrounds are written beside the artist's music when there is one shared folder, or under Aède's `assets/` directory otherwise. Label logos live under `assets/labels/<MusicBrainz ID>/`; Fanart.tv album covers and cdART live in each album's `artwork/` directory. Existing files are never overwritten.
+
+Rich credits are fetched only from recording identifiers already present in
+the library; no title is guessed:
+
+```sh
+aede fetch --credits "Patient Number 9"
+aede recording <MusicBrainz-recording-ID>
+aede work <MusicBrainz-work-ID>
+aede track "Patient Number 9" --json
+```
+
+Recording performers and production roles remain distinct from work composers,
+lyricists, writers and arrangers. Credited-as names, instruments, qualifiers,
+dates, ordering and MusicBrainz relationship identifiers keep their provenance
+in `sources.json`. The former `--recordings` option remains a compatibility
+alias for `--credits`.
 
 ### Transfer, Export & Derivative Generation
 

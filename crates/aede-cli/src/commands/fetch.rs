@@ -543,8 +543,8 @@ enum Pass {
     Lyrics,
     /// What AcoustID hears in the files that have been fingerprinted.
     Identify,
-    /// Work relationships of recordings already identified in local tags.
-    Recordings,
+    /// Rich recording and work relationships already identified in local tags.
+    Credits,
     /// A picture of the artist, from Wikidata or Fanart.tv — see
     /// [`super::portraits`].
     Portraits,
@@ -564,7 +564,8 @@ impl Pass {
             ("covers", Pass::Covers),
             ("lyrics", Pass::Lyrics),
             ("identify", Pass::Identify),
-            ("recordings", Pass::Recordings),
+            ("credits", Pass::Credits),
+            ("recordings", Pass::Credits),
             ("labels", Pass::Labels),
             ("portraits", Pass::Portraits),
             ("logos", Pass::Logos),
@@ -589,7 +590,7 @@ impl Pass {
             Pass::Covers => "--covers",
             Pass::Lyrics => "--lyrics",
             Pass::Identify => "--identify",
-            Pass::Recordings => "--recordings",
+            Pass::Credits => "--credits",
             Pass::Portraits => "--portraits",
             Pass::Logos => "--logos",
             Pass::Labels => "--labels",
@@ -705,19 +706,19 @@ fn second_passes(
                 let catalog = catalog.expect("a catalog was loaded for it");
                 super::labels::run(catalog, transport, backoff, held, path, asked)?;
             }
-            Pass::Recordings => {
+            Pass::Credits => {
                 let catalog = catalog.expect("a catalog was loaded for it");
-                recording_links(catalog, transport, backoff, held, path, asked, args)?;
+                rich_credits(catalog, transport, backoff, held, path, asked, args)?;
             }
         }
     }
     Ok(())
 }
 
-/// Retrieves MusicBrainz work relationships for recordings local tags already
-/// identify. No title search is offered: without a recording MBID there is no
-/// safe question to ask.
-fn recording_links(
+/// Retrieves MusicBrainz recording credits, work relationships and work
+/// credits for recordings local tags already identify. No title search is
+/// offered: without a recording MBID there is no safe question to ask.
+fn rich_credits(
     catalog: &Catalog,
     transport: &mut dyn Ask,
     backoff: &[std::time::Duration],
@@ -741,7 +742,13 @@ fn recording_links(
         let Some(entity) = EntityRef::of(catalog, EntityKind::Track, track_id) else {
             continue;
         };
-        if !asked.again && held.get(&entity, sources::MUSICBRAINZ).is_some() {
+        if !asked.again
+            && held
+                .get(&entity, sources::MUSICBRAINZ)
+                .is_some_and(|record| {
+                    matches!(&record.facts, Facts::Track(facts) if facts.relationships_complete)
+                })
+        {
             continue;
         }
         if !reaches(asked.names, &[recording.title.as_str()]) {
@@ -749,7 +756,7 @@ fn recording_links(
         }
         targets.push((entity, recording.title.as_str(), mbid));
     }
-    println!("{}", ui::section("Recording relationships"));
+    println!("{}", ui::section("Recording and work credits"));
     if targets.is_empty() {
         println!("  {}", ui::dim("no identified recording is waiting"));
         return Ok(());

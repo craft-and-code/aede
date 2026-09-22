@@ -1,9 +1,10 @@
 //! The `album` command: one page per release.
 
 use aede_core::model::{Catalog, EntityKind, Id, Release, TitleMatch};
+use aede_core::sources;
 use aede_core::text;
 
-use super::{Res, load, role_label, selection_output};
+use super::{Res, data_dir, load, role_label, selection_output};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 use aede_core::model::{DUPLICATE, OTHER_EDITION};
@@ -55,6 +56,8 @@ pub fn show_album(args: &Args) -> Res {
     if let Some(result) = selection_output(&catalog, &tracks, args) {
         return result;
     }
+    let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
+    let sourced_credits = held.credit_links(&catalog);
 
     if kind == TitleMatch::Partial {
         println!(
@@ -65,7 +68,7 @@ pub fn show_album(args: &Args) -> Res {
         );
     }
     for release in &matches {
-        print_album(args, &catalog, release);
+        print_album(args, &catalog, release, &sourced_credits);
         super::sources_panel_for(args, &catalog, EntityKind::Release, release.id);
         super::panel_for(args, &catalog, EntityKind::Release, release.id);
     }
@@ -133,7 +136,12 @@ fn say_who_was_in_the_band(args: &Args, catalog: &Catalog, release: &Release) {
 /// that matches a whole discography should not scroll for a minute.
 const DEFAULT_LIMIT: usize = 5;
 
-fn print_album(args: &Args, catalog: &Catalog, release: &Release) {
+fn print_album(
+    args: &Args,
+    catalog: &Catalog,
+    release: &Release,
+    sourced_credits: &[sources::SourcedCreditLink],
+) {
     let artist = release
         .album_artist_id
         .and_then(|id| catalog.artist(id))
@@ -269,12 +277,22 @@ fn print_album(args: &Args, catalog: &Catalog, release: &Release) {
     let mut others: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
         Default::default();
     for &track_id in &release.track_ids {
-        for (artist, role) in catalog.credits_on(EntityKind::Track, track_id) {
-            if role != "main" {
-                others
-                    .entry(role.to_string())
-                    .or_default()
-                    .insert(artist.name.clone());
+        for credit in catalog.credits.iter().filter(|credit| {
+            credit.entity_kind == EntityKind::Track && credit.entity_id == track_id
+        }) {
+            if credit.role != "main"
+                && let Some(artist) = catalog.artist(credit.artist_id)
+            {
+                let attributes = credit
+                    .attributes
+                    .iter()
+                    .map(|attribute| attribute.name.clone())
+                    .collect::<Vec<_>>();
+                let name = match attributes.is_empty() {
+                    true => artist.name.clone(),
+                    false => format!("{} ({})", artist.name, attributes.join(", ")),
+                };
+                others.entry(credit.role.clone()).or_default().insert(name);
             }
         }
     }
@@ -289,6 +307,20 @@ fn print_album(args: &Args, catalog: &Catalog, release: &Release) {
         }
         print!("{}", t.render());
     }
+    let recording_ids: std::collections::BTreeSet<Id> = release
+        .track_ids
+        .iter()
+        .filter_map(|&track_id| catalog.track(track_id))
+        .map(|track| track.recording_id)
+        .collect();
+    super::print_sourced_credits(
+        catalog,
+        sourced_credits
+            .iter()
+            .filter(|link| recording_ids.contains(&link.recording_id))
+            .cloned()
+            .collect(),
+    );
 }
 
 /// How many discs the release actually spans.

@@ -1,9 +1,10 @@
 # The canonical music graph: audit and model
 
-**Status: stages 0–2 implemented.** The catalog now separates placements,
+**Status: stages 0–3 implemented.** The catalog now separates placements,
 recordings, releases, release groups and works. External relationships remain
-attributed evidence, and the command views expose them without rewriting local
-tags. Rich relationship credits are the next stage; SQLite remains later.
+attributed evidence, and rich recording and work credits keep their exact
+scope, role details and provenance without rewriting local tags. SQLite remains
+later.
 
 The objective is to make every musical fact addressable in both directions:
 from a performer to the
@@ -27,8 +28,7 @@ The current catalog is already a graph, rather than a folder hierarchy:
 other claims with their source identifier, confidence and fetch date; a scan
 can therefore never erase a costly external answer or overwrite a local tag.
 
-The audit found these specific gaps; the first three and the label identity
-gap are now closed:
+The audit found these specific gaps; all five are now closed:
 
 1. `Track` combined a local file, its release position, and the abstract
    recording. It is now the local placement and points to `Recording`.
@@ -36,9 +36,9 @@ gap are now closed:
    canonical object linking all known local editions.
 3. A musical work was absent. `Work` now joins tagged and source-backed
    recordings by MusicBrainz work ID.
-4. Credits have a role but not yet their MusicBrainz relationship identity,
-   credited-as name, attributes/instruments, date span, ordering or source
-   evidence.
+4. Credits originally had only a role. They now retain their MusicBrainz
+   relationship identity, credited-as name, attributes/instruments, date span,
+   ordering and source evidence.
 5. Labels were local names only. An explicit tag MBID is now canonical, while
    fetched identity is reconciled as confirmed, agreeing, proposed or
    conflicting evidence.
@@ -99,6 +99,34 @@ Agreement is retained rather than discarded: “checked and equal” is a
 different state from “never checked”. Conflicts likewise remain unresolved
 until an explicit future review action can choose one.
 
+## Stage 3 — rich credits
+
+`aede fetch --credits` performs one identifier lookup per recording and asks
+for three connected layers in the same response:
+
+- artist relationships directly attached to the recording, such as performer,
+  producer, engineer, conductor or remixer;
+- the recording-to-work relationship, including qualifiers such as live,
+  cover, instrumental, partial or medley;
+- artist relationships on each linked work, such as composer, lyricist,
+  writer or arranger.
+
+Every external credit retains the MusicBrainz artist ID, canonical name,
+credited-as spelling, relationship type, stable type identifiers and direction,
+instruments and other attributes, begin/end dates, ordering, source, confidence
+and fetch time. Its scope remains explicit: a composer on the work is not
+presented as though they performed on the recording.
+
+The local catalog uses the same richer relationship vocabulary. In particular,
+Picard/Vorbis fields such as `PERFORMER:guitar` keep the instrument on the
+credit instead of flattening it into a generic performer. Local tag assertions
+remain marked `tags`; fetched assertions remain in `sources.json`.
+
+The credits are visible from `track`, `album`, `artist`, `recording`, `work`
+and the source comparison panel. The track JSON view exports local and sourced
+credits separately, so provenance and scope cannot disappear in a machine-
+readable view. `--recordings` remains a compatibility alias for `--credits`.
+
 ## Completed delivery order
 
 1. Add `Recording` and connect each local placement to exactly one recording.
@@ -111,10 +139,13 @@ until an explicit future review action can choose one.
    confidence and date, and reconcile them without mutation.
 5. Add `recording` and `work` traversal views after persistence and ambiguity
    tests.
+6. Enrich local tag credits and source-backed MusicBrainz credits with role
+   details, identifiers, exact scope and provenance.
+7. Retrieve recording and nested work relationships in one request, then expose
+   them consistently across the entity views and JSON output.
 
-The next graph stage replaces plain credit roles with relationship assertions
-that retain role details and provenance. The current concise role output stays
-as a derived view during that transition.
+The next graph stage expands the relations between objects and the navigation
+that follows them in both directions.
 
 SQLite is intentionally outside these stages. The graph must first be proven
 in the current model and JSON persistence; M2 can then migrate one established

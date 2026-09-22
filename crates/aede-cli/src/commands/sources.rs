@@ -673,6 +673,12 @@ fn compared(
             }
             for work in &t.works {
                 rows.push(("work", format!("{} ({})", work.title, work.mbid), None));
+                for credit in &work.credits {
+                    rows.push(("work credit", credit_summary(credit), None));
+                }
+            }
+            for credit in &t.credits {
+                rows.push(("recording credit", credit_summary(credit), None));
             }
             if let Some(score) = t.score {
                 // Shown, never hidden behind a threshold: a reader deciding
@@ -802,6 +808,35 @@ fn compared(
         Facts::Label(LabelFacts { .. }) => {}
     }
     rows
+}
+
+fn credit_summary(credit: &sources::CreditLink) -> String {
+    let credited = credit
+        .credited_as
+        .as_deref()
+        .filter(|name| *name != credit.artist_name)
+        .map(|name| format!(" as {name}"))
+        .unwrap_or_default();
+    let attributes = credit
+        .attributes
+        .iter()
+        .map(|attribute| {
+            attribute
+                .credited_as
+                .as_deref()
+                .or(attribute.value.as_deref())
+                .unwrap_or(&attribute.name)
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    let details = match attributes.is_empty() {
+        true => String::new(),
+        false => format!(" ({})", attributes.join(", ")),
+    };
+    format!(
+        "{} — {}{credited}{details}",
+        credit.role, credit.artist_name
+    )
 }
 
 // Its own file from the start: this module is long enough that the tests would

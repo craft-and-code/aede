@@ -317,6 +317,8 @@ pub fn canonical_key(key: &str) -> String {
         "compilation" | "itunescompilation" => "compilation",
         "media" | "mediatype" => "media",
         "grouping" | "contentgroup" | "work" => "grouping",
+        "mastering engineer" | "masteringengineer" | "mastering_engineer" => "mastering_engineer",
+        "dj mixer" | "dj_mixer" | "djmixer" => "djmixer",
         other => other,
     };
     mapped.to_string()
@@ -334,6 +336,8 @@ mod tests {
         assert_eq!(canonical_key("YEAR"), "date");
         assert_eq!(canonical_key("MusicBrainz Work Id"), "musicbrainz_workid");
         assert_eq!(canonical_key("MusicBrainz Label Id"), "musicbrainz_labelid");
+        assert_eq!(canonical_key("Mastering Engineer"), "mastering_engineer");
+        assert_eq!(canonical_key("DJ Mixer"), "djmixer");
     }
 
     #[test]

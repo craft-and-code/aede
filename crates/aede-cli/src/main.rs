@@ -323,6 +323,7 @@ const OPTIONS: &[&str] = &[
     "images",
     "country",
     "identify",
+    "credits",
     "recordings",
     "lang",
     "portraits",
@@ -431,10 +432,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "ask what the fingerprinted files sound like",
     ),
     (
-        "recordings",
+        "credits",
         &["fetch"],
-        "ask MusicBrainz for explicitly identified recording relationships",
+        "ask MusicBrainz for recording and work credits",
     ),
+    ("recordings", &["fetch"], "legacy name for --credits"),
     ("portraits", &["fetch"], "look for a picture of the artist"),
     (
         "logos",

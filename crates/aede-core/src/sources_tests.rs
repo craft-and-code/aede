@@ -308,9 +308,48 @@ fn recording_work_evidence_survives_the_round_trip() {
         confidence: Confidence::Identified,
         facts: Facts::Track(TrackFacts {
             recording: Some("recording-id".to_string()),
+            relationships_complete: true,
+            credits: vec![CreditLink {
+                relation_id: Some("producer-rel".to_string()),
+                role_id: Some("producer-type".to_string()),
+                role: "producer".to_string(),
+                direction: Some("backward".to_string()),
+                artist_mbid: "producer-id".to_string(),
+                artist_name: "A Producer".to_string(),
+                credited_as: Some("The Producer".to_string()),
+                attributes: vec![CreditAttribute {
+                    id: Some("additional-type".to_string()),
+                    name: "additional".to_string(),
+                    value: None,
+                    credited_as: None,
+                }],
+                began: Some("2020".to_string()),
+                ended: None,
+                over: Some(false),
+                order: Some(1),
+            }],
             works: vec![WorkLink {
                 mbid: "work-id".to_string(),
                 title: "The Work".to_string(),
+                relation_id: Some("performance-rel".to_string()),
+                relation_type: Some("performance".to_string()),
+                relation_type_id: Some("performance-type".to_string()),
+                direction: Some("forward".to_string()),
+                credits: vec![CreditLink {
+                    relation_id: Some("composer-rel".to_string()),
+                    role_id: Some("composer-type".to_string()),
+                    role: "composer".to_string(),
+                    direction: Some("backward".to_string()),
+                    artist_mbid: "composer-id".to_string(),
+                    artist_name: "A Composer".to_string(),
+                    credited_as: None,
+                    attributes: Vec::new(),
+                    began: None,
+                    ended: None,
+                    over: None,
+                    order: Some(2),
+                }],
+                ..Default::default()
             }],
             ..Default::default()
         }),
@@ -323,6 +362,21 @@ fn recording_work_evidence_survives_the_round_trip() {
     };
     assert_eq!(facts.works[0].mbid, "work-id");
     assert_eq!(facts.works[0].title, "The Work");
+    assert_eq!(
+        facts.works[0].relation_type_id.as_deref(),
+        Some("performance-type")
+    );
+    assert_eq!(facts.credits[0].direction.as_deref(), Some("backward"));
+    assert_eq!(
+        facts.credits[0].attributes[0].id.as_deref(),
+        Some("additional-type")
+    );
+    assert_eq!(
+        facts.credits[0].credited_as.as_deref(),
+        Some("The Producer")
+    );
+    assert_eq!(facts.works[0].credits[0].role, "composer");
+    assert!(facts.relationships_complete);
 }
 
 #[test]
@@ -344,6 +398,7 @@ fn sourced_work_links_attach_to_the_recording_without_mutating_it() {
             works: vec![WorkLink {
                 mbid: "work-id".to_string(),
                 title: "The Work".to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         }),
@@ -358,6 +413,63 @@ fn sourced_work_links_attach_to_the_recording_without_mutating_it() {
         catalog.recordings[track.recording_id as usize].work_ids,
         original_links
     );
+}
+
+#[test]
+fn rich_credits_keep_their_recording_or_work_scope_and_provenance() {
+    let catalog = crate::model::tests::example_catalog();
+    let track = &catalog.tracks[0];
+    let path = catalog.file(track.file_id).expect("file").path.clone();
+    let recording_credit = CreditLink {
+        relation_id: Some("performance-rel".to_string()),
+        role_id: None,
+        role: "instrument".to_string(),
+        direction: None,
+        artist_mbid: "player-id".to_string(),
+        artist_name: "A Player".to_string(),
+        credited_as: None,
+        attributes: Vec::new(),
+        began: None,
+        ended: None,
+        over: None,
+        order: Some(1),
+    };
+    let work_credit = CreditLink {
+        role: "composer".to_string(),
+        artist_mbid: "writer-id".to_string(),
+        artist_name: "A Writer".to_string(),
+        ..recording_credit.clone()
+    };
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: path,
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("recording-id".to_string()),
+        fetched_at: 42,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            credits: vec![recording_credit],
+            works: vec![WorkLink {
+                mbid: "work-id".to_string(),
+                title: "A Work".to_string(),
+                credits: vec![work_credit],
+                ..Default::default()
+            }],
+            relationships_complete: true,
+            ..Default::default()
+        }),
+    });
+
+    let links = sources.credit_links(&catalog);
+    assert_eq!(links.len(), 2);
+    assert_eq!(links[0].recording_id, track.recording_id);
+    assert!(links[0].work.is_none());
+    assert_eq!(
+        links[1].work.as_ref().map(|work| work.mbid.as_str()),
+        Some("work-id")
+    );
+    assert_eq!(links[1].source, MUSICBRAINZ);
+    assert_eq!(links[1].fetched_at, 42);
 }
 
 #[test]
@@ -408,6 +520,7 @@ fn sourced_works_are_navigable_only_when_the_attachment_is_certain() {
             works: vec![WorkLink {
                 mbid: "shared-work".to_string(),
                 title: "Shared Composition".to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         }),
@@ -422,6 +535,7 @@ fn sourced_works_are_navigable_only_when_the_attachment_is_certain() {
             works: vec![WorkLink {
                 mbid: "shared-work".to_string(),
                 title: "Shared Composition".to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         }),
@@ -436,6 +550,7 @@ fn sourced_works_are_navigable_only_when_the_attachment_is_certain() {
             works: vec![WorkLink {
                 mbid: "possible-work".to_string(),
                 title: "Possible Composition".to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         }),

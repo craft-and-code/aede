@@ -50,6 +50,17 @@ pub fn show_work(args: &Args) -> Res {
                 ))
             );
         }
+        super::print_sourced_credits(
+            &catalog,
+            held.credit_links(&catalog)
+                .into_iter()
+                .filter(|link| {
+                    link.work
+                        .as_ref()
+                        .is_some_and(|linked| linked.mbid == work.mbid)
+                })
+                .collect(),
+        );
         return Ok(());
     }
 
@@ -68,15 +79,36 @@ pub fn show_work(args: &Args) -> Res {
     let recording_ids: BTreeSet<_> = work.links.iter().map(|link| link.recording_id).collect();
     print_recordings(&catalog, &recording_ids);
     for link in &work.links {
+        let attributes = link
+            .work
+            .attributes
+            .iter()
+            .map(|attribute| attribute.name.as_str())
+            .collect::<Vec<_>>();
+        let qualified = match attributes.is_empty() {
+            true => String::new(),
+            false => format!(" · {}", attributes.join(", ")),
+        };
         println!(
             "  {}",
             ui::dim(&format!(
-                "{} · identified · {}",
+                "{} · identified · {}{qualified}",
                 link.source,
                 ui::since(link.fetched_at)
             ))
         );
     }
+    super::print_sourced_credits(
+        &catalog,
+        held.credit_links(&catalog)
+            .into_iter()
+            .filter(|link| {
+                link.work
+                    .as_ref()
+                    .is_some_and(|linked| linked.mbid == work.mbid)
+            })
+            .collect(),
+    );
     Ok(())
 }
 

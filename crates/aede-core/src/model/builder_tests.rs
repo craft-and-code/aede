@@ -655,3 +655,40 @@ fn a_performer_tag_that_names_the_pair_and_then_each_of_them_names_two_people() 
         "the joint credit is the same two people said again: {names:?}"
     );
 }
+
+#[test]
+fn an_instrument_named_in_a_performer_tag_stays_on_the_credit() {
+    let mut tags = RawTags::default();
+    tags.insert("artist", "A Band");
+    tags.insert("albumartist", "A Band");
+    tags.insert("album", "An Album");
+    tags.insert("title", "A Song");
+    tags.insert("performer:electric guitar", "Alice Player");
+    tags.insert("performer:bass", "Bob Player");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Album/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+        &[],
+    );
+
+    let rich: Vec<_> = catalog
+        .credits
+        .iter()
+        .filter(|credit| !credit.attributes.is_empty())
+        .collect();
+    assert_eq!(rich.len(), 2);
+    assert_eq!(rich[0].role, "performer");
+    assert_eq!(rich[0].attributes[0].name, "bass");
+    assert_eq!(rich[0].source, "tags");
+    assert_eq!(rich[1].attributes[0].name, "electric guitar");
+}

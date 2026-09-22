@@ -75,6 +75,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use aede_core::model::{Catalog, Id, Release};
+use aede_core::sources as core_sources;
 use aede_core::store;
 use aede_core::tags::AudioProperties;
 use aede_core::text;
@@ -432,6 +433,101 @@ fn tags_table(fields: &BTreeMap<String, Vec<String>>) -> Table {
         t.push(vec![key.clone(), values.join(" / ")]);
     }
     t
+}
+
+/// Prints attributed MusicBrainz credits in one consistent shape.
+fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::SourcedCreditLink>) {
+    if credits.is_empty() {
+        return;
+    }
+    credits.sort_by(|a, b| {
+        a.work
+            .as_ref()
+            .map(|work| work.title.as_str())
+            .cmp(&b.work.as_ref().map(|work| work.title.as_str()))
+            .then_with(|| a.credit.order.cmp(&b.credit.order))
+            .then_with(|| a.credit.role.cmp(&b.credit.role))
+            .then_with(|| a.credit.artist_name.cmp(&b.credit.artist_name))
+    });
+    println!("{}", ui::section("Sourced credits"));
+    let mut table = Table::new(&[
+        "Artist",
+        "Role",
+        "Credited as",
+        "Details",
+        "Scope",
+        "Dates",
+        "Evidence",
+    ])
+    .limit(0, 28)
+    .limit(2, 24)
+    .limit(3, 36)
+    .limit(4, 28)
+    .limit(6, 42);
+    for link in credits {
+        let details = link
+            .credit
+            .attributes
+            .iter()
+            .map(|attribute| {
+                let shown = attribute
+                    .credited_as
+                    .as_deref()
+                    .or(attribute.value.as_deref())
+                    .unwrap_or(&attribute.name);
+                match shown == attribute.name {
+                    true => shown.to_string(),
+                    false => format!("{} ({shown})", attribute.name),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let recording = catalog
+            .recording(link.recording_id)
+            .map(|recording| recording.title.as_str())
+            .unwrap_or("unknown recording");
+        let scope = link.work.as_ref().map_or_else(
+            || format!("recording: {recording}"),
+            |work| format!("work: {} · recording: {recording}", work.title),
+        );
+        let mut dates = match (&link.credit.began, &link.credit.ended) {
+            (Some(begin), Some(end)) => format!("{begin}–{end}"),
+            (Some(begin), None) => format!("from {begin}"),
+            (None, Some(end)) => format!("until {end}"),
+            (None, None) => String::new(),
+        };
+        if link.credit.over == Some(true) && link.credit.ended.is_none() {
+            dates.push_str(match dates.is_empty() {
+                true => "ended",
+                false => " · ended",
+            });
+        }
+        let confidence = match link.confidence {
+            core_sources::Confidence::Identified => "identified".to_string(),
+            core_sources::Confidence::Matched(score) => format!("matched {score}%"),
+        };
+        let relation = link
+            .credit
+            .relation_id
+            .as_deref()
+            .or(link.credit.role_id.as_deref())
+            .map(|id| format!(" · {id}"))
+            .unwrap_or_default();
+        table.push(vec![
+            link.credit.artist_name,
+            role_label(&link.credit.role),
+            link.credit.credited_as.unwrap_or_default(),
+            details,
+            scope,
+            dates,
+            format!(
+                "{} · {confidence} · {}{relation}",
+                link.source,
+                ui::since(link.fetched_at)
+            ),
+        ]);
+    }
+    print!("{}", table.render());
 }
 
 /// Playing time and size on disk of a set of tracks.

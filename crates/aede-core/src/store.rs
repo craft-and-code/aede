@@ -495,6 +495,28 @@ fn credit_to_json(c: &Credit) -> Json {
     o.set("entity_kind", c.entity_kind.as_str().into());
     o.set("entity_id", c.entity_id.into());
     o.set("role", c.role.clone().into());
+    o.set("credited_as", opt_str(&c.credited_as));
+    o.set(
+        "attributes",
+        Json::Arr(
+            c.attributes
+                .iter()
+                .map(|attribute| {
+                    let mut row = Json::obj();
+                    row.set("id", opt_str(&attribute.id));
+                    row.set("name", attribute.name.clone().into());
+                    row.set("value", opt_str(&attribute.value));
+                    row.set("credited_as", opt_str(&attribute.credited_as));
+                    row
+                })
+                .collect(),
+        ),
+    );
+    o.set("began", opt_str(&c.began));
+    o.set("ended", opt_str(&c.ended));
+    o.set("order", opt_num(&c.order));
+    o.set("source", c.source.clone().into());
+    o.set("source_id", opt_str(&c.source_id));
     o
 }
 
@@ -690,6 +712,30 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             entity_kind: kind,
             entity_id: item.field_u32("entity_id").unwrap_or(0),
             role: item.field_str("role").unwrap_or_default(),
+            credited_as: item.field_str("credited_as"),
+            attributes: item
+                .get("attributes")
+                .and_then(Json::as_arr)
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| {
+                            Some(model::CreditAttribute {
+                                id: row.field_str("id"),
+                                name: row.field_str("name")?,
+                                value: row.field_str("value"),
+                                credited_as: row.field_str("credited_as"),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            began: item.field_str("began"),
+            ended: item.field_str("ended"),
+            order: item.field_u32("order"),
+            source: item
+                .field_str("source")
+                .unwrap_or_else(|| "tags".to_string()),
+            source_id: item.field_str("source_id"),
         });
     }
     for item in rows(value, "relation") {
@@ -1043,6 +1089,34 @@ mod tests {
             decoded.files[0].lyrics_path.as_deref(),
             Some("/music/Miles Davis/Kind of Blue/01 So What.lrc")
         );
+    }
+
+    #[test]
+    fn rich_local_credit_details_survive_the_round_trip() {
+        let mut original = example_catalog();
+        let credit = original.credits.first_mut().expect("one local credit");
+        credit.credited_as = Some("Miles".into());
+        credit.attributes = vec![model::CreditAttribute {
+            id: Some("instrument-type".into()),
+            name: "instrument".into(),
+            value: Some("electric piano".into()),
+            credited_as: Some("Fender Rhodes".into()),
+        }];
+        credit.began = Some("1959-03-02".into());
+        credit.ended = Some("1959-04-22".into());
+        credit.order = Some(1);
+        credit.source = "booklet".into();
+        credit.source_id = Some("credit-row-1".into());
+
+        let decoded = from_json(&to_json(&original)).expect("read back");
+        let credit = decoded.credits.first().expect("one decoded credit");
+        assert_eq!(credit.credited_as.as_deref(), Some("Miles"));
+        assert_eq!(credit.attributes, original.credits[0].attributes);
+        assert_eq!(credit.began.as_deref(), Some("1959-03-02"));
+        assert_eq!(credit.ended.as_deref(), Some("1959-04-22"));
+        assert_eq!(credit.order, Some(1));
+        assert_eq!(credit.source, "booklet");
+        assert_eq!(credit.source_id.as_deref(), Some("credit-row-1"));
     }
 
     #[test]

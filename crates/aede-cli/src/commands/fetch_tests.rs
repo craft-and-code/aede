@@ -868,6 +868,77 @@ fn a_lookup_asks_for_the_memberships_and_stores_them_dated() {
     );
 }
 
+#[test]
+fn credits_fetches_recording_and_work_relationships_in_one_request() {
+    let dir = sandbox("rich_credits");
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Jimi Hendrix");
+    tags.insert("albumartist", "Jimi Hendrix");
+    tags.insert("album", "Electric Ladyland");
+    tags.insert("title", "All Along the Watchtower");
+    tags.insert("musicbrainz_recordingid", "recording-id");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Hendrix/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+        &[],
+    );
+    aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).expect("saved");
+    let mut transport = Canned {
+        answers: vec![Ok(r#"{
+          "id":"recording-id","title":"All Along the Watchtower",
+          "relations":[
+            {"id":"performance","type":"instrument","type-id":"instrument-type",
+             "target-type":"artist","target-credit":"Jimi Hendrix",
+             "attributes":["guitar"],
+             "artist":{"id":"hendrix-id","name":"Jimi Hendrix"}},
+            {"id":"work-link","type":"performance","target-type":"work",
+             "work":{"id":"work-id","title":"All Along the Watchtower",
+               "relations":[
+                 {"id":"composer","type":"composer","type-id":"composer-type",
+                  "target-type":"artist","target-credit":"Robert Dylan",
+                  "attributes":[],
+                  "artist":{"id":"dylan-id","name":"Bob Dylan"}}
+               ]}}
+          ]}"#
+        .to_string())],
+        asked: Vec::new(),
+    };
+
+    run_with(&args(&dir, &["--credits"]), &mut transport, &NO_WAIT).expect("fetch credits");
+    assert_eq!(transport.asked.len(), 1);
+    assert!(transport.asked[0].contains("artist-rels+work-rels+work-level-rels"));
+
+    let held = sources::load(&sources::sources_path(&dir))
+        .expect("readable")
+        .expect("stored");
+    let Facts::Track(facts) = &held.records[0].facts else {
+        panic!("track facts");
+    };
+    assert!(facts.relationships_complete);
+    assert_eq!(facts.credits[0].role, "instrument");
+    assert_eq!(facts.works[0].credits[0].role, "composer");
+
+    let mut second = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut second, &NO_WAIT).expect("already complete");
+    assert!(
+        second.asked.is_empty(),
+        "a complete relationship lookup is not repeated"
+    );
+}
+
 /// Two shelves on the disk, one folder each, so that a folder can be given.
 ///
 /// **Real files**, unlike the reference library above: a folder is read off

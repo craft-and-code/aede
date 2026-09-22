@@ -480,7 +480,8 @@ pub fn print_index() {
 
 {}
   --identify           Identify fingerprinted files through AcoustID
-  --recordings         Retrieve MusicBrainz work relationships for identified recordings
+  --credits            Retrieve rich MusicBrainz recording and work credits
+  --recordings         Compatibility alias for --credits
   --summaries          Retrieve the opening Wikipedia paragraph
   --discography        Browse an artist's MusicBrainz releases
   --lyrics             Retrieve missing lyrics as .lrc sidecars
@@ -653,7 +654,9 @@ fn print_fetch_help() {
   --labels             Record-label identifiers from MusicBrainz
   --lyrics             Missing lyrics from LRCLIB, written as .lrc sidecars
   --identify           Identify fingerprinted files through AcoustID
-  --recordings         Work relationships for recordings with a MusicBrainz ID
+  --credits            Recording performers, instruments, production credits,
+                       work composers and lyricists, with relationship details
+  --recordings         Compatibility alias for --credits
 
 {}
   --covers             Missing front cover from Cover Art Archive
