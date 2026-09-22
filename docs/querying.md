@@ -20,6 +20,9 @@ The search engine explores the entirety of the catalog's relational structure. F
 | `title`                  | Text         | Track title                   | `title:Interstellar`                       |
 | `artist` / `albumartist` | Text         | Performer or release artist   | `artist:Coltrane`, `albumartist:Metallica` |
 | `album`                  | Text         | Album title                   | `album:"Kind of Blue"`                     |
+| `recording`              | Text/ID      | Canonical recorded performance | `recording:9f…`, `recording:"So What"`      |
+| `work`                   | Text/ID      | Composition realised by it    | `work:"All Along the Watchtower"`           |
+| `releasegroup`           | Text/ID      | Album identity across editions | `releasegroup:5c…`                           |
 | `genre`                  | Text         | Musical genre                 | `genre:=Jazz`, `genre:metal`               |
 | `label`                  | Text         | Record label imprint          | `label:"Blue Note"`                        |
 | `year`                   | Range/Number | Release year                  | `year:1994`, `year:1985..1995`             |
@@ -33,6 +36,7 @@ The search engine explores the entirety of the catalog's relational structure. F
 | `comment`                | Text         | File-level comment tag        | `comment:"vinyl rip"`                      |
 | `lyrics`                 | Text         | Embedded or sidecar lyrics    | `lyrics:train`                             |
 | `path`                   | Text         | Absolute file path            | `path:"/FLAC/Ozzy"`                        |
+| `instrument`              | Text         | Credit instrument or attribute | `instrument:"electric guitar"`              |
 | **Annotations**          |              |                               |                                            |
 | `rating`                 | Numeric      | Personal star rating (1–5)    | `rating:>=4`, `album.rating:5`             |
 | `loved`                  | Boolean      | Personal favorite status      | `loved`, `-loved`, `track.loved`           |
@@ -50,7 +54,24 @@ A music catalog is a graph, not a flat table. Aède indexes distinct creative ro
 ```sh
 aede query "composer:rhoads mainartist:ozzy"   # Ozzy singing what Randy wrote
 aede query "producer:\"rick rubin\" year:1990.."
+aede query "guest:\"zakk wylde\""               # guest on a non-compilation release
+aede query "compilationartist:\"miles davis\""  # performer on a compilation
+aede query "contributor:\"rick rubin\""         # non-performing contribution
+aede query "with:\"zakk wylde\""                # co-performer on the same track
 ```
+
+The graph identity fields (`recording`, `work`, `releasegroup`) accept either
+the displayed title or the MusicBrainz identifier. `instrument` searches the
+attributes attached to a credit, while `guest`, `compilationartist`,
+`contributor` and `with` project the corresponding participation links back to
+the tracks they explain. The aliases `collaborator` and `compilation-artist`
+are accepted as well.
+
+These fields read both explicit local tags and relationships obtained with
+`aede fetch --credits`. Only source records attached by an exact identifier are
+eligible: an approximate match remains visible evidence, but does not silently
+turn into a query relationship. The source index is built once per query, so a
+large library is not rescanned for every track and every term.
 
 ### Strict Semantics and Boolean Symmetry
 

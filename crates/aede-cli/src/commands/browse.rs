@@ -227,11 +227,10 @@ pub fn list_artists(args: &Args) -> Res {
         Some(expression) => {
             let parsed = aede_core::query::parse(expression)?;
             let data = super::user_data(args, &catalog)?;
-            let context = aede_core::query::Context {
-                catalog: &catalog,
-                data: &data,
-                owner: aede_core::user::LOCAL_USER,
-            };
+            let held = super::sources_held(args)?;
+            let context =
+                aede_core::query::Context::new(&catalog, &data, aede_core::user::LOCAL_USER)
+                    .with_sources(&held);
             if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first()
             {
                 return Err(format!(
@@ -433,11 +432,9 @@ pub fn list_albums(args: &Args) -> Res {
     let expression = albums_query(args)?;
     let parsed = aede_core::query::parse(&expression)?;
     let data = super::user_data(args, &catalog)?;
-    let context = aede_core::query::Context {
-        catalog: &catalog,
-        data: &data,
-        owner: aede_core::user::LOCAL_USER,
-    };
+    let held = super::sources_held(args)?;
+    let context = aede_core::query::Context::new(&catalog, &data, aede_core::user::LOCAL_USER)
+        .with_sources(&held);
 
     // A value naming nothing in the library is a misunderstanding, not an
     // empty result, and the two read differently. This is the distinction the

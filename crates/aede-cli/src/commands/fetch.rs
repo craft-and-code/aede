@@ -1144,13 +1144,27 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         };
         match found {
             Ok((candidate, confidence)) => {
+                // The discography pass enriches this same MusicBrainz artist
+                // row. A normal `--full` refresh answers the artist lookup
+                // again, and that endpoint does not carry the separately
+                // browsed release groups: replacing the row verbatim would
+                // therefore erase a successful `fetch --discography` and make
+                // the missing-albums report silently disappear.
+                let mut facts = candidate.facts;
+                if let Some(SourceRecord {
+                    facts: Facts::Artist(existing),
+                    ..
+                }) = held.get(entity, sources::MUSICBRAINZ)
+                {
+                    facts.discography = existing.discography.clone();
+                }
                 held.set(SourceRecord {
                     key: entity.key.clone(),
                     source: sources::MUSICBRAINZ.to_string(),
                     source_id: Some(candidate.mbid),
                     fetched_at: clock::now_seconds(),
                     confidence,
-                    facts: Facts::Artist(candidate.facts),
+                    facts: Facts::Artist(facts),
                 });
                 stored += 1;
                 // Saved after each answer, not at the end: ten minutes of

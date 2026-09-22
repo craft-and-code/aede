@@ -804,11 +804,10 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
     let catalog = load(args)?;
     let parsed = aede_core::query::parse(expression)?;
     let data = read(args, &catalog)?;
-    let context = aede_core::query::Context {
-        catalog: &catalog,
-        data: &data,
-        owner: &owner(args),
-    };
+    let held = super::sources_held(args)?;
+    let current_owner = owner(args);
+    let context =
+        aede_core::query::Context::new(&catalog, &data, &current_owner).with_sources(&held);
     // A value naming nothing in the library is a misunderstanding, not an
     // empty result, and the two read differently.
     if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
@@ -973,11 +972,8 @@ pub fn collections(args: &Args) -> Res {
 
     // How many tracks each one holds *now*, which is the only number worth
     // showing for a question that answers itself afresh every time.
-    let context = aede_core::query::Context {
-        catalog: &catalog,
-        data: &data,
-        owner: &owner,
-    };
+    let held = super::sources_held(args)?;
+    let context = aede_core::query::Context::new(&catalog, &data, &owner).with_sources(&held);
     println!("{}", ui::section(&format!("Collections ({})", mine.len())));
     let mut t = Table::new(&["Name", "Tracks", "Query"])
         .align(1, Align::Right)

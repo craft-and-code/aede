@@ -1,6 +1,6 @@
 # The canonical music graph: audit and model
 
-**Status: stages 0–5 implemented.** The catalog now separates placements,
+**Status: stages 0–6 implemented.** The catalog now separates placements,
 recordings, releases, release groups and works. External relationships remain
 attributed evidence, and rich recording and work credits keep their exact
 scope, role details and provenance without rewriting local tags. SQLite remains
@@ -186,6 +186,32 @@ addition to a title, preventing two pressings with the same title from becoming
 an ambiguous dead end. Names are shell-quoted centrally, including apostrophes,
 so the displayed commands can be copied without being reassembled by hand.
 
+## Stage 6 — relational search
+
+The graph is now part of the query language, not only the navigation layer.
+Every relation is projected back onto the tracks it explains, so graph filters
+compose with the existing Boolean, range and annotation syntax:
+
+- `recording`, `work` and `releasegroup` accept canonical titles or MusicBrainz
+  identifiers;
+- `instrument` searches instruments and other attributes carried by credits;
+- `guest` and `compilationartist` distinguish appearances by release type;
+- `contributor` isolates non-performing roles such as composer or producer;
+- `with` (also `collaborator`) requires at least two audible artists on the
+  same track.
+
+Certain relationships from `sources.json` participate without being copied
+into the tag-built graph. This makes works, roles and instruments obtained by
+`fetch --credits` queryable while preserving their provenance boundary;
+approximately matched source records remain evidence only. Those relationships
+are indexed once when a query starts rather than re-walked for every track.
+
+For example, `aede query 'work:"War Pigs" instrument:guitar'` finds guitar
+performances of a composition, while `aede query 'guest:"Zakk Wylde"'` finds
+guest appearances without confusing them with the artist's own discography.
+The query tests include a shared work, a compilation appearance, a guest with
+an instrument, and a non-performing contributor.
+
 ## Completed delivery order
 
 1. Add `Recording` and connect each local placement to exactly one recording.
@@ -213,9 +239,13 @@ so the displayed commands can be copied without being reassembled by hand.
 12. Turn global search results into entry points by printing their open
     command.
 
-The next graph stage extends the query language across these relationships:
-roles, instruments, works, recordings and linked entities become filters rather
-than only navigation paths.
+13. Extend the query language across the graph: `recording`, `work` and
+    `releasegroup` identities, `instrument` attributes, and `guest`,
+    `compilationartist`, `contributor` and `with` participation filters now
+    project canonical relationships back onto matching tracks.
+
+The remaining graph work is quality and resolution: explicit conflict handling,
+confidence-aware proposals, and a review path for ambiguous source claims.
 
 SQLite is intentionally outside these stages. The graph must first be proven
 in the current model and JSON persistence; M2 can then migrate one established

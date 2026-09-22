@@ -234,7 +234,15 @@ aede query "lossless:true size:>50000000"
 
 # Isolating credit contributions
 aede query "composer:Rhoads mainartist:Ozzy"
+
+# Traverse the canonical graph and credit relationships
+aede query "work:\"War Pigs\" instrument:guitar"
+aede query "guest:\"Zakk Wylde\" -compilationartist"
 ```
+
+Relational fields include both explicit tags and exact-identity relationships
+stored by `aede fetch --credits`; approximate source matches remain evidence
+and are not promoted into query results.
 
 ### Available Query Fields
 
@@ -243,6 +251,9 @@ aede query "composer:Rhoads mainartist:Ozzy"
 | `title`                                                                | Text                    | Track title                       | `title:Interstellar`                       |
 | `artist` / `albumartist`                                               | Text                    | Track performer or album artist   | `artist:Coltrane`                          |
 | `album`                                                                | Text                    | Album title                       | `album:"Kind of Blue"`                     |
+| `recording`                                                            | Text / ID              | Canonical recorded performance   | `recording:"So What"`                      |
+| `work`                                                                 | Text / ID              | Composition realised by it       | `work:"War Pigs"`                          |
+| `releasegroup`                                                         | Text / ID              | Album identity across editions   | `releasegroup:5c…`                          |
 | `genre`                                                                | Text                    | Musical genre                     | `genre:=Jazz`, `genre:Metal`               |
 | `label`                                                                | Text                    | Record label imprint              | `label:"Blue Note"`                        |
 | `year`                                                                 | Range / Number          | Release year                      | `year:1990..1999`, `year:1994`             |
@@ -258,6 +269,9 @@ aede query "composer:Rhoads mainartist:Ozzy"
 | **Credits**                                                            |                         |                                   |                                            |
 | `composer`, `lyricist`, `producer`, `engineer`, `conductor`, `remixer` | Text                    | Specific liner note credit role   | `composer:Rhoads`, `producer:"Rick Rubin"` |
 | `performing`                                                           | Text                    | Anyone audible on the recording   | `performing:"Zakk Wylde"`                  |
+| `instrument`                                                           | Text                    | Instrument or credit attribute    | `instrument:guitar`                         |
+| `guest` / `compilationartist`                                          | Text                    | Performing participation class    | `guest:"Zakk Wylde"`                       |
+| `contributor` / `with`                                                 | Text                    | Non-performing credit / co-performer | `with:"Zakk Wylde"`                      |
 | **Annotations**                                                        |                         |                                   |                                            |
 | `rating`                                                               | Numeric ($1\text{--}5$) | User star rating                  | `rating:>=4`, `album.rating:5`             |
 | `loved`                                                                | Boolean                 | Personal favorite status          | `loved`, `-loved`, `track.loved`           |

@@ -43,6 +43,18 @@ discography, guest appearances, compilation appearances, writing/production
 contributions, collaborations and dated memberships distinct. Ordinary
 `search` also finds recordings, works and release groups by title or identity.
 
+The same graph is available to `query`: `recording`, `work` and `releasegroup`
+match canonical identities, `instrument` matches credit attributes, and
+`guest`, `compilationartist`, `contributor` and `with` distinguish the way an
+artist participates. These fields project the relationship back onto tracks,
+so they can be combined with genre, year, labels and annotations:
+
+```sh
+aede query 'work:"War Pigs" instrument:guitar'
+aede query 'guest:"Zakk Wylde" -compilationartist'
+aede query 'label:"Epic" contributor:"Rick Rubin"'
+```
+
 These pages are navigation points rather than terminal reports. Their
 `Continue` section prints copyable commands for adjacent objects and `search`
 includes an `Open` command on every named result. Stable MusicBrainz IDs are

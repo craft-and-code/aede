@@ -616,7 +616,11 @@ fn command_examples(command: &str) -> &'static [&'static str] {
         "release-group" => &["aede release-group <MusicBrainz-release-group-ID>"],
         "label" => &["aede label \"Blue Note\""],
         "search" => &["aede search coltrane"],
-        "query" => &["aede query \"genre:metal year:1990..1999\""],
+        "query" => &[
+            "aede query \"genre:metal year:1990..1999\"",
+            r#"aede query "work:\"War Pigs\" instrument:guitar""#,
+            r#"aede query "guest:\"Zakk Wylde\" -compilationartist""#,
+        ],
         "fetch" => &["aede fetch --fanart --no-background ~/Music/Jazz"],
         "copy" => &["aede copy /Volumes/Player --query \"loved rating:>=4\" --verify"],
         _ => &[],

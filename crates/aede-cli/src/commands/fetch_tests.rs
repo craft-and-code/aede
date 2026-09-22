@@ -477,6 +477,56 @@ fn a_second_run_asks_again_only_when_told_to() {
 }
 
 #[test]
+fn a_full_artist_refresh_keeps_the_browsed_discography() {
+    // `fetch --discography` adds its result to the MusicBrainz artist row.
+    // The ordinary artist endpoint never returns that list, so a later
+    // `fetch --full` must merge the fresh facts into the row rather than
+    // replacing the separately browsed discography with an empty vector.
+    let dir = sandbox("keep_discography");
+    let catalog = super::super::load(&args(&dir, &[])).expect("a catalog");
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).expect("an artist");
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("561d854a".to_string()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Identified,
+        facts: Facts::Artist(sources::ArtistFacts {
+            discography: vec![sources::KnownRelease {
+                mbid: "missing-group".to_string(),
+                title: "The Missing Album".to_string(),
+                first_released: Some("1970".to_string()),
+                primary_type: Some("Album".to_string()),
+                secondary_types: Vec::new(),
+            }],
+            ..Default::default()
+        }),
+    });
+    sources::save(&held, &sources::sources_path(&dir)).expect("saved");
+
+    let mut transport = Canned {
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(ONE_ALBUM.to_string())],
+        asked: Vec::new(),
+    };
+    run(&args(&dir, &["--full"]), &mut transport).expect("a full refresh");
+
+    let after = sources::load(&sources::sources_path(&dir))
+        .expect("readable")
+        .expect("a layer");
+    let record = after
+        .get(&entity, sources::MUSICBRAINZ)
+        .expect("the refreshed artist");
+    let Facts::Artist(facts) = &record.facts else {
+        panic!("expected artist facts")
+    };
+    assert_eq!(facts.discography.len(), 1);
+    assert_eq!(facts.discography[0].title, "The Missing Album");
+    assert_eq!(facts.area.as_deref(), Some("United States"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn dry_run_asks_nothing() {
     let dir = sandbox("dryrun");
     let mut transport = Canned {

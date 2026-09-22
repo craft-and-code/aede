@@ -6,6 +6,10 @@
 
 use super::*;
 use crate::model;
+use crate::sources::{
+    Confidence, CreditLink, Facts, LabelFacts, MUSICBRAINZ, SourceRecord, Sources, TrackFacts,
+    WorkLink,
+};
 use crate::user::{EntityRef, LOCAL_USER, Play, UserData};
 
 fn catalog() -> Catalog {
@@ -58,15 +62,26 @@ fn catalog() -> Catalog {
 
 fn titles(expression: &str, catalog: &Catalog, data: &UserData) -> Vec<String> {
     let query = parse(expression).unwrap_or_else(|e| panic!("{expression}: {e}"));
-    let context = Context {
-        catalog,
-        data,
-        owner: LOCAL_USER,
-    };
+    let context = Context::new(catalog, data, LOCAL_USER);
     run(&query, &context)
         .into_iter()
         .filter_map(|id| catalog.track(id))
         .map(|t| t.title.clone())
+        .collect()
+}
+
+fn titles_with_sources(
+    expression: &str,
+    catalog: &Catalog,
+    data: &UserData,
+    sources: &Sources,
+) -> Vec<String> {
+    let query = parse(expression).unwrap_or_else(|e| panic!("{expression}: {e}"));
+    let context = Context::new(catalog, data, LOCAL_USER).with_sources(sources);
+    run(&query, &context)
+        .into_iter()
+        .filter_map(|id| catalog.track(id))
+        .map(|track| track.title.clone())
         .collect()
 }
 
@@ -329,6 +344,204 @@ fn who_is_audible_is_its_own_question() {
 }
 
 #[test]
+fn relational_fields_project_the_graph_back_onto_tracks() {
+    let c = model::build(
+        vec![
+            model::tests::track(
+                "/m/A Band/Album/01.flac",
+                &[
+                    ("title", "Song One"),
+                    ("artist", "A Band"),
+                    ("albumartist", "A Band"),
+                    ("album", "Album"),
+                    ("musicbrainz_recordingid", "rec-1"),
+                    ("musicbrainz_workid", "work-1"),
+                    ("grouping", "Shared Work"),
+                    ("musicbrainz_releasegroupid", "group-1"),
+                    ("label", "Epic"),
+                    ("musicbrainz_labelid", "label-1"),
+                    ("composer", "Writer"),
+                    ("performer:electric guitar", "Guest Player"),
+                ],
+                1000,
+            ),
+            model::tests::track(
+                "/m/Various/Compilation/01.flac",
+                &[
+                    ("title", "Song Two"),
+                    ("artist", "Guest Player"),
+                    ("albumartist", "Various Artists"),
+                    ("album", "Compilation"),
+                    ("compilation", "1"),
+                    ("musicbrainz_recordingid", "rec-2"),
+                    ("musicbrainz_workid", "work-1"),
+                    ("grouping", "Shared Work"),
+                    ("performer", "Guest Player"),
+                ],
+                1000,
+            ),
+            model::tests::track(
+                "/m/B Band/Other/01.flac",
+                &[
+                    ("title", "Song Three"),
+                    ("artist", "B Band"),
+                    ("albumartist", "B Band"),
+                    ("album", "Other"),
+                    ("musicbrainz_recordingid", "rec-3"),
+                    ("musicbrainz_workid", "work-1"),
+                    ("grouping", "Shared Work"),
+                    ("musicbrainz_releasegroupid", "group-2"),
+                    ("composer", "Writer"),
+                ],
+                1000,
+            ),
+        ],
+        vec!["/m".into()],
+        0,
+        &[],
+    );
+    let d = UserData::default();
+
+    assert_eq!(titles("recording:rec-1", &c, &d), ["Song One"]);
+    assert_eq!(titles("work:\"Shared Work\"", &c, &d).len(), 3);
+    assert_eq!(titles("releasegroup:group-1", &c, &d), ["Song One"]);
+    assert_eq!(titles("label:label-1", &c, &d), ["Song One"]);
+    assert_eq!(
+        titles("instrument:\"electric guitar\"", &c, &d),
+        ["Song One"]
+    );
+    assert_eq!(titles("guest:\"Guest Player\"", &c, &d), ["Song One"]);
+    assert_eq!(
+        titles("compilationartist:\"Guest Player\"", &c, &d),
+        ["Song Two"]
+    );
+    assert_eq!(
+        titles("contributor:writer", &c, &d),
+        ["Song One", "Song Three"]
+    );
+    assert_eq!(titles("with:\"Guest Player\"", &c, &d), ["Song One"]);
+    assert_eq!(titles("with:\"A Band\"", &c, &d), ["Song One"]);
+}
+
+#[test]
+fn relational_fields_include_certain_source_evidence_without_promoting_it() {
+    let c = model::build(
+        vec![model::tests::track(
+            "/m/A Band/Album/01.flac",
+            &[
+                ("title", "A Recording"),
+                ("artist", "A Band"),
+                ("albumartist", "A Band"),
+                ("album", "Album"),
+                ("label", "A Label"),
+                ("musicbrainz_recordingid", "recording-1"),
+            ],
+            1000,
+        )],
+        vec!["/m".into()],
+        0,
+        &[],
+    );
+    let entity = EntityRef::of(&c, EntityKind::Track, 0).expect("the local track");
+    let record = SourceRecord {
+        key: entity.key,
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("recording-1".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            recording: Some("recording-1".to_string()),
+            relationships_complete: true,
+            credits: vec![CreditLink {
+                relation_id: Some("instrument-rel".to_string()),
+                role_id: Some("instrument-type".to_string()),
+                role: "instrument".to_string(),
+                direction: Some("backward".to_string()),
+                artist_mbid: "guitarist-id".to_string(),
+                artist_name: "Source Guitarist".to_string(),
+                credited_as: None,
+                attributes: vec![model::CreditAttribute {
+                    id: Some("guitar-type".to_string()),
+                    name: "electric guitar".to_string(),
+                    value: None,
+                    credited_as: None,
+                }],
+                began: None,
+                ended: None,
+                over: None,
+                order: Some(1),
+            }],
+            works: vec![WorkLink {
+                mbid: "sourced-work".to_string(),
+                title: "A Sourced Work".to_string(),
+                credits: vec![CreditLink {
+                    relation_id: Some("composer-rel".to_string()),
+                    role_id: Some("composer-type".to_string()),
+                    role: "composer".to_string(),
+                    direction: Some("backward".to_string()),
+                    artist_mbid: "writer-id".to_string(),
+                    artist_name: "Source Writer".to_string(),
+                    credited_as: None,
+                    attributes: Vec::new(),
+                    began: None,
+                    ended: None,
+                    over: None,
+                    order: Some(1),
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    };
+    let mut sources = Sources::default();
+    sources.set(record.clone());
+    let label = c
+        .labels
+        .iter()
+        .find(|label| label.name == "A Label")
+        .expect("the local label");
+    let label_entity =
+        EntityRef::of(&c, EntityKind::Label, label.id).expect("the local label entity");
+    sources.set(SourceRecord {
+        key: label_entity.key,
+        source: MUSICBRAINZ.to_string(),
+        source_id: Some("label-id".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    let d = UserData::default();
+
+    for expression in [
+        "work:\"A Sourced Work\"",
+        "work:sourced-work",
+        "instrument:guitar",
+        "performing:\"Source Guitarist\"",
+        "guest:\"Source Guitarist\"",
+        "with:\"Source Guitarist\"",
+        "composer:\"Source Writer\"",
+        "contributor:\"Source Writer\"",
+        "label:label-id",
+    ] {
+        assert_eq!(
+            titles_with_sources(expression, &c, &d, &sources),
+            ["A Recording"],
+            "{expression}"
+        );
+    }
+
+    let mut uncertain = Sources::default();
+    uncertain.set(SourceRecord {
+        confidence: Confidence::matched(99),
+        ..record
+    });
+    assert!(
+        titles_with_sources("work:\"A Sourced Work\"", &c, &d, &uncertain).is_empty(),
+        "an approximate attachment remains evidence, not a query relationship"
+    );
+}
+
+#[test]
 fn play_counts_answer_what_has_never_been_heard() {
     let c = catalog();
     let mut d = UserData::default();
@@ -380,11 +593,7 @@ fn a_result_can_be_put_in_order_and_the_unknown_goes_last() {
     // everything nobody ever tagged, whichever way round it is asked.
     let mut c = catalog();
     let d = UserData::default();
-    let context = Context {
-        catalog: &c,
-        data: &d,
-        owner: LOCAL_USER,
-    };
+    let context = Context::new(&c, &d, LOCAL_USER);
     let mut tracks = run(&Query::All, &context);
     sort(&mut tracks, Sort::parse("year").unwrap(), &context);
     let years: Vec<u32> = tracks
@@ -426,11 +635,7 @@ fn a_result_can_be_put_in_order_and_the_unknown_goes_last() {
         0,
         &[],
     );
-    let context = Context {
-        catalog: &c,
-        data: &d,
-        owner: LOCAL_USER,
-    };
+    let context = Context::new(&c, &d, LOCAL_USER);
     for order in ["year", "year-"] {
         let mut tracks = run(&Query::All, &context);
         sort(&mut tracks, Sort::parse(order).unwrap(), &context);

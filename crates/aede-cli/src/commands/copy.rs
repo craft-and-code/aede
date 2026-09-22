@@ -196,11 +196,9 @@ fn selection(
     catalog: &Catalog,
 ) -> Result<Vec<aede_core::model::Id>, Box<dyn std::error::Error>> {
     let data = user_data(args, catalog)?;
-    let context = aede_core::query::Context {
-        catalog,
-        data: &data,
-        owner: aede_core::user::LOCAL_USER,
-    };
+    let held = super::sources_held(args)?;
+    let context = aede_core::query::Context::new(catalog, &data, aede_core::user::LOCAL_USER)
+        .with_sources(&held);
     let expression = match (args.value("query"), args.value("collection")) {
         (Some(_), Some(_)) => {
             return Err("--query and --collection both name a selection: give one".into());

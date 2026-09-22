@@ -42,11 +42,8 @@ pub fn show_track(args: &Args) -> Res {
     let expression = track_query(args);
     let parsed = aede_core::query::parse(&expression)?;
     let data = super::user_data(args, &catalog)?;
-    let context = aede_core::query::Context {
-        catalog: &catalog,
-        data: &data,
-        owner: aede_core::user::LOCAL_USER,
-    };
+    let context = aede_core::query::Context::new(&catalog, &data, aede_core::user::LOCAL_USER)
+        .with_sources(&held);
     if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
         return Err(
             format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),

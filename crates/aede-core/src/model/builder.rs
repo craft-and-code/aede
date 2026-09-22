@@ -440,10 +440,10 @@ impl Builder {
                 None => {
                     let title = item
                         .tags
-                        .all("work")
+                        .all("grouping")
                         .get(position)
                         .map(String::as_str)
-                        .or_else(|| item.tags.first("work"))
+                        .or_else(|| item.tags.first("grouping"))
                         .unwrap_or(&self.catalog.recordings[recording_id as usize].title);
                     let id = self.catalog.works.len() as Id;
                     self.catalog.works.push(Work {

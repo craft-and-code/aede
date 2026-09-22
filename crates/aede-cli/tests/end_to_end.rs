@@ -788,6 +788,41 @@ fn a_query_expresses_what_options_never_could() {
 }
 
 #[test]
+fn a_relational_query_reads_certain_source_evidence() {
+    let sandbox = Sandbox::new("query_sources");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    // The work is deliberately absent from the audio tags. This is the shape
+    // produced by `fetch --credits`: attributable source evidence attached to
+    // the local track, not a rewritten MUSICBRAINZ_WORKID tag.
+    let document = sandbox.dir.join("relationships.json");
+    let track = library_flac();
+    std::fs::write(
+        &document,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":"track:{}","source":"musicbrainz",
+              "source_id":"recording-id","fetched_at":1756600000,
+              "confidence":"identified","facts":{{
+                "recording":"recording-id","relationships_complete":true,
+                "works":[{{"mbid":"work-id","title":"A Sourced Work"}}]
+              }}
+            }}]}}"#,
+            track.display()
+        ),
+    )
+    .expect("source document");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, err, ok) = sandbox.run(&["query", "work:\"A Sourced Work\""]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("So What"), "output: {out}");
+}
+
+#[test]
 fn a_saved_query_keeps_the_question_and_not_the_answer() {
     // A collection that stored its result would be a playlist. Keeping the
     // expression is what makes it answer with what the library holds now.

@@ -471,6 +471,11 @@ pub const PERFORMING_ROLES: &[&str] = &[
     "album",
     "featured",
     "performer",
+    // MusicBrainz names many audible recording relationships by their
+    // relationship type rather than by the generic local `performer` tag.
+    "instrument",
+    "vocal",
+    "performing orchestra",
     "conductor",
     "remixer",
 ];
