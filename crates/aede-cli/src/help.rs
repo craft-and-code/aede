@@ -70,7 +70,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Inspect, export, import, or remove externally sourced data.",
         },
         "review" => CommandPage {
-            usage: "aede review [name] | aede review --accept=<ID> | --reject=<ID> | --undo=<ID>",
+            usage: "aede review [name] [--interactive] | aede review --accept=<ID> | --reject=<ID> | --undo=<ID>",
             summary: "Resolve uncertain or conflicting source identities without changing tags.",
         },
         "fetch" => CommandPage {
@@ -633,6 +633,7 @@ fn command_examples(command: &str) -> &'static [&'static str] {
         ],
         "review" => &[
             "aede review",
+            "aede review --interactive",
             "aede review manson",
             "aede review --accept=<ID>",
             "aede review --all",

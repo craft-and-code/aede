@@ -341,6 +341,7 @@ const OPTIONS: &[&str] = &[
     "accept",
     "reject",
     "undo",
+    "interactive",
 ];
 
 /// Where each restricted option means something.
@@ -366,6 +367,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ("accept", &["review"], "accept one source claim by ID"),
     ("reject", &["review"], "reject one source claim by ID"),
     ("undo", &["review"], "undo one source-review decision by ID"),
+    (
+        "interactive",
+        &["review"],
+        "review claims one at a time with their context",
+    ),
     (
         "compilations",
         ALBUM_LIST_COMMANDS,

@@ -222,6 +222,7 @@ contradict an identifier in local tags. Every item has a stable review ID:
 
 ```sh
 aede review
+aede review --interactive
 aede review manson
 aede review --accept=<ID>
 aede review --reject=<ID>

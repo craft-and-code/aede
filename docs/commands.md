@@ -66,7 +66,8 @@ pressings do not lead back to an ambiguous page.
 `label` applies the same rule to identity. It says whether the MusicBrainz ID
 came from a local tag, was confirmed by an identifier lookup, is only a
 name-search proposal, or conflicts with the local tag. Proposals and conflicts
-are never applied silently. `aede review` lists them with stable IDs;
+are never applied silently. `aede review` lists them with stable IDs, while
+`aede review --interactive` presents the local and sourced facts in one card;
 `--accept=<ID>` allows one exact claim into navigation and queries,
 `--reject=<ID>` keeps it as evidence only, and `--undo=<ID>` reverses either
 decision without touching the files. `aede doctor` also reports pending

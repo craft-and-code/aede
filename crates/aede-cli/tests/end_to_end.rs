@@ -4,8 +4,9 @@
 //! This is the only test that exercises the whole chain — directory walk, tag
 //! reading, graph construction, persistence, reload, rendering.
 
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// One real audio file, for a test that builds a library of its own.
 ///
@@ -64,6 +65,31 @@ impl Sandbox {
             .env("NO_COLOR", "1")
             .output()
             .expect("running the binary");
+        (
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+            output.status.success(),
+        )
+    }
+
+    /// Runs an interactive command with deliberate keystrokes on standard input.
+    fn run_with_input(&self, args: &[&str], input: &str) -> (String, String, bool) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_aede"))
+            .args(args)
+            .env("AEDE_HOME", &self.dir)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("running the interactive binary");
+        child
+            .stdin
+            .take()
+            .expect("piped standard input")
+            .write_all(input.as_bytes())
+            .expect("interactive answers");
+        let output = child.wait_with_output().expect("interactive output");
         (
             String::from_utf8_lossy(&output.stdout).into_owned(),
             String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -891,6 +917,64 @@ fn source_review_is_persistent_reversible_and_controls_graph_queries() {
     let (out, _, ok) = sandbox.run(&["review"]);
     assert!(ok);
     assert!(out.contains(&id), "the pending claim returns: {out}");
+}
+
+#[test]
+fn source_review_can_be_understood_and_decided_interactively() {
+    let sandbox = Sandbox::new("interactive_source_review");
+    let root = library();
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+
+    let document = sandbox.dir.join("interactive-review.json");
+    std::fs::write(
+        &document,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":"track:{}","source":"musicbrainz",
+              "source_id":"possible-recording","fetched_at":1756600000,
+              "confidence":"matched","score":96,"facts":{{
+                "recording":"possible-recording","title":"So What",
+                "artists":["Miles Davis"],"album":"Kind of Blue",
+                "relationships_complete":true,
+                "works":[{{"mbid":"possible-work","title":"A Reviewed Work"}}]
+              }}
+            }}]}}"#,
+            library_flac().display()
+        ),
+    )
+    .expect("source document");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let (out, err, ok) = sandbox.run_with_input(&["review", "--interactive"], "a\n");
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("Your library"), "output: {out}");
+    assert!(out.contains("Source proposal"), "output: {out}");
+    assert!(out.contains("approximate match (96%)"), "output: {out}");
+    assert!(out.contains("A Reviewed Work"), "output: {out}");
+    assert!(out.contains("1 accepted"), "output: {out}");
+
+    let (out, err, ok) = sandbox.run(&["query", "work:\"A Reviewed Work\""]);
+    assert!(ok, "stderr: {err}");
+    assert!(
+        out.contains("So What"),
+        "the interactive choice was saved: {out}"
+    );
+
+    let (out, err, ok) = sandbox.run_with_input(&["review", "--interactive", "--all"], "u\n");
+    assert!(ok, "stdout: {out}\nstderr: {err}");
+    assert!(
+        out.contains("accepted"),
+        "the current status is visible: {out}"
+    );
+    assert!(out.contains("1 returned to pending"), "output: {out}");
+    let (out, _, ok) = sandbox.run(&["query", "work:\"A Reviewed Work\""]);
+    assert!(ok);
+    assert!(
+        !out.contains("So What"),
+        "undo from the interactive view is durable: {out}"
+    );
 }
 
 #[test]

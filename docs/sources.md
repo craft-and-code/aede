@@ -86,12 +86,19 @@ an identifier already present in your tags follow the same review path:
 
 ```sh
 aede review                         # unresolved claims
+aede review --interactive           # compare and decide one claim at a time
 aede review manson                  # narrow them by entity name
 aede review --accept=<ID>           # trust this exact claim
 aede review --reject=<ID>           # keep it visible, but never traverse it
 aede review --undo=<ID>             # return the decision to pending
 aede review --all                   # include accepted and rejected claims
 ```
+
+The interactive view shows the local identity and the source proposal before
+asking for a decision. Use `A` to accept, `R` to reject, `S` to leave the claim
+pending, `P` to go back, `U` to undo an existing decision, and `Q` to stop.
+Every decision is saved immediately, so an interrupted session can simply be
+resumed.
 
 Acceptance never changes `matched 92%` into `identified`: the original
 confidence remains visible. It only records that you approved this precise

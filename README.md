@@ -118,7 +118,7 @@ aede doctor
 | `aede scan`   | `[path]`     | `--full`                                    | Traverses roots to index audio files, tags, and structure.                                  |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
 | `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
-| `aede review` | None         | `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
+| `aede review` | None         | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
 | `aede stats`  | None         | None                                        | Displays catalog metrics, audio quality distribution, and credit roles.                     |
 | `aede reset`  | None         | `--yes`                                     | Wipes indexed catalog data while preserving root configurations.                            |
 
@@ -187,6 +187,7 @@ tags are reviewed explicitly:
 
 ```sh
 aede review
+aede review --interactive  # compare local and sourced facts, then decide one by one
 aede review manson          # narrow the pending list by entity name
 aede review --accept=<ID>   # allow this claim into navigation and queries
 aede review --reject=<ID>   # retain it as evidence only
