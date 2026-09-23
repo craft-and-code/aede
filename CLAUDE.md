@@ -86,7 +86,9 @@ See `docs/coding/engineering-rules.md` for detailed project-specific rules.
 ## 5. Tests
 
 - Every bug fix starts with a failing test.
-- Unit tests normally live beside the implementation.
+- Keep tests out of production `.rs` files. Put unit tests in sibling
+  `*_tests.rs` files and declare them with `#[cfg(test)]` and `#[path = "..."]`
+  so they retain access to private implementation details.
 - Integration tests live in `tests/`.
 - New supported audio formats require real fixtures.
 - Tests must assert behaviour, not implementation details.
@@ -168,6 +170,9 @@ The CLI is part of the public contract.
 ## 10. Documentation
 
 Do not duplicate information unnecessarily.
+
+Do not enforce a maximum line length in Markdown files; write and wrap lines
+for readability.
 
 - `CLAUDE.md` contains permanent instructions required during every coding session.
 - `docs/coding/current-state.md` contains the current project state.

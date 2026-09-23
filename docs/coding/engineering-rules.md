@@ -4,6 +4,9 @@ This document contains stable engineering rules and lessons learned from the imp
 
 It is deliberately separate from `CLAUDE.md`: Claude Code should consult this document when a task touches one of these areas.
 
+Markdown files have no maximum line length. Wrap lines where it improves
+readability, without imposing a character limit.
+
 ---
 
 ## 1. Deterministic construction
@@ -339,13 +342,14 @@ A test's temporary data must be isolated from every other test.
 
 ---
 
-## 17. Tests beside implementation
+## 17. Tests beside implementation, in a separate file
 
-Unit tests normally live beside the implementation.
+Unit tests live in a sibling `*_tests.rs` file, never inline in a production
+`.rs` file. Declare each sibling with `#[cfg(test)]` and `#[path = "..."]` in
+the module under test. This keeps private-item access and shortens the
+implementation file at the same time.
 
-When a test module becomes larger than approximately 200 lines, move it to a sibling test file while preserving the same module relationship and access to private implementation details.
-
-The split must not change the number or meaning of tests.
+Moving tests to a sibling file must not change their number or meaning.
 
 ### A sibling test file must be declared
 
