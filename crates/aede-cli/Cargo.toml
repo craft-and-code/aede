@@ -22,3 +22,4 @@ fetch = ["aede-core/fetch"]
 # `default-features = false` so that turning this crate's `fetch` off
 # really does leave the library with no network code compiled in.
 aede-core = { path = "../aede-core", default-features = false }
+flaccompagnon-core = { git = "https://github.com/craft-and-code/FlacCompagnon", tag = "v0.9.5" }

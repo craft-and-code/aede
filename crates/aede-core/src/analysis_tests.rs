@@ -88,6 +88,155 @@ fn reads_a_report() {
 }
 
 #[test]
+fn a_report_in_memory_uses_the_same_reader_as_an_imported_file() {
+    let report = parse_report(&example("")).expect("a report in memory");
+    assert_eq!(report.files[0].path, "/music/Danzig/01 7th House.flac");
+    assert_eq!(report.files[0].md5_state.as_deref(), Some("Match"));
+}
+
+#[test]
+fn reads_and_keeps_the_optional_whole_file_md5() {
+    let digest = "5d41402abc4b2a76b9719d911017c592";
+    let text = example(&format!(", \"file_md5\": \"{digest}\""));
+    let report = parse_report(&text).expect("report with whole-file digest");
+    assert_eq!(report.files[0].file_md5.as_deref(), Some(digest));
+
+    let dir = TestDirectory::new("persist_digest");
+    let catalog = Catalog {
+        analyses: report.files,
+        ..Default::default()
+    };
+    let path = dir.path.join("catalog.json");
+    crate::store::save(&catalog, &path).expect("save analysis");
+    let loaded = crate::store::load(&path)
+        .expect("read catalog")
+        .expect("catalog exists");
+    assert_eq!(loaded.analyses[0].file_md5.as_deref(), Some(digest));
+}
+
+struct TestDirectory {
+    path: std::path::PathBuf,
+}
+
+impl TestDirectory {
+    fn new(name: &str) -> Self {
+        let path = std::env::temp_dir().join(format!("aede_analysis_{name}"));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("temporary directory");
+        Self { path }
+    }
+
+    fn file(&self, name: &str, bytes: &[u8]) -> String {
+        let path = self.path.join(name);
+        std::fs::write(&path, bytes).expect("fixture bytes");
+        path.to_string_lossy().into_owned()
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[test]
+fn a_renamed_file_is_found_by_its_bytes_even_when_its_date_changes() {
+    let dir = TestDirectory::new("renamed_by_md5");
+    let path = dir.file("new-name.flac", b"hello");
+    let digest = "5d41402abc4b2a76b9719d911017c592";
+    assert_eq!(file_md5(Path::new(&path)).unwrap(), digest);
+    let mut catalog = catalog_holding(&path, 5, 20);
+    let record = FileAnalysis {
+        file_md5: Some(digest.into()),
+        ..record_for("/old-library/old-name.flac", 5, 10)
+    };
+
+    let outcome = merge_into(&mut catalog, vec![record], 99);
+    assert_eq!(outcome.moved, 1);
+    assert_eq!(catalog.analyses[0].path, path);
+    assert_eq!(catalog.analyses[0].modified_unix, 20);
+    assert_eq!(catalog.pending_analyses(), 0);
+}
+
+#[test]
+fn a_matching_name_and_size_with_different_bytes_is_not_attached() {
+    let dir = TestDirectory::new("different_bytes");
+    let path = dir.file("track.flac", b"world");
+    let mut catalog = catalog_holding(&path, 5, 10);
+    let record = FileAnalysis {
+        file_md5: Some("5d41402abc4b2a76b9719d911017c592".into()),
+        ..record_for("/old-library/track.flac", 5, 10)
+    };
+
+    let outcome = merge_into(&mut catalog, vec![record], 0);
+    assert_eq!(outcome.waiting, 1);
+    assert_eq!(outcome.moved, 0);
+}
+
+#[test]
+fn identical_copies_do_not_claim_a_moved_analysis() {
+    let dir = TestDirectory::new("identical_copies");
+    let first = dir.file("first.flac", b"hello");
+    let second = dir.file("second.flac", b"hello");
+    let mut catalog = catalog_holding(&first, 5, 10);
+    catalog.files.push(crate::model::AudioFile {
+        id: 1,
+        path: second,
+        size: 5,
+        mtime: 10,
+        ..Default::default()
+    });
+    let record = FileAnalysis {
+        file_md5: Some("5d41402abc4b2a76b9719d911017c592".into()),
+        ..record_for("/old-library/track.flac", 5, 10)
+    };
+
+    let outcome = merge_into(&mut catalog, vec![record], 0);
+    assert_eq!(outcome.waiting, 1);
+    assert_eq!(outcome.moved, 0);
+}
+
+#[test]
+fn a_waiting_digest_attaches_after_the_new_location_is_scanned() {
+    let dir = TestDirectory::new("reconcile_digest");
+    let path = dir.file("renamed.flac", b"hello");
+    let record = FileAnalysis {
+        file_md5: Some("5d41402abc4b2a76b9719d911017c592".into()),
+        ..record_for("/old-library/track.flac", 5, 10)
+    };
+    let mut catalog = Catalog::default();
+    assert_eq!(merge_into(&mut catalog, vec![record], 0).waiting, 1);
+    catalog.files.push(crate::model::AudioFile {
+        id: 0,
+        path: path.clone(),
+        size: 5,
+        mtime: 20,
+        ..Default::default()
+    });
+
+    assert_eq!(reconcile(&mut catalog), 1);
+    assert_eq!(catalog.analyses[0].path, path);
+    assert_eq!(catalog.analyses[0].modified_unix, 20);
+}
+
+#[test]
+fn ambiguous_name_and_size_never_attach_to_the_first_album() {
+    let mut catalog = catalog_holding("/music/first/01 Intro.flac", 500, 10);
+    catalog.files.push(crate::model::AudioFile {
+        id: 1,
+        path: "/music/second/01 Intro.flac".into(),
+        size: 500,
+        mtime: 10,
+        ..Default::default()
+    });
+    let record = record_for("/old-library/01 Intro.flac", 500, 10);
+    let outcome = merge_into(&mut catalog, vec![record], 0);
+    assert_eq!(outcome.moved, 0);
+    assert_eq!(outcome.waiting, 1);
+    assert_eq!(catalog.analyses[0].path, "/old-library/01 Intro.flac");
+}
+
+#[test]
 fn a_measurement_the_reader_does_not_know_is_not_an_error() {
     // The other tool will grow fields; a report carrying one still imports.
     let path = write(

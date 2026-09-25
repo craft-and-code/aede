@@ -153,6 +153,7 @@ Current important dependencies include:
 
 - `lofty` — supported audio/container/tag formats where the project does not provide its own parser.
 - `ureq` — optional network functionality.
+- `flaccompagnon-core` — decoded-audio analysis, pinned to a FlacCompagnon Git tag.
 
 ## 9. CLI behaviour
 

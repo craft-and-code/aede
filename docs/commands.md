@@ -191,7 +191,7 @@ Paths are absolute, ensuring the playlist works seamlessly wherever it is saved.
 
 ## Naming a folder
 
-`check`, `spectrum`, `playlist`, `extract` and `fingerprint` all take folders, and all five operate directly from the **catalog** rather than polling the disk. A folder the catalog has never met is immediately refused, saving you from running a hollow command:
+`check`, `spectrum`, `playlist`, `extract`, `fingerprint`, and `analyze` all take folders, and all six operate directly from the **catalog** rather than polling the disk. A folder the catalog has never met is immediately refused, saving you from running a hollow command:
 
 ```
 $ aede extract ~/Desktop/new-rips

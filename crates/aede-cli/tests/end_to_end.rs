@@ -161,6 +161,38 @@ fn scan_then_query() {
 }
 
 #[test]
+fn analyze_writes_a_reimportable_report_next_to_its_album() {
+    let sandbox = Sandbox::new("analyze_album");
+    let album = sandbox.dir.join("album");
+    std::fs::create_dir_all(&album).expect("album folder");
+    let album = album.canonicalize().expect("canonical album folder");
+    let audio = album.join("track.flac");
+    std::fs::copy(library_flac(), &audio).expect("reference audio");
+
+    let (_, err, ok) = sandbox.run(&["scan", album.to_str().unwrap()]);
+    assert!(ok, "scan failed: {err}");
+    let (out, err, ok) = sandbox.run(&["analyze", album.to_str().unwrap(), "--json"]);
+    assert!(ok, "analysis failed: {err}\n{out}");
+    assert!(
+        out.contains("track.flac —"),
+        "analysis result missing: {out}"
+    );
+    assert!(err.contains("[1/1]"), "analysis progress missing: {err}");
+
+    let report_path = album.join("album.json");
+    let text = std::fs::read_to_string(&report_path).expect("album report");
+    let report =
+        flaccompagnon_core::report::parse_json(&text).expect("reimportable FlacCompagnon report");
+    assert_eq!(report.root, album.to_string_lossy());
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(report.files[0].path, audio.to_string_lossy());
+
+    let (out, err, ok) = sandbox.run(&["track", "So What"]);
+    assert!(ok, "track query failed: {err}");
+    assert!(out.contains("Analysed by flaccompagnon"), "{out}");
+}
+
+#[test]
 fn missing_catalog_gives_an_actionable_message() {
     let sandbox = Sandbox::new("empty");
     let (_, err, ok) = sandbox.run(&["stats"]);

@@ -276,6 +276,7 @@ fn analysis_to_json(a: &FileAnalysis) -> Json {
     o.set("imported_at", a.imported_at.into());
     o.set("size_bytes", a.size_bytes.into());
     o.set("modified_unix", a.modified_unix.into());
+    o.set("file_md5", opt_str(&a.file_md5));
     o.set("md5_state", opt_str(&a.md5_state));
     o.set("md5_detail", opt_str(&a.md5_detail));
     o.set("real_bit_depth", opt_num(&a.real_bit_depth.map(u32::from)));
@@ -307,6 +308,7 @@ fn analysis_from_json(item: &Json) -> FileAnalysis {
         imported_at: item.field_u64("imported_at").unwrap_or(0),
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
+        file_md5: item.field_str("file_md5"),
         md5_state: item.field_str("md5_state"),
         md5_detail: item.field_str("md5_detail"),
         real_bit_depth: item.field_u32("real_bit_depth").map(|v| v as u16),

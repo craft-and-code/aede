@@ -397,7 +397,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ("limit", PAGING_COMMANDS, "show a window of its result"),
     ("offset", PAGING_COMMANDS, "start further down its result"),
     ("all", PAGING_COMMANDS, "hold nothing back"),
-    ("json", JSON_COMMANDS, "answer in JSON"),
+    (
+        "json",
+        JSON_COMMANDS,
+        "answer in JSON, or save album reports with analyze",
+    ),
     ("separator", CSV_COMMANDS, "choose a separator"),
     ("sort", SORT_COMMANDS, "be sorted"),
     ("severity", DOCTOR_COMMANDS, "filter by severity"),
@@ -513,7 +517,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ),
     (
         "threads",
-        &["scan", "check", "spectrum", "copy"],
+        &["scan", "check", "spectrum", "copy", "analyze"],
         "read on several threads",
     ),
     ("replace", &["scan", "copy"], "forget the watched folders"),
@@ -683,6 +687,7 @@ const MEMBER_COMMANDS: &[&str] = &["artist"];
 type Command = fn(&Args) -> commands::Res;
 const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("scan", None, commands::scan),
+    ("analyze", None, commands::analyze),
     ("roots", None, commands::roots),
     ("stats", None, commands::show_stats),
     ("doctor", None, commands::show_doctor),
@@ -765,6 +770,7 @@ const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 /// `--json` used to be declared globally and read by four commands, so
 /// `aede albums --json` printed the ordinary table and dropped the word.
 const JSON_COMMANDS: &[&str] = &[
+    "analyze",
     "export",
     "album",
     "artist",

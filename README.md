@@ -20,7 +20,7 @@
 4. **Empirical & Deterministic Operations**  
    Aède shuns silent heuristics and hidden fallbacks. A query against a non-existent genre returns an explicit error rather than a deceptively empty list. Destination filesystems during transfers (`aede copy`) are probed empirically by writing invisible test files rather than relying on brittle OS lookup tables.
 5. **Separation of Fact and Inference**  
-   Container integrity checks (`aede check`) verify mathematical frame and page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$). External spectral analyses (`aede import`) measure physical acoustic metrics. Aède keeps container facts separate from acoustic inferences, preserving data provenance across all commands.
+   Container integrity checks (`aede check`) verify mathematical frame and page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$). FlacCompagnon's acoustic analysis (`aede analyze` or `aede import`) measures decoded audio. Aède keeps container facts separate from acoustic inferences, preserving data provenance across all commands.
 
 ---
 
@@ -243,6 +243,7 @@ disappears; `aede doctor --severity=info` then makes it visible.
 | Command        | Arguments         | Key Options                                             | Description                                                                  |
 | :------------- | :---------------- | :------------------------------------------------------ | :--------------------------------------------------------------------------- |
 | `aede import`  | `<path>`          | `--list`, `--pending`, `--forget`, `--source`           | Ingests external FlacCompagnon JSON reports for spectral analysis.           |
+| `aede analyze` | `[folder…]`      | `--json`, `--threads <n>`                              | Runs [FlacCompagnon](https://github.com/craft-and-code/FlacCompagnon)'s Rust analysis engine; `--json` saves one report per album folder. |
 | `aede note`    | `<entity> <name>` | `--text <str>`, `--file <path>`, `--append`, `--remove` | Attaches plain-text or Markdown notes to tracks, albums, or artists.         |
 | `aede rating`  | `<entity> <name>` | `<1-5>`, `--remove`                                     | Sets a personal star rating ($1\text{--}5$).                                 |
 | `aede tag`     | `<entity> <name>` | `<tag_name>`, `--remove`                                | Assigns or removes custom tags.                                              |

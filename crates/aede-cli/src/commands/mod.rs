@@ -4,6 +4,7 @@
 //! catalog lives, how it is loaded, how a role is spelled out — stays here.
 
 mod album;
+mod analyze;
 mod annotate;
 mod artist;
 mod artwork;
@@ -45,6 +46,7 @@ mod track;
 mod work;
 
 pub use album::show_album;
+pub use analyze::analyze;
 use annotate::panel_for;
 pub use annotate::{
     collection, collections, favourites, history, love, note, notes, played, query, rate, tag,

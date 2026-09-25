@@ -35,6 +35,7 @@ The current implementation includes:
 - catalog export;
 - integrity checks;
 - imported analyses;
+- direct album analysis through FlacCompagnon's Rust library;
 - backup and restore;
 - audio fingerprinting;
 - MusicBrainz fetching;

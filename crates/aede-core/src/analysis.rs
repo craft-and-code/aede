@@ -1,4 +1,4 @@
-//! Deep analyses produced by another tool, imported into the catalog.
+//! FlacCompagnon analyses produced in-process or imported from a saved report.
 //!
 //! Aède describes what a file *contains* by reading its structure; it does not
 //! decode. A decoder answers questions no structural read can: is this FLAC a
@@ -6,11 +6,10 @@
 //! it really, and — the decisive one — does the audio still match the MD5 the
 //! encoder wrote in STREAMINFO.
 //!
-//! [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) already does that
-//! pass and can export it. Rather than wait for the decoder that arrives at M3,
-//! a user who has run it can hand the results over.
+//! [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) does that
+//! pass through `aede analyze`; its saved reports can also be imported later.
 //!
-//! **Imported values are never merged into Aède's own.** They sit beside them,
+//! **Acoustic values are never merged into Aède's own.** They sit beside them,
 //! attributed to their source, because a verdict carries the method that
 //! produced it: overwriting `effective_bit_depth` — read from the wasted-bits
 //! counts of the frames — with a figure obtained by decoding would leave the
@@ -18,15 +17,17 @@
 //! the two disagree. Noticing is the point.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
 use std::path::Path;
 
 use crate::json::{self, Json};
 use crate::model::Catalog;
+use md5::{Digest, Md5};
 
 /// The report format this reader understands.
 pub const FLACCOMPAGNON_FORMAT: &str = "flaccompagnon-report";
 
-/// One file, as another tool measured it.
+/// One file, as FlacCompagnon measured it.
 ///
 /// Every measurement is optional: a report may predate a field, omit one, or
 /// come from a tool that does not compute it. Nothing here is required for the
@@ -35,13 +36,14 @@ pub const FLACCOMPAGNON_FORMAT: &str = "flaccompagnon-report";
 pub struct FileAnalysis {
     /// Absolute path of the file this describes.
     ///
-    /// The key is the **path**, not an identifier into the catalog. Two
+    /// The primary key is the **path**, not an identifier into the catalog. Two
     /// reasons, and the second is the important one. Identifiers are positions
     /// that a scan renumbers, so an identifier would have to be remapped after
     /// every scan. And an analysis may perfectly well describe a file the
     /// catalog does not hold *yet*: someone can run the analysis first and
     /// build their library afterwards. Keying on the path lets such a record
-    /// wait, and attach itself the day the file is scanned.
+    /// wait, and attach itself the day the file is scanned. A whole-file MD5
+    /// can identify a renamed copy when the old path no longer exists.
     pub path: String,
     /// Tool that produced the measurements, `flaccompagnon` for now.
     pub source: String,
@@ -51,12 +53,15 @@ pub struct FileAnalysis {
     pub imported_at: u64,
     /// Size the analysed file had, in bytes.
     ///
-    /// With [`FileAnalysis::modified_unix`], this is what makes an imported
-    /// analysis expire: the same key the incremental scan uses. A file edited
-    /// after the report was written is no longer the file that was measured.
+    /// With [`FileAnalysis::modified_unix`], this makes an exact-path or legacy
+    /// name-and-size match expire when the file changes. A moved file with a
+    /// matching whole-file MD5 can keep its analysis after a timestamp change.
     pub size_bytes: u64,
     /// Modification date the analysed file had.
     pub modified_unix: u64,
+    /// MD5 of the entire file, including tags and artwork, when supplied.
+    /// Used to identify a moved file without trusting its name or timestamp.
+    pub file_md5: Option<String>,
 
     /// Verdict on the MD5 stored in STREAMINFO: `Match`, `Mismatch`,
     /// `NoSignature`, `Present`, `Error`.
@@ -215,21 +220,18 @@ fn note_folder(folders: &mut BTreeMap<String, usize>, path: &str) {
 
 /// Stores records in the catalog, attaching each to the file it describes.
 ///
-/// Three outcomes, and the third is the one that makes the order of operations
-/// irrelevant:
+/// Three outcomes make the order of analysis and scanning irrelevant:
 ///
 /// - the path is one the catalog holds — the usual case;
-/// - the path is unknown but a file of the same **name and size** is there, so
-///   the library has moved since it was analysed: the record is refiled under
-///   where the file is now, which is also what makes it attach directly next
-///   time;
+/// - the path is unknown, but one file has the same size and whole-file MD5;
+///   older reports without a digest can use a unique name and size instead;
+///   the record is refiled under its current location;
 /// - nothing matches, and the record is kept as it is. The folder it names has
 ///   most likely not been scanned yet.
 ///
-/// In the first two cases the record must still describe the file as it is now,
-/// or it is dropped: matching a file is not the same as describing it. A name
-/// and a size can agree while the modification date says the tags were rewritten
-/// yesterday.
+/// Exact-path and legacy name-and-size matches also require the old size and
+/// modification date. A digest match proves the bytes agree, so a changed
+/// timestamp alone is harmless. Duplicate digests remain unresolved.
 pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -> Attachment {
     let mut out = Attachment::default();
     let mut resolved: Vec<FileAnalysis> = Vec::with_capacity(records.len());
@@ -241,6 +243,13 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
             .map(|f| (f.path.as_str(), (f.size, f.mtime)))
             .collect();
         let by_name_size = name_size_index(catalog);
+        let wanted_sizes = records
+            .iter()
+            .filter(|record| !known.contains_key(record.path.as_str()))
+            .filter(|record| record.file_md5.is_some())
+            .map(|record| record.size_bytes)
+            .collect();
+        let by_digest = file_md5_index(catalog, &wanted_sizes);
 
         for mut record in records {
             match known.get(record.path.as_str()) {
@@ -252,21 +261,36 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
                     }
                     out.matched += 1;
                 }
-                None => match by_name_size.get(&(record.file_name(), record.size_bytes)) {
-                    Some(&(path, mtime)) => {
-                        if !record.still_applies(record.size_bytes, mtime) {
-                            out.stale += 1;
-                            note_folder(&mut out.stale_folders, path);
-                            continue;
+                None => {
+                    if let Some(digest) = &record.file_md5 {
+                        if let Some(&(path, mtime)) =
+                            by_digest.get(&(record.size_bytes, digest.clone()))
+                        {
+                            record.path = path.to_string();
+                            record.modified_unix = mtime;
+                            out.moved += 1;
+                        } else {
+                            out.waiting += 1;
+                            note_folder(&mut out.waiting_folders, &record.path);
                         }
-                        record.path = path.to_string();
-                        out.moved += 1;
+                    } else {
+                        match by_name_size.get(&(record.file_name(), record.size_bytes)) {
+                            Some(&(path, mtime)) => {
+                                if !record.still_applies(record.size_bytes, mtime) {
+                                    out.stale += 1;
+                                    note_folder(&mut out.stale_folders, path);
+                                    continue;
+                                }
+                                record.path = path.to_string();
+                                out.moved += 1;
+                            }
+                            None => {
+                                out.waiting += 1;
+                                note_folder(&mut out.waiting_folders, &record.path);
+                            }
+                        }
                     }
-                    None => {
-                        out.waiting += 1;
-                        note_folder(&mut out.waiting_folders, &record.path);
-                    }
-                },
+                }
             }
             record.imported_at = now;
             resolved.push(record);
@@ -287,14 +311,23 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
 /// also that the path it names is not the path the catalog settled on. Watched
 /// folders are stored canonical, so a report written against a symbolic link,
 /// or against `/var` where the system says `/private/var`, names the same file
-/// by another route. Matching on name and size finds it either way.
+/// by another route. A whole-file MD5 resolves the path when available; older
+/// reports still use a unique name, size and modification date.
 ///
 /// Returns how many were attached.
 pub fn reconcile(catalog: &mut Catalog) -> usize {
-    let mut moves: Vec<(usize, String)> = Vec::new();
+    let mut moves: Vec<(usize, String, u64)> = Vec::new();
     {
         let known: BTreeSet<&str> = catalog.files.iter().map(|f| f.path.as_str()).collect();
         let by_name_size = name_size_index(catalog);
+        let wanted_sizes = catalog
+            .analyses
+            .iter()
+            .filter(|record| !known.contains(record.path.as_str()))
+            .filter(|record| record.file_md5.is_some())
+            .map(|record| record.size_bytes)
+            .collect();
+        let by_digest = file_md5_index(catalog, &wanted_sizes);
         let taken: BTreeSet<(&str, &str)> = catalog
             .analyses
             .iter()
@@ -306,24 +339,29 @@ pub fn reconcile(catalog: &mut Catalog) -> usize {
             if known.contains(record.path.as_str()) {
                 continue;
             }
-            let Some(&(path, mtime)) = by_name_size.get(&(record.file_name(), record.size_bytes))
-            else {
+            let candidate = if let Some(digest) = &record.file_md5 {
+                by_digest.get(&(record.size_bytes, digest.clone())).copied()
+            } else {
+                by_name_size
+                    .get(&(record.file_name(), record.size_bytes))
+                    .filter(|(_, mtime)| record.still_applies(record.size_bytes, *mtime))
+                    .copied()
+            };
+            let Some((path, mtime)) = candidate else {
                 continue;
             };
-            if !record.still_applies(record.size_bytes, mtime) {
-                continue;
-            }
             // A record already filed under the real path wins: it was attached
             // deliberately, this one is being guessed at.
             if taken.contains(&(path, record.source.as_str())) {
                 continue;
             }
-            moves.push((index, path.to_string()));
+            moves.push((index, path.to_string(), mtime));
         }
     }
     let attached = moves.len();
-    for (index, path) in moves {
+    for (index, path, mtime) in moves {
         catalog.analyses[index].path = path;
+        catalog.analyses[index].modified_unix = mtime;
     }
     if attached > 0 {
         // Refiling two records onto the same path is possible when a report
@@ -340,19 +378,73 @@ pub fn reconcile(catalog: &mut Catalog) -> usize {
     attached
 }
 
-/// Files indexed by name and size, with the modification date of each.
+/// Files indexed by name and size, with ambiguous keys excluded.
 ///
-/// A name and a byte count together are very nearly unique in a music library.
-/// When they are not — the same track twice, in two folders — the first path in
-/// order wins, which at least makes the choice the same on every run.
+/// If two albums contain the same name and byte count, guessing the first
+/// path would attach a measurement to the wrong music. The report can wait
+/// until an exact path is available instead.
 fn name_size_index(catalog: &Catalog) -> BTreeMap<(&str, u64), (&str, u64)> {
     let mut index: BTreeMap<(&str, u64), (&str, u64)> = BTreeMap::new();
+    let mut ambiguous = BTreeSet::new();
     for file in &catalog.files {
-        index
-            .entry((file.file_name(), file.size))
-            .or_insert((file.path.as_str(), file.mtime));
+        let key = (file.file_name(), file.size);
+        if ambiguous.contains(&key) {
+            continue;
+        }
+        if index
+            .insert(key, (file.path.as_str(), file.mtime))
+            .is_some()
+        {
+            index.remove(&key);
+            ambiguous.insert(key);
+        }
     }
     index
+}
+
+/// Find byte-identical files for reports whose old paths no longer exist.
+/// Duplicate hashes stay unresolved: identical copies still have distinct
+/// album placements, and the report cannot say which one it described.
+fn file_md5_index<'a>(
+    catalog: &'a Catalog,
+    wanted_sizes: &BTreeSet<u64>,
+) -> BTreeMap<(u64, String), (&'a str, u64)> {
+    let mut index = BTreeMap::new();
+    let mut ambiguous = BTreeSet::new();
+    for file in &catalog.files {
+        if !wanted_sizes.contains(&file.size) {
+            continue;
+        }
+        let Ok(digest) = file_md5(Path::new(&file.path)) else {
+            continue;
+        };
+        let key = (file.size, digest);
+        if ambiguous.contains(&key) {
+            continue;
+        }
+        if index
+            .insert(key.clone(), (file.path.as_str(), file.mtime))
+            .is_some()
+        {
+            index.remove(&key);
+            ambiguous.insert(key);
+        }
+    }
+    index
+}
+
+fn file_md5(path: &Path) -> std::io::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut digest = Md5::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 /// Stores one record, replacing what that source had already said about that
@@ -423,7 +515,12 @@ const SUPPORTED_VERSION: u32 = 1;
 /// measurements, and a report carrying one must still import the rest.
 pub fn read_report(path: &Path) -> Result<Report, ImportError> {
     let text = std::fs::read_to_string(path)?;
-    let value = json::parse(&text).map_err(|e| ImportError::Json(e.to_string()))?;
+    parse_report(&text)
+}
+
+/// Parse a report already held in memory, including a newly produced analysis.
+pub fn parse_report(text: &str) -> Result<Report, ImportError> {
+    let value = json::parse(text).map_err(|e| ImportError::Json(e.to_string()))?;
 
     let format = value.field_str("format").unwrap_or_default();
     if format != FLACCOMPAGNON_FORMAT {
@@ -492,6 +589,7 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
         imported_at: 0,
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
+        file_md5: item.field_str("file_md5"),
 
         md5_state: md5.and_then(|m| m.field_str("state")),
         md5_detail: md5.and_then(|m| m.field_str("detail")),

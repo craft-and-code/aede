@@ -2,9 +2,17 @@
 
 Entirely optional, and it changes nothing if you never use it.
 
-Aède is a master of structure. It reads the physical "digital grooves" of your files—the tags, the frames, the containers. But it does not decode the audio itself, which means there are forensic questions it respectfully leaves unanswered: Is this "lossless" FLAC actually a re-encoded 128kbps MP3? Was it artificially upsampled? Where does its high-frequency spectrum truly stop? And critically, does the fully decoded audio still perfectly match the MD5 signature the original encoder stamped into the file?
+Aède's native parsers read tags, frames, and containers. For questions about the decoded audio—possible transcoding, upsampling, spectral cutoff, loudness, and the FLAC audio MD5—`aede analyze` calls the [FlacCompagnon](https://github.com/craft-and-code/FlacCompagnon) Rust analysis library directly. The measurements stay attributed to FlacCompagnon in Aède's catalog.
 
-[FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) performs exactly this kind of microscopic acoustic pass. If you have run it across your collection, `aede import` gracefully folds these external insights into your catalog:
+```sh
+aede analyze                            # analyze catalogued albums and store results in Aède
+aede analyze ~/Music/Album --json       # also save Album.json in that album folder
+aede analyze ~/Music --json --threads 4 # one report per album folder
+```
+
+An album's folder comes from Aède's catalog, so a multi-disc release gets one report in the shared album folder. Re-running `--json` replaces that generated report with current measurements. Audio files and tags are read-only. Files without an album tag are grouped by their containing folder.
+
+If you already have a FlacCompagnon report from the desktop app or its standalone `flaccompagnon` command, `aede import` still folds it into your catalog:
 
 ```sh
 aede import ~/Desktop/danzig-report.json
@@ -24,16 +32,16 @@ A folder is walked **recursively**, because Aède understands that you keep your
 An analysis is filed under the **path** it describes, not inherently tied to a catalog entry. Therefore, you can build your CDthèque in whatever order feels natural. Analysing a folder _before_ officially shelving it in the library is a perfectly valid archivist's workflow.
 
 - **Import first.** The acoustic records are securely stored and reported as `Waiting for a scan`. The moment you scan the actual audio files into the sanctuary, the analyses attach themselves automatically, proudly declaring `Analyses now attached`. The `doctor` command keeps track of how many are still waiting, ensuring no analysis is forgotten in the dark.
-- **Scan first.** Files are matched by path, then intelligently by name and size to accommodate a library that might have been moved. A precise filename paired with an exact byte count is nearly as unique as a fingerprint.
+- **Scan first.** Files are matched by path. A report carrying `file_md5` can then identify a moved or renamed file by its complete bytes, even when its modification date changed. Older reports without that field fall back to a unique name and size, checked against the modification date.
 - **Leave the report in the album folder.** An Aède scan gracefully steps over your archival materials. Any `.json` file announcing itself as a FlacCompagnon report is read, digested, and reported in the scan summary. Only half a kilobyte is peeked at to recognise it; the rest of your meticulously saved non-audio files remain untouched and unparsed.
 
-Matching is resilient. Watched folders are stored canonically, so a report produced against a symbolic link—or against `/var` where macOS says `/private/var`—still identifies the true file. The name and size bridge any path discrepancies, safely refiling the analysis under the master path your catalog trusts.
+Watched folders are stored canonically. A report produced against a symbolic link—or against `/var` where macOS says `/private/var`—can still identify the true file. `file_md5` hashes the whole file, including tags and artwork; it differs from the FLAC audio MD5 status shown in the analysis. If two catalogued copies have identical bytes, Aède leaves the record waiting instead of choosing one album arbitrarily.
 
 ## When a scan does not make it go away
 
-Attaching only ever happens two ways: the path matches exactly, or the **name and size together** match a file already preserved in the catalog.
+An analysis attaches when its path matches, or when one catalogued file has the same size and whole-file MD5. For older reports without `file_md5`, one unique name and size can still match if the modification date agrees.
 
-A report exported against a library that has since been shifted to a new drive, heavily renamed, or was simply never under a watched folder, will sit waiting forever. Re-running `aede scan` cannot magically fix what the foundational paths disagree on.
+A report stays waiting when no candidate matches, or when several identical copies make the destination ambiguous. Scanning a newly moved folder may resolve a waiting report; reports without a whole-file MD5 cannot recover from a rename if the old name no longer exists.
 
 `doctor` will alert you to these archival ghosts, but only with a count:
 
@@ -67,7 +75,7 @@ aede import --forget --pending                             # everything waiting
 
 Both `--pending` and `--forget --pending` accept specific folders, and `--source` can narrow the focus to a single tool. A folder passed to a bare `--forget` is rightfully refused rather than silently ignored. When a command exists to delete data, a swallowed argument is the most dangerous kind of error.
 
-Crucially, being _about_ a file is not the same as accurately _describing_ its current state. A record that perfectly matches by name and size is still rigorously checked against the file's modification date. If the audio was edited after the report was generated, the analysis is dropped. Imported analyses survive a scan, as they are the _only_ data in your CDthèque that reading the files cannot recompute on its own.
+Being _about_ a file is not the same as accurately _describing_ its current state. Exact-path and legacy name-and-size matches still check the file's size and modification date. A moved file with a matching whole-file MD5 is byte-identical, so a changed modification date alone does not invalidate its analysis.
 
 `aede track` then displays a secondary panel, explicitly attributed to the tool that measured it:
 
@@ -85,7 +93,7 @@ Three absolute rules govern how Aède handles these numbers.
 
 **They are never merged into Aède's own findings.** A verdict carries the signature of the method that produced it. Silently overwriting the bit depth read from a FLAC frame with one obtained by spectral decoding would destroy provenance—leaving the catalog unable to say where the number came from, and blind to the fact that the two methods disagree. _Noticing the disagreement is the entire point._
 
-**They expire with the bytes they describe.** An analysis is permanently bound to the file's size and modification date at the exact moment it was measured. Edit the file's tags, and the panel respectfully steps back, stating `— stale: the file changed since`, rather than confidently lying about audio it can no longer guarantee. Importing a report against a changed file is refused for this exact reason. Since a refused stale record is never stored, `aede import` lists the **folders** it happened in immediately:
+**They expire when the file changes.** At its original path, an analysis is checked against the file's size and modification date. Edit the tags, and the panel steps back, stating `— stale: the file changed since`. After a move, a whole-file MD5 match proves that the bytes still agree; changing tags or artwork changes that digest. Since a refused stale record is never stored, `aede import` lists the **folders** it happened in immediately:
 
 ```
 $ aede import ~/Desktop/ozzy-report.json

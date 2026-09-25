@@ -45,6 +45,10 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede spectrum [folder…]",
             summary: "Create spectrograms beside the selected music.",
         },
+        "analyze" => CommandPage {
+            usage: "aede analyze [folder…] [--json] [--threads N]",
+            summary: "Analyze albums with FlacCompagnon and optionally save one JSON report per album.",
+        },
         "playlist" => CommandPage {
             usage: "aede playlist [folder…]",
             summary: "Write portable playlists in album and artist folders.",
@@ -343,6 +347,9 @@ pub fn print_index() {
                        matches FlacCompagnon's own dimensions exactly, for
                        putting the two side by side. Changing --size does not
                        redraw what is already there on its own — --full does
+  analyze [folder…]    Run FlacCompagnon's acoustic analysis on catalogued albums.
+                       --json saves <album>.json in each album folder;
+                       --threads sets how many tracks run at once.
   playlist [folder…]   Write an .m3u in every album folder, in album order and
                        with relative paths. --simple leaves out the #EXTINF
                        lines for players that choke on them, --artists adds one
