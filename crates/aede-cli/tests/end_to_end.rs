@@ -3698,6 +3698,41 @@ fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
     windows,
     ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
 )]
+fn a_full_scan_keeps_conclusions_but_prefers_a_fresh_report() {
+    let sandbox = Sandbox::new("full_scan_conclusions");
+    let root = std::env::temp_dir().join("aede_e2e_full_scan_conclusions_src");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let flac = root.join("01 So What.flac");
+    std::fs::copy(library().join("track.flac"), &flac).unwrap();
+    let report = root.join("analysis.json");
+    write_report(&report, &flac, "Match", "none");
+    let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok);
+    let (_, _, ok) = sandbox.run(&["check"]);
+    assert!(ok);
+
+    write_report(&report, &flac, "Mismatch", "detected");
+    let (_, _, ok) = sandbox.run(&["scan", "--full"]);
+    assert!(ok);
+    let (check, _, ok) = sandbox.run(&["check"]);
+    assert!(ok);
+    assert!(check.contains("nothing to read"), "verdict kept: {check}");
+    let (doctor, _, ok) = sandbox.run(&["doctor"]);
+    assert!(ok);
+    assert!(
+        doctor.contains("does not match its MD5"),
+        "fresh report wins: {doctor}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
+)]
 fn reports_are_looked_for_in_every_folder_underneath() {
     // Reports are kept the way albums are: one folder per artist, one per
     // album. Only looking at the top level would find nothing.
@@ -6161,6 +6196,7 @@ fn every_command_taking_a_folder_refuses_one_the_catalog_has_never_seen() {
 /// shell's locale and nothing else, so a reader whose Terminal exports no
 /// `LANG` got English and had no lever, and one whose locale was French had no
 /// way to ask for English. An option nobody can type is a feature nobody has.
+#[cfg(feature = "fetch")]
 #[test]
 fn the_language_of_the_prose_can_be_asked_for_and_the_option_beats_the_locale() {
     let sandbox = Sandbox::new("summary_language");
@@ -6220,6 +6256,7 @@ fn the_language_of_the_prose_can_be_asked_for_and_the_option_beats_the_locale() 
 /// that honoured it, which is exactly how the third and fourth came not to. It
 /// is one function now, and this walks the list so a fifth pass cannot quietly
 /// join the wrong half.
+#[cfg(feature = "fetch")]
 #[test]
 fn every_pass_that_can_reach_the_network_stops_for_dry_run() {
     let sandbox = Sandbox::new("dry_run_every_pass");
@@ -6958,6 +6995,7 @@ fn the_words_lrclib_answers_with_are_words_this_program_reads_back() {
     assert!(out.contains("All aboard!"), "{out}");
 }
 
+#[cfg(feature = "fetch")]
 #[test]
 fn fetching_the_words_says_what_it_is_before_it_asks_anything() {
     // The caveat is printed on **every** run, before a single request, and it

@@ -101,12 +101,12 @@ This catalog
   Kept in       /Users/kcell/.local/share/aede
   Weighs        11.2 MB
   Last scanned  3 days ago
-  aede backup writes all three stores to one file; AEDE_HOME moves them
+  aede backup writes all four stores to one file; AEDE_HOME moves them
 ```
 
 If `AEDE_HOME` is unset, Aède falls back to `$XDG_DATA_HOME/aede` or `~/.local/share/aede`.
 
-The catalog uses an in-memory JSON document model optimized for high-speed queries. Benchmark performance metrics across synthetic libraries (assuming 12 tracks per album) illustrate scalability:
+The catalog uses an in-memory JSON document model for queries. The following synthetic-library measurements (12 tracks per album) predate the separation of `conclusions.json`; current sizes and timings have not yet been remeasured:
 
 | Tracks      | `catalog.json` Size | Save Time | Load Time | Memory Usage (Peak) |
 | :---------- | :------------------ | :-------- | :-------- | :------------------ |
@@ -114,7 +114,7 @@ The catalog uses an in-memory JSON document model optimized for high-speed queri
 | **50,000**  | 62.5 MB             | 3.88 s    | 2.17 s    | 897 MB              |
 | **200,000** | 252.0 MB            | 16.37 s   | 13.42 s   | 3,586 MB            |
 
-Libraries up to 50,000 tracks load in approximately two seconds with under 1 GB RAM usage. For archives exceeding 100,000 tracks, RAM usage increases proportionally. Advanced architectural options for massive collections are detailed in [Architecture](design/architecture.md#when-this-becomes-a-database).
+Those historical measurements show that libraries up to 50,000 tracks loaded in approximately two seconds with under 1 GB RAM usage. For archives exceeding 100,000 tracks, RAM usage increases proportionally. Advanced architectural options for massive collections are detailed in [Architecture](design/architecture.md#when-this-becomes-a-database).
 
 ## Safeguarding Your Data: Backups & Disaster Recovery
 
@@ -125,16 +125,18 @@ aede backup ~/aede-2026-09-03.json    # export catalog state and annotations
 aede restore ~/aede-2026-09-03.json   # restore system state from backup
 ```
 
-The backup bundle preserves three critical stores:
+The backup bundle preserves four stores:
 
-1. **Catalog Store (`catalog.json`):** Derived metadata, file hashes, and integrity verdicts.
-2. **User Store (`user.json`):** Irreplaceable user data—notes, ratings, play counts, custom collections, manual merges, and ignored items.
-3. **Source Store (`sources.json`):** Remote metadata fetched from external services (e.g., MusicBrainz).
+1. **Catalog Store (`catalog.json`):** Scanned metadata, derived graph, watched folders and exclusions.
+2. **Conclusions Store (`conclusions.json`):** Integrity verdicts, fingerprints and imported analyses.
+3. **User Store (`user.json`):** Irreplaceable user data—notes, ratings, play counts, custom collections, manual merges, and ignored items.
+4. **Source Store (`sources.json`):** Remote metadata fetched from external services (e.g., MusicBrainz).
 
 ```
 Backup
 
   catalog            20 148 tracks, 1 604 albums
+  conclusions        18 412 file results, 236 analyses
   what you said      312 annotations, 4 collections, 9 records set aside
   what sources said  1 841 records
 → /Users/kcell/aede-2026-09-03.json (9.7 MB)

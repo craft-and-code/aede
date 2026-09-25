@@ -1,6 +1,6 @@
 # What Aède worked out about the bytes — a store of its own
 
-**Status: agreed, scheduled for M2.** Raised while `aede backup` was being
+**Status: implemented in M2, with legacy-catalog and backup migration.** Raised while `aede backup` was being
 built, from a fair question: if the catalog can be rebuilt by a scan, why does
 a backup carry it at all?
 

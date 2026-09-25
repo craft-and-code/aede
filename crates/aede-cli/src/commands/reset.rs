@@ -1,9 +1,8 @@
 //! The `reset` command: throw the catalog away.
 //!
 //! Most of what is lost comes back with one `aede scan`, which is why this is a
-//! small command. Three things do not come back: the **watched folders**, the
-//! **integrity verdicts**, which may have cost an hour of reading, and the
-//! **imported analyses**, which cost a run of another program entirely. So the
+//! small command. The watched folders do not come back, but conclusions now
+//! live in their own store and survive a reset. So the
 //! confirmation says what is at stake rather than asking a bare "are you sure",
 //! and the command prints the scan that rebuilds what it removed.
 
@@ -57,15 +56,12 @@ pub fn reset(args: &Args) -> Res {
     // reason to hesitate.
     println!(
         "  {}",
-        ui::dim("a scan rebuilds the catalog; the watched folders and the integrity")
+        ui::dim("a scan rebuilds the catalog; watched folders must be named again")
     );
-    println!("  {}", ui::dim("verdicts are lost and have to be redone"));
-    if !catalog.analyses.is_empty() {
-        println!(
-            "  {}",
-            ui::dim("the imported analyses go too, and have to be imported again")
-        );
-    }
+    println!(
+        "  {}",
+        ui::dim("integrity verdicts, fingerprints and imported analyses are kept")
+    );
 
     // The one thing `reset` must never take: what the user wrote lives in
     // another file, and a command that empties the catalog has no business

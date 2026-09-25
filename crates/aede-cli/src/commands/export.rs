@@ -74,6 +74,10 @@ fn export_graph(args: &Args, catalog: &Catalog) -> Res {
     root.set("format_version", 1u32.into());
     root.set("exported_at", aede_core::clock::now_seconds().into());
     root.set("catalog", store::to_json(catalog));
+    let conclusions =
+        aede_core::conclusions::load(&aede_core::conclusions::conclusions_path(&directory))?
+            .unwrap_or_default();
+    root.set("conclusions", aede_core::conclusions::to_json(&conclusions));
     root.set("sources", aede_core::sources::to_json(&sources));
     root.set("user", aede_core::user::to_json(&user));
     root.set(

@@ -10,13 +10,14 @@ Do not turn this file into a development diary.
 
 ## Project status
 
-**Current milestone:** M1 — Identification
+**Current milestone:** M2 — API and persistence separation
 
 **Previous milestone:** M0.6 — Catalog and local library
 
-**Status:** M1 done. M0.5 is also done (query grammar covers relations, and
-the command options are shorthand for it). A manual verification pass is
-planned before M2 begins.
+**Status:** M1 done. M2 persistence separation is implemented; SQLite remains deferred. M0.5 is also done (query grammar covers relations, and
+the command options are shorthand for it). A representative manual verification
+pass was completed before M2; optional untested services are recorded in
+`docs/coding/m1-manual-verification.md`.
 
 Aède has completed the local catalog foundation and the external identification layer.
 
@@ -57,7 +58,7 @@ Audio playback is intentionally not implemented yet.
 
 ---
 
-## Current M1 direction
+## M1 principles carried into M2
 
 M1 introduces identification and external metadata without replacing local data.
 
@@ -153,6 +154,7 @@ The catalog and related stores use versioned JSON representations.
 Current stores include:
 
 - `catalog.json`
+- `conclusions.json` (integrity verdicts, fingerprints and imported analyses)
 - `user.json`
 - `sources.json`
 

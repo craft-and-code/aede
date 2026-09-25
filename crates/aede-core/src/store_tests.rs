@@ -151,8 +151,13 @@ fn an_integrity_verdict_survives_the_round_trip() {
         method: audit::integrity::FLAC_METHOD.into(),
         checked_at: 1_700_000_500,
     });
-    let text = to_json(&original).to_string_compact();
-    let read_back = from_json(&json::parse(&text).unwrap()).unwrap();
+    let dir = std::env::temp_dir().join(format!("aede_verdict_store_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = catalog_path(&dir);
+    save(&original, &path).unwrap();
+    let read_back = load(&path).unwrap().unwrap();
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(crate::conclusions::conclusions_path(&dir));
     let record = read_back.files[0]
         .integrity
         .as_ref()
@@ -165,6 +170,45 @@ fn an_integrity_verdict_survives_the_round_trip() {
         }
         other => panic!("wrong verdict: {other:?}"),
     }
+}
+
+#[test]
+fn legacy_conclusions_are_migrated_before_catalog_is_rewritten() {
+    let original = example_catalog();
+    let mut legacy = to_json(&original);
+    let mut file = legacy.get("file").unwrap().as_arr().unwrap()[0].clone();
+    let mut verdict = Json::obj();
+    verdict.set("state", "intact".into());
+    verdict.set("method", "flac-frame-crc".into());
+    verdict.set("checked_at", 1_700_000_500u64.into());
+    file.set("integrity", verdict);
+    legacy.set("file", Json::Arr(vec![file]));
+    let mut analysis = Json::obj();
+    analysis.set("path", "/music/waiting.flac".into());
+    analysis.set("source", "flaccompagnon".into());
+    legacy.set("analysis", Json::Arr(vec![analysis]));
+
+    let dir = std::env::temp_dir().join(format!("aede_legacy_migration_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = catalog_path(&dir);
+    std::fs::write(&path, legacy.to_string_compact()).unwrap();
+    let migrated = load(&path).unwrap().unwrap();
+    let conclusions_path = crate::conclusions::conclusions_path(&dir);
+    assert!(
+        conclusions_path.exists(),
+        "expensive data is durable before rewrite"
+    );
+    assert!(migrated.files[0].integrity.is_some());
+    assert_eq!(migrated.analyses.len(), 1);
+    save(&migrated, &path).unwrap();
+    let compact = std::fs::read_to_string(&path).unwrap();
+    assert!(!compact.contains("integrity"));
+    assert!(!compact.contains("\"analysis\""));
+    let reloaded = load(&path).unwrap().unwrap();
+    assert!(reloaded.files[0].integrity.is_some());
+    assert_eq!(reloaded.analyses.len(), 1);
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(conclusions_path);
 }
 
 #[test]

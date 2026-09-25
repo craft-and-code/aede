@@ -89,23 +89,42 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
 
     println!("{}", ui::bold("Scanning folders…"));
     let mut discovered = 0usize;
-    let (catalog, report) = scan::scan(&roots, previous, &options, |progress| match progress {
-        Progress::Discovered(count) => {
-            discovered = count;
-            println!("  {count} audio files spotted");
-        }
-        Progress::Read { done, total } => {
-            if total > 0 {
-                print!("\r  reading: {done}/{total}   ");
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
+    let (mut catalog, mut report) =
+        scan::scan(&roots, previous, &options, |progress| match progress {
+            Progress::Discovered(count) => {
+                discovered = count;
+                println!("  {count} audio files spotted");
             }
-        }
-    })?;
+            Progress::Read { done, total } => {
+                if total > 0 {
+                    print!("\r  reading: {done}/{total}   ");
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                }
+            }
+        })?;
     if report.read > 0 {
         println!();
     }
 
+    // A full scan (or a catalog-format change) has no previous catalog, but
+    // conclusions have their own lifetime and are matched by path and bytes.
+    if previous.is_none() {
+        let conclusions_file = aede_core::conclusions::conclusions_path(&dir);
+        if let Some(gathered) = aede_core::conclusions::load(&conclusions_file)? {
+            // The scan may just have imported reports found beside the audio.
+            // Reapply them after older stored analyses so the fresh report wins.
+            let fresh_analyses = std::mem::take(&mut catalog.analyses);
+            gathered.attach(&mut catalog);
+            aede_core::analysis::merge_into(
+                &mut catalog,
+                fresh_analyses,
+                aede_core::clock::now_seconds(),
+            );
+            report.attached += aede_core::analysis::reconcile(&mut catalog);
+        }
+    }
+    report.analyses = catalog.analyses.len();
     store::save(&catalog, &catalog_file)?;
 
     println!("{}", ui::section("Scan complete"));

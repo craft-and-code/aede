@@ -75,6 +75,7 @@ fn whole() -> Backup {
         made_at: 1_700_000_000,
         made_by: "0.2.0".to_string(),
         catalog: Part::Held(catalog()),
+        conclusions: Part::Held(Conclusions::default()),
         user: Part::Held(user()),
         sources: Part::Held(sources()),
     }
@@ -158,6 +159,7 @@ fn a_store_that_did_not_exist_is_written_as_null_and_read_as_nothing() {
         made_at: 1,
         made_by: "0.2.0".to_string(),
         catalog: Part::Empty,
+        conclusions: Part::Empty,
         user: Part::Held(user()),
         sources: Part::Empty,
     };
@@ -183,11 +185,29 @@ fn a_backup_of_nothing_at_all_says_so() {
         made_at: 1,
         made_by: "0.2.0".to_string(),
         catalog: Part::Empty,
+        conclusions: Part::Empty,
         user: Part::Empty,
         sources: Part::Empty,
     };
     assert!(nothing.is_empty());
     assert!(!whole().is_empty());
+}
+
+#[test]
+fn version_one_backup_recovers_embedded_conclusions() {
+    let mut document = to_json(&whole());
+    document.set("format_version", 1u32.into());
+    let mut catalog = crate::store::to_json(&catalog());
+    let mut file = catalog.get("file").unwrap().as_arr().unwrap()[0].clone();
+    let mut verdict = Json::obj();
+    verdict.set("state", "intact".into());
+    verdict.set("method", "flac-frame-crc".into());
+    file.set("integrity", verdict);
+    catalog.set("file", Json::Arr(vec![file]));
+    document.set("catalog", catalog);
+    let restored = from_json(&document).unwrap();
+    assert_eq!(restored.conclusions.held().unwrap().files.len(), 1);
+    assert!(restored.user.held().is_some());
 }
 
 #[test]

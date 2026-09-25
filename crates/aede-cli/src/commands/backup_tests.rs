@@ -111,6 +111,7 @@ fn both_commands_describe_one_store_in_one_set_of_words() {
         made_at: 1,
         made_by: "0.2.0".to_string(),
         catalog: Part::Empty,
+        conclusions: Part::Empty,
         user: Part::Held(UserData::default()),
         sources: Part::Empty,
     };
@@ -118,14 +119,22 @@ fn both_commands_describe_one_store_in_one_set_of_words() {
     let back = summarise(&held, "not in this backup");
 
     let names: Vec<&str> = out.iter().map(|(name, _)| *name).collect();
-    assert_eq!(names, vec!["catalog", "what you said", "what sources said"]);
+    assert_eq!(
+        names,
+        vec![
+            "catalog",
+            "conclusions",
+            "what you said",
+            "what sources said"
+        ]
+    );
     assert_eq!(
         names,
         back.iter().map(|(name, _)| *name).collect::<Vec<&str>>(),
         "the same three, in the same order"
     );
 
-    match (&out[1].1, &back[1].1) {
+    match (&out[2].1, &back[2].1) {
         (Doing::Write(one), Doing::Write(two)) => assert_eq!(one, two, "and described alike"),
         _ => panic!("the store that is held is written either way"),
     }

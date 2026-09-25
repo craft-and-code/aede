@@ -1,9 +1,9 @@
 //! Catalog persistence.
 //!
 //! The format is a JSON document whose every key is a "table": it is the
-//! mirror image of the relational schema described in `schema.sql`. At
-//! milestone M1, replacing this module with a SQLite implementation will
-//! require touching nothing else.
+//! mirror image of the relational schema described in `schema.sql`. Costly
+//! conclusions are saved independently, so a catalog-format change does not
+//! require recomputing them. SQLite remains deferred.
 //!
 //! Writing is atomic (temporary file then rename): an interruption during
 //! saving cannot leave a half-written catalog behind.
@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::analysis::FileAnalysis;
 use crate::audit;
+use crate::conclusions;
 use crate::json::{self, Json};
 use crate::model::{
     self, Artist, AudioFile, Catalog, Credit, EntityKind, Genre, GenreLink, Id, IntegrityRecord,
@@ -37,6 +38,8 @@ pub enum StoreError {
     /// The file exists but is not valid JSON, typically after being edited by
     /// hand or truncated by a full disk.
     Parse(json::ParseError),
+    /// The independent conclusions document is not valid JSON.
+    ConclusionsParse(json::ParseError),
     /// The file was written by an incompatible version.
     Version {
         /// Version stamped in the file; `0` when the field is missing
@@ -45,10 +48,19 @@ pub enum StoreError {
         /// Version this build understands, that is [`FORMAT_VERSION`].
         expected: u32,
     },
+    /// The conclusions store uses a version this build cannot read.
+    ConclusionsVersion {
+        /// Version stamped in `conclusions.json`.
+        found: u32,
+        /// Version this build understands.
+        expected: u32,
+    },
     /// The JSON parsed but the catalog does not hold together: a row without
     /// an identifier, a track pointing at no file, non-contiguous identifiers.
     /// The payload names the specific breach.
     Invalid(&'static str),
+    /// A malformed row in the conclusions store.
+    ConclusionsInvalid(&'static str),
 }
 
 impl std::fmt::Display for StoreError {
@@ -56,11 +68,16 @@ impl std::fmt::Display for StoreError {
         match self {
             StoreError::Io(e) => write!(f, "input/output error: {e}"),
             StoreError::Parse(e) => write!(f, "unreadable catalog: {e}"),
+            StoreError::ConclusionsParse(e) => write!(f, "unreadable conclusions: {e}"),
             StoreError::Version { found, expected } => write!(
                 f,
                 "catalog in version {found}, expected {expected} — run a full scan again"
             ),
             StoreError::Invalid(what) => write!(f, "inconsistent catalog: {what}"),
+            StoreError::ConclusionsVersion { found, expected } => {
+                write!(f, "conclusions in version {found}, expected {expected}")
+            }
+            StoreError::ConclusionsInvalid(what) => write!(f, "inconsistent conclusions: {what}"),
         }
     }
 }
@@ -118,6 +135,19 @@ pub fn assets_dir(data_dir: &Path) -> PathBuf {
 
 /// Saves the catalog atomically.
 pub fn save(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
+    let conclusions_path = conclusions::conclusions_path(path.parent().unwrap_or(Path::new(".")));
+    let existing = conclusions::load(&conclusions_path)?;
+    let had_store = existing.is_some();
+    let mut gathered = existing.unwrap_or_default();
+    gathered.update_from_catalog(catalog);
+    if had_store || !gathered.files.is_empty() || !gathered.analyses.is_empty() {
+        conclusions::save(&gathered, &conclusions_path)?;
+    }
+    save_catalog_only(catalog, path)
+}
+
+/// Writes only the rebuildable catalog, for a restore that handles each store independently.
+pub fn save_catalog_only(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -134,7 +164,18 @@ pub fn load(path: &Path) -> Result<Option<Catalog>, StoreError> {
     }
     let text = std::fs::read_to_string(path)?;
     let value = json::parse(&text).map_err(StoreError::Parse)?;
-    from_json(&value).map(Some)
+    let mut catalog = from_json(&value)?;
+    let conclusions_path = conclusions::conclusions_path(path.parent().unwrap_or(Path::new(".")));
+    let existing = conclusions::load(&conclusions_path)?;
+    let missing = existing.is_none();
+    let mut gathered = existing.unwrap_or_default();
+    if missing && gathered.merge_legacy(&catalog) {
+        // Persist the expensive legacy data before a later save strips it from
+        // catalog.json. A failed migration leaves the old document untouched.
+        conclusions::save(&gathered, &conclusions_path)?;
+    }
+    gathered.attach(&mut catalog);
+    Ok(Some(catalog))
 }
 
 // --------------------------------------------------------------------------
@@ -184,7 +225,6 @@ pub fn to_json(catalog: &Catalog) -> Json {
         "genre_link",
         array(&catalog.genre_links, genre_link_to_json),
     );
-    root.set("analysis", array(&catalog.analyses, analysis_to_json));
     root
 }
 
@@ -238,28 +278,6 @@ fn file_to_json(file: &AudioFile) -> Json {
     }
     o.set("tags", tags);
 
-    // Absent when the file was never checked. The three verdicts are stored as
-    // keys rather than as a boolean, because "nothing to check" is an answer of
-    // its own and not a missing one.
-    if let Some(record) = &file.integrity {
-        let mut integrity = Json::obj();
-        integrity.set("state", record.verdict.key().into());
-        integrity.set("method", record.method.clone().into());
-        integrity.set("checked_at", record.checked_at.into());
-        if let audit::integrity::Verdict::Damaged { detail } = &record.verdict {
-            integrity.set("detail", detail.clone().into());
-        }
-        o.set("integrity", integrity);
-    }
-    // Absent rather than null when there is none: "never fingerprinted" and
-    // "fingerprinted, and it came out empty" are different states, and the
-    // second cannot happen because an empty fingerprint is refused.
-    if let Some(print) = &file.fingerprint {
-        let mut written = Json::obj();
-        written.set("data", print.data.clone().into());
-        written.set("seconds", u64::from(print.seconds).into());
-        o.set("fingerprint", written);
-    }
     o
 }
 
@@ -268,7 +286,7 @@ fn file_to_json(file: &AudioFile) -> Json {
 /// Absent measurements are written as `null` rather than left out: the reader
 /// then distinguishes "not measured" from "measured as zero", which for a peak
 /// or a dynamic range is the whole difference.
-fn analysis_to_json(a: &FileAnalysis) -> Json {
+pub(crate) fn analysis_to_json(a: &FileAnalysis) -> Json {
     let mut o = Json::obj();
     o.set("path", a.path.clone().into());
     o.set("source", a.source.clone().into());
@@ -300,7 +318,7 @@ fn analysis_to_json(a: &FileAnalysis) -> Json {
     o
 }
 
-fn analysis_from_json(item: &Json) -> FileAnalysis {
+pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
     FileAnalysis {
         path: item.field_str("path").unwrap_or_default(),
         source: item.field_str("source").unwrap_or_default(),
@@ -978,7 +996,9 @@ fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
 /// A row missing either half is read as no fingerprint at all rather than as
 /// half of one: the pair is what a lookup needs, and a fingerprint with no
 /// length would be sent out as a duration of zero.
-fn fingerprint_from_json(value: Option<&Json>) -> Option<crate::fingerprint::Fingerprint> {
+pub(crate) fn fingerprint_from_json(
+    value: Option<&Json>,
+) -> Option<crate::fingerprint::Fingerprint> {
     let value = value?;
     let data = value.field_str("data").filter(|d| !d.is_empty())?;
     let seconds = value.field_u32("seconds").filter(|s| *s > 0)?;
@@ -987,7 +1007,7 @@ fn fingerprint_from_json(value: Option<&Json>) -> Option<crate::fingerprint::Fin
 
 /// Reads back a stored verdict; an unknown state is treated as no verdict at
 /// all, so a catalog written by a later version degrades instead of failing.
-fn integrity_from_json(value: Option<&Json>) -> Option<IntegrityRecord> {
+pub(crate) fn integrity_from_json(value: Option<&Json>) -> Option<IntegrityRecord> {
     let value = value?;
     let verdict = match value.field_str("state")?.as_str() {
         "intact" => audit::integrity::Verdict::Intact,

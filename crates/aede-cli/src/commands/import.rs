@@ -33,7 +33,18 @@ pub fn import(args: &Args) -> Res {
     // The one command that does not demand a catalog. Analysing a library and
     // then building it is a legitimate order, and refusing the import until a
     // scan has run would force the other one for no reason.
-    let mut catalog = store::load(&catalog_file)?.unwrap_or_default();
+    let mut catalog = match store::load(&catalog_file)? {
+        Some(catalog) => catalog,
+        None => {
+            let mut empty = Catalog::default();
+            if let Some(gathered) =
+                aede_core::conclusions::load(&aede_core::conclusions::conclusions_path(&dir))?
+            {
+                gathered.attach(&mut empty);
+            }
+            empty
+        }
+    };
 
     if args.has("forget") {
         return forget(&mut catalog, &catalog_file, args);

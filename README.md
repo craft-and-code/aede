@@ -355,12 +355,15 @@ All metadata and state persist in a unified directory configured via `$AEDE_HOME
 
 ```
 ~/.local/share/aede/
-├── catalog.json      # Derived index, file hashes, integrity verdicts
-├── user.json         # Irreplaceable annotations, collections, merges, roots
+├── catalog.json      # Scanned files, tags and the derived music graph
+├── conclusions.json  # Integrity verdicts, fingerprints and imported analyses
+├── user.json         # Irreplaceable annotations, collections and merges
 └── sources.json      # Attributed source data and reversible review decisions
 ```
 
 ### Storage Benchmarks
+
+Historical measurements from before conclusions were split out; current store sizes and timings have not yet been remeasured.
 
 | Tracks      | `catalog.json` Size | Save Time | Load Time | Peak RAM |
 | :---------- | :------------------ | :-------- | :-------- | :------- |
@@ -408,6 +411,7 @@ Complete guides to Aède's features and architecture:
 ### Development & Engineering
 
 - [Current State](docs/coding/current-state.md) — Project status and active work
+- [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 
 ---

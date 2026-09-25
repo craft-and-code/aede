@@ -2,7 +2,7 @@
 //!
 //! Two commands rather than `backup --restore`, and the reason is the one that
 //! renamed `artwork` to `extract`: **a command that writes is named for the
-//! writing.** Restoring replaces three stores at once — the most destructive
+//! writing.** Restoring replaces up to four stores at once — the most destructive
 //! thing this program can be asked to do to its own data — and hiding that
 //! direction behind an option on a command called *backup* would put the
 //! dangerous half under the reassuring name.
@@ -17,11 +17,11 @@
 //! cannot do about a file that is already gone.
 //!
 //! Each store is also refused on its own. A backup whose *catalog* this build
-//! cannot read still restores the notes, because losing the irreplaceable third
+//! cannot read still restores the notes, because losing irreplaceable data
 //! in order to protect the rebuildable one would be the wrong trade twice over.
 
 use aede_core::backup::{self, Backup, Part};
-use aede_core::{clock, sources, store, user};
+use aede_core::{clock, conclusions, sources, store, user};
 
 use super::Res;
 use crate::args::Args;
@@ -68,11 +68,12 @@ pub fn backup(args: &Args) -> Res {
         made_at: clock::now_seconds(),
         made_by: env!("CARGO_PKG_VERSION").to_string(),
         catalog: part(store::load(&store::catalog_path(&data))),
+        conclusions: part(conclusions::load(&conclusions::conclusions_path(&data))),
         user: part(user::load(&user::user_path(&data))),
         sources: part(sources::load(&sources::sources_path(&data))),
     };
 
-    // The same three lines a restore prints, from the same function, so the two
+    // The same store summary a restore prints, from the same function, so the two
     // commands describe one store in one set of words. Written twice, they
     // would have drifted the first time a field was added to `user.json`.
     for (name, state) in summarise(&made, "nothing here to save") {
@@ -84,7 +85,7 @@ pub fn backup(args: &Args) -> Res {
         // reader that the command works — which is precisely the belief that
         // costs them the library later.
         return Err(format!(
-            "nothing to back up: {} holds no catalog, no notes and nothing fetched",
+            "nothing to back up: {} holds no catalog, conclusions, notes or fetched facts",
             data.display()
         )
         .into());
@@ -123,9 +124,10 @@ pub fn restore(args: &Args) -> Res {
     println!("  into {}", ui::dim(&data.display().to_string()));
 
     // Said before the question is asked, not after it is answered: a reader
-    // agreeing to "replace three files" has agreed to nothing they can picture.
+    // agreeing to "replace files" has agreed to nothing they can picture.
     let into = [
         store::catalog_path(&data),
+        conclusions::conclusions_path(&data),
         user::user_path(&data),
         sources::sources_path(&data),
     ];
@@ -162,7 +164,10 @@ pub fn restore(args: &Args) -> Res {
     }
 
     if let Some(catalog) = held.catalog.held() {
-        store::save(catalog, &store::catalog_path(&data))?;
+        store::save_catalog_only(catalog, &store::catalog_path(&data))?;
+    }
+    if let Some(gathered) = held.conclusions.held() {
+        conclusions::save(gathered, &conclusions::conclusions_path(&data))?;
     }
     if let Some(data_of_user) = held.user.held() {
         user::save(data_of_user, &user::user_path(&data))?;
@@ -261,17 +266,21 @@ impl Doing {
     }
 }
 
-/// The three stores of a backup, named and described, in a fixed order.
+/// The four stores of a backup, named and described, in a fixed order.
 ///
 /// **One function for both commands.** `backup` and `restore` talk about the
-/// same three things, and two lists of wording would have drifted the first
+/// same four things, and two lists of wording would have drifted the first
 /// time a field was added to one of them — the same reason the role vocabulary
 /// is one table read in both directions. Only the words for "there is none"
 /// differ, because they mean different things on the way out and on the way in,
 /// so that one is passed in.
-fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 3] {
+fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 4] {
     [
         ("catalog", state(&held.catalog, catalog_of, nothing)),
+        (
+            "conclusions",
+            state(&held.conclusions, conclusions_of, nothing),
+        ),
         ("what you said", state(&held.user, user_of, nothing)),
         (
             "what sources said",
@@ -302,7 +311,7 @@ fn part<T>(read: Result<Option<T>, store::StoreError>) -> Part<T> {
         Ok(Some(store)) => Part::Held(store),
         Ok(None) => Part::Empty,
         // Kept rather than fatal, and for the reason the whole file is split
-        // into three: an unreadable catalog must not stop the notes being
+        // into independent parts: an unreadable catalog must not stop the notes being
         // saved. It is reported, so nobody discovers it at restore time.
         Err(why) => Part::Unreadable(why.to_string()),
     }
@@ -313,6 +322,14 @@ fn catalog_of(catalog: &aede_core::model::Catalog) -> String {
         "{}, {}",
         ui::plural(catalog.tracks.len(), "track"),
         ui::plural(catalog.releases.len(), "album")
+    )
+}
+
+fn conclusions_of(gathered: &conclusions::Conclusions) -> String {
+    format!(
+        "{}, {}",
+        ui::plural(gathered.files.len(), "file result"),
+        ui::plural(gathered.analyses.len(), "analysis")
     )
 }
 
