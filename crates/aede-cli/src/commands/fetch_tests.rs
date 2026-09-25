@@ -588,18 +588,18 @@ fn what_you_corrected_by_hand_survives_a_fetch() {
 #[test]
 fn a_build_that_cannot_say_who_it_is_refuses_to_ask() {
     // What the first real run cost: an empty contact went out as
-    // `aede/0.1.0 (  )`, MusicBrainz throttled it as anonymous, and the
+    // an empty contact address, MusicBrainz throttled it as anonymous, and the
     // 503 pointed at the rate limit rather than at the manifest.
-    assert!(identity("0.1.0", "").is_err());
-    assert!(identity("0.1.0", "   ").is_err());
-    let refused = identity("0.1.0", "").expect_err("refused");
+    assert!(identity("0.2.0", "").is_err());
+    assert!(identity("0.2.0", "   ").is_err());
+    let refused = identity("0.2.0", "").expect_err("refused");
     assert!(
         refused.to_string().contains("repository.workspace"),
         "and names the fix: {refused}"
     );
     assert_eq!(
-        identity("0.1.0", "https://example.org/aede").expect("a header"),
-        "aede/0.1.0 ( https://example.org/aede )"
+        identity("0.2.0", "https://example.org/aede").expect("a header"),
+        "aede/0.2.0 ( https://example.org/aede )"
     );
 }
 

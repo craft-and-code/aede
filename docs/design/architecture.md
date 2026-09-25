@@ -145,7 +145,7 @@ Three workflows, and each does one thing.
 `release.yml` fires on a tag matching `v*` and builds three archives — macOS on Apple Silicon and Intel, and Linux — each holding the binary, the licence and the manual's front page, with a `.sha256` beside it. Windows is deliberately absent, and [Paths](paths.md) says why: it compiles, CI still runs its tests, but catalog paths are `/`-separated by design while the scanner stores the platform's own spelling, so everything folder-shaped is wrong there. Three decisions are worth keeping:
 
 - **Linux is built against musl, not glibc.** A `gnu` build made on Ubuntu 22.04 refuses to start on anything older — a Debian 11 server, a NAS — with a message about `GLIBC_2.34` that means nothing to whoever downloaded it. Everything here is pure Rust, so a static build costs nothing.
-- **The tag and `Cargo.toml` must agree**, checked before anything is compiled. Otherwise `v0.2.0` publishes a program that answers `0.1.0` to `--version`, and `--version` is what a bug report quotes.
+- **The tag and `Cargo.toml` must agree**, checked before anything is compiled. Otherwise a release tag publishes a program that answers with a different version to `--version`, and `--version` is what a bug report quotes.
 - **The tests run before the archive is made.** A tag that does not build is worse than no tag: it is published, people download it, and the failure is theirs to discover.
 
 The release is published as a **draft**, with the commit list generated under a `<!-- TODO -->` placeholder. A body that wrote itself entirely would be a commit list, and a commit list is not release notes; the draft forces one deliberate pass over "what changed" before anyone sees it.

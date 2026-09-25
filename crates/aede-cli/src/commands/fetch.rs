@@ -1389,7 +1389,7 @@ pub(super) const CONFIRM_ABOVE: usize = 20;
 ///
 /// This is the bug that cost the first real run: `repository` was set on the
 /// workspace and not inherited by the crates, so `CARGO_PKG_REPOSITORY` was
-/// the empty string and the header went out as `aede/0.1.0 (  )`. MusicBrainz
+/// the empty string and the header had no contact address. MusicBrainz
 /// throttles callers with no contact as one shared anonymous pool, so the very
 /// first request came back `503` — a symptom pointing at the rate limit, three
 /// steps away from the cause. A build that cannot say who it is now stops

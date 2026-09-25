@@ -73,7 +73,7 @@ fn sources() -> Sources {
 fn whole() -> Backup {
     Backup {
         made_at: 1_700_000_000,
-        made_by: "0.1.0".to_string(),
+        made_by: "0.2.0".to_string(),
         catalog: Part::Held(catalog()),
         user: Part::Held(user()),
         sources: Part::Held(sources()),
@@ -102,7 +102,7 @@ fn the_three_stores_are_nested_exactly_as_they_write_themselves() {
     // And it comes back the same way.
     let back = from_json(&document).expect("a backup");
     assert_eq!(back.made_at, 1_700_000_000);
-    assert_eq!(back.made_by, "0.1.0");
+    assert_eq!(back.made_by, "0.2.0");
     assert_eq!(back.catalog.held().map(|c| c.tracks.len()), Some(1));
     assert_eq!(back.user.held().map(|u| u.set_aside.len()), Some(1));
     assert_eq!(back.sources.held().map(|s| s.records.len()), Some(1));
@@ -156,7 +156,7 @@ fn a_store_that_did_not_exist_is_written_as_null_and_read_as_nothing() {
     // would silently drop a layer nobody agreed to lose.
     let thin = Backup {
         made_at: 1,
-        made_by: "0.1.0".to_string(),
+        made_by: "0.2.0".to_string(),
         catalog: Part::Empty,
         user: Part::Held(user()),
         sources: Part::Empty,
@@ -181,7 +181,7 @@ fn a_backup_of_nothing_at_all_says_so() {
     // library later.
     let nothing = Backup {
         made_at: 1,
-        made_by: "0.1.0".to_string(),
+        made_by: "0.2.0".to_string(),
         catalog: Part::Empty,
         user: Part::Empty,
         sources: Part::Empty,

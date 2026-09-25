@@ -3,8 +3,8 @@ name: Release
 # Builds the command-line tool for every platform and publishes them as a
 # GitHub Release. Trigger by pushing a version tag:
 #
-#     git tag v0.1.0
-#     git push origin v0.1.0
+#     git tag v0.2.0
+#     git push origin v0.2.0
 #
 # or run it manually from the Actions tab (workflow_dispatch), which builds the
 # binaries without publishing anything.
@@ -74,7 +74,7 @@ jobs:
 
       # A tag says which version this is; so does the manifest. When the two
       # disagree, somebody is about to publish `v0.2.0` of a program that
-      # reports `0.1.0` when asked — and `aede --version` is what a bug report
+      # reports `0.2.0` when asked — and `aede --version` is what a bug report
       # quotes. Cheap to check here, confusing for a year if it slips.
       - name: The tag and the manifest must agree
         if: startsWith(github.ref, 'refs/tags/')

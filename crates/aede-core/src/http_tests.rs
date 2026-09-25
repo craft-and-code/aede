@@ -4,8 +4,8 @@ use super::*;
 fn the_user_agent_carries_a_way_to_reach_us() {
     // The format MusicBrainz documents. A generic one is throttled as part
     // of a shared pool, so getting this wrong is not a cosmetic mistake.
-    let agent = Client::identify("aede", "0.1.0", "https://example.org/aede");
-    assert_eq!(agent, "aede/0.1.0 ( https://example.org/aede )");
+    let agent = Client::identify("aede", "0.2.0", "https://example.org/aede");
+    assert_eq!(agent, "aede/0.2.0 ( https://example.org/aede )");
 }
 
 #[test]

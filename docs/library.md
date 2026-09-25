@@ -147,7 +147,7 @@ Before performing a restore, Aède summarizes the operation and prompts for conf
 ```
 Restore
 
-  made 3 days ago by Aède 0.1.0
+  made 3 days ago by Aède 0.2.0
   into /Users/kcell/.local/share/aede
   catalog            20 148 tracks, 1 604 albums — replaces what is there
   what you said      312 annotations — replaces what is there

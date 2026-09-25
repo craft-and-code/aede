@@ -109,7 +109,7 @@ fn both_commands_describe_one_store_in_one_set_of_words() {
     // in.
     let held = Backup {
         made_at: 1,
-        made_by: "0.1.0".to_string(),
+        made_by: "0.2.0".to_string(),
         catalog: Part::Empty,
         user: Part::Held(UserData::default()),
         sources: Part::Empty,
