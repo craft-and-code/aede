@@ -15,12 +15,13 @@ pub(super) struct ErrorDetail {
     pub(super) candidates: Option<Vec<EntityCandidate>>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(super) struct EntityCandidate {
     pub(super) reference: String,
     pub(super) name: String,
 }
 
+#[derive(Debug)]
 pub(super) struct ApiError {
     pub(super) status: StatusCode,
     pub(super) code: &'static str,

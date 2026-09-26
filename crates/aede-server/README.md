@@ -111,8 +111,16 @@ Disabled unless `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters) is set **befor
 | `POST /api/admin/v1/fetch` | JSON object, including `{}`. | Asynchronous fetch with the same pass selection as the CLI; same 202 response. |
 | `GET /api/admin/v1/tasks/{id}` | None. | Current task status and bounded result (also supports HEAD). |
 | `POST /api/admin/v1/tasks/{id}/cancel` | No body. | `202 {task_id,status:"cancel_requested",status_url}`. |
+| `GET /api/admin/v1/annotation?ref=<token>` | None. | The local owner's annotation, or `annotation: null` when nothing was written. |
+| `PUT /api/admin/v1/annotation?ref=<token>` | Annotation patch. | Replaces supplied personal fields atomically and returns the resulting annotation. |
+| `GET /api/admin/v1/history` | None. | Paged local-owner listening history, newest first. |
+| `POST /api/admin/v1/history` | One play event. | Records one local-owner listening event; `201` plus its updated all-time count. |
+| `GET /api/admin/v1/collection?name=<name>` | None. | One saved smart collection. |
+| `PUT /api/admin/v1/collection?name=<name>` | `{ "expression": "…" }`. | Creates or replaces a saved smart collection. |
+| `DELETE /api/admin/v1/collection?name=<name>` | No body. | Deletes that saved collection; `204`. |
+| `GET /api/admin/v1/collections` | None. | Paged local-owner smart collections. |
 
-No administrative route accepts query parameters. JSON bodies are limited to 16 KiB and must finish within one second. Unknown fields/types return `400 invalid_body`; invalid option combinations return `400 invalid_parameters`. HTTP task IDs do not select delegated CLI jobs or compatibility-mode scans: those retain their existing behavior.
+Administrative task routes accept no query parameters; personal routes use only the query parameters shown above. JSON bodies are limited to 16 KiB and must finish within one second. Unknown fields/types return `400 invalid_body`; invalid option combinations return `400 invalid_parameters`. HTTP task IDs do not select delegated CLI jobs or compatibility-mode scans: those retain their existing behavior.
 
 ### Scan parameters
 
@@ -167,9 +175,32 @@ Possible statuses: `queued,running,completed,failed,cancelled`; task kinds: `sca
 
 Accepted jobs survive client disconnection and wait for the shared writer lock. Cancelling requests a stop; completed saves are not rolled back. Graceful shutdown waits for accepted jobs, so cancel a long fetch first if it should not finish. IDs/results are in memory only and disappear on restart; polling and retrying a lost submission is not idempotent. Never blindly resubmit after a connection failure.
 
+### Personal data: annotations, plays and smart collections
+
+These routes are the first temporary single-owner surface. They always read and write the `local` owner already used by the CLI; an HTTP request cannot choose an owner. They require the same administrative token, reject `Origin`, and remain local-only. They are deliberately separate from `/api/v1`, so no private value leaks into anonymous catalog reads. A future account/session design will replace this transitional owner binding without changing `user.json`'s owner-scoped model.
+
+`PUT /annotation?ref=<token>` accepts one or more of the following fields. Omitting a field leaves it unchanged; an explicit `null` removes `rating`, `note`, or all `tags`. `loved` must be a boolean. Rating is 1–5. Notes must contain non-whitespace text. Tags replace the complete set, are sorted in the response, and allow at most 100 unique non-empty entries of 256 bytes. A patch which leaves no favourite, rating, note or tag removes the stored annotation rather than keeping an empty record.
+
+```json
+{
+  "loved": true,
+  "rating": 5,
+  "note": "Original pressing; compare the remaster.",
+  "tags": ["vinyl", "reference"]
+}
+```
+
+The reference must name a current catalog entity. The response is `{reference,annotation}`, where `annotation` is `null` when no values remain. This API never writes audio tags or audio files.
+
+`POST /history` accepts `{track,at?,ms_played,completed}`. `track` is a current track reference; `at` defaults to the server time and cannot be over one day in the future; `ms_played` is capped at 24 hours. Each accepted event updates the bounded recent-history log and the all-time per-track count together. Delayed events are ordered by `at`, not receipt time: the log retains the newest events by date, while every accepted event still increments its all-time count. Existing arrival-ordered history is sorted when loaded without dropping events or changing counts. `GET /history?offset=&limit=` returns `{items,total,offset,limit,scanned_at}` with each item containing `track,at,ms_played,completed,play_count,last_played`. Sorting happens before pagination, newest first; equal-time events remain distinct and the last received appears first.
+
+A collection stores a **query expression**, not a static list of tracks: its result evolves with the catalog. `PUT /collection?name=<name>` validates the current Aède query grammar before saving a non-empty expression of up to 2048 bytes. Names are matched case/accent-insensitively, like the CLI, and are limited to 256 bytes. `GET /collections` uses normal `offset`/`limit` pagination.
+
+Every personal read and write obtains the same data-directory lock as the CLI and loads both the current on-disk catalog and `user.json` while holding it. Target validation and reconciliation therefore use the same completed catalog version, even before the public catalog cache refreshes after a scan. The lock remains held through an update's atomic save to `user.json`; a competing request receives `409 store_busy` and can retry. An absent catalog returns `503 catalog_unavailable`, an unreadable catalog returns `500 store_error`, and failed/corrupt user-data reads return `500 user_unavailable`; no personal data is saved on these failures. Unexpected background failures return `500 personal_failed`.
+
 ## Deliberately not exposed yet
 
-Notes, star ratings, tags, collections, favourites, history and playlist creation/export remain the next, owner-authorized API step. HTTP routes for arbitrary file inspection, source-review decisions, relation editing, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution are not implemented. Their CLI availability does not imply an HTTP route. Lyrics/prose delivery, binary artwork and audio streaming need separate contracts. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
+Static playlist creation/export, relation annotations, source-review decisions, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution are not implemented. Aède's existing `playlist` CLI command generates an M3U from a current selection; it is not a persistent playlist model, so the API does not misrepresent a smart collection as one. Their CLI availability does not imply an HTTP route. Lyrics/prose delivery, binary artwork and audio streaming need separate contracts. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
 
 ## Code layout
 
@@ -181,7 +212,7 @@ Notes, star ratings, tags, collections, favourites, history and playlist creatio
 - `models.rs`, `query.rs`, `errors.rs`: JSON types, original list validation and error envelopes.
 - `security.rs`: local Host/Origin checks and administrative authorization.
 - `events.rs`: WebSocket notifications.
-- `admin.rs`, `jobs.rs`: compatibility scan and asynchronous HTTP work.
+- `admin.rs`, `jobs.rs`, `personal.rs`: compatibility scan, asynchronous HTTP work and owner-scoped personal data.
 - `delegation.rs`: the Unix-only local CLI channel, separate from HTTP tasks.
 - `*_tests.rs`, `test_support.rs`: isolated tests and shared test-only fixtures.
 

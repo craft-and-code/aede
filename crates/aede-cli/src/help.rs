@@ -803,7 +803,8 @@ fn print_server_help() {
   and local command delegation are not supported yet.
 
 {}
-  AEDE_ADMIN_TOKEN enables POST /api/admin/v1/scan and POST /api/admin/v1/fetch.
+  AEDE_ADMIN_TOKEN enables POST /api/admin/v1/scan and POST /api/admin/v1/fetch,
+  plus authenticated local-owner annotations, history and smart collections.
   Set a private secret of at least 32 ASCII characters before starting the
   server; without it administrative routes do not exist.
   Send Authorization: Bearer <token>, never the secret in a URL or browser
@@ -817,6 +818,10 @@ fn print_server_help() {
   For compatibility, scan with no body remains synchronous (200 or an error)
   and rescans existing watched roots; it has no HTTP cancellation handle.
   A normal local CLI scan needs no administrative token.
+  Personal writes use PUT /api/admin/v1/annotation?ref=<token>, POST/GET
+  /api/admin/v1/history and GET/PUT/DELETE /api/admin/v1/collection?name=<name>.
+  They write user.json for the single local owner, never audio tags. Accounts
+  and persistent playlists are still future work.
 
 {}
   On Unix, write-capable CLI commands from the same account and data directory

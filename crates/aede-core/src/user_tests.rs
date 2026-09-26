@@ -7,6 +7,61 @@
 use super::*;
 use crate::model;
 
+#[test]
+fn late_plays_keep_the_newest_events_and_all_time_counts() {
+    let mut data = UserData::default();
+    let track = EntityRef::new(EntityKind::Track, "/m/a.flac");
+    let play = |at| Play {
+        owner: LOCAL_USER.into(),
+        track: track.clone(),
+        at,
+        ms_played: at,
+        completed: true,
+    };
+    for at in (100..100 + HISTORY_LIMIT as u64).rev() {
+        data.record_play(play(at));
+    }
+    data.record_play(play(1));
+    assert_eq!(data.plays.len(), HISTORY_LIMIT);
+    assert_eq!(data.plays.first().unwrap().at, 100);
+    assert_eq!(data.plays.last().unwrap().at, 99 + HISTORY_LIMIT as u64);
+    assert!(data.plays.windows(2).all(|pair| pair[0].at <= pair[1].at));
+    assert_eq!(
+        data.play_count(LOCAL_USER, &track),
+        HISTORY_LIMIT as u32 + 1
+    );
+    assert_eq!(data.counts[0].last_played, 99 + HISTORY_LIMIT as u64);
+}
+
+#[test]
+fn legacy_history_is_read_chronologically_without_losing_tied_events() {
+    let track = EntityRef::new(EntityKind::Track, "/m/a.flac");
+    let mut data = UserData::default();
+    for (at, ms_played) in [(200, 1), (100, 2), (200, 3)] {
+        data.record_play(Play {
+            owner: LOCAL_USER.into(),
+            track: track.clone(),
+            at,
+            ms_played,
+            completed: true,
+        });
+    }
+    // Restore the legacy arrival order regardless of how new plays are stored.
+    data.plays.sort_by_key(|play| play.ms_played);
+    let mut restored = from_json(&to_json(&data)).unwrap();
+    assert_eq!(
+        restored
+            .plays
+            .iter()
+            .map(|play| (play.at, play.ms_played))
+            .collect::<Vec<_>>(),
+        [(100, 2), (200, 1), (200, 3)]
+    );
+    assert_eq!(restored.counts, data.counts);
+    assert!(restored.forget_last_play(LOCAL_USER, &track));
+    assert_eq!(restored.plays.last().unwrap().ms_played, 1);
+}
+
 fn library(paths: &[&str]) -> Catalog {
     let files: Vec<_> = paths
         .iter()

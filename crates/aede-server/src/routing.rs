@@ -19,7 +19,8 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
     if admin_enabled {
         routes = routes
             .route("/api/admin/v1/scan", post(jobs::scan_route))
-            .merge(jobs::routes());
+            .merge(jobs::routes())
+            .merge(personal::routes());
     }
     routes
         .method_not_allowed_fallback(method_not_allowed)

@@ -69,6 +69,7 @@ mod events;
 mod inspection;
 mod jobs;
 mod models;
+mod personal;
 mod query;
 mod routing;
 mod runtime;

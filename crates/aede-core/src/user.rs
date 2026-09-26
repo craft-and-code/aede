@@ -629,6 +629,9 @@ impl UserData {
             }),
         }
         self.plays.push(play);
+        // Offline clients can submit older listens after newer ones. Stable
+        // ordering keeps equal-time events in arrival order without deduping.
+        self.plays.sort_by_key(|play| play.at);
         // Oldest first, so the excess falls off the front.
         if self.plays.len() > HISTORY_LIMIT {
             let excess = self.plays.len() - HISTORY_LIMIT;
@@ -1147,6 +1150,9 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             created_at: row.field_u64("created_at").unwrap_or(0),
         });
     }
+    // Older writers stored arrival order. Normalize in memory so readers and
+    // undo operations use event time without changing counts or losing events.
+    data.plays.sort_by_key(|play| play.at);
     Ok(data)
 }
 
