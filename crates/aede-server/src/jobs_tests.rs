@@ -153,14 +153,32 @@ fn parameterized_scans_and_fetches_use_the_typed_requests() {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let received = requests.clone();
         let state = state(move |request, _| { received.lock().unwrap().push(request); Ok(JobOutput::default()) });
-        let scan = scan_route(State(state.clone()), request("POST", "/api/admin/v1/scan", r#"{"folders":["/music/Other"],"replace":true,"full":true,"threads":2,"include_hidden":true,"follow_symlinks":true}"#)).await.unwrap_or_else(|_| panic!("accepted scan"));
+        let folder = std::env::temp_dir()
+            .join("aede_job_typed_request")
+            .to_string_lossy()
+            .into_owned();
+        let scan_request = serde_json::json!({
+            "folders": [&folder],
+            "replace": true,
+            "full": true,
+            "threads": 2,
+            "include_hidden": true,
+            "follow_symlinks": true,
+        })
+        .to_string();
+        let scan = scan_route(
+            State(state.clone()),
+            request("POST", "/api/admin/v1/scan", scan_request),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("accepted scan"));
         let scan_id = accepted_id(scan).await;
         let fetch = fetch_route(State(state.clone()), request("POST", "/api/admin/v1/fetch", r#"{"targets":["AC/DC","--data=/other"],"covers":true,"size":"1200","lang":"fr,en","yes":true,"dry_run":true}"#)).await.unwrap_or_else(|_| panic!("accepted fetch"));
         let fetch_id = accepted_id(fetch).await;
         wait_for_jobs(&state).await;
         assert_ne!(scan_id, fetch_id);
         let requests = requests.lock().unwrap();
-        assert!(requests.iter().any(|job| matches!(job, JobRequest::Scan(scan) if scan.replace && scan.full && scan.include_hidden && scan.follow_symlinks && scan.threads == Some(2) && scan.folders == ["/music/Other"])));
+        assert!(requests.iter().any(|job| matches!(job, JobRequest::Scan(scan) if scan.replace && scan.full && scan.include_hidden && scan.follow_symlinks && scan.threads == Some(2) && scan.folders == [folder.as_str()])));
         assert!(requests.iter().any(|job| matches!(job, JobRequest::Fetch(fetch) if fetch.covers && fetch.yes && fetch.dry_run && fetch.targets == ["AC/DC", "--data=/other"] && fetch.size.as_deref() == Some("1200") && fetch.lang.as_deref() == Some("fr,en"))));
         assert_eq!(state.jobs.get(scan_id).unwrap_or_else(|_| panic!("scan status")).status, Status::Completed);
     });
