@@ -35,8 +35,40 @@ Back up the data directory on persistent storage. It contains `catalog.json` (re
 
 For recovery, stop the server, preserve the damaged data directory, and run `aede restore <file>` with the same `AEDE_HOME` or `--data`. Review the command's confirmation before accepting it. Restore writes only stores present and readable in the bundle; it does not delete an absent store. Start the server again and check `/api/v1/status` and `/api/v1/library`. Legacy embedded conclusions are carried into `conclusions.json` on the next protected catalog save or when restoring a version-1 backup; reading a legacy catalog does not rewrite files. Keep a backup before upgrading or restoring. The original audio files must be backed up separately.
 
-## NAS and container boundary
+## Docker image on a Linux host (procedure only)
 
-The server can run **on** a Unix-based NAS if the binary, watched music roots and writable data directory are available to one service account. Use persistent volumes for those directories in a container. A read-only music mount supports scanning and catalog reads, but prevents delegated commands from creating images, lyrics or analysis reports beside the music. This repository does not yet provide or verify a container image or service-unit recipe. If using a container, first verify that scans, backups and a restart preserve the same data directory and path spellings; changing mounted paths changes path-based track references. Run cooperating CLI commands in the same container or local socket namespace: sharing only the data volume does not make the private `/tmp` command socket reachable.
+This is a vendor-neutral deployment procedure for a **future** Linux container image. The repository does not yet build, publish or test an Aède image, so `aede:local` below is a placeholder, **not** an image that can be pulled today. The example assumes that image contains a compatible `/usr/local/bin/aede` executable. The current release workflow builds Linux `x86_64`, not Linux `aarch64`; the image must match the host CPU. No NAS-specific package or service integration is required by this procedure.
+
+Prepare existing, persistent host directories for music, Aède data and backup bundles. Replace the example absolute paths and numeric account with paths and a non-admin UID/GID that can traverse/read the music and exclusively write the data and backup directories. The data directory must not be writable by other users or groups. Keep `/music` and `/data` as the **same container paths** on every run: the catalog stores paths, and changing them makes tracks appear missing. A read-only music mount supports scanning and catalog reads; sidecar-writing commands need a deliberately writable music mount instead.
+
+```sh
+AEDE_IMAGE='aede:local'                 # replace with a real, trusted image tag
+AEDE_MUSIC='/absolute/path/to/music'   # already exists on the Docker host
+AEDE_DATA='/absolute/path/to/aede-data'
+AEDE_BACKUPS='/absolute/path/to/aede-backups'
+AEDE_UID_GID='1000:1000'               # replace with the account that owns the directories
+
+docker run --rm --user "$AEDE_UID_GID" \
+  -e AEDE_HOME=/data \
+  --mount "type=bind,src=$AEDE_MUSIC,dst=/music,readonly" \
+  --mount "type=bind,src=$AEDE_DATA,dst=/data" \
+  --entrypoint /usr/local/bin/aede "$AEDE_IMAGE" scan /music
+
+docker run -d --name aede --restart unless-stopped \
+  --stop-signal SIGTERM --stop-timeout 300 \
+  --network host --user "$AEDE_UID_GID" -e AEDE_HOME=/data \
+  --mount "type=bind,src=$AEDE_MUSIC,dst=/music,readonly" \
+  --mount "type=bind,src=$AEDE_DATA,dst=/data" \
+  --mount "type=bind,src=$AEDE_BACKUPS,dst=/backups" \
+  --entrypoint /usr/local/bin/aede "$AEDE_IMAGE" serve
+```
+
+On Linux, `--network host` makes Aède's existing `127.0.0.1:8787` listener reachable from processes on the Docker host (including other processes sharing its network namespace), not from other machines. Do not substitute a bridge network and `-p`: Aède would still listen on the container's own loopback, and Docker's port mapping would not reach it. Host networking does not use `-p`. Check `http://127.0.0.1:8787/api/v1/status` and `/api/v1/library` on the host, plus `docker logs aede`. These commands are for Docker Engine on Linux; Docker Desktop and other container runtimes need separate validation. See Docker's [host-network](https://docs.docker.com/engine/network/drivers/host/) and [bind-mount](https://docs.docker.com/engine/storage/bind-mounts/) documentation.
+
+Run cooperating CLI commands **inside the running container** so they share its account, `/data`, and private `/tmp` command-socket namespace; another container with only the data mount does not share that socket. For example, `docker exec aede /usr/local/bin/aede stats` or `docker exec aede /usr/local/bin/aede backup /backups/aede-backup.aede`. Copy backup bundles off the host/NAS; they do not contain the original audio or derivative sidecars, which need separate backups. Do not put an admin token in the image or command line. If the administrative API is needed later, follow the token guidance above and restrict who can inspect the container's environment. Do not expose the HTTP port remotely.
+
+Before relying on the deployment, stop and start the container with `docker stop aede` and `docker start aede`, checking that the same catalog returns. Rehearse `aede restore` with the bundle mounted read-only into a **different empty data directory** and the server stopped for any production restore. Then test an actual host reboot and an off-host backup/restore. `--stop-timeout 300` gives accepted work time to finish, but a longer job may still need explicit cancellation or a longer shutdown window. Docker's [restart policy](https://docs.docker.com/engine/containers/start-containers-automatically/) can restart a container that was running before a host reboot; it does not prove that the mounted music or data paths were ready, so verify both after reboot.
+
+On 26 September 2026, a disposable macOS **non-container** rehearsal verified scan, loopback serving, backup, graceful restart and restore into a separate folder; the source audio checksum was unchanged. **No Docker image, container lifecycle, NAS volume, account permissions, off-host backup or NAS reboot has been validated.**
 
 Do not publish port 8787, forward it through a router, or expose it through a reverse proxy/tunnel as a way to listen from a phone. Loopback access is not per-user authentication, `/api/v1` reveals catalog metadata and paths, and the administrative token does not make remote HTTP safe. Accounts, authorization, encrypted remote transport and audio playback are later work. The current server cannot satisfy the remote-phone listening scenario yet.

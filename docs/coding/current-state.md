@@ -65,6 +65,8 @@ TLS dependency is preserved in the versioned lockfile. These protections do not
 provide accounts or authorize remote exposure; HTTP query-cost limits and the
 account/session model remain future requirements. New navigation and inspection run on a shared bounded worker pool; the original list routes still need comprehensive remote-access cost budgets. Server code is separated into routing, runtime/state, catalog/navigation, inspection, security, events and job/delegation modules.
 
+A disposable macOS rehearsal verified scan, loopback serving, backup, restart and restore with separate music and data folders. A [vendor-neutral Docker deployment procedure](../operating.md#docker-image-on-a-linux-host-procedure-only) is documented, but no image is built or published. Container startup, permissions, persistent mounts, off-host backup, host reboot and any target NAS remain unverified until suitable hardware and an image are available. NAS-specific packages and service recipes are deferred.
+
 ---
 
 ## M1 principles carried into M2
