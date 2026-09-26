@@ -1,6 +1,6 @@
 # Operating the local server
 
-Aède's M2 server is a **local catalog API**, not yet a remote music server. It serves JSON and WebSocket notifications, but it does not stream audio or authenticate listeners. The supported catalog workflow is macOS or Linux. Windows path handling has regression coverage, but native Windows validation is still required before release; see [Paths](design/paths.md).
+Aède's M2 server is a **local catalog API**, not yet a remote music server. It serves JSON and WebSocket notifications, but it does not stream audio or authenticate listeners. The supported catalog workflow is macOS or Linux. Native Windows CI validates scanning, sidecars and copying; local Unix-socket delegation remains unavailable on Windows. See [Paths](design/paths.md).
 
 ## Start and stop
 

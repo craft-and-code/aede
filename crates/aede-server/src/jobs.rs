@@ -498,6 +498,16 @@ async fn run_job(
             task_id,
             task_kind: kind,
         });
+        let _ = state.events.send(CatalogEvent::TaskProgress {
+            task_id,
+            task_kind: kind,
+            phase: "running",
+            // Fetches and asynchronous scans do not know their amount of work
+            // before the existing CLI command has inspected its catalog. Zero
+            // is an explicit indeterminate progress value, not completion.
+            done: 0,
+            total: 0,
+        });
         tokio::task::spawn_blocking(move || {
             if cancellation.load(Ordering::Acquire) {
                 return Ok(JobOutput {
@@ -510,6 +520,15 @@ async fn run_job(
         .await
         .unwrap_or_else(|_| Err("administrative command worker failed".into()))
     };
+    // The command has stopped, but its changed catalog is not visible until
+    // the server has refreshed the snapshot it publishes to readers.
+    let _ = state.events.send(CatalogEvent::TaskProgress {
+        task_id,
+        task_kind: kind,
+        phase: "refreshing",
+        done: 0,
+        total: 0,
+    });
     if let Some(admin) = &state.admin {
         let path = store::catalog_path(&admin.data_dir);
         let mut known = *state.loaded_stamp.read().await;

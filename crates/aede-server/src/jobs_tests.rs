@@ -215,6 +215,50 @@ fn an_empty_json_scan_object_starts_an_asynchronous_watched_root_scan() {
 }
 
 #[test]
+fn asynchronous_jobs_announce_running_and_refreshing_activity() {
+    runtime().block_on(async {
+        let state = state(|_, _| Ok(JobOutput::default()));
+        let mut events = state.events.subscribe();
+        let response = fetch_route(
+            State(state.clone()),
+            request("POST", "/api/admin/v1/fetch", "{}"),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("accepted fetch"));
+        let task_id = accepted_id(response).await;
+        wait_for_jobs(&state).await;
+
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            CatalogEvent::TaskStarted {
+                task_id: id,
+                task_kind: "identification",
+            } if id == task_id
+        ));
+        for phase in ["running", "refreshing"] {
+            assert!(matches!(
+                events.try_recv().unwrap(),
+                CatalogEvent::TaskProgress {
+                    task_id: id,
+                    task_kind: "identification",
+                    phase: actual,
+                    done: 0,
+                    total: 0,
+                } if id == task_id && actual == phase
+            ));
+        }
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            CatalogEvent::TaskCompleted {
+                task_id: id,
+                task_kind: "identification",
+                ..
+            } if id == task_id
+        ));
+    });
+}
+
+#[test]
 fn dropping_the_http_response_does_not_cancel_accepted_work() {
     runtime().block_on(async {
         let released = Arc::new(AtomicBool::new(false));

@@ -98,7 +98,7 @@ Corrupt source stores produce an error, never a false “no information” answe
 | Upgrade `GET /api/v1/events` | Initial catalog snapshot, then catalog changes only (original contract). |
 | Upgrade `GET /api/v1/activity` | Catalog events plus task start/progress/completion/failure. |
 
-Neither accepts commands. Notifications are best effort with no replay. Asynchronous HTTP jobs and delegated CLI jobs emit start/terminal events, not detailed progress yet; the legacy synchronous HTTP scan also reports discovery/read progress. Reconnect and poll an HTTP job's status to recover its result. See the [event schemas](../../docs/api.md#activity-stream).
+Neither accepts commands. Notifications are best effort with no replay. Asynchronous HTTP jobs and delegated CLI jobs emit `running` and `refreshing` lifecycle progress with an explicit unknown work total (`done: 0, total: 0`); the legacy synchronous HTTP scan also reports discovery/read progress. Reconnect and poll an HTTP job's status to recover its result. See the [event schemas](../../docs/api.md#activity-stream).
 
 ## Administrative routes
 

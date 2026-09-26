@@ -356,6 +356,16 @@ fn handle_command(
         task_id,
         task_kind: kind,
     });
+    let _ = state.events.send(CatalogEvent::TaskProgress {
+        task_id,
+        task_kind: kind,
+        phase: "running",
+        // The subprocess owns the per-request work counts. Its lifecycle is
+        // still useful to a reconnecting activity client, but it must not
+        // pretend to know a total it was never given.
+        done: 0,
+        total: 0,
+    });
     if cancellation.is_some() {
         let _ = write_frame(&output, b'T', &task_id.to_be_bytes());
     }
@@ -387,6 +397,13 @@ fn handle_command(
     let path = store::catalog_path(&data_dir);
     let mut known = *tokio::runtime::Handle::current().block_on(state.loaded_stamp.read());
     let mut reported_failure = None;
+    let _ = state.events.send(CatalogEvent::TaskProgress {
+        task_id,
+        task_kind: kind,
+        phase: "refreshing",
+        done: 0,
+        total: 0,
+    });
     tokio::runtime::Handle::current().block_on(refresh_catalog(
         &path,
         &state,
