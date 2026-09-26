@@ -424,19 +424,15 @@ fn cancellation_preserves_work_saved_before_the_request() {
         let shutdown = state.shutdown.clone();
         let commands = tokio::spawn(accept_commands(listener, state, Arc::new(|_, _| true)));
         let mut client = UnixStream::connect(&path).unwrap();
-        // This is a concurrency test, not a latency benchmark. On a busy CI
-        // runner the cancellation handler can be scheduled later than the
-        // short local round-trip normally needs; timing out first makes an
-        // otherwise completed cancellation look like a server failure.
         client
-            .set_read_timeout(Some(Duration::from_secs(10)))
+            .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         send_request(&mut client, &test_request("fetch", None)).unwrap();
         let task_id = read_task(&mut client);
         wait_for_saved_work(&data).await;
         let mut cancellation = UnixStream::connect(&path).unwrap();
         cancellation
-            .set_read_timeout(Some(Duration::from_secs(10)))
+            .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         send_request(&mut cancellation, &test_request("cancel", Some(task_id))).unwrap();
         assert_eq!(read_exit(&mut cancellation), 0);

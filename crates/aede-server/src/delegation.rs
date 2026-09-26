@@ -265,7 +265,7 @@ fn handle_command(
         shutdown: &mut shutdown,
         deadline: Instant::now() + REQUEST_TIMEOUT,
     })?;
-    reader.set_read_timeout(None)?;
+    reader.set_read_timeout(Some(SHUTDOWN_POLL))?;
     stream.set_write_timeout(Some(OUTPUT_TIMEOUT))?;
     let request: CommandRequest = serde_json::from_slice(&request_bytes)?;
     let output = Arc::new(Mutex::new(stream));
@@ -360,10 +360,10 @@ fn handle_command(
         let _ = write_frame(&output, b'T', &task_id.to_be_bytes());
     }
     let child_stdin = child.stdin.take().ok_or("missing command stdin")?;
+    let input_finished = Arc::new(AtomicBool::new(false));
+    let input_signal = input_finished.clone();
     let stdin_thread = std::thread::spawn(move || {
-        let mut input = reader;
-        let mut child_stdin = child_stdin;
-        let _ = io::copy(&mut input, &mut child_stdin);
+        relay_input(reader, child_stdin, input_signal);
     });
     let stdout = child.stdout.take().ok_or("missing command stdout")?;
     let stderr = child.stderr.take().ok_or("missing command stderr")?;
@@ -375,12 +375,11 @@ fn handle_command(
     if cancellation.is_some() {
         state.tasks.remove(task_id)?;
     }
-    // The child no longer consumes input. Wake the relay even if the CLI keeps
-    // stdin open, so every finished command releases its socket and input thread.
-    let _ = output
-        .lock()
-        .map_err(|_| io::Error::other("socket poisoned"))?
-        .shutdown(std::net::Shutdown::Read);
+    // A CLI may keep stdin open after its child has finished. Polling the
+    // input side lets this worker stop without relying on `shutdown(Read)` on
+    // a cloned Unix socket: Linux does not reliably wake the other clone, so
+    // the terminal status frame could otherwise remain blocked forever.
+    input_finished.store(true, Ordering::Release);
     let _ = stdin_thread.join();
     let _ = stdout_thread.join();
     let _ = stderr_thread.join();
@@ -454,6 +453,24 @@ fn relay_output(mut input: impl Read, kind: u8, output: Arc<Mutex<UnixStream>>) 
             Ok(size) => {
                 let _ = write_frame(&output, kind, &buf[..size]);
             }
+        }
+    }
+}
+
+fn relay_input(mut input: UnixStream, mut child_stdin: impl Write, finished: Arc<AtomicBool>) {
+    let mut bytes = [0_u8; 8192];
+    while !finished.load(Ordering::Acquire) {
+        match input.read(&mut bytes) {
+            Ok(0) | Err(_) if finished.load(Ordering::Acquire) => break,
+            Ok(0) => break,
+            Ok(size) if child_stdin.write_all(&bytes[..size]).is_err() => break,
+            Ok(_) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break,
         }
     }
 }
