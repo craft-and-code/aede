@@ -35,6 +35,7 @@ pub mod http;
 pub mod model;
 pub mod musicbrainz;
 pub mod places;
+pub mod playback;
 pub mod playlist;
 pub mod query;
 pub mod scan;

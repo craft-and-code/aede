@@ -55,7 +55,7 @@ The current implementation includes:
 - folder narrowing on every option of `fetch`: a positional that exists on disk
   is a folder, anything else is a name, and the two narrow a run independently.
 
-Audio playback is intentionally not implemented yet.
+The `aede-dsp` crate defines the decoded PCM contract and a continuous gain stage with peak reporting. `aede-core` has an in-memory playback queue with transport state, repeat and seeded uniform shuffle, plus a selector for ReplayGain and Opus R128 playback gains. Its progressive file decoder produces finite, complete PCM frames into caller-owned buffers; fixtures verify native FLAC, WAV, MP3 and Ogg Vorbis decoding, plus an optional ffmpeg fallback for Opus, AAC and ALAC in M4A. `aede play <audio-file>` now streams one local file through the decoder and DSP to ffplay. This does not yet drive the queue, apply loudness normalization, or provide gapless transitions. FLAC MD5 verification and measured loudness are not implemented in the playback path yet.
 
 The [M2 server security review](m2-server-review.md) now has a corrective pass:
 local Host/Origin validation, bounded WebSocket/IPC clients, graceful command

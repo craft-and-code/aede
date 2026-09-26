@@ -35,8 +35,12 @@ fn restore_sigpipe() {
 fn restore_sigpipe() {}
 
 fn main() {
-    restore_sigpipe();
     let args = Args::from_env();
+    // Playback writes to a child process. Keep Rust's ignored SIGPIPE there
+    // so a closed audio pipe becomes a reportable BrokenPipe error.
+    if args.command != "play" {
+        restore_sigpipe();
+    }
     ui::init_color(args.has("no-color"));
 
     let unknown = args.unknown_flags(OPTIONS);
@@ -755,6 +759,7 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("copy", None, commands::copy),
     ("spectrum", None, commands::spectrum),
     ("playlist", None, commands::playlist),
+    ("play", None, commands::play),
     ("reset", None, commands::reset),
     ("backup", None, commands::backup),
     ("restore", None, commands::restore),

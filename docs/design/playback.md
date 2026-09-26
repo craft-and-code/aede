@@ -1,5 +1,13 @@
 # Playback (M3)
 
+The sample-processing foundation lives in [`aede-dsp`](../../crates/aede-dsp/README.md). It accepts decoded PCM and provides a continuous gain stage. [`aede-core::playback::decoder`](../../crates/aede-core/src/playback/decoder.rs) reads local files progressively into caller-owned, interleaved `f32` buffers and rejects invalid PCM formats, incomplete frames and non-finite samples. The repository fixtures verify native FLAC, WAV, MP3 and Ogg Vorbis decoding. When the native decoder cannot open Opus, AAC or ALAC, an installed ffmpeg supplies the same PCM contract, preserving the declared sample rate and channel count. No audio file is modified.
+
+`aede play <audio-file>` streams one file from this decoder through the DSP at unity gain into ffplay, which opens the local audio output. ffplay is an external program required for this first terminal command; ffmpeg is additionally required for the Opus and M4A fallback. The command does not need a catalog. Queue playback, normalization gain application, seeking and gapless transitions still need a playback driver and output lifecycle design.
+
+The native decoder dependency skips corrupt packets, so this playback path cannot report every damaged frame. It also does not verify FLAC decoded-audio MD5. A future integrity-aware decoder must make those results explicit; successful playback decoding alone must not be treated as an integrity verdict.
+
+The in-memory [`playback` queue](../../crates/aede-core/src/playback.rs) now accepts the same ordered track IDs as playlist rendering. It provides the basic transport state, repeat modes, and seeded uniform shuffle. Other shuffle styles remain designs for later work.
+
 ## The queue is a selection, not a new idea
 
 Every page in Aède gathers a **selection** — that is what `--csv` and `--m3u`
@@ -115,11 +123,15 @@ keeps its own volume alongside the system's gives the user two knobs that
 disagree and no way to tell which one is at fault.
 
 **Loudness normalization is Aède's business**, and it is a different thing.
-The tags already carry `REPLAYGAIN_*` and, for Opus, `R128_*` — the parsers see
-them today and throw them away. M3 reads them, and for files that have none the
-decoder can compute EBU R128 and store it exactly as an integrity verdict is
-stored: measured once, kept, recomputed only on request. Aède decides what gain
-to apply to the stream; the user decides how loud the room is.
+The raw tags already retain `REPLAYGAIN_*` and, for Opus, `R128_*`. The playback
+gain selector now reads them, chooses track or album scope, and converts the
+selected tag to an explicit target level before the DSP applies it. ReplayGain's
+nominal reference is -18 LUFS; Opus R128's is -23 LUFS. The eventual decoder
+must apply the Opus header's output gain before the R128 tag gain. For files
+without tags, decoded audio can later be measured with EBU R128 and stored
+exactly as an integrity verdict is stored: measured once, kept, recomputed only
+on request. Aède decides what gain to apply to the stream; the user decides how
+loud the room is.
 
 **Position depends which position is meant.**
 

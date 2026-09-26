@@ -61,6 +61,10 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede playlist [folder…]",
             summary: "Write portable playlists in album and artist folders.",
         },
+        "play" => CommandPage {
+            usage: "aede play <audio-file>",
+            summary: "Play one local file through Aède's decoder and DSP, using ffplay for audio output.",
+        },
         "reset" => CommandPage {
             usage: "aede reset",
             summary: "Remove catalog data while keeping watched folders.",
@@ -367,6 +371,8 @@ pub fn print_index() {
                        lines for players that choke on them, --artists adds one
                        per artist folder covering their whole discography,
                        --dry-run only says what it would write
+  play <audio-file>    Play one local file through Aède's decoder and DSP.
+                       Requires ffplay for sound; Opus and M4A also need ffmpeg
   artists              List of artists (--role composer, producer…,
                        --country france, --sort tracks|name)
   countries            Where the artists on the shelf are from. Not a tag:
@@ -776,7 +782,7 @@ fn print_fetch_help() {
         ui::cyan("EXAMPLES")
     );
     print_delegation_help("fetch");
-    print_global_options();
+    print_global_options(true);
 }
 
 fn print_server_help() {
@@ -882,7 +888,14 @@ fn print_delegation_help(command: &str) {
     }
 }
 
-fn print_global_options() {
+fn print_global_options(include_data: bool) {
+    if !include_data {
+        println!(
+            "\n{}\n  --no-color           Turn colours off\n  -h, --help           Show this page\n  -v, -V, --version    Show the version",
+            ui::cyan("GLOBAL OPTIONS")
+        );
+        return;
+    }
     println!(
         "
 {}
@@ -938,5 +951,5 @@ pub fn print_command(command: &str) {
             println!("  {example}");
         }
     }
-    print_global_options();
+    print_global_options(command != "play");
 }

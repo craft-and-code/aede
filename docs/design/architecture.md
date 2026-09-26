@@ -14,6 +14,7 @@ crates/
       relations.rs      the links inferred from credits and track lists
     src/scan.rs       directory walk, parallel reads, incremental
     src/store.rs      JSON persistence, atomic writes
+    src/playback.rs   in-memory queue and transport order
     src/stats.rs      statistics
     src/doctor.rs     diagnostics
     src/analysis.rs   analyses imported from another tool
@@ -139,7 +140,7 @@ Two facts settle the shape of it when the time comes. `rusqlite` is not Rust: it
 
 ## Dependencies
 
-`aede-core` uses `lofty` for tag formats whose parsers are not worth writing twice and `ureq` behind its `fetch` feature. `aede-server` owns the HTTP/JSON/WebSocket dependencies (`axum`, `tokio`, `serde`, and `serde_json`); `aede-cli` calls it to serve the catalog. The DSP is planned as a separate crate when its implementation begins. `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
+`aede-core` uses `lofty` for tag formats whose parsers are not worth writing twice and `ureq` behind its `fetch` feature. `aede-server` owns the HTTP/JSON/WebSocket dependencies (`axum`, `tokio`, `serde`, and `serde_json`); `aede-cli` calls it to serve the catalog. `aede-dsp` is a separate, dependency-free crate for decoded sample processing. `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
 
 Where a program can do the job instead of a crate, the program wins: **ffmpeg is driven as an external process** (`core/ffmpeg.rs`, `find()` and `missing(what)`), never linked. Two commands use it, both say so when it is absent, and the other twenty-three do not care.
 

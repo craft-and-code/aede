@@ -13,6 +13,7 @@ name = "aede-cli"
 version = "0.3.0"
 dependencies = [
  "aede-core",
+ "aede-dsp",
  "aede-server",
  "flaccompagnon-core",
 ]
@@ -26,6 +27,10 @@ dependencies = [
  "md-5",
  "ureq",
 ]
+
+[[package]]
+name = "aede-dsp"
+version = "0.3.0"
 
 [[package]]
 name = "aede-server"

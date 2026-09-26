@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aede-core", "crates/aede-server", "crates/aede-cli"]
+members = ["crates/aede-core", "crates/aede-server", "crates/aede-cli", "crates/aede-dsp"]
 
 [workspace.package]
 version = "0.3.0"
