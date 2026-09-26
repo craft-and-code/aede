@@ -5,7 +5,7 @@
 //! reading, graph construction, persistence, reload, rendering.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// One real audio file, for a test that builds a library of its own.
@@ -15,6 +15,14 @@ use std::process::{Command, Stdio};
 /// than a second folder of fixtures to keep in step.
 fn library_flac() -> PathBuf {
     library().join("track.flac")
+}
+
+fn json_string(value: &str) -> String {
+    aede_core::json::Json::Str(value.to_string()).to_string_compact()
+}
+
+fn json_track_ref(path: &Path) -> String {
+    json_string(&format!("track:{}", path.display()))
 }
 
 fn library() -> PathBuf {
@@ -1046,14 +1054,14 @@ fn a_relational_query_reads_certain_source_evidence() {
         &document,
         format!(
             r#"{{"format_version":1,"records":[{{
-              "entity":"track:{}","source":"musicbrainz",
+              "entity":{},"source":"musicbrainz",
               "source_id":"recording-id","fetched_at":1756600000,
               "confidence":"identified","facts":{{
                 "recording":"recording-id","relationships_complete":true,
                 "works":[{{"mbid":"work-id","title":"A Sourced Work"}}]
               }}
             }}]}}"#,
-            track.display()
+            json_track_ref(&track)
         ),
     )
     .expect("source document");
@@ -1077,14 +1085,14 @@ fn source_review_is_persistent_reversible_and_controls_graph_queries() {
         &document,
         format!(
             r#"{{"format_version":1,"records":[{{
-              "entity":"track:{}","source":"musicbrainz",
+              "entity":{},"source":"musicbrainz",
               "source_id":"possible-recording","fetched_at":1756600000,
               "confidence":"matched","score":96,"facts":{{
                 "recording":"possible-recording","relationships_complete":true,
                 "works":[{{"mbid":"possible-work","title":"A Reviewed Work"}}]
               }}
             }}]}}"#,
-            library_flac().display()
+            json_track_ref(&library_flac())
         ),
     )
     .expect("source document");
@@ -1148,7 +1156,7 @@ fn source_review_can_be_understood_and_decided_interactively() {
         &document,
         format!(
             r#"{{"format_version":1,"records":[{{
-              "entity":"track:{}","source":"musicbrainz",
+              "entity":{},"source":"musicbrainz",
               "source_id":"possible-recording","fetched_at":1756600000,
               "confidence":"matched","score":96,"facts":{{
                 "recording":"possible-recording","title":"So What",
@@ -1157,7 +1165,7 @@ fn source_review_can_be_understood_and_decided_interactively() {
                 "works":[{{"mbid":"possible-work","title":"A Reviewed Work"}}]
               }}
             }}]}}"#,
-            library_flac().display()
+            json_track_ref(&library_flac())
         ),
     )
     .expect("source document");
@@ -1206,7 +1214,7 @@ fn graph_relations_are_annotatable_exportable_and_reproducible() {
         &source,
         format!(
             r#"{{"format_version":1,"records":[{{
-              "entity":"track:{}","source":"musicbrainz",
+              "entity":{},"source":"musicbrainz",
               "source_id":"recording-graph","fetched_at":1756600000,
               "confidence":"identified","facts":{{
                 "recording":"recording-graph","title":"So What",
@@ -1226,7 +1234,7 @@ fn graph_relations_are_annotatable_exportable_and_reproducible() {
                 }}]
               }}
             }}]}}"#,
-            library_flac().display()
+            json_track_ref(&library_flac())
         ),
     )
     .expect("source graph fixture");
@@ -1238,14 +1246,14 @@ fn graph_relations_are_annotatable_exportable_and_reproducible() {
         &manual,
         format!(
             r#"{{"format_version":1,"records":[{{
-              "entity":"track:{}","source":"manual",
+              "entity":{},"source":"manual",
               "source_id":"manual-correction","fetched_at":1756600001,
               "confidence":"identified","facts":{{
                 "recording":"recording-graph","title":"So What",
                 "artists":["Miles Davis"],"relationships_complete":false
               }}
             }}]}}"#,
-            library_flac().display()
+            json_track_ref(&library_flac())
         ),
     )
     .expect("manual rule fixture");
@@ -2578,7 +2586,7 @@ fn a_listing_never_stops_without_saying_so() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The row of a table whose path column ends in this folder.
+/// The row of a table whose path column ends in this folder name.
 ///
 /// Matched on the **tail**, never on the whole path: the column truncates from
 /// the left so that the last components — the ones that identify the folder —
@@ -2589,7 +2597,8 @@ fn row_for_folder<'a>(out: &'a str, ending: &str) -> &'a str {
         .find(|l| {
             l.split_whitespace()
                 .next()
-                .is_some_and(|column| column.ends_with(ending))
+                .and_then(|column| Path::new(column).file_name())
+                .is_some_and(|name| name == ending)
         })
         .unwrap_or_else(|| panic!("no row ending in {ending} in:\n{out}"))
 }
@@ -2614,13 +2623,13 @@ fn a_watched_folder_is_weighed_and_not_confused_with_its_neighbour() {
 
     let (out, _, ok) = sandbox.run(&["roots"]);
     assert!(ok, "output: {out}");
-    let rock_row = row_for_folder(&out, "/Rock");
+    let rock_row = row_for_folder(&out, "Rock");
     assert!(
         rock_row.split_whitespace().any(|w| w == "1"),
         "Rock holds one track, not its neighbour's two: {rock_row}"
     );
     assert!(
-        row_for_folder(&out, "/Rockabilly")
+        row_for_folder(&out, "Rockabilly")
             .split_whitespace()
             .any(|w| w == "2"),
         "and the neighbour keeps its own:\n{out}"
@@ -3431,24 +3440,26 @@ fn write_report_naming(
         .as_secs();
     let text = format!(
         r#"{{"format":"flaccompagnon-report","version":1,"report":{{
-             "root":"{root}",
+             "root":{root},
              "files":[{{
-               "path":"{path}",
-               "file_name":"{name}",
+               "path":{path},
+               "file_name":{name},
                "size_bytes":{size},
                "modified_unix":{mtime},
-               "detections":{{"transcoding":"{transcoding}","upscaling":false,
+               "detections":{{"transcoding":{transcoding},"upscaling":false,
                               "upsampling":false,"summary":"Clean",
                               "detail":"full-band content"}},
                "cutoff_hz":22050.0,
                "real_bit_depth":16,
                "dr_db":9.3,
                "clipping":{{"clipped_samples":0,"peak_dbfs":-0.13,"clipped":false}},
-               "flac_md5":{{"state":"{md5}"}}
+               "flac_md5":{{"state":{md5}}}
              }}]}}}}"#,
-        root = file.parent().unwrap().display(),
-        path = named_as,
-        name = file.file_name().unwrap().to_str().unwrap(),
+        root = json_string(&file.parent().unwrap().to_string_lossy()),
+        path = json_string(named_as),
+        name = json_string(&file.file_name().unwrap().to_string_lossy()),
+        transcoding = json_string(transcoding),
+        md5 = json_string(md5),
         size = meta.len(),
     );
     std::fs::write(at, text).expect("writing the report");
@@ -3959,7 +3970,7 @@ fn a_selection_is_copied_out_keeping_its_tree() {
 
     // --- The real thing -----------------------------------------------------
     let (report, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--verify"]);
-    assert!(ok, "stderr: {err}");
+    assert!(ok, "stdout: {report}\nstderr: {err}");
     assert!(report.contains("Written"), "output: {report}");
 
     let track = out.join("Pixies/Surfer Rosa").join(audio_name);

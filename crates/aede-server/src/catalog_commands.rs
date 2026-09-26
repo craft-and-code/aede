@@ -466,8 +466,8 @@ fn browse_options(query: &BrowseQuery, kind: EntityKind) -> Result<BrowseOptions
         ));
     }
     let sort = query.sort.as_deref().unwrap_or("catalog");
-    if !matches!(sort, "catalog" | "name" | "title")
-        && !(sort == "year" && kind == EntityKind::Release)
+    if !(matches!(sort, "catalog" | "name" | "title")
+        || (sort == "year" && kind == EntityKind::Release))
     {
         return Err(invalid_query(
             "sort must be catalog, name, title, or year for albums",

@@ -47,6 +47,31 @@ fn all_tracks(catalog: &Catalog) -> Vec<Id> {
 }
 
 #[test]
+fn verified_copy_accepts_files_copied_with_read_only_permissions() {
+    let dir = std::env::temp_dir().join(format!("aede_copy_read_only_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("source.flac");
+    let destination = dir.join("copy.flac");
+    std::fs::write(&source, b"read only audio").unwrap();
+    let original_permissions = std::fs::metadata(&source).unwrap().permissions();
+    let mut permissions = original_permissions.clone();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&source, permissions).unwrap();
+
+    assert!(matches!(
+        copy_one(&source, &destination, 15, true, false),
+        Ok(Wrote::Copied)
+    ));
+    assert_eq!(std::fs::read(&destination).unwrap(), b"read only audio");
+
+    for path in [&source, &destination] {
+        std::fs::set_permissions(path, original_permissions.clone()).unwrap();
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn windows_copy_plans_keep_the_tree_and_refuse_destinations_inside_the_library() {
     for root in [
         r"C:\Music",

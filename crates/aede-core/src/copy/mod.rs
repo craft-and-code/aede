@@ -593,11 +593,26 @@ pub fn copy_one(
 
     let checked = verify
         .then(|| {
-            // Flushed before reading back: without this the comparison is
-            // between two views of the same buffer and proves nothing at all.
-            let file = std::fs::File::open(&partial).map_err(|e| e.to_string())?;
-            file.sync_all().map_err(|e| e.to_string())?;
-            drop(file);
+            // Windows requires a write-capable handle for sync_all. A copied
+            // read-only source also makes the partial read-only, so that case
+            // can only be checked by reading it back after fs::copy closes.
+            #[cfg(windows)]
+            if !std::fs::metadata(&partial)
+                .map_err(|e| e.to_string())?
+                .permissions()
+                .readonly()
+            {
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&partial)
+                    .map_err(|e| e.to_string())?;
+                file.sync_all().map_err(|e| e.to_string())?;
+            }
+            #[cfg(not(windows))]
+            {
+                let file = std::fs::File::open(&partial).map_err(|e| e.to_string())?;
+                file.sync_all().map_err(|e| e.to_string())?;
+            }
             let read = |path: &Path| -> Result<u32, String> {
                 let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
                 let mut buffer = vec![0u8; 1 << 20];

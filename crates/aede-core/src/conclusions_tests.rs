@@ -36,10 +36,9 @@ fn results_live_outside_catalog_and_match_bytes() {
     let read = from_json(&encoded).unwrap();
     assert_eq!(read.files.len(), 1);
     assert!(
-        crate::store::to_json(&original)
+        !crate::store::to_json(&original)
             .to_string_compact()
-            .find("integrity")
-            .is_none()
+            .contains("integrity")
     );
     let mut fresh = catalog();
     read.attach(&mut fresh);
