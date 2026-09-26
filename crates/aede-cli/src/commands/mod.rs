@@ -118,10 +118,9 @@ pub fn confirmed(args: &Args, what: &str) -> Result<bool, Box<dyn Error>> {
     if args.has("yes") {
         return Ok(true);
     }
-    if !std::io::stdin().is_terminal()
-        && !(std::env::var_os("AEDE_DELEGATED_CHILD").is_some()
-            && std::env::var_os("AEDE_DELEGATED_STDIN_TTY").is_some())
-    {
+    let delegated_terminal = std::env::var_os("AEDE_DELEGATED_CHILD").is_some()
+        && std::env::var_os("AEDE_DELEGATED_STDIN_TTY").is_some();
+    if !std::io::stdin().is_terminal() && !delegated_terminal {
         return Err(format!("no terminal to confirm on: add --yes to {what}").into());
     }
     print!("  Type \"yes\" to confirm: ");
