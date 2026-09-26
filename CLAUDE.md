@@ -39,12 +39,13 @@ These are fundamental properties of Aède:
 ### Workspace
 
 - `crates/aede-core` — domain model, catalog, storage and library logic.
+- `crates/aede-server` — local HTTP/JSON/WebSocket API over the core.
 - `crates/aede-cli` — command-line interface and user-facing behaviour.
 - `docs/` — architecture, design decisions, milestone plans and behavioural documentation.
 - `tools/` — development and verification scripts.
 - `site/` — project website.
 
-Keep domain logic in `aede-core`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
+Keep domain logic in `aede-core`. Keep HTTP transport in `aede-server`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
 
 ### Domain model
 

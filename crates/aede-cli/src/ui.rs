@@ -12,8 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static COLOR_ENABLED: AtomicBool = AtomicBool::new(true);
 
 pub fn init_color(force_off: bool) {
-    let enabled =
-        !force_off && std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let enabled = !force_off && is_interactive() && std::env::var_os("NO_COLOR").is_none();
     COLOR_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
@@ -23,6 +22,8 @@ pub fn init_color(force_off: bool) {
 /// watching; piped into a file it turns into thousands of useless lines.
 pub fn is_interactive() -> bool {
     std::io::stdout().is_terminal()
+        || (std::env::var_os("AEDE_DELEGATED_CHILD").is_some()
+            && std::env::var_os("AEDE_DELEGATED_STDOUT_TTY").is_some())
 }
 
 fn colorize(code: &str, text: &str) -> String {

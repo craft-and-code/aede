@@ -64,11 +64,21 @@ pub fn backup(args: &Args) -> Res {
     // Read straight off the disk rather than through the loaders that refuse a
     // missing catalog: a data folder with notes and no catalog is a perfectly
     // ordinary thing to want backed up.
+    let catalog = part(store::load(&store::catalog_path(&data)));
+    let gathered = match part(conclusions::load(&conclusions::conclusions_path(&data))) {
+        Part::Empty => catalog
+            .held()
+            .map(conclusions::Conclusions::from_catalog)
+            .filter(|legacy| !legacy.files.is_empty() || !legacy.analyses.is_empty())
+            .map(Part::Held)
+            .unwrap_or(Part::Empty),
+        other => other,
+    };
     let made = Backup {
         made_at: clock::now_seconds(),
         made_by: env!("CARGO_PKG_VERSION").to_string(),
-        catalog: part(store::load(&store::catalog_path(&data))),
-        conclusions: part(conclusions::load(&conclusions::conclusions_path(&data))),
+        catalog,
+        conclusions: gathered,
         user: part(user::load(&user::user_path(&data))),
         sources: part(sources::load(&sources::sources_path(&data))),
     };

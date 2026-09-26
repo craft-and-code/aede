@@ -5,6 +5,7 @@
 
 mod args;
 mod commands;
+mod delegation;
 mod help;
 mod ui;
 
@@ -235,12 +236,67 @@ fn main() {
         eprintln!("Run \"aede help\" for the list of commands.");
         std::process::exit(2);
     };
+    if mutates_store(command) && std::env::var_os("AEDE_DELEGATED_CHILD").is_none() {
+        match delegation::try_delegate(&args, std::env::args().skip(1).collect()) {
+            Ok(Some(code)) => std::process::exit(code),
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("{} delegation failed: {error}", ui::red("Error:"));
+                std::process::exit(1);
+            }
+        }
+    }
+    // Hold one lock across every read/modify/write sequence. Locking only the
+    // final save would still allow two processes to load the same old state.
+    let _store_lock = if mutates_store(command) {
+        match aede_core::store_lock::StoreLock::acquire(&commands::data_dir(&args)) {
+            Ok(lock) => Some(lock),
+            Err(error) => {
+                eprintln!("{} cannot lock Aède data: {error}", ui::red("Error:"));
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
     let result = run(&args);
 
     if let Err(error) = result {
         eprintln!("{} {error}", ui::red("Error:"));
         std::process::exit(1);
     }
+}
+
+/// Commands whose work may change one of the JSON stores, plus backup, which
+/// needs a coherent snapshot of all four. Other read-only commands stay usable
+/// even when a data folder is not writable.
+fn mutates_store(command: &str) -> bool {
+    matches!(
+        command,
+        "scan"
+            | "analyze"
+            | "roots"
+            | "check"
+            | "backup"
+            | "reset"
+            | "restore"
+            | "import"
+            | "sources"
+            | "review"
+            | "rules"
+            | "relation"
+            | "fetch"
+            | "missing"
+            | "merge"
+            | "fingerprint"
+            | "collection"
+            | "love"
+            | "rate"
+            | "note"
+            | "tag"
+            | "played"
+            | "history"
+    )
 }
 
 /// Every option this program recognises at all.
@@ -255,6 +311,7 @@ fn main() {
 /// the reason written on [`OPTION_SCOPE`].
 const OPTIONS: &[&str] = &[
     "data",
+    "port",
     "replace",
     "remove",
     "limit",
@@ -354,6 +411,7 @@ const OPTIONS: &[&str] = &[
 /// advises `aede fetch --artists` when `--artists` belongs to `playlist` is an
 /// option nobody can type, and only something comparing the two can notice.
 const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
+    ("port", &["serve"], "choose the local API port"),
     ("csv", CSV_COMMANDS, "produce a table"),
     ("m3u", M3U_COMMANDS, "produce a playlist"),
     ("output", OUTPUT_COMMANDS, "write to a file"),
@@ -687,6 +745,8 @@ const MEMBER_COMMANDS: &[&str] = &["artist"];
 type Command = fn(&Args) -> commands::Res;
 const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("scan", None, commands::scan),
+    ("serve", None, commands::serve),
+    ("cancel", None, commands::cancel),
     ("analyze", None, commands::analyze),
     ("roots", None, commands::roots),
     ("stats", None, commands::show_stats),
@@ -846,6 +906,7 @@ fn takes_no_argument(command: &str) -> Option<&'static str> {
              To build one instead: aede sources --template \"<name>\""
         }
         "stats" | "doctor" | "roots" => "It describes the whole catalog.",
+        "serve" => "It serves the catalog on this machine; use --port to choose the port.",
         "rules" => "It lists, exports, or imports personal rules.",
         "collections" => {
             "It lists what you saved. To save one: aede collection <name> --query \"…\""

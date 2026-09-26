@@ -2,7 +2,7 @@
 
 > _A digital sanctuary for serious music collectors, archivists, and audio curators._
 
-**Aède** is a high-precision, read-only local music library manager and cataloging system written in Rust. Designed with an uncompromising commitment to archival integrity, Aède treats your master music collection as a sanctuary: it reads metadata, verifies audio container integrity, indexes complex credit graphs, and generates derivative assets—**without ever writing a single byte back into your original audio files**.
+**Aède** is a high-precision, non-destructive local music library manager and cataloging system written in Rust. Designed with an uncompromising commitment to archival integrity, Aède treats your master music collection as a sanctuary: it reads metadata, verifies audio container integrity, indexes complex credit graphs, and generates derivative assets—**without ever writing a single byte back into your original audio files**.
 
 > [!TIP]
 > An _aède_ (Greek ἀοιδός, _aoidos_) was the poet-singer of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and playing, in one word — which is exactly what this program is for.
@@ -116,6 +116,8 @@ aede doctor
 | :------------ | :----------- | :------------------------------------------ | :------------------------------------------------------------------------------------------ |
 | `aede roots`  | `[paths...]` | `--exclude <path>`, `--remove`, `--no-scan` | Display, add, or exclude watched storage directories.                                       |
 | `aede scan`   | `[path]`     | `--full`                                    | Traverses roots to index audio files, tags, and structure.                                  |
+| `aede serve`  | None         | `--port <N>`                                | Runs the loopback-only catalog API and coordinates Unix CLI writes.                        |
+| `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
 | `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
 | `aede review` | None         | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
@@ -249,7 +251,7 @@ disappears; `aede doctor --severity=info` then makes it visible.
 | `aede tag`     | `<entity> <name>` | `<tag_name>`, `--remove`                                | Assigns or removes custom tags.                                              |
 | `aede notes`   | None              | `--export`, `--import`, `--output=<file>`               | Backs up or restores user annotations across systems.                        |
 | `aede rules`   | None              | `--export`, `--import`, `--output=<file>`               | Lists or transports reproducible decisions without copying fetched prose or listening history. |
-| `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, user annotations, and remote sources into a backup payload. |
+| `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, conclusions, user annotations, and remote sources into a backup payload. |
 | `aede restore` | `<file.json>`     | `--yes`                                                 | Restores vault state from a versioned Aède backup bundle.                    |
 
 `aede export --graph --output=graph.json` is the complete local-first export:
@@ -363,7 +365,7 @@ All metadata and state persist in a unified directory configured via `$AEDE_HOME
 
 ### Storage Benchmarks
 
-Historical measurements from before conclusions were split out; current store sizes and timings have not yet been remeasured.
+Historical measurements from before conclusions were split out. The [current M2 synthetic benchmark](docs/coding/m2-storage-benchmark.md) uses a different generated catalog, so its sizes and timings are not directly comparable.
 
 | Tracks      | `catalog.json` Size | Save Time | Load Time | Peak RAM |
 | :---------- | :------------------ | :-------- | :-------- | :------- |
@@ -378,6 +380,9 @@ Historical measurements from before conclusions were split out; current store si
 Complete guides to Aède's features and architecture:
 
 - [Library Fundamentals](docs/library.md) — Overview of the catalog structure
+- [Local API](docs/api.md) — HTTP/JSON endpoints, catalog change events and task activity
+- [Server route reference](crates/aede-server/README.md) — All available routes, parameters, scan/fetch jobs and examples
+- [Operating the Local Server](docs/operating.md) — Startup, backups, CLI coexistence and NAS security limits
 - [Querying](docs/querying.md) — Complete query language and syntax
 - [Browsing](docs/browsing.md) — Interactive navigation and exploration
 - [Commands](docs/commands.md) — Full command reference
@@ -411,6 +416,8 @@ Complete guides to Aède's features and architecture:
 ### Development & Engineering
 
 - [Current State](docs/coding/current-state.md) — Project status and active work
+- [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
+- [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 

@@ -32,7 +32,7 @@ impl Window {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Args {
     /// First positional value: the command.
     pub command: String,
@@ -48,6 +48,7 @@ pub struct Args {
 /// normally — `--limit 10 coltrane` limits to ten and searches for Coltrane.
 const VALUED_WORD: &[&str] = &[
     "data",
+    "port",
     "limit",
     "sort",
     "severity",

@@ -306,7 +306,14 @@ fn write_beside(path: &std::path::Path, text: &str) -> Result<(), String> {
         true => text.to_string(),
         false => format!("{text}\n"),
     };
-    std::fs::write(path, text).map_err(|why| format!("could not write {}: {why}", path.display()))
+    match aede_core::store::write_new_atomic(path, text.as_bytes()) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(format!(
+            "{} appeared while this was running and was left alone",
+            path.display()
+        )),
+        Err(why) => Err(format!("could not write {}: {why}", path.display())),
+    }
 }
 
 /// The tracks worth asking about, and what was left out.

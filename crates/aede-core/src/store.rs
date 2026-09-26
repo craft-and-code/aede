@@ -9,7 +9,9 @@
 //! saving cannot leave a half-written catalog behind.
 
 use std::collections::BTreeMap;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::analysis::FileAnalysis;
 use crate::audit;
@@ -133,12 +135,90 @@ pub fn assets_dir(data_dir: &Path) -> PathBuf {
     data_dir.join(ASSETS_DIR)
 }
 
-/// Saves the catalog atomically.
+/// Writes a new sidecar through a temporary file, never replacing an existing one.
+///
+/// An interrupted download may leave a hidden temporary file, but never a
+/// truncated image or lyric at its final path. Publication uses a hard link
+/// on the same filesystem and fails closed if the filesystem cannot provide
+/// it: an existence check followed by rename could replace another writer's file.
+pub fn write_new_atomic(path: &Path, bytes: &[u8]) -> io::Result<bool> {
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
+
+    if path.exists() {
+        return Ok(false);
+    }
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "sidecar has no file name"))?;
+    let mut temporary_name = std::ffi::OsString::from(".");
+    temporary_name.push(name);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    temporary_name.push(format!(
+        ".aede-tmp-{}-{nonce}-{}",
+        std::process::id(),
+        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    let temporary = parent.join(temporary_name);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    if let Err(error) = file.write_all(bytes) {
+        drop(file);
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    drop(file);
+    publish_new(&temporary, path)
+}
+
+fn publish_new(temporary: &Path, path: &Path) -> io::Result<bool> {
+    let published = std::fs::hard_link(temporary, path);
+    let cleanup = std::fs::remove_file(temporary);
+    match published {
+        Ok(()) => {
+            cleanup?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            cleanup?;
+            Ok(false)
+        }
+        Err(error) => Err(io::Error::new(
+            error.kind(),
+            format!(
+                "cannot safely publish a new sidecar (filesystem hard links required): {error}"
+            ),
+        )),
+    }
+}
+
+/// Saves the catalog atomically, after preserving its independent conclusions.
+///
+/// The caller must hold the data-directory writer lock for the whole
+/// read/modify/save operation. Legacy conclusions are migrated here, not by
+/// readers; the legacy catalog stays untouched if the migration fails.
 pub fn save(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
     let conclusions_path = conclusions::conclusions_path(path.parent().unwrap_or(Path::new(".")));
     let existing = conclusions::load(&conclusions_path)?;
     let had_store = existing.is_some();
     let mut gathered = existing.unwrap_or_default();
+    if !had_store {
+        // Keep conclusions for files absent from the new scan, too. An
+        // incompatible catalog remains rebuildable; other read errors must
+        // not hide data that this write would otherwise discard.
+        match load_catalog_only(path) {
+            Ok(Some(legacy)) => {
+                gathered.merge_legacy(&legacy);
+            }
+            Ok(None) | Err(StoreError::Version { .. }) => {}
+            Err(error) => return Err(error),
+        }
+    }
     gathered.update_from_catalog(catalog);
     if had_store || !gathered.files.is_empty() || !gathered.analyses.is_empty() {
         conclusions::save(&gathered, &conclusions_path)?;
@@ -157,25 +237,31 @@ pub fn save_catalog_only(catalog: &Catalog, path: &Path) -> Result<(), StoreErro
     Ok(())
 }
 
-/// Loads a catalog. Returns `Ok(None)` if the file does not exist yet.
+/// Loads a catalog without writing anything, including during legacy migration.
+/// Returns `Ok(None)` if the file does not exist yet.
 pub fn load(path: &Path) -> Result<Option<Catalog>, StoreError> {
-    if !path.exists() {
+    let Some(mut catalog) = load_catalog_only(path)? else {
         return Ok(None);
-    }
-    let text = std::fs::read_to_string(path)?;
-    let value = json::parse(&text).map_err(StoreError::Parse)?;
-    let mut catalog = from_json(&value)?;
+    };
     let conclusions_path = conclusions::conclusions_path(path.parent().unwrap_or(Path::new(".")));
     let existing = conclusions::load(&conclusions_path)?;
     let missing = existing.is_none();
     let mut gathered = existing.unwrap_or_default();
-    if missing && gathered.merge_legacy(&catalog) {
-        // Persist the expensive legacy data before a later save strips it from
-        // catalog.json. A failed migration leaves the old document untouched.
-        conclusions::save(&gathered, &conclusions_path)?;
+    if missing {
+        gathered.merge_legacy(&catalog);
     }
     gathered.attach(&mut catalog);
     Ok(Some(catalog))
+}
+
+fn load_catalog_only(path: &Path) -> Result<Option<Catalog>, StoreError> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let value = json::parse(&text).map_err(StoreError::Parse)?;
+    from_json(&value).map(Some)
 }
 
 // --------------------------------------------------------------------------

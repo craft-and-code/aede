@@ -21,6 +21,14 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede scan [folder…]",
             summary: "Read watched music folders into the local catalog.",
         },
+        "serve" => CommandPage {
+            usage: "aede serve [--port N]",
+            summary: "Serve the local HTTP/JSON/WebSocket catalog API and coordinate CLI writes.",
+        },
+        "cancel" => CommandPage {
+            usage: "aede cancel <task-id>",
+            summary: "Request cancellation of a delegated scan or fetch on the local server.",
+        },
         "roots" => CommandPage {
             usage: "aede roots [folder…]",
             summary: "List, add, remove, or exclude watched folders.",
@@ -264,6 +272,10 @@ pub fn print_index() {
 
 {}
   scan [folder…]       Scan the watched folders; any folder given is added to them
+  serve [--port N]     Serve the local API at 127.0.0.1:8787 by default;
+                       CLI writes delegate to it locally on Unix.
+                       Run aede help serve for setup and access limits
+  cancel <task-id>     Stop a delegated scan or fetch on the local server
   roots                List the watched folders and the ones never read
                        (--remove <folder> drops a watched folder;
                        --exclude <folder> keeps one out of the catalog for
@@ -501,7 +513,8 @@ pub fn print_index() {
 
 {}
   --data <folder>      Catalog location
-                       (default: $AEDE_HOME or ~/.local/share/aede)
+                       (default: $AEDE_HOME, then $XDG_DATA_HOME/aede,
+                       then ~/.local/share/aede; .aede if HOME is unset)
   --limit <n>          Number of rows displayed
   --offset <n>         Rows skipped first, to walk a result page by page
   --all                Every row, however many there are
@@ -650,6 +663,8 @@ pub fn print_index() {
 /// compact cross-section so it remains a map rather than a second manual.
 fn command_examples(command: &str) -> &'static [&'static str] {
     match command {
+        "serve" => &["aede scan ~/Music", "aede serve", "aede serve --port 0"],
+        "cancel" => &["aede cancel <task-id> --data /path/to/aede-data"],
         "artist" => &["aede artist \"Miles Davis\" --members"],
         "album" => &["aede album \"Kind of Blue\""],
         "track" => &["aede track \"So What\" --artist=\"Miles Davis\""],
@@ -760,10 +775,122 @@ fn print_fetch_help() {
         ui::cyan("FANART.TV EXCLUSIONS"),
         ui::cyan("EXAMPLES")
     );
+    print_delegation_help("fetch");
+    print_global_options();
 }
 
-/// Prints the compact, command-specific page used by every command except
-/// `fetch`, whose independent passes earn the richer page above.
+fn print_server_help() {
+    println!(
+        "
+{}
+  Run aede scan <folder> first: the server needs an existing catalog.
+  Use the same data directory for the server and CLI: --data <folder> or
+  AEDE_HOME. The server listens only on 127.0.0.1:8787 by default.
+  --port accepts 0..=65535; --port 0 chooses and prints a free local port.
+  GET /api/v1/status checks availability; /api/v1/events and /api/v1/activity
+  provide WebSocket catalog changes and task activity. GET /api/v1/albums,
+  /api/v1/album?name=<title>, /api/v1/artists, /api/v1/artist?name=<name>,
+  /api/v1/tracks, /api/v1/track?name=<title>, /api/v1/from?name=<artist>,
+  /api/v1/doctor and /api/v1/search?q=<text> return structured JSON.
+  URL-encode query values. See crates/aede-server/README.md for all routes,
+  parameters and examples; docs/api.md defines the compatibility contract.
+
+{}
+  The catalog API is read-only and has no user accounts or audio playback.
+  Other local users can read its metadata and paths. There is no supported
+  remote access: do not publish the port through a proxy, tunnel or router.
+  Catalog operation is supported on macOS and Linux; Windows catalog paths
+  and local command delegation are not supported yet.
+
+{}
+  AEDE_ADMIN_TOKEN enables POST /api/admin/v1/scan and POST /api/admin/v1/fetch.
+  Set a private secret of at least 32 ASCII characters before starting the
+  server; without it administrative routes do not exist.
+  Send Authorization: Bearer <token>, never the secret in a URL or browser
+  page. This token does not enable remote access or listener accounts.
+  A JSON body (even an empty object) starts a task and returns 202 + task_id.
+  GET /api/admin/v1/tasks/<id> reads its status and bounded command output;
+  POST /api/admin/v1/tasks/<id>/cancel requests cancellation with no body.
+  These routes require the same token. Tasks survive client disconnection,
+  but their status is not kept across server restarts. Fetch uses the server's
+  credentials and contacts only the explicitly selected/default CLI services.
+  For compatibility, scan with no body remains synchronous (200 or an error)
+  and rescans existing watched roots; it has no HTTP cancellation handle.
+  A normal local CLI scan needs no administrative token.
+
+{}
+  On Unix, write-capable CLI commands from the same account and data directory
+  run under the server. Run aede help scan or aede help fetch for cancellation.
+  Keep .aede.lock in place: every writer uses it to coordinate saved data.
+  Ctrl-C or SIGTERM stops new work and waits for accepted commands to finish;
+  a long fetch can delay shutdown. See docs/operating.md for permissions,
+  backups, recovery and NAS deployment limits.",
+        ui::cyan("STARTUP"),
+        ui::cyan("ACCESS"),
+        ui::cyan("OPTIONAL HTTP ADMINISTRATION"),
+        ui::cyan("CLI COEXISTENCE & SHUTDOWN")
+    );
+}
+
+fn print_cancel_help() {
+    println!(
+        "
+{}
+  Delegated scan and fetch commands print a task ID when they start.
+  Use the same account and the same data directory as that command:
+  --data <folder> or AEDE_HOME. IDs expire when the server restarts.
+  Closing the CLI or pressing Ctrl-C does not cancel the server task.
+
+  Cancellation requests a stop and returns immediately. Once stopped, the
+  original CLI exits with code 130; answers already saved are kept.
+  Only a running delegated scan or fetch can be cancelled: completed tasks,
+  administrative HTTP tasks and other commands are refused. JSON-submitted
+  HTTP scan/fetch tasks use POST /api/admin/v1/tasks/<id>/cancel instead.
+  This command requires a running local Unix server; with no server it refuses.
+  Local cancellation is unavailable on Windows. See aede help serve.",
+        ui::cyan("TASKS & CANCELLATION")
+    );
+}
+
+fn print_delegation_help(command: &str) {
+    println!(
+        "
+{}
+  On Unix, a running server for the same account and same data directory
+  executes this command. Use the same --data <folder> or AEDE_HOME.
+  Closing this CLI or pressing Ctrl-C does not cancel the server task.
+  With no server, the command runs locally and Ctrl-C stops the local process.",
+        ui::cyan("WITH A LOCAL SERVER")
+    );
+    if matches!(command, "scan" | "fetch") {
+        println!(
+            "  The delegated command prints its task ID. To stop it explicitly, run
+  aede cancel <task-id> with the same data directory. Saved work is kept.
+  Run aede help cancel for limits, and aede help serve for server setup."
+        );
+    } else {
+        println!(
+            "  This command has no explicit server cancellation yet; only delegated
+  scan and fetch support aede cancel. See aede help serve."
+        );
+    }
+}
+
+fn print_global_options() {
+    println!(
+        "
+{}
+  --data <folder>      Catalog location for this command
+                       Default: $AEDE_HOME, then $XDG_DATA_HOME/aede,
+                       then ~/.local/share/aede; .aede if HOME is unset
+  --no-color           Turn colours off
+  -h, --help           Show this page
+  -v, -V, --version    Show the version",
+        ui::cyan("GLOBAL OPTIONS")
+    );
+}
+
+/// Prints one command's options, operating context and examples.
 pub fn print_command(command: &str) {
     if command == "fetch" {
         print_fetch_help();
@@ -780,6 +907,12 @@ pub fn print_command(command: &str) {
     println!("\n{}\n  {}", ui::cyan("DESCRIPTION"), page.summary);
     if let Some(alias) = alias {
         println!("\n  Also available as: aede {alias}");
+    }
+    match command {
+        "serve" => print_server_help(),
+        "cancel" => print_cancel_help(),
+        _ if crate::mutates_store(command) => print_delegation_help(command),
+        _ => {}
     }
 
     let options = OPTION_SCOPE
@@ -799,8 +932,5 @@ pub fn print_command(command: &str) {
             println!("  {example}");
         }
     }
-    println!(
-        "\n{}\n  --data <folder>      Catalog location\n  --no-color           Turn colours off\n  -h, --help           Show this page\n  -v, -V, --version   Show the version",
-        ui::cyan("GLOBAL OPTIONS")
-    );
+    print_global_options();
 }

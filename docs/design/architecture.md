@@ -24,6 +24,17 @@ crates/
     src/json.rs       minimal JSON reader and writer
     src/clock.rs      the one unit of time the catalog stores
     schema.sql        a relational mirror of the model, kept as documentation
+  aede-server/      local HTTP/JSON/WebSocket API over aede-core
+    src/lib.rs        module wiring and public entry points
+    src/routing.rs    route registration
+    src/runtime.rs    lifecycle and snapshot reloads
+    src/catalog.rs    original catalog contract
+    src/catalog_commands.rs  CLI-shaped album/entity navigation
+    src/inspection.rs diagnostics, search, query and statistics
+    src/jobs.rs       typed, authenticated HTTP scan/fetch tasks
+    src/events.rs     notification streams
+    src/security.rs   loopback Host/Origin and bearer checks
+    src/delegation.rs private Unix CLI command channel
   aede-cli/         the `aede` binary
     src/commands/     one module per group of commands
 tools/              development scripts
@@ -101,7 +112,7 @@ Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON, Y
 
 The catalog is one JSON file, loaded whole into memory by every command and rewritten whole by every scan. The roadmap put "move to SQLite" inside M1. Measurement moved it back out, and the figures are worth keeping because they say something other than what was expected.
 
-A synthetic library — twelve tracks an album, ten albums an artist, the thirteen tags a well-tagged file carries — built through the real `builder` and saved through the real `store`. Each figure comes from a **fresh process**, because a first attempt that built and loaded in one run held two catalogs at once and overstated the memory by a third:
+A historical synthetic library — twelve tracks an album, ten albums an artist, the thirteen tags a well-tagged file carries — built through the real `builder` and saved through the real `store`. Each figure came from a **fresh process**, because a first attempt that built and loaded in one run held two catalogs at once and overstated the memory by a third. These are pre-M2 measurements; the current, reproducible baseline is in [M2 storage benchmark](../coding/m2-storage-benchmark.md):
 
 | tracks  | catalog.json | scan: save | peak while scanning | load    | peak while loading |
 | ------- | ------------ | ---------- | ------------------- | ------- | ------------------ |
@@ -115,20 +126,20 @@ About 1.25 kB on disk per track — linear, no surprise. Two things in there are
 
 **The memory is the real ceiling.** Roughly 18 kB of resident memory per track, about fourteen times the file it came from — the whole graph, plus the complete JSON tree the parser materialises before converting it. At 200 000 tracks, `aede stats` wants three and a half gigabytes and thirteen seconds before it can print a single line.
 
-So: **can this project do without SQLite?** For as long as "load the whole graph into memory" is an acceptable design — and the measurements say that holds comfortably to about 50 000 tracks, becomes uncomfortable somewhere past 100 000, and is untenable at 200 000. Which is an _architecture_ question, not a storage one, and it is worth being precise about what changes it:
+So: **can this project do without SQLite?** For as long as "load the whole graph into memory" is acceptable on the target hardware. The historical 50,000–200,000-track thresholds are not deployment guarantees: the M2 baseline confirms substantial growth but needs a real-library check and a target NAS memory budget. This is an _architecture_ question, not simply a storage-format question, and it is worth being precise about what changes it:
 
 - A **faster parser** and a parse that does not build the whole JSON tree first would take most of the thirteen seconds and a good part of the memory. It changes nothing about the ceiling itself.
 - **SQLite** is the only thing that removes the ceiling, because it is the only one that stops requiring the whole graph to be resident.
 
 The cheap lever comes first, and the roadmap already earmarks the moment: M2 brings `serde` in for the HTTP contract, and the `json` module was written to make that move mechanical.
 
-There is also a second trigger that has nothing to do with size. `store::save` writes to a temporary file and renames, so a reader never sees a torn catalog — but two **writers** still clobber each other, and M2 puts a long-running server beside a CLI the user keeps using. That is a design decision to take at M2 (most simply: while the server runs, it owns the catalog and the CLI talks to it), and it does not by itself require a database either.
+There is also a second trigger that has nothing to do with size. `store::save` writes to a temporary file and renames, so a reader never sees a torn catalog — but two **writers** can still clobber each other. On Unix, M2 delegates store-changing CLI commands to a running server through a private local socket. The server owns their lifecycle, including long `fetch` runs after the CLI disconnects; a local `aede cancel <task-id>` can stop a delegated scan or fetch. The command executes in a subprocess to preserve the existing CLI parser, terminal output and save-after-each-answer behavior; its exclusive data-folder lock remains the protection against a simultaneous local writer. Without a server, and on Windows, commands keep the same lock and run locally. Synchronous administrative scans return a conflict instead of queuing behind that lock. JSON-submitted administrative scan/fetch jobs reuse typed CLI callbacks and queue behind it, with authenticated HTTP status and cancellation; their bounded task records are not persisted across restart. This does not require a database, but old executables and manual JSON edits do not participate in the lock; finer-grained concurrent writes remain a future design decision. The socket does not provide remote access: a NAS-to-phone connection needs authenticated users, TLS and audio delivery separately. Windows catalog paths are not yet supported, independently of whether the HTTP transport compiles.
 
 Two facts settle the shape of it when the time comes. `rusqlite` is not Rust: it compiles SQLite's C amalgamation with `cc`, and on musl the `bundled` feature is not optional — without it the crate links against a host SQLite and the static binary segfaults on startup. And there is no pure-Rust replacement worth the risk: the SQLite rewrite (Turso, formerly `limbo`) is at 0.7, labelled BETA by its own README, still missing `WITH RECURSIVE`, most window functions and custom collations — and its maintainers advise caution for anything mission-critical. The C-compiler objection, which is what made this look expensive a milestone ago, has meanwhile evaporated on its own: `rustls` already brings one.
 
 ## Dependencies
 
-Two: `lofty`, for the tag formats whose parsers are not worth writing twice, and `ureq`, behind a feature. Everything else — the binary parsers, the JSON store, the query grammar, the table layout — is written here, and `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
+`aede-core` uses `lofty` for tag formats whose parsers are not worth writing twice and `ureq` behind its `fetch` feature. `aede-server` owns the HTTP/JSON/WebSocket dependencies (`axum`, `tokio`, `serde`, and `serde_json`); `aede-cli` calls it to serve the catalog. The DSP is planned as a separate crate when its implementation begins. `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
 
 Where a program can do the job instead of a crate, the program wins: **ffmpeg is driven as an external process** (`core/ffmpeg.rs`, `find()` and `missing(what)`), never linked. Two commands use it, both say so when it is absent, and the other twenty-three do not care.
 

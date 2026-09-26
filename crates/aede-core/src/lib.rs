@@ -42,5 +42,6 @@ pub mod sources;
 pub mod spectrum;
 pub mod stats;
 pub mod store;
+pub mod store_lock;
 pub mod user;
 pub mod wikipedia;

@@ -6,6 +6,8 @@ Three groups, and an option that a command cannot honour is **refused**, never i
 
 The main `aede help` page is an index: it groups library, fetch, artwork, filtering, copy, and import options without turning the terminal into a manual. Every command has its own page through `aede help <command>` or `aede <command> --help`; aliases work there too. `aede help fetch` adds its metadata, lyrics, artwork, Fanart.tv, and exclusion details.
 
+`aede help serve` explains setup, the local access boundary and optional HTTP administration. `aede serve` exposes the local HTTP/JSON/WebSocket catalog API. On Unix, store-changing CLI commands automatically delegate to that server when it is running for the same account and data directory. The command continues if its CLI disconnects, including through Ctrl-C; `aede cancel <task-id>` explicitly stops a delegated scan or fetch. Other delegated commands have no explicit cancellation yet. With no server, commands run locally as before. Use the same `--data <folder>` or `AEDE_HOME` for every command, including `cancel`. See [Operating the local server](operating.md) for startup, backup and security guidance, and the [API contract](api.md) for client behavior.
+
 `export` describes the whole library and takes no argument. Its ordinary JSON
 is the derived **catalog**; `--csv` gives one row per album and `--tracks` one
 row per track. `--graph` instead keeps the catalog, source evidence, review

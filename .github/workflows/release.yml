@@ -94,7 +94,7 @@ jobs:
       # download it, and the failure is theirs to discover. The tests run before
       # the archive is made rather than in a separate workflow nobody waits for.
       - name: Tests
-        run: cargo test --target ${{ matrix.target }}
+        run: cargo test --locked --target ${{ matrix.target }}
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}

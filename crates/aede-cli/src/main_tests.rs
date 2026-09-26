@@ -8,6 +8,43 @@
 use super::*;
 
 #[test]
+fn every_store_writer_and_the_backup_hold_the_data_lock() {
+    for command in [
+        "scan",
+        "analyze",
+        "roots",
+        "check",
+        "backup",
+        "reset",
+        "restore",
+        "import",
+        "sources",
+        "review",
+        "rules",
+        "relation",
+        "fetch",
+        "missing",
+        "merge",
+        "fingerprint",
+        "collection",
+        "love",
+        "rate",
+        "note",
+        "tag",
+        "played",
+        "history",
+    ] {
+        assert!(mutates_store(command), "{command} needs the store lock");
+    }
+    for command in ["serve", "stats", "doctor", "artists", "help"] {
+        assert!(
+            !mutates_store(command),
+            "{command} should not write the store"
+        );
+    }
+}
+
+#[test]
 fn every_command_has_a_dedicated_help_page() {
     for (command, _, _) in COMMANDS {
         let page = help::command_page(command);

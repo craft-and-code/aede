@@ -68,6 +68,146 @@ fn full_round_trip() {
 }
 
 #[test]
+fn sidecar_write_is_new_only_and_publishes_complete_content() {
+    let folder = std::env::temp_dir().join(format!(
+        "aede_atomic_sidecar_{}_{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    std::fs::create_dir_all(&folder).expect("sidecar test folder");
+    let path = folder.join("cover.jpg");
+    assert!(write_new_atomic(&path, b"complete image").expect("write sidecar"));
+    assert_eq!(std::fs::read(&path).expect("sidecar"), b"complete image");
+    assert!(!write_new_atomic(&path, b"replacement").expect("preserve sidecar"));
+    assert_eq!(std::fs::read(&path).expect("sidecar"), b"complete image");
+    std::fs::remove_file(path).expect("remove sidecar");
+    std::fs::remove_dir(folder).expect("remove sidecar folder");
+}
+
+#[cfg(unix)]
+#[test]
+fn sidecar_write_preserves_a_dangling_destination_symlink() {
+    let sandbox = StoreSandbox::new();
+    let path = sandbox.0.join("cover.jpg");
+    std::os::unix::fs::symlink("missing.jpg", &path).unwrap();
+    assert!(!write_new_atomic(&path, b"replacement").unwrap());
+    assert_eq!(std::fs::read_link(&path).unwrap(), Path::new("missing.jpg"));
+    assert_eq!(std::fs::read_dir(&sandbox.0).unwrap().count(), 1);
+}
+
+struct StoreSandbox(PathBuf);
+
+impl StoreSandbox {
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "aede_store_safety_{}_{nonce}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for StoreSandbox {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+fn legacy_catalog_with_conclusions() -> Json {
+    let mut legacy = to_json(&example_catalog());
+    let mut file = legacy.get("file").unwrap().as_arr().unwrap()[0].clone();
+    let mut verdict = Json::obj();
+    verdict.set("state", "intact".into());
+    verdict.set("method", "flac-frame-crc".into());
+    verdict.set("checked_at", 1_700_000_500u64.into());
+    file.set("integrity", verdict);
+    legacy.set("file", Json::Arr(vec![file]));
+    legacy
+}
+
+#[test]
+fn concurrent_legacy_reads_do_not_write_or_wait_for_the_writer_lock() {
+    let sandbox = StoreSandbox::new();
+    let path = catalog_path(&sandbox.0);
+    let original = legacy_catalog_with_conclusions().to_string_compact();
+    std::fs::write(&path, &original).unwrap();
+    let _writer = crate::store_lock::StoreLock::acquire(&sandbox.0).unwrap();
+    std::thread::scope(|scope| {
+        let readers: Vec<_> = (0..4)
+            .map(|_| scope.spawn(|| load(&path).unwrap().unwrap()))
+            .collect();
+        for reader in readers {
+            assert!(reader.join().unwrap().files[0].integrity.is_some());
+        }
+    });
+    assert!(!conclusions::conclusions_path(&sandbox.0).exists());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+}
+
+#[test]
+fn a_new_sidecar_cannot_replace_a_file_created_before_publication() {
+    let sandbox = StoreSandbox::new();
+    let path = sandbox.0.join("cover.jpg");
+    let temporary = sandbox.0.join(".complete-download");
+    std::fs::write(&temporary, b"downloaded image").unwrap();
+    // A separate creator wins after the download, before publication.
+    std::fs::write(&path, b"user image").unwrap();
+    assert!(!publish_new(&temporary, &path).unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"user image");
+    assert!(!temporary.exists());
+}
+
+#[test]
+fn competing_sidecar_writers_publish_exactly_one_complete_file() {
+    let sandbox = StoreSandbox::new();
+    let path = sandbox.0.join("cover.jpg");
+    let barrier = std::sync::Barrier::new(8);
+    std::thread::scope(|scope| {
+        let writers: Vec<_> = (0..8)
+            .map(|id| {
+                let path = &path;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    write_new_atomic(path, &[id; 4096]).unwrap()
+                })
+            })
+            .collect();
+        let published = writers
+            .into_iter()
+            .map(|writer| writer.join().unwrap())
+            .filter(|published| *published)
+            .count();
+        assert_eq!(published, 1);
+    });
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(bytes.len(), 4096);
+    assert!(bytes.iter().all(|byte| *byte == bytes[0]));
+    assert_eq!(std::fs::read_dir(&sandbox.0).unwrap().count(), 1);
+}
+
+#[test]
+fn first_save_preserves_legacy_conclusions_for_files_absent_from_the_new_scan() {
+    let sandbox = StoreSandbox::new();
+    let path = catalog_path(&sandbox.0);
+    std::fs::write(&path, legacy_catalog_with_conclusions().to_string_compact()).unwrap();
+    let _writer = crate::store_lock::StoreLock::acquire(&sandbox.0).unwrap();
+    save(&Catalog::default(), &path).unwrap();
+    let gathered = conclusions::load(&conclusions::conclusions_path(&sandbox.0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(gathered.files.len(), 1);
+    assert!(gathered.files.values().next().unwrap().integrity.is_some());
+}
+
+#[test]
 fn rich_local_credit_details_survive_the_round_trip() {
     let mut original = example_catalog();
     let credit = original.credits.first_mut().expect("one local credit");
@@ -195,12 +335,13 @@ fn legacy_conclusions_are_migrated_before_catalog_is_rewritten() {
     let migrated = load(&path).unwrap().unwrap();
     let conclusions_path = crate::conclusions::conclusions_path(&dir);
     assert!(
-        conclusions_path.exists(),
-        "expensive data is durable before rewrite"
+        !conclusions_path.exists(),
+        "reading must not migrate on disk"
     );
     assert!(migrated.files[0].integrity.is_some());
     assert_eq!(migrated.analyses.len(), 1);
     save(&migrated, &path).unwrap();
+    assert!(conclusions_path.exists(), "expensive data survives rewrite");
     let compact = std::fs::read_to_string(&path).unwrap();
     assert!(!compact.contains("integrity"));
     assert!(!compact.contains("\"analysis\""));
@@ -209,6 +350,45 @@ fn legacy_conclusions_are_migrated_before_catalog_is_rewritten() {
     assert_eq!(reloaded.analyses.len(), 1);
     let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_file(conclusions_path);
+}
+
+#[test]
+fn an_unreadable_conclusions_store_does_not_rewrite_a_legacy_catalog() {
+    let mut legacy = to_json(&example_catalog());
+    let mut file = legacy.get("file").unwrap().as_arr().unwrap()[0].clone();
+    let mut verdict = Json::obj();
+    verdict.set("state", "intact".into());
+    verdict.set("method", "flac-frame-crc".into());
+    file.set("integrity", verdict);
+    legacy.set("file", Json::Arr(vec![file]));
+    let original = legacy.to_string_compact();
+
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "aede_failed_legacy_migration_{}_{}",
+        std::process::id(),
+        nonce
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = catalog_path(&dir);
+    let conclusions_path = crate::conclusions::conclusions_path(&dir);
+    std::fs::write(&path, &original).unwrap();
+    std::fs::write(&conclusions_path, "not-json").unwrap();
+
+    assert!(load(&path).is_err());
+    assert!(save(&example_catalog(), &path).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(
+        std::fs::read_to_string(&conclusions_path).unwrap(),
+        "not-json"
+    );
+
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_file(conclusions_path).unwrap();
+    std::fs::remove_dir(dir).unwrap();
 }
 
 #[test]

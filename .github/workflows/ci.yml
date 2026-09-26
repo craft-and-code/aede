@@ -40,7 +40,7 @@ jobs:
       # are fetched once here, and a step that then needs the network means one
       # was added without being discussed.
       - name: Fetch dependencies
-        run: cargo fetch
+        run: cargo fetch --locked
 
       - name: Everything that must pass before a commit
         if: runner.os != 'Windows'
@@ -51,4 +51,4 @@ jobs:
       # system where a separator is a backslash.
       - name: Tests (Windows)
         if: runner.os == 'Windows'
-        run: cargo test
+        run: cargo test --locked

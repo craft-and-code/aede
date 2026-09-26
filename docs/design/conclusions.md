@@ -73,6 +73,13 @@ program already argues for: **what the disk says** (`catalog.json`), **what
 Aède worked out about the bytes** (`conclusions.json`), **what you say**
 (`user.json`), **what other sources say** (`sources.json`).
 
+Reading a legacy catalog attaches its embedded conclusions in memory without
+writing a file. The next catalog save, under the shared data-directory writer
+lock, persists them before replacing the catalog. This also preserves results
+for files absent from the new scan. Full scans, backups and graph exports carry
+legacy conclusions without depending on a read-side migration. An unreadable
+independent conclusions store is an error, not permission to overwrite it.
+
 ## What it does not solve
 
 `roots` and `excluded` stay in the catalog, and no scan invents them. A

@@ -14,7 +14,7 @@ Do not turn this file into a development diary.
 
 **Previous milestone:** M0.6 — Catalog and local library
 
-**Status:** M1 done. M2 persistence separation is implemented; SQLite remains deferred. M0.5 is also done (query grammar covers relations, and
+**Status:** M1 done. M2 persistence separation and the local HTTP/JSON/WebSocket API in `aede-server` are implemented: the frozen `/api/v1/events` stream remains catalog-only, while `/api/v1/activity` reports task activity. CLI-shaped read routes and opt-in JSON scan/fetch jobs now have a complete [route README](../../crates/aede-server/README.md); HTTP jobs support authenticated polling/cancellation, keep bounded in-memory results and survive client disconnection. The original bodyless scan remains synchronous. On Unix, store-changing CLI commands automatically delegate to a running server over a private local socket; all Aède writers still share a data-folder lock. Delegated scans and fetches can be stopped explicitly with `aede cancel <task-id>`; delegated `fetch` emits task start and terminal events, but not detailed WebSocket progress yet. The API contract, migration safety and operating guidance are covered by tests and [operating documentation](../operating.md). M2's [synthetic storage baseline](m2-storage-benchmark.md) is recorded; SQLite remains deferred pending target NAS budgets and validation on real large libraries. Account management, remote access and mobile playback are planned after M2 step 9. Windows catalog paths remain unsupported. M0.5 is also done (query grammar covers relations, and
 the command options are shorthand for it). A representative manual verification
 pass was completed before M2; optional untested services are recorded in
 `docs/coding/m1-manual-verification.md`.
@@ -38,6 +38,7 @@ The current implementation includes:
 - imported analyses;
 - direct album analysis through FlacCompagnon's Rust library;
 - backup and restore;
+- a local read-only catalog API with CLI-shaped album/entity navigation, attributed artist origins, diagnostics, statistics and public search/query, plus opt-in asynchronous scan/fetch jobs with polling/cancellation and WebSocket task activity (see the [complete route reference](../../crates/aede-server/README.md));
 - audio fingerprinting;
 - MusicBrainz fetching;
 - MusicBrainz discography information;
@@ -55,6 +56,14 @@ The current implementation includes:
   is a folder, anything else is a name, and the two narrow a run independently.
 
 Audio playback is intentionally not implemented yet.
+
+The [M2 server security review](m2-server-review.md) now has a corrective pass:
+local Host/Origin validation, bounded WebSocket/IPC clients, graceful command
+connection shutdown, coordinated scan publication, read-only legacy loads and
+non-replacing sidecar publication. CLI operating help is expanded. The patched
+TLS dependency is preserved in the versioned lockfile. These protections do not
+provide accounts or authorize remote exposure; HTTP query-cost limits and the
+account/session model remain future requirements. New navigation and inspection run on a shared bounded worker pool; the original list routes still need comprehensive remote-access cost budgets. Server code is separated into routing, runtime/state, catalog/navigation, inspection, security, events and job/delegation modules.
 
 ---
 

@@ -1,0 +1,30 @@
+name: Dependency security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  registry-advisories:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.89
+      - name: Test the audit client without network access
+        run: python3 -B -m unittest discover -s tools -p audit_dependencies_tests.py
+      - name: Fetch the reviewed dependency versions
+        run: cargo fetch --locked
+      # This explicit network check stays separate from offline tools/check.sh.
+      # Only crates.io package names/versions are sent; Git coverage is reported.
+      - name: Check locked registry dependencies against OSV
+        run: python3 -B tools/audit-dependencies.py

@@ -162,7 +162,7 @@ above is already the answer:
 |                                                                      | Belongs to  | Same for everyone?                  |
 | -------------------------------------------------------------------- | ----------- | ----------------------------------- |
 | Files, tracks, releases, artists, credits, relations, genres, labels | the catalog | yes                                 |
-| Integrity verdicts, imported analyses                                | the catalog | yes — a measurement, not an opinion |
+| Integrity verdicts, imported analyses                                | conclusions | yes — a measurement, not an opinion |
 | Favourites, ratings, notes, tags                                     | a person    | no                                  |
 | Play history and counts, queues, saved queries                       | a person    | no                                  |
 
@@ -177,46 +177,46 @@ two, by which time every read in the program assumes the single answer. As of
 M0 that boundary is intact: every table in the catalog is a fact. It stayed that
 way by luck rather than by intent, which is exactly why it is written down now.
 
-**And the shape that means the migration never happens:** a per-user record
-carries an **owner from the first version in which it exists**, and every read
-filters by it, even when the only owner is the local one. The single-user case
-is then the multi-user case with one user — one code path, exercised on every
-run, instead of a second one written blind two years later. It is the same move
-as `Window` for paging and the stable `EntityRef` for annotations: decide the
-general shape once, then let the simple case be an instance of it.
+**The data shape prepares for several users:** a per-user record carries an
+**owner from the first version in which it exists**. Account-aware reads and
+writes must filter by that owner, including on a single-user installation.
+Keeping that field now avoids having to invent ownership while migrating
+existing personal data later. It is the same approach as `Window` for paging
+and the stable `EntityRef` for annotations: define the general shape early.
 
 That is the whole of what M0 owes the subject, and it costs one field.
-Authentication is M2's problem — and Subsonic's legacy scheme in particular must
-stay inside the compatibility layer rather than reaching the model.
-Authorization is M2's too; the working assumption, there to be argued against
-rather than from, is that the **library is shared and only the annotations are
-private**: scanning, importing and resetting belong to whoever owns the
-installation, not to a listener. The catalog itself has no owner, and that is a
-decision rather than an oversight.
+The current commands use the local owner; an `owner` field is not authentication
+or an enforced account boundary. Account management and remote authorization
+are planned after M2 step 9. Subsonic's legacy authentication scheme, if supported,
+must stay inside the compatibility layer rather than reaching the model.
+The working assumption for authorization is that the **library is shared and
+only the annotations are private**: scanning, importing and resetting belong to
+whoever owns the installation, not to a listener. The catalog itself has no
+owner. Each future account-facing read and write must enforce the authenticated
+owner before private data can be exposed.
 
-## Which is also what makes the move to SQLite cheap
+## Storage choices remain independent of accounts
 
-M2 replaces JSON with SQLite **as the store**. That is not the end of JSON here:
-`aede export` and `aede rules --export` are portable interchange formats, a
-different job, and they stay.
+M2 currently retains versioned JSON stores: `catalog.json` for the graph,
+`conclusions.json` for integrity verdicts, fingerprints and imported analyses,
+`user.json` for personal data, and `sources.json` for attributed external data.
+Current Aède writers use a shared data-directory lock to coordinate updates.
+SQLite is deferred pending the measurements and deployment budgets described
+in the [storage benchmark](../coding/m2-storage-benchmark.md).
 
-The migration is smaller than it looks, because **most of the catalog does not
-need migrating at all.** Everything in it was read from disk and a scan rebuilds
-it in a minute; rescanning is a perfectly good migration path for anything
-reproducible.
+Accounts do not inherently require SQLite. Their storage, sessions and frequent
+history updates may justify a database independently of the catalog's size;
+that decision belongs to the account design. No selectable SQLite backend is
+implemented yet. Whatever store is chosen, authentication and owner-scoped
+authorization remain explicit responsibilities of the server.
 
-What is not reproducible has to be carried across, and `aede reset` already
-names the list, since it is the same one — what a rescan does _not_ bring back:
-
-- the **integrity verdicts**, which can cost an hour of reading;
-- the **imported analyses**, which cost a run of another program entirely;
-- and, once they exist, the **annotations**.
-
-All three live inside files M2 replaces. So M2 either reads the last JSON stores
-once to carry them over, or — better — the annotations are already in a file of
-their own by then, which is what the section above argues for on grounds that
-have nothing to do with SQLite. Doing M0.5 first shrinks the M2
-migration to two tables and makes it a non-event.
+Any future migration must preserve personal annotations, play history, saved
+queries and decisions, external claims with their provenance, and the conclusions
+that would otherwise require expensive computation. A scan can rebuild local
+file metadata, but cannot replace those stores. Migration needs a versioned
+format, backups and tests that verify all preserved data; it must not silently
+discard them. `aede export` and `aede rules --export` remain portable interchange
+formats independent of the active storage implementation.
 
 Worth noting while on the subject of where things live: `--data <folder>`
 chooses the location for one command, and `AEDE_HOME` chooses it for good. The

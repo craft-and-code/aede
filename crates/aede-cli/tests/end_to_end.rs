@@ -104,6 +104,191 @@ impl Drop for Sandbox {
     }
 }
 
+#[cfg(unix)]
+struct ServerGuard(std::process::Child);
+
+#[cfg(unix)]
+impl Drop for ServerGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[cfg(unix)]
+fn start_server(sandbox: &Sandbox) -> ServerGuard {
+    let mut server = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["serve", "--port=0"])
+        .env("AEDE_HOME", &sandbox.dir)
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start server");
+    let mut ready = String::new();
+    std::io::BufRead::read_line(
+        &mut std::io::BufReader::new(server.stdout.take().unwrap()),
+        &mut ready,
+    )
+    .expect("server readiness line");
+    if !ready.contains("Aède API:") {
+        let output = server.wait_with_output().expect("server exit output");
+        panic!(
+            "server did not start: {ready}; {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    ServerGuard(server)
+}
+
+#[test]
+fn a_second_cli_writer_waits_for_the_first_writer() {
+    let sandbox = Sandbox::new("writer_coordination");
+    let (out, err, ok) = sandbox.run(&["scan", library().to_str().expect("fixture path")]);
+    assert!(ok, "initial scan failed: {err}\n{out}");
+    let catalog = sandbox.dir.join("catalog.json");
+    let held = aede_core::store_lock::StoreLock::acquire(&sandbox.dir).expect("first writer lock");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["reset", "--yes"])
+        .env("AEDE_HOME", &sandbox.dir)
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("second writer");
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    assert!(child.try_wait().expect("writer status").is_none());
+    assert!(catalog.exists(), "the catalog is untouched while locked");
+    drop(held);
+    let result = child.wait_with_output().expect("second writer output");
+    assert!(
+        result.status.success(),
+        "second writer failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!catalog.exists(), "the writer proceeds after lock release");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_delegated_writer_finishes_after_its_cli_disconnects() {
+    use std::time::{Duration, Instant};
+
+    let sandbox = Sandbox::new("delegated_writer_survives_client");
+    let (out, err, ok) = sandbox.run(&["scan", library().to_str().expect("fixture path")]);
+    assert!(ok, "initial scan failed: {err}\n{out}");
+    let catalog = sandbox.dir.join("catalog.json");
+    let server = start_server(&sandbox);
+
+    let (out, err, ok) = sandbox.run(&["scan"]);
+    assert!(ok, "delegated scan failed: {err}\n{out}");
+    assert!(
+        out.contains("Scan complete"),
+        "delegated output was lost: {out}"
+    );
+    let (out, err, ok) = sandbox.run(&["fetch", "--dry-run"]);
+    assert!(ok, "delegated dry-run fetch failed: {err}\n{out}");
+
+    let held = aede_core::store_lock::StoreLock::acquire(&sandbox.dir).expect("hold store lock");
+    let mut client = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["reset", "--yes"])
+        .env("AEDE_HOME", &sandbox.dir)
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("delegated reset client");
+    std::thread::sleep(Duration::from_millis(250));
+    assert!(
+        client.try_wait().unwrap().is_none(),
+        "writer should be waiting for the lock"
+    );
+    client.kill().expect("disconnect client");
+    client.wait().expect("reap client");
+    drop(held);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while catalog.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        !catalog.exists(),
+        "server should finish the delegated write"
+    );
+    drop(server);
+}
+
+#[test]
+fn cancel_without_a_server_refuses_without_changing_cli_data() {
+    let sandbox = Sandbox::new("cancel_without_server");
+    let (out, err, ok) = sandbox.run(&["cancel", "1"]);
+    assert!(!ok, "cancellation unexpectedly succeeded: {out}");
+    assert!(err.contains("no Aède server") || err.contains("not available on this platform"));
+    assert!(!sandbox.dir.join("catalog.json").exists());
+    for args in [
+        vec!["cancel"],
+        vec!["cancel", "0"],
+        vec!["cancel", "many"],
+        vec!["cancel", "1", "2"],
+    ] {
+        let (_, _, ok) = sandbox.run(&args);
+        assert!(
+            !ok,
+            "invalid cancellation arguments were accepted: {args:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cancel_stops_a_delegated_scan_before_it_writes() {
+    use std::time::Duration;
+
+    let sandbox = Sandbox::new("cancel_delegated_scan");
+    let (out, err, ok) = sandbox.run(&["scan", library().to_str().expect("fixture path")]);
+    assert!(ok, "initial scan failed: {err}\n{out}");
+    let catalog = sandbox.dir.join("catalog.json");
+    let before = std::fs::read(&catalog).expect("original catalog");
+    let server = start_server(&sandbox);
+    let held = aede_core::store_lock::StoreLock::acquire(&sandbox.dir).expect("hold store lock");
+    let mut client = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["scan"])
+        .env("AEDE_HOME", &sandbox.dir)
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("delegated scan client");
+    let mut line = String::new();
+    std::io::BufRead::read_line(
+        &mut std::io::BufReader::new(client.stderr.take().unwrap()),
+        &mut line,
+    )
+    .expect("task identifier");
+    let task_id = line
+        .strip_prefix("Server task ")
+        .and_then(|tail| tail.split_whitespace().next())
+        .expect("server task ID")
+        .to_string();
+    let (out, err, ok) = sandbox.run(&["cancel", &task_id]);
+    assert!(ok, "cancellation failed: {err}\n{out}");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while client.try_wait().unwrap().is_none() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        client.try_wait().unwrap().is_some(),
+        "cancellation timed out"
+    );
+    let result = client.wait().expect("cancelled client exit");
+    assert_eq!(result.code(), Some(130));
+    assert_eq!(std::fs::read(&catalog).unwrap(), before);
+    let (_, err, ok) = sandbox.run(&["cancel", &task_id]);
+    assert!(!ok, "finished task should not remain cancellable");
+    assert!(err.contains("not a running cancellable"));
+    drop(held);
+    drop(server);
+}
+
 #[test]
 fn scan_then_query() {
     let sandbox = Sandbox::new("full");

@@ -14,7 +14,7 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn scan(args: &Args) -> Res {
-    run_scan(args, Watched::AndWhateverWasNamed)
+    run_scan(args, Watched::AndWhateverWasNamed, &mut |_| {})
 }
 
 /// Rescans the watched folders on the user's behalf, after a command changed
@@ -26,7 +26,12 @@ pub fn scan(args: &Args) -> Res {
 /// `~/Music` as its positional, and feeding that to the scan would add back the
 /// folder that was just dropped.
 pub fn rescan(args: &Args) -> Res {
-    run_scan(args, Watched::Only)
+    run_scan(args, Watched::Only, &mut |_| {})
+}
+
+/// Runs the watched-root scan and forwards its real traversal/read progress.
+pub fn rescan_with_progress(args: &Args, progress: &mut (dyn FnMut(Progress) + Send)) -> Res {
+    run_scan(args, Watched::Only, progress)
 }
 
 /// Where the roots of a run come from.
@@ -38,7 +43,7 @@ enum Watched {
     Only,
 }
 
-fn run_scan(args: &Args, watched: Watched) -> Res {
+fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress) + Send)) -> Res {
     let dir = data_dir(args);
     let catalog_file = store::catalog_path(&dir);
 
@@ -77,7 +82,8 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
         // Read from the catalog rather than from this command line: a plain
         // `aede scan` re-reads every root, and an exclusion that had to be
         // retyped would be forgotten exactly when it mattered.
-        excluded: previous
+        excluded: stored
+            .as_ref()
             .map(|c| c.excluded.iter().map(PathBuf::from).collect())
             .unwrap_or_default(),
         // And from `user.json` for the same reason. A merge is applied as the
@@ -89,8 +95,9 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
 
     println!("{}", ui::bold("Scanning folders…"));
     let mut discovered = 0usize;
-    let (mut catalog, mut report) =
-        scan::scan(&roots, previous, &options, |progress| match progress {
+    let (mut catalog, mut report) = scan::scan(&roots, previous, &options, |progress| {
+        on_progress(progress);
+        match progress {
             Progress::Discovered(count) => {
                 discovered = count;
                 println!("  {count} audio files spotted");
@@ -102,7 +109,15 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
                     let _ = std::io::stdout().flush();
                 }
             }
-        })?;
+        }
+    })?;
+    // A full scan has no cached catalog for the core to carry exclusions from.
+    // Persist the same watched-folder policy used for this traversal.
+    catalog.excluded = options
+        .excluded
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
     if report.read > 0 {
         println!();
     }
@@ -111,7 +126,14 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
     // conclusions have their own lifetime and are matched by path and bytes.
     if previous.is_none() {
         let conclusions_file = aede_core::conclusions::conclusions_path(&dir);
-        if let Some(gathered) = aede_core::conclusions::load(&conclusions_file)? {
+        let gathered = aede_core::conclusions::load(&conclusions_file)?.or_else(|| {
+            // Reading a legacy catalog is pure. A full scan must carry its
+            // embedded conclusions until the protected save migrates them.
+            stored
+                .as_ref()
+                .map(aede_core::conclusions::Conclusions::from_catalog)
+        });
+        if let Some(gathered) = gathered {
             // The scan may just have imported reports found beside the audio.
             // Reapply them after older stored analyses so the fresh report wins.
             let fresh_analyses = std::mem::take(&mut catalog.analyses);
@@ -192,6 +214,10 @@ fn run_scan(args: &Args, watched: Watched) -> Res {
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "scan_tests.rs"]
+mod tests;
 
 /// Works out which folders to walk.
 ///

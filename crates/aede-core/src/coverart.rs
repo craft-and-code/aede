@@ -393,8 +393,11 @@ pub fn write_image(
     if path.exists() {
         return Ok(Written::Already(path));
     }
-    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(Written::New(path))
+    match crate::store::write_new_atomic(&path, bytes) {
+        Ok(true) => Ok(Written::New(path)),
+        Ok(false) => Ok(Written::Already(path)),
+        Err(error) => Err(format!("{}: {error}", path.display())),
+    }
 }
 
 /// Every image an index holds, with what each one is of.

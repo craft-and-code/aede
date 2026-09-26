@@ -76,7 +76,7 @@ fn export_graph(args: &Args, catalog: &Catalog) -> Res {
     root.set("catalog", store::to_json(catalog));
     let conclusions =
         aede_core::conclusions::load(&aede_core::conclusions::conclusions_path(&directory))?
-            .unwrap_or_default();
+            .unwrap_or_else(|| aede_core::conclusions::Conclusions::from_catalog(catalog));
     root.set("conclusions", aede_core::conclusions::to_json(&conclusions));
     root.set("sources", aede_core::sources::to_json(&sources));
     root.set("user", aede_core::user::to_json(&user));

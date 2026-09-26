@@ -10,6 +10,7 @@ mod artist;
 mod artwork;
 mod backup;
 mod browse;
+mod cancel;
 mod check;
 mod copy;
 mod covers;
@@ -38,6 +39,7 @@ mod review;
 mod rules;
 mod scan;
 mod search;
+mod serve;
 mod sources;
 mod spectrum;
 mod stats;
@@ -55,6 +57,7 @@ pub use artist::show_artist;
 pub use artwork::artwork;
 pub use backup::{backup, restore};
 pub use browse::{list_albums, list_artists, list_countries, list_genres, list_labels, list_years};
+pub use cancel::cancel;
 pub use check::check;
 pub use copy::copy;
 pub use discography::missing;
@@ -75,6 +78,7 @@ pub use review::review;
 pub use rules::rules;
 pub use scan::{roots, scan};
 pub use search::search;
+pub use serve::serve;
 pub use sources::{panel_for as sources_panel_for, sources};
 pub use spectrum::spectrum;
 pub use stats::show_stats;
@@ -114,7 +118,10 @@ pub fn confirmed(args: &Args, what: &str) -> Result<bool, Box<dyn Error>> {
     if args.has("yes") {
         return Ok(true);
     }
-    if !std::io::stdin().is_terminal() {
+    if !std::io::stdin().is_terminal()
+        && !(std::env::var_os("AEDE_DELEGATED_CHILD").is_some()
+            && std::env::var_os("AEDE_DELEGATED_STDIN_TTY").is_some())
+    {
         return Err(format!("no terminal to confirm on: add --yes to {what}").into());
     }
     print!("  Type \"yes\" to confirm: ");
@@ -255,6 +262,11 @@ pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
 
 /// Where the catalog lives: what `--data` names, or the default location.
 pub fn data_dir(args: &Args) -> PathBuf {
+    if std::env::var_os("AEDE_DELEGATED_CHILD").is_some()
+        && let Some(forced) = std::env::var_os("AEDE_DELEGATED_DATA_DIR")
+    {
+        return PathBuf::from(forced);
+    }
     args.value("data")
         .map(PathBuf::from)
         .unwrap_or_else(store::default_data_dir)

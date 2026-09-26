@@ -303,6 +303,7 @@ fn every_split_out_test_file_is_declared_by_the_module_it_tests() {
     let root = root();
     let mut sources = Vec::new();
     rust_files(&root.join("crates/aede-core/src"), &mut sources);
+    rust_files(&root.join("crates/aede-server/src"), &mut sources);
     rust_files(&root.join("crates/aede-cli/src"), &mut sources);
     assert!(
         sources.len() > 40,
@@ -328,4 +329,36 @@ fn every_split_out_test_file_is_declared_by_the_module_it_tests() {
         "test files no module declares, so nothing compiles or runs them:\n  {}",
         orphans.join("\n  ")
     );
+}
+
+#[test]
+fn every_registered_http_route_is_listed_in_the_server_readme() {
+    let repository = root();
+    let readme = std::fs::read_to_string(repository.join("crates/aede-server/README.md"))
+        .expect("server route reference");
+    let mut files = Vec::new();
+    rust_files(&repository.join("crates/aede-server/src"), &mut files);
+    let mut routes = BTreeSet::new();
+    for file in files {
+        if file.to_string_lossy().ends_with("_tests.rs") {
+            continue;
+        }
+        let source = std::fs::read_to_string(file).expect("server source");
+        for registration in source.split(".route(").skip(1) {
+            let literal = registration
+                .trim_start()
+                .strip_prefix('"')
+                .expect("literal route");
+            let (path, _) = literal.split_once('"').expect("route closing quote");
+            routes.insert(path.replace(":id", "{id}"));
+        }
+    }
+    assert!(routes.len() > 20, "route discovery must cover the server");
+    for route in routes {
+        let relative = route.strip_prefix("/api/v1").unwrap_or(&route);
+        assert!(
+            readme.contains(&format!("`{relative}`")) || readme.contains(&route),
+            "undocumented route: {route}"
+        );
+    }
 }

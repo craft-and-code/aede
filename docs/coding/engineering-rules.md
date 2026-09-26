@@ -365,7 +365,7 @@ The declaration is one line in the module under test:
 mod tests;
 ```
 
-`crates/aede-cli/tests/docs.rs` walks both `src/` trees and fails on a
+`crates/aede-cli/tests/docs.rs` walks the crates' `src/` trees and fails on a
 `*_tests.rs` no module names. It happened once, to a file holding tests written
 against a real bug.
 

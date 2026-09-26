@@ -52,7 +52,9 @@ Two deliberate design choices make auditing a massive archive manageable:
 
 **Start on a corner.** Running `aede check ~/Music/Deicide` restricts the deep read to a specific folder, or as many as you like. This is perfect for a quick first look, or for immediately re-verifying a suspicious external drive without dragging the rest of your sanctuary into the process.
 
-**Interrupting is entirely safe.** Verdicts are written to the catalog every 250 files rather than held hostage until the very end. If you hit `Ctrl-C` — or your laptop closes, or a drive unexpectedly disconnects — you lose at most the small batch currently in progress. Every file already verified is securely kept, and the next run elegantly picks up exactly where the last one stopped, since a file holding a verdict is immediately removed from the queue. A second full run therefore has nothing left to read.
+**Completed batches are saved.** Verdicts are written to `conclusions.json` every 250 files and when the run completes. Stopping a locally running check with Ctrl-C loses at most the batch currently in progress; the next run skips files whose saved verdict is still current. This protects completed saves, not against storage failure: keep backups of the conclusions as well as the audio.
+
+When a local Unix server is running for the same data directory, `check` automatically runs under that server. Ctrl-C or closing its CLI disconnects the display; the server keeps checking. Explicit `aede cancel` currently supports delegated `scan` and `fetch` only, not `check`. A graceful server shutdown waits for accepted commands, including this check. See [Operating the local server](operating.md).
 
 ### The Limits of the Container
 
