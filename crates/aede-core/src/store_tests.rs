@@ -97,19 +97,13 @@ fn full_round_trip() {
 
 #[test]
 fn sidecar_write_is_new_only_and_publishes_complete_content() {
-    let folder = std::env::temp_dir().join(format!(
-        "aede_atomic_sidecar_{}_{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test")
-    ));
-    std::fs::create_dir_all(&folder).expect("sidecar test folder");
-    let path = folder.join("cover.jpg");
+    let folder = StoreSandbox::new();
+    let path = folder.0.join("cover.jpg");
     assert!(write_new_atomic(&path, b"complete image").expect("write sidecar"));
     assert_eq!(std::fs::read(&path).expect("sidecar"), b"complete image");
     assert!(!write_new_atomic(&path, b"replacement").expect("preserve sidecar"));
     assert_eq!(std::fs::read(&path).expect("sidecar"), b"complete image");
     std::fs::remove_file(path).expect("remove sidecar");
-    std::fs::remove_dir(folder).expect("remove sidecar folder");
 }
 
 #[cfg(unix)]
