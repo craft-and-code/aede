@@ -36,6 +36,34 @@ fn example_catalog() -> Catalog {
 }
 
 #[test]
+fn windows_catalog_paths_round_trip_without_normalization() {
+    for root in [
+        r"C:\Music",
+        r"\\?\C:\Music",
+        r"\\nas\music",
+        r"\\?\UNC\nas\music",
+    ] {
+        let mut original = example_catalog();
+        original.roots = vec![root.into()];
+        original.excluded = vec![format!("{root}\\Skip")];
+        original.files[0].path = format!("{root}\\Kind of Blue\\01.flac");
+        original.files[0].lyrics_path = Some(format!("{root}\\Kind of Blue\\01.lrc"));
+        original.releases[0].folder = format!("{root}\\Kind of Blue");
+        original.releases[0].cover_path = Some(format!("{root}\\Kind of Blue\\cover.jpg"));
+        let decoded = from_json(&to_json(&original)).unwrap();
+        assert_eq!(decoded.roots, original.roots);
+        assert_eq!(decoded.excluded, original.excluded);
+        assert_eq!(decoded.files[0].path, original.files[0].path);
+        assert_eq!(decoded.files[0].lyrics_path, original.files[0].lyrics_path);
+        assert_eq!(decoded.releases[0].folder, original.releases[0].folder);
+        assert_eq!(
+            decoded.releases[0].cover_path,
+            original.releases[0].cover_path
+        );
+    }
+}
+
+#[test]
 fn full_round_trip() {
     let original = example_catalog();
     let encoded = to_json(&original);

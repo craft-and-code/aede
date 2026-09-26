@@ -3,6 +3,65 @@
 use super::*;
 
 #[test]
+fn windows_catalog_paths_keep_their_native_spelling_and_folder_boundaries() {
+    for (path, parent, root) in [
+        (
+            r"C:\Music\Artist\Album\01.flac",
+            r"C:\Music\Artist\Album",
+            r"C:\Music",
+        ),
+        (
+            r"\\?\C:\Music\Artist\Album\01.flac",
+            r"\\?\C:\Music\Artist\Album",
+            r"\\?\C:\Music",
+        ),
+        (
+            r"\\nas\music\Artist\Album\01.flac",
+            r"\\nas\music\Artist\Album",
+            r"\\nas\music",
+        ),
+        (
+            r"\\?\UNC\nas\music\Artist\Album\01.flac",
+            r"\\?\UNC\nas\music\Artist\Album",
+            r"\\?\UNC\nas\music",
+        ),
+    ] {
+        assert_eq!(file_name(path), "01.flac");
+        assert_eq!(folder(path), parent);
+        assert!(is_under(path, root));
+        assert!(is_under(path, &format!("{root}\\")));
+        assert!(!is_under(&format!("{root}backup\\01.flac"), root));
+    }
+    assert_eq!(folder(r"C:\01.flac"), "C:\\");
+    assert_eq!(folder(r"\\?\C:\01.flac"), "\\\\?\\C:\\");
+    assert!(is_under(r"C:\Music\Album\01.flac", "C:/Music/Album"));
+    assert!(!is_under(r"D:\Music\01.flac", r"C:\Music"));
+    assert_eq!(
+        relative_under(r"C:\Music\Album\01.flac", "C:/Music/"),
+        Some("Album/01.flac".into())
+    );
+    assert_eq!(
+        relative_under(r"\\?\C:\Music\01.flac", r"\\?\C:/Music"),
+        None
+    );
+    assert_eq!(folder("/music/name:/01.flac"), "/music/name:");
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_backslashes_remain_file_name_characters() {
+    assert_eq!(
+        file_name(r"/music/artist\name/01\title.flac"),
+        r"01\title.flac"
+    );
+    assert_eq!(
+        folder(r"/music/artist\name/01\title.flac"),
+        r"/music/artist\name"
+    );
+    assert!(!is_under(r"/music/artist\name", "/music/artist"));
+}
+
+#[test]
 fn a_collaboration_written_with_a_slash_after_w_is_two_names() {
     // `Ozzy Osbourne w/Therapy?` arrived on a real shelf as one artist with one
     // track. The marker carries no trailing space on purpose — it is written

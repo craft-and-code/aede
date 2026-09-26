@@ -344,12 +344,10 @@ pub fn parse_track_number(raw: &str) -> (Option<u32>, Option<u32>) {
 
 /// Last component of a path, extension included.
 ///
-/// Written by hand rather than through `std::path`: catalog paths are stored as
-/// `String`, and a round trip through `Path` would either allocate or force
-/// every caller to deal with a name that is not valid UTF-8. The separator is
-/// `/`, which is what the scanner produces on the systems this runs on.
+/// Recognizes native Windows paths even when reading their catalog on Unix.
+/// The original spelling, including verbatim prefixes, is never rewritten.
 pub fn file_name(path: &str) -> &str {
-    match path.rfind('/') {
+    match path.rfind(path_separator(path)) {
         Some(i) => &path[i + 1..],
         None => path,
     }
@@ -361,10 +359,68 @@ pub fn file_name(path: &str) -> &str {
 /// folder, and inventing `"."` here would group it with every other path that
 /// has no folder either.
 pub fn folder(path: &str) -> &str {
-    match path.rfind('/') {
+    match path.rfind(path_separator(path)) {
+        // C: is drive-relative; retaining its root separator is essential.
+        Some(i)
+            if (i == 2 || (i == 6 && path.starts_with(r"\\?\")))
+                && path.as_bytes()[i - 1] == b':'
+                && path.as_bytes()[i - 2].is_ascii_alphabetic() =>
+        {
+            &path[..=i]
+        }
         Some(i) => &path[..i],
         None => "",
     }
+}
+
+fn path_separator(path: &str) -> impl Fn(char) -> bool + Copy {
+    let verbatim = path.starts_with(r"\\?\");
+    let drive = path.as_bytes().get(1) == Some(&b':')
+        && path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic);
+    let windows = cfg!(windows) || drive || path.starts_with(r"\\");
+    move |c| {
+        if verbatim {
+            c == '\\'
+        } else {
+            c == '/' || (windows && c == '\\')
+        }
+    }
+}
+
+fn strip_folder<'a>(path: &'a str, folder: &str) -> Option<&'a str> {
+    if folder.is_empty() {
+        return path.is_empty().then_some(path);
+    }
+    let separator = path_separator(path);
+    let folder_separator = path_separator(folder);
+    let prefix = folder.trim_end_matches(folder_separator);
+    if prefix.is_empty() && !path.starts_with(separator) {
+        return None;
+    }
+    let head = path.get(..prefix.len())?;
+    let matches = head
+        .chars()
+        .zip(prefix.chars())
+        .all(|(left, right)| left == right || (separator(left) && folder_separator(right)));
+    let rest = path.get(prefix.len()..)?;
+    if !matches || (!rest.is_empty() && !rest.starts_with(separator)) {
+        return None;
+    }
+    Some(rest.trim_start_matches(separator))
+}
+
+/// A portable relative path under a catalog folder, or `None` outside it.
+///
+/// Only the relative output uses `/`: native absolute paths must retain their
+/// Windows verbatim spelling when passed to the filesystem or external tools.
+pub fn relative_under(path: &str, folder: &str) -> Option<String> {
+    let rest = strip_folder(path, folder)?;
+    Some(
+        rest.split(path_separator(path))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 /// The disc a folder name announces, when it announces one.
@@ -401,14 +457,7 @@ pub fn disc_folder(name: &str) -> Option<u32> {
 /// The test is on a separator boundary, which is the difference between a
 /// folder and a prefix of its name.
 pub fn is_under(path: &str, folder: &str) -> bool {
-    if path == folder {
-        return true;
-    }
-    let Some(rest) = path.strip_prefix(folder) else {
-        return false;
-    };
-    // A folder written with its trailing slash is still that folder.
-    rest.starts_with('/') || folder.ends_with('/')
+    strip_folder(path, folder).is_some()
 }
 
 #[cfg(test)]

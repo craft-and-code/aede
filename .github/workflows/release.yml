@@ -42,13 +42,9 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             label: Linux-x86_64
-          # Windows is deliberately absent. It compiles, and CI still runs its
-          # tests, but catalog paths are `/`-separated by design while the
-          # scanner stores the platform's own spelling — so everything
-          # folder-shaped is wrong there. Sixteen end-to-end tests say so and
-          # carry `#[cfg_attr(windows, ignore)]`; docs/design/paths.md has the
-          # reasoning and the shape of the fix. Re-adding it is this one entry,
-          # once that work lands:
+          # Windows remains absent pending native validation of the path fix.
+          # Previously ignored path tests now run in Windows CI; see
+          # docs/design/paths.md. Re-adding it is this one entry once validated:
           #
           #     - os: windows-latest
           #       target: x86_64-pc-windows-msvc
@@ -210,9 +206,8 @@ jobs:
           | **macOS** (Intel) | `aede-*-macOS-Intel.tar.gz` |
           | **Linux** (any 64-bit distribution) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
 
-          There is no Windows build yet: catalog paths are `/`-separated by
-          design and the scanner stores the platform's own spelling, which
-          makes everything folder-shaped wrong there. See
+          There is no Windows build yet: native validation of the catalog path
+          correction is required before enabling a Windows release. See
           [Paths](https://github.com/craft-and-code/aede/blob/main/docs/design/paths.md).
 
           ```sh

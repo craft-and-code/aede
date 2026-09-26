@@ -82,6 +82,57 @@ fn library(paths: &[&str]) -> Catalog {
 }
 
 #[test]
+fn windows_references_and_personal_data_keep_native_paths_across_rebuilds() {
+    for root in [
+        r"C:\Music",
+        r"\\?\C:\Music",
+        r"\\nas\music",
+        r"\\?\UNC\nas\music",
+    ] {
+        let path = format!("{root}\\Legion\\01.flac");
+        let first = library(&[&path]);
+        let track = EntityRef::of(&first, EntityKind::Track, first.tracks[0].id).unwrap();
+        let release = EntityRef::of(&first, EntityKind::Release, first.releases[0].id).unwrap();
+        assert_eq!(track.key, path);
+        assert!(release.key.ends_with(&format!("{root}\\Legion")));
+        let mut data = UserData::default();
+        for target in [&track, &release] {
+            data.entry(LOCAL_USER, target, 1).note = Some("keep me".into());
+        }
+        data.record_play(Play {
+            owner: LOCAL_USER.into(),
+            track: track.clone(),
+            at: 1,
+            ms_played: 1000,
+            completed: true,
+        });
+        let mut restored = from_json(&to_json(&data)).unwrap();
+        let second = library(&[&path]);
+        let report = reconcile(&mut restored, &second);
+        assert_eq!(report.waiting, 0);
+        assert_eq!(report.moved, 0);
+        assert_eq!(restored.annotations, data.annotations);
+        assert_eq!(restored.plays, data.plays);
+        assert_eq!(restored.counts, data.counts);
+        assert!(track.resolve(&second).is_some());
+        assert!(release.resolve(&second).is_some());
+    }
+}
+
+#[test]
+fn legacy_windows_release_notes_are_preserved_without_guessing_an_edition() {
+    let catalog = library(&[r"C:\Music\Original\01.flac", r"C:\Music\Remaster\01.flac"]);
+    assert_eq!(catalog.releases.len(), 2);
+    let legacy = EntityRef::new(EntityKind::Release, "deicide|legion|");
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &legacy, 1).note = Some("keep me".into());
+    let report = reconcile(&mut data, &catalog);
+    assert_eq!(report.waiting, 1);
+    assert_eq!(data.annotations[0].target, legacy);
+    assert_eq!(data.annotations[0].note.as_deref(), Some("keep me"));
+}
+
+#[test]
 fn a_reference_survives_the_renumbering_a_scan_does() {
     // Catalog identifiers are positions in a vector, and a scan hands them
     // out afresh. Keying anything a user wrote by one of those is how the

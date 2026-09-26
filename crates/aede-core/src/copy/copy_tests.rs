@@ -47,10 +47,35 @@ fn all_tracks(catalog: &Catalog) -> Vec<Id> {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
+fn windows_copy_plans_keep_the_tree_and_refuse_destinations_inside_the_library() {
+    for root in [
+        r"C:\Music",
+        r"\\?\C:\Music",
+        r"\\nas\music",
+        r"\\?\UNC\nas\music",
+    ] {
+        let path = format!("{root}\\Artist\\Album\\01.flac");
+        let catalog = catalog_of(&[(&path, "Album")], &[root]);
+        let plan = plan(
+            &catalog,
+            &all_tracks(&catalog),
+            &Recipe {
+                extras: Extras::None,
+                ..Default::default()
+            },
+        );
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(plan.items[0].source, PathBuf::from(&path));
+        assert_eq!(
+            plan.items[0].relative,
+            PathBuf::from("Artist").join("Album").join("01.flac")
+        );
+        assert!(inside_a_watched_root(&catalog, Path::new(&format!("{root}\\backup"))).is_some());
+        assert!(inside_a_watched_root(&catalog, Path::new(&format!("{root}-backup"))).is_none());
+    }
+}
+
+#[test]
 fn the_tree_is_kept_relative_to_the_root_that_holds_it() {
     // The whole promise of the command: what sat under the watched folder
     // arrives under the destination in the same shape.
@@ -69,16 +94,12 @@ fn the_tree_is_kept_relative_to_the_root_that_holds_it() {
             ..Default::default()
         },
     );
-    let places: Vec<String> = plan
-        .items
-        .iter()
-        .map(|i| i.relative.to_string_lossy().to_string())
-        .collect();
+    let places: Vec<PathBuf> = plan.items.iter().map(|i| i.relative.clone()).collect();
     assert_eq!(
         places,
         vec![
-            "Danzig/1994 Danzig 4/02.flac".to_string(),
-            "Ozzy/1980 Blizzard/01.flac".to_string(),
+            PathBuf::from("Danzig/1994 Danzig 4/02.flac"),
+            PathBuf::from("Ozzy/1980 Blizzard/01.flac"),
         ]
     );
     assert_eq!(plan.total_bytes(), 2000);
@@ -415,10 +436,6 @@ fn a_word_that_names_no_extras_is_refused_rather_than_guessed_at() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn extras_reach_one_level_into_a_subfolder_beside_the_audio() {
     // Aède writes what it draws beside a track into a subfolder of its own —
     // `spectrograms/` — rather than loose next to the audio file, and
@@ -453,11 +470,11 @@ fn extras_reach_one_level_into_a_subfolder_beside_the_audio() {
             ..Default::default()
         },
     );
-    let extras: Vec<String> = plan
+    let extras: Vec<PathBuf> = plan
         .items
         .iter()
         .filter(|i| i.kind == ItemKind::Other)
-        .map(|i| i.relative.to_string_lossy().to_string())
+        .map(|i| i.relative.clone())
         .collect();
     assert!(
         extras.iter().any(|p| p.ends_with("spectrograms/02.png")),
@@ -468,7 +485,9 @@ fn extras_reach_one_level_into_a_subfolder_beside_the_audio() {
         "an ordinary file beside the audio must still travel: {extras:?}"
     );
     assert!(
-        !extras.iter().any(|p| p.contains("too-deep")),
+        !extras
+            .iter()
+            .any(|p| p.components().any(|c| c.as_os_str() == "too-deep")),
         "a second level down is not walked: {extras:?}"
     );
 

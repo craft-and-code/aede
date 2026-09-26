@@ -70,11 +70,9 @@ fn relative_to(path: &str, base: Option<&Path>) -> String {
     let Some(base) = base.and_then(|b| b.to_str()) else {
         return path.to_string();
     };
-    let prefix = match base.ends_with('/') {
-        true => base.to_string(),
-        false => format!("{base}/"),
-    };
-    path.strip_prefix(&prefix).unwrap_or(path).to_string()
+    crate::text::relative_under(path, base)
+        .filter(|relative| !relative.is_empty())
+        .unwrap_or_else(|| path.to_string())
 }
 
 /// The name of the playlist a folder should hold: the folder's own name.

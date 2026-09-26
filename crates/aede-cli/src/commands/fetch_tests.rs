@@ -1059,10 +1059,6 @@ fn a_positional_that_names_a_folder_is_read_as_one_rather_than_as_a_name() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_folder_reaches_the_tracks_the_album_and_the_artist_under_it() {
     // One walk of the catalog answers for every pass, so what a folder means
     // cannot differ between them.
@@ -1135,10 +1131,6 @@ fn a_folder_the_catalog_has_never_seen_is_refused_rather_than_run_over() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn the_album_half_of_an_ordinary_fetch_honours_a_folder() {
     // Both halves of the ordinary run, not only the artists: `aede fetch
     // ~/Music/Alastis` that asked about every album of the library would be

@@ -8,6 +8,44 @@ use super::*;
 use crate::model::tests::{example_catalog, first_release, track};
 
 #[test]
+fn windows_folders_separate_editions_and_fold_discs_without_changing_paths() {
+    let make = |path: &str| {
+        super::super::tests::track(
+            path,
+            &[("artist", "A"), ("album", "Same title"), ("title", "Song")],
+            1000,
+        )
+    };
+    let paths = [
+        r"\\?\C:\Music\Original\CD1\01.flac",
+        r"\\?\C:\Music\Original\CD2\01.flac",
+        r"\\?\C:\Music\Remaster\01.flac",
+    ];
+    let catalog = crate::model::build(
+        paths.iter().map(|path| make(path)).collect(),
+        vec![r"\\?\C:\Music".into()],
+        1,
+        &[],
+    );
+    assert_eq!(catalog.releases.len(), 2);
+    let original = catalog
+        .releases
+        .iter()
+        .find(|release| release.folder == r"\\?\C:\Music\Original")
+        .unwrap();
+    assert_eq!(original.track_ids.len(), 2);
+    let mut discs: Vec<_> = original
+        .track_ids
+        .iter()
+        .map(|id| catalog.track(*id).unwrap().disc_no)
+        .collect();
+    discs.sort();
+    assert_eq!(discs, [Some(1), Some(2)]);
+    for path in paths {
+        assert!(catalog.files.iter().any(|file| file.path == path));
+    }
+}
+#[test]
 fn entities_are_deduplicated() {
     let c = example_catalog();
     // Metallica appears only once despite two tracks.

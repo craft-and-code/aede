@@ -115,7 +115,8 @@ impl EntityKind {
 pub struct AudioFile {
     /// Position in [`Catalog::files`]; this is what a track points back to.
     pub id: Id,
-    /// Absolute path, with `/` separators, as the scanner walked it.
+    /// Absolute path in the scanner's native spelling, including Windows
+    /// verbatim prefixes. Use `text` path helpers for catalog string operations.
     pub path: String,
     /// Size in bytes; together with [`AudioFile::mtime`] it decides whether a
     /// later scan must read the file again or can reuse the stored tags.

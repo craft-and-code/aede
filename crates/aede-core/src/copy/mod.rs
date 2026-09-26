@@ -455,11 +455,7 @@ fn under_a_root(catalog: &Catalog, path: &str) -> Option<String> {
         .iter()
         .filter(|root| text::is_under(path, root))
         .max_by_key(|root| root.len())
-        .and_then(|root| {
-            let rest = path.strip_prefix(root.as_str())?;
-            let rest = rest.trim_start_matches('/');
-            (!rest.is_empty()).then(|| rest.to_string())
-        })
+        .and_then(|root| text::relative_under(path, root).filter(|rest| !rest.is_empty()))
 }
 
 /// Turns a relative path into one the destination will accept, component by

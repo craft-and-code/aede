@@ -2489,10 +2489,6 @@ fn what_a_user_wrote_in_a_comment_can_be_found_again() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_listing_never_stops_without_saying_so() {
     // A listing shows fifty rows by default and used to stop there in silence.
     // Sorted by year, that meant the most recent albums of a real library
@@ -2599,10 +2595,6 @@ fn row_for_folder<'a>(out: &'a str, ending: &str) -> &'a str {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_watched_folder_is_weighed_and_not_confused_with_its_neighbour() {
     // `path.starts_with(root)` on the bare string made "/music/Rock" claim
     // every file of "/music/Rockabilly": one folder counting a neighbour's
@@ -3120,10 +3112,6 @@ fn checking_a_library_finds_a_damaged_file() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn checking_can_be_restricted_to_one_folder() {
     // Verifying a whole library is a long job; being able to try it on a corner
     // first is what makes it approachable.
@@ -3467,10 +3455,6 @@ fn write_report_naming(
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn another_tools_analysis_can_be_taken_in_and_given_back() {
     let sandbox = Sandbox::new("import");
     let root = std::env::temp_dir().join("aede_e2e_import_src");
@@ -3648,10 +3632,6 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn an_analysis_can_arrive_before_the_library_does() {
     // Analysing a folder and then building the library from it is the natural
     // order for someone who already owns the other tool. The import must
@@ -3702,10 +3682,6 @@ fn an_analysis_can_arrive_before_the_library_does() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
     // A scan only ever attaches a waiting analysis by matching name and size —
     // never by the mere fact that a scan happened. A report naming a file
@@ -3849,10 +3825,6 @@ fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
     // The report may equally well be sitting in the album folder. A scan walks
     // over it anyway, so it costs nothing to notice it.
@@ -3879,10 +3851,6 @@ fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_full_scan_keeps_conclusions_but_prefers_a_fresh_report() {
     let sandbox = Sandbox::new("full_scan_conclusions");
     let root = std::env::temp_dir().join("aede_e2e_full_scan_conclusions_src");
@@ -3914,10 +3882,6 @@ fn a_full_scan_keeps_conclusions_but_prefers_a_fresh_report() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn reports_are_looked_for_in_every_folder_underneath() {
     // Reports are kept the way albums are: one folder per artist, one per
     // album. Only looking at the top level would find nothing.
@@ -3950,10 +3914,6 @@ fn reports_are_looked_for_in_every_folder_underneath() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_selection_is_copied_out_keeping_its_tree() {
     // The one command that writes files, and it writes them outside the
     // library. Everything it can get wrong is expensive: a tree that does not
@@ -3967,13 +3927,14 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     let album = root.join("Pixies/Surfer Rosa");
     std::fs::create_dir_all(&album).unwrap();
     std::fs::create_dir_all(&out).unwrap();
-    // A title a FAT card refuses, beside a cover and a spectrogram that a
-    // filter on "images" could not tell apart.
-    std::fs::copy(
-        library().join("track.flac"),
-        album.join("04 Where Is My Mind?.flac"),
-    )
-    .unwrap();
+    // Windows cannot create a source containing `?`; Unix also exercises
+    // adapting that name for a FAT destination.
+    let audio_name = if cfg!(windows) {
+        "04 Where Is My Mind.flac"
+    } else {
+        "04 Where Is My Mind?.flac"
+    };
+    std::fs::copy(library().join("track.flac"), album.join(audio_name)).unwrap();
     std::fs::write(album.join("cover.jpg"), b"cover").unwrap();
     std::fs::write(album.join("spectrogram.png"), b"spectrum").unwrap();
     std::fs::write(album.join("rip.log"), b"log").unwrap();
@@ -4001,7 +3962,7 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     assert!(ok, "stderr: {err}");
     assert!(report.contains("Written"), "output: {report}");
 
-    let track = out.join("Pixies/Surfer Rosa/04 Where Is My Mind?.flac");
+    let track = out.join("Pixies/Surfer Rosa").join(audio_name);
     assert!(track.is_file(), "the tree is kept: {}", track.display());
     assert!(
         out.join("Pixies/Surfer Rosa/cover.jpg").is_file(),
@@ -4018,15 +3979,10 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     // Copied, not truncated.
     assert_eq!(
         std::fs::metadata(&track).unwrap().len(),
-        std::fs::metadata(album.join("04 Where Is My Mind?.flac"))
-            .unwrap()
-            .len()
+        std::fs::metadata(album.join(audio_name)).unwrap().len()
     );
     // And nothing half-written is left wearing a real name.
-    assert!(
-        !out.join("Pixies/Surfer Rosa/04 Where Is My Mind?.aede-partial")
-            .exists()
-    );
+    assert!(!track.with_extension("aede-partial").exists());
 
     // --- Several at a time -------------------------------------------------
     // A plain copy writes one file at a time by default — one card is one
@@ -4045,7 +4001,7 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     ]);
     assert!(ok, "stderr: {err}");
     assert!(report.contains("Written"), "output: {report}");
-    for name in ["04 Where Is My Mind?.flac", "cover.jpg", "rip.log"] {
+    for name in [audio_name, "cover.jpg", "rip.log"] {
         assert!(
             many.join("Pixies/Surfer Rosa").join(name).is_file(),
             "{name} must have arrived:\n{report}"
@@ -4065,11 +4021,18 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     let (report, err, ok) =
         sandbox.run(&["copy", out.to_str().unwrap(), "--safe-names", "--dry-run"]);
     assert!(ok, "stderr: {err}");
-    assert!(report.contains("Renamed"), "output: {report}");
-    assert!(
-        report.contains("Where Is My Mind_.flac"),
-        "the new name is shown, not just counted: {report}"
-    );
+    if cfg!(windows) {
+        assert!(
+            !report.contains("Renamed"),
+            "legal names stay unchanged: {report}"
+        );
+    } else {
+        assert!(report.contains("Renamed"), "output: {report}");
+        assert!(
+            report.contains("Where Is My Mind_.flac"),
+            "the new name is shown, not just counted: {report}"
+        );
+    }
 
     // --- What it refuses ----------------------------------------------------
     // A destination that does not exist is almost always a drive that is not
@@ -4225,10 +4188,6 @@ fn the_words_are_read_from_the_tags_and_from_the_lrc_beside_the_file() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_playlist_is_written_beside_the_music_and_only_when_it_has_changed() {
     let sandbox = Sandbox::new("playlist");
     let root = std::env::temp_dir().join("aede_e2e_playlist_src");
@@ -4440,10 +4399,6 @@ fn ffmpeg_is_installed() -> bool {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn only_what_is_lossless_is_encoded_on_the_way_out() {
     // A library is mixed, and that is the case worth getting right: the FLACs
     // and WAVs are encoded, the MP3s are copied as they stand. Re-encoding an
@@ -4626,10 +4581,6 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_cover_and_a_tag_wav_cannot_hold_are_named_before_the_copy_runs() {
     // `--compress wav` cannot carry a cover across — ffmpeg refuses outright
     // to mux a picture stream into a WAV — and its legacy INFO chunk has no
@@ -4735,10 +4686,6 @@ fn a_cover_and_a_tag_wav_cannot_hold_are_named_before_the_copy_runs() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_conversion_with_nothing_to_convert_says_so() {
     // The same silence as a swallowed option, seen from the other side:
     // `--compress mp3` over a selection that is already MP3 did exactly what
@@ -5250,10 +5197,6 @@ fn an_artist_listing_answers_the_grammar_too() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn a_copy_takes_its_selection_from_the_grammar() {
     // `copy` has no filters of its own: the selection is the one `query`
     // answers, which is the rule every listing already follows.
@@ -5863,10 +5806,6 @@ fn what_is_missing_is_worked_out_from_what_was_stored() {
 /// has.
 #[cfg(feature = "fetch")]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn each_cover_command_points_at_the_other_where_it_gives_up() {
     let sandbox = Sandbox::new("cover_handover");
     let (out, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
@@ -6332,10 +6271,6 @@ fn a_watched_folder_that_is_not_on_this_machine_is_named_before_a_scan_drops_it(
 /// lives in `scope_of`, so the sixth command cannot forget it, and this test
 /// walks the list so that adding one without it fails here.
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "catalog paths are `/`-separated; see docs/design/paths.md"
-)]
 fn every_command_taking_a_folder_refuses_one_the_catalog_has_never_seen() {
     let sandbox = Sandbox::new("unknown_folder");
     let root = sandbox.dir.join("music/Miles Davis/Kind of Blue");

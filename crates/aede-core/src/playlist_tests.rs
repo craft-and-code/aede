@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn windows_playlists_are_relative_without_rewriting_absolute_verbatim_paths() {
+    for root in [
+        r"C:\Music",
+        r"\\?\C:\Music",
+        r"\\nas\music",
+        r"\\?\UNC\nas\music",
+    ] {
+        let path = format!("{root}\\Artist\\Album\\01.flac");
+        let base = format!("{root}\\Artist");
+        assert_eq!(relative_to(&path, Some(Path::new(&base))), "Album/01.flac");
+        assert_eq!(relative_to(&path, None), path);
+        assert_eq!(relative_to(&path, Some(Path::new(r"D:\Other"))), path);
+    }
+}
+
+#[test]
 fn a_playlist_beside_its_music_names_it_relatively() {
     assert_eq!(
         relative_to("/m/Album/01.flac", Some(Path::new("/m/Album"))),

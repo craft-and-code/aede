@@ -799,8 +799,9 @@ fn print_server_help() {
   The catalog API is read-only and has no user accounts or audio playback.
   Other local users can read its metadata and paths. There is no supported
   remote access: do not publish the port through a proxy, tunnel or router.
-  Catalog operation is supported on macOS and Linux; Windows catalog paths
-  and local command delegation are not supported yet.
+  Windows path handling is covered by regression tests; native Windows
+  validation is still required before release. Local command delegation
+  and aede cancel remain Unix-only. See docs/design/paths.md.
 
 {}
   AEDE_ADMIN_TOKEN enables POST /api/admin/v1/scan and POST /api/admin/v1/fetch,
