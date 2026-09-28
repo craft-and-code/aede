@@ -776,6 +776,46 @@ fn the_history_counts_more_than_it_keeps() {
     assert!(out.contains("3 times"), "the counter is shown: {out}");
 }
 
+#[cfg(unix)]
+#[test]
+fn direct_playback_records_history_without_a_scan() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = Sandbox::new("direct_play_history");
+    let bin = sandbox.dir.join("bin");
+    std::fs::create_dir_all(&bin).expect("fake audio output folder");
+    let ffplay = bin.join("ffplay");
+    std::fs::write(&ffplay, "#!/bin/sh\ncat >/dev/null\n").expect("fake audio output");
+    std::fs::set_permissions(&ffplay, std::fs::Permissions::from_mode(0o755))
+        .expect("executable audio output");
+    let file = library_flac();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["play", file.to_str().expect("fixture path")])
+        .env("AEDE_HOME", &sandbox.dir)
+        .env("PATH", path)
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("play with fake audio output");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.stdout.contains(&0x1b),
+        "redirected playback must not print terminal control sequences"
+    );
+    let (history, error, ok) = sandbox.run(&["history"]);
+    assert!(ok, "{error}");
+    assert!(history.contains("track.flac"), "{history}");
+    assert!(history.contains("1 time"), "{history}");
+}
+
 #[test]
 fn reset_says_what_it_does_not_take() {
     // The catalog goes; what the user wrote is in another file and stays. A
@@ -1698,6 +1738,12 @@ fn help_is_a_command_like_the_others() {
     assert!(ok, "stderr: {err}");
     assert!(scan.contains("aede scan — command help"), "output: {scan}");
     assert!(scan.contains("--follow-symlinks"), "output: {scan}");
+
+    let (play, err, ok) = sandbox.run(&["help", "play"]);
+    assert!(ok, "stderr: {err}");
+    for key in ["Space", "n or →", "p or ←", "q or s"] {
+        assert!(play.contains(key), "missing {key} in playback help: {play}");
+    }
 
     let (albums, err, ok) = sandbox.run(&["albums", "--help"]);
     assert!(ok, "stderr: {err}");

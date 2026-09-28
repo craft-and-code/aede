@@ -62,8 +62,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Write portable playlists in album and artist folders.",
         },
         "play" => CommandPage {
-            usage: "aede play <audio-file>",
-            summary: "Play one local file through Aède's decoder and DSP, using ffplay for audio output.",
+            usage: "aede play <file|folder|m3u|collection|artist|album|track>",
+            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history; ffplay provides audio output.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -163,7 +163,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "played" => CommandPage {
             usage: "aede played <track>",
-            summary: "Record a listen for one track.",
+            summary: "Manually record a listen made outside Aède, or undo its latest record with --remove.",
         },
         "favourites" => CommandPage {
             usage: "aede favourites",
@@ -371,8 +371,18 @@ pub fn print_index() {
                        lines for players that choke on them, --artists adds one
                        per artist folder covering their whole discography,
                        --dry-run only says what it would write
-  play <audio-file>    Play one local file through Aède's decoder and DSP.
-                       Requires ffplay for sound; Opus and M4A also need ffmpeg
+  play <selection>     Play a file, a folder (recursively, in name order), an
+                       .m3u/.m3u8 playlist, a saved collection, or a catalogued
+                       artist, album or track by name. Use collection:<name>
+                       when a collection shares a name with music. Albums play
+                       in year order; duplicate album/track titles play all
+                       matches. In a macOS/Linux terminal: Space pauses or
+                       resumes, n/→ skips forward, p/← goes back (or restarts
+                       after three seconds), and q stops and returns to the
+                       shell. The 24 thin spectrum bars animate only in a
+                       terminal. The label shows album — numbered filename;
+                       every played file enters history. Requires
+                       ffplay; Opus and M4A also need ffmpeg
   artists              List of artists (--role composer, producer…,
                        --country france, --sort tracks|name)
   countries            Where the artists on the shelf are from. Not a tag:
@@ -503,7 +513,7 @@ pub fn print_index() {
                        Attach free labels, several at once: vinyl,rare
                        --remove takes off the ones named, or every one of
                        them when none is named
-  played <track>       Record a listen, until playback records its own
+  played <track>       Record a listen made in another player manually
                        (--remove takes back the most recent one)
   collection <name>    Save a query under a name (--query), run it, or
                        drop it with --remove. It keeps the question, not the
@@ -928,6 +938,7 @@ pub fn print_command(command: &str) {
         println!("\n  Also available as: aede {alias}");
     }
     match command {
+        "play" => print_play_help(),
         "serve" => print_server_help(),
         "cancel" => print_cancel_help(),
         _ if crate::mutates_store(command) => print_delegation_help(command),
@@ -952,4 +963,16 @@ pub fn print_command(command: &str) {
         }
     }
     print_global_options(command != "play");
+}
+
+fn print_play_help() {
+    println!("\n{}", ui::cyan("SELECTIONS"));
+    println!("  aede play ~/Music/album.m3u     Playlist paths resolve beside the M3U");
+    println!("  aede play collection:Favorites   Select a saved collection explicitly");
+    println!("\n{}", ui::cyan("KEYS (macOS/Linux terminal)"));
+    println!("  Space    Pause or resume");
+    println!("  n or →   Next track; return to the shell after the last one");
+    println!("  p or ←   Previous track, or restart after three seconds");
+    println!("  q or s   Stop playback and return to the shell");
+    println!("\n  Without a terminal on standard input, the selection plays automatically.");
 }

@@ -9,6 +9,9 @@
 
 use std::fmt;
 
+mod spectrum;
+pub use spectrum::{SPECTRUM_BANDS, Spectrum};
+
 /// The decoded PCM layout used by a processing stream.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PcmFormat {

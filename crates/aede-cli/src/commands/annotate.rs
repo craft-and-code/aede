@@ -9,7 +9,7 @@ use std::error::Error;
 
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::user::{self, Annotation, EntityRef, LOCAL_USER, Play, UserData};
-use aede_core::{clock, text};
+use aede_core::{clock, store, text};
 
 use super::{Res, data_dir, load};
 use crate::args::Args;
@@ -717,12 +717,7 @@ fn scoped_text(typed: &str, prefix: &str) -> String {
         .join(" ")
 }
 
-/// `aede played <title>` — records a listen from outside.
-///
-/// Aède plays nothing yet, and will not until M3. Until then the history is
-/// filled by whatever does: `aede artist Ozzy --m3u | mpv`, and this command
-/// afterwards. The shape is the one M3 will write into, so the history built
-/// this way is not thrown away when playback arrives.
+/// `aede played <title>` — records a listen made outside Aède.
 pub fn played(args: &Args) -> Res {
     let catalog = load(args)?;
     let name = args.positionals.join(" ");
@@ -1054,7 +1049,8 @@ pub fn notes(args: &Args) -> Res {
 
 /// `aede history` — what was played, most recent first.
 pub fn history(args: &Args) -> Res {
-    let catalog = load(args)?;
+    // Direct playback can be recorded before a library has been scanned.
+    let catalog = store::load(&store::catalog_path(&data_dir(args)))?.unwrap_or_default();
     let window = args.window(DEFAULT_LIMIT)?;
     let owner = owner(args);
 
@@ -1101,7 +1097,7 @@ pub fn history(args: &Args) -> Res {
     if plays.is_empty() {
         println!(
             "{}",
-            ui::dim("nothing has been played yet: aede played \"<title>\"")
+            ui::dim("nothing has been played yet: aede play <file>")
         );
         return Ok(());
     }
