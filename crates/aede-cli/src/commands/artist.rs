@@ -487,21 +487,7 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
         TrackColumn::WholeRelease => "Tracks",
         TrackColumn::OnlyArtist { header, .. } => header,
     };
-    let mut t = Table::new(&[
-        "Year",
-        "Album",
-        "Artist",
-        track_header,
-        "Duration",
-        "Size",
-        "Format",
-    ])
-    .align(3, Align::Right)
-    .align(4, Align::Right)
-    .align(5, Align::Right)
-    .limit(1, 40)
-    .limit(2, 24)
-    .limit(6, 30);
+    let mut t = super::album_summary_table(track_header, 24);
 
     let mut list: Vec<&aede_core::model::Release> =
         ids.iter().filter_map(|&id| catalog.release(id)).collect();
@@ -528,28 +514,15 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
                 .collect(),
         };
         let (duration, size) = totals(catalog, &counted);
-        let formats: std::collections::BTreeSet<String> = counted
-            .iter()
-            .filter_map(|&id| catalog.track(id))
-            .filter_map(|t| catalog.file(t.file_id))
-            .map(|f| f.properties.quality_label())
-            .collect();
-        let album_artist = release
-            .album_artist_id
-            .and_then(|id| catalog.artist(id))
-            .map(|a| a.name.clone())
-            .unwrap_or_else(|| "Various Artists".into());
+        let album_artist = super::album_artist_name(catalog, release);
         t.push(vec![
-            release
-                .year
-                .map(|y| y.to_string())
-                .unwrap_or_else(|| "—".into()),
+            super::year_label(release.year),
             format!("{}{}", release.title, copy_marker(catalog, release.id)),
             album_artist,
             counted.len().to_string(),
             text::format_duration(duration),
             text::format_size(size),
-            formats.into_iter().collect::<Vec<_>>().join(", "),
+            super::track_formats(catalog, &counted),
         ]);
     }
     print!("{}", t.render());

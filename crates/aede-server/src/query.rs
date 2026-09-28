@@ -21,20 +21,15 @@ pub(super) fn decimal(value: &str, field: &str, pagination: bool) -> Result<usiz
     })
 }
 
-pub(super) fn list_query(
-    query: Result<Query<ListQuery>, QueryRejection>,
-    kind: ListKind,
-) -> Result<ListOptions, ApiError> {
-    let Query(query) = query.map_err(|rejection| invalid_query(rejection.body_text()))?;
-    let offset = query
-        .offset
-        .as_deref()
+pub(super) fn page_bounds(
+    offset: Option<&str>,
+    limit: Option<&str>,
+) -> Result<(usize, usize), ApiError> {
+    let offset = offset
         .map(|value| decimal(value, "offset", true))
         .transpose()?
         .unwrap_or(0);
-    let limit = query
-        .limit
-        .as_deref()
+    let limit = limit
         .map(|value| decimal(value, "limit", true))
         .transpose()?
         .unwrap_or(DEFAULT_LIMIT);
@@ -45,6 +40,15 @@ pub(super) fn list_query(
             format!("limit must be between 1 and {MAX_LIMIT}"),
         ));
     }
+    Ok((offset, limit))
+}
+
+pub(super) fn list_query(
+    query: Result<Query<ListQuery>, QueryRejection>,
+    kind: ListKind,
+) -> Result<ListOptions, ApiError> {
+    let Query(query) = query.map_err(|rejection| invalid_query(rejection.body_text()))?;
+    let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
     let q = query
         .q
         .map(|value| text::normalize(&value))

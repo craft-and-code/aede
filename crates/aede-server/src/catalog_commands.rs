@@ -446,25 +446,7 @@ fn browse_options(query: &BrowseQuery, kind: EntityKind) -> Result<BrowseOptions
     if name.as_deref() == Some("") {
         return Err(invalid_query("name must contain searchable text"));
     }
-    let offset = query
-        .offset
-        .as_deref()
-        .map(|value| decimal(value, "offset", true))
-        .transpose()?
-        .unwrap_or(0);
-    let limit = query
-        .limit
-        .as_deref()
-        .map(|value| decimal(value, "limit", true))
-        .transpose()?
-        .unwrap_or(DEFAULT_LIMIT);
-    if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "invalid_pagination",
-            format!("limit must be between 1 and {MAX_LIMIT}"),
-        ));
-    }
+    let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
     let sort = query.sort.as_deref().unwrap_or("catalog");
     if !(matches!(sort, "catalog" | "name" | "title")
         || (sort == "year" && kind == EntityKind::Release))
@@ -601,17 +583,7 @@ fn album_page(
             rows.sort_by_cached_key(|release| std::cmp::Reverse(text::normalize(&release.title)))
         }
         "name" | "title" => rows.sort_by_cached_key(|release| text::normalize(&release.title)),
-        "year" => rows.sort_by_cached_key(|release| {
-            (
-                release.year.is_none(),
-                if options.descending {
-                    u32::MAX - release.year.unwrap_or_default()
-                } else {
-                    release.year.unwrap_or_default()
-                },
-                text::normalize(&release.title),
-            )
-        }),
+        "year" => rows.sort_by_cached_key(|release| release_year_key(release, options.descending)),
         _ => {}
     }
     let total = rows.len();
@@ -619,27 +591,15 @@ fn album_page(
         .into_iter()
         .skip(options.offset)
         .take(options.limit)
-        .map(|release| {
-            Ok(ReleaseItem {
-                reference: reference(catalog, EntityKind::Release, release.id)
-                    .ok_or_else(unavailable)?,
-                title: release.title.clone(),
-                year: release.year,
-                album_artist: release
-                    .album_artist_id
-                    .and_then(|id| reference(catalog, EntityKind::Artist, id)),
-                track_count: release.track_ids.len(),
-                cover_path: release.cover_path.clone(),
-            })
-        })
+        .map(|release| release_item(catalog, release).ok_or_else(unavailable))
         .collect::<Result<_, ApiError>>()?;
-    Ok(Page {
+    Ok(Page::new(
         items,
         total,
-        offset: options.offset,
-        limit: options.limit,
-        scanned_at: catalog.scanned_at,
-    })
+        options.offset,
+        options.limit,
+        catalog.scanned_at,
+    ))
 }
 
 fn browse_item(catalog: &Catalog, kind: EntityKind, id: Id) -> Result<BrowseItem, ApiError> {
@@ -741,13 +701,13 @@ fn browse_page(
         .take(options.limit)
         .map(|id| browse_item(catalog, kind, id))
         .collect::<Result<_, _>>()?;
-    Ok(Page {
+    Ok(Page::new(
         items,
         total,
-        offset: options.offset,
-        limit: options.limit,
-        scanned_at: catalog.scanned_at,
-    })
+        options.offset,
+        options.limit,
+        catalog.scanned_at,
+    ))
 }
 
 #[cfg(test)]

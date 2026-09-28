@@ -1,0 +1,57 @@
+
+Take Five
+
+  Album         Duos (1963)
+  Album artist  Various Artists
+  Position      disc 1, track 1
+  Genres        Jazz
+  Path          <MUSIC>/compilation.flac
+  Integrity     not verified — run aede check
+
+  Container           flac
+  Codec               flac
+  Quality             FLAC 16/44.1
+  Sample rate         44100 Hz
+  Bit depth           16 bits
+  Channels            1
+  Duration            0:01
+  Bitrate             93 kbps
+  Lossless            yes
+  Embedded cover art  no
+  Size                20.1 kB
+
+Credits
+
+  Role         Artists     
+  ───────────  ────────────
+  main artist  Dave Brubeck
+
+Tags
+
+  Field        Value                     
+  ───────────  ──────────────────────────
+  album        Duos
+  albumartist  Various Artists
+  artist       Dave Brubeck
+  comment      Vinyl rip, needs replacing
+  date         1963
+  discnumber   1/1
+  encoder      Lavf60.16.100
+  genre        Jazz
+  title        Take Five
+  tracknumber  1/1
+
+Graph
+
+  Relation   Target     Identity  Evidence            
+  ─────────  ─────────  ────────  ────────────────────
+  recording  Take Five  local     1 local placement(s)
+
+Continue
+
+  Relation         Command                   
+  ───────────────  ──────────────────────────
+  Recording        aede recording 'Take Five'
+  Album            aede album 'Duos'
+  Credited artist  aede artist 'Dave Brubeck'
+

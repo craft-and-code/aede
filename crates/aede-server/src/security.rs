@@ -2,6 +2,24 @@
 
 use super::*;
 
+pub(super) fn require_admin<'a>(
+    state: &'a ApiState,
+    request: &Request,
+) -> Result<&'a Admin, ApiError> {
+    let admin = state
+        .admin
+        .as_ref()
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "not_found", "unknown API route"))?;
+    if !authorized(request.headers(), &admin.token) {
+        return Err(error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "administrative token required",
+        ));
+    }
+    Ok(admin)
+}
+
 pub(super) fn authorized(headers: &HeaderMap, token: &str) -> bool {
     // Browser-originated requests have no reason to use the administrative API.
     // Reject them even when a page somehow obtains the bearer token.

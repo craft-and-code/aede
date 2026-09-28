@@ -6,6 +6,24 @@ use aede_core::model::{
 };
 use std::io::{Read, Write};
 
+pub(crate) fn test_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+pub(crate) async fn start_server(state: ApiState) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let _ = axum::serve(listener, router(state, address)).await;
+    });
+    (address, server)
+}
+
 pub(crate) fn sample_state() -> ApiState {
     let catalog = Catalog {
         scanned_at: 1_700_000_000,

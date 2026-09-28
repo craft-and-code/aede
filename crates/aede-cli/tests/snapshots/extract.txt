@@ -1,0 +1,5 @@
+
+Extract
+
+  nothing to extract
+  1 folder holds no picture inside its files: aede fetch --covers downloads one

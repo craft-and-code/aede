@@ -23,6 +23,34 @@ pub(super) fn reference(catalog: &Catalog, kind: EntityKind, id: u32) -> Option<
     EntityRef::of(catalog, kind, id).map(|reference| reference.to_token())
 }
 
+pub(super) fn release_year_key(
+    release: &aede_core::model::Release,
+    descending: bool,
+) -> (bool, u32, String) {
+    let year = release.year.unwrap_or_default();
+    (
+        release.year.is_none(),
+        if descending { u32::MAX - year } else { year },
+        text::normalize(&release.title),
+    )
+}
+
+pub(super) fn release_item(
+    catalog: &Catalog,
+    release: &aede_core::model::Release,
+) -> Option<ReleaseItem> {
+    Some(ReleaseItem {
+        reference: reference(catalog, EntityKind::Release, release.id)?,
+        title: release.title.clone(),
+        year: release.year,
+        album_artist: release
+            .album_artist_id
+            .and_then(|id| reference(catalog, EntityKind::Artist, id)),
+        track_count: release.track_ids.len(),
+        cover_path: release.cover_path.clone(),
+    })
+}
+
 pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
     Json(Status {
         status: "ok",
@@ -91,13 +119,13 @@ pub(super) async fn artists(
             })
         })
         .collect();
-    Ok(Json(Page {
+    Ok(Json(Page::new(
         items,
         total,
-        offset: options.offset,
-        limit: options.limit,
-        scanned_at: catalog.scanned_at,
-    }))
+        options.offset,
+        options.limit,
+        catalog.scanned_at,
+    )))
 }
 
 pub(super) async fn releases(
@@ -130,18 +158,9 @@ pub(super) async fn releases(
             rows.sort_by_cached_key(|release| std::cmp::Reverse(text::normalize(&release.title)));
         }
         SortMode::Title => rows.sort_by_cached_key(|release| text::normalize(&release.title)),
-        SortMode::Year => rows.sort_by_cached_key(|release| {
-            let year = release.year.unwrap_or_default();
-            (
-                release.year.is_none(),
-                if options.descending {
-                    u32::MAX - year
-                } else {
-                    year
-                },
-                text::normalize(&release.title),
-            )
-        }),
+        SortMode::Year => {
+            rows.sort_by_cached_key(|release| release_year_key(release, options.descending))
+        }
         _ => {}
     }
     let total = rows.len();
@@ -149,26 +168,15 @@ pub(super) async fn releases(
         .into_iter()
         .skip(options.offset)
         .take(options.limit)
-        .filter_map(|release| {
-            Some(ReleaseItem {
-                reference: reference(catalog, EntityKind::Release, release.id)?,
-                title: release.title.clone(),
-                year: release.year,
-                album_artist: release
-                    .album_artist_id
-                    .and_then(|id| reference(catalog, EntityKind::Artist, id)),
-                track_count: release.track_ids.len(),
-                cover_path: release.cover_path.clone(),
-            })
-        })
+        .filter_map(|release| release_item(catalog, release))
         .collect();
-    Ok(Json(Page {
+    Ok(Json(Page::new(
         items,
         total,
-        offset: options.offset,
-        limit: options.limit,
-        scanned_at: catalog.scanned_at,
-    }))
+        options.offset,
+        options.limit,
+        catalog.scanned_at,
+    )))
 }
 
 pub(super) async fn tracks(
@@ -219,13 +227,13 @@ pub(super) async fn tracks(
             })
         })
         .collect();
-    Ok(Json(Page {
+    Ok(Json(Page::new(
         items,
         total,
-        offset: options.offset,
-        limit: options.limit,
-        scanned_at: catalog.scanned_at,
-    }))
+        options.offset,
+        options.limit,
+        catalog.scanned_at,
+    )))
 }
 
 pub(super) async fn recordings(
@@ -273,13 +281,13 @@ pub(super) async fn recordings(
             })
         })
         .collect();
-    Ok(Json(Page {
+    Ok(Json(Page::new(
         items,
         total,
-        offset: options.offset,
-        limit: options.limit,
-        scanned_at: catalog.scanned_at,
-    }))
+        options.offset,
+        options.limit,
+        catalog.scanned_at,
+    )))
 }
 
 pub(super) async fn entity(

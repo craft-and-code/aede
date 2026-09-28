@@ -39,7 +39,7 @@ use aede_core::{acoustid, clock};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, ask_with_backoff, defer, queue};
 
 /// A file to ask about, and what to ask with.
 struct Target {
@@ -70,14 +70,7 @@ pub fn run(
     println!("{}", ui::section("Identify"));
     skipped(&survey);
     if survey.targets.is_empty() {
-        let narrowed = super::fetch::narrowing(asked.names, asked.scope);
-        match narrowed.is_empty() {
-            true => println!("  {}", ui::dim("nothing to ask about")),
-            false => println!(
-                "  {}",
-                ui::dim(&format!("nothing to ask about for {narrowed}"))
-            ),
-        }
+        super::fetch::print_nothing_to_ask(asked);
         return Ok(());
     }
 
@@ -123,8 +116,7 @@ pub fn run(
         let url = acoustid::lookup_url(key, &target.fingerprint.data, target.fingerprint.seconds);
         let answer = match ask_with_backoff(transport, &url, backoff) {
             Ok(answer) => answer,
-            Err(why) if worth_deferring(&why) && !retried => {
-                pending.push_back((target, true));
+            Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
@@ -257,29 +249,21 @@ fn survey(
 /// fingerprinting anything is told exactly which command comes first, on the
 /// line where this one gives up.
 fn skipped(survey: &Survey) {
-    for (count, one, many) in [
-        (
-            survey.no_fingerprint,
-            "has no fingerprint yet: aede fingerprint computes one",
-            "have no fingerprint yet: aede fingerprint computes them",
-        ),
-        (
-            survey.asked,
-            "was asked about already: --full asks again",
-            "were asked about already: --full asks again",
-        ),
-    ] {
-        if count > 0 {
-            let rest = match count {
-                1 => one,
-                _ => many,
-            };
-            println!(
-                "  {}",
-                ui::dim(&format!("{} {rest}", ui::plural(count, "file")))
-            );
-        }
-    }
+    super::print_skipped_counts(
+        &[
+            (
+                survey.no_fingerprint,
+                "has no fingerprint yet: aede fingerprint computes one",
+                "have no fingerprint yet: aede fingerprint computes them",
+            ),
+            (
+                survey.asked,
+                "was asked about already: --full asks again",
+                "were asked about already: --full asks again",
+            ),
+        ],
+        "file",
+    );
 }
 
 /// How many files an `--identify` pass would ask about, if it ran now.

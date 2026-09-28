@@ -18,8 +18,8 @@
 use std::collections::BTreeSet;
 
 use aede_core::json::Json;
-use aede_core::model::{Catalog, EntityKind, Id};
-use aede_core::sources::{self, Facts, SourceRecord};
+use aede_core::model::{Artist, Catalog, EntityKind, Id};
+use aede_core::sources::{self, ArtistFacts, Facts, SourceRecord};
 use aede_core::user::EntityRef;
 use aede_core::{clock, musicbrainz, text};
 
@@ -106,25 +106,23 @@ pub fn fetch(_args: &Args) -> Res {
 struct Http(aede_core::http::Client);
 
 #[cfg(feature = "fetch")]
+fn http_refusal(error: aede_core::http::Error) -> Refusal {
+    match error {
+        aede_core::http::Error::RateLimited => Refusal::RateLimited,
+        aede_core::http::Error::Status(404) => Refusal::Missing,
+        aede_core::http::Error::Network(detail) => Refusal::Unreachable(detail),
+        other => Refusal::Failed(other.to_string()),
+    }
+}
+
+#[cfg(feature = "fetch")]
 impl Ask for Http {
     fn get_json(&mut self, url: &str) -> Result<Json, Refusal> {
-        match self.0.get_json(url) {
-            Ok(value) => Ok(value),
-            Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
-            Err(aede_core::http::Error::Status(404)) => Err(Refusal::Missing),
-            Err(aede_core::http::Error::Network(detail)) => Err(Refusal::Unreachable(detail)),
-            Err(other) => Err(Refusal::Failed(other.to_string())),
-        }
+        self.0.get_json(url).map_err(http_refusal)
     }
 
     fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
-        match self.0.get_bytes(url) {
-            Ok(bytes) => Ok(bytes),
-            Err(aede_core::http::Error::RateLimited) => Err(Refusal::RateLimited),
-            Err(aede_core::http::Error::Status(404)) => Err(Refusal::Missing),
-            Err(aede_core::http::Error::Network(detail)) => Err(Refusal::Unreachable(detail)),
-            Err(other) => Err(Refusal::Failed(other.to_string())),
-        }
+        self.0.get_bytes(url).map_err(http_refusal)
     }
 }
 
@@ -378,6 +376,16 @@ pub(super) fn narrowing(names: &[String], scope: &Scope) -> String {
     }
 }
 
+pub(super) fn print_nothing_to_ask(asked: &Asked<'_>) {
+    let narrowed = narrowing(asked.names, asked.scope);
+    let message = if narrowed.is_empty() {
+        "nothing to ask about".to_string()
+    } else {
+        format!("nothing to ask about for {narrowed}")
+    };
+    println!("  {}", ui::dim(&message));
+}
+
 /// `true` when one of the names typed reaches this thing.
 ///
 /// Empty means everything, which is what makes a bare `aede fetch --covers`
@@ -394,6 +402,35 @@ pub(super) fn reaches(wanted: &[String], candidates: &[&str]) -> bool {
             let key = text::normalize(candidate);
             wanted.iter().any(|w| key.contains(w.as_str()))
         })
+}
+
+/// MusicBrainz artist identities that can have local artwork beside an album.
+pub(super) fn artist_image_candidates<'a>(
+    catalog: &'a Catalog,
+    held: &'a sources::Sources,
+    wanted: &[String],
+    scope: &Scope,
+) -> Vec<(&'a SourceRecord, &'a Artist, &'a ArtistFacts, &'a str)> {
+    held.records
+        .iter()
+        .filter_map(|record| {
+            if record.source != sources::MUSICBRAINZ
+                || !reaches(wanted, &[record.key.as_str()])
+                || !scope.has_artist(&record.key)
+            {
+                return None;
+            }
+            let Facts::Artist(facts) = &record.facts else {
+                return None;
+            };
+            let mbid = record.source_id.as_deref()?;
+            let artist = catalog
+                .artists
+                .iter()
+                .find(|artist| artist.key == record.key)?;
+            has_album(catalog, artist.id).then_some((record, artist, facts, mbid))
+        })
+        .collect()
 }
 
 /// What to say when names were given and nothing came of them.
@@ -1030,13 +1067,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         // pass is available. An announcement made only on the path that has
         // just done work is an announcement nobody who finished first ever
         // sees.
-        offer_summaries(&held);
-        offer_discography(&catalog, &held);
-        offer_covers(&catalog, &held);
-        offer_identify(&catalog, &held);
-        offer_portraits(&catalog, &held, &data_dir);
-        offer_logos(&catalog, &held, &data_dir);
-        offer_labels(&catalog, &held);
+        offer_next_steps(&catalog, &held, &data_dir);
         return Ok(());
     }
 
@@ -1118,12 +1149,11 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 )
                 .into());
             }
-            Err(other) if worth_deferring(&other) && !retried => {
+            Err(other) if defer(&mut pending, item, retried, &other) => {
                 // Not shown, not counted: the same name goes back to the end
                 // of the queue instead, on the theory that whatever kept the
                 // service from answering will often have passed by the time
                 // everything else here has had its turn.
-                pending.push_back((item, true));
                 continue;
             }
             Err(other) => {
@@ -1210,15 +1240,19 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             )
         );
     }
-    offer_summaries(&held);
-    offer_discography(&catalog, &held);
-    offer_covers(&catalog, &held);
-    offer_identify(&catalog, &held);
-    offer_portraits(&catalog, &held, &data_dir);
-    offer_logos(&catalog, &held, &data_dir);
-    offer_labels(&catalog, &held);
+    offer_next_steps(&catalog, &held, &data_dir);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
+}
+
+fn offer_next_steps(catalog: &Catalog, held: &sources::Sources, data_dir: &std::path::Path) {
+    offer_summaries(held);
+    offer_discography(catalog, held);
+    offer_covers(catalog, held);
+    offer_identify(catalog, held);
+    offer_portraits(catalog, held, data_dir);
+    offer_logos(catalog, held, data_dir);
+    offer_labels(catalog, held);
 }
 
 /// Names the second pass, when there is something for it to do.
@@ -1416,16 +1450,7 @@ pub(super) fn ask_with_backoff(
     url: &str,
     backoff: &[std::time::Duration],
 ) -> Result<Json, Refusal> {
-    let mut attempt = 0;
-    loop {
-        match transport.get_json(url) {
-            Err(Refusal::RateLimited) if attempt < backoff.len() => {
-                std::thread::sleep(backoff[attempt]);
-                attempt += 1;
-            }
-            other => return other,
-        }
-    }
+    request_with_backoff(|| transport.get_json(url), backoff)
 }
 
 /// [`ask_with_backoff`], for bytes.
@@ -1438,9 +1463,16 @@ pub(super) fn ask_bytes(
     url: &str,
     backoff: &[std::time::Duration],
 ) -> Result<Vec<u8>, Refusal> {
+    request_with_backoff(|| transport.get_bytes(url), backoff)
+}
+
+fn request_with_backoff<T>(
+    mut request: impl FnMut() -> Result<T, Refusal>,
+    backoff: &[std::time::Duration],
+) -> Result<T, Refusal> {
     let mut attempt = 0;
     loop {
-        match transport.get_bytes(url) {
+        match request() {
             Err(Refusal::RateLimited) if attempt < backoff.len() => {
                 std::thread::sleep(backoff[attempt]);
                 attempt += 1;
@@ -1461,6 +1493,21 @@ pub(super) fn ask_bytes(
 /// gets that once: `true` on the way back in means the next refusal is final.
 pub(super) fn queue<T>(targets: &[T]) -> std::collections::VecDeque<(&T, bool)> {
     targets.iter().map(|target| (target, false)).collect()
+}
+
+/// Gives an unreachable target one more turn after the rest of the queue.
+pub(super) fn defer<'a, T>(
+    pending: &mut std::collections::VecDeque<(&'a T, bool)>,
+    target: &'a T,
+    retried: bool,
+    why: &Refusal,
+) -> bool {
+    if !retried && worth_deferring(why) {
+        pending.push_back((target, true));
+        true
+    } else {
+        false
+    }
 }
 
 /// Whether a refusal is worth asking again later rather than reporting now.

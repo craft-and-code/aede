@@ -175,21 +175,6 @@ struct CollectionRequest {
     expression: String,
 }
 
-fn require_admin(state: &ApiState, request: &Request) -> Result<(), ApiError> {
-    let admin = state
-        .admin
-        .as_ref()
-        .ok_or_else(|| error(StatusCode::NOT_FOUND, "not_found", "unknown API route"))?;
-    if !authorized(request.headers(), &admin.token) {
-        return Err(error(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "administrative token required",
-        ));
-    }
-    Ok(())
-}
-
 fn parsed_query<T>(input: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
     input
         .map(|Query(value)| value)
@@ -453,6 +438,22 @@ struct PlayView {
     last_played: u64,
 }
 
+fn play_view(data: &UserData, play: &Play) -> PlayView {
+    PlayView {
+        track: play.track.to_token(),
+        at: play.at,
+        ms_played: play.ms_played,
+        completed: play.completed,
+        play_count: data.play_count(LOCAL_USER, &play.track),
+        last_played: data
+            .counts
+            .iter()
+            .find(|count| count.owner == LOCAL_USER && count.track == play.track)
+            .map(|count| count.last_played)
+            .unwrap_or(0),
+    }
+}
+
 #[derive(Serialize)]
 struct HistoryResponse {
     #[serde(flatten)]
@@ -470,19 +471,7 @@ fn history_page(
         .iter()
         .filter(|play| play.owner == LOCAL_USER)
         .rev()
-        .map(|play| PlayView {
-            track: play.track.to_token(),
-            at: play.at,
-            ms_played: play.ms_played,
-            completed: play.completed,
-            play_count: data.play_count(LOCAL_USER, &play.track),
-            last_played: data
-                .counts
-                .iter()
-                .find(|count| count.owner == LOCAL_USER && count.track == play.track)
-                .map(|count| count.last_played)
-                .unwrap_or(0),
-        })
+        .map(|play| play_view(data, play))
         .collect();
     HistoryResponse {
         page: Page {
@@ -496,26 +485,7 @@ fn history_page(
 }
 
 fn page(query: PageQuery) -> Result<(usize, usize), ApiError> {
-    let offset = query
-        .offset
-        .as_deref()
-        .map(|value| decimal(value, "offset", true))
-        .transpose()?
-        .unwrap_or(0);
-    let limit = query
-        .limit
-        .as_deref()
-        .map(|value| decimal(value, "limit", true))
-        .transpose()?
-        .unwrap_or(DEFAULT_LIMIT);
-    if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "invalid_pagination",
-            format!("limit must be between 1 and {MAX_LIMIT}"),
-        ));
-    }
-    Ok((offset, limit))
+    page_bounds(query.offset.as_deref(), query.limit.as_deref())
 }
 
 async fn history(
@@ -563,19 +533,7 @@ async fn record_history(
                 completed: input.completed,
             };
             data.record_play(play.clone());
-            Ok(PlayView {
-                track: play.track.to_token(),
-                at: play.at,
-                ms_played: play.ms_played,
-                completed: play.completed,
-                play_count: data.play_count(LOCAL_USER, &play.track),
-                last_played: data
-                    .counts
-                    .iter()
-                    .find(|count| count.owner == LOCAL_USER && count.track == play.track)
-                    .map(|count| count.last_played)
-                    .unwrap_or(0),
-            })
+            Ok(play_view(data, &play))
         })
         .map(|view| (StatusCode::CREATED, Json(view)))
     })

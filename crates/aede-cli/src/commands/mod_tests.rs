@@ -5,6 +5,18 @@
 
 use super::*;
 
+#[test]
+fn queued_work_survives_a_poisoned_lock() {
+    let queue = std::sync::Mutex::new(vec![1, 2]);
+    let _ = std::panic::catch_unwind(|| {
+        let _guard = queue.lock().expect("queue lock");
+        panic!("poison the queue lock");
+    });
+    assert_eq!(take_queued(&queue), Some(2));
+    assert_eq!(take_queued(&queue), Some(1));
+    assert_eq!(take_queued(&queue), None);
+}
+
 fn window(offset: usize, limit: usize) -> Window {
     Window { offset, limit }
 }

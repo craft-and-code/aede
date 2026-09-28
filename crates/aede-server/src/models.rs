@@ -136,6 +136,24 @@ pub(super) struct Page<T> {
     pub(super) scanned_at: u64,
 }
 
+impl<T> Page<T> {
+    pub(super) fn new(
+        items: Vec<T>,
+        total: usize,
+        offset: usize,
+        limit: usize,
+        scanned_at: u64,
+    ) -> Self {
+        Self {
+            items,
+            total,
+            offset,
+            limit,
+            scanned_at,
+        }
+    }
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ListQuery {

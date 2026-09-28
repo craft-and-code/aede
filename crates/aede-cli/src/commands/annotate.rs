@@ -254,12 +254,17 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
     }
 }
 
-/// `aede love <kind> <name>` — and `--remove` to take it back.
-pub fn love(args: &Args) -> Res {
+fn editable_target(args: &Args) -> Result<(Catalog, EntityRef, UserData, u64), Box<dyn Error>> {
     let catalog = load(args)?;
     let reference = target(&args.positionals, &catalog)?;
-    let mut data = read(args, &catalog)?;
+    let data = read(args, &catalog)?;
     let now = clock::now_seconds();
+    Ok((catalog, reference, data, now))
+}
+
+/// `aede love <kind> <name>` — and `--remove` to take it back.
+pub fn love(args: &Args) -> Res {
+    let (catalog, reference, mut data, now) = editable_target(args)?;
     let wanted = !args.has("remove");
     let entry = data.entry(&owner(args), &reference, now);
     let changed = entry.loved != wanted;
@@ -283,10 +288,7 @@ pub fn love(args: &Args) -> Res {
 
 /// `aede rate <kind> <name> --stars N`, or `--remove`.
 pub fn rate(args: &Args) -> Res {
-    let catalog = load(args)?;
-    let reference = target(&args.positionals, &catalog)?;
-    let mut data = read(args, &catalog)?;
-    let now = clock::now_seconds();
+    let (catalog, reference, mut data, now) = editable_target(args)?;
 
     // Both name a different outcome for the same rating. Letting --stars win
     // in silence, the way it used to, is exactly the ignored option this
@@ -321,10 +323,7 @@ pub fn rate(args: &Args) -> Res {
 
 /// `aede note <kind> <name> --text "…"`, `--remove`, or `--from <token>`.
 pub fn note(args: &Args) -> Res {
-    let catalog = load(args)?;
-    let reference = target(&args.positionals, &catalog)?;
-    let mut data = read(args, &catalog)?;
-    let now = clock::now_seconds();
+    let (catalog, reference, mut data, now) = editable_target(args)?;
     let name = reference.display_name(&catalog);
 
     // --from, --text and --file each say what to write; --remove says to take
@@ -810,11 +809,7 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
         aede_core::query::Context::new(&catalog, &data, &current_owner).with_sources(&held);
     // A value naming nothing in the library is a misunderstanding, not an
     // empty result, and the two read differently.
-    if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
-        return Err(
-            format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),
-        );
-    }
+    super::ensure_query_values(&parsed, &context)?;
     let mut tracks = aede_core::query::run(&parsed, &context);
     if let Some(order) = args.value("sort") {
         aede_core::query::sort(&mut tracks, aede_core::query::Sort::parse(order)?, &context);
@@ -848,12 +843,7 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
             continue;
         };
         let release = track.release_id.and_then(|r| catalog.release(r));
-        let artist = catalog
-            .credits_on(EntityKind::Track, id)
-            .into_iter()
-            .find(|(_, role)| *role == "main")
-            .map(|(a, _)| a.name.clone())
-            .unwrap_or_default();
+        let artist = super::main_track_artist(&catalog, id).unwrap_or_default();
         t.push(vec![
             track.title.clone(),
             artist,
@@ -871,16 +861,7 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
     print!("{}", t.render());
     super::announce_window(window, total, "track");
 
-    let (duration, size) = super::totals(&catalog, &tracks);
-    println!(
-        "  {}",
-        ui::dim(&format!(
-            "{} · {} · {}",
-            ui::plural(tracks.len(), "track"),
-            text::format_duration(duration),
-            text::format_size(size)
-        ))
-    );
+    super::print_track_totals(&catalog, &tracks);
     Ok(())
 }
 
@@ -1131,14 +1112,7 @@ pub fn history(args: &Args) -> Res {
     for play in plays.into_iter().skip(window.offset).take(window.limit) {
         let resolved = play.track.resolve(&catalog);
         let artist = resolved
-            .and_then(|id| catalog.track(id))
-            .and_then(|track| {
-                catalog
-                    .credits_on(EntityKind::Track, track.id)
-                    .into_iter()
-                    .find(|(_, role)| *role == "main")
-                    .map(|(a, _)| a.name.clone())
-            })
+            .and_then(|id| super::main_track_artist(&catalog, id))
             .unwrap_or_default();
         t.push(vec![
             ui::since(play.at),

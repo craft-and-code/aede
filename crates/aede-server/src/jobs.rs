@@ -13,7 +13,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
-use super::{ApiError, ApiState, CatalogEvent, authorized, error, refresh_catalog, store};
+use super::{ApiError, ApiState, CatalogEvent, error, refresh_catalog, require_admin, store};
 
 const MAX_BODY: usize = 16 * 1024;
 const MAX_ACTIVE: usize = 4;
@@ -371,17 +371,7 @@ pub(super) fn routes() -> Router<ApiState> {
 }
 
 fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
-    let admin = state
-        .admin
-        .as_ref()
-        .ok_or_else(|| error(StatusCode::NOT_FOUND, "not_found", "unknown API route"))?;
-    if !authorized(request.headers(), &admin.token) {
-        return Err(error(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "administrative token required",
-        ));
-    }
+    require_admin(state, request)?;
     if request.uri().query().is_some_and(|query| !query.is_empty()) {
         return Err(error(
             StatusCode::BAD_REQUEST,

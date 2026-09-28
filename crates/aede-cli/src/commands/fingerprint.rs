@@ -322,47 +322,39 @@ fn first(file: &aede_core::model::AudioFile, key: &str) -> String {
 /// the count *in* the sentence, and a count that opens a sentence takes the
 /// verb with it.
 fn skipped(survey: &Survey, full: bool) {
-    for (count, one, many) in [
-        (
-            // Both ways out, on the line that raises the question. A reader
-            // reading "12 files have one already" wants one of two things —
-            // to compute them again, or to *see* them — and the first version
-            // named only the destructive one. **A capability that becomes
-            // possible at a particular moment is named at that moment**, not
-            // only in `--help`: it is the line this reader is looking at.
-            survey.done,
-            "has one already: --list shows it, --full computes it again",
-            "have one already: --list shows them, --full computes them again",
-        ),
-        (
-            survey.already_identified,
-            "already carries a MusicBrainz recording id — what a lookup would \
+    super::print_skipped_counts(
+        &[
+            (
+                // Both ways out, on the line that raises the question. A reader
+                // reading "12 files have one already" wants one of two things —
+                // to compute them again, or to *see* them — and the first version
+                // named only the destructive one. **A capability that becomes
+                // possible at a particular moment is named at that moment**, not
+                // only in `--help`: it is the line this reader is looking at.
+                survey.done,
+                "has one already: --list shows it, --full computes it again",
+                "have one already: --list shows them, --full computes them again",
+            ),
+            (
+                survey.already_identified,
+                "already carries a MusicBrainz recording id — what a lookup would \
              answer: --full fingerprints it anyway",
-            "already carry a MusicBrainz recording id — what a lookup would \
+                "already carry a MusicBrainz recording id — what a lookup would \
              answer: --full fingerprints them anyway",
-        ),
-        (
-            survey.named,
-            "is named by its own tags: --full fingerprints it anyway",
-            "are named by their own tags: --full fingerprints them anyway",
-        ),
-        (
-            survey.no_length,
-            "has no length on record, and a lookup needs one: aede scan reads it",
-            "have no length on record, and a lookup needs one: aede scan reads them",
-        ),
-    ] {
-        if count > 0 {
-            let rest = match count {
-                1 => one,
-                _ => many,
-            };
-            println!(
-                "  {}",
-                ui::dim(&format!("{} {rest}", ui::plural(count, "file")))
-            );
-        }
-    }
+            ),
+            (
+                survey.named,
+                "is named by its own tags: --full fingerprints it anyway",
+                "are named by their own tags: --full fingerprints them anyway",
+            ),
+            (
+                survey.no_length,
+                "has no length on record, and a lookup needs one: aede scan reads it",
+                "have no length on record, and a lookup needs one: aede scan reads them",
+            ),
+        ],
+        "file",
+    );
     let _ = full;
 }
 

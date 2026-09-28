@@ -91,7 +91,8 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use aede_core::model::{Catalog, Id, Release};
+use aede_core::model::{Catalog, EntityKind, Id, Release};
+use aede_core::query;
 use aede_core::sources as core_sources;
 use aede_core::store;
 use aede_core::tags::AudioProperties;
@@ -103,6 +104,23 @@ use crate::ui::{self, Table};
 /// What every command returns: nothing useful, or an error already worded for
 /// the user.
 pub type Res = Result<(), Box<dyn Error>>;
+
+fn ensure_query_values(parsed: &query::Query, context: &query::Context<'_>) -> Res {
+    if let Some((what, value)) = query::unknown_values(parsed, context).first() {
+        return Err(
+            format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),
+        );
+    }
+    Ok(())
+}
+
+fn quoted_query_value(value: &str) -> String {
+    if value.contains(char::is_whitespace) {
+        format!("\"{}\"", value.replace('"', ""))
+    } else {
+        value.to_string()
+    }
+}
 
 /// Asks before something irreversible, unless `--yes` was given.
 ///
@@ -242,12 +260,10 @@ pub fn in_scope(path: &str, scope: &[String]) -> bool {
 ///
 /// Not a thing the catalog holds — an artist folder is inferred, not scanned
 /// — so this is the one place that infers it, shared by `playlist`'s
-/// `--discography` mode and `fetch --portraits`. Both write a file into it,
-/// and both need the same refusal for the same reason: where an artist's
-/// albums do not share one folder, or share only a watched root, inventing a
-/// destination would put the file somewhere arbitrary — a library laid out
-/// flat would otherwise get a stray file dumped in its root for every artist
-/// in it.
+/// `--discography` mode and the artist artwork passes. Each writes a file into
+/// it. When albums do not share one folder, there is no destination to infer;
+/// callers also reject a watched root, so a flat library does not get a stray
+/// file in its root for every artist.
 pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
     let mut shared: Option<PathBuf> = None;
     for release in releases {
@@ -259,6 +275,32 @@ pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
         });
     }
     shared
+}
+
+fn releases_by_album_artist(catalog: &Catalog) -> BTreeMap<Id, Vec<&Release>> {
+    let mut releases_by_artist: BTreeMap<Id, Vec<&Release>> = BTreeMap::new();
+    for release in &catalog.releases {
+        if let Some(artist) = release.album_artist_id {
+            releases_by_artist.entry(artist).or_default().push(release);
+        }
+    }
+    releases_by_artist
+}
+
+fn artist_artwork_destination(
+    catalog: &Catalog,
+    releases: &[&Release],
+    data_dir: &Path,
+    mbid: &str,
+) -> PathBuf {
+    shared_folder(releases)
+        .filter(|folder| {
+            // A watched root is not an artist folder, even when every album
+            // happens to sit directly beneath it.
+            let name = folder.to_string_lossy();
+            !catalog.roots.iter().any(|root| root == name.as_ref())
+        })
+        .unwrap_or_else(|| store::assets_dir(data_dir).join("artists").join(mbid))
 }
 
 /// Where the catalog lives: what `--data` names, or the default location.
@@ -588,6 +630,96 @@ fn totals(catalog: &Catalog, tracks: &[Id]) -> (u64, u64) {
                 size + catalog.file(track.file_id).map(|f| f.size).unwrap_or(0),
             )
         })
+}
+
+fn print_track_totals(catalog: &Catalog, tracks: &[Id]) {
+    let (duration, size) = totals(catalog, tracks);
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "{} · {} · {}",
+            ui::plural(tracks.len(), "track"),
+            text::format_duration(duration),
+            text::format_size(size)
+        ))
+    );
+}
+
+fn main_track_artist(catalog: &Catalog, track_id: Id) -> Option<String> {
+    catalog
+        .credits_on(EntityKind::Track, track_id)
+        .into_iter()
+        .find(|(_, role)| *role == "main")
+        .map(|(artist, _)| artist.name.clone())
+}
+
+fn album_artist_name(catalog: &Catalog, release: &Release) -> String {
+    release
+        .album_artist_id
+        .and_then(|id| catalog.artist(id))
+        .map(|artist| artist.name.clone())
+        .unwrap_or_else(|| "Various Artists".into())
+}
+
+fn track_formats(catalog: &Catalog, tracks: &[Id]) -> String {
+    let formats: std::collections::BTreeSet<String> = tracks
+        .iter()
+        .filter_map(|&id| catalog.track(id))
+        .filter_map(|track| catalog.file(track.file_id))
+        .map(|file| file.properties.quality_label())
+        .collect();
+    formats.into_iter().collect::<Vec<_>>().join(", ")
+}
+
+fn year_label(year: Option<u32>) -> String {
+    year.map(|year| year.to_string())
+        .unwrap_or_else(|| "—".into())
+}
+
+fn album_summary_table(track_header: &str, artist_width: usize) -> Table {
+    Table::new(&[
+        "Year",
+        "Album",
+        "Artist",
+        track_header,
+        "Duration",
+        "Size",
+        "Format",
+    ])
+    .align(3, ui::Align::Right)
+    .align(4, ui::Align::Right)
+    .align(5, ui::Align::Right)
+    .limit(1, 40)
+    .limit(2, artist_width)
+    .limit(6, 30)
+}
+
+fn print_skipped_counts(entries: &[(usize, &str, &str)], noun: &str) {
+    for &(count, one, many) in entries {
+        if count > 0 {
+            let rest = if count == 1 { one } else { many };
+            println!(
+                "  {}",
+                ui::dim(&format!("{} {rest}", ui::plural(count, noun)))
+            );
+        }
+    }
+}
+
+fn print_failure_table(title: &str, item_header: &str, failures: &[(String, String)]) {
+    println!("{}", ui::section(title));
+    let mut table = Table::new(&[item_header, "Reason"]).path_limit(0, 60);
+    for (path, reason) in failures.iter().take(20) {
+        table.push(vec![path.clone(), reason.clone()]);
+    }
+    print!("{}", table.render());
+}
+
+fn take_queued<T>(queue: &std::sync::Mutex<Vec<T>>) -> Option<T> {
+    queue
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .pop()
 }
 
 /// Says that a listing was cut, and what to do about it.

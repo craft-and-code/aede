@@ -74,12 +74,7 @@ pub fn check(args: &Args) -> Res {
         std::thread::scope(|scope| {
             for _ in 0..threads.min(batch.len()) {
                 scope.spawn(|| {
-                    loop {
-                        let Some((id, path)) =
-                            pending.lock().unwrap_or_else(|e| e.into_inner()).pop()
-                        else {
-                            break;
-                        };
+                    while let Some((id, path)) = super::take_queued(&pending) {
                         match integrity::check(&path) {
                             Ok(report) => {
                                 let record = IntegrityRecord {
@@ -277,12 +272,7 @@ fn report(
     }
 
     if !failures.is_empty() {
-        println!("{}", ui::section("Unreadable files"));
-        let mut t = Table::new(&["File", "Reason"]).path_limit(0, 60);
-        for (path, reason) in failures.iter().take(20) {
-            t.push(vec![path.clone(), reason.clone()]);
-        }
-        print!("{}", t.render());
+        super::print_failure_table("Unreadable files", "File", failures);
     }
 }
 

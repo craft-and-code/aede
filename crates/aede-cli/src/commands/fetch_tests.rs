@@ -9,6 +9,67 @@ use super::*;
 use aede_core::model::builder::{ScannedFile, build};
 use aede_core::tags::RawTags;
 
+#[test]
+fn unreachable_targets_get_one_later_attempt_and_other_refusals_do_not() {
+    let targets = [1, 2];
+    let mut pending = queue(&targets);
+    let (first, retried) = pending.pop_front().expect("first target");
+    assert!(defer(
+        &mut pending,
+        first,
+        retried,
+        &Refusal::Unreachable("timeout".into())
+    ));
+    assert_eq!(pending.pop_front(), Some((&2, false)));
+    let (first, retried) = pending.pop_front().expect("deferred target");
+    assert_eq!((*first, retried), (1, true));
+    assert!(!defer(
+        &mut pending,
+        first,
+        retried,
+        &Refusal::Unreachable("timeout".into())
+    ));
+    assert!(!defer(&mut pending, first, false, &Refusal::RateLimited));
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn artist_images_require_a_local_album_and_a_musicbrainz_identity() {
+    let dir = sandbox("artist_image_candidates");
+    let catalog = super::super::load(&args(&dir, &[])).expect("a catalog");
+    let artist = catalog
+        .artists
+        .iter()
+        .find(|artist| artist.name == "Miles Davis")
+        .expect("album artist");
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, artist.id).expect("artist reference");
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: entity.key,
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("mbid-1".to_string()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Identified,
+        facts: Facts::Artist(Default::default()),
+    });
+
+    let candidates = artist_image_candidates(&catalog, &held, &[], &EVERYTHING);
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].1.id, artist.id);
+    assert_eq!(candidates[0].3, "mbid-1");
+    assert!(artist_image_candidates(&catalog, &held, &["other".into()], &EVERYTHING).is_empty());
+
+    held.records[0].source_id = None;
+    assert!(artist_image_candidates(&catalog, &held, &[], &EVERYTHING).is_empty());
+    held.records[0].source_id = Some("mbid-1".to_string());
+    held.records[0].source = "not-musicbrainz".to_string();
+    assert!(artist_image_candidates(&catalog, &held, &[], &EVERYTHING).is_empty());
+    held.records[0].source = sources::MUSICBRAINZ.to_string();
+    held.records[0].key = "artist no longer in the catalog".to_string();
+    assert!(artist_image_candidates(&catalog, &held, &[], &EVERYTHING).is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// A transport that answers from canned text, and remembers what was asked.
 struct Canned {
     answers: Vec<Result<String, Refusal>>,

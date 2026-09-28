@@ -1,0 +1,33 @@
+
+Miles Davis
+
+  performing: 1 album · 12 tracks · 11 s · 340.0 kB
+  writing:    1 album · 8 tracks · 8 s · 242.7 kB
+  genres: Jazz
+
+Discography
+
+  Year  Album         Artist       Tracks  Duration     Size  Format                        
+  ────  ────────────  ───────────  ──────  ────────  ───────  ──────────────────────────────
+  1959  Kind of Blue  Miles Davis       3      0:02  75.0 kB  AAC 126, PCM 16/44.1, WAVPACK…
+
+Appears on
+
+  Year  Album         Artist              Tracks here  Duration      Size  Format                        
+  ────  ────────────  ──────────────────  ───────────  ────────  ────────  ──────────────────────────────
+  1959  Kind of Blue  Miles Davis Sextet            9      0:08  265.0 kB  AAC 132, ALAC 24/44.1, FLAC 1…
+
+Roles
+
+  Role         Occurrences
+  ───────────  ───────────
+  main artist           12
+  composer               8
+
+Continue
+
+  Relation            Command                           
+  ──────────────────  ──────────────────────────────────
+  Filtered albums     aede albums --artist='Miles Davis'
+  Credited recording  aede recording 'So What'
+  Credited recording  aede recording 'Blue in Green'

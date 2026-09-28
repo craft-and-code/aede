@@ -6,17 +6,7 @@ pub(super) async fn admin_scan(
     State(state): State<ApiState>,
     request: Request,
 ) -> Result<Json<ScanResult>, ApiError> {
-    let admin = state
-        .admin
-        .as_ref()
-        .ok_or_else(|| error(StatusCode::NOT_FOUND, "not_found", "unknown API route"))?;
-    if !authorized(request.headers(), &admin.token) {
-        return Err(error(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "administrative token required",
-        ));
-    }
+    let admin = require_admin(&state, &request)?;
     if request.uri().query().is_some_and(|query| !query.is_empty()) {
         return Err(invalid_query(
             "administrative scans accept no query parameters",

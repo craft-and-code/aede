@@ -56,14 +56,14 @@
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
 
 use aede_core::lrclib::{self, Found};
-use aede_core::model::{Catalog, EntityKind};
+use aede_core::model::Catalog;
 use aede_core::musicbrainz;
 
 use crate::args::Args;
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, Refusal, ask_with_backoff, defer, queue};
 
 /// A track to ask about, and where its words would go.
 struct Target {
@@ -218,8 +218,7 @@ pub fn run(
                 )
                 .into());
             }
-            Err(other) if worth_deferring(&other) && !retried => {
-                pending.push_back((target, true));
+            Err(other) if defer(&mut pending, target, retried, &other) => {
                 continue;
             }
             Err(other) => {
@@ -342,12 +341,7 @@ fn survey(
         // The main credit, which is what the service matches on. `credits_on`
         // is the one place a track's artists are worked out, and going round
         // it would be a second answer to the same question.
-        let artist = catalog
-            .credits_on(EntityKind::Track, track.id)
-            .into_iter()
-            .find(|(_, role)| *role == "main")
-            .map(|(a, _)| a.name.clone())
-            .unwrap_or_default();
+        let artist = super::main_track_artist(catalog, track.id).unwrap_or_default();
         if !super::fetch::reaches(wanted, &[track.title.as_str(), artist.as_str()]) {
             continue;
         }

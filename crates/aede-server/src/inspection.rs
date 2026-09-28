@@ -70,25 +70,7 @@ fn parameters(
             )));
         }
     }
-    let offset = params
-        .offset
-        .as_deref()
-        .map(|value| decimal(value, "offset", true))
-        .transpose()?
-        .unwrap_or(0);
-    let limit = params
-        .limit
-        .as_deref()
-        .map(|value| decimal(value, "limit", true))
-        .transpose()?
-        .unwrap_or(DEFAULT_LIMIT);
-    if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "invalid_pagination",
-            format!("limit must be between 1 and {MAX_LIMIT}"),
-        ));
-    }
+    let (offset, limit) = page_bounds(params.offset.as_deref(), params.limit.as_deref())?;
     Ok((params, Window { offset, limit }))
 }
 

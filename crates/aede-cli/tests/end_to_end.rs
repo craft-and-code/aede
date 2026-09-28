@@ -194,8 +194,11 @@ fn a_delegated_writer_finishes_after_its_cli_disconnects() {
         out.contains("Scan complete"),
         "delegated output was lost: {out}"
     );
-    let (out, err, ok) = sandbox.run(&["fetch", "--dry-run"]);
-    assert!(ok, "delegated dry-run fetch failed: {err}\n{out}");
+    #[cfg(feature = "fetch")]
+    {
+        let (out, err, ok) = sandbox.run(&["fetch", "--dry-run"]);
+        assert!(ok, "delegated dry-run fetch failed: {err}\n{out}");
+    }
 
     let held = aede_core::store_lock::StoreLock::acquire(&sandbox.dir).expect("hold store lock");
     let mut client = Command::new(env!("CARGO_BIN_EXE_aede"))
@@ -7177,4 +7180,101 @@ fn fetching_the_words_says_what_it_is_before_it_asks_anything() {
     let (out, _, ok) = sandbox.run(&["track", "Crazy Train", "--lyrics"]);
     assert!(ok);
     assert!(out.contains("aede fetch \"Crazy Train\" --lyrics"), "{out}");
+}
+
+#[test]
+fn cli_output_snapshots_match_the_real_binary() {
+    let sandbox = Sandbox::new("cli_output_snapshots");
+    let music = sandbox.dir.join("music");
+    std::fs::create_dir_all(&music).expect("fixture music folder");
+    for entry in std::fs::read_dir(library()).expect("reference audio files") {
+        let entry = entry.expect("reference audio file");
+        if entry.file_type().expect("reference file type").is_file() {
+            std::fs::copy(entry.path(), music.join(entry.file_name()))
+                .expect("copy reference audio file");
+        }
+    }
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().expect("fixture path")]);
+    assert!(ok, "fixture scan failed:\n{out}\n{err}");
+
+    // Capture complete stdout from the real binary. The reference files are
+    // reviewed alongside presentation changes; a changed line is never
+    // silently accepted by the test.
+    let check = |args: &[&str], reference: &str| {
+        let (out, err, ok) = sandbox.run(args);
+        assert!(ok, "{args:?} failed:\n{out}\n{err}");
+        assert!(err.is_empty(), "{args:?} wrote to stderr: {err}");
+        assert_eq!(out, reference, "stdout changed for {args:?}");
+    };
+
+    check(
+        &["albums", "--limit", "3"],
+        include_str!("snapshots/albums.txt"),
+    );
+    check(&["artists"], include_str!("snapshots/artists.txt"));
+    check(
+        &["artist", "Miles Davis"],
+        include_str!("snapshots/artist.txt"),
+    );
+    check(&["genres"], include_str!("snapshots/genres.txt"));
+    check(&["genre", "jazz"], include_str!("snapshots/genre.txt"));
+    check(&["labels"], include_str!("snapshots/labels.txt"));
+    check(&["label", "Columbia"], include_str!("snapshots/label.txt"));
+    check(&["years"], include_str!("snapshots/years.txt"));
+    check(
+        &["query", "genre:jazz", "--limit", "3"],
+        include_str!("snapshots/query.txt"),
+    );
+    check(
+        &["extract", "--dry-run"],
+        include_str!("snapshots/extract.txt"),
+    );
+    let (out, err, ok) = sandbox.run(&["track", "Take Five"]);
+    assert!(ok, "track failed:\n{out}\n{err}");
+    assert!(err.is_empty(), "track wrote to stderr: {err}");
+    let canonical_music = music
+        .canonicalize()
+        .expect("canonical fixture music folder");
+    let out = out
+        .replace(
+            canonical_music.to_str().expect("canonical music path"),
+            "<MUSIC>",
+        )
+        .replace(music.to_str().expect("music path"), "<MUSIC>");
+    assert_eq!(out, include_str!("snapshots/track.txt"));
+    #[cfg(feature = "fetch")]
+    check(
+        &["fetch", "--identify", "--dry-run"],
+        include_str!("snapshots/identify.txt"),
+    );
+
+    check(
+        &["love", "artist", "Miles Davis"],
+        include_str!("snapshots/love.txt"),
+    );
+    check(
+        &["rate", "artist", "Miles Davis", "--stars", "5"],
+        include_str!("snapshots/rate.txt"),
+    );
+    check(
+        &["note", "artist", "Miles Davis", "--text", "Reference note"],
+        include_str!("snapshots/note.txt"),
+    );
+}
+
+#[test]
+fn fingerprint_skip_snapshot_matches_saved_output() {
+    // A library with one tagged file has no fingerprint work. This reaches
+    // the skipped-file message without requiring fpcalc or ffmpeg.
+    let sandbox = Sandbox::new("fingerprint_output_snapshot");
+    let music = sandbox.dir.join("music");
+    std::fs::create_dir_all(&music).expect("fixture music folder");
+    std::fs::copy(library_flac(), music.join("track.flac")).expect("fixture audio file");
+    let (out, err, ok) = sandbox.run(&["scan", music.to_str().expect("fixture path")]);
+    assert!(ok, "fixture scan failed:\n{out}\n{err}");
+
+    let (out, err, ok) = sandbox.run(&["fingerprint"]);
+    assert!(ok, "fingerprint failed:\n{out}\n{err}");
+    assert!(err.is_empty(), "fingerprint wrote to stderr: {err}");
+    assert_eq!(out, include_str!("snapshots/fingerprint.txt"));
 }

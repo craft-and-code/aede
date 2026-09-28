@@ -27,7 +27,7 @@ use aede_core::{clock, wikipedia};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, ask_with_backoff, defer, queue};
 
 /// An artist to ask about: where to file the answer, what to call them, and
 /// the Wikidata id MusicBrainz gave.
@@ -115,8 +115,7 @@ pub fn run(
         let entity_doc =
             match ask_with_backoff(transport, &wikipedia::entity_data_url(&target.id), backoff) {
                 Ok(doc) => doc,
-                Err(why) if worth_deferring(&why) && !retried => {
-                    pending.push_back((target, true));
+                Err(why) if defer(&mut pending, target, retried, &why) => {
                     continue;
                 }
                 Err(why) => {
@@ -139,8 +138,7 @@ pub fn run(
         let summary_doc =
             match ask_with_backoff(transport, &wikipedia::summary_url(&article), backoff) {
                 Ok(doc) => doc,
-                Err(why) if worth_deferring(&why) && !retried => {
-                    pending.push_back((target, true));
+                Err(why) if defer(&mut pending, target, retried, &why) => {
                     continue;
                 }
                 Err(why) => {

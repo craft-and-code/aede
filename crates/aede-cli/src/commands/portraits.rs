@@ -56,20 +56,18 @@
 // Compiled in every build, for the reason `fetch` is.
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use aede_core::coverart::{self, Kind};
-use aede_core::model::{Catalog, Id};
+use aede_core::model::Catalog;
 use aede_core::sources::{self, Facts, Picture, SourceRecord};
-use aede_core::store;
 use aede_core::user::EntityRef;
 use aede_core::{clock, fanarttv, wikipedia};
 
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, defer, queue};
 
 /// The width asked of Commons for a downloaded portrait.
 ///
@@ -146,14 +144,7 @@ pub fn run(
     );
     println!("{}", ui::section("Portraits"));
     if targets.is_empty() {
-        let narrowed = super::fetch::narrowing(asked.names, asked.scope);
-        match narrowed.is_empty() {
-            true => println!("  {}", ui::dim("nothing to ask about")),
-            false => println!(
-                "  {}",
-                ui::dim(&format!("nothing to ask about for {narrowed}"))
-            ),
-        }
+        super::fetch::print_nothing_to_ask(asked);
         return Ok(());
     }
 
@@ -209,8 +200,7 @@ pub fn run(
                 }
                 done += 1;
             }
-            Err(why) if worth_deferring(&why) && !retried => {
-                pending.push_back((target, true));
+            Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
@@ -407,44 +397,12 @@ fn targets(
     fanarttv_key: Option<&str>,
     again: bool,
 ) -> Vec<Target> {
-    let mut releases_by_artist: BTreeMap<Id, Vec<&aede_core::model::Release>> = BTreeMap::new();
-    for release in &catalog.releases {
-        if let Some(artist) = release.album_artist_id {
-            releases_by_artist.entry(artist).or_default().push(release);
-        }
-    }
-    let roots: Vec<&str> = catalog.roots.iter().map(String::as_str).collect();
+    let releases_by_artist = super::releases_by_album_artist(catalog);
 
     let mut targets = Vec::new();
-    for record in &held.records {
-        if record.source != sources::MUSICBRAINZ {
-            continue;
-        }
-        if !super::fetch::reaches(wanted, &[record.key.as_str()]) {
-            continue;
-        }
-        if !scope.has_artist(&record.key) {
-            continue;
-        }
-        let Facts::Artist(artist) = &record.facts else {
-            continue;
-        };
-        // An ordinary fetch always stores the identifier it matched, so this
-        // is not expected to be empty — but a layer on disk is user-editable
-        // text, and a row missing it is a row this pass cannot ask Fanart.tv
-        // about and has no business guessing.
-        let Some(mbid) = &record.source_id else {
-            continue;
-        };
-        // No folder to write beside and no name to show for an artist the
-        // catalog no longer holds — a row left over from a shelf that has
-        // since been reorganised.
-        let Some(artist_row) = catalog.artists.iter().find(|a| a.key == record.key) else {
-            continue;
-        };
-        if !super::fetch::has_album(catalog, artist_row.id) {
-            continue;
-        }
+    for (record, artist_row, artist, mbid) in
+        super::fetch::artist_image_candidates(catalog, held, wanted, scope)
+    {
         let entity = record.entity();
         let linked = artist.wikidata.as_deref().and_then(wikipedia::entity_id);
 
@@ -459,28 +417,27 @@ fn targets(
             linked.filter(|_| again || held.get(&entity, wikipedia::PORTRAIT_SOURCE).is_none());
         let fanarttv_mbid = fanarttv_key
             .filter(|_| again || held.get(&entity, fanarttv::SOURCE).is_none())
-            .map(|_| mbid.clone());
+            .map(|_| mbid.to_string());
         if wikidata_id.is_none() && fanarttv_mbid.is_none() {
             continue;
         }
 
-        let destination = releases_by_artist
-            .get(&artist_row.id)
-            .and_then(|releases| super::shared_folder(releases))
-            .and_then(|folder| {
-                // A watched root is not an artist folder, the same guard
-                // `playlist --artists` makes for the same reason.
-                let name = folder.to_string_lossy().to_string();
-                (!roots.contains(&name.as_str())).then_some(folder)
-            })
-            .unwrap_or_else(|| store::assets_dir(data_dir).join("artists").join(mbid));
+        let destination = super::artist_artwork_destination(
+            catalog,
+            releases_by_artist
+                .get(&artist_row.id)
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+            data_dir,
+            mbid,
+        );
 
         targets.push(Target {
             entity,
             name: artist_row.name.clone(),
             wikidata_id,
             fanarttv_mbid,
-            mbid: mbid.clone(),
+            mbid: mbid.to_string(),
             destination,
         });
     }

@@ -1,0 +1,24 @@
+
+Columbia
+
+  9 tracks · 0:08 · 265.0 kB
+
+Albums
+
+  Year  Album         Artist              Tracks  Duration      Size
+  ────  ────────────  ──────────────────  ──────  ────────  ────────
+  1959  Kind of Blue  Miles Davis Sextet       9      0:08  265.0 kB
+
+Artists
+
+  Artist       Tracks
+  ───────────  ──────
+  Miles Davis       9
+
+Continue
+
+  Relation         Command                       
+  ───────────────  ──────────────────────────────
+  Filtered albums  aede albums --label='Columbia'
+  Edition          aede album 'Kind of Blue'
+  Artist           aede artist 'Miles Davis'

@@ -1,0 +1,10 @@
+
+genre:jazz (13)
+
+  Track          Artist        Album         Year  Length
+  ─────────────  ────────────  ────────────  ────  ──────
+  So What        Miles Davis   Kind of Blue  1959    0:01
+  Take Five      Dave Brubeck  Duos          1963    0:01
+  Blue in Green  Miles Davis   Kind of Blue  1959    0:01
+  1–3 of 13 tracks — --offset=3 for the next page, --all for every row
+  13 tracks · 0:12 · 360.2 kB

@@ -42,12 +42,7 @@ pub fn show_genre(args: &Args) -> Res {
     let ids: Vec<Id> = found.iter().map(|g| g.id).collect();
     let names: Vec<String> = found.iter().map(|g| g.name.clone()).collect();
 
-    let mut tracks: Vec<Id> = Vec::new();
-    for &id in &ids {
-        tracks.extend(catalog.tracks_of_genre(id));
-    }
-    tracks.sort_unstable();
-    tracks.dedup();
+    let tracks = tracks_from(&ids, |id| catalog.tracks_of_genre(id));
 
     if let Some(result) = selection_output(&catalog, &tracks, args) {
         return result;
@@ -55,7 +50,7 @@ pub fn show_genre(args: &Args) -> Res {
 
     println!("{}", ui::section(&names.join(", ")));
     announce_match(kind, &name, &names, "genre");
-    print_totals(&catalog, &tracks);
+    super::print_track_totals(&catalog, &tracks);
 
     let releases = releases_holding(&catalog, &tracks);
     print_albums(&catalog, &releases, args)?;
@@ -82,14 +77,11 @@ pub fn show_label(args: &Args) -> Res {
     let ids: Vec<Id> = found.iter().map(|l| l.id).collect();
     let names: Vec<String> = found.iter().map(|l| l.name.clone()).collect();
 
-    let mut tracks: Vec<Id> = Vec::new();
+    let tracks = tracks_from(&ids, |id| catalog.tracks_of_label(id));
     let mut releases: Vec<Id> = Vec::new();
     for &id in &ids {
-        tracks.extend(catalog.tracks_of_label(id));
         releases.extend(catalog.releases_of_label(id));
     }
-    tracks.sort_unstable();
-    tracks.dedup();
     releases.sort_unstable();
     releases.dedup();
 
@@ -105,7 +97,7 @@ pub fn show_label(args: &Args) -> Res {
             print_label_identity(&identity);
         }
     }
-    print_totals(&catalog, &tracks);
+    super::print_track_totals(&catalog, &tracks);
     print_albums(&catalog, &releases, args)?;
     print_artists(&catalog, &tracks, args)?;
     for &id in &ids {
@@ -141,6 +133,13 @@ pub fn show_label(args: &Args) -> Res {
     }
     navigation.print();
     Ok(())
+}
+
+fn tracks_from(ids: &[Id], tracks_of: impl Fn(Id) -> Vec<Id>) -> Vec<Id> {
+    let mut tracks: Vec<Id> = ids.iter().copied().flat_map(tracks_of).collect();
+    tracks.sort_unstable();
+    tracks.dedup();
+    tracks
 }
 
 fn print_label_identity(identity: &LabelIdentityResolution) {
@@ -253,20 +252,6 @@ fn match_note(kind: TitleMatch, typed: &str, names: &[String], what: &str) -> Op
     ))
 }
 
-/// The three measures every page carries: count, playing time, size on disk.
-fn print_totals(catalog: &Catalog, tracks: &[Id]) {
-    let (duration, size) = totals(catalog, tracks);
-    println!(
-        "  {}",
-        ui::dim(&format!(
-            "{} · {} · {}",
-            ui::plural(tracks.len(), "track"),
-            text::format_duration(duration),
-            text::format_size(size)
-        ))
-    );
-}
-
 /// Releases the given tracks belong to, in catalog order.
 fn releases_holding(catalog: &Catalog, tracks: &[Id]) -> Vec<Id> {
     let mut releases: std::collections::BTreeSet<Id> = Default::default();
@@ -307,16 +292,9 @@ fn print_albums(catalog: &Catalog, releases: &[Id], args: &Args) -> Res {
         .limit(2, 30);
     let total = rows.len();
     for (release, duration, size) in rows.into_iter().skip(window.offset).take(window.limit) {
-        let artist = release
-            .album_artist_id
-            .and_then(|id| catalog.artist(id))
-            .map(|a| a.name.clone())
-            .unwrap_or_else(|| "Various Artists".into());
+        let artist = super::album_artist_name(catalog, release);
         t.push(vec![
-            release
-                .year
-                .map(|y| y.to_string())
-                .unwrap_or_else(|| "—".into()),
+            super::year_label(release.year),
             release.title.clone(),
             artist,
             release.track_ids.len().to_string(),

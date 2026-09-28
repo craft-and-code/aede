@@ -91,12 +91,7 @@ fn summarise(planned: usize, written: usize, current: usize, failures: &[(String
     if failures.is_empty() {
         return;
     }
-    println!("{}", ui::section("What could not be written"));
-    let mut t = Table::new(&["Playlist", "Reason"]).path_limit(0, 60);
-    for (path, reason) in failures.iter().take(20) {
-        t.push(vec![path.clone(), reason.clone()]);
-    }
-    print!("{}", t.render());
+    super::print_failure_table("What could not be written", "Playlist", failures);
 }
 
 /// Tracks in a rendered playlist, for the dry run's column.

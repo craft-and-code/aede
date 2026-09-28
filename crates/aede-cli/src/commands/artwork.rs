@@ -292,25 +292,17 @@ fn skipped(survey: &Survey, images: bool) {
             "already have an image in them: --images writes out the back and the booklet too",
         ),
     };
-    for (count, one, many) in [
-        (survey.has_image, already.0, already.1),
-        (
-            survey.nothing_inside,
-            "holds no picture inside its files: aede fetch --covers downloads one",
-            "hold no picture inside their files: aede fetch --covers downloads one",
-        ),
-    ] {
-        if count > 0 {
-            let rest = match count {
-                1 => one,
-                _ => many,
-            };
-            println!(
-                "  {}",
-                ui::dim(&format!("{} {rest}", ui::plural(count, "folder")))
-            );
-        }
-    }
+    super::print_skipped_counts(
+        &[
+            (survey.has_image, already.0, already.1),
+            (
+                survey.nothing_inside,
+                "holds no picture inside its files: aede fetch --covers downloads one",
+                "hold no picture inside their files: aede fetch --covers downloads one",
+            ),
+        ],
+        "folder",
+    );
 }
 
 #[cfg(test)]

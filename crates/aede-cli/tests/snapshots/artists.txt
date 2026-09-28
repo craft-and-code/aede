@@ -1,0 +1,8 @@
+
+Artists (3 in total)
+
+  Artist              Tracks  Albums  Duration      Size
+  ──────────────────  ──────  ──────  ────────  ────────
+  Miles Davis             12       2      0:11  340.0 kB
+  Dave Brubeck             1       1      0:01   20.1 kB
+  Miles Davis Sextet       0       1      0:00       0 B

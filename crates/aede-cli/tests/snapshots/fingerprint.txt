@@ -1,0 +1,5 @@
+
+Fingerprint
+
+  1 file is named by its own tags: --full fingerprints it anyway
+  nothing to fingerprint

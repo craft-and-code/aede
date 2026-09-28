@@ -1,0 +1,19 @@
+
+Jazz
+
+  13 tracks · 0:12 · 360.2 kB
+
+Albums
+
+  Year  Album         Artist              Tracks  Duration      Size
+  ────  ────────────  ──────────────────  ──────  ────────  ────────
+  1959  Kind of Blue  Miles Davis Sextet       9      0:08  265.0 kB
+  1959  Kind of Blue  Miles Davis              3      0:02   75.0 kB
+  1963  Duos          Various Artists          1      0:01   20.1 kB
+
+Artists
+
+  Artist        Tracks
+  ────────────  ──────
+  Miles Davis       12
+  Dave Brubeck       1

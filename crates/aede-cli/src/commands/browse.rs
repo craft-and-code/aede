@@ -231,13 +231,7 @@ pub fn list_artists(args: &Args) -> Res {
             let context =
                 aede_core::query::Context::new(&catalog, &data, aede_core::user::LOCAL_USER)
                     .with_sources(&held);
-            if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first()
-            {
-                return Err(format!(
-                    "no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list."
-                )
-                .into());
-            }
+            super::ensure_query_values(&parsed, &context)?;
             let mut artists: std::collections::BTreeSet<Id> = Default::default();
             for track in aede_core::query::run(&parsed, &context) {
                 for (artist, _) in catalog.credits_on(aede_core::model::EntityKind::Track, track) {
@@ -380,7 +374,7 @@ fn albums_query(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
     }
     let mut terms: Vec<String> = Vec::new();
     if let Some(artist) = args.value("artist") {
-        terms.push(format!("albumartist:{}", quoted(artist)));
+        terms.push(format!("albumartist:{}", super::quoted_query_value(artist)));
     }
     if let Some(raw) = args.value("year") {
         // Read here rather than by the grammar so that the message names the
@@ -395,7 +389,7 @@ fn albums_query(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
         ("comment", "comment"),
     ] {
         if let Some(value) = args.value(option) {
-            terms.push(format!("{field}:{}", quoted(value)));
+            terms.push(format!("{field}:{}", super::quoted_query_value(value)));
         }
     }
     if args.has("compilations") {
@@ -416,15 +410,6 @@ fn albums_query(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
     Ok(terms.join(" "))
 }
 
-/// Wraps a value so that a name with spaces survives being put in a query.
-fn quoted(value: &str) -> String {
-    if value.contains(char::is_whitespace) {
-        format!("\"{}\"", value.replace('"', ""))
-    } else {
-        value.to_string()
-    }
-}
-
 pub fn list_albums(args: &Args) -> Res {
     let catalog = load(args)?;
     let window = args.window(50)?;
@@ -439,11 +424,7 @@ pub fn list_albums(args: &Args) -> Res {
     // A value naming nothing in the library is a misunderstanding, not an
     // empty result, and the two read differently. This is the distinction the
     // hand-written filter drew and the grammar now draws for everyone.
-    if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
-        return Err(
-            format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),
-        );
-    }
+    super::ensure_query_values(&parsed, &context)?;
 
     // An album is kept when any of its tracks answers: the coarser question is
     // a fold of the finer one, which is why the grammar evaluates over tracks.
@@ -540,41 +521,19 @@ pub fn list_albums(args: &Args) -> Res {
             ui::dim(&format!("filtered on {}", applied.join(", ")))
         );
     }
-    let mut t = Table::new(&[
-        "Year", "Album", "Artist", "Tracks", "Duration", "Size", "Format",
-    ])
-    .align(3, Align::Right)
-    .align(4, Align::Right)
-    .align(5, Align::Right)
-    .limit(1, 40)
-    .limit(2, 30)
-    .limit(6, 30);
+    let mut t = super::album_summary_table("Tracks", 30);
     let total = rows.len();
     for release in rows.into_iter().skip(window.offset).take(window.limit) {
-        let artist = release
-            .album_artist_id
-            .and_then(|id| catalog.artist(id))
-            .map(|a| a.name.clone())
-            .unwrap_or_else(|| "Various Artists".into());
-        let formats: std::collections::BTreeSet<String> = release
-            .track_ids
-            .iter()
-            .filter_map(|&id| catalog.track(id))
-            .filter_map(|t| catalog.file(t.file_id))
-            .map(|f| f.properties.quality_label())
-            .collect();
+        let artist = super::album_artist_name(&catalog, release);
         let (duration, size) = totals(&catalog, &release.track_ids);
         t.push(vec![
-            release
-                .year
-                .map(|y| y.to_string())
-                .unwrap_or_else(|| "—".into()),
+            super::year_label(release.year),
             format!("{}{}", release.title, copy_marker(&catalog, release.id)),
             artist,
             release.track_ids.len().to_string(),
             text::format_duration(duration),
             text::format_size(size),
-            formats.into_iter().collect::<Vec<_>>().join(", "),
+            super::track_formats(&catalog, &release.track_ids),
         ]);
     }
     print!("{}", t.render());

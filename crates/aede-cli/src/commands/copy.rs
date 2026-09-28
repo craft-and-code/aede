@@ -438,12 +438,9 @@ fn run(plan: &Plan, destination: &Path, args: &Args, recipe: &Recipe, ffmpeg: Op
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
-                loop {
-                    // A poisoned lock must not strand the rest of the plan:
-                    // one file that panicked is not a reason to stop copying.
-                    let Some(item) = queue.lock().unwrap_or_else(|e| e.into_inner()).pop() else {
-                        break;
-                    };
+                // A poisoned lock must not strand the rest of the plan:
+                // one file that panicked is not a reason to stop copying.
+                while let Some(item) = super::take_queued(&queue) {
                     match write_one(item, destination, verify, replace, recipe, ffmpeg) {
                         Ok(copy::Wrote::Copied) => {
                             counts.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;

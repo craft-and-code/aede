@@ -44,11 +44,7 @@ pub fn show_track(args: &Args) -> Res {
     let data = super::user_data(args, &catalog)?;
     let context = aede_core::query::Context::new(&catalog, &data, aede_core::user::LOCAL_USER)
         .with_sources(&held);
-    if let Some((what, value)) = aede_core::query::unknown_values(&parsed, &context).first() {
-        return Err(
-            format!("no {what} matches \"{value}\".\nRun \"aede {what}s\" for the list.").into(),
-        );
-    }
+    super::ensure_query_values(&parsed, &context)?;
     let matches: Vec<&Track> = found
         .into_iter()
         .filter(|t| aede_core::query::matches(&parsed, &context, t.id))
@@ -260,25 +256,16 @@ fn print_graph_links(
 fn track_query(args: &Args) -> String {
     let mut terms: Vec<String> = Vec::new();
     if let Some(artist) = args.value("artist") {
-        let value = quoted(artist);
+        let value = super::quoted_query_value(artist);
         terms.push(format!("(artist:{value} OR albumartist:{value})"));
     }
     if let Some(album) = args.value("album") {
-        terms.push(format!("album:{}", quoted(album)));
+        terms.push(format!("album:{}", super::quoted_query_value(album)));
     }
     if let Some(comment) = args.value("comment") {
-        terms.push(format!("comment:{}", quoted(comment)));
+        terms.push(format!("comment:{}", super::quoted_query_value(comment)));
     }
     terms.join(" ")
-}
-
-/// Wraps a value so that a name with spaces survives being put in a query.
-fn quoted(value: &str) -> String {
-    if value.contains(char::is_whitespace) {
-        format!("\"{}\"", value.replace('"', ""))
-    } else {
-        value.to_string()
-    }
 }
 
 fn print_track(catalog: &Catalog, track: &Track) {

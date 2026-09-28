@@ -1,0 +1,8 @@
+
+Albums (3 matching)
+
+  Year  Album         Artist              Tracks  Duration      Size  Format                        
+  ────  ────────────  ──────────────────  ──────  ────────  ────────  ──────────────────────────────
+  1959  Kind of Blue  Miles Davis Sextet       9      0:08  265.0 kB  AAC 132, ALAC 24/44.1, FLAC 1…
+  1959  Kind of Blue  Miles Davis              3      0:02   75.0 kB  AAC 126, PCM 16/44.1, WAVPACK…
+  1963  Duos          Various Artists          1      0:01   20.1 kB  FLAC 16/44.1

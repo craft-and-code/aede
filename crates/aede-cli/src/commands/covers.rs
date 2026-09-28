@@ -62,7 +62,7 @@ use aede_core::{clock, musicbrainz};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, defer, queue};
 
 /// The width used when `--size` is not given.
 ///
@@ -107,17 +107,7 @@ pub fn run(
     let targets = &survey.targets;
     println!("{}", ui::section("Cover art"));
     if targets.is_empty() {
-        let narrowed = super::fetch::narrowing(wanted, asked.scope);
-        match narrowed.is_empty() {
-            true => println!("  {}", ui::dim("nothing to ask about")),
-            // A name or a folder that reached nothing is its own answer. The
-            // counts below are then about the albums it reached, which is what
-            // a reader who typed one wants to know.
-            false => println!(
-                "  {}",
-                ui::dim(&format!("nothing to ask about for {narrowed}"))
-            ),
-        }
+        super::fetch::print_nothing_to_ask(asked);
         skipped(&survey);
         return Ok(());
     }
@@ -184,8 +174,7 @@ pub fn run(
                     written += 1;
                     done += 1;
                 }
-                Err(why) if worth_deferring(&why) && !retried => {
-                    pending.push_back((target, true));
+                Err(why) if defer(&mut pending, target, retried, &why) => {
                     continue;
                 }
                 Err(why) => {
@@ -199,8 +188,7 @@ pub fn run(
 
         let index = match ask_with_backoff(transport, &target.url, backoff) {
             Ok(index) => index,
-            Err(why) if worth_deferring(&why) && !retried => {
-                pending.push_back((target, true));
+            Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             // The archive answers `404` for a record it holds no image of, so

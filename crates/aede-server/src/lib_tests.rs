@@ -5,18 +5,9 @@ use std::io::{Read, Write};
 
 #[test]
 fn the_api_follows_recordings_and_other_canonical_entities() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(sample_state(), address)).await;
-        });
+        let (address, server) = start_server(sample_state()).await;
 
         let page = json_response(address, "/api/v1/recordings?limit=1");
         assert_eq!(page["total"], 1);
@@ -58,16 +49,9 @@ fn the_api_follows_recordings_and_other_canonical_entities() {
 
 #[test]
 fn http_and_websocket_reject_foreign_or_ambiguous_authorities_and_origins() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(sample_state(), address)).await;
-        });
+        let (address, server) = start_server(sample_state()).await;
         let upgrade = "Upgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n";
         let authorities = [
             String::new(),
@@ -119,10 +103,7 @@ fn http_and_websocket_reject_foreign_or_ambiguous_authorities_and_origins() {
 
 #[test]
 fn local_origin_checks_accept_equivalent_default_http_ports() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -141,10 +122,7 @@ fn local_origin_checks_accept_equivalent_default_http_ports() {
 
 #[test]
 fn administrative_scan_rejects_unknown_queries_and_invalid_bodies_before_starting() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let mut state = sample_state();
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -159,11 +137,7 @@ fn administrative_scan_rejects_unknown_queries_and_invalid_bodies_before_startin
             }),
         });
         let mut events = state.events.subscribe();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         for (query, body, status, expected) in [
             ("?force=true", "\r\n", 400, "invalid_query"),
             ("", "Content-Length: 16\r\n\r\n{\"unknown\":true}", 400, "invalid_body"),
@@ -187,10 +161,7 @@ fn administrative_scan_rejects_unknown_queries_and_invalid_bodies_before_startin
 
 #[test]
 fn administrative_scan_requires_a_token_and_an_idle_store() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -219,13 +190,7 @@ fn administrative_scan_requires_a_token_and_an_idle_store() {
             }),
         });
         let mut events = state.events.subscribe();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         let route = "/api/admin/v1/scan";
         let denied = request_method(address, "POST", route);
         assert!(denied.starts_with("HTTP/1.1 401"), "{denied}");
@@ -315,10 +280,7 @@ fn administrative_scan_requires_a_token_and_an_idle_store() {
 
 #[test]
 fn a_failed_administrative_scan_emits_a_terminal_error() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -337,13 +299,7 @@ fn a_failed_administrative_scan_emits_a_terminal_error() {
             scan: Arc::new(|_| Err("the music folder is unavailable".into())),
         });
         let mut events = state.events.subscribe();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         let response = request_with_headers(
             address,
             "POST",
@@ -377,10 +333,7 @@ fn a_failed_administrative_scan_emits_a_terminal_error() {
 
 #[test]
 fn an_administrative_scan_keeps_its_writer_lock_until_snapshot_publication() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let dir = std::env::temp_dir().join(format!(
             "aede_scan_publish_{}_{}",
@@ -414,13 +367,7 @@ fn an_administrative_scan_keeps_its_writer_lock_until_snapshot_publication() {
         let catalog = state.catalog.clone();
         let blocked_publication = catalog.write().await;
         let mut events = state.events.subscribe();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         let response = tokio::task::spawn_blocking(move || {
             request_with_headers(
                 address,
@@ -484,18 +431,9 @@ fn an_administrative_scan_keeps_its_writer_lock_until_snapshot_publication() {
 
 #[test]
 fn notification_websockets_close_on_application_data_or_oversized_frames() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(sample_state(), address)).await;
-        });
+        let (address, server) = start_server(sample_state()).await;
         for frame in [
             vec![0x81, 0x82, 1, 2, 3, 4, b'x' ^ 1, b'x' ^ 2],
             vec![0x82, 0xfe, 0x08, 0x00, 0, 0, 0, 0],
@@ -521,19 +459,12 @@ fn notification_websockets_close_on_application_data_or_oversized_frames() {
 
 #[test]
 fn notification_connection_limits_do_not_block_http_and_slots_are_released() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let mut state = sample_state();
         state.websocket_slots = Arc::new(Semaphore::new(2));
         let slots = state.websocket_slots.clone();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         let mut first = websocket(address, "/api/v1/events");
         let mut second = websocket(address, "/api/v1/activity");
         assert_eq!(websocket_event(&mut first)["type"], "snapshot");
@@ -557,10 +488,7 @@ fn notification_connection_limits_do_not_block_http_and_slots_are_released() {
 
 #[test]
 fn server_exits_after_graceful_shutdown() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
@@ -604,10 +532,7 @@ fn server_exits_after_graceful_shutdown() {
 
 #[test]
 fn list_search_filters_sort_and_errors_follow_the_v1_contract() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let state = sample_state();
         let release_ref = {
@@ -690,13 +615,7 @@ fn list_search_filters_sort_and_errors_follow_the_v1_contract() {
             catalog.works[0].recording_ids.push(2);
             reference(catalog, EntityKind::Release, 0).unwrap()
         };
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
 
         let artists = json_response(address, "/api/v1/artists?q=thunder&sort=name");
         assert_eq!(artists["total"], 1);
@@ -779,18 +698,9 @@ fn list_search_filters_sort_and_errors_follow_the_v1_contract() {
 
 #[test]
 fn the_http_api_exposes_stable_references_and_rejects_bad_pages() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(sample_state(), address)).await;
-        });
+        let (address, server) = start_server(sample_state()).await;
 
         let response = request(address, "/api/v1/artists?limit=1&offset=0");
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
@@ -829,18 +739,9 @@ fn the_http_api_exposes_stable_references_and_rejects_bad_pages() {
 
 #[test]
 fn v1_http_responses_keep_the_required_page_and_nullable_fields() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(sample_state(), address)).await;
-        });
+        let (address, server) = start_server(sample_state()).await;
 
         let status = json_response(address, "/api/v1/status");
         assert_eq!(status["api_version"], 1);
@@ -908,18 +809,9 @@ fn v1_http_responses_keep_the_required_page_and_nullable_fields() {
 
 #[test]
 fn the_websocket_starts_with_the_current_catalog_snapshot() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(sample_state(), address)).await;
-        });
+        let (address, server) = start_server(sample_state()).await;
         let mut socket = websocket(address, "/api/v1/events");
         let event = websocket_event(&mut socket);
         assert_eq!(event["type"], "snapshot");
@@ -930,20 +822,11 @@ fn the_websocket_starts_with_the_current_catalog_snapshot() {
 
 #[test]
 fn activity_messages_do_not_change_the_frozen_catalog_stream() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let state = sample_state();
         let events = state.events.clone();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         let mut catalog = websocket(address, "/api/v1/events");
         let mut activity = websocket(address, "/api/v1/activity");
         assert_eq!(websocket_event(&mut catalog)["type"], "snapshot");
@@ -973,20 +856,11 @@ fn activity_messages_do_not_change_the_frozen_catalog_stream() {
 
 #[test]
 fn activity_websocket_serializes_progress_and_terminal_events_without_polluting_catalog_events() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let state = sample_state();
         let events = state.events.clone();
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router(state, address)).await;
-        });
+        let (address, server) = start_server(state).await;
         let mut catalog = websocket(address, "/api/v1/events");
         let mut activity = websocket(address, "/api/v1/activity");
         assert_eq!(websocket_event(&mut catalog)["type"], "snapshot");
@@ -1048,10 +922,7 @@ fn activity_websocket_serializes_progress_and_terminal_events_without_polluting_
 
 #[test]
 fn replacing_or_removing_the_catalog_updates_the_snapshot_and_announces_it() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = test_runtime();
     runtime.block_on(async {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

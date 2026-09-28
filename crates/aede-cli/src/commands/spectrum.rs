@@ -100,14 +100,9 @@ pub fn spectrum(args: &Args) -> Res {
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
-                loop {
-                    // A poisoned lock must not abandon the rest of the work:
-                    // one ffmpeg that panicked is not a reason to stop drawing.
-                    let Some((audio, picture, caption)) =
-                        queue.lock().unwrap_or_else(|e| e.into_inner()).pop()
-                    else {
-                        break;
-                    };
+                // A poisoned lock must not abandon the rest of the work:
+                // one ffmpeg that panicked is not a reason to stop drawing.
+                while let Some((audio, picture, caption)) = super::take_queued(&queue) {
                     if let Err(said) =
                         spectrum::render(&program, &audio, &picture, size, Some(caption.as_str()))
                     {
@@ -146,12 +141,7 @@ pub fn spectrum(args: &Args) -> Res {
     print!("{}", t.render());
 
     if !failures.is_empty() {
-        println!("{}", ui::section("What ffmpeg could not draw"));
-        let mut t = Table::new(&["File", "Reason"]).path_limit(0, 60);
-        for (path, reason) in failures.iter().take(20) {
-            t.push(vec![path.clone(), reason.clone()]);
-        }
-        print!("{}", t.render());
+        super::print_failure_table("What ffmpeg could not draw", "File", &failures);
         if failures.len() > 20 {
             println!(
                 "{}",

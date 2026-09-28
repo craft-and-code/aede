@@ -43,7 +43,7 @@ use aede_core::{clock, musicbrainz, text};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, ask_with_backoff, defer, queue};
 
 /// A label to ask about, and how to ask.
 struct Target {
@@ -95,14 +95,7 @@ pub fn run(
     let targets = targets(catalog, held, asked.names, asked.scope, asked.again);
     println!("{}", ui::section("Labels"));
     if targets.is_empty() {
-        let narrowed = super::fetch::narrowing(asked.names, asked.scope);
-        match narrowed.is_empty() {
-            true => println!("  {}", ui::dim("nothing to ask about")),
-            false => println!(
-                "  {}",
-                ui::dim(&format!("nothing to ask about for {narrowed}"))
-            ),
-        }
+        super::fetch::print_nothing_to_ask(asked);
         return Ok(());
     }
 
@@ -140,8 +133,7 @@ pub fn run(
 
         let answer = match ask_with_backoff(transport, &target.url(), backoff) {
             Ok(answer) => answer,
-            Err(other) if worth_deferring(&other) && !retried => {
-                pending.push_back((target, true));
+            Err(other) if defer(&mut pending, target, retried, &other) => {
                 continue;
             }
             Err(other) => {

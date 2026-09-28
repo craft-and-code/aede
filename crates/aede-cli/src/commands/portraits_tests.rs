@@ -12,6 +12,7 @@
 use super::*;
 use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{ArtistFacts, Confidence, Sources};
+use aede_core::store;
 use aede_core::tags::RawTags;
 
 /// The test that owns this folder, for a name no other test can produce —

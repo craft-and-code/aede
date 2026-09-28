@@ -31,7 +31,7 @@ use aede_core::{clock, musicbrainz, text};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, Refusal, ask_with_backoff, queue, worth_deferring};
+use super::fetch::{Ask, Refusal, ask_with_backoff, defer, queue};
 
 /// An artist to browse, and the identifier to browse by.
 struct Target {
@@ -115,8 +115,7 @@ pub fn run(
                 store(held, target, known);
                 sources::save(held, path)?;
             }
-            Err(why) if worth_deferring(&why) && !retried => {
-                pending.push_back((target, true));
+            Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
