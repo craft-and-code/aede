@@ -7,8 +7,12 @@
 //! [`GraphEdge`] is that projection: it keeps provenance and trust while
 //! giving the relationship a stable [`RelationRef`].
 
+use std::collections::BTreeMap;
+
 use crate::model::{Catalog, CreditAttribute, EntityKind};
-use crate::sources::{Confidence, ReviewDecision, Side, Sources};
+use crate::sources::{
+    Confidence, ReviewDecision, Side, SourcedCreditLink, SourcedEditionCreditLink, Sources,
+};
 use crate::user::EntityRef;
 
 /// Stable identity of one directed relationship.
@@ -66,6 +70,8 @@ pub struct GraphEdge {
     pub weight: u32,
     /// Whether this edge may participate in navigation and queries.
     pub trusted: bool,
+    /// A user excluded this specific credit; the original evidence remains.
+    pub excluded: bool,
     /// Matching confidence for an external assertion.
     pub confidence: Option<Confidence>,
     /// Explicit source-review decision, if one exists.
@@ -94,7 +100,9 @@ pub struct GraphEdge {
 pub fn edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
     let mut edges = local_edges(catalog);
     edges.extend(work_edges(catalog, sources));
+    edges.extend(work_parent_edges(catalog, sources));
     edges.extend(credit_edges(catalog, sources));
+    edges.extend(edition_credit_edges(catalog, sources));
     edges.extend(membership_edges(catalog, sources));
     edges.sort_by(|left, right| {
         left.reference
@@ -125,6 +133,7 @@ fn local_edges(catalog: &Catalog) -> Vec<GraphEdge> {
                 },
                 weight: relation.weight,
                 trusted: true,
+                excluded: false,
                 confidence: None,
                 review: None,
                 fetched_at: None,
@@ -170,6 +179,7 @@ fn work_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
                 target_name,
                 weight: 1,
                 trusted: link.trusted,
+                excluded: false,
                 confidence: Some(link.confidence),
                 review: link.review,
                 fetched_at: Some(link.fetched_at),
@@ -184,6 +194,54 @@ fn work_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
             })
         })
         .collect()
+}
+
+fn work_parent_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
+    let mut by_reference: BTreeMap<RelationRef, GraphEdge> = BTreeMap::new();
+    for edge in sources
+        .work_parent_links(catalog)
+        .into_iter()
+        .map(|link| GraphEdge {
+            reference: RelationRef {
+                source: EntityRef::new(EntityKind::Work, link.child_mbid),
+                kind: "part_of_work".into(),
+                target: EntityRef::new(EntityKind::Work, link.parent.mbid.clone()),
+                provenance: link.source,
+                source_id: link.parent.relation_id.clone(),
+            },
+            source_name: link.child_title,
+            target_name: link.parent.title,
+            weight: 1,
+            trusted: link.trusted,
+            excluded: false,
+            confidence: Some(link.confidence),
+            review: link.review,
+            fetched_at: Some(link.fetched_at),
+            relationship_type_id: link.parent.relation_type_id,
+            direction: link.parent.direction,
+            credited_as: None,
+            attributes: link.parent.attributes,
+            began: None,
+            ended: None,
+            over: None,
+            order: link.parent.order,
+        })
+    {
+        match by_reference.entry(edge.reference.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(edge);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let previous = entry.get_mut();
+                let weight = previous.weight.saturating_add(1);
+                if edge.trusted && !previous.trusted {
+                    *previous = edge;
+                }
+                previous.weight = weight;
+            }
+        }
+    }
+    by_reference.into_values().collect()
 }
 
 fn credit_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
@@ -220,6 +278,7 @@ fn credit_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
                 target_name,
                 weight: 1,
                 trusted: link.trusted,
+                excluded: link.excluded,
                 confidence: Some(link.confidence),
                 review: link.review,
                 fetched_at: Some(link.fetched_at),
@@ -229,6 +288,44 @@ fn credit_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
                 attributes: link.credit.attributes.clone(),
                 began: link.credit.began.clone(),
                 ended: link.credit.ended.clone(),
+                over: link.credit.over,
+                order: link.credit.order,
+            })
+        })
+        .collect()
+}
+
+fn edition_credit_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
+    sources
+        .edition_credit_links(catalog)
+        .into_iter()
+        .filter_map(|link| {
+            let (source, source_name) =
+                artist_endpoint(catalog, &link.credit.artist_mbid, &link.credit.artist_name);
+            let target = EntityRef::of(catalog, EntityKind::Release, link.release_id)?;
+            let target_name = target.display_name(catalog);
+            Some(GraphEdge {
+                reference: RelationRef {
+                    source,
+                    kind: format!("credit:{}", link.credit.role),
+                    target,
+                    provenance: link.source,
+                    source_id: link.credit.relation_id,
+                },
+                source_name,
+                target_name,
+                weight: 1,
+                trusted: link.trusted,
+                excluded: link.excluded,
+                confidence: Some(link.confidence),
+                review: link.review,
+                fetched_at: Some(link.fetched_at),
+                relationship_type_id: link.credit.role_id,
+                direction: link.credit.direction,
+                credited_as: link.credit.credited_as,
+                attributes: link.credit.attributes,
+                began: link.credit.began,
+                ended: link.credit.ended,
                 over: link.credit.over,
                 order: link.credit.order,
             })
@@ -275,6 +372,7 @@ fn membership_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
                 target_name,
                 weight: 1,
                 trusted: link.trusted,
+                excluded: false,
                 confidence: Some(link.confidence),
                 review: link.review,
                 fetched_at: Some(link.fetched_at),
@@ -301,7 +399,55 @@ fn membership_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
         .collect()
 }
 
+/// Stable selector for a recording/work credit, shared with exclusions.
+pub(crate) fn credit_reference(catalog: &Catalog, link: &SourcedCreditLink) -> Option<RelationRef> {
+    let (source, _) = artist_endpoint(catalog, &link.credit.artist_mbid, &link.credit.artist_name);
+    let target = match &link.work {
+        Some(work) => EntityRef::new(EntityKind::Work, work.mbid.clone()),
+        None => EntityRef::of(catalog, EntityKind::Recording, link.recording_id)?,
+    };
+    Some(RelationRef {
+        source,
+        kind: format!("credit:{}", link.credit.role),
+        target,
+        provenance: link.source.clone(),
+        source_id: link.credit.relation_id.clone(),
+    })
+}
+
+/// Stable selector for an edition credit, never projected onto recordings.
+pub(crate) fn edition_credit_reference(
+    catalog: &Catalog,
+    link: &SourcedEditionCreditLink,
+) -> Option<RelationRef> {
+    let (source, _) = artist_endpoint(catalog, &link.credit.artist_mbid, &link.credit.artist_name);
+    Some(RelationRef {
+        source,
+        kind: format!("credit:{}", link.credit.role),
+        target: EntityRef::of(catalog, EntityKind::Release, link.release_id)?,
+        provenance: link.source.clone(),
+        source_id: link.credit.relation_id.clone(),
+    })
+}
+
 fn artist_endpoint(catalog: &Catalog, mbid: &str, name: &str) -> (EntityRef, String) {
+    if mbid.is_empty() {
+        if let Some(artist) = catalog
+            .artists
+            .iter()
+            .find(|artist| artist.key == crate::text::normalize(name))
+            && let Some(reference) = EntityRef::of(catalog, EntityKind::Artist, artist.id)
+        {
+            return (reference, artist.name.clone());
+        }
+        return (
+            EntityRef::new(
+                EntityKind::Artist,
+                format!("manual:{}", crate::text::normalize(name)),
+            ),
+            name.to_string(),
+        );
+    }
     if let Some(artist) = catalog
         .artists
         .iter()

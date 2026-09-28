@@ -32,13 +32,59 @@ writers and arrangers when MusicBrainz provides them. `aede work` also accepts
 a work obtained by `aede fetch --credits`: it is clearly marked as external
 evidence and does not pretend that the fetch added a tag to the audio file.
 
-`aede fetch --credits` uses recording identifiers already present in the local
-tags. It keeps performers and production roles on the recording, creative roles
-on the work, and preserves credited-as names, instruments or qualifiers, dates,
-order and MusicBrainz relationship identifiers. The same sourced credits are
+`aede fetch --credits` uses recording and release identifiers already present
+in the local tags. It keeps performers and production roles on the recording,
+creative roles on the work, and album-edition roles on the exact release. It
+preserves credited-as names, instruments or qualifiers, dates, order and
+MusicBrainz relationship identifiers. The same sourced credits are
 shown by `track`, `album`, `artist`, `recording` and `work`; `track --json`
-keeps them separate from credits read locally from tags. The older
+keeps them separate from credits read locally from tags and identifies edition
+credits separately. The older
 `--recordings` spelling remains an alias.
+
+`aede credit --add recording:<ID>|work:<ID>|release:<ID> --artist=<name>
+--role=<role>` stores a manual, attributed credit at the specified scope;
+`--artist-id=<MBID>` and `--instrument=<name>` are optional. To correct one
+MusicBrainz assertion, identify its stable credit ID with `aede relations`,
+then use `aede credit --exclude=<ID>` and, if needed, add a corrected manual
+credit. `aede credit --undo=<ID>` restores the excluded assertion. Exclusion
+affects graph navigation and search but retains the original source evidence.
+It does not remove locally tagged credits or rewrite files. Credit exclusions
+travel with `aede rules --export` and `--import`.
+
+`aede credits` audits the recording/work part of this pass without contacting
+the network. It does not yet measure edition-credit coverage. It counts
+canonical recordings, not file placements, and lists albums
+with separate `credited`, `empty`, `waiting`, `untrusted`, and `unidentified`
+counts. `aede credits "<album>"` expands those counts to each recording and a
+representative local filename, separates direct recording from work-level
+credit counts, and prints a folder-scoped fetch command when anything is
+waiting. `--json` provides the same statuses for scripts. A completed lookup
+with no credits is reported as
+`empty`, not as a request still pending; use
+`aede fetch --credits --full <folder>` only when you intend to query it again.
+
+For classical releases, the same recording lookup can retain MusicBrainz's
+explicit part-of-work relation on a linked work. `aede work <parent ID>` then
+lists locally held movements in the source's order, while a movement's work
+page links back to its parent. Ordinary `search` lists source-only parent works
+separately from local works. `album` shows local work/grouping and movement
+tags alongside the separately attributed parent; `track --json` exports both
+the tags and `parent_works` with source and trust. `query work:<parent ID>`
+selects the local recordings of its identified parts. A `work:<title>` query
+can also match one file's own WORK/grouping tag, and `movement:<title>` searches
+its movement tag, without turning either title into a shared work identity.
+This does not infer a
+composition from a shared title, does not interpret a partial *recording* as a
+new movement, and does not alter audio tags. Refresh an earlier relationship
+answer with `aede fetch --credits --full <album folder>` if needed.
+
+Classical personnel are separate roles: `orchestra`, `choir`, `ensemble`,
+`soloist`, `conductor` and `composer` can each be queried by name. The
+`orchestra` field also recognizes MusicBrainz's `performing orchestra` role;
+`soloist` recognizes its explicit `solo` performance qualifier. `performing`
+includes performance participants, including conductors; it is not a claim
+that every participant is literally audible.
 
 The local graph is traversable in both directions. `track` names the abstract
 recording, its works and its release group; `recording` lists every local album
@@ -47,6 +93,22 @@ and its other local editions; `label` lists its releases; and `artist` keeps
 discography, guest appearances, compilation appearances, writing/production
 contributions, collaborations and dated memberships distinct. Ordinary
 `search` also finds recordings, works and release groups by title or identity.
+
+Source-only contributors now have an `artist` page too. Trusted recording, work
+and edition credits group them by MusicBrainz artist ID; their card names the external
+origin, roles, local album placements, recordings and works. The tag-built
+catalog is not changed. `aede artist <MusicBrainz artist ID>` is the precise
+route when names collide, and `search` lists source-only contributors
+separately from local artists (also in `--json`). `track`, `album`, `recording`
+and `work` print copyable commands to open every trusted credited artist,
+whether or not the person appears in local tags. A local recording without an
+MBID is opened by `aede recording 'local:<file path>'`, avoiding ambiguous
+same-titled recordings. A sourced artist's `--role` filters their credited
+recordings; `--members` and `--with` require local artists and are refused
+explicitly on a source-only card.
+If an existing local artist has the same name as a source-only contributor,
+the name still opens the local card; it shows a separate, ID-based route to
+the source-backed card without asserting that the two are the same person.
 
 The same graph is available to `query`: `recording`, `work` and `releasegroup`
 match canonical identities, `instrument` matches credit attributes, and

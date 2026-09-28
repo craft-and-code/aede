@@ -48,6 +48,10 @@ fn json_keeps_every_rich_credit_detail_and_its_scope() {
     tags.insert("albumartist", "Band");
     tags.insert("album", "Record");
     tags.insert("title", "Song");
+    tags.insert("work", "A Sonata");
+    tags.insert("movement name", "Allegro");
+    tags.insert("movement no", "I");
+    tags.insert("total movements", "IV");
     tags.insert("performer:guitar", "Local Player");
     let catalog = build(
         vec![ScannedFile {
@@ -95,10 +99,19 @@ fn json_keeps_every_rich_credit_detail_and_its_scope() {
         confidence: Confidence::Identified,
         review: None,
         trusted: true,
+        excluded: false,
         fetched_at: 42,
     }];
 
-    let json = as_json(&catalog, track, &sourced);
+    let json = as_json(&catalog, track, &sourced, &[], &[]);
+    assert_eq!(json.field_str("work_tag").as_deref(), Some("A Sonata"));
+    assert_eq!(json.field_str("movement_tag").as_deref(), Some("Allegro"));
+    assert_eq!(json.field_str("movement_number").as_deref(), Some("I"));
+    assert_eq!(json.field_str("movement_total").as_deref(), Some("IV"));
+    assert_eq!(
+        movement_tag(catalog.file(track.file_id).unwrap()).as_deref(),
+        Some("I/IV · Allegro")
+    );
     let local = json
         .get("credits")
         .and_then(Json::as_arr)

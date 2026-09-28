@@ -1018,7 +1018,12 @@ fn credits_fetches_recording_and_work_relationships_in_one_request() {
                  {"id":"composer","type":"composer","type-id":"composer-type",
                   "target-type":"artist","target-credit":"Robert Dylan",
                   "attributes":[],
-                  "artist":{"id":"dylan-id","name":"Bob Dylan"}}
+                  "artist":{"id":"dylan-id","name":"Bob Dylan"}},
+                 {"id":"part-rel","type":"parts",
+                  "type-id":"ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+                  "direction":"backward","target-type":"work",
+                  "attributes":["movement"],"ordering-key":1,
+                  "work":{"id":"parent-id","title":"A Complete Work"}}
                ]}}
           ]}"#
         .to_string())],
@@ -1038,6 +1043,8 @@ fn credits_fetches_recording_and_work_relationships_in_one_request() {
     assert!(facts.relationships_complete);
     assert_eq!(facts.credits[0].role, "instrument");
     assert_eq!(facts.works[0].credits[0].role, "composer");
+    assert_eq!(facts.works[0].parents[0].mbid, "parent-id");
+    assert_eq!(facts.works[0].parents[0].order, Some(1));
 
     let mut second = Canned {
         answers: Vec::new(),
@@ -1048,6 +1055,61 @@ fn credits_fetches_recording_and_work_relationships_in_one_request() {
         second.asked.is_empty(),
         "a complete relationship lookup is not repeated"
     );
+}
+
+#[test]
+fn credits_fetches_exact_edition_roles_once_without_recording_ids() {
+    let dir = sandbox("edition_credits");
+    let mut tags = RawTags::default();
+    tags.insert("artist", "A Band");
+    tags.insert("albumartist", "A Band");
+    tags.insert("album", "An Album");
+    tags.insert("title", "A Song");
+    tags.insert("musicbrainz_albumid", "edition-id");
+    tags.insert("musicbrainz_releasegroupid", "group-id");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Band/Album/01.flac".into(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).expect("saved");
+    let mut transport = Canned {
+        answers: vec![Ok(r#"{
+          "id":"edition-id","title":"An Album",
+          "release-group":{"id":"group-id","title":"An Album"},
+          "relations":[{"id":"producer-rel","type":"producer","target-type":"artist",
+            "artist":{"id":"producer-id","name":"An Album Producer"}}]
+        }"#
+        .into())],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut transport, &NO_WAIT).expect("edition fetch");
+    assert_eq!(transport.asked.len(), 1);
+    assert!(transport.asked[0].contains("/release/edition-id?"));
+    let held = sources::load(&sources::sources_path(&dir))
+        .unwrap()
+        .unwrap();
+    let links = held.edition_credit_links(&catalog);
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].credit.artist_name, "An Album Producer");
+    assert!(links[0].trusted);
+    let mut again = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut again, &NO_WAIT).expect("already fetched");
+    assert!(again.asked.is_empty());
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// Two shelves on the disk, one folder each, so that a folder can be given.

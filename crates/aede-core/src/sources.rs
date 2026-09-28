@@ -15,6 +15,7 @@
 //! MusicBrainz is a later step, and the layer is testable without a single
 //! request.
 
+use crate::graph::RelationRef;
 use crate::json::Json;
 use crate::model::{CreditAttribute, EntityKind, Id};
 use crate::user::EntityRef;
@@ -593,6 +594,12 @@ pub struct ReleaseFacts {
     /// there is none" — the distinction this whole layer exists for — and so
     /// that a second run costs nothing.
     pub cover_art: Option<String>,
+    /// Exact edition queried for these relationships, absent for a group search.
+    pub edition_mbid: Option<String>,
+    /// Artist relationships on this edition, never on the release group.
+    pub credits: Vec<CreditLink>,
+    /// Distinguishes an empty lookup from an edition never queried for credits.
+    pub relationships_complete: bool,
 }
 
 /// What a source says, for one kind of entity.
@@ -771,6 +778,27 @@ pub struct WorkLink {
     pub attributes: Vec<CreditAttribute>,
     /// Artist relationships attached to the composition itself.
     pub credits: Vec<CreditLink>,
+    /// Explicitly identified containing works, such as a symphony for one movement.
+    pub parents: Vec<WorkParentLink>,
+}
+
+/// One source-asserted part-of-work relationship, directed child → parent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkParentLink {
+    /// Exact identity of the containing work; a matching title is insufficient.
+    pub mbid: String,
+    /// Title supplied for the containing work.
+    pub title: String,
+    /// Identifier of this exact MusicBrainz relationship.
+    pub relation_id: Option<String>,
+    /// Stable MusicBrainz relationship type identifier.
+    pub relation_type_id: Option<String>,
+    /// Direction as returned for the child work.
+    pub direction: Option<String>,
+    /// Qualifiers such as movement, act or part of collection.
+    pub attributes: Vec<CreditAttribute>,
+    /// MusicBrainz ordering key when available.
+    pub order: Option<u32>,
 }
 
 /// A work relationship placed on a local recording, while retaining its source.
@@ -794,6 +822,29 @@ pub struct SourcedWorkLink {
     /// the explicit review have all been considered.
     pub trusted: bool,
     /// When the assertion was fetched.
+    pub fetched_at: u64,
+}
+
+/// A sourced child → parent work assertion attached to a local recording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedWorkParentLink {
+    /// The local recording through which the child work was discovered.
+    pub recording_id: Id,
+    /// Exact identity of the child work.
+    pub child_mbid: String,
+    /// Title supplied for the child work.
+    pub child_title: String,
+    /// The containing work and the source relationship's details.
+    pub parent: WorkParentLink,
+    /// Service making the assertion.
+    pub source: String,
+    /// Firmness of the attachment to the local recording.
+    pub confidence: Confidence,
+    /// Explicit review decision, if one exists.
+    pub review: Option<ReviewDecision>,
+    /// Whether this relationship may be traversed.
+    pub trusted: bool,
+    /// Time at which the assertion was fetched.
     pub fetched_at: u64,
 }
 
@@ -830,8 +881,40 @@ pub struct SourcedCreditLink {
     pub review: Option<ReviewDecision>,
     /// Whether this relationship may participate in traversal and queries.
     pub trusted: bool,
+    /// The owner excluded this precise credit, without deleting the assertion.
+    pub excluded: bool,
     /// Time at which this assertion was fetched.
     pub fetched_at: u64,
+}
+
+/// A credit asserted about one precise edition, not every recording on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedEditionCreditLink {
+    /// Local edition these credits describe.
+    pub release_id: Id,
+    /// Artist relationship and all of its original qualifiers.
+    pub credit: CreditLink,
+    /// Service making the assertion.
+    pub source: String,
+    /// Firmness of the source record's attachment.
+    pub confidence: Confidence,
+    /// Explicit review of the source identity, if any.
+    pub review: Option<ReviewDecision>,
+    /// Whether the credit may participate in navigation and queries.
+    pub trusted: bool,
+    /// The owner excluded this precise credit, without deleting the assertion.
+    pub excluded: bool,
+    /// Time at which this assertion was fetched.
+    pub fetched_at: u64,
+}
+
+/// A reversible choice about one credit relationship, not its parent record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreditExclusion {
+    /// Stable relationship identity, including source and source row ID.
+    pub relation: RelationRef,
+    /// Time of the owner's decision.
+    pub excluded_at: u64,
 }
 
 /// A dated artist-to-artist membership placed beside the canonical catalog.
@@ -997,6 +1080,8 @@ pub struct Sources {
     pub records: Vec<SourceRecord>,
     /// Explicit answers to claims that could not safely resolve themselves.
     pub reviews: Vec<SourceReview>,
+    /// User decisions about individual source credits.
+    pub credit_exclusions: Vec<CreditExclusion>,
 }
 
 impl Sources {
@@ -1209,6 +1294,31 @@ impl Sources {
             .collect()
     }
 
+    /// Explicit part-of-work assertions, retaining the attachment's trust.
+    pub fn work_parent_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedWorkParentLink> {
+        self.work_links(catalog)
+            .into_iter()
+            .flat_map(|link| {
+                link.work
+                    .parents
+                    .iter()
+                    .cloned()
+                    .map(move |parent| SourcedWorkParentLink {
+                        recording_id: link.recording_id,
+                        child_mbid: link.work.mbid.clone(),
+                        child_title: link.work.title.clone(),
+                        parent,
+                        source: link.source.clone(),
+                        confidence: link.confidence,
+                        review: link.review,
+                        trusted: link.trusted,
+                        fetched_at: link.fetched_at,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     /// Rich recording and work credits that can be placed on this catalog.
     ///
     /// The relationship remains external evidence. Mapping the source record's
@@ -1237,6 +1347,7 @@ impl Sources {
                     confidence: record.confidence,
                     review,
                     trusted,
+                    excluded: false,
                     fetched_at: record.fetched_at,
                 });
             }
@@ -1250,12 +1361,92 @@ impl Sources {
                         confidence: record.confidence,
                         review,
                         trusted,
+                        excluded: false,
                         fetched_at: record.fetched_at,
                     });
                 }
             }
         }
+        for link in &mut links {
+            link.excluded =
+                crate::graph::credit_reference(catalog, link).is_some_and(|reference| {
+                    self.credit_exclusions
+                        .iter()
+                        .any(|decision| decision.relation == reference)
+                });
+            link.trusted &= !link.excluded;
+        }
         links
+    }
+
+    /// Exact edition credits; a release-group-only answer cannot supply these.
+    pub fn edition_credit_links(
+        &self,
+        catalog: &crate::model::Catalog,
+    ) -> Vec<SourcedEditionCreditLink> {
+        let mut links = Vec::new();
+        for record in &self.records {
+            let Facts::Release(facts) = &record.facts else {
+                continue;
+            };
+            let Some(release_id) = record.entity().resolve(catalog) else {
+                continue;
+            };
+            let Some(release) = catalog.release(release_id) else {
+                continue;
+            };
+            if facts.edition_mbid.as_deref() != release.mbid.as_deref() {
+                continue;
+            }
+            let review = self.review_for(record).map(|review| review.decision);
+            let trusted = self.is_trusted(catalog, record);
+            for credit in &facts.credits {
+                links.push(SourcedEditionCreditLink {
+                    release_id,
+                    credit: credit.clone(),
+                    source: record.source.clone(),
+                    confidence: record.confidence,
+                    review,
+                    trusted,
+                    excluded: false,
+                    fetched_at: record.fetched_at,
+                });
+            }
+        }
+        for link in &mut links {
+            link.excluded =
+                crate::graph::edition_credit_reference(catalog, link).is_some_and(|reference| {
+                    self.credit_exclusions
+                        .iter()
+                        .any(|decision| decision.relation == reference)
+                });
+            link.trusted &= !link.excluded;
+        }
+        links
+    }
+
+    /// Exclude one relationship without losing the underlying fetched claim.
+    pub fn exclude_credit(&mut self, relation: RelationRef, at: u64) {
+        if let Some(existing) = self
+            .credit_exclusions
+            .iter_mut()
+            .find(|row| row.relation == relation)
+        {
+            existing.excluded_at = at;
+        } else {
+            self.credit_exclusions.push(CreditExclusion {
+                relation,
+                excluded_at: at,
+            });
+        }
+    }
+
+    /// Take back one exclusion and make the original claim eligible again.
+    pub fn restore_credit(&mut self, relation: &RelationRef) -> bool {
+        let before = self.credit_exclusions.len();
+        self.credit_exclusions
+            .retain(|row| &row.relation != relation);
+        self.credit_exclusions.len() < before
     }
 
     /// Dated group memberships, retaining external endpoints when the related
@@ -1445,6 +1636,8 @@ impl Sources {
         let before = self.records.len();
         self.records.retain(|r| r.source != source);
         self.reviews.retain(|review| review.source != source);
+        self.credit_exclusions
+            .retain(|decision| decision.relation.provenance != source);
         before - self.records.len()
     }
 
@@ -1899,6 +2092,43 @@ pub fn to_json(sources: &Sources) -> Json {
                                             work.credits.iter().map(credit_link_to_json).collect(),
                                         ),
                                     );
+                                    row.set(
+                                        "parents",
+                                        Json::Arr(
+                                            work.parents
+                                                .iter()
+                                                .map(|parent| {
+                                                    let mut part = Json::obj();
+                                                    part.set("mbid", parent.mbid.clone().into());
+                                                    part.set("title", parent.title.clone().into());
+                                                    part.set(
+                                                        "relation_id",
+                                                        opt_str(&parent.relation_id),
+                                                    );
+                                                    part.set(
+                                                        "relation_type_id",
+                                                        opt_str(&parent.relation_type_id),
+                                                    );
+                                                    part.set(
+                                                        "direction",
+                                                        opt_str(&parent.direction),
+                                                    );
+                                                    part.set(
+                                                        "attributes",
+                                                        Json::Arr(
+                                                            parent
+                                                                .attributes
+                                                                .iter()
+                                                                .map(credit_attribute_to_json)
+                                                                .collect(),
+                                                        ),
+                                                    );
+                                                    part.set("order", parent.order.into());
+                                                    part
+                                                })
+                                                .collect(),
+                                        ),
+                                    );
                                     row
                                 })
                                 .collect(),
@@ -2041,6 +2271,12 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("label", opt_str(&rel.label));
                     facts.set("label_mbid", opt_str(&rel.label_mbid));
                     facts.set("cover_art", opt_str(&rel.cover_art));
+                    facts.set("edition_mbid", opt_str(&rel.edition_mbid));
+                    facts.set(
+                        "credits",
+                        Json::Arr(rel.credits.iter().map(credit_link_to_json).collect()),
+                    );
+                    facts.set("relationships_complete", rel.relationships_complete.into());
                 }
                 Facts::Label(label) => {
                     facts.set(
@@ -2081,6 +2317,25 @@ pub fn to_json(sources: &Sources) -> Json {
                         .into(),
                     );
                     row.set("reviewed_at", review.reviewed_at.into());
+                    row
+                })
+                .collect(),
+        ),
+    );
+    root.set(
+        "credit_exclusions",
+        Json::Arr(
+            sources
+                .credit_exclusions
+                .iter()
+                .map(|decision| {
+                    let mut row = Json::obj();
+                    row.set("source", decision.relation.source.to_token().into());
+                    row.set("relation", decision.relation.kind.clone().into());
+                    row.set("target", decision.relation.target.to_token().into());
+                    row.set("provenance", decision.relation.provenance.clone().into());
+                    row.set("source_id", opt_str(&decision.relation.source_id));
+                    row.set("excluded_at", decision.excluded_at.into());
                     row
                 })
                 .collect(),
@@ -2229,6 +2484,14 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 label: facts.and_then(|f| f.field_str("label")),
                 label_mbid: facts.and_then(|f| f.field_str("label_mbid")),
                 cover_art: facts.and_then(|f| f.field_str("cover_art")),
+                edition_mbid: facts.and_then(|f| f.field_str("edition_mbid")),
+                credits: facts
+                    .and_then(|f| f.get("credits"))
+                    .and_then(Json::as_arr)
+                    .map(|rows| rows.iter().filter_map(credit_link_from_json).collect())
+                    .unwrap_or_default(),
+                relationships_complete: facts
+                    .is_some_and(|f| f.field_bool("relationships_complete")),
             }),
             EntityKind::Track => Facts::Track(TrackFacts {
                 recording: facts.and_then(|f| f.field_str("recording")),
@@ -2278,6 +2541,39 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                                         .and_then(Json::as_arr)
                                         .map(|rows| {
                                             rows.iter().filter_map(credit_link_from_json).collect()
+                                        })
+                                        .unwrap_or_default(),
+                                    parents: work
+                                        .get("parents")
+                                        .and_then(Json::as_arr)
+                                        .map(|rows| {
+                                            rows.iter()
+                                                .filter_map(|parent| {
+                                                    Some(WorkParentLink {
+                                                        mbid: parent.field_str("mbid")?,
+                                                        title: parent
+                                                            .field_str("title")
+                                                            .unwrap_or_default(),
+                                                        relation_id: parent
+                                                            .field_str("relation_id"),
+                                                        relation_type_id: parent
+                                                            .field_str("relation_type_id"),
+                                                        direction: parent.field_str("direction"),
+                                                        attributes: parent
+                                                            .get("attributes")
+                                                            .and_then(Json::as_arr)
+                                                            .map(|rows| {
+                                                                rows.iter()
+                                                                    .filter_map(
+                                                                        credit_attribute_from_json,
+                                                                    )
+                                                                    .collect()
+                                                            })
+                                                            .unwrap_or_default(),
+                                                        order: parent.field_u32("order"),
+                                                    })
+                                                })
+                                                .collect()
                                         })
                                         .unwrap_or_default(),
                                 })
@@ -2335,6 +2631,35 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 decision,
                 reviewed_at: row.field_u64("reviewed_at").unwrap_or(0),
             });
+        }
+        for row in value
+            .get("credit_exclusions")
+            .and_then(Json::as_arr)
+            .unwrap_or(&[])
+        {
+            let (Some(source), Some(kind), Some(target), Some(provenance)) = (
+                row.field_str("source")
+                    .and_then(|value| EntityRef::parse_token(&value)),
+                row.field_str("relation"),
+                row.field_str("target")
+                    .and_then(|value| EntityRef::parse_token(&value)),
+                row.field_str("provenance"),
+            ) else {
+                continue;
+            };
+            if !kind.starts_with("credit:") {
+                continue;
+            }
+            sources.exclude_credit(
+                RelationRef {
+                    source,
+                    kind,
+                    target,
+                    provenance,
+                    source_id: row.field_str("source_id"),
+                },
+                row.field_u64("excluded_at").unwrap_or(0),
+            );
         }
     }
     Ok(sources)

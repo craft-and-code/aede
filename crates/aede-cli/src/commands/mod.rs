@@ -14,6 +14,8 @@ mod cancel;
 mod check;
 mod copy;
 mod covers;
+mod credit;
+mod credits;
 mod discography;
 mod doctor;
 mod export;
@@ -41,6 +43,7 @@ mod rules;
 mod scan;
 mod search;
 mod serve;
+mod sourced_artist;
 mod sources;
 mod spectrum;
 mod stats;
@@ -61,6 +64,8 @@ pub use browse::{list_albums, list_artists, list_countries, list_genres, list_la
 pub use cancel::cancel;
 pub use check::check;
 pub use copy::copy;
+pub use credit::credit;
+pub use credits::show_credits;
 pub use discography::missing;
 pub use doctor::show_doctor;
 pub use export::export;
@@ -572,7 +577,11 @@ fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::Sourc
                 false => " · ended",
             });
         }
-        let confidence = source_status(link.confidence, link.review, link.trusted);
+        let confidence = if link.excluded {
+            "excluded by you".to_string()
+        } else {
+            source_status(link.confidence, link.review, link.trusted)
+        };
         let relation = link
             .credit
             .relation_id
@@ -590,6 +599,67 @@ fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::Sourc
             format!(
                 "{} · {confidence} · {}{relation}",
                 link.source,
+                ui::since(link.fetched_at)
+            ),
+        ]);
+    }
+    print!("{}", table.render());
+}
+
+fn print_sourced_edition_credits(
+    catalog: &Catalog,
+    mut credits: Vec<core_sources::SourcedEditionCreditLink>,
+) {
+    if credits.is_empty() {
+        return;
+    }
+    credits.sort_by(|a, b| {
+        a.credit
+            .order
+            .cmp(&b.credit.order)
+            .then_with(|| a.credit.role.cmp(&b.credit.role))
+            .then_with(|| a.credit.artist_name.cmp(&b.credit.artist_name))
+    });
+    println!("{}", ui::section("Edition credits from sources"));
+    let mut table = Table::new(&[
+        "Artist",
+        "Role",
+        "Credited as",
+        "Details",
+        "Edition",
+        "Evidence",
+    ])
+    .limit(0, 28)
+    .limit(2, 24)
+    .limit(3, 36)
+    .limit(4, 36)
+    .limit(5, 42);
+    for link in credits {
+        let details = link
+            .credit
+            .attributes
+            .iter()
+            .map(|attribute| attribute.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let edition = catalog
+            .release(link.release_id)
+            .map(|release| release.title.as_str())
+            .unwrap_or("unknown edition");
+        table.push(vec![
+            link.credit.artist_name,
+            role_label(&link.credit.role),
+            link.credit.credited_as.unwrap_or_default(),
+            details,
+            edition.to_string(),
+            format!(
+                "{} · {} · {}",
+                link.source,
+                if link.excluded {
+                    "excluded by you".to_string()
+                } else {
+                    source_status(link.confidence, link.review, link.trusted)
+                },
                 ui::since(link.fetched_at)
             ),
         ]);

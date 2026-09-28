@@ -113,6 +113,19 @@ for three connected layers in the same response:
 - artist relationships on each linked work, such as composer, lyricist,
   writer or arranger.
 
+It also asks about exact local release IDs separately. Artist relationships
+attached to an edition remain edition credits: they are visible from its album
+and track pages but are never relabelled as recording performances.
+
+For multi-part works, the same recording answer can include a relationship
+from its linked work to a containing work. Only the explicit, backward
+MusicBrainz `parts` relation creates a child → parent edge. The relationship
+keeps its source ID, qualifier (movement, act or other part), ordering key and
+trust; a similarly named composition or a partial recording does not create a
+parent. The parent can be navigated as sourced evidence without adding it to
+the tag-built catalog. Local `WORK`/grouping and movement tags are displayed
+separately from that external assertion.
+
 Every external credit retains the MusicBrainz artist ID, canonical name,
 credited-as spelling, relationship type, stable type identifiers and direction,
 instruments and other attributes, begin/end dates, ordering, source, confidence
@@ -121,13 +134,19 @@ presented as though they performed on the recording.
 
 The local catalog uses the same richer relationship vocabulary. In particular,
 Picard/Vorbis fields such as `PERFORMER:guitar` keep the instrument on the
-credit instead of flattening it into a generic performer. Local tag assertions
+credit instead of flattening it into a generic performer. Additional personnel
+aliases and explicit album-level role tags retain their appropriate scope.
+Local tag assertions
 remain marked `tags`; fetched assertions remain in `sources.json`.
 
 The credits are visible from `track`, `album`, `artist`, `recording`, `work`
 and the source comparison panel. The track JSON view exports local and sourced
 credits separately, so provenance and scope cannot disappear in a machine-
-readable view. `--recordings` remains a compatibility alias for `--credits`.
+readable view. A manual correction is another attributed assertion, and an
+exact sourced credit may be excluded from navigation without deleting the
+evidence. These exclusions are reversible and exported with user rules; local
+tag credits remain authoritative. `--recordings` remains a compatibility alias
+for `--credits`.
 
 ## Stage 4 — relations between objects
 
@@ -170,9 +189,9 @@ links, so they remain useful through a pipe, over SSH and in saved output.
 
 - `track` leads to its recording, works, album, release group, label and
   credited artists;
-- `recording` leads to each local placement, album, work and locally known
-  credited artist;
-- `work` leads back to every recording and locally known credited artist;
+- `recording` leads to each local placement, album, work and every trusted
+  credited artist, including those absent from local tags;
+- `work` leads back to every recording and trusted credited artist;
 - `album` leads to its album artist, labels, release group, related editions
   and credited artists;
 - `artist` exposes direct commands for the filtered album list, dated
@@ -182,8 +201,11 @@ links, so they remain useful through a pipe, over SSH and in saved output.
   directions of the edition relationship;
 - `search` carries a command that opens every result.
 
-Navigation prefers MusicBrainz identifiers for recordings, works, release
-groups and editions. `album` therefore accepts a precise release MBID in
+Navigation prefers MusicBrainz identifiers for artists, recordings, works,
+release groups and editions. Source-only credited artists have a read-only
+`artist` card reached by their MusicBrainz ID; they are not invented as local
+tag artists. Its recording links use `local:<file path>` where no recording
+MBID exists, avoiding an ambiguous title. `album` therefore accepts a precise release MBID in
 addition to a title, preventing two pressings with the same title from becoming
 an ambiguous dead end. Names are shell-quoted centrally, including apostrophes,
 so the displayed commands can be copied without being reassembled by hand.

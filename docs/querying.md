@@ -47,8 +47,9 @@ The search engine explores the entirety of the catalog's relational structure. F
 
 A music catalog is a graph, not a flat table. Aède indexes distinct creative roles so you can query liner notes with surgical accuracy:
 
-- **Role Fields:** `composer`, `lyricist`, `producer`, `engineer`, `performer`, `conductor`, `remixer`, `featured`, `mainartist`.
-- **Audible Class (`performing`):** Matches anyone audible on the recording — capturing a guest rapper's verse without matching the songwriter behind the scenes.
+- **Role Fields:** `composer`, `lyricist`, `producer`, `engineer`, `performer`, `conductor`, `orchestra`, `choir`, `ensemble`, `soloist`, `remixer`, `featured`, `mainartist`.
+- **Performance Class (`performing`):** Matches participants in the performance, including a conductor, without matching a composer only credited for writing the work.
+- `orchestra` also matches MusicBrainz `performing orchestra`; `soloist` matches a local soloist tag or a sourced performer/instrument/vocal relationship explicitly marked `solo`.
 - **Global Credit (`artist:`):** Matches any credit in any role across the track or album. `artist:ozzy artist:"zakk wylde"` requires both individuals to appear anywhere on the record, while role fields isolate their specific contributions.
 
 ```sh
@@ -58,6 +59,8 @@ aede query "guest:\"zakk wylde\""               # guest on a non-compilation rel
 aede query "compilationartist:\"miles davis\""  # performer on a compilation
 aede query "contributor:\"rick rubin\""         # non-performing contribution
 aede query "with:\"zakk wylde\""                # co-performer on the same track
+aede query 'work:MUSICBRAINZ_PARENT_WORK_ID soloist:"A Soloist"' # identified movements
+aede query 'work:"Symphony No. 5" movement:Allegro'       # local WORK/movement tags
 ```
 
 The graph identity fields (`recording`, `work`, `releasegroup`) accept either

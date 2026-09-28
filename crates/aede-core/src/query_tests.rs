@@ -8,7 +8,7 @@ use super::*;
 use crate::model;
 use crate::sources::{
     Confidence, CreditLink, Facts, LabelFacts, MUSICBRAINZ, SourceRecord, Sources, TrackFacts,
-    WorkLink,
+    WorkLink, WorkParentLink,
 };
 use crate::user::{EntityRef, LOCAL_USER, Play, UserData};
 
@@ -344,6 +344,73 @@ fn who_is_audible_is_its_own_question() {
 }
 
 #[test]
+fn classical_roles_remain_separately_queryable() {
+    let catalog = model::build(
+        vec![model::tests::track(
+            "/music/Symphony/I.flac",
+            &[
+                ("title", "Allegro"),
+                ("artist", "The Players"),
+                ("album", "A Symphony"),
+                ("orchestra", "The Orchestra"),
+                ("choir", "The Choir"),
+                ("soloist", "The Soloist"),
+                ("conductor", "The Conductor"),
+                ("composer", "The Composer"),
+            ],
+            1000,
+        )],
+        vec!["/music".into()],
+        0,
+        &[],
+    );
+    let user = UserData::default();
+    for expression in [
+        "orchestra:\"The Orchestra\"",
+        "choir:\"The Choir\"",
+        "soloist:\"The Soloist\"",
+        "conductor:\"The Conductor\"",
+        "composer:\"The Composer\"",
+    ] {
+        assert_eq!(
+            titles(expression, &catalog, &user),
+            ["Allegro"],
+            "{expression}"
+        );
+    }
+    assert!(titles("soloist:\"The Composer\"", &catalog, &user).is_empty());
+}
+
+#[test]
+fn local_work_tag_is_searchable_without_inventing_a_work_identity() {
+    let catalog = model::build(
+        vec![model::tests::track(
+            "/music/Symphony/I.flac",
+            &[
+                ("title", "I. Allegro"),
+                ("artist", "The Orchestra"),
+                ("album", "A Symphony"),
+                ("work", "Symphony No. 5"),
+                ("movement", "Allegro"),
+            ],
+            1000,
+        )],
+        vec!["/music".into()],
+        0,
+        &[],
+    );
+    assert!(catalog.works.is_empty());
+    assert_eq!(
+        titles("work:\"Symphony No. 5\"", &catalog, &UserData::default()),
+        ["I. Allegro"]
+    );
+    assert_eq!(
+        titles("movement:Allegro", &catalog, &UserData::default()),
+        ["I. Allegro"]
+    );
+}
+
+#[test]
 fn relational_fields_project_the_graph_back_onto_tracks() {
     let c = model::build(
         vec![
@@ -452,28 +519,57 @@ fn relational_fields_include_certain_source_evidence_without_promoting_it() {
         facts: Facts::Track(TrackFacts {
             recording: Some("recording-1".to_string()),
             relationships_complete: true,
-            credits: vec![CreditLink {
-                relation_id: Some("instrument-rel".to_string()),
-                role_id: Some("instrument-type".to_string()),
-                role: "instrument".to_string(),
-                direction: Some("backward".to_string()),
-                artist_mbid: "guitarist-id".to_string(),
-                artist_name: "Source Guitarist".to_string(),
-                credited_as: None,
-                attributes: vec![model::CreditAttribute {
-                    id: Some("guitar-type".to_string()),
-                    name: "electric guitar".to_string(),
-                    value: None,
+            credits: vec![
+                CreditLink {
+                    relation_id: Some("instrument-rel".to_string()),
+                    role_id: Some("instrument-type".to_string()),
+                    role: "instrument".to_string(),
+                    direction: Some("backward".to_string()),
+                    artist_mbid: "guitarist-id".to_string(),
+                    artist_name: "Source Guitarist".to_string(),
                     credited_as: None,
-                }],
-                began: None,
-                ended: None,
-                over: None,
-                order: Some(1),
-            }],
+                    attributes: vec![
+                        model::CreditAttribute {
+                            id: Some("guitar-type".to_string()),
+                            name: "electric guitar".to_string(),
+                            value: None,
+                            credited_as: None,
+                        },
+                        model::CreditAttribute {
+                            id: Some("solo-type".to_string()),
+                            name: "solo".to_string(),
+                            value: None,
+                            credited_as: None,
+                        },
+                    ],
+                    began: None,
+                    ended: None,
+                    over: None,
+                    order: Some(1),
+                },
+                CreditLink {
+                    relation_id: Some("orchestra-rel".into()),
+                    role_id: Some("orchestra-type".into()),
+                    role: "performing orchestra".into(),
+                    direction: Some("backward".into()),
+                    artist_mbid: "orchestra-id".into(),
+                    artist_name: "Source Orchestra".into(),
+                    credited_as: None,
+                    attributes: Vec::new(),
+                    began: None,
+                    ended: None,
+                    over: None,
+                    order: Some(2),
+                },
+            ],
             works: vec![WorkLink {
                 mbid: "sourced-work".to_string(),
                 title: "A Sourced Work".to_string(),
+                parents: vec![WorkParentLink {
+                    mbid: "parent-work".into(),
+                    title: "A Complete Symphony".into(),
+                    ..Default::default()
+                }],
                 credits: vec![CreditLink {
                     relation_id: Some("composer-rel".to_string()),
                     role_id: Some("composer-type".to_string()),
@@ -515,7 +611,11 @@ fn relational_fields_include_certain_source_evidence_without_promoting_it() {
     for expression in [
         "work:\"A Sourced Work\"",
         "work:sourced-work",
+        "work:parent-work",
+        "work:\"A Complete Symphony\"",
         "instrument:guitar",
+        "soloist:\"Source Guitarist\"",
+        "orchestra:\"Source Orchestra\"",
         "performing:\"Source Guitarist\"",
         "guest:\"Source Guitarist\"",
         "with:\"Source Guitarist\"",

@@ -70,6 +70,7 @@ const VALUED_WORD: &[&str] = &[
     "accept",
     "reject",
     "undo",
+    "artist-id",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in
@@ -90,6 +91,7 @@ const VALUED_WORD: &[&str] = &[
 /// question.
 const VALUED_NAME: &[&str] = &[
     "artist",
+    "instrument",
     "album",
     "with",
     "genre",

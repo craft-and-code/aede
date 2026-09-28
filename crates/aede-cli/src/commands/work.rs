@@ -1,8 +1,8 @@
 //! The `work` command: a composition and the recordings that realize it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use aede_core::{model::EntityKind, sources};
+use aede_core::{model::EntityKind, sources, text};
 
 use super::{Res, data_dir, load, navigation::Navigation};
 use crate::args::Args;
@@ -15,10 +15,28 @@ pub fn show_work(args: &Args) -> Res {
         return Err("give a work title or MusicBrainz ID".into());
     }
     let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
+    let family = held.work_parent_links(&catalog);
     let found = catalog.find_works(&query);
     let mut sourced = held.find_sourced_works(&catalog, &query);
     sourced.retain(|work| !found.iter().any(|local| local.mbid == work.mbid));
-    let count = found.len() + sourced.len();
+    let wanted = text::normalize(&query);
+    let mut parent_only: BTreeMap<String, String> = BTreeMap::new();
+    for link in family.iter().filter(|link| link.trusted) {
+        let title = text::normalize(&link.parent.title);
+        if link.parent.mbid == query
+            || (!wanted.is_empty() && (title == wanted || title.contains(&wanted)))
+        {
+            let title = parent_only.entry(link.parent.mbid.clone()).or_default();
+            if title.is_empty() && !link.parent.title.is_empty() {
+                *title = link.parent.title.clone();
+            }
+        }
+    }
+    parent_only.retain(|mbid, _| {
+        !found.iter().any(|work| &work.mbid == mbid)
+            && !sourced.iter().any(|work| &work.mbid == mbid)
+    });
+    let count = found.len() + sourced.len() + parent_only.len();
     if count == 0 {
         return Err(format!("no work matches \"{query}\"").into());
     }
@@ -35,6 +53,7 @@ pub fn show_work(args: &Args) -> Res {
         for &recording_id in &recording_ids {
             navigation.entity(&catalog, "Recording", EntityKind::Recording, recording_id);
         }
+        print_family(&family, &work.mbid, &mut navigation);
         for link in held
             .work_links(&catalog)
             .into_iter()
@@ -64,16 +83,26 @@ pub fn show_work(args: &Args) -> Res {
             if !link.trusted {
                 continue;
             }
-            if let Some(artist) = catalog
-                .artists
-                .iter()
-                .find(|artist| artist.mbid.as_deref() == Some(&link.credit.artist_mbid))
-            {
-                navigation.entity(&catalog, "Credited artist", EntityKind::Artist, artist.id);
-            }
+            navigation.source_artist(&link.credit.artist_mbid);
         }
         super::print_sourced_credits(&catalog, credits);
         super::panel_for(args, &catalog, EntityKind::Work, work.id);
+        navigation.print();
+        return Ok(());
+    }
+
+    if let Some((mbid, title)) = parent_only.into_iter().next() {
+        println!(
+            "{}",
+            ui::section(if title.is_empty() { &mbid } else { &title })
+        );
+        println!("  {}", ui::dim(&format!("MusicBrainz work: {mbid}")));
+        println!(
+            "  {}",
+            ui::dim("external part-of-work evidence; local tags are unchanged")
+        );
+        let mut navigation = Navigation::default();
+        print_family(&family, &mbid, &mut navigation);
         navigation.print();
         return Ok(());
     }
@@ -96,6 +125,7 @@ pub fn show_work(args: &Args) -> Res {
     for &recording_id in &recording_ids {
         navigation.entity(&catalog, "Recording", EntityKind::Recording, recording_id);
     }
+    print_family(&family, &work.mbid, &mut navigation);
     for link in &work.links {
         let attributes = link
             .work
@@ -126,17 +156,133 @@ pub fn show_work(args: &Args) -> Res {
         })
         .collect();
     for link in &credits {
-        if let Some(artist) = catalog
-            .artists
-            .iter()
-            .find(|artist| artist.mbid.as_deref() == Some(&link.credit.artist_mbid))
-        {
-            navigation.entity(&catalog, "Credited artist", EntityKind::Artist, artist.id);
+        if link.trusted {
+            navigation.source_artist(&link.credit.artist_mbid);
         }
     }
     super::print_sourced_credits(&catalog, credits);
     navigation.print();
     Ok(())
+}
+
+/// Shows only asserted parent/part identities. A matching title never invents
+/// a work relationship, and a rejected/uncertain source is evidence but not a
+/// navigation target.
+fn print_family(
+    family: &[sources::SourcedWorkParentLink],
+    mbid: &str,
+    navigation: &mut Navigation,
+) {
+    let mut parents: Vec<_> = family
+        .iter()
+        .filter(|link| link.child_mbid == mbid)
+        .collect();
+    parents.sort_by(|left, right| {
+        left.parent
+            .mbid
+            .cmp(&right.parent.mbid)
+            .then_with(|| left.source.cmp(&right.source))
+            .then_with(|| right.trusted.cmp(&left.trusted))
+    });
+    parents.dedup_by(|left, right| {
+        left.parent.mbid == right.parent.mbid && left.source == right.source
+    });
+    if !parents.is_empty() {
+        println!("{}", ui::section("Part of"));
+        let mut rows = Table::new(&["Work", "Position", "Evidence"]);
+        for link in parents {
+            let title = if link.parent.title.is_empty() {
+                &link.parent.mbid
+            } else {
+                &link.parent.title
+            };
+            rows.push(vec![
+                title.clone(),
+                part_position(&link.parent),
+                format!(
+                    "{} · {}",
+                    link.source,
+                    super::source_status(link.confidence, link.review, link.trusted)
+                ),
+            ]);
+            if link.trusted {
+                navigation.add(
+                    "Parent work",
+                    format!(
+                        "aede work {}",
+                        super::navigation::shell_arg(&link.parent.mbid)
+                    ),
+                );
+            }
+        }
+        print!("{}", rows.render());
+    }
+
+    let mut children: Vec<_> = family
+        .iter()
+        .filter(|link| link.parent.mbid == mbid)
+        .collect();
+    children.sort_by(|left, right| {
+        left.child_mbid
+            .cmp(&right.child_mbid)
+            .then_with(|| left.source.cmp(&right.source))
+            .then_with(|| right.trusted.cmp(&left.trusted))
+    });
+    children
+        .dedup_by(|left, right| left.child_mbid == right.child_mbid && left.source == right.source);
+    children.sort_by(|left, right| {
+        left.parent
+            .order
+            .unwrap_or(u32::MAX)
+            .cmp(&right.parent.order.unwrap_or(u32::MAX))
+            .then_with(|| left.child_title.cmp(&right.child_title))
+            .then_with(|| left.child_mbid.cmp(&right.child_mbid))
+    });
+    if !children.is_empty() {
+        println!("{}", ui::section("Parts in the library"));
+        let mut rows = Table::new(&["Part", "Position", "Evidence"]);
+        for link in children {
+            rows.push(vec![
+                if link.child_title.is_empty() {
+                    link.child_mbid.clone()
+                } else {
+                    link.child_title.clone()
+                },
+                part_position(&link.parent),
+                format!(
+                    "{} · {}",
+                    link.source,
+                    super::source_status(link.confidence, link.review, link.trusted)
+                ),
+            ]);
+            if link.trusted {
+                navigation.add(
+                    "Part",
+                    format!(
+                        "aede work {}",
+                        super::navigation::shell_arg(&link.child_mbid)
+                    ),
+                );
+            }
+        }
+        print!("{}", rows.render());
+    }
+}
+
+fn part_position(parent: &sources::WorkParentLink) -> String {
+    let mut parts: Vec<String> = parent
+        .attributes
+        .iter()
+        .map(|attribute| attribute.name.clone())
+        .collect();
+    if let Some(order) = parent.order {
+        parts.push(format!("#{order}"));
+    }
+    if parts.is_empty() {
+        "—".into()
+    } else {
+        parts.join(" · ")
+    }
 }
 
 fn print_recordings(catalog: &aede_core::model::Catalog, recording_ids: &BTreeSet<u32>) {

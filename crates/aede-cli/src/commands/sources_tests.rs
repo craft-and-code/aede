@@ -129,6 +129,7 @@ fn a_release_field_is_judged_against_the_tag_that_answers_it() {
             label_mbid: None,
             secondary_types: vec![],
             cover_art: None,
+            ..Default::default()
         }),
     );
 

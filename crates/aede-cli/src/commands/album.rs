@@ -58,6 +58,8 @@ pub fn show_album(args: &Args) -> Res {
     }
     let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
     let sourced_credits = held.credit_links(&catalog);
+    let edition_credits = held.edition_credit_links(&catalog);
+    let parent_works = held.work_parent_links(&catalog);
 
     if kind == TitleMatch::Partial {
         println!(
@@ -68,7 +70,14 @@ pub fn show_album(args: &Args) -> Res {
         );
     }
     for release in &matches {
-        let navigation = print_album(args, &catalog, release, &sourced_credits);
+        let navigation = print_album(
+            args,
+            &catalog,
+            release,
+            &sourced_credits,
+            &edition_credits,
+            &parent_works,
+        );
         super::sources_panel_for(args, &catalog, EntityKind::Release, release.id);
         super::panel_for(args, &catalog, EntityKind::Release, release.id);
         navigation.print();
@@ -142,6 +151,8 @@ fn print_album(
     catalog: &Catalog,
     release: &Release,
     sourced_credits: &[sources::SourcedCreditLink],
+    edition_credits: &[sources::SourcedEditionCreditLink],
+    parent_works: &[sources::SourcedWorkParentLink],
 ) -> super::navigation::Navigation {
     let mut navigation = super::navigation::Navigation::default();
     let artist = release
@@ -295,6 +306,110 @@ fn print_album(
     }
     print!("{}", t.render());
 
+    let mut movements = Table::new(&[
+        "#",
+        "Work/grouping in tags",
+        "Movement in tags",
+        "Source parent",
+    ])
+    .limit(1, 36)
+    .limit(2, 36)
+    .limit(3, 36);
+    let mut movement_count = 0;
+    let mut navigated_parents = std::collections::BTreeSet::new();
+    for &track_id in &release.track_ids {
+        let Some(track) = catalog.track(track_id) else {
+            continue;
+        };
+        let tagged_work = catalog
+            .file(track.file_id)
+            .and_then(|file| file.first_tag("grouping"))
+            .unwrap_or("");
+        let tagged_movement = catalog
+            .file(track.file_id)
+            .map(|file| {
+                let title = file.first_tag("movement").unwrap_or("");
+                let number = file.first_tag("movementnumber").unwrap_or("");
+                let total = file.first_tag("movementtotal").unwrap_or("");
+                let position = if !number.is_empty() && !total.is_empty() {
+                    format!("{number}/{total}")
+                } else {
+                    number.to_string()
+                };
+                match (position.is_empty(), title.is_empty()) {
+                    (true, _) => title.to_string(),
+                    (false, true) => position,
+                    (false, false) => format!("{position} · {title}"),
+                }
+            })
+            .unwrap_or_default();
+        let mut parents: Vec<_> = parent_works
+            .iter()
+            .filter(|link| link.trusted && link.recording_id == track.recording_id)
+            .collect();
+        parents.sort_by(|left, right| left.parent.mbid.cmp(&right.parent.mbid));
+        parents.dedup_by(|left, right| left.parent.mbid == right.parent.mbid);
+        if tagged_movement.is_empty() && parents.is_empty() {
+            continue;
+        }
+        let parent_names: Vec<_> = parents
+            .iter()
+            .map(|link| {
+                if navigated_parents.insert(link.parent.mbid.clone()) {
+                    navigation.add(
+                        "Parent work",
+                        format!(
+                            "aede work {}",
+                            super::navigation::shell_arg(&link.parent.mbid)
+                        ),
+                    );
+                }
+                let title = if link.parent.title.is_empty() {
+                    link.parent.mbid.clone()
+                } else {
+                    link.parent.title.clone()
+                };
+                format!("{title} ({})", link.source)
+            })
+            .collect();
+        movements.push(vec![
+            track_number(track, discs),
+            tagged_work.into(),
+            tagged_movement,
+            parent_names.join(" / "),
+        ]);
+        movement_count += 1;
+    }
+    if movement_count > 0 {
+        println!("{}", ui::section("Works and movements"));
+        print!("{}", movements.render());
+    }
+
+    let edition_personnel: Vec<_> = catalog
+        .credits
+        .iter()
+        .filter(|credit| {
+            credit.entity_kind == EntityKind::Release
+                && credit.entity_id == release.id
+                && credit.role != "album"
+        })
+        .collect();
+    if !edition_personnel.is_empty() {
+        println!("{}", ui::section("Edition credits in tags"));
+        let mut people = Table::new(&["Artist", "Role", "Source"]);
+        for credit in edition_personnel {
+            if let Some(artist) = catalog.artist(credit.artist_id) {
+                people.push(vec![
+                    artist.name.clone(),
+                    role_label(&credit.role),
+                    credit.source.clone(),
+                ]);
+                navigation.entity(catalog, "Credited artist", EntityKind::Artist, artist.id);
+            }
+        }
+        print!("{}", people.render());
+    }
+
     let duration: u64 = release
         .track_ids
         .iter()
@@ -365,6 +480,26 @@ fn print_album(
             .cloned()
             .collect(),
     );
+    for link in sourced_credits
+        .iter()
+        .filter(|link| link.trusted && recording_ids.contains(&link.recording_id))
+    {
+        navigation.source_artist(&link.credit.artist_mbid);
+    }
+    super::print_sourced_edition_credits(
+        catalog,
+        edition_credits
+            .iter()
+            .filter(|link| link.release_id == release.id)
+            .cloned()
+            .collect(),
+    );
+    for link in edition_credits
+        .iter()
+        .filter(|link| link.trusted && link.release_id == release.id)
+    {
+        navigation.source_artist(&link.credit.artist_mbid);
+    }
     navigation
 }
 

@@ -41,6 +41,14 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             usage: "aede doctor",
             summary: "Find missing metadata, duplicates, and other catalog issues.",
         },
+        "credits" => CommandPage {
+            usage: "aede credits [album title|MusicBrainz ID|folder] [--json]",
+            summary: "Measure MusicBrainz recording/work credit coverage and locate gaps.",
+        },
+        "credit" => CommandPage {
+            usage: "aede credit --add recording:<ID>|work:<ID>|release:<ID> --artist=<name> --role=<role> [--artist-id=<MBID>] [--instrument=<name>] | aede credit --exclude=<credit ID> | --undo=<credit ID>",
+            summary: "Add a manual credit or exclude/restore one sourced credit without touching tags.",
+        },
         "check" => CommandPage {
             usage: "aede check [folder…]",
             summary: "Verify the checksums stored in audio containers.",
@@ -210,8 +218,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Break the catalog down by release year.",
         },
         "artist" => CommandPage {
-            usage: "aede artist <name>",
-            summary: "Show one artist's discography, credits, and sources.",
+            usage: "aede artist <name|MusicBrainz artist ID>",
+            summary: "Show a local artist or a source-only credited contributor and their links.",
         },
         "album" => CommandPage {
             usage: "aede album <title|MusicBrainz release ID>",
@@ -223,7 +231,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "search" => CommandPage {
             usage: "aede search <text>",
-            summary: "Search every graph object, plus optional notes, comments, or lyrics.",
+            summary: "Search graph objects and source-only contributors, plus optional notes, comments, or lyrics.",
         },
         "file" => CommandPage {
             usage: "aede file <path>",
@@ -307,6 +315,10 @@ pub fn print_index() {
                        sources. --summaries, --lyrics, --covers, --fanart and
                        the other passes can be combined. Run `aede help fetch`
                        for the complete guide and examples
+  credits [album]      Credit coverage by album; with an album, show each
+                       recording and how to fetch what is still waiting
+  credit               Add a manual recording, work or edition credit, or
+                       exclude/restore one sourced credit by exact ID
   sources              What other sources say, beside your tags and never on
                        top of them. --list shows each record, --forget drops
                        them, --source narrows to one. --template writes a
@@ -422,31 +434,36 @@ pub fn print_index() {
   genres               List of genres
   labels               List of labels
   years                Breakdown by year
-  artist <name>        Artist card: discography, collaborations
+  artist <name|id>     Artist card: discography, collaborations
                        (--with=<other> lists the tracks the two share).
                        --members is the dated line-up: who played in the band,
                        on what, and between which years, in MusicBrainz's own
                        words — and for a person, the bands they played in. It
                        comes from aede fetch, and the album pages use the same
                        dates to name the band as it stood the year each record
-                       came out
+                       came out. A MusicBrainz credit-only artist has a
+                       sourced card with local albums, recordings and works;
+                       use its ID to disambiguate namesakes
   album <title|id>     Album edition card: tracks, credits and graph links
   track <title>        Track card: album, credits, technical details, tags
                        (--lyrics adds the words, from the tags or from a .lrc
                        file sitting beside the track)
   recording <title|id> Recorded performance: every local album placement and
                        each attributed work relationship. An ID removes title
-                       ambiguity
+                       ambiguity; without one, local:<file path> identifies
+                       one recording precisely
   work <title|id>      Composition and the recordings that realize it. Works
                        fetched from MusicBrainz remain explicitly sourced and
-                       never rewrite the file tags
+                       never rewrite the file tags. Explicit parent/part
+                       relations show symphonies and their movements
   release-group <id>   Album identity shared by its local editions. The
                        MusicBrainz ID removes ambiguity between equal titles
   genre <name>         Genre page: albums and artists carrying it
   label <name>         Label page: its catalogue, artists, and MusicBrainz
                        identity status (local, confirmed, proposed, conflict)
   search <text>        Search artists, albums, tracks, recordings, works,
-                       release groups and labels. --comments also looks in the
+                       release groups, labels, trusted source-only credit
+                       contributors and parent works. --comments also looks in the
                        comment tag, --notes in what you wrote yourself, and
                        --lyrics in the words of the songs
   file <path>          Read one file straight off disk: its technical
@@ -484,6 +501,8 @@ pub fn print_index() {
                        From the tags: title artist album albumartist genre
                        label comment path codec year duration size bitrate
                        samplerate lossless compilation
+                       Classical tags: work (also an identified parent work),
+                       movement. Titles in tags remain text, not identities
                        What you wrote: rating loved tag note played — each
                        also as album.<field> and artist.<field>, since stars
                        on a track and on its album are different claims
@@ -500,7 +519,8 @@ pub fn print_index() {
                          note        what you have written a note on
                          -rating     what you have never rated
                        Who did what: composer, lyricist, producer, engineer,
-                       performer, conductor, remixer, featured, mainartist,
+                       performer, conductor, orchestra, choir, ensemble,
+                       soloist, remixer, featured, mainartist,
                        performing
   love <kind> <name>   Mark a favourite (--remove takes it back)
   rate <kind> <name>   Give it 1 to 5 stars: --stars 4, or --remove
@@ -558,7 +578,8 @@ pub fn print_index() {
 
 {}
   --identify           Identify fingerprinted files through AcoustID
-  --credits            Retrieve rich MusicBrainz recording and work credits
+  --credits            Retrieve rich MusicBrainz recording, work and exact-
+                       edition credits, including work/part relationships
   --recordings         Compatibility alias for --credits
   --summaries          Retrieve the opening Wikipedia paragraph
   --discography        Browse an artist's MusicBrainz releases
@@ -681,10 +702,19 @@ fn command_examples(command: &str) -> &'static [&'static str] {
     match command {
         "serve" => &["aede scan ~/Music", "aede serve", "aede serve --port 0"],
         "cancel" => &["aede cancel <task-id> --data /path/to/aede-data"],
-        "artist" => &["aede artist \"Miles Davis\" --members"],
+        "artist" => &[
+            "aede artist \"Miles Davis\" --members",
+            "aede artist <MusicBrainz-artist-ID>",
+        ],
         "album" => &["aede album \"Kind of Blue\""],
         "track" => &["aede track \"So What\" --artist=\"Miles Davis\""],
         "recording" => &["aede recording <MusicBrainz-recording-ID>"],
+        "credits" => &["aede credits", "aede credits \"Patient Number 9\""],
+        "credit" => &[
+            "aede credit --add recording:<MusicBrainz-recording-ID> --artist=\"Jane Doe\" --role=producer",
+            "aede credit --exclude=<ID from aede relations>",
+            "aede credit --undo=<ID>",
+        ],
         "work" => &["aede work <MusicBrainz-work-ID>"],
         "release-group" => &["aede release-group <MusicBrainz-release-group-ID>"],
         "label" => &["aede label \"Blue Note\""],
@@ -742,7 +772,8 @@ fn print_fetch_help() {
   --lyrics             Missing lyrics from LRCLIB, written as .lrc sidecars
   --identify           Identify fingerprinted files through AcoustID
   --credits            Recording performers, instruments, production credits,
-                       work composers and lyricists, with relationship details
+                       work composers and lyricists, plus exact-edition roles,
+                       all with relationship details and work/part links
   --recordings         Compatibility alias for --credits
 
 {}

@@ -67,6 +67,22 @@ impl Catalog {
 
     /// Recordings whose title or MusicBrainz identifier matches the query.
     pub fn find_recordings(&self, query: &str) -> Vec<&Recording> {
+        // A local recording can share its title with many other takes. Its
+        // first placement's path is the stable fallback identity printed by
+        // navigation when no MusicBrainz recording ID exists.
+        if let Some(path) = query.strip_prefix("local:") {
+            return self
+                .recordings
+                .iter()
+                .filter(|recording| {
+                    recording.track_ids.iter().any(|&track_id| {
+                        self.track(track_id)
+                            .and_then(|track| self.file(track.file_id))
+                            .is_some_and(|file| file.path == path)
+                    })
+                })
+                .collect();
+        }
         let key = text::normalize(query);
         self.recordings
             .iter()

@@ -317,8 +317,26 @@ pub fn canonical_key(key: &str) -> String {
         "compilation" | "itunescompilation" => "compilation",
         "media" | "mediatype" => "media",
         "grouping" | "contentgroup" | "work" => "grouping",
+        "movement name" | "movementname" => "movement",
+        "movement number" | "movement no" | "movement_no" | "movement_number" => "movementnumber",
+        "total movements" | "movement count" | "movement_count" => "movementtotal",
+        "soloists" => "soloist",
         "mastering engineer" | "masteringengineer" | "mastering_engineer" => "mastering_engineer",
         "dj mixer" | "dj_mixer" | "djmixer" => "djmixer",
+        "executive producer" | "executiveproducer" => "executive_producer",
+        "co producer" | "co-producer" | "coproducer" => "co_producer",
+        "mixing engineer" | "mixingengineer" => "mixing_engineer",
+        "recording engineer" | "recordingengineer" => "recording_engineer",
+        "assistant engineer" | "assistantengineer" => "assistant_engineer",
+        "sound engineer" | "soundengineer" => "sound_engineer",
+        "background vocals" | "backgroundvocals" => "background_vocals",
+        "album producer" | "album_producer" | "albumproducer" => "albumproducer",
+        "album engineer" | "album_engineer" | "albumengineer" => "albumengineer",
+        "album mixer" | "album_mixer" | "albummixer" => "albummixer",
+        "album arranger" | "album_arranger" | "albumarranger" => "albumarranger",
+        "album mastering engineer" | "album_mastering_engineer" | "albummasteringengineer" => {
+            "albummasteringengineer"
+        }
         other => other,
     };
     mapped.to_string()

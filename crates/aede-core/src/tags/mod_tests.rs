@@ -10,6 +10,10 @@ fn canonical_keys() {
     assert_eq!(canonical_key("MusicBrainz Label Id"), "musicbrainz_labelid");
     assert_eq!(canonical_key("Mastering Engineer"), "mastering_engineer");
     assert_eq!(canonical_key("DJ Mixer"), "djmixer");
+    assert_eq!(canonical_key("MOVEMENT NAME"), "movement");
+    assert_eq!(canonical_key("Movement No"), "movementnumber");
+    assert_eq!(canonical_key("Total Movements"), "movementtotal");
+    assert_eq!(canonical_key("SOLOISTS"), "soloist");
 }
 
 #[test]

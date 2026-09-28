@@ -523,6 +523,14 @@ impl Builder {
                 self.push_credit(artist_id, EntityKind::Release, rid, "album");
             }
         }
+        if let Some(rid) = entities.release_id {
+            for &(tag, role) in ALBUM_ROLE_TAGS {
+                for name in credited_under(&item.tags, tag) {
+                    let id = self.intern_artist(&name);
+                    self.push_credit(id, EntityKind::Release, rid, role);
+                }
+            }
+        }
     }
 
     fn add_labels(&mut self, item: &ScannedFile, entities: &FileEntities) {
@@ -721,6 +729,10 @@ const ROLE_TAGS: &[&str] = &[
     "arranger",
     "composer",
     "conductor",
+    "orchestra",
+    "choir",
+    "ensemble",
+    "soloist",
     "writer",
     "remixer",
     "lyricist",
@@ -730,6 +742,24 @@ const ROLE_TAGS: &[&str] = &[
     "mixer",
     "djmixer",
     "mastering_engineer",
+    "executive_producer",
+    "co_producer",
+    "mixing_engineer",
+    "recording_engineer",
+    "assistant_engineer",
+    "sound_engineer",
+    "editor",
+    "background_vocals",
+];
+
+/// Only explicitly album-scoped tags become edition credits. Track-level
+/// `PRODUCER` must never be promoted to the whole album by accident.
+const ALBUM_ROLE_TAGS: &[(&str, &str)] = &[
+    ("albumproducer", "producer"),
+    ("albumengineer", "engineer"),
+    ("albummixer", "mixer"),
+    ("albumarranger", "arranger"),
+    ("albummasteringengineer", "mastering_engineer"),
 ];
 
 /// Key of a credit, used to reject duplicates in constant time.

@@ -87,6 +87,12 @@ fn summary(held: &Sources, catalog: &Catalog) -> Res {
                 .filter(|review| review.source == *name)
                 .cloned()
                 .collect(),
+            credit_exclusions: held
+                .credit_exclusions
+                .iter()
+                .filter(|decision| decision.relation.provenance == *name)
+                .cloned()
+                .collect(),
         };
         let reach = sources::attachment(&mine, catalog);
         let last = mine.records.iter().map(|r| r.fetched_at).max().unwrap_or(0);
@@ -281,6 +287,9 @@ fn import(args: &Args, path: &std::path::Path) -> Res {
     for review in incoming.reviews {
         held.set_review(review);
     }
+    for decision in incoming.credit_exclusions {
+        held.exclude_credit(decision.relation, decision.excluded_at);
+    }
     sources::save(&held, path)?;
 
     println!("{}", ui::section("Imported"));
@@ -419,6 +428,7 @@ fn forget(args: &Args, path: &std::path::Path) -> Res {
         None => {
             let removed = std::mem::take(&mut held.records).len();
             held.reviews.clear();
+            held.credit_exclusions.clear();
             removed
         }
     };

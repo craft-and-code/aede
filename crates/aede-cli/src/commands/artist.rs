@@ -5,6 +5,7 @@
 
 use std::error::Error;
 
+use aede_core::contributors::{self, SourcedContributor};
 use aede_core::model::{Artist, Catalog, EntityKind, Id};
 use aede_core::text;
 
@@ -30,6 +31,13 @@ use crate::ui::{self, Align, Table};
 /// identifiers are genuinely two people and two spellings with the same one
 /// should have been merged by the scan.
 fn one_artist<'a>(catalog: &'a Catalog, name: &str) -> Result<&'a Artist, Box<dyn Error>> {
+    if let Some(artist) = catalog
+        .artists
+        .iter()
+        .find(|artist| artist.mbid.as_deref() == Some(name))
+    {
+        return Ok(artist);
+    }
     let (found, _) = catalog.find_artists(name);
     match found.as_slice() {
         [one] => return Ok(one),
@@ -71,13 +79,101 @@ fn one_artist<'a>(catalog: &'a Catalog, name: &str) -> Result<&'a Artist, Box<dy
     .into())
 }
 
+enum ArtistPage<'a> {
+    Local(&'a Artist),
+    Sourced(&'a SourcedContributor),
+}
+
+fn resolve_artist<'a>(
+    catalog: &'a Catalog,
+    sourced: &'a [SourcedContributor],
+    query: &str,
+) -> Result<ArtistPage<'a>, Box<dyn Error>> {
+    if let Some(artist) = catalog
+        .artists
+        .iter()
+        .find(|artist| artist.mbid.as_deref() == Some(query))
+    {
+        return Ok(ArtistPage::Local(artist));
+    }
+    if let Some(artist) = sourced.iter().find(|artist| artist.mbid == query) {
+        return Ok(ArtistPage::Sourced(artist));
+    }
+    let (local, match_kind) = catalog.find_artists(query);
+    // A name that already opened a local artist must keep doing so. A source
+    // credit with the same spelling is a separate possible identity until
+    // tags establish its MBID; its exact ID remains directly openable.
+    if match_kind == aede_core::model::TitleMatch::Exact && !local.is_empty() {
+        return one_artist(catalog, query).map(ArtistPage::Local);
+    }
+    let exact: Vec<_> = sourced
+        .iter()
+        .filter(|artist| contributors::matches_name(artist, query, true))
+        .collect();
+    let candidates = if !exact.is_empty() {
+        exact
+            .into_iter()
+            .map(ArtistPage::Sourced)
+            .collect::<Vec<_>>()
+    } else {
+        let partial: Vec<_> = sourced
+            .iter()
+            .filter(|artist| contributors::matches_name(artist, query, false))
+            .collect();
+        if partial.is_empty() {
+            return one_artist(catalog, query).map(ArtistPage::Local);
+        }
+        local
+            .iter()
+            .copied()
+            .map(ArtistPage::Local)
+            .chain(partial.into_iter().map(ArtistPage::Sourced))
+            .collect::<Vec<_>>()
+    };
+    match candidates.as_slice() {
+        [one] => Ok(match one {
+            ArtistPage::Local(artist) => ArtistPage::Local(artist),
+            ArtistPage::Sourced(artist) => ArtistPage::Sourced(artist),
+        }),
+        [] => one_artist(catalog, query).map(ArtistPage::Local),
+        _ => {
+            let mut names = Vec::new();
+            for candidate in candidates {
+                match candidate {
+                    ArtistPage::Local(artist) => names.push(format!(
+                        "{} · {} · local tags",
+                        artist.name,
+                        artist.mbid.as_deref().unwrap_or("no MusicBrainz ID")
+                    )),
+                    ArtistPage::Sourced(artist) => names.push(format!(
+                        "{} · {} · sourced credits",
+                        artist.name, artist.mbid
+                    )),
+                }
+            }
+            Err(format!(
+                "\"{query}\" matches several artists; use a MusicBrainz ID:\n  {}",
+                names.join("\n  ")
+            )
+            .into())
+        }
+    }
+}
+
 pub fn show_artist(args: &Args) -> Res {
     let catalog = load(args)?;
     let name = args.positionals.join(" ");
     if name.trim().is_empty() {
         return Err("give a name: aede artist \"Miles Davis\"".into());
     }
-    let artist = one_artist(&catalog, &name)?;
+    let held = super::sources_held(args)?;
+    let contributors = contributors::sourced(&catalog, &held);
+    let artist = match resolve_artist(&catalog, &contributors, &name)? {
+        ArtistPage::Local(artist) => artist,
+        ArtistPage::Sourced(artist) => {
+            return super::sourced_artist::show(args, &catalog, &held, artist);
+        }
+    };
 
     // `--with` turns one line of the collaboration table into the tracks it
     // counts: the graph is only useful if one can walk down it.
@@ -146,6 +242,19 @@ pub fn show_artist(args: &Args) -> Res {
         "Filtered albums",
         format!("aede albums --artist={quoted_name}"),
     );
+    for sourced in contributors
+        .iter()
+        .filter(|sourced| contributors::matches_name(sourced, &artist.name, true))
+    {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "separate source credit identity with this name: {} (not linked to local tags)",
+                sourced.mbid
+            ))
+        );
+        navigation.source_artist(&sourced.mbid);
+    }
     let own = catalog.releases_as_album_artist(artist_id);
     let guest = catalog.guest_appearances(artist_id);
     let tracks = catalog.performed_tracks_of_artist(artist_id);
@@ -239,21 +348,10 @@ pub fn show_artist(args: &Args) -> Res {
         }
         print!("{}", t.render());
     }
-    let held = super::sources_held(args)?;
     let source_credits: Vec<_> = held
         .credit_links(&catalog)
         .into_iter()
-        .filter(|link| match artist.mbid.as_deref() {
-            Some(mbid) => link.credit.artist_mbid == mbid,
-            None => {
-                text::normalize(&link.credit.artist_name) == artist.key
-                    || link
-                        .credit
-                        .credited_as
-                        .as_deref()
-                        .is_some_and(|name| text::normalize(name) == artist.key)
-            }
-        })
+        .filter(|link| artist.mbid.as_deref() == Some(link.credit.artist_mbid.as_str()))
         .collect();
     for relation in catalog
         .relations_from(EntityKind::Artist, artist.id)
@@ -291,6 +389,20 @@ pub fn show_artist(args: &Args) -> Res {
         }
     }
     super::print_sourced_credits(&catalog, source_credits);
+    let edition_credits: Vec<_> = held
+        .edition_credit_links(&catalog)
+        .into_iter()
+        .filter(|link| artist.mbid.as_deref() == Some(link.credit.artist_mbid.as_str()))
+        .collect();
+    for link in edition_credits.iter().filter(|link| link.trusted) {
+        navigation.entity(
+            &catalog,
+            "Credited edition",
+            EntityKind::Release,
+            link.release_id,
+        );
+    }
+    super::print_sourced_edition_credits(&catalog, edition_credits);
     super::sources_panel_for(args, &catalog, EntityKind::Artist, artist.id);
     say_who_played(args, &catalog, artist.id, &artist.name);
     // A rating given and never shown again is a rating nobody trusts.
@@ -716,3 +828,7 @@ fn print_measures(catalog: &Catalog, label: &str, releases: usize, tracks: &[Id]
         text::format_size(size)
     );
 }
+
+#[cfg(test)]
+#[path = "artist_tests.rs"]
+mod tests;

@@ -14,6 +14,7 @@ fn release(primary: &str, label: &str) -> Facts {
         label: Some(label.to_string()),
         label_mbid: None,
         cover_art: None,
+        ..Default::default()
     })
 }
 
@@ -420,6 +421,76 @@ fn sourced_work_links_attach_to_the_recording_without_mutating_it() {
 }
 
 #[test]
+fn movement_parent_survives_storage_and_only_trusted_evidence_is_navigable() {
+    let catalog = crate::model::tests::example_catalog();
+    let track = &catalog.tracks[0];
+    let path = catalog.file(track.file_id).unwrap().path.clone();
+    let parent = WorkParentLink {
+        mbid: "symphony-id".into(),
+        title: "Symphony No. 5".into(),
+        relation_id: Some("part-rel".into()),
+        relation_type_id: Some("parts-type".into()),
+        direction: Some("backward".into()),
+        attributes: vec![CreditAttribute {
+            id: None,
+            name: "movement".into(),
+            value: None,
+            credited_as: None,
+        }],
+        order: Some(1),
+    };
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: path,
+        source: MUSICBRAINZ.into(),
+        source_id: Some("recording-id".into()),
+        fetched_at: 42,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            recording: Some("recording-id".into()),
+            works: vec![WorkLink {
+                mbid: "movement-id".into(),
+                title: "I. Allegro".into(),
+                parents: vec![parent.clone()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    });
+    let restored = from_json(&to_json(&sources)).unwrap();
+    assert_eq!(restored, sources);
+    let links = restored.work_parent_links(&catalog);
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].recording_id, track.recording_id);
+    assert_eq!(links[0].child_mbid, "movement-id");
+    assert_eq!(links[0].parent, parent);
+    assert!(links[0].trusted);
+    let edges = crate::graph::edges(&catalog, &restored);
+    let part = edges
+        .iter()
+        .find(|edge| edge.reference.kind == "part_of_work")
+        .unwrap();
+    assert!(part.trusted);
+    assert_eq!(part.reference.source.key, "movement-id");
+    assert_eq!(part.reference.target.key, "symphony-id");
+    assert_eq!(part.order, Some(1));
+    assert!(catalog.works.is_empty(), "source facts do not mutate tags");
+
+    let mut uncertain = restored;
+    uncertain.records[0].confidence = Confidence::matched(99);
+    let uncertain_links = uncertain.work_parent_links(&catalog);
+    assert!(!uncertain_links[0].trusted);
+    let uncertain_edges = crate::graph::edges(&catalog, &uncertain);
+    assert!(
+        !uncertain_edges
+            .iter()
+            .find(|edge| edge.reference.kind == "part_of_work")
+            .unwrap()
+            .trusted
+    );
+}
+
+#[test]
 fn rich_credits_keep_their_recording_or_work_scope_and_provenance() {
     let catalog = crate::model::tests::example_catalog();
     let track = &catalog.tracks[0];
@@ -474,6 +545,57 @@ fn rich_credits_keep_their_recording_or_work_scope_and_provenance() {
     );
     assert_eq!(links[1].source, MUSICBRAINZ);
     assert_eq!(links[1].fetched_at, 42);
+}
+
+#[test]
+fn edition_credit_and_one_credit_exclusion_survive_round_trip() {
+    let mut catalog = crate::model::tests::example_catalog();
+    catalog.releases[0].mbid = Some("edition-id".into());
+    catalog.releases[0].release_group_mbid = Some("group-id".into());
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).expect("release");
+    let credit = |id: &str, name: &str| CreditLink {
+        relation_id: Some(id.into()),
+        role_id: Some("producer-role".into()),
+        role: "producer".into(),
+        direction: None,
+        artist_mbid: format!("{id}-artist"),
+        artist_name: name.into(),
+        credited_as: None,
+        attributes: Vec::new(),
+        began: None,
+        ended: None,
+        over: None,
+        order: None,
+    };
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: entity.key,
+        source: MUSICBRAINZ.into(),
+        source_id: Some("group-id".into()),
+        fetched_at: 42,
+        confidence: Confidence::Identified,
+        facts: Facts::Release(ReleaseFacts {
+            edition_mbid: Some("edition-id".into()),
+            credits: vec![credit("first", "First"), credit("second", "Second")],
+            relationships_complete: true,
+            ..Default::default()
+        }),
+    });
+    let links = sources.edition_credit_links(&catalog);
+    assert_eq!(links.len(), 2);
+    assert!(links.iter().all(|link| link.trusted));
+    let reference = crate::graph::edition_credit_reference(&catalog, &links[0]).unwrap();
+    sources.exclude_credit(reference.clone(), 123);
+    let restored = from_json(&to_json(&sources)).expect("round trip");
+    let links = restored.edition_credit_links(&catalog);
+    assert!(links[0].excluded);
+    assert!(!links[0].trusted);
+    assert!(
+        links[1].trusted,
+        "another credit in the same source record survives"
+    );
+    assert_eq!(restored.credit_exclusions[0].relation, reference);
+    assert!(restored.clone().restore_credit(&reference));
 }
 
 #[test]

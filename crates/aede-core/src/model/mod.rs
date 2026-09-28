@@ -462,8 +462,8 @@ pub struct GenreLink {
     pub entity_id: Id,
 }
 
-/// Roles that mean the artist can be heard on the recording, as opposed to
-/// having written or produced it.
+/// Roles that contribute to the performance, as opposed to composing or
+/// producing it. A conductor shapes a performance without being audible.
 ///
 /// The distinction drives the artist page: singing one guest verse on somebody
 /// else's album must not put that album in your discography.
@@ -472,16 +472,20 @@ pub const PERFORMING_ROLES: &[&str] = &[
     "album",
     "featured",
     "performer",
-    // MusicBrainz names many audible recording relationships by their
+    // MusicBrainz names many performance relationships by their
     // relationship type rather than by the generic local `performer` tag.
     "instrument",
     "vocal",
     "performing orchestra",
+    "orchestra",
+    "choir",
+    "ensemble",
+    "soloist",
     "conductor",
     "remixer",
 ];
 
-/// `true` when the role means the artist is audible on the recording.
+/// `true` when the role belongs to the performance side of the credit graph.
 pub fn is_performing_role(role: &str) -> bool {
     PERFORMING_ROLES.contains(&role)
 }

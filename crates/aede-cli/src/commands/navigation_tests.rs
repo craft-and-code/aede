@@ -18,3 +18,15 @@ fn graph_pages_prefer_identifiers_that_remove_title_ambiguity() {
     let command = open_command(&catalog, EntityKind::Recording, recording.id).expect("command");
     assert_eq!(command, "aede recording 'recording-id'");
 }
+
+#[test]
+fn credited_artists_open_by_musicbrainz_id_even_when_absent_from_tags() {
+    let mut navigation = Navigation::default();
+    navigation.source_artist("artist-id");
+    assert_eq!(
+        navigation.rows,
+        vec![("Credited artist".into(), "aede artist 'artist-id'".into())]
+    );
+    navigation.source_artist("artist-id");
+    assert_eq!(navigation.rows.len(), 1);
+}

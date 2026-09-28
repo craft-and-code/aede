@@ -40,6 +40,19 @@ impl Navigation {
         }
     }
 
+    /// Open an externally credited artist by the identity that source named.
+    ///
+    /// The artist need not occur in local tags, so a catalog ID cannot be
+    /// assumed. Callers add only trusted source relationships here.
+    pub fn source_artist(&mut self, mbid: &str) {
+        if !mbid.trim().is_empty() {
+            self.add(
+                "Credited artist",
+                format!("aede artist {}", shell_arg(mbid)),
+            );
+        }
+    }
+
     /// Prints nothing when the page has nowhere else to go.
     pub fn print(self) {
         if self.rows.is_empty() {
@@ -70,7 +83,13 @@ impl Navigation {
 /// Command that opens one entity, using an external identity when possible.
 pub fn open_command(catalog: &Catalog, kind: EntityKind, id: Id) -> Option<String> {
     let (command, value) = match kind {
-        EntityKind::Artist => ("artist", catalog.artist(id)?.name.clone()),
+        EntityKind::Artist => {
+            let artist = catalog.artist(id)?;
+            (
+                "artist",
+                artist.mbid.clone().unwrap_or_else(|| artist.name.clone()),
+            )
+        }
         EntityKind::Release => {
             let release = catalog.release(id)?;
             (

@@ -221,7 +221,13 @@ fn annotation_summary(annotation: &RelationAnnotation) -> String {
 }
 
 fn provenance(edge: &GraphEdge) -> String {
-    let trust = if edge.trusted { "trusted" } else { "evidence" };
+    let trust = if edge.excluded {
+        "excluded"
+    } else if edge.trusted {
+        "trusted"
+    } else {
+        "evidence"
+    };
     format!("{} · {trust}", edge.reference.provenance)
 }
 
@@ -234,7 +240,9 @@ fn print_edge(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) {
     println!("  Source      {}", edge.reference.provenance);
     println!(
         "  Trust       {}",
-        if edge.trusted {
+        if edge.excluded {
+            "excluded by you"
+        } else if edge.trusted {
             "trusted"
         } else {
             "evidence only"
@@ -354,6 +362,7 @@ pub fn edge_json(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) -> J
     );
     row.set("weight", edge.weight.into());
     row.set("trusted", Json::Bool(edge.trusted));
+    row.set("excluded", Json::Bool(edge.excluded));
     row.set(
         "confidence",
         edge.confidence

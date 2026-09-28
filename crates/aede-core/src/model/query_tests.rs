@@ -40,6 +40,62 @@ fn recordings_and_works_are_found_by_title_or_external_identity() {
 }
 
 #[test]
+fn a_local_recording_can_be_opened_by_its_file_when_titles_collide() {
+    let catalog = Catalog {
+        files: vec![
+            AudioFile {
+                id: 0,
+                path: "/music/studio.flac".into(),
+                ..Default::default()
+            },
+            AudioFile {
+                id: 1,
+                path: "/music/live.flac".into(),
+                ..Default::default()
+            },
+        ],
+        tracks: vec![
+            Track {
+                id: 0,
+                file_id: 0,
+                recording_id: 0,
+                ..Default::default()
+            },
+            Track {
+                id: 1,
+                file_id: 1,
+                recording_id: 1,
+                ..Default::default()
+            },
+        ],
+        recordings: vec![
+            Recording {
+                id: 0,
+                title: "Same Song".into(),
+                key: "same song".into(),
+                track_ids: vec![0],
+                ..Default::default()
+            },
+            Recording {
+                id: 1,
+                title: "Same Song".into(),
+                key: "same song".into(),
+                track_ids: vec![1],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    assert_eq!(catalog.find_recordings("Same Song").len(), 2);
+    assert_eq!(catalog.find_recordings("local:/music/live.flac")[0].id, 1);
+    assert!(
+        catalog
+            .find_recordings("local:/music/missing.flac")
+            .is_empty()
+    );
+}
+
+#[test]
 fn one_album_edition_can_be_opened_by_its_release_identity() {
     let c = build(
         vec![track(

@@ -730,3 +730,106 @@ fn an_instrument_named_in_a_performer_tag_stays_on_the_credit() {
     assert_eq!(rich[0].source, "tags");
     assert_eq!(rich[1].attributes[0].name, "electric guitar");
 }
+
+#[test]
+fn personnel_tags_preserve_track_and_explicit_edition_scopes() {
+    let mut tags = RawTags::default();
+    tags.insert("artist", "A Band");
+    tags.insert("albumartist", "A Band");
+    tags.insert("album", "An Album");
+    tags.insert("title", "A Song");
+    tags.insert("executive producer", "Jane Producer");
+    tags.insert("assistant engineer", "Sam Engineer");
+    tags.insert("album producer", "Rita Album");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Album/01.flac".to_string(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".to_string()],
+        1,
+        &[],
+    );
+    let named = |name: &str, role: &str, kind| {
+        catalog.credits.iter().any(|credit| {
+            credit.role == role
+                && credit.entity_kind == kind
+                && catalog
+                    .artist(credit.artist_id)
+                    .is_some_and(|artist| artist.name == name)
+        })
+    };
+    assert!(named(
+        "Jane Producer",
+        "executive_producer",
+        EntityKind::Track
+    ));
+    assert!(named(
+        "Sam Engineer",
+        "assistant_engineer",
+        EntityKind::Track
+    ));
+    assert!(named("Rita Album", "producer", EntityKind::Release));
+    assert!(!named(
+        "Jane Producer",
+        "executive_producer",
+        EntityKind::Release
+    ));
+}
+
+#[test]
+fn classical_personnel_keeps_distinct_performance_roles() {
+    let mut tags = RawTags::default();
+    tags.insert("artist", "An Orchestra");
+    tags.insert("albumartist", "An Orchestra");
+    tags.insert("album", "A Symphony");
+    tags.insert("title", "I. Allegro");
+    tags.insert("orchestra", "An Orchestra");
+    tags.insert("choir", "A Choir");
+    tags.insert("soloists", "A Soloist");
+    tags.insert("conductor", "A Conductor");
+    tags.insert("composer", "A Composer");
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/Symphony/01.flac".into(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    for (name, role) in [
+        ("An Orchestra", "orchestra"),
+        ("A Choir", "choir"),
+        ("A Soloist", "soloist"),
+        ("A Conductor", "conductor"),
+        ("A Composer", "composer"),
+    ] {
+        assert!(
+            catalog.credits.iter().any(|credit| {
+                credit.role == role
+                    && credit.entity_kind == EntityKind::Track
+                    && catalog
+                        .artist(credit.artist_id)
+                        .is_some_and(|artist| artist.name == name)
+            }),
+            "{name} as {role}"
+        );
+    }
+    assert!(super::super::is_performing_role("orchestra"));
+    assert!(super::super::is_performing_role("choir"));
+    assert!(super::super::is_performing_role("soloist"));
+    assert!(!super::super::is_performing_role("composer"));
+}

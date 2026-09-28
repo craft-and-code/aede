@@ -203,6 +203,11 @@ fn inspection_search_preserves_core_ranking_and_separate_comment_provenance() {
 }
 
 #[test]
+fn movement_queries_are_public_catalog_data() {
+    assert!(public_query("movement:Allegro").is_ok());
+}
+
+#[test]
 fn inspection_query_uses_public_core_semantics_and_refuses_personal_fields() {
     with_server(|address, fixture| {
         std::fs::write(

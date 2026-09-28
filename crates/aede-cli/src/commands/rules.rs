@@ -64,6 +64,10 @@ pub fn rules(args: &Args) -> Res {
             evidence.set_review(review);
             source_changes += 1;
         }
+        for decision in incoming_sources.credit_exclusions {
+            evidence.exclude_credit(decision.relation, decision.excluded_at);
+            source_changes += 1;
+        }
         user::save(&personal, &user_path)?;
         sources::save(&evidence, &sources_path)?;
         println!(
@@ -97,6 +101,7 @@ fn export(args: &Args, personal: &user::UserData, evidence: &sources::Sources) -
             .cloned()
             .collect(),
         reviews: evidence.reviews.clone(),
+        credit_exclusions: evidence.credit_exclusions.clone(),
     };
     let mut root = Json::obj();
     root.set("format", "aede-rules".into());
@@ -128,6 +133,7 @@ fn print_summary(personal: &user::UserData, evidence: &sources::Sources) {
         ("artist filing rules", personal.same_artist.len()),
         ("missing releases set aside", personal.set_aside.len()),
         ("relation annotations", personal.relation_annotations.len()),
+        ("excluded credits", evidence.credit_exclusions.len()),
         ("saved queries", personal.collections.len()),
     ] {
         table.push(vec![name.into(), count.to_string()]);

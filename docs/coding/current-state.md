@@ -28,6 +28,10 @@ The current implementation includes:
 - graph-based catalog;
 - releases, recordings, tracks and artists;
 - credits and relations;
+- scoped MusicBrainz recording, work and edition credits, plus reversible
+  manual corrections and precise exclusions that never change local tags;
+- explicit sourced work/part navigation for classical movements, with local
+  movement tags and performance personnel kept distinct from composer credits;
 - catalog statistics and diagnostics;
 - favourites, ratings, notes and user tags;
 - listening history;

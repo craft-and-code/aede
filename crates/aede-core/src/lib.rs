@@ -17,6 +17,7 @@ pub mod audit;
 pub mod backup;
 pub mod clock;
 pub mod conclusions;
+pub mod contributors;
 pub mod json;
 pub mod lrclib;
 pub mod lyrics;
@@ -25,6 +26,7 @@ pub mod text;
 
 pub mod copy;
 pub mod coverart;
+pub mod credit_coverage;
 pub mod doctor;
 pub mod fanarttv;
 pub mod ffmpeg;

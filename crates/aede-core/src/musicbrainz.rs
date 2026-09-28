@@ -55,7 +55,8 @@ pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels+artist-rels";
 ///
 /// `work-level-rels` is a switch: `work-rels` first attaches each work and
 /// `artist-rels` then asks for artist relationships both on the recording and
-/// on those linked works.
+/// on those linked works. `work-rels` also exposes explicit parent-work
+/// relationships on linked works, including classical movements.
 pub const RECORDING_INCLUDES: &str = "artist-rels+work-rels+work-level-rels";
 
 /// What to ask for alongside a *release*, in one request.
@@ -69,7 +70,7 @@ pub const RECORDING_INCLUDES: &str = "artist-rels+work-rels+work-level-rels";
 /// `release-groups` folds the album into the edition's answer, so a library
 /// tagged by Picard, which writes the edition identifier, gets the whole
 /// record for the price of one lookup.
-pub const RELEASE_INCLUDES: &str = "labels+release-groups";
+pub const RELEASE_INCLUDES: &str = "labels+release-groups+artist-rels";
 
 /// One answer among the several a search returns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,6 +470,7 @@ pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
                         direction: field(relation, "direction"),
                         attributes: relationship_attributes(relation),
                         credits: relationship_credits(work),
+                        parents: work_parent_links(work),
                     })
                 })
                 .collect()
@@ -487,6 +489,37 @@ pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
             ..Default::default()
         },
     })
+}
+
+/// A child work may have several containing works. Only the backward
+/// MusicBrainz "parts" relationship says the queried work is a part; a
+/// forward relationship names one of its children, and a derivative is not a
+/// container at all.
+fn work_parent_links(work: &Json) -> Vec<crate::sources::WorkParentLink> {
+    const PARTS_TYPE_ID: &str = "ca8d3642-ce5f-49f8-91f2-125d72524e6a";
+    work.get("relations")
+        .and_then(Json::as_arr)
+        .into_iter()
+        .flatten()
+        .filter(|relation| relation.field_str("target-type").as_deref() == Some("work"))
+        .filter(|relation| relation.field_str("direction").as_deref() == Some("backward"))
+        .filter(|relation| match relation.field_str("type-id") {
+            Some(id) => id == PARTS_TYPE_ID,
+            None => relation.field_str("type").as_deref() == Some("parts"),
+        })
+        .filter_map(|relation| {
+            let parent = relation.get("work")?;
+            Some(crate::sources::WorkParentLink {
+                mbid: field(parent, "id")?,
+                title: field(parent, "title").unwrap_or_default(),
+                relation_id: field(relation, "id"),
+                relation_type_id: field(relation, "type-id"),
+                direction: field(relation, "direction"),
+                attributes: relationship_attributes(relation),
+                order: relation.field_u32("ordering-key"),
+            })
+        })
+        .collect()
 }
 
 /// Artist relationships carried by one recording or work response.
@@ -626,6 +659,9 @@ fn release_facts(group: &Json) -> ReleaseFacts {
         // Archive, which is a different service with its own answer — see
         // [`crate::coverart`].
         cover_art: None,
+        edition_mbid: None,
+        credits: Vec::new(),
+        relationships_complete: false,
     }
 }
 
@@ -659,6 +695,9 @@ pub fn release_group(response: &Json) -> Option<Candidate<ReleaseFacts>> {
 pub fn release(response: &Json) -> Option<Candidate<ReleaseFacts>> {
     let group = response.get("release-group");
     let mut facts = group.map(release_facts).unwrap_or_default();
+    facts.edition_mbid = field(response, "id");
+    facts.credits = relationship_credits(response);
+    facts.relationships_complete = true;
     if let Some(label) = label_of_release(response) {
         facts.label = Some(label.name);
         facts.label_mbid = label.mbid;

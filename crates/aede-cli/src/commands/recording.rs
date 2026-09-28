@@ -101,13 +101,7 @@ pub fn show_recording(args: &Args) -> Res {
         if !link.trusted {
             continue;
         }
-        if let Some(artist) = catalog
-            .artists
-            .iter()
-            .find(|artist| artist.mbid.as_deref() == Some(&link.credit.artist_mbid))
-        {
-            navigation.entity(&catalog, "Credited artist", EntityKind::Artist, artist.id);
-        }
+        navigation.source_artist(&link.credit.artist_mbid);
     }
     super::print_sourced_credits(&catalog, source_credits);
     super::panel_for(args, &catalog, EntityKind::Recording, recording.id);

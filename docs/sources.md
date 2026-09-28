@@ -147,8 +147,9 @@ aede rules --export --output=rules.json
 aede rules --import=rules.json
 ```
 
-The versioned bundle includes manual source records and accepted or rejected
-source identities, together with the personal filing and relationship rules.
+The versioned bundle includes manual source records, accepted or rejected
+source identities and exact credit exclusions, together with the personal
+filing and relationship rules.
 Import merges those choices; it does not copy biographies, artwork, listening
 history, or change any audio file. Use `aede export --graph` when the goal is
 instead to preserve every catalog, source and user layer for analysis.
@@ -196,18 +197,46 @@ aede fetch --lyrics         # missing words from LRCLIB, as .lrc sidecars
 aede fetch --covers         # the front image of every album that has none
 aede fetch --portraits      # Wikidata first, then Fanart.tv as fallback
 aede fetch --labels         # identify record labels through MusicBrainz
-aede fetch --credits        # recording/work credits and work links for recordings with an MBID
+aede fetch --credits        # recording/work credits and exact-edition credits, where IDs exist
 aede fetch --logos          # artist and identified-label logos from Fanart.tv
 aede fetch --fanart         # every supported Fanart.tv image family
 ```
 
-`--credits` never searches a recording by title: it follows only a
-`MUSICBRAINZ_RECORDINGID` already attached to a local recording. One lookup
-then keeps direct recording roles, the linked works and their creative roles,
-including credited-as spellings, instruments and qualifiers, dates, ordering
+`--credits` never searches by title: it follows only a
+`MUSICBRAINZ_RECORDINGID` attached to a local recording or a release ID on a
+local edition. A recording lookup keeps direct roles, linked works and their
+creative roles. A separate edition lookup keeps release-level artist credits,
+without assigning them to every recording. The pass preserves details such as
+credited-as spellings, instruments and qualifiers, dates, ordering
 and relationship identifiers. Existing data fetched with the former
 `--recordings` option is refreshed once into this richer form; `--recordings`
 continues to work as an alias.
+
+When a linked work includes an explicit MusicBrainz part-of-work relationship,
+its parent identifier, title, movement/act qualifier and order are retained
+with the same source and trust boundary. `aede work <parent ID>` and
+`query work:<parent ID>` can then reach locally held movements. Work/grouping
+and movement tags stay local and are shown separately; they do not establish
+a parent identity on their own. An already completed recording lookup is not
+automatically re-requested just for this addition: use
+`aede fetch --credits --full <album folder>` to refresh a chosen edition.
+
+To see which recordings still need the recording/work lookup, run `aede credits`, then
+`aede credits "<album>"`. This read-only report distinguishes an unanswered
+recording (`waiting`) from a completed answer with no credits (`empty`) and
+from credits attached to untrusted source evidence (`untrusted`). Its album
+detail suggests the folder-scoped fetch command for waiting recordings;
+records without a local MusicBrainz recording ID must be identified first.
+This report does not yet count edition-credit lookups.
+`aede fetch --credits --dry-run` shows pending requests for both scopes.
+
+Once trusted credits are present, a contributor who is absent from local tags
+can be opened with `aede artist <MusicBrainz artist ID>`. The resulting card is
+explicitly source-backed: it navigates to locally held recordings and albums,
+and to the works carrying creative credits, without manufacturing a catalog
+artist. `aede search <name>` includes those contributors in a separate section;
+namesakes stay distinct by ID. Pending or rejected source claims do not create
+such a navigable identity.
 
 **Each accepts names and folders**:
 

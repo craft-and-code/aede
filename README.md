@@ -120,6 +120,8 @@ aede doctor
 | `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
 | `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
+| `aede credits` | `[album]` | `--json`, `--limit`, `--offset`, `--all` | Show recording/work credit coverage by album and identify fetchable gaps. |
+| `aede credit` | None | `--add <scope> --artist=<name> --role=<role>`, `--exclude=<ID>`, `--undo=<ID>` | Add a manual credit or exclude/restore one sourced credit without changing tags. |
 | `aede review` | None         | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
 | `aede stats`  | None         | None                                        | Displays catalog metrics, audio quality distribution, and credit roles.                     |
 | `aede reset`  | None         | `--yes`                                     | Wipes indexed catalog data while preserving root configurations.                            |
@@ -134,10 +136,10 @@ aede doctor
 | `aede artists`   | None            | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.                    |
 | `aede genres`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.                      |
 | `aede labels`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                                         |
-| `aede artist`    | `<name>`        | `--with <artist>`, `--members`, `--m3u`, `--csv`                                                                          | Show one artist's albums, collaborations, credits, and relationships.                |
+| `aede artist`    | `<name\|MBID>`        | `--with <artist>`, `--members`, `--role`, `--m3u`, `--csv`                                                                          | Show a local artist or source-only contributor, with their credits and links.                |
 | `aede album`     | `<title\|MBID>` | `--m3u`, `--csv`                                                                                                          | Show one local edition, its tracks, credits, and graph links.                        |
 | `aede track`     | `<title>`       | `--artist`, `--lyrics`, `--limit`                                                                                         | Show a local placement, tags, credits, and technical facts.                          |
-| `aede recording` | `<title\|MBID>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works.               |
+| `aede recording` | `<title\|MBID\|local:path>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works.               |
 | `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.                    |
 | `aede release-group` | `<title\|MBID>` | None                                                                                                                   | Show the album identity shared by every local edition.                               |
 | `aede label`     | `<name>`        | `--m3u`, `--csv`                                                                                                          | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
@@ -170,10 +172,13 @@ aede fetch --fanart --no-album-cover ~/Music/Jazz
 
 Artist logos, portraits, banners, and backgrounds are written beside the artist's music when there is one shared folder, or under Aède's `assets/` directory otherwise. Label logos live under `assets/labels/<MusicBrainz ID>/`; Fanart.tv album covers and cdART live in each album's `artwork/` directory. Existing files are never overwritten.
 
-Rich credits are fetched only from recording identifiers already present in
-the library; no title is guessed:
+Rich recording and work credits are fetched from recording identifiers already
+present in the library. Edition credits use exact release identifiers. No title
+is guessed:
 
 ```sh
+aede credits
+aede credits "Patient Number 9"
 aede fetch --credits "Patient Number 9"
 aede recording <MusicBrainz-recording-ID>
 aede work <MusicBrainz-work-ID>
@@ -181,10 +186,69 @@ aede track "Patient Number 9" --json
 ```
 
 Recording performers and production roles remain distinct from work composers,
-lyricists, writers and arrangers. Credited-as names, instruments, qualifiers,
+lyricists, writers and arrangers, and both remain distinct from credits attached
+to an album edition. Credited-as names, instruments, qualifiers,
 dates, ordering and MusicBrainz relationship identifiers keep their provenance
 in `sources.json`. The former `--recordings` option remains a compatibility
 alias for `--credits`.
+
+To correct a sourced credit, find its exact ID with `aede relations`, exclude
+that claim, then add the corrected assertion at its proper scope:
+
+```sh
+aede relations --source=musicbrainz
+aede credit --exclude=<credit-ID>
+aede credit --add recording:<recording-ID> --artist="Jane Doe" --role=producer
+aede credit --add release:<release-ID> --artist="Jane Doe" --role=engineer
+aede credit --undo=<credit-ID>
+```
+
+`--add` also accepts `work:<work-ID>`, `--artist-id=<MusicBrainz-artist-ID>` and
+`--instrument=<name>`. These are manual, attributed assertions in Aède's data,
+not edits to the audio tags. Exclusion affects only the selected sourced
+relationship; the original evidence remains inspectable. Credits read from
+tags cannot be excluded this way because the tags are the local record.
+
+Trusted MusicBrainz credits also make contributors absent from local artist
+tags navigable. `aede artist <MusicBrainz artist ID>` opens a source-backed
+card with their roles, local albums, recordings and works, without adding an
+artist to the tag-built catalog. `aede search <name>` finds these contributors
+in a separate section, and track, album, recording and work pages link to
+them by exact ID. If a local artist has the same name, the name keeps opening
+the local card; that card points to the separate sourced identity. Equal names
+with different IDs are never merged automatically. Untrusted claims remain
+visible evidence but do not create navigable contributors.
+
+`aede credits` is read-only and measures recording/work lookup coverage, not
+edition-credit coverage. Its global summary counts canonical recordings
+once, even when a recording appears on several editions; each album counts its
+own distinct recordings. An album detail names a local file for each recording
+and distinguishes `waiting` (no completed MusicBrainz relationship lookup),
+`empty` (queried, but no recording or work credit returned), `credited`,
+`untrusted` (source evidence not accepted for the graph), and `unidentified`
+(no local recording MBID). The detail suggests
+a folder-scoped `aede fetch --credits` command for waiting recordings. An
+`empty` answer is not retried unless you explicitly use `--full`.
+
+For classical music, explicit MusicBrainz part-of-work relationships connect
+a movement to its containing work. `aede work <work ID>` shows the parent and
+the locally held parts in order; the parent work is navigable even when no
+file tags name it directly, and `aede search` finds it in a sourced section.
+`aede album` and `aede track` keep movement tags
+separate from sourced parent claims, and `work:<parent ID>` finds the local
+recordings of identified parts. Orchestra, choir, ensemble, soloist and
+conductor credits remain distinct from composition credits:
+
+```sh
+aede fetch --credits --full ~/Music/Classical/Beethoven
+aede work 'MUSICBRAINZ_PARENT_WORK_ID'
+aede query 'work:MUSICBRAINZ_PARENT_WORK_ID conductor:"Carlos Kleiber"'
+```
+
+Use `--full` for albums queried before work/part relationships were retained.
+No parent work is inferred from a matching title or movement number; without
+an explicit MusicBrainz relation, Aède shows and can search local work and
+movement tags without merging same-titled works.
 
 Approximate attachments and exact source identities that conflict with local
 tags are reviewed explicitly:

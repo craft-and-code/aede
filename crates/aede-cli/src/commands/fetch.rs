@@ -745,7 +745,9 @@ fn second_passes(
             }
             Pass::Credits => {
                 let catalog = catalog.expect("a catalog was loaded for it");
-                rich_credits(catalog, transport, backoff, held, path, asked, args)?;
+                if rich_credits(catalog, transport, backoff, held, path, asked, args)? {
+                    edition_credits(catalog, transport, backoff, held, path, asked, args)?;
+                }
             }
         }
     }
@@ -763,7 +765,7 @@ fn rich_credits(
     path: &std::path::Path,
     asked: &Asked,
     args: &Args,
-) -> Res {
+) -> Result<bool, Box<dyn std::error::Error>> {
     let mut targets = Vec::new();
     for recording in &catalog.recordings {
         let Some(mbid) = recording.mbid.as_deref() else {
@@ -796,14 +798,14 @@ fn rich_credits(
     println!("{}", ui::section("Recording and work credits"));
     if targets.is_empty() {
         println!("  {}", ui::dim("no identified recording is waiting"));
-        return Ok(());
+        return Ok(true);
     }
     if asked.dry_run {
         for (_, title, _) in &targets {
             println!("  {}", ui::dim(title));
         }
         println!("  {}", ui::dim("nothing was asked: --dry-run"));
-        return Ok(());
+        return Ok(true);
     }
     let total = targets.len();
     let estimate_ms = total as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
@@ -814,7 +816,7 @@ fn rich_credits(
     );
     if total > CONFIRM_ABOVE && !super::confirmed(args, "ask about all of them")? {
         println!("  {}", ui::dim("nothing was asked"));
-        return Ok(());
+        return Ok(false);
     }
     let (mut stored, mut refused, mut failed) = (0, 0, 0);
     for (index, (entity, title, mbid)) in targets.into_iter().enumerate() {
@@ -843,6 +845,130 @@ fn rich_credits(
                     refused += 1;
                     eprintln!(
                         "  {} {title}: no readable MusicBrainz recording",
+                        ui::yellow("?")
+                    );
+                }
+            },
+            Err(Refusal::RateLimited) => {
+                println!();
+                sources::save(held, path)?;
+                return Err(
+                    "MusicBrainz is rate limiting requests; saved answers are safe, try later"
+                        .into(),
+                );
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!("\n  {} {title}: {error}", ui::red("×"));
+            }
+        }
+    }
+    println!();
+    println!(
+        "{} {stored} stored, {refused} left alone, {failed} failed",
+        ui::green("→")
+    );
+    Ok(true)
+}
+
+/// Fetches relationships attached to precise editions, separately from
+/// recording/work credits. A release group cannot safely stand in for one.
+fn edition_credits(
+    catalog: &Catalog,
+    transport: &mut dyn Ask,
+    backoff: &[std::time::Duration],
+    held: &mut sources::Sources,
+    path: &std::path::Path,
+    asked: &Asked,
+    args: &Args,
+) -> Res {
+    let targets: Vec<_> = catalog
+        .releases
+        .iter()
+        .filter_map(|release| {
+            let mbid = release.mbid.as_deref()?;
+            if !asked.scope.has_release(release.id) {
+                return None;
+            }
+            let artist = release
+                .album_artist_id
+                .and_then(|id| catalog.artist(id))
+                .map(|artist| artist.name.as_str())
+                .unwrap_or("");
+            if !reaches(asked.names, &[&release.title, artist]) {
+                return None;
+            }
+            let entity = EntityRef::of(catalog, EntityKind::Release, release.id)?;
+            if !asked.again
+                && held
+                    .get(&entity, sources::MUSICBRAINZ)
+                    .is_some_and(|record| {
+                        matches!(&record.facts, Facts::Release(facts)
+                            if facts.relationships_complete
+                            && facts.edition_mbid.as_deref() == Some(mbid))
+                    })
+            {
+                return None;
+            }
+            Some((entity, release.title.as_str(), mbid))
+        })
+        .collect();
+    println!("{}", ui::section("Edition credits"));
+    if targets.is_empty() {
+        println!("  {}", ui::dim("no identified edition is waiting"));
+        return Ok(());
+    }
+    if asked.dry_run {
+        for (_, title, _) in &targets {
+            println!("  {}", ui::dim(title));
+        }
+        println!("  {}", ui::dim("nothing was asked: --dry-run"));
+        return Ok(());
+    }
+    let total = targets.len();
+    let estimate_ms = total as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
+    println!(
+        "  {} at one request per second, about {}",
+        ui::plural(total, "edition"),
+        ui::long_duration(estimate_ms)
+    );
+    if total > CONFIRM_ABOVE && !super::confirmed(args, "ask about all of them")? {
+        println!("  {}", ui::dim("nothing was asked"));
+        return Ok(());
+    }
+    let (mut stored, mut refused, mut failed) = (0, 0, 0);
+    for (index, (entity, title, mbid)) in targets.into_iter().enumerate() {
+        print!("\r  asking: {}/{}", index + 1, total);
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let url = format!(
+            "{}/release/{mbid}?fmt=json&inc={}",
+            musicbrainz::WEB_SERVICE,
+            musicbrainz::RELEASE_INCLUDES
+        );
+        match ask_with_backoff(transport, &url, backoff) {
+            Ok(answer) => match musicbrainz::release(&answer) {
+                Some(candidate) if candidate.facts.edition_mbid.as_deref() == Some(mbid) => {
+                    let mut facts = candidate.facts;
+                    if let Some(previous) = held.get(&entity, sources::MUSICBRAINZ)
+                        && let Facts::Release(previous) = &previous.facts
+                    {
+                        facts.cover_art = facts.cover_art.or_else(|| previous.cover_art.clone());
+                    }
+                    held.set(SourceRecord {
+                        key: entity.key,
+                        source: sources::MUSICBRAINZ.to_string(),
+                        source_id: Some(candidate.mbid),
+                        fetched_at: clock::now_seconds(),
+                        confidence: sources::Confidence::Identified,
+                        facts: Facts::Release(facts),
+                    });
+                    sources::save(held, path)?;
+                    stored += 1;
+                }
+                _ => {
+                    refused += 1;
+                    eprintln!(
+                        "\n  {} {title}: no matching MusicBrainz edition",
                         ui::yellow("?")
                     );
                 }

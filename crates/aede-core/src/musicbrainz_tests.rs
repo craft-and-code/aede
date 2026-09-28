@@ -138,6 +138,38 @@ fn a_recording_lookup_keeps_only_explicit_work_relationships() {
 }
 
 #[test]
+fn recording_retains_only_explicit_parent_work_relations() {
+    let response = parse(
+        r#"{
+          "id":"recording-id","title":"Allegro",
+          "relations":[{"target-type":"work","id":"performed","type":"performance",
+            "work":{"id":"movement-id","title":"Symphony: I. Allegro",
+              "relations":[
+                {"target-type":"work","type":"parts",
+                 "type-id":"ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+                 "direction":"backward","id":"part-rel","ordering-key":1,
+                 "attributes":["movement"],
+                 "work":{"id":"symphony-id","title":"Symphony"}},
+                {"target-type":"work","type":"parts",
+                 "type-id":"ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+                 "direction":"forward","id":"child-rel",
+                 "work":{"id":"smaller-part","title":"A child"}},
+                {"target-type":"work","type":"based on","direction":"backward",
+                 "work":{"id":"other-id","title":"Not a parent"}}
+              ]}}
+          ]
+        }"#,
+    );
+    let work = &recording(&response).unwrap().facts.works[0];
+    assert_eq!(work.parents.len(), 1);
+    assert_eq!(work.parents[0].mbid, "symphony-id");
+    assert_eq!(work.parents[0].title, "Symphony");
+    assert_eq!(work.parents[0].relation_id.as_deref(), Some("part-rel"));
+    assert_eq!(work.parents[0].order, Some(1));
+    assert_eq!(work.parents[0].attributes[0].name, "movement");
+}
+
+#[test]
 fn a_release_group_carries_its_types_and_not_a_label() {
     let response = parse(
         r#"{
@@ -233,6 +265,36 @@ fn a_release_lookup_brings_the_edition_and_the_album_in_one_answer() {
         "the album's date, not the reissue's — which is the fact a DATE tag \
          most often contradicts"
     );
+}
+
+#[test]
+fn edition_credits_keep_their_own_scope_and_relationship_details() {
+    let response = parse(
+        r#"{
+      "id":"edition-id","title":"An Album",
+      "release-group":{"id":"group-id","title":"An Album"},
+      "relations":[{"id":"producer-rel","type-id":"producer-type",
+        "type":"producer","target-type":"artist","direction":"backward",
+        "target-credit":"J. Producer","attributes":["executive"],
+        "artist":{"id":"artist-id","name":"Jane Producer"}}]
+    }"#,
+    );
+    let found = release(&response).expect("release");
+    assert_eq!(found.facts.edition_mbid.as_deref(), Some("edition-id"));
+    assert!(found.facts.relationships_complete);
+    assert_eq!(found.facts.credits.len(), 1);
+    assert_eq!(
+        found.facts.credits[0].relation_id.as_deref(),
+        Some("producer-rel")
+    );
+    assert_eq!(
+        found.facts.credits[0].credited_as.as_deref(),
+        Some("J. Producer")
+    );
+    assert_eq!(found.facts.credits[0].attributes[0].name, "executive");
+    let group = release_group(&parse(r#"{"id":"group-id","title":"An Album"}"#)).unwrap();
+    assert!(group.facts.credits.is_empty());
+    assert!(!group.facts.relationships_complete);
 }
 
 #[test]

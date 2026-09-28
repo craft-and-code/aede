@@ -103,8 +103,10 @@ pub enum Field {
     Album,
     /// The canonical recorded performance behind the local track.
     Recording,
-    /// The composition realised by the recording, when MusicBrainz identified it.
+    /// An identified composition, its explicit parent, or this file's WORK tag.
     Work,
+    /// A movement title or number written in the local file's tags.
+    Movement,
     /// The release group shared by this edition and its remasters.
     ReleaseGroup,
     /// The album's own artist.
@@ -459,6 +461,7 @@ const FIELD_NAMES: &[(&str, Field)] = &[
     ("albumartist", Field::AlbumArtist),
     ("recording", Field::Recording),
     ("work", Field::Work),
+    ("movement", Field::Movement),
     ("releasegroup", Field::ReleaseGroup),
     ("release-group", Field::ReleaseGroup),
     ("release_group", Field::ReleaseGroup),
@@ -498,6 +501,10 @@ const FIELD_NAMES: &[(&str, Field)] = &[
     ("engineer", Field::Credit("engineer")),
     ("performer", Field::Credit("performer")),
     ("conductor", Field::Credit("conductor")),
+    ("orchestra", Field::Credit("orchestra")),
+    ("choir", Field::Credit("choir")),
+    ("ensemble", Field::Credit("ensemble")),
+    ("soloist", Field::Credit("soloist")),
     ("remixer", Field::Credit("remixer")),
     ("featured", Field::Credit("featured")),
     ("mainartist", Field::Credit("main")),
@@ -703,14 +710,20 @@ fn collect_unknown(query: &Query, context: &Context, out: &mut Vec<(String, Stri
                             || a.mbid
                                 .as_deref()
                                 .is_some_and(|mbid| text::normalize(mbid) == wanted)
-                    }) || context.sourced.credits.values().flatten().any(|credit| {
-                        text::normalize(&credit.artist_name).contains(&wanted)
-                            || text::normalize(&credit.artist_mbid) == wanted
-                            || credit
-                                .credited_as
-                                .as_deref()
-                                .is_some_and(|name| text::normalize(name).contains(&wanted))
-                    })
+                    }) || context
+                        .sourced
+                        .credits
+                        .values()
+                        .chain(context.sourced.edition_credits.values())
+                        .flatten()
+                        .any(|credit| {
+                            text::normalize(&credit.artist_name).contains(&wanted)
+                                || text::normalize(&credit.artist_mbid) == wanted
+                                || credit
+                                    .credited_as
+                                    .as_deref()
+                                    .is_some_and(|name| text::normalize(name).contains(&wanted))
+                        })
                 }
                 _ => true,
             };
@@ -953,6 +966,7 @@ impl<'a> Context<'a> {
 struct SourcedRelations {
     works: BTreeMap<Id, Vec<crate::sources::WorkLink>>,
     credits: BTreeMap<Id, Vec<crate::sources::CreditLink>>,
+    edition_credits: BTreeMap<Id, Vec<crate::sources::CreditLink>>,
     label_mbids: BTreeMap<Id, String>,
 }
 
@@ -975,6 +989,16 @@ impl SourcedRelations {
             .filter(|link| link.trusted)
         {
             let credits = indexed.credits.entry(link.recording_id).or_default();
+            if !credits.contains(&link.credit) {
+                credits.push(link.credit);
+            }
+        }
+        for link in sources
+            .edition_credit_links(catalog)
+            .into_iter()
+            .filter(|link| link.trusted)
+        {
+            let credits = indexed.edition_credits.entry(link.release_id).or_default();
             if !credits.contains(&link.credit) {
                 credits.push(link.credit);
             }
@@ -1161,7 +1185,14 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
                     push_unique(&mut values, credited_as.clone());
                 }
             }
-            for credit in sourced_credits(context, track_row.recording_id) {
+            if let Some(release_id) = track_row.release_id {
+                for credit in catalog.credits.iter().filter(|credit| {
+                    credit.entity_kind == EntityKind::Release && credit.entity_id == release_id
+                }) {
+                    extend_artist_values(catalog, credit.artist_id, &mut values);
+                }
+            }
+            for credit in sourced_credits(context, track) {
                 extend_sourced_credit_values(credit, &mut values);
             }
             values
@@ -1197,14 +1228,35 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
                         .collect()
                 })
                 .unwrap_or_default();
+            // A local WORK/grouping tag is searchable even without an MBID.
+            // This is text on one file, not a new canonical work identity.
+            if let Some(work_tag) = catalog
+                .file(track_row.file_id)
+                .and_then(|file| file.first_tag("grouping"))
+            {
+                push_unique(&mut values, work_tag.to_string());
+            }
             if let Some(works) = context.sourced.works.get(&track_row.recording_id) {
                 for work in works {
                     push_unique(&mut values, work.title.clone());
                     push_unique(&mut values, work.mbid.clone());
+                    for parent in &work.parents {
+                        push_unique(&mut values, parent.title.clone());
+                        push_unique(&mut values, parent.mbid.clone());
+                    }
                 }
             }
             values
         }
+        Field::Movement => catalog
+            .file(track_row.file_id)
+            .map(|file| {
+                ["movement", "movementnumber"]
+                    .into_iter()
+                    .filter_map(|tag| file.first_tag(tag).map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
         Field::ReleaseGroup => release
             .and_then(|r| r.release_group_id)
             .and_then(|id| catalog.release_group(id))
@@ -1268,10 +1320,16 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
                 ]
             })
             .unwrap_or_default(),
-        Field::Performing => credits_as_text(context, track, |role| {
+        Field::Performing => credits_as_text(context, track, |role, _| {
             crate::model::is_performing_role(role)
         }),
-        Field::Credit(role) => credits_as_text(context, track, |credited| credited == *role),
+        Field::Credit(role) => credits_as_text(context, track, |credited, attributes| {
+            credited == *role
+                || (*role == "orchestra" && credited == "performing orchestra")
+                || (*role == "soloist"
+                    && matches!(credited, "performer" | "instrument" | "vocal")
+                    && attributes.iter().any(|attribute| attribute.name == "solo"))
+        }),
         Field::Instrument => {
             let mut values = Vec::new();
             for credit in catalog
@@ -1289,7 +1347,7 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
                     }
                 }
             }
-            for credit in sourced_credits(context, track_row.recording_id) {
+            for credit in sourced_credits(context, track) {
                 for attribute in &credit.attributes {
                     push_unique(&mut values, attribute.name.clone());
                     if let Some(value) = &attribute.value {
@@ -1349,14 +1407,25 @@ fn extend_artist_values(catalog: &Catalog, artist_id: Id, values: &mut Vec<Strin
 
 fn sourced_credits<'a>(
     context: &'a Context<'_>,
-    recording_id: Id,
-) -> &'a [crate::sources::CreditLink] {
+    track_id: Id,
+) -> Vec<&'a crate::sources::CreditLink> {
+    let Some(track) = context.catalog.track(track_id) else {
+        return Vec::new();
+    };
     context
         .sourced
         .credits
-        .get(&recording_id)
-        .map(Vec::as_slice)
-        .unwrap_or_default()
+        .get(&track.recording_id)
+        .into_iter()
+        .flat_map(|credits| credits.iter())
+        .chain(
+            track
+                .release_id
+                .and_then(|id| context.sourced.edition_credits.get(&id))
+                .into_iter()
+                .flat_map(|credits| credits.iter()),
+        )
+        .collect()
 }
 
 fn extend_sourced_credit_values(credit: &crate::sources::CreditLink, values: &mut Vec<String>) {
@@ -1367,27 +1436,34 @@ fn extend_sourced_credit_values(credit: &crate::sources::CreditLink, values: &mu
     }
 }
 
-fn credits_as_text(context: &Context, track: Id, wanted: impl Fn(&str) -> bool) -> Vec<String> {
+fn credits_as_text(
+    context: &Context,
+    track: Id,
+    wanted: impl Fn(&str, &[crate::model::CreditAttribute]) -> bool,
+) -> Vec<String> {
     let catalog = context.catalog;
     let mut values = Vec::new();
     for credit in catalog
         .credits
         .iter()
-        .filter(|c| c.entity_kind == EntityKind::Track && c.entity_id == track)
-        .filter(|credit| wanted(&credit.role))
+        .filter(|credit| {
+            (credit.entity_kind == EntityKind::Track && credit.entity_id == track)
+                || (credit.entity_kind == EntityKind::Release
+                    && catalog.track(track).and_then(|row| row.release_id)
+                        == Some(credit.entity_id))
+        })
+        .filter(|credit| wanted(&credit.role, &credit.attributes))
     {
         extend_artist_values(catalog, credit.artist_id, &mut values);
         if let Some(credited_as) = &credit.credited_as {
             push_unique(&mut values, credited_as.clone());
         }
     }
-    if let Some(recording_id) = catalog.track(track).map(|row| row.recording_id) {
-        for credit in sourced_credits(context, recording_id)
-            .iter()
-            .filter(|credit| wanted(&credit.role))
-        {
-            extend_sourced_credit_values(credit, &mut values);
-        }
+    for credit in sourced_credits(context, track)
+        .into_iter()
+        .filter(|credit| wanted(&credit.role, &credit.attributes))
+    {
+        extend_sourced_credit_values(credit, &mut values);
     }
     values
 }
@@ -1399,9 +1475,9 @@ fn participation_values(
     release: Option<&crate::model::Release>,
 ) -> Vec<String> {
     let catalog = context.catalog;
-    let Some(track_row) = catalog.track(track) else {
+    if catalog.track(track).is_none() {
         return Vec::new();
-    };
+    }
     let performing: Vec<&crate::model::Credit> = catalog
         .credits
         .iter()
@@ -1411,11 +1487,10 @@ fn participation_values(
                 && crate::model::is_performing_role(&credit.role)
         })
         .collect();
-    let sourced_performing: Vec<&crate::sources::CreditLink> =
-        sourced_credits(context, track_row.recording_id)
-            .iter()
-            .filter(|credit| crate::model::is_performing_role(&credit.role))
-            .collect();
+    let sourced_performing: Vec<&crate::sources::CreditLink> = sourced_credits(context, track)
+        .into_iter()
+        .filter(|credit| crate::model::is_performing_role(&credit.role))
+        .collect();
     let mut distinct_performers: BTreeSet<String> = performing
         .iter()
         .map(|credit| local_artist_key(catalog, credit.artist_id))
@@ -1428,14 +1503,15 @@ fn participation_values(
     if matches!(field, Field::Contributor) {
         let mut values = Vec::new();
         for credit in catalog.credits.iter().filter(|credit| {
-            credit.entity_kind == EntityKind::Track
-                && credit.entity_id == track
+            ((credit.entity_kind == EntityKind::Track && credit.entity_id == track)
+                || (credit.entity_kind == EntityKind::Release
+                    && release.is_some_and(|release| release.id == credit.entity_id)))
                 && !crate::model::is_performing_role(&credit.role)
         }) {
             extend_artist_values(catalog, credit.artist_id, &mut values);
         }
-        for credit in sourced_credits(context, track_row.recording_id)
-            .iter()
+        for credit in sourced_credits(context, track)
+            .into_iter()
             .filter(|credit| !crate::model::is_performing_role(&credit.role))
         {
             extend_sourced_credit_values(credit, &mut values);

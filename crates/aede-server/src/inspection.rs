@@ -696,6 +696,7 @@ fn public_query(expression: &str) -> Result<query::Query, ApiError> {
                 | query::Field::Album
                 | query::Field::Recording
                 | query::Field::Work
+                | query::Field::Movement
                 | query::Field::ReleaseGroup
                 | query::Field::AlbumArtist
                 | query::Field::Genre

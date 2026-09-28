@@ -29,6 +29,8 @@ pub fn show_track(args: &Args) -> Res {
     let catalog = load(args)?;
     let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
     let sourced_credits = held.credit_links(&catalog);
+    let edition_credits = held.edition_credit_links(&catalog);
+    let parent_works = held.work_parent_links(&catalog);
     let title = args.positionals.join(" ");
     if title.trim().is_empty() {
         return Err("give a title: aede track \"Patient Number 9\"".into());
@@ -86,7 +88,15 @@ pub fn show_track(args: &Args) -> Res {
         let json = Json::Arr(
             matches
                 .iter()
-                .map(|t| as_json(&catalog, t, &sourced_credits))
+                .map(|t| {
+                    as_json(
+                        &catalog,
+                        t,
+                        &sourced_credits,
+                        &edition_credits,
+                        &parent_works,
+                    )
+                })
                 .collect(),
         );
         println!("{}", json.to_string_pretty());
@@ -116,6 +126,16 @@ pub fn show_track(args: &Args) -> Res {
                 .cloned()
                 .collect(),
         );
+        if let Some(release_id) = track.release_id {
+            super::print_sourced_edition_credits(
+                &catalog,
+                edition_credits
+                    .iter()
+                    .filter(|link| link.release_id == release_id)
+                    .cloned()
+                    .collect(),
+            );
+        }
         if words {
             print_lyrics(&catalog, track);
         }
@@ -208,6 +228,39 @@ fn print_graph_links(
             );
         }
     }
+    let mut seen_parents = std::collections::BTreeSet::new();
+    for link in held
+        .work_parent_links(catalog)
+        .into_iter()
+        .filter(|link| link.recording_id == recording.id)
+    {
+        if !seen_parents.insert((
+            link.child_mbid.clone(),
+            link.parent.mbid.clone(),
+            link.source.clone(),
+        )) {
+            continue;
+        }
+        rows.push(vec![
+            "parent work".into(),
+            link.parent.title.clone(),
+            link.parent.mbid.clone(),
+            format!(
+                "{} · {}",
+                link.source,
+                super::source_status(link.confidence, link.review, link.trusted)
+            ),
+        ]);
+        if link.trusted {
+            navigation.add(
+                "Parent work",
+                format!(
+                    "aede work {}",
+                    super::navigation::shell_arg(&link.parent.mbid)
+                ),
+            );
+        }
+    }
     if let Some(release) = track.release_id.and_then(|id| catalog.release(id)) {
         navigation.entity(catalog, "Album", EntityKind::Release, release.id);
         if let Some(artist_id) = release.album_artist_id {
@@ -241,6 +294,32 @@ fn print_graph_links(
             EntityKind::Artist,
             credit.artist_id,
         );
+    }
+    for link in held
+        .credit_links(catalog)
+        .into_iter()
+        .filter(|link| link.trusted && link.recording_id == recording.id)
+    {
+        navigation.source_artist(&link.credit.artist_mbid);
+    }
+    if let Some(release_id) = track.release_id {
+        for credit in catalog.credits.iter().filter(|credit| {
+            credit.entity_kind == EntityKind::Release && credit.entity_id == release_id
+        }) {
+            navigation.entity(
+                catalog,
+                "Edition contributor",
+                EntityKind::Artist,
+                credit.artist_id,
+            );
+        }
+        for link in held
+            .edition_credit_links(catalog)
+            .into_iter()
+            .filter(|link| link.trusted && link.release_id == release_id)
+        {
+            navigation.source_artist(&link.credit.artist_mbid);
+        }
     }
     navigation
 }
@@ -307,6 +386,12 @@ fn print_track(catalog: &Catalog, track: &Track) {
     }
     let file = catalog.file(track.file_id);
     if let Some(file) = file {
+        if let Some(work) = file.first_tag("grouping") {
+            context.push(vec!["Work/grouping tag".into(), work.into()]);
+        }
+        if let Some(movement) = movement_tag(file) {
+            context.push(vec!["Movement tag".into(), movement]);
+        }
         context.push(vec!["Path".into(), file.path.clone()]);
     }
     context.push(vec!["Integrity".into(), integrity_line(track, catalog)]);
@@ -459,7 +544,33 @@ fn dedupe(mut names: Vec<String>) -> Vec<String> {
     names
 }
 
-fn as_json(catalog: &Catalog, track: &Track, sourced: &[SourcedCreditLink]) -> Json {
+fn movement_tag(file: &aede_core::model::AudioFile) -> Option<String> {
+    let number = file.first_tag("movementnumber");
+    let total = file.first_tag("movementtotal");
+    let title = file.first_tag("movement");
+    if number.is_none() && title.is_none() {
+        return None;
+    }
+    let position = match (number, total) {
+        (Some(number), Some(total)) => format!("{number}/{total}"),
+        (Some(number), None) => number.to_string(),
+        _ => String::new(),
+    };
+    Some(match (position.is_empty(), title) {
+        (true, Some(title)) => title.to_string(),
+        (false, Some(title)) => format!("{position} · {title}"),
+        (false, None) => position,
+        (true, None) => String::new(),
+    })
+}
+
+fn as_json(
+    catalog: &Catalog,
+    track: &Track,
+    sourced: &[SourcedCreditLink],
+    edition: &[sources::SourcedEditionCreditLink],
+    parent_works: &[sources::SourcedWorkParentLink],
+) -> Json {
     let mut o = Json::obj();
     o.set("id", track.id.into());
     o.set("title", track.title.clone().into());
@@ -512,6 +623,27 @@ fn as_json(catalog: &Catalog, track: &Track, sourced: &[SourcedCreditLink]) -> J
     );
     o.set("credits", credits);
     o.set(
+        "local_edition_credits",
+        Json::Arr(
+            catalog
+                .credits
+                .iter()
+                .filter(|credit| {
+                    credit.entity_kind == EntityKind::Release
+                        && track.release_id == Some(credit.entity_id)
+                })
+                .filter_map(|assertion| {
+                    let artist = catalog.artist(assertion.artist_id)?;
+                    let mut credit = Json::obj();
+                    credit.set("artist", artist.name.clone().into());
+                    credit.set("role", assertion.role.clone().into());
+                    credit.set("source", assertion.source.clone().into());
+                    Some(credit)
+                })
+                .collect(),
+        ),
+    );
+    o.set(
         "sourced_credits",
         Json::Arr(
             sourced
@@ -560,6 +692,7 @@ fn as_json(catalog: &Catalog, track: &Track, sourced: &[SourcedCreditLink]) -> J
                     credit.set("confidence", confidence.into());
                     credit.set("confidence_score", score.into());
                     credit.set("trusted", link.trusted.into());
+                    credit.set("excluded", link.excluded.into());
                     credit.set(
                         "review",
                         link.review
@@ -576,7 +709,64 @@ fn as_json(catalog: &Catalog, track: &Track, sourced: &[SourcedCreditLink]) -> J
         ),
     );
 
+    o.set(
+        "sourced_edition_credits",
+        Json::Arr(
+            edition
+                .iter()
+                .filter(|link| track.release_id == Some(link.release_id))
+                .map(|link| {
+                    let mut credit = Json::obj();
+                    credit.set("artist", link.credit.artist_name.clone().into());
+                    credit.set("artist_mbid", link.credit.artist_mbid.clone().into());
+                    credit.set("role", link.credit.role.clone().into());
+                    credit.set("relation_id", link.credit.relation_id.clone().into());
+                    credit.set("credited_as", link.credit.credited_as.clone().into());
+                    credit.set(
+                        "attributes",
+                        Json::Arr(link.credit.attributes.iter().map(attribute_json).collect()),
+                    );
+                    credit.set("scope", "edition".into());
+                    credit.set("source", link.source.clone().into());
+                    credit.set("trusted", link.trusted.into());
+                    credit.set("excluded", link.excluded.into());
+                    credit.set("fetched_at", link.fetched_at.into());
+                    credit
+                })
+                .collect(),
+        ),
+    );
+    o.set(
+        "parent_works",
+        Json::Arr(
+            parent_works
+                .iter()
+                .filter(|link| link.recording_id == track.recording_id)
+                .map(|link| {
+                    let mut parent = Json::obj();
+                    parent.set("child_mbid", link.child_mbid.clone().into());
+                    parent.set("parent_mbid", link.parent.mbid.clone().into());
+                    parent.set("parent_title", link.parent.title.clone().into());
+                    parent.set("relation_id", link.parent.relation_id.clone().into());
+                    parent.set("order", link.parent.order.into());
+                    parent.set("source", link.source.clone().into());
+                    parent.set("trusted", link.trusted.into());
+                    parent.set("fetched_at", link.fetched_at.into());
+                    parent.set(
+                        "attributes",
+                        Json::Arr(link.parent.attributes.iter().map(attribute_json).collect()),
+                    );
+                    parent
+                })
+                .collect(),
+        ),
+    );
+
     if let Some(file) = catalog.file(track.file_id) {
+        o.set("work_tag", file.first_tag("grouping").into());
+        o.set("movement_tag", file.first_tag("movement").into());
+        o.set("movement_number", file.first_tag("movementnumber").into());
+        o.set("movement_total", file.first_tag("movementtotal").into());
         o.set("path", file.path.clone().into());
         o.set("size", file.size.into());
         o.set("codec", file.properties.codec.clone().into());

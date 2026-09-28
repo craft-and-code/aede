@@ -14,12 +14,68 @@
 //! song itself, and belong to nobody here. Searching one is searching the
 //! library, searching another is searching yourself.
 
+use aede_core::contributors::{self, SourcedContributor};
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
+use aede_core::{sources, text};
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Res, announce_window, load, selection_output};
+use super::{Res, announce_window, load, selection_output, sources_held};
 use crate::args::{Args, Window};
 use crate::ui::{self, Table};
+
+struct ParentWorkHit {
+    mbid: String,
+    title: String,
+    part_ids: BTreeSet<String>,
+}
+
+fn sourced_parent_works(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    query: &str,
+) -> Vec<ParentWorkHit> {
+    let wanted = text::normalize(query);
+    let mut grouped: BTreeMap<String, ParentWorkHit> = BTreeMap::new();
+    for link in held
+        .work_parent_links(catalog)
+        .into_iter()
+        .filter(|link| link.trusted)
+    {
+        if link.parent.mbid != query
+            && (wanted.is_empty() || !text::normalize(&link.parent.title).contains(&wanted))
+        {
+            continue;
+        }
+        if catalog
+            .works
+            .iter()
+            .any(|work| work.mbid == link.parent.mbid)
+        {
+            continue;
+        }
+        let hit = grouped
+            .entry(link.parent.mbid.clone())
+            .or_insert_with(|| ParentWorkHit {
+                mbid: link.parent.mbid.clone(),
+                title: link.parent.title.clone(),
+                part_ids: BTreeSet::new(),
+            });
+        if hit.title.is_empty() && !link.parent.title.is_empty() {
+            hit.title = link.parent.title;
+        }
+        hit.part_ids.insert(link.child_mbid);
+    }
+    let mut hits: Vec<_> = grouped.into_values().collect();
+    hits.sort_by(|left, right| {
+        (left.mbid != query, text::normalize(&left.title), &left.mbid).cmp(&(
+            right.mbid != query,
+            text::normalize(&right.title),
+            &right.mbid,
+        ))
+    });
+    hits
+}
 
 pub fn search(args: &Args) -> Res {
     let catalog = load(args)?;
@@ -36,6 +92,27 @@ pub fn search(args: &Args) -> Res {
         .into_iter()
         .skip(window.offset)
         .collect();
+    let sources = sources_held(args)?;
+    let sourced_parents = sourced_parent_works(&catalog, &sources, &query);
+    let mut sourced_contributors: Vec<SourcedContributor> =
+        contributors::sourced(&catalog, &sources)
+            .into_iter()
+            .filter(|person| {
+                person.mbid == query || contributors::matches_name(person, &query, false)
+            })
+            .collect();
+    sourced_contributors.sort_by(|left, right| {
+        (
+            left.mbid != query,
+            aede_core::text::normalize(&left.name),
+            &left.mbid,
+        )
+            .cmp(&(
+                right.mbid != query,
+                aede_core::text::normalize(&right.name),
+                &right.mbid,
+            ))
+    });
 
     // Kept apart from the hits above rather than merged into them: a hit found
     // in a comment was found by another route, and the reader has to be able to
@@ -87,20 +164,29 @@ pub fn search(args: &Args) -> Res {
     // reports the hits — artists and albums included — which is a better answer
     // than the flat track table the shared selection path would give.
     if args.has("json") {
-        return print_json(&catalog, &hits, &in_comments, &in_lyrics, &in_notes, window);
+        return print_json(
+            &catalog,
+            &hits,
+            &sourced_contributors,
+            &sourced_parents,
+            &in_comments,
+            &in_lyrics,
+            &in_notes,
+            window,
+        );
     }
     if let Some(result) = selection_output(&catalog, &ids, args) {
         return result;
     }
 
     println!("{}", ui::section(&format!("Results for \"{query}\"")));
-    if hits.is_empty() {
+    if hits.is_empty() && sourced_contributors.is_empty() && sourced_parents.is_empty() {
         // Symmetric with the three sections below it, each of which says what
         // it did not find rather than falling back to the generic "(no
         // results)" a reader could otherwise mistake for nothing at all
         // having matched anywhere.
         println!("  {}", ui::dim("nothing by name"));
-    } else {
+    } else if !hits.is_empty() {
         let mut t = Table::new(&["Type", "Name", "Context", "Open"])
             .limit(1, 32)
             .limit(2, 22)
@@ -127,6 +213,56 @@ pub fn search(args: &Args) -> Res {
             ]);
         }
         print!("{}", t.render());
+    }
+
+    if !sourced_contributors.is_empty() {
+        println!(
+            "{}",
+            ui::section("Sourced contributors (not in local artist tags)")
+        );
+        let mut table = Table::new(&["Name", "MusicBrainz ID", "Recordings", "Open"])
+            .align(2, crate::ui::Align::Right)
+            .limit(0, 30)
+            .limit(3, 65);
+        for person in sourced_contributors
+            .iter()
+            .skip(window.offset)
+            .take(window.limit)
+        {
+            table.push(vec![
+                person.name.clone(),
+                person.mbid.clone(),
+                person.recording_ids.len().to_string(),
+                format!("aede artist {}", super::navigation::shell_arg(&person.mbid)),
+            ]);
+        }
+        print!("{}", table.render());
+        announce_window(window, sourced_contributors.len(), "sourced contributor");
+    }
+
+    if !sourced_parents.is_empty() {
+        println!(
+            "{}",
+            ui::section("Sourced parent works (locally held parts)")
+        );
+        let mut table = Table::new(&["Work", "MusicBrainz ID", "Parts", "Open"])
+            .align(2, crate::ui::Align::Right)
+            .limit(0, 34)
+            .limit(3, 65);
+        for work in sourced_parents
+            .iter()
+            .skip(window.offset)
+            .take(window.limit)
+        {
+            table.push(vec![
+                work.title.clone(),
+                work.mbid.clone(),
+                work.part_ids.len().to_string(),
+                format!("aede work {}", super::navigation::shell_arg(&work.mbid)),
+            ]);
+        }
+        print!("{}", table.render());
+        announce_window(window, sourced_parents.len(), "sourced parent work");
     }
 
     if args.has("comments") {
@@ -198,6 +334,8 @@ fn print_note_hits(
 fn print_json(
     catalog: &Catalog,
     hits: &[aede_core::model::SearchHit],
+    sourced_contributors: &[SourcedContributor],
+    sourced_parents: &[ParentWorkHit],
     in_comments: &[Id],
     in_lyrics: &[(Id, String)],
     in_notes: &[(aede_core::user::EntityRef, String)],
@@ -215,6 +353,52 @@ fn print_json(
             o
         })
         .collect();
+    for person in sourced_contributors
+        .iter()
+        .skip(window.offset)
+        .take(window.limit)
+    {
+        let mut row = Json::obj();
+        row.set("type", "artist".into());
+        row.set("id", Json::Null);
+        row.set("musicbrainz_id", person.mbid.clone().into());
+        row.set("name", person.name.clone().into());
+        row.set(
+            "context",
+            format!(
+                "{} credited local recordings · sourced",
+                person.recording_ids.len()
+            )
+            .into(),
+        );
+        row.set("found_in", "source_credit".into());
+        row.set(
+            "open",
+            format!("aede artist {}", super::navigation::shell_arg(&person.mbid)).into(),
+        );
+        rows.push(row);
+    }
+    for work in sourced_parents
+        .iter()
+        .skip(window.offset)
+        .take(window.limit)
+    {
+        let mut row = Json::obj();
+        row.set("type", "work".into());
+        row.set("id", Json::Null);
+        row.set("musicbrainz_id", work.mbid.clone().into());
+        row.set("name", work.title.clone().into());
+        row.set(
+            "context",
+            format!("{} locally held parts · sourced", work.part_ids.len()).into(),
+        );
+        row.set("found_in", "source_work_part".into());
+        row.set(
+            "open",
+            format!("aede work {}", super::navigation::shell_arg(&work.mbid)).into(),
+        );
+        rows.push(row);
+    }
     for &id in in_comments.iter().skip(window.offset).take(window.limit) {
         let Some(track) = catalog.track(id) else {
             continue;

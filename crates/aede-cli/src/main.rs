@@ -289,6 +289,7 @@ fn mutates_store(command: &str) -> bool {
             | "review"
             | "rules"
             | "relation"
+            | "credit"
             | "fetch"
             | "missing"
             | "merge"
@@ -385,6 +386,9 @@ const OPTIONS: &[&str] = &[
     "country",
     "identify",
     "credits",
+    "add",
+    "artist-id",
+    "instrument",
     "recordings",
     "lang",
     "portraits",
@@ -429,7 +433,18 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ("source", SOURCE_COMMANDS, "select a source"),
     ("accept", &["review"], "accept one source claim by ID"),
     ("reject", &["review"], "reject one source claim by ID"),
-    ("undo", &["review"], "undo one source-review decision by ID"),
+    (
+        "undo",
+        &["review", "credit"],
+        "undo a review or credit exclusion by ID",
+    ),
+    ("add", &["credit"], "add one manual credit"),
+    (
+        "artist-id",
+        &["credit"],
+        "identify the credited artist precisely",
+    ),
+    ("instrument", &["credit"], "qualify a manual credit"),
     (
         "interactive",
         &["review"],
@@ -583,7 +598,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "read on several threads",
     ),
     ("replace", &["scan", "copy"], "forget the watched folders"),
-    ("exclude", &["roots"], "keep a folder out of the catalog"),
+    (
+        "exclude",
+        &["roots", "credit"],
+        "exclude a folder or source credit",
+    ),
     (
         "no-scan",
         &["roots"],
@@ -729,7 +748,7 @@ const ALBUM_LIST_COMMANDS: &[&str] = &["albums"];
 /// same word, both useful, and neither of them makes sense without a person —
 /// which is why `album` and `track` are not here: there, `--artist` is the
 /// filter, and a role with nobody attached asks nothing.
-const ROLE_COMMANDS: &[&str] = &["artists", "artist"];
+const ROLE_COMMANDS: &[&str] = &["artists", "artist", "credit"];
 
 /// The one command that can answer with a band's line-up.
 ///
@@ -755,6 +774,8 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("roots", None, commands::roots),
     ("stats", None, commands::show_stats),
     ("doctor", None, commands::show_doctor),
+    ("credits", None, commands::show_credits),
+    ("credit", None, commands::credit),
     ("check", None, commands::check),
     ("copy", None, commands::copy),
     ("spectrum", None, commands::spectrum),
@@ -851,6 +872,7 @@ const JSON_COMMANDS: &[&str] = &[
     "years",
     "stats",
     "doctor",
+    "credits",
     "favourites",
     "notes",
     "query",
@@ -878,7 +900,7 @@ const DOCTOR_COMMANDS: &[&str] = &["doctor"];
 /// Both were declared among the options and guarded nowhere: `aede artists
 /// --year=1969` answered about every year under a name that promised one. The
 /// help says where a filter applies; this is what makes that true.
-const ARTIST_COMMANDS: &[&str] = &["albums", "track"];
+const ARTIST_COMMANDS: &[&str] = &["albums", "track", "credit"];
 const YEAR_COMMANDS: &[&str] = &["albums"];
 
 /// Commands that can be narrowed to one genre, or to one label.
@@ -944,6 +966,7 @@ const PAGING_COMMANDS: &[&str] = &[
     "label",
     "search",
     "doctor",
+    "credits",
     "stats",
     "favourites",
     "notes",

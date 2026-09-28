@@ -301,6 +301,34 @@ fn cancel_stops_a_delegated_scan_before_it_writes() {
 }
 
 #[test]
+fn credit_coverage_is_read_only_and_has_valid_scoped_json() {
+    let sandbox = Sandbox::new("credit_coverage");
+    let root = library();
+    let (out, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "scan: {err}\n{out}");
+
+    let (out, err, ok) = sandbox.run(&["credits", "--json", "--limit=2"]);
+    assert!(ok, "credits: {err}\n{out}");
+    let json = aede_core::json::parse(&out).expect("valid summary JSON");
+    assert!(json.get("recordings").is_some());
+    assert!(
+        matches!(json.get("albums"), Some(aede_core::json::Json::Arr(rows)) if rows.len() == 2)
+    );
+
+    let (out, err, ok) = sandbox.run(&["credits", "Kind of Blue", "--json", "--limit=1"]);
+    assert!(ok, "album credits: {err}\n{out}");
+    let albums = aede_core::json::parse(&out).expect("valid album JSON");
+    assert!(matches!(albums, aede_core::json::Json::Arr(ref rows) if !rows.is_empty()));
+    let (out, err, ok) = sandbox.run(&["credits", "Kind of Blue"]);
+    assert!(ok, "album credits: {err}\n{out}");
+    assert!(out.contains("Recording"), "{out}");
+
+    let (_, err, ok) = sandbox.run(&["credits", "Unknown Album"]);
+    assert!(!ok);
+    assert!(err.contains("no album matches"), "{err}");
+}
+
+#[test]
 fn scan_then_query() {
     let sandbox = Sandbox::new("full");
     let root = library();
@@ -1082,6 +1110,107 @@ fn a_query_expresses_what_options_never_could() {
 }
 
 #[test]
+fn source_only_contributors_are_searchable_and_open_from_credit_pages() {
+    let sandbox = Sandbox::new("source_only_contributors");
+    let root = library();
+    let (out, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "scan: {err}\n{out}");
+
+    let document = sandbox.dir.join("source-contributor.json");
+    std::fs::write(
+        &document,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":{},"source":"musicbrainz",
+              "source_id":"source-recording","fetched_at":1756600000,
+              "confidence":"identified","facts":{{
+                "recording":"source-recording","relationships_complete":true,
+                "credits":[{{"relation_id":"producer-credit","role":"producer",
+                  "artist_mbid":"source-person-id","artist_name":"Teo Macero",
+                  "credited_as":"Teo"}},
+                  {{"relation_id":"namesake-credit","role":"identity-test-role",
+                  "artist_mbid":"other-miles-id","artist_name":"Miles Davis"}}],
+                "works":[{{"mbid":"source-work-id","title":"A Sourced Composition",
+                  "credits":[{{"relation_id":"writer-credit","role":"composer",
+                    "artist_mbid":"source-person-id","artist_name":"Teo Macero"}}]}}]
+              }}
+            }}]}}"#,
+            json_track_ref(&library_flac())
+        ),
+    )
+    .expect("source document");
+    let (_, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "import: {err}");
+
+    let (out, err, ok) = sandbox.run(&["artist", "source-person-id"]);
+    assert!(ok, "source-only artist: {err}\n{out}");
+    assert!(out.contains("source-backed contributor"), "{out}");
+    assert!(out.contains("So What"), "{out}");
+    assert!(out.contains("producer"), "{out}");
+    assert!(out.contains("composer"), "{out}");
+    assert!(out.contains("aede recording"), "{out}");
+    assert!(out.contains("aede recording 'local:"), "{out}");
+    assert!(out.contains("aede work 'source-work-id'"), "{out}");
+
+    let (out, err, ok) = sandbox.run(&["artist", "Teo Macero", "--role=producer"]);
+    assert!(ok, "role filter: {err}\n{out}");
+    assert!(out.contains("producer"), "{out}");
+    assert!(!out.contains("composer"), "{out}");
+    let (_, err, ok) = sandbox.run(&["artist", "source-person-id", "--members"]);
+    assert!(!ok, "unsupported member view must not be ignored");
+    assert!(err.contains("--members needs a local artist"), "{err}");
+    let (_, err, ok) = sandbox.run(&["artist", "source-person-id", "--with=Miles Davis"]);
+    assert!(!ok, "unsupported comparison must not be ignored");
+    assert!(err.contains("--with currently compares"), "{err}");
+    let (out, err, ok) = sandbox.run(&["artist", "source-person-id", "--json"]);
+    assert!(ok, "track selection for sourced contributor: {err}\n{out}");
+    assert!(
+        matches!(aede_core::json::parse(&out), Ok(aede_core::json::Json::Arr(rows)) if !rows.is_empty())
+    );
+
+    let (out, err, ok) = sandbox.run(&["artist", "Miles Davis"]);
+    assert!(ok, "local namesake: {err}\n{out}");
+    assert!(
+        out.contains("separate source credit identity with this name: other-miles-id"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("identity-test-role"),
+        "a name alone must not attach another identity's credit: {out}"
+    );
+    let (out, err, ok) = sandbox.run(&["artist", "other-miles-id"]);
+    assert!(ok, "sourced namesake: {err}\n{out}");
+    assert!(out.contains("identity-test-role"), "{out}");
+
+    let (out, err, ok) = sandbox.run(&["search", "Teo Macero"]);
+    assert!(ok, "search: {err}\n{out}");
+    assert!(out.contains("Sourced contributors"), "{out}");
+    assert!(out.contains("aede artist 'source-person-id'"), "{out}");
+    let (out, err, ok) = sandbox.run(&["search", "Teo", "--json"]);
+    assert!(ok, "JSON search: {err}\n{out}");
+    let json = aede_core::json::parse(&out).expect("valid search JSON");
+    assert!(
+        matches!(json, aede_core::json::Json::Arr(ref rows) if rows.iter().any(|row| row.get("musicbrainz_id").and_then(aede_core::json::Json::as_str) == Some("source-person-id")))
+    );
+
+    let local_recording = format!("local:{}", library_flac().display());
+    for args in [
+        vec!["track", "So What"],
+        vec!["recording", local_recording.as_str()],
+        vec!["work", "source-work-id"],
+        vec!["album", "Kind of Blue"],
+    ] {
+        let (out, err, ok) = sandbox.run(&args);
+        assert!(ok, "{}: {err}\n{out}", args[0]);
+        assert!(
+            out.contains("aede artist 'source-person-id'"),
+            "{} lacks a source-only path: {out}",
+            args[0]
+        );
+    }
+}
+
+#[test]
 fn a_relational_query_reads_certain_source_evidence() {
     let sandbox = Sandbox::new("query_sources");
     let root = library();
@@ -1101,7 +1230,11 @@ fn a_relational_query_reads_certain_source_evidence() {
               "source_id":"recording-id","fetched_at":1756600000,
               "confidence":"identified","facts":{{
                 "recording":"recording-id","relationships_complete":true,
-                "works":[{{"mbid":"work-id","title":"A Sourced Work"}}]
+                "works":[{{"mbid":"work-id","title":"A Sourced Work",
+                  "parents":[{{"mbid":"parent-work-id","title":"A Complete Symphony",
+                    "relation_id":"part-rel","relation_type_id":"parts-type",
+                    "direction":"backward","order":1,
+                    "attributes":[{{"name":"movement"}}]}}]}}]
               }}
             }}]}}"#,
             json_track_ref(&track)
@@ -1114,6 +1247,51 @@ fn a_relational_query_reads_certain_source_evidence() {
     let (out, err, ok) = sandbox.run(&["query", "work:\"A Sourced Work\""]);
     assert!(ok, "stderr: {err}");
     assert!(out.contains("So What"), "output: {out}");
+
+    let (out, err, ok) = sandbox.run(&["query", "work:\"A Complete Symphony\""]);
+    assert!(ok, "parent work query: {err}");
+    assert!(out.contains("So What"), "parent work result: {out}");
+    let (out, err, ok) = sandbox.run(&["work", "parent-work-id"]);
+    assert!(ok, "parent work page: {err}");
+    assert!(out.contains("Parts in the library"), "parent page: {out}");
+    assert!(out.contains("A Sourced Work"), "parent page: {out}");
+    let (out, err, ok) = sandbox.run(&["search", "A Complete Symphony"]);
+    assert!(ok, "parent search: {err}");
+    assert!(out.contains("Sourced parent works"), "parent search: {out}");
+    assert!(
+        out.contains("aede work 'parent-work-id'"),
+        "parent search: {out}"
+    );
+    let (out, err, ok) = sandbox.run(&["work", "work-id"]);
+    assert!(ok, "movement work page: {err}");
+    assert!(out.contains("Part of"), "movement page: {out}");
+    assert!(out.contains("A Complete Symphony"), "movement page: {out}");
+    let (out, err, ok) = sandbox.run(&["album", "Kind of Blue"]);
+    assert!(ok, "album: {err}");
+    assert!(out.contains("Works and movements"), "album: {out}");
+    assert!(out.contains("A Complete Symphony"), "album: {out}");
+    let (out, err, ok) = sandbox.run(&["track", "So What", "--json"]);
+    assert!(ok, "track JSON: {err}");
+    let json = aede_core::json::parse(&out).unwrap();
+    let path = track.to_string_lossy();
+    let row = json
+        .as_arr()
+        .unwrap()
+        .iter()
+        .find(|row| row.field_str("path").as_deref() == Some(path.as_ref()))
+        .unwrap();
+    let parent = &row.get("parent_works").unwrap().as_arr().unwrap()[0];
+    assert_eq!(
+        parent.field_str("parent_mbid").as_deref(),
+        Some("parent-work-id")
+    );
+    assert_eq!(parent.field_u32("order"), Some(1));
+    assert_eq!(
+        parent
+            .get("trusted")
+            .and_then(aede_core::json::Json::as_bool),
+        Some(true)
+    );
 }
 
 #[test]
@@ -1243,6 +1421,177 @@ fn source_review_can_be_understood_and_decided_interactively() {
         !out.contains("So What"),
         "undo from the interactive view is durable: {out}"
     );
+}
+
+#[test]
+fn manual_credit_can_be_added_excluded_restored_and_exported() {
+    let sandbox = Sandbox::new("manual_credit_correction");
+    let (_, err, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "scan: {err}");
+    let scope = format!("recording:local:{}", library_flac().display());
+    let (out, err, ok) = sandbox.run(&[
+        "credit",
+        "--add",
+        &scope,
+        "--artist=Test Producer",
+        "--artist-id=test-producer-id",
+        "--role=producer",
+        "--instrument=studio",
+    ]);
+    assert!(ok, "add: {out}\n{err}");
+    let id = out.split_whitespace().last().unwrap().to_string();
+    let (out, err, ok) = sandbox.run(&["relations", "Test Producer"]);
+    assert!(ok, "relations: {err}");
+    assert!(out.contains(&id), "manual credit is navigable: {out}");
+    let (out, err, ok) = sandbox.run(&["query", "contributor:\"Test Producer\""]);
+    assert!(ok, "query: {err}");
+    assert!(out.contains("So What"), "manual credit is queryable: {out}");
+
+    let (out, err, ok) = sandbox.run(&["credit", &format!("--exclude={id}")]);
+    assert!(ok, "exclude: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["relation", &id]);
+    assert!(ok, "relation: {err}");
+    assert!(out.contains("excluded by you"), "evidence remains: {out}");
+    let (out, err, ok) = sandbox.run(&["query", "contributor:\"Test Producer\""]);
+    assert!(!ok, "excluded contributor should no longer resolve: {out}");
+    assert!(err.contains("no artist matches"), "error: {err}");
+    assert!(
+        !out.contains("So What"),
+        "excluded credit is not queryable: {out}"
+    );
+
+    let rules = sandbox.dir.join("credit-rules.json");
+    let (_, err, ok) = sandbox.run(&["rules", "--export", "--output", rules.to_str().unwrap()]);
+    assert!(ok, "rules export: {err}");
+    let exported = std::fs::read_to_string(&rules).unwrap();
+    assert!(exported.contains("credit_exclusions"));
+    assert!(exported.contains("test-producer-id"));
+    let (out, err, ok) = sandbox.run(&["credit", &format!("--undo={id}")]);
+    assert!(ok, "undo: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["rules", &format!("--import={}", rules.display())]);
+    assert!(ok, "rules import: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["relation", &id]);
+    assert!(ok, "relation after import: {err}");
+    assert!(out.contains("excluded by you"), "imported exclusion: {out}");
+    let (out, err, ok) = sandbox.run(&["credit", &format!("--undo={id}")]);
+    assert!(ok, "undo imported exclusion: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["query", "contributor:\"Test Producer\""]);
+    assert!(ok, "query restored: {err}");
+    assert!(
+        out.contains("So What"),
+        "restored credit is queryable: {out}"
+    );
+}
+
+#[test]
+fn manual_work_credit_keeps_its_work_scope() {
+    let sandbox = Sandbox::new("manual_work_credit");
+    let (_, err, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "scan: {err}");
+    let document = sandbox.dir.join("work.json");
+    std::fs::write(
+        &document,
+        format!(
+            r#"{{"format_version":1,"records":[{{
+              "entity":{},"source":"musicbrainz","source_id":"recording-id",
+              "fetched_at":1756600000,"confidence":"identified","facts":{{
+                "recording":"recording-id","relationships_complete":true,
+                "works":[{{"mbid":"work-id","title":"A Sourced Work"}}]
+              }}
+            }}]}}"#,
+            json_track_ref(&library_flac())
+        ),
+    )
+    .unwrap();
+    let (_, err, ok) = sandbox.run(&["sources", "--import", document.to_str().unwrap()]);
+    assert!(ok, "source import: {err}");
+    let (out, err, ok) = sandbox.run(&[
+        "credit",
+        "--add",
+        "work:work-id",
+        "--artist=Work Producer",
+        "--role=producer",
+    ]);
+    assert!(ok, "add: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["work", "work-id"]);
+    assert!(ok, "work: {err}");
+    assert!(out.contains("Work Producer"), "work credit: {out}");
+    let (out, err, ok) = sandbox.run(&["track", "So What", "--json"]);
+    assert!(ok, "track JSON: {err}");
+    let json = aede_core::json::parse(&out).unwrap();
+    let target = library_flac().to_string_lossy().into_owned();
+    let track = json
+        .as_arr()
+        .unwrap()
+        .iter()
+        .find(|row| row.field_str("path").as_deref() == Some(target.as_str()))
+        .unwrap();
+    let credits = track.get("sourced_credits").unwrap().as_arr().unwrap();
+    assert!(
+        credits
+            .iter()
+            .any(|credit| credit.field_str("scope").as_deref() == Some("work")),
+        "manual credit must not become a recording credit: {out}"
+    );
+}
+
+#[test]
+fn edition_credit_is_visible_on_album_and_artist_without_becoming_a_recording_credit() {
+    let sandbox = Sandbox::new("edition_credit_scope");
+    let (_, err, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "scan: {err}");
+    let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    let release = &catalog.releases[0];
+    let key =
+        aede_core::user::EntityRef::of(&catalog, aede_core::model::EntityKind::Release, release.id)
+            .unwrap()
+            .key;
+    let scope = format!("release:{key}");
+    let (out, err, ok) = sandbox.run(&[
+        "credit",
+        "--add",
+        &scope,
+        "--artist=Edition Engineer",
+        "--artist-id=edition-engineer-id",
+        "--role=engineer",
+    ]);
+    assert!(ok, "credit: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["album", &release.title]);
+    assert!(ok, "album: {err}");
+    assert!(out.contains("Edition credits from sources"), "album: {out}");
+    assert!(out.contains("Edition Engineer"), "album: {out}");
+    let (out, err, ok) = sandbox.run(&["artist", "edition-engineer-id"]);
+    assert!(ok, "artist: {err}");
+    assert!(
+        out.contains(&release.title),
+        "edition contributor's album: {out}"
+    );
+    let (out, err, ok) = sandbox.run(&["query", "contributor:\"Edition Engineer\""]);
+    assert!(ok, "query: {err}");
+    assert!(
+        out.contains("So What"),
+        "edition credit projects to album tracks: {out}"
+    );
+    let (out, err, ok) = sandbox.run(&["track", "So What", "--json"]);
+    assert!(ok, "track JSON: {err}");
+    let json = aede_core::json::parse(&out).unwrap();
+    let row = &json.as_arr().unwrap()[0];
+    assert!(
+        row.get("sourced_credits")
+            .unwrap()
+            .as_arr()
+            .unwrap()
+            .is_empty()
+    );
+    let edition = row
+        .get("sourced_edition_credits")
+        .unwrap()
+        .as_arr()
+        .unwrap();
+    assert_eq!(edition.len(), 1);
+    assert_eq!(edition[0].field_str("scope").as_deref(), Some("edition"));
 }
 
 #[test]

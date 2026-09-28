@@ -133,6 +133,9 @@ fn a_lookup_is_a_certainty_and_a_search_is_scored() {
             label: Some("Columbia".to_string()),
             label_mbid: None,
             cover_art: None,
+            edition_mbid: Some("59211ea4".to_string()),
+            credits: vec![],
+            relationships_complete: true,
         }
     );
 
