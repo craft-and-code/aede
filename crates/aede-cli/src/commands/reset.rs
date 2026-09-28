@@ -89,7 +89,7 @@ pub fn reset(args: &Args) -> Res {
 
     // The folders are printed after the deletion, not before: at that point
     // they are the only way back, and they have to be readable on screen.
-    let roots = catalog.roots.clone();
+    let roots = &catalog.roots;
     std::fs::remove_file(&catalog_file)?;
     println!("{} catalog removed", ui::green("→"));
     if !roots.is_empty() {

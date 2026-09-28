@@ -540,7 +540,7 @@ pub fn tag(args: &Args) -> Res {
             // Nothing stands before the labels, and a target is mandatory: the
             // tail can only have been the name. `aede tag artist "Miles Davis"
             // --remove` reaches here, and means every tag on Miles Davis.
-            true => (words.clone(), Vec::new()),
+            true => (words, Vec::new()),
             false => {
                 let mut named = vec![words[0].clone()];
                 named.extend(head);

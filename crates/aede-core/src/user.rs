@@ -545,7 +545,7 @@ impl UserData {
         target.loved = source.loved;
         target.rating = source.rating;
         target.note = source.note.clone();
-        target.tags = source.tags.clone();
+        target.tags = source.tags;
         target.updated_at = now;
         true
     }

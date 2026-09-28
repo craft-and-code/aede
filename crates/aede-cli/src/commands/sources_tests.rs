@@ -231,7 +231,7 @@ fn every_source_is_shown_the_address_its_answer_came_from() {
         source: sources::MUSICBRAINZ.to_string(),
         source_id: Some("aa11".to_string()),
         facts: Facts::Release(Default::default()),
-        ..artist.clone()
+        ..artist
     };
     assert_eq!(
         address_of(&album).as_deref(),

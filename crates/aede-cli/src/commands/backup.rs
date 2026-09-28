@@ -127,8 +127,8 @@ pub fn restore(args: &Args) -> Res {
         "  made {} by Aède {}",
         ui::since(held.made_at),
         match held.made_by.is_empty() {
-            true => "of an unknown version".to_string(),
-            false => held.made_by.clone(),
+            true => "of an unknown version",
+            false => &held.made_by,
         }
     );
     println!("  into {}", ui::dim(&data.display().to_string()));
@@ -271,7 +271,7 @@ impl Doing {
     fn said(&self) -> String {
         match self {
             Doing::Write(what) => what.clone(),
-            Doing::Skip(why) => ui::dim(why).to_string(),
+            Doing::Skip(why) => ui::dim(why),
         }
     }
 }

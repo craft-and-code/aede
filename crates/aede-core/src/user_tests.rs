@@ -493,7 +493,7 @@ fn a_record_set_aside_survives_the_round_trip_and_a_merge() {
 
     // Importing the same backup twice must not file the decision twice: it was
     // taken or it was not, and there are no versions of it to arbitrate.
-    let mut into = back.clone();
+    let mut into = back;
     let report = merge(&mut into, data.clone());
     assert_eq!(into.set_aside.len(), 1, "still one");
     assert_eq!(report.added, 0);

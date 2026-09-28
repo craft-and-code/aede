@@ -168,7 +168,7 @@ impl Builder {
         let disc_from_folder = text::disc_folder(text::file_name(&file_folder));
         let folder = match disc_from_folder {
             Some(_) => text::folder(&file_folder).to_string(),
-            None => file_folder.clone(),
+            None => file_folder,
         };
         self.catalog.files.push(file);
 

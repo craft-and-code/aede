@@ -662,7 +662,7 @@ fn an_identified_label_becomes_a_fanart_label_target() {
     .expect("the label is in the catalog");
     let mut layer = Sources::default();
     layer.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: sources::MUSICBRAINZ.to_string(),
         source_id: Some("label-mbid".to_string()),
         fetched_at: 1,

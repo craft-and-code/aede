@@ -176,7 +176,7 @@ fn work_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
                 relationship_type_id: link.work.relation_type_id.clone(),
                 direction: link.work.direction.clone(),
                 credited_as: None,
-                attributes: link.work.attributes.clone(),
+                attributes: link.work.attributes,
                 began: None,
                 ended: None,
                 over: None,

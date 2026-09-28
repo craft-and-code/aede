@@ -719,7 +719,7 @@ fn reason(item: &ReviewItem) -> String {
 
 fn status(item: &ReviewItem) -> String {
     match item.decision {
-        None => ui::yellow("pending").to_string(),
+        None => ui::yellow("pending"),
         Some(ReviewDecision::Accepted) => format!(
             "accepted · {}",
             ui::since(item.reviewed_at.unwrap_or_default())

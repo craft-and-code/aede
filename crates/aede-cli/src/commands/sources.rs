@@ -255,7 +255,7 @@ fn says(facts: &Facts) -> String {
     match parts.is_empty() {
         // An answer holding nothing is a real answer, and printing an empty
         // cell would make it look like a missing row instead.
-        true => ui::dim("nothing").to_string(),
+        true => ui::dim("nothing"),
         false => parts.join(" · "),
     }
 }

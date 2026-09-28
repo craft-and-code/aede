@@ -190,7 +190,7 @@ fn an_album_already_answered_is_not_asked_about_twice() {
     );
 
     held.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: sources::MUSICBRAINZ.to_string(),
         source_id: Some("c9fdb94c".to_string()),
         fetched_at: 1,

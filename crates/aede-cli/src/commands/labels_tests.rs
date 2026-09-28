@@ -129,7 +129,7 @@ fn a_label_already_answered_is_not_a_target_again() {
     let entity = EntityRef::of(&catalog, EntityKind::Label, catalog.labels[0].id)
         .expect("the label is in the catalog");
     held.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: sources::MUSICBRAINZ.to_string(),
         source_id: Some("columbia-mbid".to_string()),
         fetched_at: 1,

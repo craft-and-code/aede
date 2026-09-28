@@ -221,7 +221,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
     let mut layer = Sources::default();
     let entity = EntityRef::of(&catalog, EntityKind::Release, 0).expect("a release");
     layer.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: coverart::SOURCE.to_string(),
         source_id: None,
         fetched_at: 1,
@@ -291,7 +291,7 @@ fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
     let mut layer = Sources::default();
     let entity = EntityRef::of(&catalog, EntityKind::Release, 0).expect("a release");
     layer.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: coverart::SOURCE.to_string(),
         source_id: None,
         fetched_at: 1,
@@ -345,7 +345,7 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
     let mut layer = Sources::default();
     let entity = EntityRef::of(&catalog, EntityKind::Release, 0).expect("a release");
     layer.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: coverart::SOURCE.to_string(),
         source_id: None,
         fetched_at: 1,
@@ -574,7 +574,7 @@ fn an_album_nothing_has_identified_cannot_be_asked_about() {
     let mut layer = Sources::default();
     let entity = EntityRef::of(&catalog, EntityKind::Release, 0).expect("a release");
     layer.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: sources::MUSICBRAINZ.to_string(),
         source_id: Some("c9fdb94c".to_string()),
         fetched_at: 1,
@@ -657,7 +657,7 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
     )
     .expect("an album with an identifier");
     layer.set(SourceRecord {
-        key: entity.key.clone(),
+        key: entity.key,
         source: coverart::SOURCE.to_string(),
         source_id: None,
         fetched_at: 1,
