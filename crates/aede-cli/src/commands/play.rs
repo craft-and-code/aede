@@ -568,6 +568,9 @@ fn play_file(
         );
     }
     let sink_format = output.prepare(source_format)?;
+    if let Some(description) = output.integer_description() {
+        println!("Output: {description} with TPDF dither");
+    }
     if sink_format.sample_rate() != source_format.sample_rate() {
         track.set_output_rate(sink_format.sample_rate())?;
         println!(

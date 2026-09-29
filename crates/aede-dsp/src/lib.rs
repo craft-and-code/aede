@@ -12,6 +12,8 @@ use std::fmt;
 
 mod channels;
 pub use channels::{ChannelLayout, StereoDownmixer};
+mod dither;
+pub use dither::TpdfQuantizer;
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
 pub mod loudness;

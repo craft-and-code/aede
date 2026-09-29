@@ -12,7 +12,11 @@ This establishes the sample contract, gain and broad tone stages, and a 24-band 
 
 ## Device-rate conversion
 
-`RateConverter` uses Rubato's fixed-ratio, bandlimited FFT conversion for ordinary rate pairs and sinc conversion for unusual ratios when a floating-point output device cannot accept the decoded sample rate. It preserves state across input blocks, removes filter startup delay, drains the tail at end of track, and emits the exact rate-adjusted frame count. A matching-rate path bypasses it. Conversion runs on the decoding thread before gain and tone processing; the final output guard therefore runs after conversion. The native CPAL output chooses an accepted floating-point rate, while ffplay receives the decoded rate. Devices with only integer sample formats remain for F9.
+`RateConverter` uses Rubato's fixed-ratio, bandlimited FFT conversion for ordinary rate pairs and sinc conversion for unusual ratios when a floating-point output device cannot accept the decoded sample rate. It preserves state across input blocks, removes filter startup delay, drains the tail at end of track, and emits the exact rate-adjusted frame count. A matching-rate path bypasses it. Conversion runs on the decoding thread before gain and tone processing; the final output guard therefore runs after conversion. The native CPAL output chooses an accepted floating-point rate, while ffplay receives the decoded rate. For integer-only devices, the final CPAL callback quantizes the guarded PCM with continuous TPDF dither. Signed and unsigned 8-, 16-, 24- and 32-bit formats are supported. Floating-point sinks bypass quantization and dither, while callback underrun silence remains exact digital silence.
+
+## Final integer conversion
+
+`TpdfQuantizer` adds two independent uniform draws in each sample’s least-significant-bit units before rounding. Its private, deterministic state continues across callback blocks and naturally advancing tracks that share an output stream. Conversion clips only to the chosen integer range after Aède’s earlier sample-peak guard. Aède does not claim a bit-perfect integer path: audio is decoded to `f32`, and the current native output deliberately dithers when converting that stream to integers. The ffplay fallback receives `f32le` and performs any device conversion outside Aède. A future remote transport can use this same quantizer only if it selects integer PCM.
 
 ## Channel mapping
 
