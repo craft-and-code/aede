@@ -15,7 +15,7 @@ Use the same `--data <folder>` or `AEDE_HOME` as the CLI that scanned your music
 
 All routes below use English names matching the CLI vocabulary: an **album** is a graph **release** and a **track** is a local placement of a **recording**. `/releases` remains available to existing clients; `/albums` offers the CLI-shaped filters. No route translates or executes an arbitrary command string.
 
-The server remains **loopback-only**. Public reads require no token, reveal local catalog metadata/paths and must not be published to the Internet. No accounts, personal-data API or audio playback are implemented yet. Reads never fetch external data or alter audio files.
+The server remains **loopback-only**. Public reads require no token, reveal local catalog metadata/paths and must not be published to the Internet. No accounts or audio playback are implemented yet; the opt-in administrative API exposes only the local owner's personal data. Reads never fetch external data or alter audio files. The shared core PCM stream can supply processed audio blocks and format metadata to a future playback route, where the audio will be transmitted to the requesting device. The server will need authenticated remote access and a bounded streaming transport before exposing that route.
 
 ## Read routes
 

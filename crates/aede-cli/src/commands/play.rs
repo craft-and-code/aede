@@ -4,11 +4,12 @@ use std::error::Error;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use aede_core::model::{Catalog, Id, TitleMatch};
-use aede_core::playback::decoder::FileDecoder;
+use aede_core::playback::output::OutputSession;
+use aede_core::playback::stream::PcmTrack;
 use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
@@ -26,8 +27,6 @@ use visualizer::TerminalVisualizer;
 mod controls;
 use controls::{Action, Controls};
 
-const BUFFER_FRAMES: usize = 4096;
-
 pub fn play(args: &Args) -> Res {
     let raw = args.positionals.join(" ");
     if raw.trim().is_empty() {
@@ -42,13 +41,21 @@ pub fn play(args: &Args) -> Res {
     if controls.is_some() {
         println!("Controls: Space pause/resume · n/→ next · p/← previous · q stop");
     }
+    let mut output = OutputSession::new();
     let mut index = 0;
     while index < paths.len() {
         let path = &paths[index];
         let started = clock::now_seconds();
         let mut played_ms = 0;
         let label = playing_label(path, catalog.as_ref());
-        let result = play_file(path, &label, &mut played_ms, controls.as_ref());
+        let result = play_file(
+            path,
+            &label,
+            &mut played_ms,
+            controls.as_ref(),
+            &mut output,
+            index + 1 == paths.len(),
+        );
         if result.is_ok() || played_ms > 0 {
             record_play(
                 args,
@@ -106,12 +113,12 @@ impl PlaybackClock {
         u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
     }
 
-    fn toggle_pause(&mut self, player: &Child) -> Res {
+    fn toggle_pause(&mut self, process_id: u32) -> Res {
         if let Some(paused_since) = self.paused_since.take() {
-            signal_player(player, "CONT")?;
+            signal_player(process_id, "CONT")?;
             self.paused_duration += paused_since.elapsed();
         } else {
-            signal_player(player, "STOP")?;
+            signal_player(process_id, "STOP")?;
             self.paused_since = Some(Instant::now());
         }
         Ok(())
@@ -120,7 +127,7 @@ impl PlaybackClock {
 
 fn control_action(
     controls: Option<&Controls>,
-    player: &Child,
+    process_id: u32,
     clock: &mut PlaybackClock,
 ) -> Result<Option<PlaybackEnd>, Box<dyn Error>> {
     let Some(controls) = controls else {
@@ -133,21 +140,21 @@ fn control_action(
             controls.poll()
         };
         match action {
-            Some(Action::Pause) => clock.toggle_pause(player)?,
+            Some(Action::Pause) => clock.toggle_pause(process_id)?,
             Some(Action::Stop) => return Ok(Some(PlaybackEnd::Stop)),
             Some(Action::Next) => return Ok(Some(PlaybackEnd::Next)),
             Some(Action::Previous) => return Ok(Some(PlaybackEnd::Previous)),
-            None if clock.paused_since.is_some() => clock.toggle_pause(player)?,
+            None if clock.paused_since.is_some() => clock.toggle_pause(process_id)?,
             None => return Ok(None),
         }
     }
 }
 
 #[cfg(unix)]
-fn signal_player(player: &Child, signal: &str) -> Res {
+fn signal_player(process_id: u32, signal: &str) -> Res {
     let status = Command::new("kill")
         .arg(format!("-{signal}"))
-        .arg(player.id().to_string())
+        .arg(process_id.to_string())
         .status()?;
     if !status.success() {
         return Err(format!("cannot {signal} ffplay process: kill exited with {status}").into());
@@ -156,7 +163,7 @@ fn signal_player(player: &Child, signal: &str) -> Res {
 }
 
 #[cfg(not(unix))]
-fn signal_player(_player: &Child, _signal: &str) -> Res {
+fn signal_player(_process_id: u32, _signal: &str) -> Res {
     Err("terminal playback controls are unavailable on this platform".into())
 }
 
@@ -422,146 +429,101 @@ fn play_file(
     label: &str,
     played_ms: &mut u64,
     controls: Option<&Controls>,
+    output: &mut OutputSession,
+    final_track: bool,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
-    let mut decoder = FileDecoder::open(path)?;
-    let format = PcmFormat::new(decoder.sample_rate(), decoder.channels())?;
+    let mut track = PcmTrack::open(path)?;
+    let track_format = track.format();
+    let format = PcmFormat::new(track_format.sample_rate(), track_format.channels())?;
+    output.prepare(track_format)?;
+    let process_id = output.process_id().ok_or("audio output has no process")?;
     let mut dsp = Dsp::new(format);
-
-    let mut player = Command::new("ffplay")
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nodisp",
-            "-autoexit",
-            "-nostats",
-        ])
-        .args([
-            "-f",
-            "f32le",
-            "-sample_rate",
-            &format.sample_rate().to_string(),
-        ])
-        .args([
-            "-ch_layout",
-            &format!("{}c", format.channels()),
-            "-i",
-            "pipe:0",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            format!("cannot start ffplay: {error}; install ffplay for local audio output")
-        })?;
-    let Some(mut input) = player.stdin.take() else {
-        let _ = player.kill();
-        let _ = player.wait();
-        return Err("ffplay did not open its PCM input".into());
-    };
 
     println!("Playing: {label}");
     let mut clock = PlaybackClock::new();
     let mut visualizer = TerminalVisualizer::new(format);
     let mut frames = 0;
     let streamed = stream_pcm_counted(
-        &mut decoder,
+        &mut track,
         &mut dsp,
-        &mut input,
+        output,
         &mut frames,
         visualizer.as_mut(),
         controls,
-        Some(&player),
+        Some(process_id),
         &mut clock,
     );
     *played_ms = frames.saturating_mul(1000) / u64::from(format.sample_rate());
-    drop(input);
     match streamed {
-        Ok(PlaybackEnd::Natural) => loop {
-            let command = match control_action(controls, &player, &mut clock) {
-                Ok(command) => command,
-                Err(error) => {
-                    let _ = player.kill();
-                    let _ = player.wait();
-                    return Err(error);
+        Ok(PlaybackEnd::Natural) if final_track => {
+            output.close_input();
+            loop {
+                match control_action(controls, process_id, &mut clock) {
+                    Ok(Some(action)) => {
+                        *played_ms = (*played_ms).min(clock.active_ms());
+                        output.abort()?;
+                        return Ok(action);
+                    }
+                    Err(error) => {
+                        let _ = output.abort();
+                        return Err(error);
+                    }
+                    Ok(None) => {}
                 }
-            };
-            if let Some(action) = command {
-                *played_ms = (*played_ms).min(clock.active_ms());
-                let _ = player.kill();
-                let _ = player.wait();
-                return Ok(action);
-            }
-            if let Some(status) = player.try_wait()? {
-                if !status.success() {
-                    return Err(format!(
-                        "ffplay stopped with {status}; check the audio output device"
-                    )
-                    .into());
+                if output.poll_finished()? {
+                    return Ok(PlaybackEnd::Natural);
                 }
-                return Ok(PlaybackEnd::Natural);
+                std::thread::sleep(Duration::from_millis(25));
             }
-            std::thread::sleep(Duration::from_millis(25));
-        },
+        }
+        Ok(PlaybackEnd::Natural) => {
+            if output.poll_finished()? {
+                return Err("audio output stopped before the selection ended".into());
+            }
+            Ok(PlaybackEnd::Natural)
+        }
         Ok(action) => {
             *played_ms = (*played_ms).min(clock.active_ms());
-            let _ = player.kill();
-            let _ = player.wait();
+            output.abort()?;
             Ok(action)
         }
         Err(error) => {
             *played_ms = (*played_ms).min(clock.active_ms());
-            if let Some(status) = player.try_wait()?
-                && !status.success()
-            {
-                return Err(
-                    format!("ffplay stopped with {status}; check the audio output device").into(),
-                );
+            let exit = output.poll_finished().err();
+            let _ = output.abort();
+            if let Some(exit) = exit {
+                return Err(exit.into());
             }
-            let _ = player.kill();
-            let _ = player.wait();
             Err(error)
         }
     }
 }
 
 fn stream_pcm_counted(
-    decoder: &mut FileDecoder,
+    track: &mut PcmTrack,
     dsp: &mut Dsp,
     output: &mut impl Write,
     frames_written: &mut u64,
     mut visualizer: Option<&mut TerminalVisualizer>,
     controls: Option<&Controls>,
-    player: Option<&Child>,
+    process_id: Option<u32>,
     clock: &mut PlaybackClock,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
-    let channels = usize::from(decoder.channels());
-    let mut samples = vec![0.0; BUFFER_FRAMES * channels];
-    let mut bytes = vec![0; samples.len() * 4];
     loop {
-        if let Some(player) = player
-            && let Some(action) = control_action(controls, player, clock)?
+        if let Some(process_id) = process_id
+            && let Some(action) = control_action(controls, process_id, clock)?
         {
             return Ok(action);
         }
-        let frames = decoder.read_frames(&mut samples)?;
-        if frames == 0 {
+        let Some(block) = track.read_block(|samples| dsp.process(samples).map(|_| ()))? else {
             return Ok(PlaybackEnd::Natural);
-        }
-        let count = frames * channels;
-        dsp.process(&mut samples[..count])?;
-        for (sample, encoded) in samples[..count]
-            .iter()
-            .zip(bytes.as_chunks_mut::<4>().0.iter_mut())
-        {
-            encoded.copy_from_slice(&sample.to_le_bytes());
-        }
+        };
         output
-            .write_all(&bytes[..count * 4])
+            .write_all(block.f32le)
             .map_err(|error| format!("audio output closed: {error}"))?;
-        *frames_written = frames_written.saturating_add(frames as u64);
+        *frames_written = frames_written.saturating_add(block.frames as u64);
         if let Some(meter) = visualizer.as_deref_mut()
-            && let Err(error) = meter.observe(&samples[..count])
+            && let Err(error) = meter.observe(block.samples)
         {
             eprintln!("visualizer stopped: {error}");
             meter.disable();

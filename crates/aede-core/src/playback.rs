@@ -7,7 +7,10 @@
 use crate::model::Id;
 
 pub mod decoder;
+pub mod format;
 pub mod normalization;
+pub mod output;
+pub mod stream;
 
 /// What happens when the current track reaches its end.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
