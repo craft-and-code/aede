@@ -5,6 +5,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use aede_core::playback::stream::PcmTrack;
+use aede_core::user;
 
 fn pcm(path: &std::path::Path) -> Vec<u8> {
     let mut track = PcmTrack::open(path).unwrap();
@@ -97,4 +98,153 @@ fn cli_rejects_an_unknown_audio_backend() {
         .unwrap();
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("must be native or ffplay"));
+}
+
+fn played_pcm(fixture: &str, normalization: Option<&str>) -> (Vec<f32>, user::UserData, String) {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "aede_normalization_{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let ffplay = root.join("ffplay");
+    std::fs::write(&ffplay, "#!/bin/sh\ncat > \"$0.data\"\n").unwrap();
+    std::fs::set_permissions(&ffplay, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(fixture);
+    let data_dir = root.join("data");
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut path = std::ffi::OsString::from(root.as_os_str());
+    path.push(":");
+    path.push(old_path);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_aede"));
+    command
+        .arg("play")
+        .arg(&fixture)
+        .arg("--data")
+        .arg(&data_dir)
+        .env("PATH", path)
+        .env("AEDE_AUDIO_BACKEND", "ffplay");
+    if let Some(mode) = normalization {
+        command.arg("--normalize").arg(mode);
+    }
+    let result = command.output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let bytes = std::fs::read(ffplay.with_extension("data")).unwrap();
+    let samples = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
+        .collect();
+    let history = user::load(&user::user_path(&data_dir)).unwrap().unwrap();
+    let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
+    std::fs::remove_dir_all(root).unwrap();
+    (samples, history, stderr)
+}
+
+fn assert_scaled(reference: &[f32], actual: &[f32], gain_db: f32) {
+    assert_eq!(actual.len(), reference.len());
+    let gain = 10.0_f32.powf(gain_db / 20.0);
+    assert!(reference.iter().any(|sample| sample.abs() > 0.001));
+    for (before, after) in reference.iter().zip(actual) {
+        assert!((after - before * gain).abs() < 0.000_02);
+    }
+}
+
+#[test]
+fn metadata_normalization_applies_track_and_album_gain_without_changing_history() {
+    let (track_by_default, default_history, _) = played_pcm("normalization.flac", None);
+    let (off, off_history, _) = played_pcm("normalization.flac", Some("off"));
+    let (track, track_history, _) = played_pcm("normalization.flac", Some("track"));
+    let (album, album_history, _) = played_pcm("normalization.flac", Some("album"));
+    assert_eq!(track_by_default, track);
+    assert_scaled(&off, &track, -6.0206);
+    assert_scaled(&off, &album, -12.0412);
+    for history in [default_history, off_history, track_history, album_history] {
+        assert_eq!(history.plays.len(), 1);
+        assert!(history.plays[0].completed);
+        assert_eq!(history.counts.len(), 1);
+        assert_eq!(history.counts[0].count, 1);
+    }
+}
+
+#[test]
+fn opus_r128_gain_is_applied_after_its_header_output_gain() {
+    if Command::new("ffmpeg").arg("-version").output().is_err() {
+        return;
+    }
+    let (off, _, _) = played_pcm("normalization.opus", Some("off"));
+    let (zero_header, _, _) = played_pcm("normalization-zero.opus", Some("off"));
+    let (track, _, _) = played_pcm("normalization.opus", Some("track"));
+    let (album, _, _) = played_pcm("normalization.opus", Some("album"));
+    // The fixture has +1 dB Opus header gain, already applied by ffmpeg.
+    // R128 values -256 and -512 are relative to that header gain.
+    assert_scaled(&zero_header, &off, 1.0);
+    assert_scaled(&off, &track, 4.0);
+    assert_scaled(&off, &album, 3.0);
+}
+
+#[test]
+fn normalization_warns_when_processed_samples_exceed_full_scale() {
+    let (samples, _, stderr) = played_pcm("normalization-hot.flac", Some("track"));
+    assert!(samples.iter().any(|sample| sample.abs() > 1.0));
+    assert!(stderr.contains("exceeded full scale"), "{stderr}");
+}
+
+#[test]
+fn invalid_normalization_mode_is_an_error() {
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/normalization.flac");
+    let result = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .arg("play")
+        .arg(fixture)
+        .args(["--normalize", "loud"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("off, track or album"));
+}
+
+#[test]
+fn submillisecond_audio_does_not_create_a_listening_event() {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "aede_short_play_{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let ffplay = root.join("ffplay");
+    std::fs::write(&ffplay, "#!/bin/sh\ncat >/dev/null\n").unwrap();
+    std::fs::set_permissions(&ffplay, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut path = std::ffi::OsString::from(root.as_os_str());
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    let data_dir = root.join("data");
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/submillisecond.flac");
+    let result = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .arg("play")
+        .arg(fixture)
+        .arg("--data")
+        .arg(&data_dir)
+        .env("PATH", path)
+        .env("AEDE_AUDIO_BACKEND", "ffplay")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(user::load(&user::user_path(&data_dir)).unwrap().is_none());
+    std::fs::remove_dir_all(root).unwrap();
 }

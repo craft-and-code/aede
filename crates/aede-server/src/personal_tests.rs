@@ -464,6 +464,51 @@ fn history_and_collections_are_owned_by_the_local_profile() {
 }
 
 #[test]
+fn cli_and_server_listens_share_one_history_and_count() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let token = track(&state).await;
+        let reference = EntityRef::parse_token(&token).unwrap();
+        let mut data = UserData::default();
+        data.record_play(Play {
+            owner: LOCAL_USER.into(),
+            track: reference.clone(),
+            at: 100,
+            ms_played: 1_000,
+            completed: true,
+        });
+        user::save(&data, &user::user_path(&state.data_dir)).unwrap();
+
+        let before = history(
+            State(state.clone()),
+            Ok(Query(PageQuery::default())),
+            request("/api/admin/v1/history", ""),
+        )
+        .await
+        .unwrap();
+        assert_eq!(before.0.page.items.len(), 1);
+        assert_eq!(before.0.page.items[0].track, token);
+        assert_eq!(before.0.page.items[0].play_count, 1);
+
+        let added = record_history(
+            State(state.clone()),
+            request(
+                "/api/admin/v1/history",
+                &format!(r#"{{"track":"{token}","at":101,"ms_played":2000,"completed":true}}"#),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.1.0.play_count, 2);
+        let saved = user::load(&user::user_path(&state.data_dir))
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.play_count(LOCAL_USER, &reference), 2);
+        cleanup(&state);
+    });
+}
+
+#[test]
 fn personal_routes_enforce_authentication_and_strict_query_contracts() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

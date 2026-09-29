@@ -70,8 +70,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Write portable playlists in album and artist folders.",
         },
         "play" => CommandPage {
-            usage: "aede play <file|folder|m3u|collection|artist|album|track>",
-            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history; CPAL provides native audio output when available, with ffplay fallback.",
+            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--normalize off|track|album]",
+            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. ReplayGain/Opus R128 normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. CPAL provides native output when available, with ffplay fallback.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -393,7 +393,13 @@ pub fn print_index() {
                        after three seconds), and q stops and returns to the
                        shell. The 24 thin spectrum bars animate only in a
                        terminal. The label shows album — numbered filename;
-                       every played file enters history. Uses native audio
+                       every played file enters history. --normalize
+                       off|track|album overrides automatic ReplayGain or
+                       Opus R128 selection. Album names use album gain;
+                       files, folders, playlists, collections, artists and
+                       tracks use track gain. Tags are needed for gain to
+                       apply; the target is -18 LUFS.
+                       Uses native audio
                        when available, otherwise ffplay. Set
                        AEDE_AUDIO_BACKEND=ffplay for the fallback, or
                        AEDE_AUDIO_BACKEND=native to require CPAL. Opus and

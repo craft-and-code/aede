@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use aede_core::model::{Catalog, Id, TitleMatch};
+use aede_core::playback::normalization::{self, Mode as NormalizationMode, Source};
 use aede_core::playback::stream::PcmTrack;
 use aede_core::store;
 use aede_core::store_lock::StoreLock;
@@ -31,6 +32,7 @@ mod output;
 use output::LocalOutput;
 
 pub fn play(args: &Args) -> Res {
+    let requested_normalization = normalization_mode(args)?;
     let raw = args.positionals.join(" ");
     if raw.trim().is_empty() {
         return Err(
@@ -39,7 +41,9 @@ pub fn play(args: &Args) -> Res {
         );
     }
     let catalog = store::load(&store::catalog_path(&data_dir(args)))?;
-    let paths = resolve(&raw, catalog.as_ref(), Some(args))?;
+    let selection = resolve(&raw, catalog.as_ref(), Some(args))?;
+    let normalization_mode = selection.normalization_mode(requested_normalization);
+    let paths = selection.paths;
     let controls = Controls::start()?;
     if controls.is_some() {
         println!("Controls: Space pause/resume · n/→ next · p/← previous · q stop");
@@ -74,8 +78,9 @@ pub fn play(args: &Args) -> Res {
                 controls.as_ref(),
                 &mut output,
                 index + 1 == paths.len(),
+                normalization_mode,
             );
-            if result.is_ok() || played_ms > 0 {
+            if played_ms > 0 {
                 history_send
                     .send(HistoryItem {
                         path: path.clone(),
@@ -98,6 +103,45 @@ pub fn play(args: &Args) -> Res {
         .map_err(|_| "listening history worker panicked")?;
     playback_result?;
     Ok(history_result?)
+}
+
+fn normalization_mode(args: &Args) -> Result<Option<NormalizationMode>, Box<dyn Error>> {
+    match args.value("normalize") {
+        None => Ok(None),
+        Some("off") => Ok(Some(NormalizationMode::Off)),
+        Some("track") => Ok(Some(NormalizationMode::Track)),
+        Some("album") => Ok(Some(NormalizationMode::Album)),
+        other => Err(format!("normalization must be off, track or album; got {other:?}").into()),
+    }
+}
+
+struct PlaybackSelection {
+    paths: Vec<PathBuf>,
+    is_album: bool,
+}
+
+impl PlaybackSelection {
+    fn mixed(paths: Vec<PathBuf>) -> Self {
+        Self {
+            paths,
+            is_album: false,
+        }
+    }
+
+    fn album(paths: Vec<PathBuf>) -> Self {
+        Self {
+            paths,
+            is_album: true,
+        }
+    }
+
+    fn normalization_mode(&self, requested: Option<NormalizationMode>) -> NormalizationMode {
+        requested.unwrap_or(if self.is_album {
+            NormalizationMode::Album
+        } else {
+            NormalizationMode::Track
+        })
+    }
 }
 
 struct HistoryItem {
@@ -211,13 +255,13 @@ fn resolve(
     raw: &str,
     catalog: Option<&Catalog>,
     args: Option<&Args>,
-) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+) -> Result<PlaybackSelection, Box<dyn Error>> {
     let path = Path::new(raw);
     if path.is_file() {
         return if is_m3u(path) {
-            read_m3u(path)
+            read_m3u(path).map(PlaybackSelection::mixed)
         } else {
-            Ok(vec![super::canonical(path)])
+            Ok(PlaybackSelection::mixed(vec![super::canonical(path)]))
         };
     }
     if path.is_dir() {
@@ -226,7 +270,7 @@ fn resolve(
         if paths.is_empty() {
             return Err(format!("no audio files in {}", path.display()).into());
         }
-        return Ok(paths);
+        return Ok(PlaybackSelection::mixed(paths));
     }
     if path.components().count() > 1 || path.is_absolute() {
         return Err(format!("no file or folder at {}", path.display()).into());
@@ -237,33 +281,36 @@ fn resolve(
             args.ok_or("collection lookup needs a data folder")?,
             catalog,
             name,
-        );
+        )
+        .map(PlaybackSelection::mixed);
     }
     let (artists, artist_match) = catalog.find_artists(raw);
     let (releases, release_match) = catalog.find_releases(raw);
     let (tracks, track_match) = catalog.find_tracks(raw);
     if !artists.is_empty() && artist_match == TitleMatch::Exact {
-        return paths_for_artists(catalog, &artists, raw);
+        return paths_for_artists(catalog, &artists, raw).map(PlaybackSelection::mixed);
     }
     if !releases.is_empty() && release_match == TitleMatch::Exact {
-        return paths_for_releases(catalog, releases.iter().map(|r| r.id).collect(), raw);
+        return paths_for_releases(catalog, releases.iter().map(|r| r.id).collect(), raw)
+            .map(PlaybackSelection::album);
     }
     if !tracks.is_empty() && track_match == TitleMatch::Exact {
-        return paths_for_tracks(catalog, &tracks);
+        return paths_for_tracks(catalog, &tracks).map(PlaybackSelection::mixed);
     }
     if !artists.is_empty() {
-        return paths_for_artists(catalog, &artists, raw);
+        return paths_for_artists(catalog, &artists, raw).map(PlaybackSelection::mixed);
     }
     if !releases.is_empty() {
-        return paths_for_releases(catalog, releases.iter().map(|r| r.id).collect(), raw);
+        return paths_for_releases(catalog, releases.iter().map(|r| r.id).collect(), raw)
+            .map(PlaybackSelection::album);
     }
     if !tracks.is_empty() {
-        return paths_for_tracks(catalog, &tracks);
+        return paths_for_tracks(catalog, &tracks).map(PlaybackSelection::mixed);
     }
     if let Some(args) = args {
         let data = super::user_data(args, catalog)?;
         if data.collection(LOCAL_USER, raw).is_some() {
-            return collection_paths(args, catalog, raw);
+            return collection_paths(args, catalog, raw).map(PlaybackSelection::mixed);
         }
     }
     Err(format!("no artist, album, track or collection matches \"{raw}\"").into())
@@ -471,26 +518,52 @@ fn play_file(
     controls: Option<&Controls>,
     output: &mut LocalOutput,
     final_track: bool,
+    normalization_mode: NormalizationMode,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     let mut track = PcmTrack::open(path)?;
     let track_format = track.format();
     let format = PcmFormat::new(track_format.sample_rate(), track_format.channels())?;
+    let selected_gain = if normalization_mode == NormalizationMode::Off {
+        None
+    } else {
+        let raw = tags::read(path)?;
+        normalization::select_raw(&raw, normalization_mode, normalization::DEFAULT_TARGET_LUFS)?
+    };
     output.prepare(track_format)?;
     let mut dsp = Dsp::new(format);
+    if let Some(selection) = selected_gain {
+        dsp.set_gain_db(selection.gain_db, 0)?;
+        let source = match selection.source {
+            Source::ReplayGainTrack => "ReplayGain track",
+            Source::ReplayGainAlbum => "ReplayGain album",
+            Source::OpusR128Track => "Opus R128 track",
+            Source::OpusR128Album => "Opus R128 album",
+        };
+        println!("Normalization: {:+.2} dB ({source})", selection.gain_db);
+    } else if normalization_mode != NormalizationMode::Off {
+        println!("Normalization: no ReplayGain or Opus R128 tag; original level");
+    }
 
     println!("Playing: {label}");
     let mut clock = PlaybackClock::new();
     let mut visualizer = TerminalVisualizer::new(format);
     let mut frames = 0;
+    let mut overfull_samples = 0;
     let streamed = stream_pcm_counted(
         &mut track,
         &mut dsp,
         output,
         &mut frames,
+        &mut overfull_samples,
         visualizer.as_mut(),
         controls,
         &mut clock,
     );
+    if overfull_samples > 0 {
+        eprintln!(
+            "Warning: {overfull_samples} PCM samples exceeded full scale; the output device may clip"
+        );
+    }
     *played_ms = frames.saturating_mul(1000) / u64::from(format.sample_rate());
     match streamed {
         Ok(PlaybackEnd::Natural) if final_track => {
@@ -543,6 +616,7 @@ fn stream_pcm_counted(
     dsp: &mut Dsp,
     output: &mut impl PlaybackOutput,
     frames_written: &mut u64,
+    overfull_samples: &mut u64,
     mut visualizer: Option<&mut TerminalVisualizer>,
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
@@ -551,7 +625,13 @@ fn stream_pcm_counted(
         if let Some(action) = control_action(controls, output, clock)? {
             return Ok(action);
         }
-        let Some(block) = track.read_block(|samples| dsp.process(samples).map(|_| ()))? else {
+        let mut block_overfull = 0;
+        let Some(block) = track.read_block(|samples| {
+            dsp.process(samples).map(|stats| {
+                block_overfull = stats.overfull_samples as u64;
+            })
+        })?
+        else {
             return Ok(PlaybackEnd::Natural);
         };
         let mut pending = block.f32le;
@@ -569,6 +649,7 @@ fn stream_pcm_counted(
             }
         }
         *frames_written = frames_written.saturating_add(block.frames as u64);
+        *overfull_samples = overfull_samples.saturating_add(block_overfull);
         if let Some(meter) = visualizer.as_deref_mut()
             && let Err(error) = meter.observe(block.samples)
         {

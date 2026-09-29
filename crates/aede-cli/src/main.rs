@@ -408,6 +408,7 @@ const OPTIONS: &[&str] = &[
     "undo",
     "interactive",
     "graph",
+    "normalize",
 ];
 
 /// Where each restricted option means something.
@@ -420,6 +421,11 @@ const OPTIONS: &[&str] = &[
 /// option nobody can type, and only something comparing the two can notice.
 const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ("port", &["serve"], "choose the local API port"),
+    (
+        "normalize",
+        &["play"],
+        "choose playback loudness normalization",
+    ),
     ("csv", CSV_COMMANDS, "produce a table"),
     ("m3u", M3U_COMMANDS, "produce a playlist"),
     ("output", OUTPUT_COMMANDS, "write to a file"),

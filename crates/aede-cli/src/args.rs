@@ -71,6 +71,7 @@ const VALUED_WORD: &[&str] = &[
     "reject",
     "undo",
     "artist-id",
+    "normalize",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in

@@ -4,12 +4,17 @@
 //! The decoder must have applied the mandatory Opus ID
 //! header output gain before a selected R128 tag gain is applied.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::model::AudioFile;
+use crate::tags::RawTags;
 
 const REPLAYGAIN_REFERENCE_LUFS: f32 = -18.0;
 const OPUS_R128_REFERENCE_LUFS: f32 = -23.0;
+
+/// Default playback target shared by metadata gain schemes.
+pub const DEFAULT_TARGET_LUFS: f32 = -18.0;
 
 /// Which loudness metadata to use for playback.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -83,6 +88,20 @@ impl std::error::Error for Error {}
 /// A returned gain can produce samples above full scale; the output adapter
 /// must handle them when it converts floating-point PCM for the audio device.
 pub fn select(file: &AudioFile, mode: Mode, target_lufs: f32) -> Result<Option<Selection>, Error> {
+    select_values(&file.properties.codec, &file.tags, mode, target_lufs)
+}
+
+/// Select gain from freshly read tags, including a file outside the catalog.
+pub fn select_raw(raw: &RawTags, mode: Mode, target_lufs: f32) -> Result<Option<Selection>, Error> {
+    select_values(&raw.properties.codec, &raw.fields, mode, target_lufs)
+}
+
+fn select_values(
+    codec: &str,
+    tags: &BTreeMap<String, Vec<String>>,
+    mode: Mode,
+    target_lufs: f32,
+) -> Result<Option<Selection>, Error> {
     if mode == Mode::Off {
         return Ok(None);
     }
@@ -95,14 +114,14 @@ pub fn select(file: &AudioFile, mode: Mode, target_lufs: f32) -> Result<Option<S
         Mode::Album => [false, true],
         Mode::Off => return Ok(None),
     };
-    if file.properties.codec == "opus" {
+    if codec == "opus" {
         for track in scopes {
             let key = if track {
                 "r128_track_gain"
             } else {
                 "r128_album_gain"
             };
-            if let Some(raw) = one_value(file, key)? {
+            if let Some(raw) = one_value(tags, key)? {
                 let gain_db = parse_r128(raw).ok_or(Error::InvalidTag(key))?;
                 return Ok(Some(Selection {
                     gain_db: gain_db + target_lufs - OPUS_R128_REFERENCE_LUFS,
@@ -123,14 +142,14 @@ pub fn select(file: &AudioFile, mode: Mode, target_lufs: f32) -> Result<Option<S
         } else {
             "replaygain_album_gain"
         };
-        if let Some(raw) = one_value(file, key)? {
+        if let Some(raw) = one_value(tags, key)? {
             let gain_db = parse_db(raw).ok_or(Error::InvalidTag(key))?;
             let peak_key = if track {
                 "replaygain_track_peak"
             } else {
                 "replaygain_album_peak"
             };
-            let source_peak = one_value(file, peak_key)?
+            let source_peak = one_value(tags, peak_key)?
                 .map(|peak| parse_peak(peak).ok_or(Error::InvalidTag(peak_key)))
                 .transpose()?;
             return Ok(Some(Selection {
@@ -147,8 +166,11 @@ pub fn select(file: &AudioFile, mode: Mode, target_lufs: f32) -> Result<Option<S
     Ok(None)
 }
 
-fn one_value<'a>(file: &'a AudioFile, key: &'static str) -> Result<Option<&'a str>, Error> {
-    let Some(values) = file.tags.get(key) else {
+fn one_value<'a>(
+    tags: &'a BTreeMap<String, Vec<String>>,
+    key: &'static str,
+) -> Result<Option<&'a str>, Error> {
+    let Some(values) = tags.get(key) else {
         return Ok(None);
     };
     match values.as_slice() {

@@ -62,7 +62,9 @@ fn m3u_plays_relative_and_absolute_entries_in_written_order() {
     )
     .unwrap();
     assert_eq!(
-        super::resolve(&playlist.to_string_lossy(), None, None).unwrap(),
+        super::resolve(&playlist.to_string_lossy(), None, None)
+            .unwrap()
+            .paths,
         [
             second.canonicalize().unwrap(),
             first.canonicalize().unwrap(),
@@ -121,15 +123,61 @@ fn a_saved_collection_plays_its_current_query_result_in_catalog_order() {
         root.to_string_lossy().into_owned(),
     ]);
     let expected = [PathBuf::from("01.flac"), PathBuf::from("03.flac")];
+    let collection = resolve("collection:Blue songs", Some(&catalog), Some(&args)).unwrap();
+    assert!(!collection.is_album);
     assert_eq!(
-        resolve("collection:Blue songs", Some(&catalog), Some(&args)).unwrap(),
-        expected
+        collection.normalization_mode(None),
+        aede_core::playback::normalization::Mode::Track
     );
+    assert_eq!(collection.paths, expected);
     assert_eq!(
-        resolve("blue songs", Some(&catalog), Some(&args)).unwrap(),
+        resolve("blue songs", Some(&catalog), Some(&args))
+            .unwrap()
+            .paths,
         expected
     );
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn album_selection_uses_album_gain_by_default_and_explicit_mode_takes_priority() {
+    let catalog = Catalog {
+        releases: vec![Release {
+            id: 0,
+            title: "Quiet album".into(),
+            key: "quiet album".into(),
+            track_ids: vec![0],
+            ..Default::default()
+        }],
+        tracks: vec![Track {
+            id: 0,
+            file_id: 0,
+            title: "Quiet track".into(),
+            release_id: Some(0),
+            ..Default::default()
+        }],
+        files: vec![AudioFile {
+            id: 0,
+            path: "quiet.flac".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let album = resolve("Quiet album", Some(&catalog), None).unwrap();
+    assert_eq!(
+        album.normalization_mode(None),
+        aede_core::playback::normalization::Mode::Album
+    );
+    let track = resolve("Quiet track", Some(&catalog), None).unwrap();
+    assert_eq!(
+        track.normalization_mode(None),
+        aede_core::playback::normalization::Mode::Track
+    );
+    let explicit_off = Args::parse(["play".into(), "--normalize".into(), "off".into()]);
+    assert_eq!(
+        album.normalization_mode(super::normalization_mode(&explicit_off).unwrap()),
+        aede_core::playback::normalization::Mode::Off
+    );
 }
 
 #[test]
@@ -176,11 +224,15 @@ fn an_explicit_collection_name_disambiguates_a_track_title() {
         root.to_string_lossy().into_owned(),
     ]);
     assert_eq!(
-        resolve("Favorites", Some(&catalog), Some(&args)).unwrap(),
+        resolve("Favorites", Some(&catalog), Some(&args))
+            .unwrap()
+            .paths,
         [PathBuf::from("track.flac")]
     );
     assert_eq!(
-        resolve("collection:Favorites", Some(&catalog), Some(&args)).unwrap(),
+        resolve("collection:Favorites", Some(&catalog), Some(&args))
+            .unwrap()
+            .paths,
         [PathBuf::from("other.flac")]
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -201,11 +253,13 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
     let mut dsp = Dsp::new(format);
     let mut output = Vec::new();
     let mut frames_written = 0;
+    let mut overfull_samples = 0;
     stream_pcm_counted(
         &mut track,
         &mut dsp,
         &mut output,
         &mut frames_written,
+        &mut overfull_samples,
         None,
         None,
         &mut PlaybackClock::new(),
@@ -264,7 +318,7 @@ fn a_folder_plays_audio_in_sorted_recursive_order() {
         std::fs::write(root.join(name), b"fixture").unwrap();
     }
     std::fs::write(root.join("A album/cover.jpg"), b"image").unwrap();
-    let paths = resolve(&root.to_string_lossy(), None, None).unwrap();
+    let paths = resolve(&root.to_string_lossy(), None, None).unwrap().paths;
     let names: Vec<_> = paths
         .iter()
         .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().to_string())
@@ -329,7 +383,7 @@ fn an_artist_name_plays_own_albums_in_year_and_track_order() {
             .collect(),
         ..Default::default()
     };
-    let paths = resolve("ozzy", Some(&catalog), None).unwrap();
+    let paths = resolve("ozzy", Some(&catalog), None).unwrap().paths;
     assert_eq!(
         paths
             .iter()
@@ -373,7 +427,7 @@ fn an_exact_title_plays_every_copy_before_a_partial_artist_match() {
             .collect(),
         ..Default::default()
     };
-    let paths = resolve("ozzy", Some(&catalog), None).unwrap();
+    let paths = resolve("ozzy", Some(&catalog), None).unwrap().paths;
     assert_eq!(paths, [PathBuf::from("a.flac"), PathBuf::from("b.flac")]);
 }
 
