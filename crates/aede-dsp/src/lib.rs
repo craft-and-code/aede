@@ -3,7 +3,8 @@
 //! The decoder supplies finite, interleaved `f32` PCM. `Dsp` processes
 //! complete frames in place without allocating. The sample rate and channel
 //! count stay fixed for the lifetime of a [`Dsp`]; a format change requires a
-//! new instance. Values above full scale remain available to later DSP stages.
+//! new instance. Values above full scale remain available until the final
+//! output guard.
 //! The output adapter must decide how to handle them when converting to its
 //! device format.
 
@@ -12,6 +13,8 @@ use std::fmt;
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
 pub mod loudness;
+mod tone;
+pub use tone::ToneControls;
 
 /// The decoded PCM layout used by a processing stream.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,12 +44,13 @@ impl PcmFormat {
     }
 }
 
-/// Input errors leave the audio buffer and processor state unchanged.
+/// Input validation errors leave the audio buffer and processor state unchanged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DspError {
     InvalidFormat,
     InvalidGain,
     InvalidPeak,
+    InvalidTone,
     IncompleteFrame,
     NonFiniteSample,
     SampleOverflow,
@@ -58,9 +62,10 @@ impl fmt::Display for DspError {
             Self::InvalidFormat => "PCM sample rate and channel count must be positive",
             Self::InvalidGain => "gain in dB must produce a finite, positive multiplier",
             Self::InvalidPeak => "source peak must be finite and non-negative",
+            Self::InvalidTone => "bass and treble must each be finite and between -12 and +12 dB",
             Self::IncompleteFrame => "PCM buffer does not contain complete frames",
             Self::NonFiniteSample => "PCM buffer contains a non-finite sample",
-            Self::SampleOverflow => "gain would overflow an f32 sample",
+            Self::SampleOverflow => "processing would overflow an f32 sample",
         };
         f.write_str(message)
     }
@@ -128,7 +133,7 @@ pub struct ProcessStats {
     pub overfull_samples: usize,
 }
 
-/// A continuous gain stage for decoded PCM.
+/// A continuous gain stage and optional broad tone shelves for decoded PCM.
 ///
 /// Gain is shared by all channels of a frame. A requested change can be
 /// spread over a number of frames so it continues smoothly across block
@@ -139,6 +144,8 @@ pub struct Dsp {
     current_gain: f64,
     target_gain: f64,
     ramp_remaining: u64,
+    tone: Option<tone::ToneEq>,
+    tone_boost_scale: f64,
 }
 
 impl Dsp {
@@ -149,11 +156,27 @@ impl Dsp {
             current_gain: 1.0,
             target_gain: 1.0,
             ramp_remaining: 0,
+            tone: None,
+            tone_boost_scale: 1.0,
         }
     }
 
     pub fn format(&self) -> PcmFormat {
         self.format
+    }
+
+    /// Set the broad tone shelves. `ToneControls::FLAT` resets to an exact
+    /// bypass; prepare this outside the audio callback. A new setting starts
+    /// with cleared filter state.
+    pub fn set_tone(&mut self, controls: ToneControls) -> Result<(), DspError> {
+        let tone = if controls.is_flat() {
+            None
+        } else {
+            Some(tone::ToneEq::new(self.format, controls)?)
+        };
+        self.tone_boost_scale = 10.0_f64.powf(-f64::from(controls.safe_preamp_db()) / 20.0);
+        self.tone = tone;
+        Ok(())
     }
 
     /// Set a stream gain, typically chosen from loudness metadata.
@@ -180,9 +203,10 @@ impl Dsp {
 
     /// Process complete interleaved frames in place, with no allocation.
     ///
-    /// The whole buffer is checked before mutation, so a rejected block does
-    /// not advance an in-progress gain ramp. Samples above 1.0 are measured,
-    /// not clipped; the output adapter owns any final limiting or conversion.
+    /// Input samples and a conservative gain bound are checked before mutation,
+    /// so invalid input does not advance an in-progress gain ramp. Samples
+    /// above 1.0 are measured, not clipped; the output adapter owns any final
+    /// limiting or conversion.
     pub fn process(&mut self, samples: &mut [f32]) -> Result<ProcessStats, DspError> {
         let channels = usize::from(self.format.channels);
         if !samples.len().is_multiple_of(channels) {
@@ -193,7 +217,8 @@ impl Dsp {
             if !sample.is_finite() {
                 return Err(DspError::NonFiniteSample);
             }
-            if f64::from(sample.abs()) * maximum_gain > f64::from(f32::MAX) {
+            if f64::from(sample.abs()) * maximum_gain * self.tone_boost_scale > f64::from(f32::MAX)
+            {
                 return Err(DspError::SampleOverflow);
             }
         }
@@ -208,8 +233,15 @@ impl Dsp {
                     self.current_gain = self.target_gain;
                 }
             }
-            for sample in frame {
-                *sample = (f64::from(*sample) * self.current_gain) as f32;
+            for (channel, sample) in frame.iter_mut().enumerate() {
+                let mut processed = f64::from(*sample) * self.current_gain;
+                if let Some(tone) = &mut self.tone {
+                    processed = tone.run(channel, processed);
+                }
+                if !processed.is_finite() || processed.abs() > f64::from(f32::MAX) {
+                    return Err(DspError::SampleOverflow);
+                }
+                *sample = processed as f32;
                 let magnitude = sample.abs();
                 stats.sample_peak = stats.sample_peak.max(magnitude);
                 stats.overfull_samples += usize::from(magnitude > 1.0);

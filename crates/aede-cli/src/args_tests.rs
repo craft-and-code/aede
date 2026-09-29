@@ -277,3 +277,16 @@ fn an_option_does_not_eat_the_next_command() {
     assert_eq!(a.command, "stats");
     assert!(a.has("json"));
 }
+#[test]
+fn tone_options_accept_separate_negative_values() {
+    let args = super::Args::parse([
+        "play".into(),
+        "song.flac".into(),
+        "--bass".into(),
+        "-6".into(),
+        "--treble=3".into(),
+    ]);
+    assert_eq!(args.value("bass"), Some("-6"));
+    assert_eq!(args.value("treble"), Some("3"));
+    assert_eq!(args.positionals, ["song.flac"]);
+}

@@ -409,6 +409,8 @@ const OPTIONS: &[&str] = &[
     "interactive",
     "graph",
     "normalize",
+    "bass",
+    "treble",
 ];
 
 /// Where each restricted option means something.
@@ -426,6 +428,8 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["play"],
         "choose playback loudness normalization",
     ),
+    ("bass", &["play"], "adjust playback bass"),
+    ("treble", &["play"], "adjust playback treble"),
     ("csv", CSV_COMMANDS, "produce a table"),
     ("m3u", M3U_COMMANDS, "produce a playlist"),
     ("output", OUTPUT_COMMANDS, "write to a file"),

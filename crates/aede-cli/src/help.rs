@@ -70,8 +70,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Write portable playlists in album and artist folders.",
         },
         "play" => CommandPage {
-            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--normalize off|track|album]",
-            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Peak headroom can reduce gain, and unexpected over-full-scale samples are reported and hard-clamped. CPAL provides native output when available, with ffplay fallback.",
+            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--normalize off|track|album] [--bass DB] [--treble DB]",
+            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. CPAL provides native output when available, with ffplay fallback.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -402,6 +402,10 @@ pub fn print_index() {
                        reduce the gain; without a peak tag, Aède avoids a
                        positive boost. Unexpected over-full-scale samples
                        are hard-clamped and reported before output.
+                       --bass DB and --treble DB apply optional broad tone
+                       shelves from -12 to +12 dB. Both default to zero;
+                       use zero to reset to flat bypass. Positive boosts
+                       reserve preamp headroom before the final output guard.
                        Uses native audio
                        when available, otherwise ffplay. Set
                        AEDE_AUDIO_BACKEND=ffplay for the fallback, or

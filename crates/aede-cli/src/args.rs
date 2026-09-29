@@ -72,6 +72,8 @@ const VALUED_WORD: &[&str] = &[
     "undo",
     "artist-id",
     "normalize",
+    "bass",
+    "treble",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in
@@ -198,7 +200,10 @@ impl Args {
                     }
                     (!words.is_empty()).then(|| words.join(" "))
                 }
-                None if VALUED_WORD.contains(&name.as_str()) => iter.next_if(|next| is_value(next)),
+                None if VALUED_WORD.contains(&name.as_str()) => iter.next_if(|next| {
+                    is_value(next)
+                        || ((name == "bass" || name == "treble") && next.parse::<f32>().is_ok())
+                }),
                 None => None,
             };
             args.flags.insert(name, value);

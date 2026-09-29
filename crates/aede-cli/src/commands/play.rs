@@ -15,7 +15,7 @@ use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
 use aede_core::{clock, model::EntityKind, query, tags};
-use aede_dsp::{Dsp, gain_with_headroom_db};
+use aede_dsp::{Dsp, ToneControls, gain_with_headroom_db};
 
 use super::{Res, data_dir};
 use crate::args::Args;
@@ -34,6 +34,7 @@ use output::LocalOutput;
 
 pub fn play(args: &Args) -> Res {
     let requested_normalization = normalization_mode(args)?;
+    let tone = tone_controls(args)?;
     let raw = args.positionals.join(" ");
     if raw.trim().is_empty() {
         return Err(
@@ -89,8 +90,11 @@ pub fn play(args: &Args) -> Res {
                 controls.as_ref(),
                 &mut output,
                 index + 1 == paths.len(),
-                normalization_mode,
-                gain_plans[index],
+                PlaybackSettings {
+                    normalization_mode,
+                    selected_gain: gain_plans[index],
+                    tone,
+                },
             );
             if played_ms > 0 {
                 history_send
@@ -127,6 +131,23 @@ fn normalization_mode(args: &Args) -> Result<Option<NormalizationMode>, Box<dyn 
     }
 }
 
+fn tone_controls(args: &Args) -> Result<ToneControls, Box<dyn Error>> {
+    fn level(args: &Args, name: &str) -> Result<f32, Box<dyn Error>> {
+        if !args.has(name) {
+            return Ok(0.0);
+        }
+        let raw = args
+            .value(name)
+            .ok_or_else(|| format!("--{name} needs a dB value"))?;
+        Ok(raw
+            .parse::<f32>()
+            .map_err(|_| format!("--{name} needs a numeric dB value"))?)
+    }
+    let bass = level(args, "bass")?;
+    let treble = level(args, "treble")?;
+    ToneControls::new(bass, treble).map_err(|error| error.into())
+}
+
 struct PlaybackSelection {
     paths: Vec<PathBuf>,
     is_album: bool,
@@ -161,6 +182,12 @@ struct HistoryItem {
     started: u64,
     played_ms: u64,
     completed: bool,
+}
+
+struct PlaybackSettings {
+    normalization_mode: NormalizationMode,
+    selected_gain: Option<GainPlan>,
+    tone: ToneControls,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -530,16 +557,17 @@ fn play_file(
     controls: Option<&Controls>,
     output: &mut LocalOutput,
     final_track: bool,
-    normalization_mode: NormalizationMode,
-    selected_gain: Option<GainPlan>,
+    settings: PlaybackSettings,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     let mut track = PcmTrack::open(path)?;
     let format = track.format();
     output.prepare(format)?;
     let mut dsp = Dsp::new(format);
-    if let Some(selection) = selected_gain {
+    dsp.set_tone(settings.tone)?;
+    let mut normalization_gain_db = 0.0;
+    if let Some(selection) = settings.selected_gain {
         let applied_gain_db = gain_with_headroom_db(selection.gain_db, selection.source_peak)?;
-        dsp.set_gain_db(applied_gain_db, 0)?;
+        normalization_gain_db = applied_gain_db;
         println!(
             "Normalization: {applied_gain_db:+.2} dB ({})",
             selection.label
@@ -550,8 +578,17 @@ fn play_file(
                 selection.gain_db, selection.peak_label
             );
         }
-    } else if normalization_mode != NormalizationMode::Off {
+    } else if settings.normalization_mode != NormalizationMode::Off {
         println!("Normalization: no usable loudness measurement or gain tag; no gain applied");
+    }
+    let preamp_db = settings.tone.safe_preamp_db();
+    dsp.set_gain_db(normalization_gain_db + preamp_db, 0)?;
+    if !settings.tone.is_flat() {
+        println!(
+            "Tone: bass {:+.1} dB, treble {:+.1} dB; headroom preamp {preamp_db:+.1} dB",
+            settings.tone.bass_db(),
+            settings.tone.treble_db()
+        );
     }
 
     println!("Playing: {label}");
@@ -571,7 +608,7 @@ fn play_file(
     );
     if clamped_samples > 0 {
         eprintln!(
-            "Warning: {clamped_samples} PCM samples were hard-clamped at full scale before output; peak metadata may be inaccurate"
+            "Warning: {clamped_samples} PCM samples were hard-clamped at full scale before output; peak metadata or filter transients may explain this"
         );
     }
     *played_ms = frames.saturating_mul(1000) / u64::from(format.sample_rate());

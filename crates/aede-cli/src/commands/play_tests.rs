@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use aede_core::playback::decoder::FileDecoder;
 use aede_core::playback::stream::PcmTrack;
-use aede_dsp::Dsp;
+use aede_dsp::{Dsp, ToneControls};
 
 use super::{
     PlaybackClock, PlaybackEnd, next_index, play, record_play, resolve, stream_pcm_counted,
@@ -11,6 +11,29 @@ use crate::args::Args;
 use aede_core::conclusions;
 use aede_core::model::{Artist, AudioFile, Catalog, Release, Track};
 use aede_core::user;
+
+#[test]
+fn playback_tone_options_are_bounded_and_flat_by_default() {
+    let flat = Args::parse(["play".into(), "song.flac".into()]);
+    assert!(super::tone_controls(&flat).expect("default tone").is_flat());
+    let shaped = Args::parse([
+        "play".into(),
+        "song.flac".into(),
+        "--bass".into(),
+        "-4".into(),
+        "--treble".into(),
+        "6".into(),
+    ]);
+    let tone = super::tone_controls(&shaped).expect("valid tone");
+    assert_eq!(tone.bass_db(), -4.0);
+    assert_eq!(tone.treble_db(), 6.0);
+    assert_eq!(tone.safe_preamp_db(), -6.0);
+
+    let missing = Args::parse(["play".into(), "song.flac".into(), "--bass".into()]);
+    assert!(super::tone_controls(&missing).is_err());
+    let out_of_range = Args::parse(["play".into(), "song.flac".into(), "--treble=13".into()]);
+    assert!(super::tone_controls(&out_of_range).is_err());
+}
 
 #[test]
 fn playing_label_shows_album_and_numbered_filename_without_the_path() {
@@ -361,6 +384,47 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
         block[..frames * usize::from(format.channels())]
     );
     assert!(decoded.iter().all(|sample| sample.is_finite()));
+}
+
+#[test]
+fn tone_processing_reaches_the_serialized_playback_stream() {
+    let path = fixture("audit-stereo.flac");
+    let mut track = PcmTrack::open(&path).expect("fixture opens");
+    let tone = ToneControls::new(6.0, -3.0).expect("tone");
+    let mut dsp = Dsp::new(track.format());
+    dsp.set_tone(tone).expect("filters");
+    dsp.set_gain_db(tone.safe_preamp_db(), 0).expect("preamp");
+    let mut output = Vec::new();
+    let mut frames_written = 0;
+    let mut clamped_samples = 0;
+    stream_pcm_counted(
+        &mut track,
+        &mut dsp,
+        &mut output,
+        &mut frames_written,
+        &mut clamped_samples,
+        None,
+        None,
+        &mut PlaybackClock::new(),
+    )
+    .expect("stream succeeds");
+    let decoded = output
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
+        .collect::<Vec<_>>();
+    let mut reference = FileDecoder::open(&path).expect("fixture reopens");
+    let mut unchanged = vec![0.0; decoded.len()];
+    let frames = reference.read_frames(&mut unchanged).expect("first packet");
+    assert!(frames_written > 0);
+    assert!(
+        decoded[..frames * 2]
+            .iter()
+            .zip(&unchanged[..frames * 2])
+            .any(|(a, b)| (a - b).abs() > 0.0001)
+    );
+    assert_eq!(clamped_samples, 0);
 }
 
 #[test]
