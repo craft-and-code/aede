@@ -23,7 +23,7 @@ dependencies = [
 name = "aede-core"
 version = "0.3.0"
 dependencies = [
- "ebur128",
+ "aede-dsp",
  "flaccompagnon-core",
  "lofty",
  "md-5",
@@ -33,6 +33,9 @@ dependencies = [
 [[package]]
 name = "aede-dsp"
 version = "0.3.0"
+dependencies = [
+ "ebur128",
+]
 
 [[package]]
 name = "aede-server"

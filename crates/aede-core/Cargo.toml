@@ -23,6 +23,6 @@ lofty = { workspace = true }
 ureq = { workspace = true, optional = true }
 flaccompagnon-core = { git = "https://github.com/craft-and-code/FlacCompagnon", tag = "v0.9.5" }
 md-5 = "0.10"
-ebur128 = "0.1.10"
+aede-dsp = { path = "../aede-dsp" }
 
 [dev-dependencies]

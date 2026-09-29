@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use aede_core::playback::decoder::FileDecoder;
 use aede_core::playback::stream::PcmTrack;
-use aede_dsp::{Dsp, PcmFormat};
+use aede_dsp::Dsp;
 
 use super::{
     PlaybackClock, PlaybackEnd, next_index, play, record_play, resolve, stream_pcm_counted,
@@ -327,8 +327,7 @@ fn fixture(name: &str) -> PathBuf {
 fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
     let path = fixture("audit-stereo.flac");
     let mut track = PcmTrack::open(&path).expect("fixture opens");
-    let format =
-        PcmFormat::new(track.format().sample_rate(), track.format().channels()).expect("format");
+    let format = track.format();
     let mut dsp = Dsp::new(format);
     let mut output = Vec::new();
     let mut frames_written = 0;

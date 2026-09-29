@@ -1,27 +1,20 @@
 //! Playback loudness measurements over decoded PCM, independent of the output sink.
 //!
 //! Imported FlacCompagnon values are preferred for a track. Missing values are
-//! measured with the Rust ebur128 implementation. Album measurements combine
-//! gated block energies for the whole programme, never track LUFS averages.
+//! measured over decoded PCM by `aede-dsp`. Album measurements combine gated
+//! block energies for the whole programme, never track LUFS averages.
 
 use std::error::Error;
 use std::path::Path;
 
-use ebur128::{EbuR128, Mode};
+use aede_dsp::{PcmFormat, loudness::LoudnessProgramme};
 
 use crate::analysis::FileAnalysis;
 use crate::clock;
 
 use super::decoder::FileDecoder;
 
-/// Integrated loudness and highest inter-sample peak of decoded PCM.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Measurement {
-    /// Gated programme loudness in LUFS.
-    pub integrated_lufs: f32,
-    /// Linear true peak, when measured; may exceed one.
-    pub true_peak: Option<f32>,
-}
+pub use aede_dsp::loudness::Measurement;
 
 /// One version of a file's measured playback loudness.
 #[derive(Clone, Debug, PartialEq)]
@@ -91,57 +84,32 @@ pub fn from_flaccompagnon(analyses: &[FileAnalysis], file: &ProgrammeFile) -> Op
     })
 }
 
-fn new_meter(decoder: &FileDecoder) -> Result<Option<EbuR128>, ebur128::Error> {
-    // The generic decoder does not expose speaker positions for surround audio.
-    if !matches!(decoder.channels(), 1 | 2) {
-        return Ok(None);
-    }
-    EbuR128::new(
-        u32::from(decoder.channels()),
-        decoder.sample_rate(),
-        Mode::I | Mode::TRUE_PEAK,
-    )
-    .map(Some)
-}
-
-fn decode_into(decoder: &mut FileDecoder, meter: &mut EbuR128) -> Result<(), Box<dyn Error>> {
+fn decode_into(
+    decoder: &mut FileDecoder,
+    meter: &mut LoudnessProgramme,
+) -> Result<(), Box<dyn Error>> {
     let channels = usize::from(decoder.channels());
+    let format = PcmFormat::new(decoder.sample_rate(), decoder.channels())?;
     let mut samples = vec![0.0; 4096 * channels];
     loop {
         let frames = decoder.read_frames(&mut samples)?;
         if frames == 0 {
             break;
         }
-        meter.add_frames_f32(&samples[..frames * channels])?;
+        meter.push(format, &samples[..frames * channels])?;
     }
     Ok(())
-}
-
-fn peak_of(meter: &EbuR128) -> Result<f32, ebur128::Error> {
-    let mut peak = 0.0f32;
-    for channel in 0..meter.channels() {
-        peak = peak.max(meter.true_peak(channel)? as f32);
-    }
-    Ok(peak)
-}
-
-fn result(loudness: f64, peak: f32) -> Option<Measurement> {
-    (loudness.is_finite() && (-100.0..=20.0).contains(&loudness) && peak.is_finite()).then_some(
-        Measurement {
-            integrated_lufs: loudness as f32,
-            true_peak: Some(peak),
-        },
-    )
 }
 
 /// Measure a track once before output, so playback never has to wait mid-track.
 pub fn measure_track(path: &Path) -> Result<Option<Measurement>, Box<dyn Error>> {
     let mut decoder = FileDecoder::open(path)?;
-    let Some(mut meter) = new_meter(&decoder)? else {
+    if !matches!(decoder.channels(), 1 | 2) {
         return Ok(None);
-    };
+    }
+    let mut meter = LoudnessProgramme::new();
     decode_into(&mut decoder, &mut meter)?;
-    Ok(result(meter.loudness_global()?, peak_of(&meter)?))
+    Ok(meter.measurement()?)
 }
 
 /// Measure an ordered album programme. One meter spans matching formats;
@@ -150,26 +118,15 @@ pub fn measure_programme(paths: &[&Path]) -> Result<Option<Measurement>, Box<dyn
     if paths.is_empty() {
         return Ok(None);
     }
-    let mut meters: Vec<EbuR128> = Vec::new();
+    let mut meter = LoudnessProgramme::new();
     for path in paths {
         let mut decoder = FileDecoder::open(path)?;
         if !matches!(decoder.channels(), 1 | 2) {
             return Ok(None);
         }
-        let reuse = meters.last().is_some_and(|meter| {
-            meter.rate() == decoder.sample_rate()
-                && meter.channels() == u32::from(decoder.channels())
-        });
-        if !reuse {
-            meters.push(new_meter(&decoder)?.ok_or("unsupported channel layout")?);
-        }
-        decode_into(&mut decoder, meters.last_mut().ok_or("no programme meter")?)?;
+        decode_into(&mut decoder, &mut meter)?;
     }
-    let loudness = EbuR128::loudness_global_multiple(meters.iter())?;
-    let peak = meters.iter().try_fold(0.0f32, |peak, meter| {
-        Ok::<_, ebur128::Error>(peak.max(peak_of(meter)?))
-    })?;
-    Ok(result(loudness, peak))
+    Ok(meter.measurement()?)
 }
 
 #[cfg(test)]

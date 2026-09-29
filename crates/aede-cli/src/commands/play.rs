@@ -15,7 +15,7 @@ use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
 use aede_core::{clock, model::EntityKind, query, tags};
-use aede_dsp::{Dsp, PcmFormat, gain_with_headroom_db};
+use aede_dsp::{Dsp, gain_with_headroom_db};
 
 use super::{Res, data_dir};
 use crate::args::Args;
@@ -534,9 +534,8 @@ fn play_file(
     selected_gain: Option<GainPlan>,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     let mut track = PcmTrack::open(path)?;
-    let track_format = track.format();
-    let format = PcmFormat::new(track_format.sample_rate(), track_format.channels())?;
-    output.prepare(track_format)?;
+    let format = track.format();
+    output.prepare(format)?;
     let mut dsp = Dsp::new(format);
     if let Some(selection) = selected_gain {
         let applied_gain_db = gain_with_headroom_db(selection.gain_db, selection.source_peak)?;

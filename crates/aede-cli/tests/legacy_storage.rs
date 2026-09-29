@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use aede_core::{backup, conclusions, json, store};
 
@@ -12,13 +13,15 @@ struct LegacyLibrary {
 
 impl LegacyLibrary {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "aede_legacy_storage_{}_{nonce}",
-            std::process::id()
+            "aede_legacy_storage_{}_{nonce}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let music = root.join("music");
         std::fs::create_dir_all(&music).unwrap();

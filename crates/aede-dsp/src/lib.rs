@@ -1,6 +1,6 @@
 //! Sample processing between a decoder and an audio output.
 //!
-//! The decoder supplies finite, interleaved `f32` PCM. Each call processes
+//! The decoder supplies finite, interleaved `f32` PCM. `Dsp` processes
 //! complete frames in place without allocating. The sample rate and channel
 //! count stay fixed for the lifetime of a [`Dsp`]; a format change requires a
 //! new instance. Values above full scale remain available to later DSP stages.
@@ -11,6 +11,7 @@ use std::fmt;
 
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
+pub mod loudness;
 
 /// The decoded PCM layout used by a processing stream.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
