@@ -251,6 +251,14 @@ mod native {
             }
         }
 
+        pub(super) fn stage_description(&self) -> &'static str {
+            match self.sample_format {
+                SampleFormat::F32 => "native f32",
+                SampleFormat::F64 => "native f64",
+                _ => "native integer with TPDF dither",
+            }
+        }
+
         pub(super) fn drained(&self) -> Result<bool, String> {
             if self.failed.load(Ordering::Acquire) {
                 return Err("audio device stopped while playing".into());
@@ -392,6 +400,19 @@ pub(super) enum LocalOutput {
 }
 
 impl LocalOutput {
+    pub(super) fn stage_description(&self) -> &'static str {
+        match self {
+            Self::Ffplay(_) => "ffplay f32le",
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => output.stage_description(),
+            Self::Unopened { .. } => "unopened",
+        }
+    }
+
     pub(super) fn integer_description(&self) -> Option<&'static str> {
         match self {
             #[cfg(any(

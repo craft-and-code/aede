@@ -5,7 +5,8 @@ use aede_core::playback::stream::PcmTrack;
 use aede_dsp::{Dsp, ToneControls};
 
 use super::{
-    PlaybackClock, PlaybackEnd, next_index, play, record_play, resolve, stream_pcm_counted,
+    PlaybackClock, PlaybackDiagnostics, PlaybackEnd, next_index, play, record_play, resolve,
+    stream_pcm_counted,
 };
 use crate::args::Args;
 use aede_core::conclusions;
@@ -355,18 +356,26 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
     let mut output = Vec::new();
     let mut frames_written = 0;
     let mut clamped_samples = 0;
+    let mut meter = aede_dsp::OutputMeter::new(format).expect("output meter");
     stream_pcm_counted(
         &mut track,
         &mut dsp,
         &mut output,
         &mut frames_written,
         &mut clamped_samples,
-        None,
+        PlaybackDiagnostics {
+            meter: Some(&mut meter),
+            visualizer: None,
+        },
         None,
         &mut PlaybackClock::new(),
     )
     .expect("stream succeeds");
     assert!(frames_written > 0);
+    let measured = meter.snapshot().expect("meter snapshot");
+    assert_eq!(measured.frames, frames_written);
+    assert_eq!(measured.guarded_samples, clamped_samples);
+    assert!(measured.output_true_peak.is_some());
 
     assert!(!output.is_empty());
     assert_eq!(output.len() % (usize::from(format.channels()) * 4), 0);
@@ -403,7 +412,10 @@ fn tone_processing_reaches_the_serialized_playback_stream() {
         &mut output,
         &mut frames_written,
         &mut clamped_samples,
-        None,
+        PlaybackDiagnostics {
+            meter: None,
+            visualizer: None,
+        },
         None,
         &mut PlaybackClock::new(),
     )
@@ -442,7 +454,10 @@ fn surround_source_reaches_cli_output_as_stereo_frames() {
         &mut output,
         &mut frames_written,
         &mut clamped_samples,
-        None,
+        PlaybackDiagnostics {
+            meter: None,
+            visualizer: None,
+        },
         None,
         &mut PlaybackClock::new(),
     )

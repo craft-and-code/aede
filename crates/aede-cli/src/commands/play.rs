@@ -15,7 +15,9 @@ use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
 use aede_core::{clock, model::EntityKind, query, tags};
-use aede_dsp::{Dsp, ToneControls, gain_with_headroom_db};
+use aede_dsp::{
+    Dsp, OutputMeter, OutputMeterError, ProcessStats, ToneControls, gain_with_headroom_db,
+};
 
 use super::{Res, data_dir};
 use crate::args::Args;
@@ -583,9 +585,11 @@ fn play_file(
     let mut dsp = Dsp::new(format);
     dsp.set_tone(settings.tone)?;
     let mut normalization_gain_db = 0.0;
+    let mut normalization_headroom_db = 0.0;
     if let Some(selection) = settings.selected_gain {
         let applied_gain_db = gain_with_headroom_db(selection.gain_db, selection.source_peak)?;
         normalization_gain_db = applied_gain_db;
+        normalization_headroom_db = (selection.gain_db - applied_gain_db).max(0.0);
         println!(
             "Normalization: {applied_gain_db:+.2} dB ({})",
             selection.label
@@ -609,9 +613,50 @@ fn play_file(
         );
     }
 
+    let mut meter = match OutputMeter::new(format) {
+        Ok(meter) => meter,
+        Err(error) => {
+            eprintln!("True-peak meter unavailable: {error}");
+            OutputMeter::sample_peak_only(format)
+        }
+    };
     println!("Playing: {label}");
     let mut clock = PlaybackClock::new();
     let mut visualizer = TerminalVisualizer::new(format);
+    let normalization_stage = match settings.selected_gain {
+        Some(selection) => format!("{} {normalization_gain_db:+.2} dB", selection.label),
+        None if settings.normalization_mode == NormalizationMode::Off => "off".to_string(),
+        None => "no gain available".to_string(),
+    };
+    println!(
+        "DSP stages: downmix {}; resample {}; normalization {}; tone {}; output guard on; limiter off; output {}; spectrum {}",
+        if track.source_format().channels() > 2 {
+            "to stereo"
+        } else {
+            "bypass"
+        },
+        if sink_format.sample_rate() != source_format.sample_rate() {
+            "on"
+        } else {
+            "bypass"
+        },
+        normalization_stage,
+        if settings.tone.is_flat() {
+            "bypass"
+        } else {
+            "on"
+        },
+        output.stage_description(),
+        if visualizer.is_some() {
+            "display on"
+        } else {
+            "off"
+        },
+    );
+    println!(
+        "Headroom reserve: normalization {:.2} dB; tone {:.2} dB; dynamic gain reduction unavailable (limiter off)",
+        normalization_headroom_db, -preamp_db,
+    );
     let mut frames = 0;
     let mut clamped_samples = 0;
     let streamed = stream_pcm_counted(
@@ -620,10 +665,32 @@ fn play_file(
         output,
         &mut frames,
         &mut clamped_samples,
-        visualizer.as_mut(),
+        PlaybackDiagnostics {
+            meter: Some(&mut meter),
+            visualizer: visualizer.as_mut(),
+        },
         controls,
         &mut clock,
     );
+    let measured = match meter.snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("True-peak meter unavailable: {error}");
+            meter.sample_peak_snapshot()
+        }
+    };
+    if measured.frames > 0 {
+        let true_peak = measured
+            .output_true_peak
+            .map(|peak| format!("{} dBTP", peak_db(peak)))
+            .unwrap_or_else(|| "unavailable".to_string());
+        println!(
+            "Submitted signal (before dither/device): sample peak {} dBFS; estimated true peak {true_peak}; pre-guard peak {} dBFS; guarded samples {}",
+            peak_db(measured.output_sample_peak),
+            peak_db(measured.pre_guard_sample_peak),
+            measured.guarded_samples,
+        );
+    }
     if clamped_samples > 0 {
         eprintln!(
             "Warning: {clamped_samples} PCM samples were hard-clamped at full scale before output; peak metadata or filter transients may explain this"
@@ -676,13 +743,18 @@ fn play_file(
     }
 }
 
+struct PlaybackDiagnostics<'a> {
+    meter: Option<&'a mut OutputMeter>,
+    visualizer: Option<&'a mut TerminalVisualizer>,
+}
+
 fn stream_pcm_counted(
     track: &mut PcmTrack,
     dsp: &mut Dsp,
     output: &mut impl PlaybackOutput,
     frames_written: &mut u64,
     clamped_samples: &mut u64,
-    mut visualizer: Option<&mut TerminalVisualizer>,
+    mut diagnostics: PlaybackDiagnostics<'_>,
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
@@ -690,10 +762,10 @@ fn stream_pcm_counted(
         if let Some(action) = control_action(controls, output, clock)? {
             return Ok(action);
         }
-        let mut block_clamped = 0;
+        let mut block_stats = ProcessStats::default();
         let Some(block) = track.read_block(|samples| {
             dsp.process_for_output(samples).map(|stats| {
-                block_clamped = stats.overfull_samples as u64;
+                block_stats = stats;
             })
         })?
         else {
@@ -714,13 +786,30 @@ fn stream_pcm_counted(
             }
         }
         *frames_written = frames_written.saturating_add(block.frames as u64);
-        *clamped_samples = clamped_samples.saturating_add(block_clamped);
-        if let Some(meter) = visualizer.as_deref_mut()
+        *clamped_samples = clamped_samples.saturating_add(block_stats.overfull_samples as u64);
+        if let Some(meter) = diagnostics.meter.as_deref_mut() {
+            match meter.observe(block.samples, block_stats) {
+                Ok(()) => {}
+                Err(OutputMeterError::Meter(error)) => {
+                    eprintln!("True-peak meter stopped: {error}");
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if let Some(meter) = diagnostics.visualizer.as_deref_mut()
             && let Err(error) = meter.observe(block.samples)
         {
             eprintln!("visualizer stopped: {error}");
             meter.disable();
         }
+    }
+}
+
+fn peak_db(peak: f32) -> String {
+    if peak == 0.0 {
+        "−∞".to_string()
+    } else {
+        format!("{:+.2}", 20.0 * peak.log10())
     }
 }
 

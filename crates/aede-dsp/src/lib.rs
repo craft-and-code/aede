@@ -17,6 +17,8 @@ pub use dither::TpdfQuantizer;
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
 pub mod loudness;
+mod meter;
+pub use meter::{OutputMeter, OutputMeterError, OutputSnapshot};
 mod rate;
 pub use rate::{RateConverter, RateError};
 mod tone;
