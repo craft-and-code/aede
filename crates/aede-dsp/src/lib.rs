@@ -15,6 +15,8 @@ pub use channels::{ChannelLayout, StereoDownmixer};
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
 pub mod loudness;
+mod rate;
+pub use rate::{RateConverter, RateError};
 mod tone;
 pub use tone::ToneControls;
 

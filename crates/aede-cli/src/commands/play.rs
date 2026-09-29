@@ -560,14 +560,23 @@ fn play_file(
     settings: PlaybackSettings,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     let mut track = PcmTrack::open_stereo(path)?;
-    let format = track.format();
+    let source_format = track.format();
     if track.source_format().channels() > 2 {
         println!(
             "Channels: {} → stereo (LFE omitted, peak-safe downmix)",
             track.source_format().layout().name()
         );
     }
-    output.prepare(format)?;
+    let sink_format = output.prepare(source_format)?;
+    if sink_format.sample_rate() != source_format.sample_rate() {
+        track.set_output_rate(sink_format.sample_rate())?;
+        println!(
+            "Sample rate: {} → {} Hz (device conversion)",
+            source_format.sample_rate(),
+            sink_format.sample_rate()
+        );
+    }
+    let format = track.format();
     let mut dsp = Dsp::new(format);
     dsp.set_tone(settings.tone)?;
     let mut normalization_gain_db = 0.0;

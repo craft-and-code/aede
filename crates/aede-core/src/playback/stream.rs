@@ -10,7 +10,7 @@ use std::path::Path;
 
 use super::decoder::{self, FileDecoder};
 use super::format::PcmStreamFormat;
-use aede_dsp::{DspError, StereoDownmixer};
+use aede_dsp::{DspError, RateConverter, RateError, StereoDownmixer};
 
 const BLOCK_FRAMES: usize = 4096;
 
@@ -31,6 +31,8 @@ pub enum StreamError<E> {
     Decode(decoder::Error),
     /// The source channel layout or a PCM frame cannot be downmixed.
     Downmix(DspError),
+    /// A requested output rate could not be produced.
+    Resample(RateError),
     /// The caller's DSP stage rejected the block.
     Process(E),
     /// The caller's stage produced a non-finite output sample.
@@ -42,6 +44,7 @@ impl<E: fmt::Display> fmt::Display for StreamError<E> {
         match self {
             Self::Decode(error) => write!(f, "{error}"),
             Self::Downmix(error) => write!(f, "stereo downmix failed: {error}"),
+            Self::Resample(error) => write!(f, "{error}"),
             Self::Process(error) => write!(f, "audio processing failed: {error}"),
             Self::NonFiniteSample => f.write_str("audio processing produced a non-finite sample"),
         }
@@ -53,6 +56,7 @@ impl<E: Error + 'static> Error for StreamError<E> {
         match self {
             Self::Decode(error) => Some(error),
             Self::Downmix(error) => Some(error),
+            Self::Resample(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::NonFiniteSample => None,
         }
@@ -64,9 +68,14 @@ pub struct PcmTrack {
     decoder: FileDecoder,
     format: PcmStreamFormat,
     source_format: PcmStreamFormat,
+    decode_format: PcmStreamFormat,
     downmix: Option<StereoDownmixer>,
+    resampler: Option<RateConverter>,
+    started: bool,
+    ended: bool,
     samples: Vec<f32>,
     stereo: Vec<f32>,
+    converted: Vec<f32>,
     bytes: Vec<u8>,
 }
 
@@ -81,9 +90,14 @@ impl PcmTrack {
             decoder,
             format,
             source_format: format,
+            decode_format: format,
             downmix: None,
+            resampler: None,
+            started: false,
+            ended: false,
             samples: vec![0.0; sample_capacity],
             stereo: Vec::new(),
+            converted: Vec::new(),
             bytes: vec![0; sample_capacity * 4],
         })
     }
@@ -95,6 +109,7 @@ impl PcmTrack {
         if track.format.channels() > 2 {
             let downmix = StereoDownmixer::new(track.format.layout())?;
             track.format = PcmStreamFormat::new(track.format.sample_rate(), 2)?;
+            track.decode_format = track.format;
             track.stereo = vec![0.0; BLOCK_FRAMES * 2];
             track.bytes = vec![0; BLOCK_FRAMES * 2 * 4];
             track.downmix = Some(downmix);
@@ -112,6 +127,21 @@ impl PcmTrack {
         self.source_format
     }
 
+    /// Choose the sink's sample rate before reading the first block. When
+    /// rates match, samples retain the exact decoded path.
+    pub fn set_output_rate(&mut self, rate: u32) -> Result<(), RateError> {
+        if self.started || self.resampler.is_some() {
+            return Err(RateError::Finished);
+        }
+        if rate != self.decode_format.sample_rate() {
+            let converter = RateConverter::new(self.decode_format, rate)?;
+            self.format = PcmStreamFormat::with_layout(rate, self.decode_format.layout())
+                .map_err(|_| RateError::InvalidFormat)?;
+            self.resampler = Some(converter);
+        }
+        Ok(())
+    }
+
     /// Read, optionally process, and encode the next block.
     ///
     /// Returns `None` only at end of file. The processing function is called
@@ -121,15 +151,60 @@ impl PcmTrack {
         &mut self,
         process: impl FnOnce(&mut [f32]) -> Result<(), E>,
     ) -> Result<Option<PcmBlock<'_>>, StreamError<E>> {
+        if self.ended {
+            return Ok(None);
+        }
+        self.started = true;
+        if let Some(converter) = &mut self.resampler {
+            loop {
+                let frames = self
+                    .decoder
+                    .read_frames(&mut self.samples)
+                    .map_err(StreamError::Decode)?;
+                let source_count = frames * usize::from(self.source_format.channels());
+                let count = frames * usize::from(self.decode_format.channels());
+                let samples = if let Some(downmix) = &self.downmix {
+                    let stereo = &mut self.stereo[..count];
+                    downmix
+                        .process(&self.samples[..source_count], stereo)
+                        .map_err(StreamError::Downmix)?;
+                    stereo
+                } else {
+                    &mut self.samples[..count]
+                };
+                let output = converter
+                    .push(samples, frames == 0)
+                    .map_err(StreamError::Resample)?;
+                if frames == 0 {
+                    self.ended = true;
+                }
+                if !output.is_empty() {
+                    self.converted.clear();
+                    self.converted.extend_from_slice(output);
+                    break;
+                }
+                if self.ended {
+                    return Ok(None);
+                }
+            }
+            return finish_block(
+                &mut self.converted,
+                &mut self.bytes,
+                self.format.channels(),
+                process,
+            )
+            .map(Some);
+        }
         let frames = self
             .decoder
             .read_frames(&mut self.samples)
             .map_err(StreamError::Decode)?;
         if frames == 0 {
+            self.ended = true;
             return Ok(None);
         }
         let source_count = frames * usize::from(self.source_format.channels());
-        let count = frames * usize::from(self.format.channels());
+        let count = frames * usize::from(self.decode_format.channels());
         let samples = if let Some(downmix) = &self.downmix {
             let stereo = &mut self.stereo[..count];
             downmix
@@ -139,20 +214,29 @@ impl PcmTrack {
         } else {
             &mut self.samples[..count]
         };
-        process(samples).map_err(StreamError::Process)?;
-        if samples.iter().any(|sample| !sample.is_finite()) {
-            return Err(StreamError::NonFiniteSample);
-        }
-        let bytes = &mut self.bytes[..count * 4];
-        for (sample, encoded) in samples.iter().zip(bytes.as_chunks_mut::<4>().0.iter_mut()) {
-            encoded.copy_from_slice(&sample.to_le_bytes());
-        }
-        Ok(Some(PcmBlock {
-            samples,
-            f32le: bytes,
-            frames,
-        }))
+        finish_block(samples, &mut self.bytes, self.format.channels(), process).map(Some)
     }
+}
+
+fn finish_block<'a, E>(
+    samples: &'a mut [f32],
+    bytes: &'a mut Vec<u8>,
+    channels: u16,
+    process: impl FnOnce(&mut [f32]) -> Result<(), E>,
+) -> Result<PcmBlock<'a>, StreamError<E>> {
+    process(samples).map_err(StreamError::Process)?;
+    if samples.iter().any(|sample| !sample.is_finite()) {
+        return Err(StreamError::NonFiniteSample);
+    }
+    bytes.resize(samples.len() * 4, 0);
+    for (sample, encoded) in samples.iter().zip(bytes.as_chunks_mut::<4>().0.iter_mut()) {
+        encoded.copy_from_slice(&sample.to_le_bytes());
+    }
+    Ok(PcmBlock {
+        samples,
+        f32le: bytes,
+        frames: samples.len() / usize::from(channels),
+    })
 }
 
 #[cfg(test)]

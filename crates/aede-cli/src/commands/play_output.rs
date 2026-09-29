@@ -27,6 +27,52 @@ mod native {
 
     const QUEUED_BLOCKS: usize = 64;
 
+    pub(super) fn select_rate(source: u32, ranges: &[(u32, u32)]) -> Option<(usize, u32)> {
+        ranges
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, (minimum, maximum))| minimum <= maximum)
+            .map(|(index, (minimum, maximum))| (index, source.clamp(minimum, maximum)))
+            .min_by_key(|(_, rate)| (source.abs_diff(*rate), u32::MAX - *rate))
+    }
+
+    fn matching_output(
+        input: PcmStreamFormat,
+    ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, PcmStreamFormat), String> {
+        let device = cpal::default_host()
+            .default_output_device()
+            .ok_or("no default audio output device")?;
+        let mut configs = device
+            .supported_output_configs()
+            .map_err(|error| format!("cannot query audio device: {error}"))?
+            .filter(|config| {
+                config.sample_format() == SampleFormat::F32 && config.channels() == input.channels()
+            })
+            .collect::<Vec<_>>();
+        let ranges = configs
+            .iter()
+            .map(|config| (config.min_sample_rate(), config.max_sample_rate()))
+            .collect::<Vec<_>>();
+        let (index, rate) = select_rate(input.sample_rate(), &ranges).ok_or_else(|| {
+            format!(
+                "device has no floating-point {}-channel output",
+                input.channels()
+            )
+        })?;
+        let format = PcmStreamFormat::with_layout(rate, input.layout())
+            .map_err(|error| error.to_string())?;
+        Ok((
+            device,
+            configs.swap_remove(index).with_sample_rate(rate),
+            format,
+        ))
+    }
+
+    pub(super) fn negotiated_format(input: PcmStreamFormat) -> Result<PcmStreamFormat, String> {
+        matching_output(input).map(|(_, _, format)| format)
+    }
+
     /// The callback takes complete sample blocks without allocating or locking.
     /// A bounded channel keeps decoding ahead of the device without unbounded
     /// memory growth. The producer never blocks inside Write, so pause and
@@ -44,26 +90,8 @@ mod native {
 
     impl NativeOutput {
         pub(super) fn open(format: PcmStreamFormat) -> Result<Self, String> {
-            let device = cpal::default_host()
-                .default_output_device()
-                .ok_or("no default audio output device")?;
-            let supported = device
-                .supported_output_configs()
-                .map_err(|error| format!("cannot query audio device: {error}"))?
-                .find(|config| {
-                    config.sample_format() == SampleFormat::F32
-                        && config.channels() == format.channels()
-                        && config.min_sample_rate() <= format.sample_rate()
-                        && config.max_sample_rate() >= format.sample_rate()
-                })
-                .ok_or_else(|| {
-                    format!(
-                        "device has no floating-point {} Hz/{} channel output",
-                        format.sample_rate(),
-                        format.channels()
-                    )
-                })?;
-            let config: StreamConfig = supported.with_sample_rate(format.sample_rate()).into();
+            let (device, supported, format) = matching_output(format)?;
+            let config: StreamConfig = supported.into();
             let (sender, receiver) = mpsc::sync_channel(QUEUED_BLOCKS);
             let submitted = Arc::new(AtomicU64::new(0));
             let consumed = Arc::new(AtomicU64::new(0));
@@ -261,18 +289,26 @@ impl LocalOutput {
         Ok(Self::Unopened { choice })
     }
 
-    pub(super) fn prepare(&mut self, format: PcmStreamFormat) -> Result<(), Box<dyn Error>> {
+    pub(super) fn prepare(
+        &mut self,
+        format: PcmStreamFormat,
+    ) -> Result<PcmStreamFormat, Box<dyn Error>> {
         match self {
             Self::Ffplay(output) => {
                 output.prepare(format)?;
-                return Ok(());
+                return Ok(format);
             }
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
                 all(target_os = "linux", target_env = "gnu")
             ))]
-            Self::Native { output, .. } if output.format() == format => return Ok(()),
+            Self::Native { output, .. }
+                if native::negotiated_format(format)
+                    .is_ok_and(|chosen| chosen == output.format()) =>
+            {
+                return Ok(output.format());
+            }
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
@@ -302,11 +338,12 @@ impl LocalOutput {
             ))]
             match native::NativeOutput::open(format) {
                 Ok(output) => {
+                    let selected = output.format();
                     *self = Self::Native {
                         output,
                         required: matches!(choice, BackendChoice::Native),
                     };
-                    return Ok(());
+                    return Ok(selected);
                 }
                 Err(error) if matches!(choice, BackendChoice::Native) => return Err(error.into()),
                 Err(error) => eprintln!("native audio unavailable ({error}); trying ffplay"),
@@ -323,7 +360,7 @@ impl LocalOutput {
         let mut output = OutputSession::new();
         output.prepare(format)?;
         *self = Self::Ffplay(output);
-        Ok(())
+        Ok(format)
     }
 
     pub(super) fn close_input(&mut self) {

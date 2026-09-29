@@ -62,6 +62,46 @@ fn a_processor_failure_is_returned_to_the_caller() {
         Err(StreamError::Process("DSP stage failed"))
     ));
 }
+
+#[test]
+fn a_remote_or_local_sink_receives_exact_resampled_pcm() {
+    let mut direct = PcmTrack::open(&fixture()).expect("fixture opens");
+    let mut source_frames = 0usize;
+    while let Some(block) = direct
+        .read_block(|_| Ok::<(), Infallible>(()))
+        .expect("source decodes")
+    {
+        source_frames += block.frames;
+    }
+
+    let mut converted = PcmTrack::open(&fixture()).expect("fixture opens");
+    converted.set_output_rate(48_000).expect("device rate");
+    assert_eq!(converted.source_format().sample_rate(), 44_100);
+    assert_eq!(converted.format().sample_rate(), 48_000);
+    let mut output_frames = 0usize;
+    while let Some(block) = converted
+        .read_block(|_| Ok::<(), Infallible>(()))
+        .expect("conversion succeeds")
+    {
+        output_frames += block.frames;
+        assert_eq!(block.samples.len(), block.frames * 2);
+        assert_eq!(block.f32le.len(), block.frames * 2 * 4);
+        assert!(block.samples.iter().all(|sample| sample.is_finite()));
+    }
+    assert_eq!(
+        output_frames as u64,
+        (source_frames as u64 * 48_000).div_ceil(44_100)
+    );
+}
+
+#[test]
+fn output_rate_cannot_change_after_decoding_begins() {
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    track
+        .read_block(|_| Ok::<(), Infallible>(()))
+        .expect("first block");
+    assert!(track.set_output_rate(48_000).is_err());
+}
 #[test]
 fn real_five_one_wav_downmixes_to_stereo_without_lfe() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
