@@ -1,4 +1,4 @@
-//! Progressive file decoding for a future local playback driver.
+//! Progressive file decoding for local and remote playback drivers.
 //!
 //! The decoder yields complete, finite, interleaved `f32` frames in the
 //! source sample rate and channel layout. It does not own an audio device.
@@ -79,25 +79,50 @@ enum Source {
 impl FileDecoder {
     /// Open a local file and read its format without decoding the whole track.
     pub fn open(path: &Path) -> Result<Self, Error> {
-        let (inner, sample_rate, channels) = match PcmStreamDecoder::open(path) {
-            Ok(native) => {
-                let channels = u16::try_from(native.channels).map_err(|_| Error::InvalidFormat)?;
-                let sample_rate = native.sample_rate;
-                (Source::Native(native), sample_rate, channels)
-            }
-            Err(native_error) => {
-                let tags = match crate::tags::read(path) {
-                    Ok(tags)
-                        if matches!(tags.properties.codec.as_str(), "opus" | "aac" | "alac") =>
-                    {
-                        tags
-                    }
-                    _ => return Err(Error::Decode(native_error)),
-                };
-                let sample_rate = tags.properties.sample_rate.ok_or(Error::InvalidFormat)?;
-                let channels = tags.properties.channels.ok_or(Error::InvalidFormat)?;
-                let external = FfmpegStream::open(path, sample_rate, channels)?;
-                (Source::Ffmpeg(external), sample_rate, channels)
+        let tags = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .filter(|extension| {
+                extension.eq_ignore_ascii_case("ogg") || extension.eq_ignore_ascii_case("oga")
+            })
+            .and_then(|_| crate::tags::read(path).ok());
+        let vorbis_ffmpeg = tags
+            .as_ref()
+            .filter(|tags| tags.properties.codec == "vorbis")
+            .and_then(|_| crate::ffmpeg::find());
+        let (inner, sample_rate, channels) = if let Some(ffmpeg) = vorbis_ffmpeg {
+            let tags = tags.as_ref().ok_or(Error::InvalidFormat)?;
+            let sample_rate = tags.properties.sample_rate.ok_or(Error::InvalidFormat)?;
+            let channels = tags.properties.channels.ok_or(Error::InvalidFormat)?;
+            // The native Vorbis path can emit padding after the final Ogg
+            // granule, notably when all audio fits on one page.
+            let external = FfmpegStream::open_with_program(path, sample_rate, channels, &ffmpeg)?;
+            (Source::Ffmpeg(external), sample_rate, channels)
+        } else {
+            match PcmStreamDecoder::open(path) {
+                Ok(native) => {
+                    let channels =
+                        u16::try_from(native.channels).map_err(|_| Error::InvalidFormat)?;
+                    let sample_rate = native.sample_rate;
+                    (Source::Native(native), sample_rate, channels)
+                }
+                Err(native_error) => {
+                    let tags = match tags.or_else(|| crate::tags::read(path).ok()) {
+                        Some(tags)
+                            if matches!(
+                                tags.properties.codec.as_str(),
+                                "opus" | "aac" | "alac"
+                            ) =>
+                        {
+                            tags
+                        }
+                        _ => return Err(Error::Decode(native_error)),
+                    };
+                    let sample_rate = tags.properties.sample_rate.ok_or(Error::InvalidFormat)?;
+                    let channels = tags.properties.channels.ok_or(Error::InvalidFormat)?;
+                    let external = FfmpegStream::open(path, sample_rate, channels)?;
+                    (Source::Ffmpeg(external), sample_rate, channels)
+                }
             }
         };
         if sample_rate == 0 || channels == 0 {
@@ -164,7 +189,8 @@ impl FileDecoder {
     }
 }
 
-/// FFmpeg only handles formats the existing native decoder cannot open.
+/// FFmpeg handles unsupported native codecs and Vorbis streams whose final
+/// granule needs more precise trimming than the current native path provides.
 /// Stream data and errors are kept separate, so a failed decode never looks
 /// like an ordinary end of file.
 struct FfmpegStream {
@@ -178,11 +204,20 @@ struct FfmpegStream {
 
 impl FfmpegStream {
     fn open(path: &Path, sample_rate: u32, channels: u16) -> Result<Self, Error> {
+        let ffmpeg = crate::ffmpeg::find()
+            .ok_or_else(|| Error::External(crate::ffmpeg::missing("playback")))?;
+        Self::open_with_program(path, sample_rate, channels, &ffmpeg)
+    }
+
+    fn open_with_program(
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+        ffmpeg: &str,
+    ) -> Result<Self, Error> {
         if sample_rate == 0 || channels == 0 {
             return Err(Error::InvalidFormat);
         }
-        let ffmpeg = crate::ffmpeg::find()
-            .ok_or_else(|| Error::External(crate::ffmpeg::missing("playback")))?;
         let mut child = Command::new(ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
             .arg(path)

@@ -826,6 +826,7 @@ fn direct_playback_records_history_without_a_scan() {
         .args(["play", file.to_str().expect("fixture path")])
         .env("AEDE_HOME", &sandbox.dir)
         .env("PATH", path)
+        .env("AEDE_AUDIO_BACKEND", "ffplay")
         .env("NO_COLOR", "1")
         .output()
         .expect("play with fake audio output");

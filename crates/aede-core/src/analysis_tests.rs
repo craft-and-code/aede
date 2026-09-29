@@ -114,6 +114,25 @@ fn reads_and_keeps_the_optional_whole_file_md5() {
     assert_eq!(loaded.analyses[0].file_md5.as_deref(), Some(digest));
 }
 
+#[test]
+fn measured_loudness_survives_import_and_catalog_storage() {
+    let report = parse_report(&example(", \"integrated_lufs\": -14.25"))
+        .expect("report with integrated loudness");
+    assert_eq!(report.files[0].integrated_lufs, Some(-14.25));
+
+    let dir = TestDirectory::new("persist_loudness");
+    let catalog = Catalog {
+        analyses: report.files,
+        ..Default::default()
+    };
+    let path = dir.path.join("catalog.json");
+    crate::store::save(&catalog, &path).expect("save analysis");
+    let loaded = crate::store::load(&path)
+        .expect("load catalog")
+        .expect("catalog exists");
+    assert_eq!(loaded.analyses[0].integrated_lufs, Some(-14.25));
+}
+
 struct TestDirectory {
     path: std::path::PathBuf,
 }

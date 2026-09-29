@@ -2,25 +2,23 @@
 //!
 //! **ffmpeg is an external program, not a dependency.** Nothing is linked,
 //! nothing is vendored, and a checkout without ffmpeg installed builds and
-//! passes its tests — the features that need it say so and stop. Two commands
-//! drive it today, `copy --compress` and `spectrum`, and the day a third
-//! arrives it must not carry a third copy of the install instructions: a fact
-//! hand-copied into three places will be right in two of them.
+//! passes its tests — the features that need it say so and stop. Copying,
+//! spectrum rendering and playback share these install instructions: a fact
+//! hand-copied into several places will eventually be wrong in one of them.
 //!
 //! The search is deliberately plain — `ffmpeg`, on the `PATH`. A GUI
 //! application has to hunt through `/opt/homebrew/bin` and the rest because it
 //! is launched by Finder and inherits no shell environment; a command run from
 //! a terminal inherits the user's `PATH` by construction, and looking anywhere
 //! else would only find a *different* ffmpeg from the one they get when they
-//! type the name themselves.
+//! type the name themselves. Playback uses it for formats that the native
+//! decoder cannot open and for exact Vorbis end trimming.
 
 use std::process::{Command, Stdio};
 
 /// Where ffmpeg is, or `None` when it is not installed.
 ///
-/// Looked for once per run by the caller, never once per file: a thousand
-/// tracks would otherwise mean a thousand failed lookups before the first
-/// picture is drawn.
+/// Callers processing many files can retain this answer for their run.
 pub fn find() -> Option<String> {
     let name = "ffmpeg";
     Command::new(name)

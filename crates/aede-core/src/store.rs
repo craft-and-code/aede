@@ -397,6 +397,7 @@ pub(crate) fn analysis_to_json(a: &FileAnalysis) -> Json {
     o.set("dr_db", opt_float(&a.dr_db));
     o.set("peak_dbfs", opt_float(&a.peak_dbfs));
     o.set("true_peak_dbtp", opt_float(&a.true_peak_dbtp));
+    o.set("integrated_lufs", opt_float(&a.integrated_lufs));
     o.set("clipped_samples", opt_num(&a.clipped_samples));
     o.set("clip_events", opt_num(&a.clip_events));
     o.set("clipped", opt_bool(&a.clipped));
@@ -429,6 +430,7 @@ pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
         dr_db: item.field_f64("dr_db"),
         peak_dbfs: item.field_f64("peak_dbfs"),
         true_peak_dbtp: item.field_f64("true_peak_dbtp"),
+        integrated_lufs: item.field_f64("integrated_lufs"),
         clipped_samples: item.field_u64("clipped_samples"),
         clip_events: item.field_u64("clip_events"),
         clipped: item.field_optional_bool("clipped"),

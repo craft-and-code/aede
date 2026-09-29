@@ -71,7 +71,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "play" => CommandPage {
             usage: "aede play <file|folder|m3u|collection|artist|album|track>",
-            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history; ffplay provides audio output.",
+            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history; CPAL provides native audio output when available, with ffplay fallback.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -393,8 +393,11 @@ pub fn print_index() {
                        after three seconds), and q stops and returns to the
                        shell. The 24 thin spectrum bars animate only in a
                        terminal. The label shows album — numbered filename;
-                       every played file enters history. Requires
-                       ffplay; Opus and M4A also need ffmpeg
+                       every played file enters history. Uses native audio
+                       when available, otherwise ffplay. Set
+                       AEDE_AUDIO_BACKEND=ffplay for the fallback, or
+                       AEDE_AUDIO_BACKEND=native to require CPAL. Opus and
+                       M4A also need ffmpeg
   artists              List of artists (--role composer, producer…,
                        --country france, --sort tracks|name)
   countries            Where the artists on the shelf are from. Not a tag:

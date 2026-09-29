@@ -25,3 +25,6 @@ aede-core = { path = "../aede-core", default-features = false }
 aede-dsp = { path = "../aede-dsp" }
 aede-server = { path = "../aede-server" }
 flaccompagnon-core = { git = "https://github.com/craft-and-code/FlacCompagnon", tag = "v0.9.5" }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", target_env = "gnu")))'.dependencies]
+cpal = "0.18.1"

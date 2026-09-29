@@ -208,7 +208,6 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
         &mut frames_written,
         None,
         None,
-        None,
         &mut PlaybackClock::new(),
     )
     .expect("stream succeeds");

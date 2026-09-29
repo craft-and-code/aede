@@ -1,5 +1,5 @@
 
 Identify
 
-  19 files have no fingerprint yet: aede fingerprint computes them
+  20 files have no fingerprint yet: aede fingerprint computes them
   nothing to ask about

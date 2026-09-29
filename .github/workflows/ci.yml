@@ -36,6 +36,10 @@ jobs:
       - name: Cache the build
         uses: Swatinem/rust-cache@v2
 
+      - name: Install ALSA development files
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       # `check.sh` runs with `--offline`, which is deliberate: the dependencies
       # are fetched once here, and a step that then needs the network means one
       # was added without being discussed.

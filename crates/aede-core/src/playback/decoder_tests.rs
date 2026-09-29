@@ -46,6 +46,27 @@ fn small_reads_preserve_the_exact_decoded_stream() {
 }
 
 #[test]
+fn encoder_delay_and_padding_do_not_reach_playback_pcm() {
+    for (name, expected_frames) in [
+        ("track.flac", 44_100),
+        ("track.mp3", 44_100),
+        ("gapless-stereo.mp3", 18_432),
+        ("vbr.mp3", 44_100),
+        ("track.ogg", 43_972),
+    ] {
+        if name == "track.ogg" && crate::ffmpeg::find().is_none() {
+            continue;
+        }
+        let (_, channels, samples) = decode_all(name, 127);
+        assert_eq!(
+            samples.len() / usize::from(channels),
+            expected_frames,
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn invalid_output_buffer_does_not_consume_audio() {
     let mut decoder = FileDecoder::open(&fixture("audit-stereo.flac")).expect("fixture opens");
     assert_eq!(decoder.channels(), 2);
@@ -102,4 +123,15 @@ fn ffmpeg_fallback_preserves_samples_across_buffer_sizes() {
         return;
     }
     assert_eq!(decode_all("track.opus", 1), decode_all("track.opus", 4096));
+}
+
+#[test]
+fn opus_pre_skip_and_end_trim_yield_only_playable_frames() {
+    if crate::ffmpeg::find().is_none() {
+        eprintln!("skipped: ffmpeg is not installed");
+        return;
+    }
+    let (rate, channels, samples) = decode_all("track.opus", 127);
+    assert_eq!(rate, 48_000);
+    assert_eq!(samples.len() / usize::from(channels), 48_000);
 }

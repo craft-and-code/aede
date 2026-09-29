@@ -105,6 +105,8 @@ pub struct FileAnalysis {
     pub peak_dbfs: Option<f64>,
     /// True peak, in dBTP — what a converter will actually have to produce.
     pub true_peak_dbtp: Option<f64>,
+    /// FlacCompagnon's measured integrated track loudness, in LUFS.
+    pub integrated_lufs: Option<f64>,
     /// Samples sitting at full scale.
     pub clipped_samples: Option<u64>,
     /// Runs of consecutive clipped samples.
@@ -611,6 +613,7 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
         dr_db: item.field_f64("dr_db"),
         peak_dbfs: clipping.and_then(|c| c.field_f64("peak_dbfs")),
         true_peak_dbtp: clipping.and_then(|c| c.field_f64("true_peak_dbtp")),
+        integrated_lufs: item.field_f64("integrated_lufs"),
         clipped_samples: clipping.and_then(|c| c.field_u64("clipped_samples")),
         clip_events: clipping.and_then(|c| c.field_u64("clip_events")),
         clipped: clipping.and_then(|c| c.field_optional_bool("clipped")),
