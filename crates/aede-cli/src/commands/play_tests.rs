@@ -253,13 +253,13 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
     let mut dsp = Dsp::new(format);
     let mut output = Vec::new();
     let mut frames_written = 0;
-    let mut overfull_samples = 0;
+    let mut clamped_samples = 0;
     stream_pcm_counted(
         &mut track,
         &mut dsp,
         &mut output,
         &mut frames_written,
-        &mut overfull_samples,
+        &mut clamped_samples,
         None,
         None,
         &mut PlaybackClock::new(),

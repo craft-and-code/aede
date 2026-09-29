@@ -45,6 +45,7 @@ impl PcmFormat {
 pub enum DspError {
     InvalidFormat,
     InvalidGain,
+    InvalidPeak,
     IncompleteFrame,
     NonFiniteSample,
     SampleOverflow,
@@ -55,6 +56,7 @@ impl fmt::Display for DspError {
         let message = match self {
             Self::InvalidFormat => "PCM sample rate and channel count must be positive",
             Self::InvalidGain => "gain in dB must produce a finite, positive multiplier",
+            Self::InvalidPeak => "source peak must be finite and non-negative",
             Self::IncompleteFrame => "PCM buffer does not contain complete frames",
             Self::NonFiniteSample => "PCM buffer contains a non-finite sample",
             Self::SampleOverflow => "gain would overflow an f32 sample",
@@ -65,7 +67,58 @@ impl fmt::Display for DspError {
 
 impl std::error::Error for DspError {}
 
-/// Measurements of the processed block, before conversion to a device format.
+/// Cap a requested gain so the declared source sample peak cannot exceed full scale.
+///
+/// When no peak is known, the source is conservatively assumed to reach 1.0.
+/// This cannot catch inaccurate metadata or inter-sample peaks; call
+/// [`protect_output`] after all DSP stages before sending PCM to a sink.
+pub fn gain_with_headroom_db(
+    requested_gain_db: f32,
+    source_peak: Option<f32>,
+) -> Result<f32, DspError> {
+    if !requested_gain_db.is_finite() {
+        return Err(DspError::InvalidGain);
+    }
+    let peak = source_peak.unwrap_or(1.0);
+    if !peak.is_finite() || peak < 0.0 {
+        return Err(DspError::InvalidPeak);
+    }
+    let requested_scale = 10.0_f64.powf(f64::from(requested_gain_db) / 20.0);
+    if !requested_scale.is_finite()
+        || requested_scale <= 0.0
+        || requested_scale > f64::from(f32::MAX)
+    {
+        return Err(DspError::InvalidGain);
+    }
+    if peak == 0.0 || f64::from(peak) * requested_scale <= 1.0 {
+        return Ok(requested_gain_db);
+    }
+    Ok((20.0 * (1.0 / f64::from(peak)).log10()) as f32)
+}
+
+/// Apply the final sample-peak safety ceiling before any output format.
+///
+/// Returns the number of hard-clamped samples, so the caller can report any
+/// audible intervention. In-range samples are untouched. An invalid buffer is
+/// rejected without partial mutation. This does not guarantee true-peak safety.
+pub fn protect_output(samples: &mut [f32]) -> Result<usize, DspError> {
+    if samples.iter().any(|sample| !sample.is_finite()) {
+        return Err(DspError::NonFiniteSample);
+    }
+    let mut clamped = 0;
+    for sample in samples {
+        if *sample > 1.0 {
+            *sample = 1.0;
+            clamped += 1;
+        } else if *sample < -1.0 {
+            *sample = -1.0;
+            clamped += 1;
+        }
+    }
+    Ok(clamped)
+}
+
+/// Measurements of the processed block, before the final output guard.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ProcessStats {
     /// Highest absolute sample, including values above full scale.
@@ -161,6 +214,17 @@ impl Dsp {
                 stats.overfull_samples += usize::from(magnitude > 1.0);
             }
         }
+        Ok(stats)
+    }
+
+    /// Apply gain and the final sample-peak guard for an output stream.
+    ///
+    /// Statistics describe the signal before the guard. The returned buffer
+    /// is ready for a full-scale floating PCM sink; any hard-clamped samples
+    /// are counted by `overfull_samples` for a visible warning.
+    pub fn process_for_output(&mut self, samples: &mut [f32]) -> Result<ProcessStats, DspError> {
+        let stats = self.process(samples)?;
+        protect_output(samples)?;
         Ok(stats)
     }
 }

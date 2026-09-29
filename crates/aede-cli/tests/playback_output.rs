@@ -181,22 +181,52 @@ fn opus_r128_gain_is_applied_after_its_header_output_gain() {
     if Command::new("ffmpeg").arg("-version").output().is_err() {
         return;
     }
-    let (off, _, _) = played_pcm("normalization.opus", Some("off"));
+    let (off, _, _) = played_pcm("normalization-safe.opus", Some("off"));
     let (zero_header, _, _) = played_pcm("normalization-zero.opus", Some("off"));
-    let (track, _, _) = played_pcm("normalization.opus", Some("track"));
-    let (album, _, _) = played_pcm("normalization.opus", Some("album"));
+    let (track, _, _) = played_pcm("normalization-safe.opus", Some("track"));
+    let (album, _, _) = played_pcm("normalization-safe.opus", Some("album"));
     // The fixture has +1 dB Opus header gain, already applied by ffmpeg.
-    // R128 values -256 and -512 are relative to that header gain.
+    // R128 values -2048 and -2560 are relative to that header gain.
     assert_scaled(&zero_header, &off, 1.0);
-    assert_scaled(&off, &track, 4.0);
-    assert_scaled(&off, &album, 3.0);
+    assert_scaled(&off, &track, -3.0);
+    assert_scaled(&off, &album, -5.0);
 }
 
 #[test]
-fn normalization_warns_when_processed_samples_exceed_full_scale() {
-    let (samples, _, stderr) = played_pcm("normalization-hot.flac", Some("track"));
-    assert!(samples.iter().any(|sample| sample.abs() > 1.0));
-    assert!(stderr.contains("exceeded full scale"), "{stderr}");
+fn positive_opus_r128_gain_without_a_peak_is_capped() {
+    if Command::new("ffmpeg").arg("-version").output().is_err() {
+        return;
+    }
+    let (off, _, _) = played_pcm("normalization.opus", Some("off"));
+    let (track, _, stderr) = played_pcm("normalization.opus", Some("track"));
+    assert_scaled(&off, &track, 0.0);
+    assert!(!stderr.contains("hard-clamped"), "{stderr}");
+}
+
+#[test]
+fn missing_peak_keeps_normalization_from_boosting_above_full_scale() {
+    let (original, _, _) = played_pcm("normalization-hot.flac", Some("off"));
+    let (protected, _, stderr) = played_pcm("normalization-hot.flac", Some("track"));
+    assert_scaled(&original, &protected, 0.0);
+    assert!(protected.iter().all(|sample| sample.abs() <= 1.0));
+    assert!(!stderr.contains("hard-clamped"), "{stderr}");
+}
+
+#[test]
+fn replaygain_peak_allows_only_a_safe_positive_gain() {
+    let (original, _, _) = played_pcm("normalization-peak.flac", Some("off"));
+    let (protected, _, stderr) = played_pcm("normalization-peak.flac", Some("track"));
+    assert_scaled(&original, &protected, 20.0 * (1.0_f32 / 0.05).log10());
+    assert!(protected.iter().all(|sample| sample.abs() <= 1.0));
+    assert!(!stderr.contains("hard-clamped"), "{stderr}");
+}
+
+#[test]
+fn inaccurate_peak_is_hard_clamped_and_reported_before_output() {
+    let (protected, _, stderr) = played_pcm("normalization-incorrect-peak.flac", Some("track"));
+    assert!(protected.iter().all(|sample| sample.abs() <= 1.0));
+    assert!(protected.iter().any(|sample| sample.abs() == 1.0));
+    assert!(stderr.contains("hard-clamped"), "{stderr}");
 }
 
 #[test]

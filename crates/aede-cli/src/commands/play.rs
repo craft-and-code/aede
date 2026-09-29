@@ -14,7 +14,7 @@ use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
 use aede_core::{clock, model::EntityKind, query, tags};
-use aede_dsp::{Dsp, PcmFormat};
+use aede_dsp::{Dsp, PcmFormat, gain_with_headroom_db};
 
 use super::{Res, data_dir};
 use crate::args::Args;
@@ -532,36 +532,48 @@ fn play_file(
     output.prepare(track_format)?;
     let mut dsp = Dsp::new(format);
     if let Some(selection) = selected_gain {
-        dsp.set_gain_db(selection.gain_db, 0)?;
+        let applied_gain_db = gain_with_headroom_db(selection.gain_db, selection.source_peak)?;
+        dsp.set_gain_db(applied_gain_db, 0)?;
         let source = match selection.source {
             Source::ReplayGainTrack => "ReplayGain track",
             Source::ReplayGainAlbum => "ReplayGain album",
             Source::OpusR128Track => "Opus R128 track",
             Source::OpusR128Album => "Opus R128 album",
         };
-        println!("Normalization: {:+.2} dB ({source})", selection.gain_db);
+        println!("Normalization: {applied_gain_db:+.2} dB ({source})");
+        if applied_gain_db < selection.gain_db {
+            let peak = if selection.source_peak.is_some() {
+                "ReplayGain peak"
+            } else {
+                "assumed full-scale peak"
+            };
+            println!(
+                "Headroom: requested {:+.2} dB reduced to {applied_gain_db:+.2} dB ({peak})",
+                selection.gain_db
+            );
+        }
     } else if normalization_mode != NormalizationMode::Off {
-        println!("Normalization: no ReplayGain or Opus R128 tag; original level");
+        println!("Normalization: no ReplayGain or Opus R128 tag; no gain applied");
     }
 
     println!("Playing: {label}");
     let mut clock = PlaybackClock::new();
     let mut visualizer = TerminalVisualizer::new(format);
     let mut frames = 0;
-    let mut overfull_samples = 0;
+    let mut clamped_samples = 0;
     let streamed = stream_pcm_counted(
         &mut track,
         &mut dsp,
         output,
         &mut frames,
-        &mut overfull_samples,
+        &mut clamped_samples,
         visualizer.as_mut(),
         controls,
         &mut clock,
     );
-    if overfull_samples > 0 {
+    if clamped_samples > 0 {
         eprintln!(
-            "Warning: {overfull_samples} PCM samples exceeded full scale; the output device may clip"
+            "Warning: {clamped_samples} PCM samples were hard-clamped at full scale before output; peak metadata may be inaccurate"
         );
     }
     *played_ms = frames.saturating_mul(1000) / u64::from(format.sample_rate());
@@ -616,7 +628,7 @@ fn stream_pcm_counted(
     dsp: &mut Dsp,
     output: &mut impl PlaybackOutput,
     frames_written: &mut u64,
-    overfull_samples: &mut u64,
+    clamped_samples: &mut u64,
     mut visualizer: Option<&mut TerminalVisualizer>,
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
@@ -625,10 +637,10 @@ fn stream_pcm_counted(
         if let Some(action) = control_action(controls, output, clock)? {
             return Ok(action);
         }
-        let mut block_overfull = 0;
+        let mut block_clamped = 0;
         let Some(block) = track.read_block(|samples| {
-            dsp.process(samples).map(|stats| {
-                block_overfull = stats.overfull_samples as u64;
+            dsp.process_for_output(samples).map(|stats| {
+                block_clamped = stats.overfull_samples as u64;
             })
         })?
         else {
@@ -649,7 +661,7 @@ fn stream_pcm_counted(
             }
         }
         *frames_written = frames_written.saturating_add(block.frames as u64);
-        *overfull_samples = overfull_samples.saturating_add(block_overfull);
+        *clamped_samples = clamped_samples.saturating_add(block_clamped);
         if let Some(meter) = visualizer.as_deref_mut()
             && let Err(error) = meter.observe(block.samples)
         {

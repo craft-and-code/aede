@@ -1,4 +1,51 @@
-use super::{Dsp, DspError, PcmFormat, ProcessStats};
+use super::{Dsp, DspError, PcmFormat, ProcessStats, gain_with_headroom_db, protect_output};
+
+#[test]
+fn headroom_caps_positive_gain_using_the_declared_peak() {
+    let capped = gain_with_headroom_db(6.0, Some(0.75)).expect("valid peak");
+    assert!((capped - 20.0 * (1.0_f32 / 0.75).log10()).abs() < 0.000_01);
+    assert_eq!(gain_with_headroom_db(-6.0, Some(0.75)), Ok(-6.0));
+}
+
+#[test]
+fn missing_peak_assumes_full_scale_and_an_overfull_peak_requires_attenuation() {
+    assert_eq!(gain_with_headroom_db(12.0, None), Ok(0.0));
+    assert_eq!(gain_with_headroom_db(-6.0, None), Ok(-6.0));
+    let capped = gain_with_headroom_db(0.0, Some(2.0)).expect("valid peak");
+    assert!((capped + 6.0206).abs() < 0.0001);
+    assert_eq!(gain_with_headroom_db(12.0, Some(0.0)), Ok(12.0));
+    assert_eq!(
+        gain_with_headroom_db(0.0, Some(f32::NAN)),
+        Err(DspError::InvalidPeak)
+    );
+    assert_eq!(
+        gain_with_headroom_db(0.0, Some(-0.1)),
+        Err(DspError::InvalidPeak)
+    );
+}
+
+#[test]
+fn output_guard_only_clamps_unexpected_overfull_samples() {
+    let mut samples = [-1.5, -1.0, 0.25, 1.0, 1.25];
+    assert_eq!(protect_output(&mut samples), Ok(2));
+    assert_eq!(samples, [-1.0, -1.0, 0.25, 1.0, 1.0]);
+    let mut bad = [0.25, f32::NAN, 1.5];
+    assert_eq!(protect_output(&mut bad), Err(DspError::NonFiniteSample));
+    assert_eq!(bad[0], 0.25);
+    assert!(bad[1].is_nan());
+    assert_eq!(bad[2], 1.5);
+}
+
+#[test]
+fn playback_processing_returns_peak_before_its_final_safety_ceiling() {
+    let mut dsp = Dsp::new(PcmFormat::new(48_000, 1).expect("format"));
+    dsp.set_gain_db(20.0, 0).expect("gain");
+    let mut samples = [0.05, 0.2];
+    let stats = dsp.process_for_output(&mut samples).expect("valid samples");
+    assert_eq!(samples, [0.5, 1.0]);
+    assert_eq!(stats.sample_peak, 2.0);
+    assert_eq!(stats.overfull_samples, 1);
+}
 
 #[test]
 fn pcm_format_requires_a_rate_and_channels() {
