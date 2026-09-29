@@ -1,4 +1,14 @@
-use super::{OutputChange, OutputFormat, OutputSession};
+use super::{OutputChange, OutputError, OutputFormat, OutputSession};
+
+#[test]
+fn raw_output_refuses_an_unlabelled_multichannel_layout() {
+    let mut output = OutputSession::new();
+    let unknown = OutputFormat::new(48_000, 6).expect("format");
+    assert!(matches!(
+        output.prepare(unknown),
+        Err(OutputError::InvalidLayout)
+    ));
+}
 
 #[cfg(unix)]
 #[test]

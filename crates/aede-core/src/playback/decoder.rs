@@ -9,8 +9,13 @@ use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::thread::JoinHandle;
 
+use aede_dsp::ChannelLayout;
 use flaccompagnon_core::AnalysisError;
 use flaccompagnon_core::decode::PcmStreamDecoder;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
 
 /// A file or buffer that cannot satisfy the playback PCM contract.
 #[derive(Debug)]
@@ -25,6 +30,8 @@ pub enum Error {
     IncompleteFrame,
     /// A decoded packet contains a non-finite sample.
     NonFiniteSample,
+    /// A multichannel stream's speaker positions could not be established.
+    ChannelLayout(String),
     /// An external decoder could not be started or did not finish cleanly.
     External(String),
 }
@@ -37,6 +44,7 @@ impl fmt::Display for Error {
             Self::InvalidBuffer => f.write_str("output buffer must hold complete PCM frames"),
             Self::IncompleteFrame => f.write_str("decoded packet has an incomplete PCM frame"),
             Self::NonFiniteSample => f.write_str("decoded packet contains a non-finite sample"),
+            Self::ChannelLayout(error) => write!(f, "cannot identify channel positions: {error}"),
             Self::External(error) => write!(f, "external audio decoder failed: {error}"),
         }
     }
@@ -66,6 +74,7 @@ pub struct FileDecoder {
     inner: Source,
     sample_rate: u32,
     channels: u16,
+    layout: ChannelLayout,
     pending: Vec<f32>,
     pending_offset: usize,
     finished: bool,
@@ -128,10 +137,20 @@ impl FileDecoder {
         if sample_rate == 0 || channels == 0 {
             return Err(Error::InvalidFormat);
         }
+        let layout = match channels {
+            1 => ChannelLayout::MONO,
+            2 => ChannelLayout::STEREO,
+            _ if matches!(inner, Source::Native(_)) => {
+                ChannelLayout::from_mask(probe_channel_mask(path, sample_rate, channels)?)
+                    .map_err(|_| Error::InvalidFormat)?
+            }
+            _ => ChannelLayout::Unknown(channels),
+        };
         Ok(Self {
             inner,
             sample_rate,
             channels,
+            layout,
             pending: Vec::new(),
             pending_offset: 0,
             finished: false,
@@ -146,6 +165,11 @@ impl FileDecoder {
     /// Number of interleaved channels in each frame.
     pub fn channels(&self) -> u16 {
         self.channels
+    }
+
+    /// Speaker positions, when the decoder exposes them.
+    pub fn channel_layout(&self) -> ChannelLayout {
+        self.layout
     }
 
     /// Fill a buffer with complete frames and return the number of frames.
@@ -187,6 +211,41 @@ impl FileDecoder {
         self.pending_offset += count;
         Ok(count / channels)
     }
+}
+
+fn probe_channel_mask(path: &Path, sample_rate: u32, channels: u16) -> Result<u32, Error> {
+    let file =
+        std::fs::File::open(path).map_err(|error| Error::ChannelLayout(error.to_string()))?;
+    let source = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+        hint.with_extension(extension);
+    }
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            source,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|error| Error::ChannelLayout(error.to_string()))?;
+    let track = probed
+        .format
+        .default_track()
+        .ok_or_else(|| Error::ChannelLayout("no default audio track".into()))?;
+    let mask = track
+        .codec_params
+        .channels
+        .ok_or_else(|| Error::ChannelLayout("no channel mask in the stream header".into()))?
+        .bits();
+    if mask.count_ones() != u32::from(channels)
+        || track.codec_params.sample_rate != Some(sample_rate)
+    {
+        return Err(Error::ChannelLayout(
+            "channel mask or sample rate disagrees with the decoder".into(),
+        ));
+    }
+    Ok(mask)
 }
 
 /// FFmpeg handles unsupported native codecs and Vorbis streams whose final

@@ -39,6 +39,16 @@ fn supported_local_formats_yield_finite_complete_pcm_frames() {
 }
 
 #[test]
+fn multichannel_wav_preserves_its_declared_speaker_mask() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/channel_fixtures/surround-5_1.wav");
+    let decoder = FileDecoder::open(&path).expect("fixture opens");
+    assert_eq!(decoder.channels(), 6);
+    assert_eq!(decoder.channel_layout().mask(), Some(0x3f));
+    assert_eq!(decoder.channel_layout().name(), "5.1 (FL FR FC LFE BL BR)");
+}
+
+#[test]
 fn small_reads_preserve_the_exact_decoded_stream() {
     let small = decode_all("hires.flac", 1);
     let large = decode_all("hires.flac", 4096);

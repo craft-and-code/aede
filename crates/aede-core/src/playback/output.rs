@@ -27,6 +27,8 @@ pub enum OutputChange {
 /// Failure to describe, start, or use the local output.
 #[derive(Debug)]
 pub enum OutputError {
+    /// A raw PCM stream must name its speaker positions explicitly.
+    InvalidLayout,
     /// The output process could not start.
     Start(io::Error),
     /// The started process did not provide a writable PCM input.
@@ -40,6 +42,7 @@ pub enum OutputError {
 impl fmt::Display for OutputError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidLayout => f.write_str("audio output needs a known channel layout"),
             Self::Start(error) => write!(
                 f,
                 "cannot start ffplay: {error}; install ffplay for local audio output"
@@ -102,6 +105,10 @@ impl OutputSession {
 
     /// Reuse matching output or drain and reopen it for a new format.
     pub fn prepare(&mut self, format: OutputFormat) -> Result<OutputChange, OutputError> {
+        let layout = format
+            .layout()
+            .ffmpeg_name()
+            .ok_or(OutputError::InvalidLayout)?;
         if self.format == Some(format) && self.input.is_some() && !self.poll_finished()? {
             return Ok(OutputChange::Reused);
         }
@@ -121,7 +128,7 @@ impl OutputSession {
                 OsString::from("-sample_rate"),
                 OsString::from(format.sample_rate().to_string()),
                 OsString::from("-ch_layout"),
-                OsString::from(format!("{}c", format.channels())),
+                OsString::from(layout),
                 OsString::from("-i"),
                 OsString::from("pipe:0"),
             ])

@@ -27,6 +27,7 @@ dependencies = [
  "flaccompagnon-core",
  "lofty",
  "md-5",
+ "symphonia",
  "ureq",
 ]
 

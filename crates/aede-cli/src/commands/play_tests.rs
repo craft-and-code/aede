@@ -428,6 +428,38 @@ fn tone_processing_reaches_the_serialized_playback_stream() {
 }
 
 #[test]
+fn surround_source_reaches_cli_output_as_stereo_frames() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-core/tests/channel_fixtures/surround-5_1.wav");
+    let mut track = PcmTrack::open_stereo(&path).expect("known layout");
+    let mut dsp = Dsp::new(track.format());
+    let mut output = Vec::new();
+    let mut frames_written = 0;
+    let mut clamped_samples = 0;
+    stream_pcm_counted(
+        &mut track,
+        &mut dsp,
+        &mut output,
+        &mut frames_written,
+        &mut clamped_samples,
+        None,
+        None,
+        &mut PlaybackClock::new(),
+    )
+    .expect("stream succeeds");
+    assert_eq!(frames_written, 120);
+    assert_eq!(output.len(), 120 * 2 * 4);
+    assert_eq!(clamped_samples, 0);
+    let samples = output
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
+        .collect::<Vec<_>>();
+    assert_eq!(&samples[6..8], &[0.0, 0.0]); // LFE omitted
+}
+
+#[test]
 fn transport_moves_within_the_selection_and_previous_restarts_after_three_seconds() {
     assert_eq!(next_index(0, 3, 0, PlaybackEnd::Next), Some(1));
     assert_eq!(next_index(1, 3, 1_000, PlaybackEnd::Previous), Some(0));

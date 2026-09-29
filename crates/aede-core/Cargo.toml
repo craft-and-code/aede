@@ -24,5 +24,6 @@ ureq = { workspace = true, optional = true }
 flaccompagnon-core = { git = "https://github.com/craft-and-code/FlacCompagnon", tag = "v0.9.5" }
 md-5 = "0.10"
 aede-dsp = { path = "../aede-dsp" }
+symphonia = { version = "0.5.5", features = ["all"] }
 
 [dev-dependencies]

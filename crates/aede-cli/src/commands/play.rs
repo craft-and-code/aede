@@ -559,8 +559,14 @@ fn play_file(
     final_track: bool,
     settings: PlaybackSettings,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
-    let mut track = PcmTrack::open(path)?;
+    let mut track = PcmTrack::open_stereo(path)?;
     let format = track.format();
+    if track.source_format().channels() > 2 {
+        println!(
+            "Channels: {} → stereo (LFE omitted, peak-safe downmix)",
+            track.source_format().layout().name()
+        );
+    }
     output.prepare(format)?;
     let mut dsp = Dsp::new(format);
     dsp.set_tone(settings.tone)?;

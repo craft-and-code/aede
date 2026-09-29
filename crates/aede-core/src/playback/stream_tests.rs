@@ -62,3 +62,24 @@ fn a_processor_failure_is_returned_to_the_caller() {
         Err(StreamError::Process("DSP stage failed"))
     ));
 }
+#[test]
+fn real_five_one_wav_downmixes_to_stereo_without_lfe() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/channel_fixtures/surround-5_1.wav");
+    let mut track = super::PcmTrack::open_stereo(&path).expect("known layout");
+    assert_eq!(track.source_format().channels(), 6);
+    assert_eq!(track.source_format().layout().mask(), Some(0x3f));
+    assert_eq!(track.format().channels(), 2);
+    let block = track
+        .read_block(|_| Ok::<_, ()>(()))
+        .expect("read")
+        .expect("samples");
+    assert_eq!(block.frames, 120);
+    assert!(block.samples[0] > 0.2 && block.samples[1] == 0.0); // FL
+    assert!(block.samples[2] == 0.0 && block.samples[3] > 0.2); // FR
+    assert!((block.samples[4] - block.samples[5]).abs() < 0.000_001); // center
+    assert_eq!(&block.samples[6..8], &[0.0, 0.0]); // LFE
+    assert!(block.samples[8] > 0.1 && block.samples[9] == 0.0); // rear left
+    assert!(block.samples[10] == 0.0 && block.samples[11] > 0.1); // rear right
+    assert_eq!(block.f32le.len(), block.frames * 2 * 4);
+}

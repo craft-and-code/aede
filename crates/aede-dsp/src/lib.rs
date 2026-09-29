@@ -10,6 +10,8 @@
 
 use std::fmt;
 
+mod channels;
+pub use channels::{ChannelLayout, StereoDownmixer};
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
 pub mod loudness;
@@ -21,6 +23,7 @@ pub use tone::ToneControls;
 pub struct PcmFormat {
     sample_rate: u32,
     channels: u16,
+    layout: ChannelLayout,
 }
 
 impl PcmFormat {
@@ -32,7 +35,19 @@ impl PcmFormat {
         Ok(Self {
             sample_rate,
             channels,
+            layout: match channels {
+                1 => ChannelLayout::MONO,
+                2 => ChannelLayout::STEREO,
+                _ => ChannelLayout::Unknown(channels),
+            },
         })
+    }
+
+    /// Construct PCM with known speaker positions in ascending mask order.
+    pub fn with_layout(sample_rate: u32, layout: ChannelLayout) -> Result<Self, DspError> {
+        let mut format = Self::new(sample_rate, layout.channels())?;
+        format.layout = layout;
+        Ok(format)
     }
 
     pub fn sample_rate(self) -> u32 {
@@ -41,6 +56,10 @@ impl PcmFormat {
 
     pub fn channels(self) -> u16 {
         self.channels
+    }
+
+    pub fn layout(self) -> ChannelLayout {
+        self.layout
     }
 }
 
@@ -51,6 +70,7 @@ pub enum DspError {
     InvalidGain,
     InvalidPeak,
     InvalidTone,
+    InvalidLayout,
     IncompleteFrame,
     NonFiniteSample,
     SampleOverflow,
@@ -63,6 +83,9 @@ impl fmt::Display for DspError {
             Self::InvalidGain => "gain in dB must produce a finite, positive multiplier",
             Self::InvalidPeak => "source peak must be finite and non-negative",
             Self::InvalidTone => "bass and treble must each be finite and between -12 and +12 dB",
+            Self::InvalidLayout => {
+                "channel positions are unknown or unsupported for stereo downmix"
+            }
             Self::IncompleteFrame => "PCM buffer does not contain complete frames",
             Self::NonFiniteSample => "PCM buffer contains a non-finite sample",
             Self::SampleOverflow => "processing would overflow an f32 sample",

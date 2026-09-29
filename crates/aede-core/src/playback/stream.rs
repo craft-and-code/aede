@@ -10,6 +10,7 @@ use std::path::Path;
 
 use super::decoder::{self, FileDecoder};
 use super::format::PcmStreamFormat;
+use aede_dsp::{DspError, StereoDownmixer};
 
 const BLOCK_FRAMES: usize = 4096;
 
@@ -28,6 +29,8 @@ pub struct PcmBlock<'a> {
 pub enum StreamError<E> {
     /// The source file could not supply valid PCM.
     Decode(decoder::Error),
+    /// The source channel layout or a PCM frame cannot be downmixed.
+    Downmix(DspError),
     /// The caller's DSP stage rejected the block.
     Process(E),
     /// The caller's stage produced a non-finite output sample.
@@ -38,6 +41,7 @@ impl<E: fmt::Display> fmt::Display for StreamError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Decode(error) => write!(f, "{error}"),
+            Self::Downmix(error) => write!(f, "stereo downmix failed: {error}"),
             Self::Process(error) => write!(f, "audio processing failed: {error}"),
             Self::NonFiniteSample => f.write_str("audio processing produced a non-finite sample"),
         }
@@ -48,6 +52,7 @@ impl<E: Error + 'static> Error for StreamError<E> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Decode(error) => Some(error),
+            Self::Downmix(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::NonFiniteSample => None,
         }
@@ -58,7 +63,10 @@ impl<E: Error + 'static> Error for StreamError<E> {
 pub struct PcmTrack {
     decoder: FileDecoder,
     format: PcmStreamFormat,
+    source_format: PcmStreamFormat,
+    downmix: Option<StereoDownmixer>,
     samples: Vec<f32>,
+    stereo: Vec<f32>,
     bytes: Vec<u8>,
 }
 
@@ -66,20 +74,42 @@ impl PcmTrack {
     /// Open a local audio file without decoding it in full.
     pub fn open(path: &Path) -> Result<Self, decoder::Error> {
         let decoder = FileDecoder::open(path)?;
-        let format = PcmStreamFormat::new(decoder.sample_rate(), decoder.channels())
+        let format = PcmStreamFormat::with_layout(decoder.sample_rate(), decoder.channel_layout())
             .map_err(|_| decoder::Error::InvalidFormat)?;
         let sample_capacity = BLOCK_FRAMES * usize::from(format.channels());
         Ok(Self {
             decoder,
             format,
+            source_format: format,
+            downmix: None,
             samples: vec![0.0; sample_capacity],
+            stereo: Vec::new(),
             bytes: vec![0; sample_capacity * 4],
         })
+    }
+
+    /// Prepare stereo output for known multichannel material. Mono and
+    /// stereo keep their original samples and channel positions.
+    pub fn open_stereo(path: &Path) -> Result<Self, Box<dyn Error>> {
+        let mut track = Self::open(path)?;
+        if track.format.channels() > 2 {
+            let downmix = StereoDownmixer::new(track.format.layout())?;
+            track.format = PcmStreamFormat::new(track.format.sample_rate(), 2)?;
+            track.stereo = vec![0.0; BLOCK_FRAMES * 2];
+            track.bytes = vec![0; BLOCK_FRAMES * 2 * 4];
+            track.downmix = Some(downmix);
+        }
+        Ok(track)
     }
 
     /// The PCM format a sink must accept for this track.
     pub fn format(&self) -> PcmStreamFormat {
         self.format
+    }
+
+    /// Decoded source format before an optional stereo downmix.
+    pub fn source_format(&self) -> PcmStreamFormat {
+        self.source_format
     }
 
     /// Read, optionally process, and encode the next block.
@@ -98,8 +128,17 @@ impl PcmTrack {
         if frames == 0 {
             return Ok(None);
         }
+        let source_count = frames * usize::from(self.source_format.channels());
         let count = frames * usize::from(self.format.channels());
-        let samples = &mut self.samples[..count];
+        let samples = if let Some(downmix) = &self.downmix {
+            let stereo = &mut self.stereo[..count];
+            downmix
+                .process(&self.samples[..source_count], stereo)
+                .map_err(StreamError::Downmix)?;
+            stereo
+        } else {
+            &mut self.samples[..count]
+        };
         process(samples).map_err(StreamError::Process)?;
         if samples.iter().any(|sample| !sample.is_finite()) {
             return Err(StreamError::NonFiniteSample);
