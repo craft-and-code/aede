@@ -8,6 +8,7 @@ use super::{
     PlaybackClock, PlaybackEnd, next_index, play, record_play, resolve, stream_pcm_counted,
 };
 use crate::args::Args;
+use aede_core::conclusions;
 use aede_core::model::{Artist, AudioFile, Catalog, Release, Track};
 use aede_core::user;
 
@@ -41,6 +42,84 @@ fn playing_label_shows_album_and_numbered_filename_without_the_path() {
         super::playing_label(&path, Some(&catalog)),
         "No More Tears — 01 Mr. Tinkertrain"
     );
+}
+
+#[test]
+fn untagged_cli_track_uses_and_caches_measured_loudness() {
+    let root = std::env::temp_dir().join(format!("aede_play_loudness_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("track.wav");
+    let rate = 48_000u32;
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + rate * 2).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(rate * 2).to_le_bytes());
+    for frame in 0..rate {
+        let sample = (0.2
+            * i16::MAX as f32
+            * (std::f32::consts::TAU * 1000.0 * frame as f32 / rate as f32).sin())
+            as i16;
+        wav.extend_from_slice(&sample.to_le_bytes());
+    }
+    std::fs::write(&file, &wav).unwrap();
+    let selection = super::PlaybackSelection::mixed(vec![file.clone()]);
+    let first = aede_core::playback::gain_plan::plan_normalization(
+        &selection.paths,
+        selection.is_album,
+        None,
+        &root,
+        aede_core::playback::normalization::Mode::Track,
+    )
+    .unwrap();
+    assert_eq!(first[0].unwrap().label, "measured track");
+    let cache = conclusions::load(&conclusions::conclusions_path(&root))
+        .unwrap()
+        .unwrap();
+    assert!(
+        cache
+            .loudness_tracks
+            .contains_key(&file.to_string_lossy().into_owned())
+    );
+    let second = aede_core::playback::gain_plan::plan_normalization(
+        &selection.paths,
+        selection.is_album,
+        None,
+        &root,
+        aede_core::playback::normalization::Mode::Track,
+    )
+    .unwrap();
+    assert_eq!(first[0].unwrap().gain_db, second[0].unwrap().gain_db);
+    wav[4..8].copy_from_slice(&(38 + rate * 2).to_le_bytes());
+    wav[40..44].copy_from_slice(&(rate * 2 + 2).to_le_bytes());
+    wav.extend_from_slice(&0i16.to_le_bytes());
+    std::fs::write(&file, &wav).unwrap();
+    let third = aede_core::playback::gain_plan::plan_normalization(
+        &selection.paths,
+        selection.is_album,
+        None,
+        &root,
+        aede_core::playback::normalization::Mode::Track,
+    )
+    .unwrap();
+    assert!(third[0].is_some());
+    let refreshed = conclusions::load(&conclusions::conclusions_path(&root))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        refreshed.loudness_tracks[&file.to_string_lossy().into_owned()].size,
+        wav.len() as u64
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

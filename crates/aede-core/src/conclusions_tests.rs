@@ -79,3 +79,42 @@ fn unknown_format_is_refused_independently() {
         Err(StoreError::ConclusionsVersion { .. })
     ));
 }
+
+#[test]
+fn playback_loudness_roundtrips_and_survives_catalog_updates() {
+    let mut stored = Conclusions::default();
+    let file = ProgrammeFile {
+        path: "/music/one.wav".into(),
+        size: 100,
+        mtime: 4,
+    };
+    let measurement = Measurement {
+        integrated_lufs: -19.0,
+        true_peak: Some(0.8),
+    };
+    stored.loudness_tracks.insert(
+        file.path.clone(),
+        CachedTrack {
+            size: file.size,
+            mtime: file.mtime,
+            measurement: Some(measurement),
+        },
+    );
+    stored.loudness_programmes.push(CachedProgramme {
+        files: vec![file],
+        measurement: Some(measurement),
+    });
+    let mut restored = from_json(&to_json(&stored)).unwrap();
+    restored.update_from_catalog(&catalog());
+    assert_eq!(restored.loudness_tracks.len(), 1);
+    assert_eq!(restored.loudness_programmes.len(), 1);
+    assert_eq!(
+        restored.loudness_programmes[0].measurement,
+        Some(measurement)
+    );
+    let mut old_method = to_json(&restored);
+    old_method.set("loudness_method_version", 0u32.into());
+    let expired = from_json(&old_method).unwrap();
+    assert!(expired.loudness_tracks.is_empty());
+    assert!(expired.loudness_programmes.is_empty());
+}

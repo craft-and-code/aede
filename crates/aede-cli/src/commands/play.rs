@@ -8,7 +8,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use aede_core::model::{Catalog, Id, TitleMatch};
-use aede_core::playback::normalization::{self, Mode as NormalizationMode, Source};
+use aede_core::playback::gain_plan::{self, GainPlan};
+use aede_core::playback::normalization::Mode as NormalizationMode;
 use aede_core::playback::stream::PcmTrack;
 use aede_core::store;
 use aede_core::store_lock::StoreLock;
@@ -43,6 +44,16 @@ pub fn play(args: &Args) -> Res {
     let catalog = store::load(&store::catalog_path(&data_dir(args)))?;
     let selection = resolve(&raw, catalog.as_ref(), Some(args))?;
     let normalization_mode = selection.normalization_mode(requested_normalization);
+    if normalization_mode != NormalizationMode::Off {
+        eprintln!("Preparing loudness normalization…");
+    }
+    let gain_plans = gain_plan::plan_normalization(
+        &selection.paths,
+        selection.is_album,
+        catalog.as_ref(),
+        &data_dir(args),
+        normalization_mode,
+    )?;
     let paths = selection.paths;
     let controls = Controls::start()?;
     if controls.is_some() {
@@ -79,6 +90,7 @@ pub fn play(args: &Args) -> Res {
                 &mut output,
                 index + 1 == paths.len(),
                 normalization_mode,
+                gain_plans[index],
             );
             if played_ms > 0 {
                 history_send
@@ -519,41 +531,28 @@ fn play_file(
     output: &mut LocalOutput,
     final_track: bool,
     normalization_mode: NormalizationMode,
+    selected_gain: Option<GainPlan>,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     let mut track = PcmTrack::open(path)?;
     let track_format = track.format();
     let format = PcmFormat::new(track_format.sample_rate(), track_format.channels())?;
-    let selected_gain = if normalization_mode == NormalizationMode::Off {
-        None
-    } else {
-        let raw = tags::read(path)?;
-        normalization::select_raw(&raw, normalization_mode, normalization::DEFAULT_TARGET_LUFS)?
-    };
     output.prepare(track_format)?;
     let mut dsp = Dsp::new(format);
     if let Some(selection) = selected_gain {
         let applied_gain_db = gain_with_headroom_db(selection.gain_db, selection.source_peak)?;
         dsp.set_gain_db(applied_gain_db, 0)?;
-        let source = match selection.source {
-            Source::ReplayGainTrack => "ReplayGain track",
-            Source::ReplayGainAlbum => "ReplayGain album",
-            Source::OpusR128Track => "Opus R128 track",
-            Source::OpusR128Album => "Opus R128 album",
-        };
-        println!("Normalization: {applied_gain_db:+.2} dB ({source})");
+        println!(
+            "Normalization: {applied_gain_db:+.2} dB ({})",
+            selection.label
+        );
         if applied_gain_db < selection.gain_db {
-            let peak = if selection.source_peak.is_some() {
-                "ReplayGain peak"
-            } else {
-                "assumed full-scale peak"
-            };
             println!(
-                "Headroom: requested {:+.2} dB reduced to {applied_gain_db:+.2} dB ({peak})",
-                selection.gain_db
+                "Headroom: requested {:+.2} dB reduced to {applied_gain_db:+.2} dB ({})",
+                selection.gain_db, selection.peak_label
             );
         }
     } else if normalization_mode != NormalizationMode::Off {
-        println!("Normalization: no ReplayGain or Opus R128 tag; no gain applied");
+        println!("Normalization: no usable loudness measurement or gain tag; no gain applied");
     }
 
     println!("Playing: {label}");

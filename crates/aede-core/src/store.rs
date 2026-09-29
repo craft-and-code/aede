@@ -220,7 +220,12 @@ pub fn save(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
         }
     }
     gathered.update_from_catalog(catalog);
-    if had_store || !gathered.files.is_empty() || !gathered.analyses.is_empty() {
+    if had_store
+        || !gathered.files.is_empty()
+        || !gathered.analyses.is_empty()
+        || !gathered.loudness_tracks.is_empty()
+        || !gathered.loudness_programmes.is_empty()
+    {
         conclusions::save(&gathered, &conclusions_path)?;
     }
     save_catalog_only(catalog, path)

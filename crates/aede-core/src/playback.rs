@@ -8,6 +8,8 @@ use crate::model::Id;
 
 pub mod decoder;
 pub mod format;
+pub mod gain_plan;
+pub mod loudness;
 pub mod normalization;
 pub mod output;
 pub mod stream;

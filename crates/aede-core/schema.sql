@@ -128,6 +128,38 @@ FROM analysis a
 JOIN file f ON f.path = a.path
 WHERE a.size_bytes = f.size AND a.modified_unix = f.mtime;
 
+-- Playback-only derived measurements live in conclusions.json, independently
+-- of the rebuildable catalog and the source-attributed analysis table. A
+-- method version invalidates measurements when the algorithm changes. NULL
+-- integrated_lufs means silence or a layout for which no safe measurement is
+-- available; NULL true_peak means the peak is unknown.
+CREATE TABLE playback_track_loudness (
+    path             TEXT    PRIMARY KEY,
+    size_bytes       INTEGER NOT NULL,
+    modified_unix    INTEGER NOT NULL,
+    method_version   INTEGER NOT NULL,
+    integrated_lufs  REAL,
+    true_peak        REAL
+);
+
+-- A programme is an ordered list of specific file versions. It must be
+-- measured as one gated programme, never reconstructed from track LUFS.
+CREATE TABLE playback_programme_loudness (
+    id               INTEGER PRIMARY KEY,
+    method_version   INTEGER NOT NULL,
+    integrated_lufs  REAL,
+    true_peak        REAL
+);
+
+CREATE TABLE playback_programme_file (
+    programme_id     INTEGER NOT NULL REFERENCES playback_programme_loudness(id),
+    ordinal          INTEGER NOT NULL,
+    path             TEXT    NOT NULL,
+    size_bytes       INTEGER NOT NULL,
+    modified_unix    INTEGER NOT NULL,
+    PRIMARY KEY (programme_id, ordinal)
+);
+
 -- ---------------------------------------------------------------------------
 -- Entities
 -- ---------------------------------------------------------------------------

@@ -7,10 +7,12 @@ use crate::analysis::FileAnalysis;
 use crate::fingerprint::Fingerprint;
 use crate::json::{self, Json};
 use crate::model::{Catalog, IntegrityRecord};
+use crate::playback::loudness::{CachedProgramme, CachedTrack, Measurement, ProgrammeFile};
 use crate::store::{self, StoreError};
 
 /// Independent on-disk format version for the conclusions store.
 pub const FORMAT_VERSION: u32 = 1;
+const LOUDNESS_METHOD_VERSION: u32 = 1;
 /// File name inside Aède's data directory.
 pub const CONCLUSIONS_FILE: &str = "conclusions.json";
 
@@ -21,6 +23,10 @@ pub struct Conclusions {
     pub files: BTreeMap<String, FileConclusion>,
     /// Imported measurements, including those waiting for a file to appear.
     pub analyses: Vec<FileAnalysis>,
+    /// Playback loudness measurements keyed by file path and byte identity.
+    pub loudness_tracks: BTreeMap<String, CachedTrack>,
+    /// Album programme measurements keyed by their ordered file identities.
+    pub loudness_programmes: Vec<CachedProgramme>,
 }
 
 /// Results tied to a particular version of a file's bytes.
@@ -99,6 +105,7 @@ impl Conclusions {
 pub fn to_json(conclusions: &Conclusions) -> Json {
     let mut root = Json::obj();
     root.set("format_version", FORMAT_VERSION.into());
+    root.set("loudness_method_version", LOUDNESS_METHOD_VERSION.into());
     let mut files = Vec::with_capacity(conclusions.files.len());
     for (path, record) in &conclusions.files {
         let mut row = Json::obj();
@@ -134,7 +141,100 @@ pub fn to_json(conclusions: &Conclusions) -> Json {
                 .collect(),
         ),
     );
+    root.set(
+        "loudness_track",
+        Json::Arr(
+            conclusions
+                .loudness_tracks
+                .iter()
+                .map(|(path, cached)| {
+                    let mut row = Json::obj();
+                    row.set("path", path.clone().into());
+                    row.set("size", cached.size.into());
+                    row.set("mtime", cached.mtime.into());
+                    row.set("measurement", measurement_json(cached.measurement));
+                    row
+                })
+                .collect(),
+        ),
+    );
+    root.set(
+        "loudness_programme",
+        Json::Arr(
+            conclusions
+                .loudness_programmes
+                .iter()
+                .map(|cached| {
+                    let mut row = Json::obj();
+                    row.set(
+                        "file",
+                        Json::Arr(
+                            cached
+                                .files
+                                .iter()
+                                .map(|file| {
+                                    let mut value = Json::obj();
+                                    value.set("path", file.path.clone().into());
+                                    value.set("size", file.size.into());
+                                    value.set("mtime", file.mtime.into());
+                                    value
+                                })
+                                .collect(),
+                        ),
+                    );
+                    row.set("measurement", measurement_json(cached.measurement));
+                    row
+                })
+                .collect(),
+        ),
+    );
     root
+}
+
+fn measurement_json(measurement: Option<Measurement>) -> Json {
+    let Some(measurement) = measurement else {
+        return Json::Null;
+    };
+    let mut value = Json::obj();
+    value.set(
+        "integrated_lufs",
+        (measurement.integrated_lufs as f64).into(),
+    );
+    if let Some(peak) = measurement.true_peak {
+        value.set("true_peak", (peak as f64).into());
+    }
+    value
+}
+
+fn measurement_from_json(value: Option<&Json>) -> Result<Option<Measurement>, StoreError> {
+    let Some(value) = value else {
+        return Err(StoreError::ConclusionsInvalid(
+            "missing loudness measurement",
+        ));
+    };
+    if *value == Json::Null {
+        return Ok(None);
+    }
+    let loudness = value
+        .field_f64("integrated_lufs")
+        .ok_or(StoreError::ConclusionsInvalid("invalid loudness"))?;
+    let peak = value.field_f64("true_peak");
+    if value.get("true_peak").is_some() && peak.is_none() {
+        return Err(StoreError::ConclusionsInvalid("invalid true peak"));
+    }
+    if !loudness.is_finite()
+        || peak.is_some_and(|peak| !peak.is_finite() || peak < 0.0 || peak > f32::MAX as f64)
+        || loudness < -100.0
+        || loudness > 20.0
+    {
+        return Err(StoreError::ConclusionsInvalid(
+            "out-of-range loudness measurement",
+        ));
+    }
+    Ok(Some(Measurement {
+        integrated_lufs: loudness as f32,
+        true_peak: peak.map(|peak| peak as f32),
+    }))
 }
 
 /// Parses the independent store, refusing an incompatible version.
@@ -187,6 +287,71 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
     }
     for row in value.get("analysis").and_then(Json::as_arr).unwrap_or(&[]) {
         result.analyses.push(store::analysis_from_json(row));
+    }
+    if value.field_u32("loudness_method_version") == Some(LOUDNESS_METHOD_VERSION) {
+        for row in value
+            .get("loudness_track")
+            .and_then(Json::as_arr)
+            .unwrap_or(&[])
+        {
+            let path = row
+                .field_str("path")
+                .ok_or(StoreError::ConclusionsInvalid(
+                    "loudness track without path",
+                ))?
+                .to_owned();
+            let cached = CachedTrack {
+                size: row.field_u64("size").ok_or(StoreError::ConclusionsInvalid(
+                    "loudness track without size",
+                ))?,
+                mtime: row
+                    .field_u64("mtime")
+                    .ok_or(StoreError::ConclusionsInvalid(
+                        "loudness track without mtime",
+                    ))?,
+                measurement: measurement_from_json(row.get("measurement"))?,
+            };
+            if result.loudness_tracks.insert(path, cached).is_some() {
+                return Err(StoreError::ConclusionsInvalid("duplicate loudness track"));
+            }
+        }
+        for row in value
+            .get("loudness_programme")
+            .and_then(Json::as_arr)
+            .unwrap_or(&[])
+        {
+            let files =
+                row.get("file")
+                    .and_then(Json::as_arr)
+                    .ok_or(StoreError::ConclusionsInvalid("programme without files"))?
+                    .iter()
+                    .map(|file| {
+                        Ok(ProgrammeFile {
+                            path: file
+                                .field_str("path")
+                                .ok_or(StoreError::ConclusionsInvalid(
+                                    "programme file without path",
+                                ))?
+                                .to_owned(),
+                            size: file
+                                .field_u64("size")
+                                .ok_or(StoreError::ConclusionsInvalid(
+                                    "programme file without size",
+                                ))?,
+                            mtime: file.field_u64("mtime").ok_or(
+                                StoreError::ConclusionsInvalid("programme file without mtime"),
+                            )?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, StoreError>>()?;
+            if files.is_empty() {
+                return Err(StoreError::ConclusionsInvalid("empty loudness programme"));
+            }
+            result.loudness_programmes.push(CachedProgramme {
+                files,
+                measurement: measurement_from_json(row.get("measurement"))?,
+            });
+        }
     }
     Ok(result)
 }

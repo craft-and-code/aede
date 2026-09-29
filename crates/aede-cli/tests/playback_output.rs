@@ -61,6 +61,8 @@ fn cli_reuses_the_output_for_matching_tracks_and_reopens_on_format_change() {
         .args([
             "play",
             &playlist.to_string_lossy(),
+            "--normalize",
+            "off",
             "--data",
             &root.join("data").to_string_lossy(),
         ])
