@@ -133,6 +133,59 @@ fn measured_loudness_survives_import_and_catalog_storage() {
     assert_eq!(loaded.analyses[0].integrated_lufs, Some(-14.25));
 }
 
+#[test]
+fn complete_flaccompagnon_results_survive_import_and_conclusions_storage() {
+    let text = example(
+        r#", "bit_depth_evidence": {"stored_bits": 16, "method": "Stored"},
+        "lattice_score": 0.19,
+        "phase_correlation": 0.77,
+        "phase_inverted": false,
+        "stereo_balance": {"state": "Measured", "right_minus_left_db": -0.11},
+        "high_frequency_stereo": {"side_to_mid_db": -10.4, "narrowed": false},
+        "dc_offset": {"channel_means": [-0.0003, -0.0002], "max_abs": 0.0003},
+        "local_phase": {"bands": [{"low_hz": 20, "summary": {"correlation": 0.82}}]},
+        "loudness_peaks": {"momentary": {"lufs": -9.67, "start_secs": 324.62}},
+        "loudness_range_lu": 6.02,
+        "discontinuities": {"clicks": {"count": 1080, "events": [{"channel": 1, "start_secs": 0.42}]}},
+        "future_measurement": {"nested": [false, null, 3.25]}
+        "#,
+    )
+    .replace("\"transcoding\": \"none\"", "\"transcoding\": true");
+    let source = crate::json::parse(&text).expect("source report");
+    let expected = source
+        .get("report")
+        .unwrap()
+        .get("files")
+        .unwrap()
+        .as_arr()
+        .unwrap()[0]
+        .clone();
+    let report = parse_report(&text).expect("report with advanced results");
+    assert_eq!(report.files[0].transcoding.as_deref(), Some("detected"));
+    assert!(report.files[0].suspect_encoding());
+    assert_eq!(report.files[0].source_data.as_ref(), Some(&expected));
+
+    let dir = TestDirectory::new("persist_full_report");
+    let catalog = Catalog {
+        analyses: report.files,
+        ..Default::default()
+    };
+    let path = dir.path.join("catalog.json");
+    crate::store::save(&catalog, &path).expect("save analysis");
+    let loaded = crate::store::load(&path)
+        .expect("load catalog")
+        .expect("catalog exists");
+    assert_eq!(loaded.analyses[0].source_data.as_ref(), Some(&expected));
+}
+
+#[test]
+fn current_flaccompagnon_negative_transcoding_result_is_known() {
+    let text = example("").replace("\"transcoding\": \"none\"", "\"transcoding\": false");
+    let report = parse_report(&text).expect("report with a boolean verdict");
+    assert_eq!(report.files[0].transcoding.as_deref(), Some("none"));
+    assert!(!report.files[0].suspect_encoding());
+}
+
 struct TestDirectory {
     path: std::path::PathBuf,
 }

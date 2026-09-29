@@ -92,6 +92,7 @@ pub(super) enum EntityDetail {
         duration_ms: Option<u64>,
         path: String,
         size: u64,
+        analyses: Vec<serde_json::Value>,
     },
     Recording {
         reference: String,

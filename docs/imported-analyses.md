@@ -82,12 +82,20 @@ Being _about_ a file is not the same as accurately _describing_ its current stat
 ```
 Analysed by flaccompagnon
 
-  MD5              Match
-  Real bit depth   16 bits
-  Cutoff           22.1 kHz
-  Dynamic range    9.3 dB
-  True peak        0.28 dBTP
+  FLAC audio MD5       Match
+  File MD5             0123456789abcdef0123456789abcdef
+  File CRC32           89abcdef
+  Real bit depth       16 bits
+  Cutoff               22.1 kHz
+  Dynamic range        9.3 dB
+  Integrated loudness  -14.2 LUFS
+  Loudness range       6.0 LU
+  True peak            0.28 dBTP
+  Clicks               18 (first at 2.500 s)
+  Click 1              at 2.500 s, channel 1, duration 0.000159 s
 ```
+
+The normal `aede track "<title>"` page shows measured loudness, dynamic range, phase, stereo balance, bit-depth evidence, source verdicts, discontinuity counts, every event location retained in the report, and available file hashes. Its `FLAC audio MD5` row is the audio signature check result; `File MD5` and `File CRC32` are hashes of the complete file. FlacCompagnon may retain fewer event locations than the total count. `--json` only changes the output format and includes the complete attributed file entry in each `analyses[].source_data`, including fields introduced later within the supported report format. The local HTTP `/api/v1/track` detail exposes the same data. Aède also keeps that entry in `conclusions.json` as `source_data`. Re-importing an older saved report restores only the fields that report actually contains; rerun `aede analyze` or import a newer report to obtain measurements that were previously discarded.
 
 Three absolute rules govern how Aède handles these numbers.
 
@@ -119,9 +127,9 @@ error  audio does not match its MD5
 
 Frame checksums prove the _container_ survived the journey; the MD5 proves the _audio_ is mathematically identical to the source. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but lazily copied the old signature—an archival tragedy Aède cannot see until the audio is fully decoded.
 
-**And that is the only thing `doctor` says about an imported report.** The spectral inferences—"transcoded," "upscaled," "upsampled"—are dutifully imported, stored, and kept up to date, but they are _reported nowhere as errors_. A failed MD5 is a mathematical _fact_. "Early roll-off at 33 kHz, possible transcoding" is an _inference_. A faithful 24/96 transfer of a 1988 analogue master genuinely holds nothing above 30 kHz; it will look exactly like an upsample to an algorithm. A report that turns another program's "possibly" into an Aède warning has stopped describing your library and started arguing with it. Aède remains an archivist, not an audio critic.
+**And that is the only thing `doctor` says about an imported report.** The spectral inferences—"transcoded," "upscaled," "upsampled"—are shown on the track page as FlacCompagnon's attributed verdicts, but they are _reported nowhere as Aède errors_. A failed MD5 is a mathematical _fact_. "Early roll-off at 33 kHz, possible transcoding" is an _inference_. A faithful 24/96 transfer of a 1988 analogue master genuinely holds nothing above 30 kHz; it will look exactly like an upsample to an algorithm. A report that turns another program's "possibly" into an Aède warning has stopped describing your library and started arguing with it. Aède remains an archivist, not an audio critic.
 
-What the inference was drawn _from_ stays on the file's page: the cutoff frequency, the real bit depth, the dynamic range. These are objective measurements. A curator who knows the history of their masters can draw their own conclusions.
+What the inference was drawn _from_ stays beside it on the file's page: the cutoff frequency, the real bit depth, the dynamic range. These are objective measurements. A curator who knows the history of their masters can draw their own conclusions.
 
 ## Seeing what is held
 

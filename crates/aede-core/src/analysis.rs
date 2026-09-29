@@ -62,6 +62,10 @@ pub struct FileAnalysis {
     /// MD5 of the entire file, including tags and artwork, when supplied.
     /// Used to identify a moved file without trusting its name or timestamp.
     pub file_md5: Option<String>,
+    /// Complete file entry from the source report, including measurements that
+    /// Aède does not interpret yet. It keeps the source path when a matching
+    /// file is later moved; [`FileAnalysis::path`] is the attached path.
+    pub source_data: Option<Json>,
 
     /// Verdict on the MD5 stored in STREAMINFO: `Match`, `Mismatch`,
     /// `NoSignature`, `Present`, `Error`.
@@ -601,7 +605,14 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
         fake_stereo: item.field_optional_bool("fake_stereo"),
         ext_mismatch: item.field_optional_bool("ext_mismatch"),
 
-        transcoding: detections.and_then(|d| d.field_str("transcoding")),
+        transcoding: detections
+            .and_then(|d| d.get("transcoding"))
+            .and_then(|value| match value {
+                Json::Bool(true) => Some("detected".to_string()),
+                Json::Bool(false) => Some("none".to_string()),
+                Json::Str(value) => Some(value.clone()),
+                _ => None,
+            }),
         upscaling: detections.and_then(|d| d.field_optional_bool("upscaling")),
         upsampling: detections.and_then(|d| d.field_optional_bool("upsampling")),
         summary: detections.and_then(|d| d.field_str("summary")),
@@ -619,6 +630,7 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
         clipped: clipping.and_then(|c| c.field_optional_bool("clipped")),
 
         error: item.field_str("error"),
+        source_data: Some(item.clone()),
     }
 }
 

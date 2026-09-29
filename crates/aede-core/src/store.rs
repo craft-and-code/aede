@@ -377,7 +377,7 @@ fn file_to_json(file: &AudioFile) -> Json {
 /// Absent measurements are written as `null` rather than left out: the reader
 /// then distinguishes "not measured" from "measured as zero", which for a peak
 /// or a dynamic range is the whole difference.
-pub(crate) fn analysis_to_json(a: &FileAnalysis) -> Json {
+pub fn analysis_to_json(a: &FileAnalysis) -> Json {
     let mut o = Json::obj();
     o.set("path", a.path.clone().into());
     o.set("source", a.source.clone().into());
@@ -386,6 +386,7 @@ pub(crate) fn analysis_to_json(a: &FileAnalysis) -> Json {
     o.set("size_bytes", a.size_bytes.into());
     o.set("modified_unix", a.modified_unix.into());
     o.set("file_md5", opt_str(&a.file_md5));
+    o.set("source_data", a.source_data.clone().unwrap_or(Json::Null));
     o.set("md5_state", opt_str(&a.md5_state));
     o.set("md5_detail", opt_str(&a.md5_detail));
     o.set("real_bit_depth", opt_num(&a.real_bit_depth.map(u32::from)));
@@ -419,6 +420,10 @@ pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
         file_md5: item.field_str("file_md5"),
+        source_data: item
+            .get("source_data")
+            .filter(|value| matches!(value, Json::Obj(_)))
+            .cloned(),
         md5_state: item.field_str("md5_state"),
         md5_detail: item.field_str("md5_detail"),
         real_bit_depth: item.field_u32("real_bit_depth").map(|v| v as u16),

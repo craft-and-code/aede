@@ -781,8 +781,29 @@ fn as_json(
             tags.set(key, values.join(" / ").into());
         }
         o.set("tags", tags);
+        o.set(
+            "analyses",
+            Json::Arr(
+                catalog
+                    .analyses_of(file)
+                    .map(|record| analysis_json(record, file))
+                    .collect(),
+            ),
+        );
     }
     o
+}
+
+fn analysis_json(
+    record: &aede_core::analysis::FileAnalysis,
+    file: &aede_core::model::AudioFile,
+) -> Json {
+    let mut value = aede_core::store::analysis_to_json(record);
+    value.set(
+        "stale",
+        (!record.still_applies(file.size, file.mtime)).into(),
+    );
+    value
 }
 
 fn attribute_json(attribute: &aede_core::model::CreditAttribute) -> Json {
@@ -829,50 +850,253 @@ fn print_analyses(catalog: &Catalog, file: &aede_core::model::AudioFile) {
             "{}",
             ui::section(&format!("Analysed by {}{stale}", record.source))
         );
-        let mut t = Table::plain(2);
-        let mut row = |label: &str, value: Option<String>| {
-            if let Some(value) = value {
-                t.push(vec![label.into(), value]);
-            }
-        };
-        row("MD5", record.md5_state.clone());
-        row(
-            "Real bit depth",
-            record.real_bit_depth.map(|b| format!("{b} bits")),
-        );
-        row("Fake stereo", record.fake_stereo.map(yes_no));
-        // Transcoding, upscaling, upsampling and the sentence that words them
-        // are read from the report and stored, and shown nowhere — the three
-        // are inferences drawn from the spectrum rather than measurements, and
-        // they are not being trusted yet. What they are inferred *from* stays
-        // right below: the cutoff is a number anybody can check, and a reader
-        // who knows that a 1988 analogue master holds nothing above 30 kHz can
-        // draw their own conclusion from it. Restore these three rows the day
-        // the tool's verdicts are trusted; nothing else has to change, because
-        // the values never stopped being imported.
-        row(
-            "Cutoff",
-            record.cutoff_hz.map(|hz| format!("{:.1} kHz", hz / 1000.0)),
-        );
-        row(
-            "Dynamic range",
-            record.dr_db.map(|db| format!("{db:.1} dB")),
-        );
-        row("Peak", record.peak_dbfs.map(|db| format!("{db:.2} dBFS")));
-        row(
-            "True peak",
-            record.true_peak_dbtp.map(|db| format!("{db:.2} dBTP")),
-        );
-        row(
-            "Clipped samples",
-            record.clipped_samples.map(|n| n.to_string()),
-        );
-        // `summary` and `detail` are that same verdict in a word and in a
-        // sentence — "Possible transcoding: early roll-off at ~33.1 kHz" — so
-        // they go with it rather than surviving it under another name.
-        row("Error", record.error.clone());
-        print!("{}", t.render());
+        print!("{}", analysis_table(record).render());
     }
+}
+
+fn analysis_table(record: &aede_core::analysis::FileAnalysis) -> Table {
+    let source = record.source_data.as_ref();
+    let nested = |key| source.and_then(|data| data.get(key));
+    let mut table = Table::plain(2);
+    let mut row = |label: &str, value: Option<String>| {
+        if let Some(value) = value {
+            table.push(vec![label.into(), value]);
+        }
+    };
+    row("FLAC audio MD5", record.md5_state.clone());
+    row("File MD5", record.file_md5.clone());
+    row(
+        "File CRC32",
+        source.and_then(|data| data.field_str("file_crc32")),
+    );
+    row(
+        "Real bit depth",
+        record.real_bit_depth.map(|bits| format!("{bits} bits")),
+    );
+    row(
+        "Bit-depth method",
+        nested("bit_depth_evidence").and_then(|v| v.field_str("method")),
+    );
+    row(
+        "Requantization rate",
+        record.requant_rate.map(|v| format!("{v:.4}")),
+    );
+    row(
+        "Codec lattice score",
+        source
+            .and_then(|v| v.field_f64("lattice_score"))
+            .map(|v| format!("{v:.4}")),
+    );
+    row("Fake stereo", record.fake_stereo.map(yes_no));
+    row(
+        "Phase correlation",
+        source
+            .and_then(|v| v.field_f64("phase_correlation"))
+            .map(|v| format!("{v:.3}")),
+    );
+    row(
+        "Phase inverted",
+        source
+            .and_then(|v| v.field_optional_bool("phase_inverted"))
+            .map(yes_no),
+    );
+    row(
+        "Stereo balance",
+        nested("stereo_balance").and_then(stereo_balance),
+    );
+    let high = nested("high_frequency_stereo");
+    row(
+        "High-band side/mid",
+        high.and_then(|v| v.field_f64("side_to_mid_db"))
+            .map(|v| format!("{v:.2} dB")),
+    );
+    row(
+        "High-band reference",
+        high.and_then(|v| v.field_f64("reference_side_to_mid_db"))
+            .map(|v| format!("{v:.2} dB")),
+    );
+    row(
+        "High-band narrowed",
+        high.and_then(|v| v.field_optional_bool("narrowed"))
+            .map(yes_no),
+    );
+    row(
+        "High-band narrowed blocks",
+        high.and_then(|v| v.field_f64("narrowed_block_fraction"))
+            .map(|v| format!("{:.1}%", v * 100.0)),
+    );
+    let dc = nested("dc_offset");
+    row(
+        "DC offset (maximum)",
+        dc.and_then(|v| v.field_f64("max_abs"))
+            .map(|v| format!("{v:.6}")),
+    );
+    row(
+        "DC offset by channel",
+        dc.and_then(|v| v.get("channel_means"))
+            .and_then(Json::as_arr)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Json::as_f64)
+                    .map(|v| format!("{v:.6}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }),
+    );
+    let phase = nested("local_phase");
+    row(
+        "Local phase",
+        phase
+            .and_then(|v| v.get("broadband"))
+            .and_then(phase_summary),
+    );
+    if let Some(bands) = phase.and_then(|v| v.get("bands")).and_then(Json::as_arr) {
+        for band in bands {
+            if let (Some(low), Some(high), Some(summary)) = (
+                band.field_f64("low_hz"),
+                band.field_f64("high_hz"),
+                band.get("summary").and_then(phase_summary),
+            ) {
+                row(&format!("Phase {low:.0}–{high:.0} Hz"), Some(summary));
+            }
+        }
+    }
+    row(
+        "Cutoff",
+        record.cutoff_hz.map(|hz| format!("{:.1} kHz", hz / 1000.0)),
+    );
+    row(
+        "Cutoff / Nyquist",
+        record
+            .cutoff_ratio
+            .map(|ratio| format!("{:.1}%", ratio * 100.0)),
+    );
+    row(
+        "Dynamic range",
+        record.dr_db.map(|db| format!("{db:.1} dB")),
+    );
+    row(
+        "Integrated loudness",
+        record.integrated_lufs.map(|lufs| format!("{lufs:.2} LUFS")),
+    );
+    row(
+        "Loudness range",
+        source
+            .and_then(|v| v.field_f64("loudness_range_lu"))
+            .map(|v| format!("{v:.2} LU")),
+    );
+    let peaks = nested("loudness_peaks");
+    row(
+        "Momentary maximum",
+        peaks
+            .and_then(|v| v.get("momentary"))
+            .and_then(loudness_peak),
+    );
+    row(
+        "Short-term maximum",
+        peaks
+            .and_then(|v| v.get("short_term"))
+            .and_then(loudness_peak),
+    );
+    row("Peak", record.peak_dbfs.map(|db| format!("{db:.2} dBFS")));
+    row(
+        "True peak",
+        record.true_peak_dbtp.map(|db| format!("{db:.2} dBTP")),
+    );
+    row(
+        "Clipped samples",
+        record.clipped_samples.map(|n| n.to_string()),
+    );
+    row("Clipping events", record.clip_events.map(|n| n.to_string()));
+    row("Clipped", record.clipped.map(yes_no));
+    let discontinuities = nested("discontinuities");
+    row(
+        "Clicks",
+        discontinuities
+            .and_then(|v| v.get("clicks"))
+            .and_then(event_summary),
+    );
+    row(
+        "Dropouts",
+        discontinuities
+            .and_then(|v| v.get("dropouts"))
+            .and_then(event_summary),
+    );
+    for (kind, label) in [("clicks", "Click"), ("dropouts", "Dropout")] {
+        if let Some(events) = discontinuities
+            .and_then(|v| v.get(kind))
+            .and_then(|v| v.get("events"))
+            .and_then(Json::as_arr)
+        {
+            for (index, event) in events.iter().enumerate() {
+                row(&format!("{label} {}", index + 1), event_location(event));
+            }
+        }
+    }
+    row("Source badge", source.and_then(|v| v.field_str("badge")));
+    row("Source verdict", record.summary.clone());
+    row("Source detail", record.detail.clone());
+    row("Transcoding flag", record.transcoding.clone());
+    row("Upscaling flag", record.upscaling.map(yes_no));
+    row("Upsampling flag", record.upsampling.map(yes_no));
+    row("Error", record.error.clone());
+    table
+}
+
+fn stereo_balance(value: &Json) -> Option<String> {
+    let state = value.field_str("state")?;
+    Some(match value.field_f64("right_minus_left_db") {
+        Some(db) => format!("{state}, right − left {db:.2} dB"),
+        None => state,
+    })
+}
+
+fn phase_summary(value: &Json) -> Option<String> {
+    let correlation = value.field_f64("correlation")?;
+    let mut summary = format!("correlation {correlation:.3}");
+    if let Some(minimum) = value.field_f64("minimum_correlation") {
+        summary.push_str(&format!(", minimum {minimum:.3}"));
+    }
+    if let Some(at) = value.field_f64("minimum_start_secs") {
+        summary.push_str(&format!(" at {at:.2} s"));
+    }
+    if let Some(opposed) = value.field_f64("opposed_fraction") {
+        summary.push_str(&format!(", opposed {:.1}%", opposed * 100.0));
+    }
+    Some(summary)
+}
+
+fn loudness_peak(value: &Json) -> Option<String> {
+    let lufs = value.field_f64("lufs")?;
+    Some(match value.field_f64("start_secs") {
+        Some(at) => format!("{lufs:.2} LUFS at {at:.2} s"),
+        None => format!("{lufs:.2} LUFS"),
+    })
+}
+
+fn event_summary(value: &Json) -> Option<String> {
+    let count = value.field_u64("count")?;
+    let events = value.get("events").and_then(Json::as_arr);
+    Some(match events.and_then(|events| events.first()) {
+        Some(first) => match first.field_f64("start_secs") {
+            Some(at) => format!("{count} (first at {at:.3} s)"),
+            None => count.to_string(),
+        },
+        None => count.to_string(),
+    })
+}
+
+fn event_location(value: &Json) -> Option<String> {
+    let start = value.field_f64("start_secs")?;
+    let mut location = format!("at {start:.3} s");
+    if let Some(channel) = value.field_u64("channel") {
+        location.push_str(&format!(", channel {channel}"));
+    }
+    if let Some(duration) = value.field_f64("duration_secs") {
+        location.push_str(&format!(", duration {duration:.6} s"));
+    }
+    Some(location)
 }
 
 fn yes_no(value: bool) -> String {

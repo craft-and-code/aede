@@ -148,3 +148,98 @@ fn json_keeps_every_rich_credit_detail_and_its_scope() {
         Some("identified")
     );
 }
+
+#[test]
+fn track_json_exposes_the_complete_attributed_analysis() {
+    let mut tags = RawTags::default();
+    tags.insert("artist", "Band");
+    tags.insert("album", "Record");
+    tags.insert("title", "Song");
+    let mut catalog = build(
+        vec![ScannedFile {
+            path: "/music/song.flac".into(),
+            size: 100,
+            mtime: 25,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".into()],
+        25,
+        &[],
+    );
+    let report = aede_core::json::parse(
+        r#"{"integrated_lufs":-14.2,"loudness_range_lu":6.0,"discontinuities":{"clicks":{"count":18,"events":[{"start_secs":2.5,"channel":1,"duration_secs":0.000159}]}}}"#,
+    )
+    .expect("analysis data");
+    catalog.analyses.push(aede_core::analysis::FileAnalysis {
+        path: "/music/song.flac".into(),
+        source: "flaccompagnon".into(),
+        size_bytes: 100,
+        modified_unix: 25,
+        integrated_lufs: Some(-14.2),
+        source_data: Some(report.clone()),
+        ..Default::default()
+    });
+
+    let json = as_json(&catalog, &catalog.tracks[0], &[], &[], &[]);
+    let analyses = json
+        .get("analyses")
+        .and_then(Json::as_arr)
+        .expect("analyses");
+    assert_eq!(analyses.len(), 1);
+    assert_eq!(
+        analyses[0].field_str("source").as_deref(),
+        Some("flaccompagnon")
+    );
+    assert_eq!(analyses[0].get("source_data"), Some(&report));
+    assert_eq!(
+        analyses[0].get("stale").and_then(Json::as_bool),
+        Some(false)
+    );
+    let page = analysis_table(&catalog.analyses[0]).render();
+    assert!(
+        page.contains("Integrated loudness") && page.contains("-14.20 LUFS"),
+        "{page}"
+    );
+    assert!(
+        page.contains("Loudness range") && page.contains("6.00 LU"),
+        "{page}"
+    );
+    assert!(
+        page.contains("Clicks") && page.contains("18 (first at 2.500 s)"),
+        "{page}"
+    );
+    assert!(
+        page.contains("Click 1") && page.contains("at 2.500 s, channel 1, duration 0.000159 s"),
+        "{page}"
+    );
+}
+
+#[test]
+fn human_track_analysis_distinguishes_audio_md5_from_file_hashes() {
+    let record = aede_core::analysis::FileAnalysis {
+        md5_state: Some("NoSignature".into()),
+        file_md5: Some("0123456789abcdef0123456789abcdef".into()),
+        source_data: Some(
+            aede_core::json::parse(r#"{"file_crc32":"89abcdef"}"#).expect("source hash data"),
+        ),
+        ..Default::default()
+    };
+
+    let page = analysis_table(&record).render();
+    assert!(
+        page.contains("FLAC audio MD5") && page.contains("NoSignature"),
+        "{page}"
+    );
+    assert!(
+        page.contains("File MD5") && page.contains("0123456789abcdef0123456789abcdef"),
+        "{page}"
+    );
+    assert!(
+        page.contains("File CRC32") && page.contains("89abcdef"),
+        "{page}"
+    );
+}

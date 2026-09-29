@@ -370,6 +370,23 @@ pub(super) fn entity_detail(
         EntityKind::Track => {
             let track = catalog.track(id).ok_or_else(unavailable)?;
             let file = catalog.file(track.file_id).ok_or_else(unavailable)?;
+            let analyses = catalog
+                .analyses_of(file)
+                .map(|record| {
+                    let mut analysis = aede_core::store::analysis_to_json(record);
+                    analysis.set(
+                        "stale",
+                        (!record.still_applies(file.size, file.mtime)).into(),
+                    );
+                    serde_json::from_str(&analysis.to_string_compact()).map_err(|_| {
+                        error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "analysis_unavailable",
+                            "stored analysis could not be serialized",
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, ApiError>>()?;
             EntityDetail::Track {
                 reference: requested.to_token(),
                 title: track.title.clone(),
@@ -380,6 +397,7 @@ pub(super) fn entity_detail(
                 duration_ms: track.duration_ms,
                 path: file.path.clone(),
                 size: file.size,
+                analyses,
             }
         }
         EntityKind::Recording => {

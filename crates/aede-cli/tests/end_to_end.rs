@@ -3931,29 +3931,24 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
         "a failed MD5 is an error even when the checksums passed:\n{out}"
     );
     assert!(out.contains("re-encoded"), "and it says why:\n{out}");
-    // The same report declares `transcoding: detected`, and that is said
-    // nowhere. A failed MD5 is a fact — two methods compared a checksum and
-    // disagreed, and `check` can be pointed at the file to settle it. A
-    // spectral verdict is an inference from a heuristic, and this report only
-    // relays facts. Both come from the same import, which is the point: what
-    // was stored and what is reported are two different questions.
+    // Doctor reports the failed MD5 as a fact, but does not promote the
+    // source's spectral inference into Aède's own warning.
     for word in ["transcod", "upscal", "upsampl", "lossy"] {
         assert!(
             !out.contains(word),
             "\"{word}\" must not appear in the report:\n{out}"
         );
     }
-    // And the file's own page keeps the measurement the verdict was drawn
-    // from, so nothing is hidden from whoever wants to judge for themselves.
+    // The file's page attributes both the measurement and the source's
+    // inference, so the reader can inspect what the tool actually reported.
     let (page, _, _) = sandbox.run(&["track", "So What"]);
     assert!(page.contains("Analysed by flaccompagnon"), "page: {page}");
     assert!(page.contains("Cutoff"), "the cutoff is a number: {page}");
-    for word in ["Transcoding", "Upscaled", "Upsampled", "Verdict"] {
-        assert!(
-            !page.contains(word),
-            "\"{word}\" is an inference, not a measurement:\n{page}"
-        );
-    }
+    assert!(page.contains("Source verdict"), "page: {page}");
+    assert!(
+        page.contains("Transcoding flag") && page.contains("detected"),
+        "page: {page}"
+    );
 
     // --- A report about other bytes -----------------------------------------
     // Once the file has been touched and read again, every imported verdict

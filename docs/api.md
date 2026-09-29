@@ -47,7 +47,7 @@ Every list response has `{ "items": [...], "total": usize, "offset": usize, "lim
 | --- | --- |
 | `artist` | `name`, `sort_name`, `mbid`, `aliases`, `releases: reference[]`. |
 | `release` | `title`, `year`, `album_artist: reference|null`, `tracks: reference[]`, `release_group: reference|null`, `labels: reference[]`, `cover_path: string|null`. |
-| `track` | `title`, `release: reference|null`, `recording: reference|null`, `duration_ms: u64|null`, `path: string`, `size: u64`. |
+| `track` | `title`, `release: reference|null`, `recording: reference|null`, `duration_ms: u64|null`, `path: string`, `size: u64`; newer servers add `analyses: object[]`. |
 | `recording` | `title`, `isrc: string|null`, `mbid: string|null`, `tracks: reference[]`, `works: reference[]`. |
 | `work` | `title`, `mbid: string`, `recordings: reference[]`. |
 | `release_group` | `title`, `mbid: string`, `releases: reference[]`. |
@@ -55,6 +55,8 @@ Every list response has `{ "items": [...], "total": usize, "offset": usize, "lim
 | `genre` | `name`, `releases: reference[]`, `tracks: reference[]`. |
 
 The reference arrays in an entity detail are complete, not paginated. Clients that only need a listing should use a paginated list endpoint and its filters. A future paginated relation subresource can be added without changing these v1 fields.
+
+Each track analysis contains `source`, `source_version`, `imported_at`, `stale`, the previously stored measurement fields, and `source_data`. `source_data` is the complete source file entry when retained, or `null` for older imports; the other measurement fields continue to describe those older imports. Analyses are attributed to their source and are not silently merged into local file facts. `/api/v1/track` and `/api/v1/entities` return the same track detail shape.
 
 ### CLI-shaped additions
 

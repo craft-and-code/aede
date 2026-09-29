@@ -33,7 +33,7 @@ A **page** is `{items,total,offset,limit,scanned_at}`. Pagination defaults to `o
 | `/artist` | Exactly one of `ref` or `name`; no pagination. | One artist, album references and attributed origin. |
 | `/from` | Exactly one artist `ref` or `name`; no pagination. | `{reference,name,origin}`; explicit unknown origin when unavailable. |
 | `/tracks` | `q`, `release` (stable reference), `sort`, `order`. | Page of track summaries. |
-| `/track` | Exactly one of `ref` or `name`; no pagination. | One track, recording/album references, duration and local file facts. |
+| `/track` | Exactly one of `ref` or `name`; no pagination. | One track, recording/album references, duration, local file facts and attributed analyses (including complete source data when available). |
 | `/genres` | `q` or `name`, `sort`, `order`. | Page of `{kind,reference,name,release_count,track_count}`. |
 | `/genre` | Exactly one of `ref` or `name`; no pagination. | One genre and its linked albums/tracks, including a track's inherited album genre. |
 | `/labels` | `q` or `name`, `mbid`, `sort`, `order`. | Page of `{kind,reference,name,mbid,release_count}`. |

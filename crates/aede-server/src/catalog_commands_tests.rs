@@ -133,6 +133,36 @@ fn response_json(response: &str) -> serde_json::Value {
 }
 
 #[test]
+fn track_detail_exposes_complete_attributed_analysis() {
+    runtime().block_on(async {
+        let state = fixture().await;
+        let source_data = aede_core::json::parse(
+            r#"{"integrated_lufs":-14.2,"local_phase":{"bands":[{"low_hz":20,"correlation":0.82}]}}"#,
+        )
+        .unwrap();
+        {
+            let mut guard = state.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            let file = &catalog.files[0];
+            catalog.analyses.push(aede_core::analysis::FileAnalysis {
+                path: file.path.clone(),
+                source: "flaccompagnon".into(),
+                size_bytes: file.size,
+                modified_unix: file.mtime,
+                source_data: Some(source_data),
+                ..Default::default()
+            });
+        }
+        let (address, server) = start(state).await;
+        let detail = json_response(address, "/api/v1/track?name=Hells%20Bells");
+        assert_eq!(detail["analyses"][0]["source"], "flaccompagnon");
+        assert_eq!(detail["analyses"][0]["stale"], false);
+        assert_eq!(detail["analyses"][0]["source_data"]["local_phase"]["bands"][0]["correlation"], 0.82);
+        server.abort();
+    });
+}
+
+#[test]
 fn singular_navigation_prefers_exact_names_and_returns_usable_ambiguity_candidates() {
     runtime().block_on(async {
         let (address, server) = start(fixture().await).await;

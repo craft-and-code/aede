@@ -86,6 +86,7 @@ CREATE TABLE analysis (
     imported_at      INTEGER NOT NULL,   -- Unix epoch in seconds
     size_bytes       INTEGER NOT NULL,
     modified_unix    INTEGER NOT NULL,
+    source_data      TEXT,               -- complete JSON file entry from the source report
     -- Verdict on the MD5 the encoder wrote in STREAMINFO, as a state and not a
     -- hash: the tool compares and reports. 'Match' is a successful `flac -t`.
     -- Kept in the source's own spelling, unnormalised, because the row belongs
