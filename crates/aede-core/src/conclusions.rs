@@ -12,8 +12,9 @@ use crate::store::{self, StoreError};
 
 /// Independent on-disk format version for the conclusions store.
 pub const FORMAT_VERSION: u32 = 1;
-// Version 2 keeps true peak unknown when no oversampled estimate is available.
-const LOUDNESS_METHOD_VERSION: u32 = 3;
+// Version 4 includes corrected native Vorbis bounds; older derived values may
+// measure truncated audio or padding. Imported analyses have their own provenance.
+const LOUDNESS_METHOD_VERSION: u32 = 4;
 /// File name inside Aède's data directory.
 pub const CONCLUSIONS_FILE: &str = "conclusions.json";
 

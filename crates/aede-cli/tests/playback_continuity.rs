@@ -110,6 +110,30 @@ mod fixtures {
                 history,
             }
         }
+
+        pub fn wav_f32(&self, name: &str, rate: u32, channels: u16, samples: &[f32]) -> PathBuf {
+            assert!(samples.len().is_multiple_of(usize::from(channels)));
+            let path = self.root.join(name);
+            let payload_len = u32::try_from(samples.len() * 4).expect("small float WAV");
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"RIFF");
+            bytes.extend_from_slice(&(36 + payload_len).to_le_bytes());
+            bytes.extend_from_slice(b"WAVEfmt ");
+            bytes.extend_from_slice(&16u32.to_le_bytes());
+            bytes.extend_from_slice(&3u16.to_le_bytes());
+            bytes.extend_from_slice(&channels.to_le_bytes());
+            bytes.extend_from_slice(&rate.to_le_bytes());
+            bytes.extend_from_slice(&(rate * u32::from(channels) * 4).to_le_bytes());
+            bytes.extend_from_slice(&(channels * 4).to_le_bytes());
+            bytes.extend_from_slice(&32u16.to_le_bytes());
+            bytes.extend_from_slice(b"data");
+            bytes.extend_from_slice(&payload_len.to_le_bytes());
+            for sample in samples {
+                bytes.extend_from_slice(&sample.to_le_bytes());
+            }
+            std::fs::write(&path, bytes).expect("generated float WAV");
+            path
+        }
     }
 
     impl Drop for TestLibrary {
@@ -250,4 +274,42 @@ fn a_corrupt_later_file_preserves_the_first_processed_output_and_complete_listen
         &[(&first, 10_001 * 1000 / 44_100)],
     );
     assert_pcm_equal(&reference.pcm, &attempted.pcm);
+}
+
+#[test]
+fn vorbis_joins_keep_exact_frames_continuous_tone_and_each_listening_identity() {
+    use aede_core::playback::decoder::FileDecoder;
+    let mut library = TestLibrary::new();
+    let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-core/tests/playback_fixtures");
+    let first = fixtures.join("vorbis-stereo-10001.ogg");
+    let second = fixtures.join("vorbis-stereo-300013.ogg");
+    let mut decoded = Vec::new();
+    for path in [&first, &second] {
+        let mut decoder = FileDecoder::open(path).expect("native Vorbis opens");
+        let mut buffer = vec![0.0; 127 * 2];
+        loop {
+            let frames = decoder.read_frames(&mut buffer).expect("Vorbis frames");
+            if frames == 0 {
+                break;
+            }
+            decoded.extend_from_slice(&buffer[..frames * 2]);
+        }
+    }
+    assert_eq!(decoded.len(), 310_014 * 2);
+    let whole = library.wav_f32("whole.wav", 48_000, 2, &decoded);
+    let reference = library.play(&[&whole]);
+    assert_success(&reference);
+    let split = library.play(&[&first, &second]);
+    assert_success(&split);
+    assert_eq!(split.streams, 1);
+    assert_eq!(split.pcm.len(), 310_014 * 2 * 4);
+    assert_pcm_equal(&reference.pcm, &split.pcm);
+    assert_history(
+        split.history.as_ref().expect("Vorbis history"),
+        &[
+            (&first, 10_001 * 1000 / 48_000),
+            (&second, 300_013 * 1000 / 48_000),
+        ],
+    );
 }

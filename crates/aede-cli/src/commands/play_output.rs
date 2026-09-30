@@ -8,6 +8,12 @@ use std::process::Command;
 use aede_core::playback::format::PcmStreamFormat;
 use aede_core::playback::output::OutputSession;
 
+#[derive(Clone, Copy)]
+pub(super) struct DrainProgress {
+    pub(super) drained: bool,
+    pub(super) consumed_frames: Option<u64>,
+}
+
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",
@@ -219,6 +225,30 @@ mod native {
             self.format
         }
 
+        pub(super) fn can_reuse(&self, format: PcmStreamFormat) -> bool {
+            !self.closed && self.format == format
+        }
+
+        pub(super) fn input_closed(&self) -> bool {
+            self.closed
+        }
+
+        pub(super) fn drain_progress(&self) -> Result<super::DrainProgress, String> {
+            self.status.check()?;
+            Ok(super::DrainProgress {
+                drained: self.producer.drained(),
+                consumed_frames: Some(self.producer.snapshot().consumed_frames),
+            })
+        }
+
+        pub(super) fn host_tail(&self) -> Duration {
+            if self.started {
+                Duration::from_millis(100)
+            } else {
+                Duration::ZERO
+            }
+        }
+
         pub(super) fn integer_description(&self) -> Option<&'static str> {
             match self.sample_format {
                 SampleFormat::I8 => Some("signed 8-bit PCM"),
@@ -239,11 +269,6 @@ mod native {
                 SampleFormat::F64 => "native f64",
                 _ => "native integer with TPDF dither",
             }
-        }
-
-        pub(super) fn drained(&self) -> Result<bool, String> {
-            self.status.check()?;
-            Ok(self.producer.drained())
         }
 
         pub(super) fn check(&self) -> Result<(), String> {
@@ -271,15 +296,11 @@ mod native {
 
         pub(super) fn finish(&mut self) -> Result<(), String> {
             self.close_input();
-            while !self.drained()? {
-                std::thread::sleep(Duration::from_millis(5));
+            if !self.drain_progress()?.drained {
+                return Err("native output must be drained before finalization".into());
             }
-            // CPAL has handed these frames to the host, which may still have
-            // one hardware buffer in flight. Keep the stream alive for it.
-            if self.started {
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            self.status.check()?;
+            // The driver has also kept the host-buffer allowance alive while
+            // polling controls. Finalization must not introduce another wait.
             self.report_diagnostics();
             Ok(())
         }
@@ -469,6 +490,9 @@ impl LocalOutput {
     ) -> Result<PcmStreamFormat, Box<dyn Error>> {
         match self {
             Self::Ffplay(output) => {
+                if output.format().is_some_and(|held| held != format) && !output.poll_finished()? {
+                    return Err("ffplay output must be drained before a format change".into());
+                }
                 output.prepare(format)?;
                 return Ok(format);
             }
@@ -479,7 +503,7 @@ impl LocalOutput {
             ))]
             Self::Native { output, .. }
                 if native::negotiated_format(format)
-                    .is_ok_and(|chosen| chosen == output.format()) =>
+                    .is_ok_and(|chosen| output.can_reuse(chosen)) =>
             {
                 return Ok(output.format());
             }
@@ -489,6 +513,9 @@ impl LocalOutput {
                 all(target_os = "linux", target_env = "gnu")
             ))]
             Self::Native { output, required } => {
+                if !output.input_closed() {
+                    return Err("native output must be drained before a format change".into());
+                }
                 output.finish()?;
                 *self = Self::Unopened {
                     choice: if *required {
@@ -537,6 +564,56 @@ impl LocalOutput {
         Ok(format)
     }
 
+    pub(super) fn needs_reopen(&mut self, format: PcmStreamFormat) -> Result<bool, Box<dyn Error>> {
+        match self {
+            Self::Unopened { .. } => Ok(false),
+            Self::Ffplay(output) => {
+                output.poll_finished()?;
+                Ok(output.format().is_some_and(|held| held != format))
+            }
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => {
+                Ok(native::negotiated_format(format)
+                    .map_or(true, |chosen| !output.can_reuse(chosen)))
+            }
+        }
+    }
+
+    pub(super) fn drain_progress(&mut self) -> Result<DrainProgress, Box<dyn Error>> {
+        match self {
+            Self::Unopened { .. } => Ok(DrainProgress {
+                drained: true,
+                consumed_frames: None,
+            }),
+            Self::Ffplay(output) => Ok(DrainProgress {
+                drained: output.poll_finished()?,
+                consumed_frames: None,
+            }),
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => Ok(output.drain_progress()?),
+        }
+    }
+
+    pub(super) fn host_tail(&self) -> std::time::Duration {
+        match self {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => output.host_tail(),
+            _ => std::time::Duration::ZERO,
+        }
+    }
+
     pub(super) fn close_input(&mut self) {
         match self {
             Self::Unopened { .. } => {}
@@ -547,19 +624,6 @@ impl LocalOutput {
                 all(target_os = "linux", target_env = "gnu")
             ))]
             Self::Native { output, .. } => output.close_input(),
-        }
-    }
-
-    pub(super) fn drained(&mut self) -> Result<bool, Box<dyn Error>> {
-        match self {
-            Self::Unopened { .. } => Ok(true),
-            Self::Ffplay(output) => Ok(output.poll_finished()?),
-            #[cfg(any(
-                target_os = "macos",
-                target_os = "windows",
-                all(target_os = "linux", target_env = "gnu")
-            ))]
-            Self::Native { output, .. } => Ok(output.drained()?),
         }
     }
 
@@ -579,10 +643,17 @@ impl LocalOutput {
         }
     }
 
+    /// Finalize an output already drained by the control-aware driver. Native
+    /// callers must also have served `host_tail`; this method never waits.
     pub(super) fn finish(&mut self) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Unopened { .. } => Ok(()),
-            Self::Ffplay(output) => Ok(output.finish()?),
+            Self::Ffplay(output) => {
+                if !output.poll_finished()? {
+                    return Err("ffplay output must be drained before finalization".into());
+                }
+                Ok(output.finish()?)
+            }
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",

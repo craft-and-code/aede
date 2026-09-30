@@ -62,11 +62,8 @@ fn encoder_delay_and_padding_do_not_reach_playback_pcm() {
         ("track.mp3", 44_100),
         ("gapless-stereo.mp3", 18_432),
         ("vbr.mp3", 44_100),
-        ("track.ogg", 43_972),
+        ("track.ogg", 44_100),
     ] {
-        if name == "track.ogg" && crate::ffmpeg::find().is_none() {
-            continue;
-        }
         let (_, channels, samples) = decode_all(name, 127);
         assert_eq!(
             samples.len() / usize::from(channels),

@@ -7,6 +7,41 @@ use aede_dsp::PcmFormat;
 
 use super::*;
 
+trait SessionOutput: PlaybackOutput {
+    fn needs_reopen(&mut self, format: PcmFormat) -> Result<bool, Box<dyn Error>>;
+    fn prepare(&mut self, format: PcmFormat) -> Result<PcmFormat, Box<dyn Error>>;
+    fn close_input(&mut self);
+    fn drain_progress(&mut self) -> Result<output::DrainProgress, Box<dyn Error>>;
+    fn host_tail(&self) -> Duration;
+    fn finish(&mut self) -> Res;
+}
+
+impl SessionOutput for LocalOutput {
+    fn needs_reopen(&mut self, format: PcmFormat) -> Result<bool, Box<dyn Error>> {
+        self.needs_reopen(format)
+    }
+    fn prepare(&mut self, format: PcmFormat) -> Result<PcmFormat, Box<dyn Error>> {
+        self.prepare(format)
+    }
+    fn close_input(&mut self) {
+        self.close_input();
+    }
+    fn drain_progress(&mut self) -> Result<output::DrainProgress, Box<dyn Error>> {
+        self.drain_progress()
+    }
+    fn host_tail(&self) -> Duration {
+        self.host_tail()
+    }
+    fn finish(&mut self) -> Res {
+        self.finish()
+    }
+}
+
+enum PreparedOutput {
+    Ready(PcmFormat),
+    Interrupted(PlaybackEnd),
+}
+
 struct PendingTrack {
     index: usize,
     path: PathBuf,
@@ -272,17 +307,102 @@ fn drain_output(
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
+    drain_output_with(
+        output,
+        clock,
+        |output, clock| control_action(controls, output, clock),
+        PlaybackClock::active_ms,
+        || std::thread::sleep(Duration::from_millis(25)),
+    )
+}
+
+fn drain_output_with<O: SessionOutput>(
+    output: &mut O,
+    clock: &mut PlaybackClock,
+    mut control: impl FnMut(&O, &mut PlaybackClock) -> Result<Option<PlaybackEnd>, Box<dyn Error>>,
+    mut active_ms: impl FnMut(&PlaybackClock) -> u64,
+    mut wait: impl FnMut(),
+) -> Result<PlaybackEnd, Box<dyn Error>> {
     output.close_input();
+    let mut drain = DrainWait::new(active_ms(clock));
     loop {
-        if let Some(action) = control_action(controls, output, clock)? {
+        if let Some(action) = control(output, clock)? {
             return Ok(action);
         }
-        if output.drained()? {
+        if drain.advance(
+            active_ms(clock),
+            output.drain_progress()?,
+            output.host_tail(),
+        )? {
             output.finish()?;
             return Ok(PlaybackEnd::Natural);
         }
-        std::thread::sleep(Duration::from_millis(25));
+        wait();
     }
+}
+
+// A stalled native callback must not trap noninteractive playback forever.
+// This is a progress timeout, independent of the 500 ms queue capacity and
+// deliberately tolerant of coarse host callbacks. Pauses use no active time.
+const DRAIN_STALL_MILLISECONDS: u64 = 5_000;
+
+struct DrainWait {
+    last_consumed: Option<u64>,
+    last_progress_ms: u64,
+    tail_started_ms: Option<u64>,
+}
+
+impl DrainWait {
+    fn new(active_ms: u64) -> Self {
+        Self {
+            last_consumed: None,
+            last_progress_ms: active_ms,
+            tail_started_ms: None,
+        }
+    }
+
+    fn advance(
+        &mut self,
+        active_ms: u64,
+        progress: output::DrainProgress,
+        host_tail: Duration,
+    ) -> Result<bool, Box<dyn Error>> {
+        if progress.drained {
+            let tail_started = *self.tail_started_ms.get_or_insert(active_ms);
+            return Ok(u128::from(active_ms.saturating_sub(tail_started)) >= host_tail.as_millis());
+        }
+        self.tail_started_ms = None;
+        // ffplay cannot report consumed frames: a timeout with no progress
+        // evidence would wrongly assume its buffered audio has stopped.
+        if let Some(consumed) = progress.consumed_frames {
+            if self.last_consumed != Some(consumed) {
+                self.last_consumed = Some(consumed);
+                self.last_progress_ms = active_ms;
+            } else if active_ms.saturating_sub(self.last_progress_ms) >= DRAIN_STALL_MILLISECONDS {
+                return Err(
+                    "native output drain stalled: no consumed-frame progress for 5 seconds".into(),
+                );
+            }
+        }
+        Ok(false)
+    }
+}
+
+fn prepare_output_with<O: SessionOutput>(
+    output: &mut O,
+    format: PcmFormat,
+    clock: &mut PlaybackClock,
+    control: impl FnMut(&O, &mut PlaybackClock) -> Result<Option<PlaybackEnd>, Box<dyn Error>>,
+    active_ms: impl FnMut(&PlaybackClock) -> u64,
+    wait: impl FnMut(),
+) -> Result<PreparedOutput, Box<dyn Error>> {
+    if output.needs_reopen(format)? {
+        let end = drain_output_with(output, clock, control, active_ms, wait)?;
+        if end != PlaybackEnd::Natural {
+            return Ok(PreparedOutput::Interrupted(end));
+        }
+    }
+    output.prepare(format).map(PreparedOutput::Ready)
 }
 
 pub(super) fn play_selection(
@@ -385,7 +505,29 @@ pub(super) fn play_selection(
                 let format = if let Some(session) = &processing {
                     session.output_format()
                 } else {
-                    let format = output.prepare(input_format)?;
+                    let format = match prepare_output_with(
+                        output,
+                        input_format,
+                        &mut playback_clock,
+                        |output, clock| control_action(controls, output, clock),
+                        PlaybackClock::active_ms,
+                        || std::thread::sleep(Duration::from_millis(25)),
+                    )? {
+                        PreparedOutput::Ready(format) => format,
+                        PreparedOutput::Interrupted(action) => {
+                            let played_ms = records.position_ms(cursor, &playback_clock);
+                            output.abort()?;
+                            normalization.finish_track(index, false)?;
+                            records.finish(false, &playback_clock)?;
+                            let Some(next) = next_index(cursor, paths.len(), played_ms, action)
+                            else {
+                                return Ok(());
+                            };
+                            index = next;
+                            playback_clock = PlaybackClock::new();
+                            continue;
+                        }
+                    };
                     processing = Some(PcmSession::new(input_format, format.sample_rate(), tone)?);
                     records.visualizer = TerminalVisualizer::new(format);
                     format
@@ -626,3 +768,7 @@ fn describe_track(
 #[cfg(test)]
 #[path = "play_session_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "play_drain_tests.rs"]
+mod drain_tests;

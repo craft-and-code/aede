@@ -17,6 +17,8 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+mod vorbis;
+
 /// A file or buffer that cannot satisfy the playback PCM contract.
 #[derive(Debug)]
 pub enum Error {
@@ -82,31 +84,18 @@ pub struct FileDecoder {
 
 enum Source {
     Native(PcmStreamDecoder),
+    Vorbis(vorbis::VorbisStream),
     Ffmpeg(FfmpegStream),
 }
 
 impl FileDecoder {
     /// Open a local file and read its format without decoding the whole track.
     pub fn open(path: &Path) -> Result<Self, Error> {
-        let tags = path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .filter(|extension| {
-                extension.eq_ignore_ascii_case("ogg") || extension.eq_ignore_ascii_case("oga")
-            })
-            .and_then(|_| crate::tags::read(path).ok());
-        let vorbis_ffmpeg = tags
-            .as_ref()
-            .filter(|tags| tags.properties.codec == "vorbis")
-            .and_then(|_| crate::ffmpeg::find());
-        let (inner, sample_rate, channels) = if let Some(ffmpeg) = vorbis_ffmpeg {
-            let tags = tags.as_ref().ok_or(Error::InvalidFormat)?;
-            let sample_rate = tags.properties.sample_rate.ok_or(Error::InvalidFormat)?;
-            let channels = tags.properties.channels.ok_or(Error::InvalidFormat)?;
-            // The native Vorbis path can emit padding after the final Ogg
-            // granule, notably when all audio fits on one page.
-            let external = FfmpegStream::open_with_program(path, sample_rate, channels, &ffmpeg)?;
-            (Source::Ffmpeg(external), sample_rate, channels)
+        let (inner, sample_rate, channels) = if let Some(native) = vorbis::VorbisStream::open(path)?
+        {
+            let sample_rate = native.sample_rate;
+            let channels = native.channels;
+            (Source::Vorbis(native), sample_rate, channels)
         } else {
             match PcmStreamDecoder::open(path) {
                 Ok(native) => {
@@ -116,7 +105,7 @@ impl FileDecoder {
                     (Source::Native(native), sample_rate, channels)
                 }
                 Err(native_error) => {
-                    let tags = match tags.or_else(|| crate::tags::read(path).ok()) {
+                    let tags = match crate::tags::read(path).ok() {
                         Some(tags)
                             if matches!(
                                 tags.properties.codec.as_str(),
@@ -140,6 +129,7 @@ impl FileDecoder {
         let layout = match channels {
             1 => ChannelLayout::MONO,
             2 => ChannelLayout::STEREO,
+            _ if let Source::Vorbis(native) = &inner => native.layout,
             _ if matches!(inner, Source::Native(_)) => {
                 ChannelLayout::from_mask(probe_channel_mask(path, sample_rate, channels)?)
                     .map_err(|_| Error::InvalidFormat)?
@@ -189,6 +179,7 @@ impl FileDecoder {
         while self.pending_offset == self.pending.len() {
             let chunk = match &mut self.inner {
                 Source::Native(native) => native.next_chunk().map_err(Error::Decode)?,
+                Source::Vorbis(native) => native.next_chunk()?,
                 Source::Ffmpeg(external) => external.next_chunk()?,
             };
             let Some(chunk) = chunk else {
@@ -410,3 +401,7 @@ impl Drop for FfmpegStream {
 #[cfg(test)]
 #[path = "decoder_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "decoder_vorbis_tests.rs"]
+mod vorbis_tests;

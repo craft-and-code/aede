@@ -111,3 +111,68 @@ fn native_integer_path_rejects_non_finite_and_overfull_pcm() {
     assert!(producer.write_f32le(&sample(1.1)).is_err());
     assert!(producer.write_f32le(&[0, 1, 2]).is_err());
 }
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[test]
+fn a_slow_next_file_counts_only_the_silence_beyond_buffered_audio_and_recovers_in_order() {
+    // Virtual 10 ms callbacks at 48 kHz consume a full 500 ms queue while the
+    // producer prepares the next file. No wall-clock or device timing is used.
+    let capacity_frames = 24_000;
+    let callback_frames = 480;
+    let next_frames = 4_096;
+    for delay_ms in [200, 600] {
+        let (mut producer, mut pending) = super::queue::pcm_queue(2, capacity_frames).unwrap();
+        let first = [0.125, -0.25].repeat(capacity_frames);
+        let next = [0.375, -0.5].repeat(next_frames);
+        assert_eq!(producer.write_samples(&first).unwrap(), first.len());
+        let mut rendered = [0.0; 480 * 2];
+        let mut heard = Vec::new();
+        for _ in 0..delay_ms / 10 {
+            pending.render_mapped(&mut rendered, 0.0, |sample| sample);
+            for frame in rendered.as_chunks::<2>().0 {
+                if frame[0] == 0.0 {
+                    assert_eq!(*frame, [0.0, 0.0]);
+                } else {
+                    heard.extend_from_slice(frame);
+                }
+            }
+        }
+        let missing_callbacks = (delay_ms / 10_u64).saturating_sub(50);
+        let before_refill = producer.snapshot();
+        assert_eq!(before_refill.underrun_callbacks, missing_callbacks);
+        assert_eq!(
+            before_refill.underrun_frames,
+            missing_callbacks * callback_frames
+        );
+        assert_eq!(producer.write_samples(&next).unwrap(), next.len());
+        producer.close_input();
+        while !producer.drained() {
+            pending.render_mapped(&mut rendered, 0.0, |sample| sample);
+            for frame in rendered.as_chunks::<2>().0 {
+                if frame[0] == 0.0 {
+                    assert_eq!(*frame, [0.0, 0.0]);
+                } else {
+                    heard.extend_from_slice(frame);
+                }
+            }
+        }
+        let mut expected = first;
+        expected.extend_from_slice(&next);
+        assert_eq!(heard, expected);
+        let finished = producer.snapshot();
+        assert_eq!(finished.queued_frames, 0);
+        assert_eq!(
+            finished.consumed_frames,
+            (capacity_frames + next_frames) as u64
+        );
+        assert_eq!(finished.underrun_frames, before_refill.underrun_frames);
+        assert_eq!(
+            finished.underrun_callbacks,
+            before_refill.underrun_callbacks
+        );
+    }
+}
