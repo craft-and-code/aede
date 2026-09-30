@@ -83,6 +83,13 @@ fn unknown_format_is_refused_independently() {
 #[test]
 fn playback_loudness_roundtrips_and_survives_catalog_updates() {
     let mut stored = Conclusions::default();
+    let imported = FileAnalysis {
+        path: "/music/one.wav".into(),
+        source: "flaccompagnon".into(),
+        source_version: 8,
+        ..Default::default()
+    };
+    stored.analyses.push(imported.clone());
     let file = ProgrammeFile {
         path: "/music/one.wav".into(),
         size: 100,
@@ -105,16 +112,21 @@ fn playback_loudness_roundtrips_and_survives_catalog_updates() {
         measurement: Some(measurement),
     });
     let mut restored = from_json(&to_json(&stored)).unwrap();
-    restored.update_from_catalog(&catalog());
+    let mut updated = catalog();
+    updated.analyses.push(imported.clone());
+    restored.update_from_catalog(&updated);
     assert_eq!(restored.loudness_tracks.len(), 1);
     assert_eq!(restored.loudness_programmes.len(), 1);
     assert_eq!(
         restored.loudness_programmes[0].measurement,
         Some(measurement)
     );
-    let mut old_method = to_json(&restored);
-    old_method.set("loudness_method_version", 1u32.into());
-    let expired = from_json(&old_method).unwrap();
-    assert!(expired.loudness_tracks.is_empty());
-    assert!(expired.loudness_programmes.is_empty());
+    for version in [1u32, 2] {
+        let mut old_method = to_json(&restored);
+        old_method.set("loudness_method_version", version.into());
+        let expired = from_json(&old_method).unwrap();
+        assert!(expired.loudness_tracks.is_empty());
+        assert!(expired.loudness_programmes.is_empty());
+        assert_eq!(expired.analyses, vec![imported.clone()]);
+    }
 }

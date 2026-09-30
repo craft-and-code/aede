@@ -18,11 +18,16 @@ mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
 pub mod loudness;
 mod meter;
+mod peak_tail;
 pub use meter::{OutputMeter, OutputMeterError, OutputSnapshot};
 mod rate;
 pub use rate::{RateConverter, RateError};
 mod tone;
 pub use tone::ToneControls;
+
+#[cfg(test)]
+#[path = "reference_signals.rs"]
+mod reference_signals;
 
 /// The decoded PCM layout used by a processing stream.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

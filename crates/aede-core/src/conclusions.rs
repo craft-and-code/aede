@@ -13,7 +13,7 @@ use crate::store::{self, StoreError};
 /// Independent on-disk format version for the conclusions store.
 pub const FORMAT_VERSION: u32 = 1;
 // Version 2 keeps true peak unknown when no oversampled estimate is available.
-const LOUDNESS_METHOD_VERSION: u32 = 2;
+const LOUDNESS_METHOD_VERSION: u32 = 3;
 /// File name inside Aède's data directory.
 pub const CONCLUSIONS_FILE: &str = "conclusions.json";
 

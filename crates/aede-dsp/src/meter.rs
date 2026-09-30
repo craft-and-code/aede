@@ -4,6 +4,7 @@ use std::fmt;
 
 use ebur128::{EbuR128, Mode};
 
+use crate::peak_tail::PeakTail;
 use crate::{PcmFormat, ProcessStats};
 
 #[derive(Debug)]
@@ -53,6 +54,7 @@ pub struct OutputSnapshot {
 pub struct OutputMeter {
     format: PcmFormat,
     true_peak: Option<EbuR128>,
+    peak_tail: PeakTail,
     frames: u64,
     pre_guard_sample_peak: f32,
     output_sample_peak: f32,
@@ -76,6 +78,7 @@ impl OutputMeter {
         Ok(Self {
             format,
             true_peak,
+            peak_tail: PeakTail::new(format),
             frames: 0,
             pre_guard_sample_peak: 0.0,
             output_sample_peak: 0.0,
@@ -88,6 +91,7 @@ impl OutputMeter {
         Self {
             format,
             true_peak: None,
+            peak_tail: PeakTail::new(format),
             frames: 0,
             pre_guard_sample_peak: 0.0,
             output_sample_peak: 0.0,
@@ -125,28 +129,31 @@ impl OutputMeter {
         self.guarded_samples = self
             .guarded_samples
             .saturating_add(stats.overfull_samples as u64);
-        if let Some(meter) = &mut self.true_peak
-            && let Err(error) = meter.add_frames_f32(guarded_samples)
-        {
-            self.true_peak = None;
-            return Err(OutputMeterError::Meter(error));
+        if let Some(meter) = &mut self.true_peak {
+            if let Err(error) = meter.add_frames_f32(guarded_samples) {
+                self.true_peak = None;
+                return Err(OutputMeterError::Meter(error));
+            }
+            self.peak_tail.push(guarded_samples);
         }
         Ok(())
     }
 
+    /// Treat the submitted prefix as a finite signal, including its FIR tail.
+    /// No silent frames are submitted or counted, and capture can continue.
     pub fn snapshot(&self) -> Result<OutputSnapshot, OutputMeterError> {
         let mut snapshot = self.sample_peak_snapshot();
         if let Some(meter) = &self.true_peak
             && self.frames > 0
         {
-            let mut peak = 0.0_f32;
-            for channel in 0..u32::from(self.format.channels()) {
-                peak = peak.max(meter.true_peak(channel).map_err(OutputMeterError::Meter)? as f32);
-            }
-            if !peak.is_finite() {
+            let peak = self
+                .peak_tail
+                .peak(meter)
+                .map_err(OutputMeterError::Meter)?;
+            if peak.is_some_and(|value| !value.is_finite()) {
                 return Err(OutputMeterError::InvalidBuffer);
             }
-            snapshot.output_true_peak = Some(peak);
+            snapshot.output_true_peak = peak;
         }
         Ok(snapshot)
     }
@@ -166,3 +173,7 @@ impl OutputMeter {
 #[cfg(test)]
 #[path = "meter_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "meter_reference_tests.rs"]
+mod reference_tests;

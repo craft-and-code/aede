@@ -8,6 +8,7 @@ use std::fmt;
 use ebur128::{EbuR128, Mode};
 
 use crate::PcmFormat;
+use crate::peak_tail::PeakTail;
 
 /// Integrated programme loudness and peak of the original PCM.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,7 +64,12 @@ impl From<ebur128::Error> for LoudnessError {
 /// windows that cross that boundary.
 #[derive(Default)]
 pub struct LoudnessProgramme {
-    meters: Vec<EbuR128>,
+    sections: Vec<Section>,
+}
+
+struct Section {
+    meter: EbuR128,
+    peak_tail: PeakTail,
 }
 
 impl LoudnessProgramme {
@@ -84,38 +90,51 @@ impl LoudnessProgramme {
         {
             return Err(LoudnessError::InvalidBuffer);
         }
-        let reuse = self.meters.last().is_some_and(|meter| {
-            meter.rate() == format.sample_rate() && meter.channels() == u32::from(format.channels())
+        let reuse = self.sections.last().is_some_and(|section| {
+            section.meter.rate() == format.sample_rate()
+                && section.meter.channels() == u32::from(format.channels())
         });
         if !reuse {
-            self.meters.push(EbuR128::new(
-                u32::from(format.channels()),
-                format.sample_rate(),
-                Mode::I | Mode::TRUE_PEAK,
-            )?);
+            self.sections.push(Section {
+                meter: EbuR128::new(
+                    u32::from(format.channels()),
+                    format.sample_rate(),
+                    Mode::I | Mode::TRUE_PEAK,
+                )?,
+                peak_tail: PeakTail::new(format),
+            });
         }
-        if let Some(meter) = self.meters.last_mut() {
-            meter.add_frames_f32(samples)?;
+        if let Some(section) = self.sections.last_mut() {
+            section.meter.add_frames_f32(samples)?;
+            section.peak_tail.push(samples);
         }
         Ok(())
     }
 
-    /// Finish the gated measurement; silence and streams under one gate have no LUFS.
+    /// Measure the finite programme; silence and streams under one gate have no LUFS.
+    ///
+    /// Resolve delayed true-peak outputs with a separate zero-extended tail.
+    /// This does not add silent loudness frames or modify subsequent capture.
     pub fn measurement(&self) -> Result<Option<Measurement>, LoudnessError> {
-        if self.meters.is_empty() {
+        if self.sections.is_empty() {
             return Ok(None);
         }
-        let loudness = EbuR128::loudness_global_multiple(self.meters.iter())?;
+        let loudness =
+            EbuR128::loudness_global_multiple(self.sections.iter().map(|section| &section.meter))?;
         if !loudness.is_finite() || !(-100.0..=20.0).contains(&loudness) {
             return Ok(None);
         }
         // ebur128 does not oversample at 192 kHz or above. A sample peak
         // from even one section cannot establish the programme's true peak.
-        let true_peak = if self.meters.iter().all(|meter| meter.rate() < 192_000) {
+        let true_peak = if self
+            .sections
+            .iter()
+            .all(|section| section.meter.rate() < 192_000)
+        {
             let mut peak = 0.0f32;
-            for meter in &self.meters {
-                for channel in 0..meter.channels() {
-                    peak = peak.max(meter.true_peak(channel)? as f32);
+            for section in &self.sections {
+                if let Some(section_peak) = section.peak_tail.peak(&section.meter)? {
+                    peak = peak.max(section_peak);
                 }
             }
             if !peak.is_finite() {
@@ -135,3 +154,11 @@ impl LoudnessProgramme {
 #[cfg(test)]
 #[path = "loudness_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "loudness_reference_tests.rs"]
+mod reference_tests;
+
+#[cfg(test)]
+#[path = "loudness_tail_tests.rs"]
+mod tail_tests;

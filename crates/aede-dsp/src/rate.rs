@@ -3,9 +3,13 @@
 use std::fmt;
 
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Async, Fft, FixedAsync, FixedSync, Indexing, Resampler, SincInterpolationParameters};
+use rubato::{
+    Async, Fft, FixedAsync, FixedSync, Indexing, Resampler, SincInterpolationParameters,
+    WindowFunction, calculate_cutoff,
+};
 
 const CHUNK_FRAMES: usize = 1024;
+const MIN_FILTER_FRAMES: usize = 256;
 
 #[derive(Debug)]
 pub enum RateError {
@@ -63,14 +67,27 @@ impl RateConverter {
             return Err(RateError::InvalidFormat);
         }
         let common = gcd(input_rate, output_rate);
+        let filter_input_frames = (MIN_FILTER_FRAMES * input_rate as usize)
+            .div_ceil(input_rate.min(output_rate) as usize);
         let resampler: Box<dyn Resampler<f32>> = if input_rate / common > CHUNK_FRAMES as u32
             || output_rate / common > CHUNK_FRAMES as u32
         {
+            // Sinc taps are in input frames too. Keep the same lower-rate
+            // bandwidth and guard band when downsampling; an automatic cutoff
+            // based on the enlarged input length would admit aliases.
+            let parameters = SincInterpolationParameters::new(
+                filter_input_frames,
+                WindowFunction::BlackmanHarris2,
+            )
+            .f_cutoff(calculate_cutoff(
+                MIN_FILTER_FRAMES,
+                WindowFunction::BlackmanHarris2,
+            ));
             Box::new(
                 Async::<f32>::new_sinc(
                     f64::from(output_rate) / f64::from(input_rate),
                     1.0,
-                    &SincInterpolationParameters::default(),
+                    &parameters,
                     CHUNK_FRAMES,
                     channels,
                     FixedAsync::Input,
@@ -78,12 +95,19 @@ impl RateConverter {
                 .map_err(|error| RateError::Resampler(error.to_string()))?,
             )
         } else {
+            // Rubato sizes its filter on the smaller side of the rate pair.
+            // Its default 256 input frames leave only 64 filter frames at
+            // 192 -> 48 kHz, attenuating 19.2 kHz by nearly 8 dB. Preserve
+            // at least 256 frames at the lower rate, even for large ratios.
+            let chunk_frames = CHUNK_FRAMES.max(filter_input_frames);
             Box::new(
-                Fft::<f32>::new(
+                Fft::<f32>::new_custom(
                     input_rate as usize,
                     output_rate as usize,
-                    CHUNK_FRAMES,
+                    chunk_frames,
+                    chunk_frames / filter_input_frames,
                     channels,
+                    WindowFunction::BlackmanHarris2,
                     FixedSync::Input,
                 )
                 .map_err(|error| RateError::Resampler(error.to_string()))?,
@@ -91,12 +115,13 @@ impl RateConverter {
         };
         let skip_frames = resampler.output_delay();
         let scratch = vec![0.0; resampler.output_frames_max() * channels];
+        let pending = Vec::with_capacity(resampler.input_frames_max() * channels * 2);
         Ok(Self {
             resampler,
             channels,
             input_rate,
             output_rate,
-            pending: Vec::with_capacity(CHUNK_FRAMES * channels * 2),
+            pending,
             scratch,
             output: Vec::new(),
             skip_frames,
@@ -192,3 +217,7 @@ use super::PcmFormat;
 #[cfg(test)]
 #[path = "rate_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "rate_quality_tests.rs"]
+mod quality_tests;
