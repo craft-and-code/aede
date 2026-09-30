@@ -20,7 +20,7 @@ The DSP is shared code for local playback and a future server audio path. Only l
 | F6: basic tone controls | Optional bass/treble shelves, per-channel floating filter state, exact flat bypass, bounded settings and conservative boost preamp. Coefficients follow the Audio EQ Cookbook through `biquad`. State persists across blocks and compatible naturally advancing tracks. | Parameter changes need a deliberate transition policy before live editing is offered. Absolute frequency-response and transient checks remain useful. |
 | F7: channel handling | Known speaker masks are retained. Multichannel sources can be downmixed to stereo with explicit coefficients, LFE omission and a conservative peak bound; unknown layouts are refused. | This is a documented downmix policy, not a guarantee of perceptual equivalence to a commercial decoder or the original multichannel mix. Wider layout and source-format fixtures remain useful. |
 | F8: rate conversion | Rubato performs bandlimited fixed-ratio conversion when the chosen device rate differs. Ordinary rate pairs use FFT conversion; unusual ratios use sinc interpolation. The shared session retains converter state and cumulative frame rounding across compatible files, trims startup once and drains once at group end. Both paths have whole-versus-split comparisons. | The existing single-tone alias test is a starting point; rate sweeps and quantified CPU/memory budgets remain. Incompatible source formats require a fresh processing group. |
-| F9: integer conversion and dither | Floating native formats are preferred. Supported integer output is quantized with continuous TPDF dither; floating output bypasses it and underruns produce exact silence. | The decoded `f32` path does not establish bit-perfect high-resolution integer output. ffplay's final conversion is outside Aède's control. The real-time properties of the surrounding native callback still need improvement. |
+| F9: integer conversion and dither | Floating native formats are preferred. Supported integer output is quantized with continuous TPDF dither; floating output bypasses it and underruns produce exact silence. The native callback uses a preallocated PCM ring, bounded rendering and atomic diagnostics. | The decoded `f32` path does not establish bit-perfect high-resolution integer output. ffplay's final conversion is outside Aède's control. Callback profiling and physical output under CPU/I/O pressure remain unmeasured. |
 | F10: metering and diagnostics | Submitted sample peak, pre-guard peak, available oversampled true-peak estimate, guard count, actual stage status and static headroom are reported. Spectrum display is optional. | Measurements precede dither/device conversion and do not measure analogue output. Dynamic gain reduction is unavailable without a limiter. Absolute reference signals and independent comparisons are still required for a compliance claim. |
 
 The code and sibling test files in [`aede-dsp`](../../crates/aede-dsp/README.md), [`aede-core::playback`](../../crates/aede-core/src/playback.rs) and the [CLI player](../../crates/aede-cli/src/commands/play.rs) provide the implementation evidence. The verification record below states which checks were actually run for this review.
@@ -73,17 +73,19 @@ Rubato's streaming model and explicit delay/tail handling support this direction
 
 [libsamplerate's FAQ, question 5](https://libsndfile.github.io/libsamplerate/faq.html) explains the same state requirement for chunked conversion: independent conversion calls cannot replace a stateful streaming converter. This supports the boundary tests; it does not require replacing Rubato.
 
+## Native output: bounded callback and direct PCM handoff
+
+The native path now uses [`rtrb` 0.4.0](https://docs.rs/rtrb/0.4.0/rtrb/) instead of the standard-library block channel. This small MIT/Apache-2.0 library has no runtime dependency; its documented SPSC contract gives fixed-capacity storage and immediate, lock-free/wait-free queue operations for plain samples. It avoids maintaining a new unsafe queue implementation in Aède. The ring is allocated when a device stream opens, with 500 ms of negotiated-rate PCM capacity. Complete-frame writes and reads preserve channel alignment across wraparound, backpressure and silence.
+
+The driver sends original processed `f32` samples into the native ring, eliminating the previous byte-to-vector conversion and allocation on every write attempt, including a rejected attempt. The ffplay path still receives encoded bytes and can acknowledge arbitrary byte prefixes; progress remains counted consistently in complete frames. The shared decoder/session views continue to carry encoded bytes outside the callback, so this change does not claim to remove every producer-side serialization cost.
+
+The Aède rendering callback maps borrowed ring slices to output samples without allocating, freeing replaced vectors, logging or acquiring a mutex. Its work is bounded by the requested output buffer. Missing frames produce exact silence and are counted only after initial submission and before input closure. Queue occupancy/capacity, consumed frames, missing frames/callbacks and host xruns are reported from the driver at completion or abort. Device error capture uses atomic codes/counters; CPAL route-change and real-time-scheduling warnings remain nonfatal, while permanent failures stop playback with a reason. The [playback design](../design/playback.md#native-output-callback-and-diagnostics) records the stable contract.
+
+PortAudio's [callback guidance](https://portaudio.com/docs/v19-doxydocs/writing_a_callback.html) supports removing heap work, I/O and mutex operations from rendering. These software properties do not establish a deadline guarantee for every CPAL/OS backend. No global allocation hook or physical-device profiler was used; the callback path and the dependency contract are inspectable, while target-hardware timing and underrun measurements remain required. CPAL's consumption counter is not a DAC acknowledgement, and the existing 100 ms final hardware-buffer allowance remains approximate.
+
 ## Remaining work in priority order
 
-### 1. Strengthen the native callback's real-time contract
-
-The current bounded standard-library channel and block handoff limit memory use and keep heavy processing off the callback. They do not establish a wait-free audio path: channel internals and destroying replaced sample vectors may still involve locks or deallocation. Device-error logging also belongs outside a time-critical path. Preserve bounded queues, pause/skip responsiveness and consumed-frame counters when changing this transport.
-
-The native producer also converts `f32le` bytes back into an allocated sample vector for each write attempt, including an attempt rejected by a full queue. A direct native `f32` sink and retained/preallocated pending data can remove these repeated copies and allocations. Preserve `f32le` serialization for transports that actually need bytes.
-
-PortAudio's [callback guidance](https://portaudio.com/docs/v19-doxydocs/writing_a_callback.html) recommends avoiding allocation/deallocation, I/O, mutex operations and other unbounded OS work in a callback. A preallocated SPSC ring buffer is a candidate; [`rtrb`](https://docs.rs/rtrb/latest/rtrb/) documents fixed capacity, wait-free reads/writes and no allocation after construction for plain sample elements. It is a future option, not a dependency added by this review. Record underruns and queue occupancy outside the callback to make hardware tests actionable.
-
-### 2. Add independent absolute signal validation and performance budgets
+### 1. Add independent absolute signal validation and performance budgets
 
 Use the [EBU Tech 3341 specification](https://tech.ebu.ch/publications/tech3341) and [official loudness test set](https://tech.ebu.ch/publications/ebu_loudness_test_set) to test absolute LUFS/gating and true-peak readings, not only agreement between two block sizes. Include silence, short streams, mono/stereo, gain-scaled material and sample rates with and without oversampled true-peak estimation. A comparison to another BS.1770 implementation is useful additional evidence, but is not a substitute for expected values from reference signals.
 
@@ -91,11 +93,11 @@ For F8, measure passband ripple and alias rejection across rate pairs, near the 
 
 Benchmark cold and warm startup, decode throughput, source loudness capture, output true-peak metering, EQ and resampling independently. Record release build, platform, input format/rate/channel count, queue margin and memory use. Set budgets using the intended NAS/device rather than an arbitrary development-machine result.
 
-### 3. Close decoder and physical gapless gaps
+### 2. Close decoder and physical gapless gaps
 
 Validate native Vorbis granule trimming with fixtures or explicitly retain ffmpeg as the exact-ending path. Record a loopback/device capture of consecutive test tracks, including format changes and output under CPU/I/O pressure. Check that output underruns are counted and visible. Validate physical sample continuity with the corrected continuous EQ/resampling session.
 
-### 4. Decide rate-versus-format policy and future preparation workflow
+### 3. Decide rate-versus-format policy and future preparation workflow
 
 Specify whether preserving a supported source rate is preferred over floating-point output at a different rate. Current format-first selection can cause conversion that a rate-first policy would avoid; either choice needs explicit behavior and tests. This is independent of operating-system mixer conversion and does not establish a bit-perfect device path.
 
@@ -108,7 +110,7 @@ If an explicit loudness preparation command or server task is added, provide pro
 - [W3C Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/): original biquad coefficient formulae adapted from Robert Bristow-Johnson, including shelf slope and normalization.
 - [`ebur128` code](https://github.com/sdroege/ebur128) and [API](https://docs.rs/ebur128/0.1.10/ebur128/struct.EbuR128.html): existing Rust loudness implementation, rate-dependent true-peak estimation and aggregation.
 - [Rubato code/documentation](https://github.com/HEnquist/rubato) and [CamillaDSP](https://github.com/HEnquist/camilladsp): existing resampling library and a larger Rust processing engine useful as architectural/measurement references.
-- [PortAudio callback guidance](https://portaudio.com/docs/v19-doxydocs/writing_a_callback.html) and [`rtrb`](https://docs.rs/rtrb/latest/rtrb/): real-time constraints and a possible preallocated transport primitive.
+- [PortAudio callback guidance](https://portaudio.com/docs/v19-doxydocs/writing_a_callback.html) and [`rtrb` 0.4.0](https://docs.rs/rtrb/0.4.0/rtrb/): real-time constraints and the preallocated native output queue. [CPAL error categories](https://docs.rs/cpal/0.18.1/cpal/enum.ErrorKind.html) distinguish recoverable route/scheduling notifications from stream failures.
 
 These references support retaining the current established libraries. They do not justify wholesale importing another engine, adding effects without a use case, or promising measured quality that has not yet been checked on Aède.
 
@@ -123,6 +125,12 @@ The regression coverage includes 18 lazy-normalization tests (import/tag/cache p
 The subsequent complete `tools/check.sh` run passed all the same gates with 1,150 Rust tests including the doctest and none ignored. Seven new core tests cover bit-identical whole/split processing with EQ and FFT/sinc conversion, fixed per-track gains, fractional cumulative boundaries, short/empty completions, delayed attribution, lifecycle errors and real WAV decoding with raw source observation. Three CLI integration tests cover continuous EQ across files, format-change resets and a corrupt later file preserving previous PCM/history. Three driver unit tests cover partial output acceptance, interrupted-write retry and delayed short-track history. Existing playback tests retain their behavior and count. The CLI boundary, partial-acceptance and interrupted-write regressions were reproduced as failures before correction.
 
 An isolated terminal test held a fake ffplay consumer open after EOF, sent Previous during final drain, then Stop during the restarted drain. Both 38,400-byte outputs with +6 dB bass and -3 dB treble were identical, confirming a fresh processor on restart; the command exited successfully and saved two incomplete listens and a count of two. It used synthetic WAV data and a separate temporary Aède data directory, with no real audio output. The report is `/private/tmp/aede-dsp-pty-9xc45exr/report.json`; the reusable driver is `/private/tmp/aede-dsp-pty.py`. These transport checks do not measure hardware playback.
+
+### Native output verification
+
+The complete `tools/check.sh` verification passed with 1,167 Rust tests including the doctest and none ignored: build-helper tests, formatting, warning-free lint, tests, documentation and release build. The existing five output tests and three submission tests retain their behavior and count. Nine new queue tests cover complete-frame prefixes, wraparound, full-queue retry, direct and encoded PCM validation, channel alignment, exact silence, startup/EOF exclusions, closed/abandoned queues and concurrent producer/consumer handoff. Five device-status tests distinguish recoverable notifications from fatal causes and preserve the first failure and host xrun count. Three submission tests prove original-sample delivery, per-track diagnostics/history and byte-exact fallback through arbitrary partial writes or an error after 519 accepted bytes.
+
+The rendering and error-capture paths were inspected for Aède heap work, locking and logging. Abort destroys the device stream before printing diagnostics, so terminal reporting cannot prolong queued delivery after a skip. No real device was opened for these tests and no audio was played. Physical scheduling, callback allocation profiling, device conversion and target-NAS budgets still need separate measurements. Native format changes can wait for queued output and the final 100 ms allowance without polling terminal controls; this pre-existing transition limit remains outside the ring handoff correction.
 
 ### Synthetic startup comparison
 

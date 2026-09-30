@@ -253,11 +253,31 @@ fn control_action(
 }
 
 trait PlaybackOutput: Write {
+    /// Accept PCM from its original samples or encoded transport bytes. The
+    /// byte offset and return value retain arbitrary partial-write semantics.
+    fn write_pcm(
+        &mut self,
+        _samples: &[f32],
+        f32le: &[u8],
+        byte_offset: usize,
+    ) -> std::io::Result<usize> {
+        self.write(&f32le[byte_offset..])
+    }
+
     fn pause(&self) -> Res;
     fn resume(&self) -> Res;
 }
 
 impl PlaybackOutput for LocalOutput {
+    fn write_pcm(
+        &mut self,
+        samples: &[f32],
+        f32le: &[u8],
+        byte_offset: usize,
+    ) -> std::io::Result<usize> {
+        self.write_pcm(samples, f32le, byte_offset)
+    }
+
     fn pause(&self) -> Res {
         self.pause()
     }

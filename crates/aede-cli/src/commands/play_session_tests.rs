@@ -226,3 +226,281 @@ fn delayed_src_frames_keep_the_previous_tracks_listening_identity() {
     assert!(second.completed);
     assert!(receive.try_recv().is_err());
 }
+
+struct DirectPcmOutput {
+    maximum_bytes: usize,
+    calls: Vec<(Vec<f32>, Vec<u8>, usize)>,
+    accepted_samples: Vec<f32>,
+}
+
+impl Write for DirectPcmOutput {
+    fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+        panic!("direct PCM output must receive the original samples");
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl PlaybackOutput for DirectPcmOutput {
+    fn write_pcm(
+        &mut self,
+        samples: &[f32],
+        f32le: &[u8],
+        byte_offset: usize,
+    ) -> io::Result<usize> {
+        self.calls
+            .push((samples.to_vec(), f32le.to_vec(), byte_offset));
+        assert!(byte_offset.is_multiple_of(8));
+        let remaining = &samples[byte_offset / 4..];
+        let count = remaining.len().min(self.maximum_bytes / 4);
+        self.accepted_samples.extend_from_slice(&remaining[..count]);
+        Ok(count * 4)
+    }
+
+    fn pause(&self) -> Res {
+        Ok(())
+    }
+
+    fn resume(&self) -> Res {
+        Ok(())
+    }
+}
+
+#[test]
+fn direct_pcm_submission_preserves_original_samples_and_each_tracks_progress() {
+    let format = PcmFormat::new(48_000, 2).expect("format");
+    let first = [0.25, -0.5].repeat(48);
+    let second = [0.75, -1.0].repeat(96);
+    let samples = [first.clone(), second.clone()].concat();
+    // These bytes encode NaN rather than the original PCM. A direct output
+    // must use the samples; a byte-only output would receive the sentinel.
+    let sentinel = vec![0xff; samples.len() * 4];
+    let spans = [
+        TrackSpan {
+            token: 21,
+            samples: 0..first.len(),
+            stats: aede_dsp::ProcessStats {
+                sample_peak: 1.1,
+                overfull_samples: 2,
+            },
+            complete: true,
+        },
+        TrackSpan {
+            token: 22,
+            samples: first.len()..samples.len(),
+            stats: aede_dsp::ProcessStats {
+                sample_peak: 1.4,
+                overfull_samples: 4,
+            },
+            complete: true,
+        },
+    ];
+    let (sender, receive) = mpsc::channel();
+    let mut records = PlaybackRecords::new(&sender, 2);
+    let mut clock = PlaybackClock::new();
+    records.begin(21, 0, Path::new("first-direct.wav"), format, &clock);
+    records.begin(22, 1, Path::new("second-direct.wav"), format, &clock);
+    let mut output = DirectPcmOutput {
+        maximum_bytes: 32,
+        calls: Vec::new(),
+        accepted_samples: Vec::new(),
+    };
+    let mut progress = BTreeMap::<usize, usize>::new();
+    let mut complete = Vec::new();
+    let result = submit_block(
+        SessionBlock {
+            samples: &samples,
+            f32le: &sentinel,
+            spans: &spans,
+        },
+        &mut output,
+        None,
+        &mut clock,
+        |event| {
+            match &event {
+                Submitted::Bytes { token, count } => {
+                    *progress.entry(*token).or_default() += count;
+                }
+                Submitted::Complete { span, samples } => {
+                    complete.push((span.token, samples.to_vec(), span.stats));
+                }
+            }
+            records.submitted(event)
+        },
+    );
+    assert_eq!(result.expect("direct submission"), PlaybackEnd::Natural);
+    assert_eq!(output.accepted_samples, samples);
+    assert_eq!(progress.get(&21), Some(&(first.len() * 4)));
+    assert_eq!(progress.get(&22), Some(&(second.len() * 4)));
+    let first_calls = first.len() * 4 / output.maximum_bytes;
+    for (call, (values, bytes, offset)) in output.calls.iter().enumerate() {
+        let (expected, local_call) = if call < first_calls {
+            (&first, call)
+        } else {
+            (&second, call - first_calls)
+        };
+        assert_eq!(values, expected);
+        assert_eq!(bytes, &vec![0xff; expected.len() * 4]);
+        assert_eq!(*offset, local_call * output.maximum_bytes);
+    }
+    assert_eq!(complete.len(), 2);
+    assert_eq!(complete[0], (21, first, spans[0].stats));
+    assert_eq!(complete[1], (22, second, spans[1].stats));
+    let second_record = records.pending.get(&22).expect("second pending listen");
+    assert_eq!(second_record.frames, 96);
+    let meter = second_record.meter.sample_peak_snapshot();
+    assert_eq!(meter.frames, 96);
+    assert_eq!(meter.output_sample_peak, 1.0);
+    assert_eq!(meter.pre_guard_sample_peak, 1.4);
+    assert_eq!(meter.guarded_samples, 4);
+    let PlaybackRecord::History(first_history) = receive.try_recv().expect("first history") else {
+        panic!("expected first listening history");
+    };
+    assert_eq!(first_history.path, Path::new("first-direct.wav"));
+    assert_eq!(first_history.played_ms, 1);
+    assert!(first_history.completed);
+    records
+        .finish(true, &clock)
+        .expect("complete second history");
+    let PlaybackRecord::History(second_history) = receive.try_recv().expect("second history")
+    else {
+        panic!("expected second listening history");
+    };
+    assert_eq!(second_history.path, Path::new("second-direct.wav"));
+    assert_eq!(second_history.played_ms, 2);
+    assert!(second_history.completed);
+    assert!(receive.try_recv().is_err());
+}
+
+struct BytePrefixOutput {
+    prefixes: std::collections::VecDeque<usize>,
+    fail_after_prefixes: bool,
+    calls: Vec<Vec<u8>>,
+    accepted_bytes: Vec<u8>,
+}
+
+impl Write for BytePrefixOutput {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.calls.push(bytes.to_vec());
+        let count = match self.prefixes.pop_front() {
+            Some(prefix) => prefix.min(bytes.len()),
+            None if self.fail_after_prefixes => {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
+            None => bytes.len(),
+        };
+        self.accepted_bytes.extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl PlaybackOutput for BytePrefixOutput {
+    fn pause(&self) -> Res {
+        Ok(())
+    }
+
+    fn resume(&self) -> Res {
+        Ok(())
+    }
+}
+
+#[test]
+fn byte_fallback_preserves_pcm_after_writes_ending_inside_samples() {
+    let format = PcmFormat::new(48_000, 2).expect("format");
+    let mut session = PcmSession::new(format, 48_000, ToneControls::FLAT).expect("session");
+    session.begin_track(30, 0.0).expect("track");
+    let samples = [0.25, -0.5].repeat(128);
+    let block = session.push_source(&samples).expect("source");
+    let expected = block.f32le.to_vec();
+    let mut output = BytePrefixOutput {
+        prefixes: [1, 2, 5, 9].into(),
+        fail_after_prefixes: false,
+        calls: Vec::new(),
+        accepted_bytes: Vec::new(),
+    };
+    let mut submitted_bytes = 0;
+    let mut complete_count = 0;
+    let result = submit_block(
+        block,
+        &mut output,
+        None,
+        &mut PlaybackClock::new(),
+        |event| {
+            match event {
+                Submitted::Bytes { token, count } => {
+                    assert_eq!(token, 30);
+                    submitted_bytes += count;
+                }
+                Submitted::Complete {
+                    span,
+                    samples: accepted,
+                } => {
+                    assert_eq!(span.token, 30);
+                    assert_eq!(accepted, samples);
+                    complete_count += 1;
+                }
+            }
+            Ok(())
+        },
+    );
+    assert_eq!(
+        result.expect("byte fallback submission"),
+        PlaybackEnd::Natural
+    );
+    assert_eq!(output.accepted_bytes, expected);
+    assert_eq!(submitted_bytes, expected.len());
+    assert_eq!(complete_count, 1);
+    assert_eq!(output.calls.len(), 5);
+    for (call, offset) in output.calls.iter().zip([0, 1, 3, 8, 17]) {
+        assert_eq!(call, &expected[offset..]);
+    }
+}
+
+#[test]
+fn byte_fallback_failure_keeps_only_complete_frames_of_the_exact_accepted_prefix() {
+    let format = PcmFormat::new(48_000, 2).expect("format");
+    let mut session = PcmSession::new(format, 48_000, ToneControls::FLAT).expect("session");
+    session.begin_track(31, 0.0).expect("track");
+    let block = session
+        .push_source(&[0.25, -0.5].repeat(128))
+        .expect("source");
+    let expected = block.f32le.to_vec();
+    let (sender, receive) = mpsc::channel();
+    let mut records = PlaybackRecords::new(&sender, 1);
+    let mut clock = PlaybackClock::new();
+    records.begin(31, 0, Path::new("odd-prefix.wav"), format, &clock);
+    clock.started = Instant::now() - Duration::from_secs(1);
+    let mut output = BytePrefixOutput {
+        prefixes: [3, 511, 5].into(),
+        fail_after_prefixes: true,
+        calls: Vec::new(),
+        accepted_bytes: Vec::new(),
+    };
+    let result = submit_block(block, &mut output, None, &mut clock, |event| {
+        records.submitted(event)
+    });
+    assert!(result.is_err());
+    assert_eq!(output.accepted_bytes, expected[..519]);
+    assert_eq!(output.calls.len(), 4);
+    for (call, offset) in output.calls.iter().zip([0, 3, 514, 519]) {
+        assert_eq!(call, &expected[offset..]);
+    }
+    let record = records.pending.get(&31).expect("pending listen");
+    assert_eq!(record.submitted_bytes, 519);
+    assert_eq!(record.frames, 64);
+    assert_eq!(record.meter.sample_peak_snapshot().frames, 0);
+    records.finish(false, &clock).expect("incomplete history");
+    let PlaybackRecord::History(history) = receive.try_recv().expect("history") else {
+        panic!("expected listening history");
+    };
+    assert_eq!(history.path, Path::new("odd-prefix.wav"));
+    assert_eq!(history.played_ms, 1);
+    assert!(!history.completed);
+    assert!(receive.try_recv().is_err());
+}

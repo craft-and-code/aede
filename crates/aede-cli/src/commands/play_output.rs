@@ -13,11 +13,25 @@ use aede_core::playback::output::OutputSession;
     target_os = "windows",
     all(target_os = "linux", target_env = "gnu")
 ))]
+#[path = "play_audio_queue.rs"]
+mod queue;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[path = "play_device_status.rs"]
+mod status;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
 mod native {
     use std::io::{self, Write};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
     use std::time::Duration;
 
     use aede_dsp::TpdfQuantizer;
@@ -25,8 +39,11 @@ mod native {
     use cpal::{SampleFormat, Stream, StreamConfig};
 
     use super::PcmStreamFormat;
+    use super::queue::{PcmProducer, pcm_queue};
+    use super::status::DeviceStatus;
 
-    const QUEUED_BLOCKS: usize = 64;
+    // Bound decode lead by time rather than decoder-dependent block sizes.
+    const QUEUE_MILLISECONDS: u64 = 500;
 
     fn format_rank(format: SampleFormat) -> Option<u8> {
         match format {
@@ -104,45 +121,17 @@ mod native {
         matching_output(input).map(|(_, _, format)| format)
     }
 
-    pub(super) fn decode_f32le(bytes: &[u8]) -> io::Result<Vec<f32>> {
-        if !bytes.len().is_multiple_of(4) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "unaligned PCM samples",
-            ));
-        }
-        let samples = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|sample| f32::from_le_bytes(*sample))
-            .collect::<Vec<_>>();
-        if samples
-            .iter()
-            .any(|sample| !sample.is_finite() || sample.abs() > 1.0)
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "audio output requires finite PCM within full scale",
-            ));
-        }
-        Ok(samples)
-    }
-
-    /// The callback takes complete sample blocks without allocating or locking.
-    /// A bounded channel keeps decoding ahead of the device without unbounded
-    /// memory growth. The producer never blocks inside Write, so pause and
-    /// transport keys remain available while the queue is full.
+    /// Device output backed by a preallocated single-producer/single-consumer
+    /// PCM ring. Device management and reporting stay on the driver thread.
     pub(in crate::commands::play) struct NativeOutput {
         format: PcmStreamFormat,
         sample_format: SampleFormat,
-        sender: SyncSender<Vec<f32>>,
         stream: Stream,
-        submitted: Arc<AtomicU64>,
-        consumed: Arc<AtomicU64>,
-        failed: Arc<AtomicBool>,
+        producer: PcmProducer,
+        status: Arc<DeviceStatus>,
         started: bool,
         closed: bool,
+        reported: bool,
     }
 
     impl NativeOutput {
@@ -150,29 +139,23 @@ mod native {
             let (device, supported, format) = matching_output(format)?;
             let sample_format = supported.sample_format();
             let config: StreamConfig = supported.into();
-            let (sender, receiver) = mpsc::sync_channel(QUEUED_BLOCKS);
-            let submitted = Arc::new(AtomicU64::new(0));
-            let consumed = Arc::new(AtomicU64::new(0));
-            let failed = Arc::new(AtomicBool::new(false));
-            let consumed_callback = Arc::clone(&consumed);
-            let failed_callback = Arc::clone(&failed);
-            let mut pending = PendingSamples::new(receiver);
+            let capacity_frames =
+                (u64::from(format.sample_rate()) * QUEUE_MILLISECONDS).div_ceil(1000) as usize;
+            let (producer, mut pending) =
+                pcm_queue(usize::from(format.channels()), capacity_frames)
+                    .map_err(|error| format!("cannot prepare audio queue: {error}"))?;
+            let status = Arc::new(DeviceStatus::default());
+            let status_callback = Arc::clone(&status);
             macro_rules! build_stream {
                 ($sample:ty, $silence:expr, $convert:expr) => {{
                     let mut convert = $convert;
                     device.build_output_stream(
                         config,
                         move |output: &mut [$sample], _| {
-                            pending.render_mapped(
-                                output,
-                                &consumed_callback,
-                                $silence,
-                                &mut convert,
-                            );
+                            pending.render_mapped(output, $silence, &mut convert);
                         },
                         move |error| {
-                            failed_callback.store(true, Ordering::Release);
-                            eprintln!("audio device error: {error}");
+                            status_callback.record(error.kind());
                         },
                         None,
                     )
@@ -223,13 +206,12 @@ mod native {
             Ok(Self {
                 format,
                 sample_format,
-                sender,
                 stream,
-                submitted,
-                consumed,
-                failed,
+                producer,
+                status,
                 started: false,
                 closed: false,
+                reported: false,
             })
         }
 
@@ -260,19 +242,23 @@ mod native {
         }
 
         pub(super) fn drained(&self) -> Result<bool, String> {
-            if self.failed.load(Ordering::Acquire) {
-                return Err("audio device stopped while playing".into());
-            }
-            Ok(self.submitted.load(Ordering::Acquire) == self.consumed.load(Ordering::Acquire))
+            self.status.check()?;
+            Ok(self.producer.drained())
+        }
+
+        pub(super) fn check(&self) -> Result<(), String> {
+            self.status.check()
         }
 
         pub(super) fn pause(&self) -> Result<(), String> {
+            self.status.check()?;
             self.stream
                 .pause()
                 .map_err(|error| format!("cannot pause audio device: {error}"))
         }
 
         pub(super) fn resume(&self) -> Result<(), String> {
+            self.status.check()?;
             self.stream
                 .play()
                 .map_err(|error| format!("cannot resume audio device: {error}"))
@@ -280,10 +266,11 @@ mod native {
 
         pub(super) fn close_input(&mut self) {
             self.closed = true;
+            self.producer.close_input();
         }
 
         pub(super) fn finish(&mut self) -> Result<(), String> {
-            self.closed = true;
+            self.close_input();
             while !self.drained()? {
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -292,86 +279,85 @@ mod native {
             if self.started {
                 std::thread::sleep(Duration::from_millis(100));
             }
+            self.status.check()?;
+            self.report_diagnostics();
             Ok(())
         }
-    }
 
-    impl Write for NativeOutput {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            if self.closed || self.failed.load(Ordering::Acquire) {
+        fn report_diagnostics(&mut self) {
+            if self.reported || !self.started {
+                return;
+            }
+            self.reported = true;
+            report_queue(&self.producer, &self.status);
+        }
+
+        pub(super) fn abort(self) {
+            let Self {
+                stream,
+                producer,
+                status,
+                started,
+                reported,
+                ..
+            } = self;
+            // Stop the device before terminal I/O: reporting must not prolong
+            // delivery of the queued track after a transport change.
+            drop(stream);
+            if started && !reported {
+                report_queue(&producer, &status);
+            }
+        }
+
+        fn start_if_needed(&mut self, nonempty: bool) -> io::Result<()> {
+            self.status.check().map_err(io::Error::other)?;
+            if self.closed {
                 return Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "audio output is closed",
                 ));
             }
-            let samples = decode_f32le(bytes)?;
-            match self.sender.try_send(samples) {
-                Ok(()) => {
-                    self.submitted
-                        .fetch_add((bytes.len() / 4) as u64, Ordering::Release);
-                    if !self.started {
-                        self.stream.play().map_err(io::Error::other)?;
-                        self.started = true;
-                    }
-                    Ok(bytes.len())
-                }
-                Err(TrySendError::Full(_)) => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-                Err(TrySendError::Disconnected(_)) => {
-                    Err(io::Error::from(io::ErrorKind::BrokenPipe))
-                }
+            // Start before publication so a failed stream start cannot hide
+            // accepted frames from the caller's progress accounting.
+            if !self.started && nonempty {
+                self.stream.play().map_err(io::Error::other)?;
+                self.started = true;
             }
+            Ok(())
+        }
+
+        pub(super) fn write_samples(&mut self, samples: &[f32]) -> io::Result<usize> {
+            self.start_if_needed(!samples.is_empty())?;
+            self.producer.write_samples(samples)
+        }
+    }
+
+    fn report_queue(producer: &PcmProducer, status: &DeviceStatus) {
+        let queue = producer.snapshot();
+        println!(
+            "Native output: {} consumed frames; queue {}/{} frames; {} missing frames in {} callbacks; {} host xruns",
+            queue.consumed_frames,
+            queue.queued_frames,
+            queue.capacity_frames,
+            queue.underrun_frames,
+            queue.underrun_callbacks,
+            status.snapshot_xruns(),
+        );
+        if queue.underrun_frames > 0 {
+            eprintln!(
+                "Warning: the native PCM queue ran short while playing; output used digital silence"
+            );
+        }
+    }
+
+    impl Write for NativeOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.start_if_needed(!bytes.is_empty())?;
+            self.producer.write_f32le(bytes)
         }
 
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
-        }
-    }
-
-    pub(super) struct PendingSamples {
-        receiver: Receiver<Vec<f32>>,
-        block: Vec<f32>,
-        offset: usize,
-    }
-
-    impl PendingSamples {
-        pub(super) fn new(receiver: Receiver<Vec<f32>>) -> Self {
-            Self {
-                receiver,
-                block: Vec::new(),
-                offset: 0,
-            }
-        }
-
-        pub(super) fn render_mapped<T: Copy>(
-            &mut self,
-            output: &mut [T],
-            consumed: &AtomicU64,
-            silence: T,
-            mut convert: impl FnMut(f32) -> T,
-        ) {
-            let mut played = 0;
-            for sample in output {
-                if self.offset == self.block.len() {
-                    match self.receiver.try_recv() {
-                        Ok(block) => {
-                            self.block = block;
-                            self.offset = 0;
-                        }
-                        Err(TryRecvError::Empty | TryRecvError::Disconnected) => {
-                            *sample = silence;
-                            continue;
-                        }
-                    }
-                }
-                if let Some(value) = self.block.get(self.offset) {
-                    *sample = convert(*value);
-                    self.offset += 1;
-                    played += 1;
-                } else {
-                    *sample = silence;
-                }
-            }
-            consumed.fetch_add(played, Ordering::Release);
         }
     }
 }
@@ -400,6 +386,43 @@ pub(super) enum LocalOutput {
 }
 
 impl LocalOutput {
+    pub(super) fn write_pcm(
+        &mut self,
+        samples: &[f32],
+        f32le: &[u8],
+        byte_offset: usize,
+    ) -> io::Result<usize> {
+        if byte_offset > f32le.len() || byte_offset > samples.len().saturating_mul(4) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PCM offset exceeds block",
+            ));
+        }
+        match self {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => {
+                if !byte_offset.is_multiple_of(4) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "native PCM offset is not sample aligned",
+                    ));
+                }
+                let remaining = samples.get(byte_offset / 4..).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "native PCM offset exceeds block",
+                    )
+                })?;
+                output.write_samples(remaining).map(|count| count * 4)
+            }
+            _ => self.write(&f32le[byte_offset..]),
+        }
+    }
+
     pub(super) fn stage_description(&self) -> &'static str {
         match self {
             Self::Ffplay(_) => "ffplay f32le",
@@ -543,6 +566,15 @@ impl LocalOutput {
     pub(super) fn stopped_early(&mut self) -> Result<bool, Box<dyn Error>> {
         match self {
             Self::Ffplay(output) => Ok(output.poll_finished()?),
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => {
+                output.check()?;
+                Ok(false)
+            }
             _ => Ok(false),
         }
     }
@@ -578,7 +610,8 @@ impl LocalOutput {
                 target_os = "windows",
                 all(target_os = "linux", target_env = "gnu")
             ))]
-            Self::Native { required, .. } => {
+            Self::Native { required, output } => {
+                output.abort();
                 *self = Self::Unopened {
                     choice: if required {
                         BackendChoice::Native

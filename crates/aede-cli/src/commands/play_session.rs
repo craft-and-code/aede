@@ -221,19 +221,21 @@ pub(super) fn submit_block(
     mut submitted: impl FnMut(Submitted<'_>) -> Res,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     for span in block.spans {
-        let mut pending = &block.f32le[span.samples.start * 4..span.samples.end * 4];
-        while !pending.is_empty() {
+        let samples = &block.samples[span.samples.clone()];
+        let bytes = &block.f32le[span.samples.start * 4..span.samples.end * 4];
+        let mut byte_offset = 0;
+        while byte_offset < bytes.len() {
             if let Some(action) = control_action(controls, output, clock)? {
                 return Ok(action);
             }
-            match output.write(pending) {
+            match output.write_pcm(samples, bytes, byte_offset) {
                 Ok(0) => return Err("audio output closed before accepting PCM".into()),
-                Ok(count) if count <= pending.len() => {
+                Ok(count) if count <= bytes.len() - byte_offset => {
                     submitted(Submitted::Bytes {
                         token: span.token,
                         count,
                     })?;
-                    pending = &pending[count..];
+                    byte_offset += count;
                 }
                 Ok(_) => return Err("audio output reported an invalid write length".into()),
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -243,10 +245,7 @@ pub(super) fn submit_block(
                 Err(error) => return Err(format!("audio output closed: {error}").into()),
             }
         }
-        submitted(Submitted::Complete {
-            span,
-            samples: &block.samples[span.samples.clone()],
-        })?;
+        submitted(Submitted::Complete { span, samples })?;
     }
     Ok(PlaybackEnd::Natural)
 }
