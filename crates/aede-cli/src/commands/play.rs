@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use aede_core::model::{Catalog, Id, TitleMatch};
-use aede_core::playback::gain_plan::{self, GainPlan};
+use aede_core::playback::gain_plan::{self, GainPlan, ReadyNormalization};
 use aede_core::playback::normalization::Mode as NormalizationMode;
 use aede_core::playback::stream::PcmTrack;
 use aede_core::store;
@@ -47,34 +47,38 @@ pub fn play(args: &Args) -> Res {
     let catalog = store::load(&store::catalog_path(&data_dir(args)))?;
     let selection = resolve(&raw, catalog.as_ref(), Some(args))?;
     let normalization_mode = selection.normalization_mode(requested_normalization);
-    if normalization_mode != NormalizationMode::Off {
-        eprintln!("Preparing loudness normalization…");
-    }
-    let gain_plans = gain_plan::plan_normalization(
-        &selection.paths,
+    let paths = selection.paths;
+    let mut normalization = ReadyNormalization::new(
+        &paths,
         selection.is_album,
         catalog.as_ref(),
         &data_dir(args),
         normalization_mode,
     )?;
-    let paths = selection.paths;
     let controls = Controls::start()?;
     if controls.is_some() {
         println!("Controls: Space pause/resume · n/→ next · p/← previous · q stop");
     }
     let mut output = LocalOutput::new()?;
-    let (history_send, history_receive) = mpsc::channel::<HistoryItem>();
+    let (history_send, history_receive) = mpsc::channel::<PlaybackRecord>();
     let history_args = args.clone();
     let history_worker = std::thread::spawn(move || -> Result<(), String> {
         for item in history_receive {
-            record_play(
-                &history_args,
-                &item.path,
-                item.started,
-                item.played_ms,
-                item.completed,
-            )
-            .map_err(|error| error.to_string())?;
+            match item {
+                PlaybackRecord::History(item) => record_play(
+                    &history_args,
+                    &item.path,
+                    item.started,
+                    item.played_ms,
+                    item.completed,
+                )
+                .map_err(|error| error.to_string())?,
+                PlaybackRecord::Loudness(update) => {
+                    if let Err(error) = update.save(&data_dir(&history_args)) {
+                        eprintln!("Warning: could not cache playback loudness: {error}");
+                    }
+                }
+            }
         }
         Ok(())
     });
@@ -82,6 +86,7 @@ pub fn play(args: &Args) -> Res {
         let mut index = 0;
         while index < paths.len() {
             let path = &paths[index];
+            let selected_gain = normalization.prepare(index)?;
             let started = clock::now_seconds();
             let mut played_ms = 0;
             let label = playing_label(path, catalog.as_ref());
@@ -94,19 +99,27 @@ pub fn play(args: &Args) -> Res {
                 index + 1 == paths.len(),
                 PlaybackSettings {
                     normalization_mode,
-                    selected_gain: gain_plans[index],
+                    selected_gain,
                     tone,
                 },
+                &mut normalization,
             );
             if played_ms > 0 {
                 history_send
-                    .send(HistoryItem {
+                    .send(PlaybackRecord::History(HistoryItem {
                         path: path.clone(),
                         started,
                         played_ms,
                         completed: matches!(result, Ok(PlaybackEnd::Natural)),
-                    })
+                    }))
                     .map_err(|_| "listening history worker stopped")?;
+            }
+            match normalization.finish_track(index, matches!(result, Ok(PlaybackEnd::Natural))) {
+                Ok(Some(update)) => history_send
+                    .send(PlaybackRecord::Loudness(update))
+                    .map_err(|_| "playback record worker stopped")?,
+                Ok(None) => {}
+                Err(error) => eprintln!("Warning: source loudness was not cached: {error}"),
             }
             match next_index(index, paths.len(), played_ms, result?) {
                 Some(next) => index = next,
@@ -184,6 +197,11 @@ struct HistoryItem {
     started: u64,
     played_ms: u64,
     completed: bool,
+}
+
+enum PlaybackRecord {
+    History(HistoryItem),
+    Loudness(gain_plan::LoudnessUpdate),
 }
 
 struct PlaybackSettings {
@@ -560,6 +578,7 @@ fn play_file(
     output: &mut LocalOutput,
     final_track: bool,
     settings: PlaybackSettings,
+    normalization: &mut ReadyNormalization<'_>,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
     let mut track = PcmTrack::open_stereo(path)?;
     let source_format = track.format();
@@ -601,7 +620,12 @@ fn play_file(
             );
         }
     } else if settings.normalization_mode != NormalizationMode::Off {
-        println!("Normalization: no usable loudness measurement or gain tag; no gain applied");
+        println!("Normalization: no stored loudness or matching gain; decoded level retained");
+    }
+    if normalization.is_measuring() {
+        println!(
+            "Loudness: measuring source during playback for a future listen; current gain stays fixed"
+        );
     }
     let preamp_db = settings.tone.safe_preamp_db();
     dsp.set_gain_db(normalization_gain_db + preamp_db, 0)?;
@@ -668,6 +692,7 @@ fn play_file(
         PlaybackDiagnostics {
             meter: Some(&mut meter),
             visualizer: visualizer.as_mut(),
+            normalization: Some(normalization),
         },
         controls,
         &mut clock,
@@ -743,9 +768,10 @@ fn play_file(
     }
 }
 
-struct PlaybackDiagnostics<'a> {
+struct PlaybackDiagnostics<'a, 'selection> {
     meter: Option<&'a mut OutputMeter>,
     visualizer: Option<&'a mut TerminalVisualizer>,
+    normalization: Option<&'a mut ReadyNormalization<'selection>>,
 }
 
 fn stream_pcm_counted(
@@ -754,7 +780,7 @@ fn stream_pcm_counted(
     output: &mut impl PlaybackOutput,
     frames_written: &mut u64,
     clamped_samples: &mut u64,
-    mut diagnostics: PlaybackDiagnostics<'_>,
+    mut diagnostics: PlaybackDiagnostics<'_, '_>,
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
@@ -763,11 +789,20 @@ fn stream_pcm_counted(
             return Ok(action);
         }
         let mut block_stats = ProcessStats::default();
-        let Some(block) = track.read_block(|samples| {
-            dsp.process_for_output(samples).map(|stats| {
-                block_stats = stats;
-            })
-        })?
+        let Some(block) = track.read_block_observed(
+            |format, samples| {
+                if let Some(session) = diagnostics.normalization.as_deref_mut()
+                    && let Err(error) = session.observe_source(format, samples)
+                {
+                    eprintln!("Source loudness meter stopped: {error}");
+                }
+            },
+            |samples| {
+                dsp.process_for_output(samples).map(|stats| {
+                    block_stats = stats;
+                })
+            },
+        )?
         else {
             return Ok(PlaybackEnd::Natural);
         };

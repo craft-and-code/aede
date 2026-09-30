@@ -489,6 +489,7 @@ Complete guides to Aède's features and architecture:
 ### Development & Engineering
 
 - [Current State](docs/coding/current-state.md) — Project status and active work
+- [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check

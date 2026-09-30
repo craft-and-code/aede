@@ -1,10 +1,143 @@
 use std::convert::Infallible;
 use std::path::PathBuf;
 
-use super::{PcmTrack, StreamError};
+use super::{PcmStreamFormat, PcmTrack, StreamError};
 
 fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audit-stereo.flac")
+}
+
+fn source_blocks(path: &std::path::Path) -> (PcmStreamFormat, Vec<Vec<f32>>) {
+    let mut track = PcmTrack::open(path).expect("source opens");
+    let format = track.format();
+    let mut blocks = Vec::new();
+    while let Some(block) = track
+        .read_block(|_| Ok::<(), Infallible>(()))
+        .expect("source decodes")
+    {
+        blocks.push(block.samples.to_vec());
+    }
+    (format, blocks)
+}
+
+#[test]
+fn source_observation_precedes_processing_and_does_not_repeat_at_eof() {
+    let (source_format, expected) = source_blocks(&fixture());
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    let mut observed = Vec::new();
+    let mut output = Vec::new();
+    while let Some(block) = track
+        .read_block_observed(
+            |format, samples| {
+                assert_eq!(format, source_format);
+                assert!(!samples.is_empty());
+                observed.push(samples.to_vec());
+            },
+            |samples| {
+                for sample in samples {
+                    *sample *= 0.5;
+                }
+                Ok::<(), Infallible>(())
+            },
+        )
+        .expect("track decodes")
+    {
+        output.push(block.samples.to_vec());
+    }
+    assert_eq!(observed, expected);
+    assert_eq!(output.len(), observed.len());
+    for (source, processed) in observed.iter().flatten().zip(output.iter().flatten()) {
+        assert_eq!(*processed, source * 0.5);
+    }
+    assert!(
+        track
+            .read_block_observed(
+                |_, _| panic!("EOF must not be observed"),
+                |_| Ok::<(), Infallible>(()),
+            )
+            .expect("EOF")
+            .is_none()
+    );
+}
+
+#[test]
+fn source_observation_preserves_every_input_block_during_resampling() {
+    let (source_format, expected) = source_blocks(&fixture());
+    assert!(expected.len() > 1);
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    track.set_output_rate(48_000).expect("output rate");
+    let mut observed = Vec::new();
+    let mut output_frames = 0usize;
+    while let Some(block) = track
+        .read_block_observed(
+            |format, samples| {
+                assert_eq!(format, source_format);
+                assert!(!samples.is_empty());
+                observed.push(samples.to_vec());
+            },
+            |samples| {
+                samples.fill(0.0);
+                Ok::<(), Infallible>(())
+            },
+        )
+        .expect("track resamples")
+    {
+        output_frames += block.frames;
+        assert!(block.samples.iter().all(|sample| *sample == 0.0));
+    }
+    assert_eq!(observed, expected);
+    let source_frames: usize = expected.iter().map(|block| block.len() / 2).sum();
+    assert_eq!(
+        output_frames as u64,
+        (source_frames as u64 * 48_000).div_ceil(44_100)
+    );
+}
+
+#[test]
+fn source_observation_precedes_downmix_and_excludes_the_resampler_tail() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/channel_fixtures/surround-5_1.wav");
+    let (source_format, expected) = source_blocks(&path);
+    assert_eq!(source_format.channels(), 6);
+    assert_eq!(expected.len(), 1);
+    let mut track = PcmTrack::open_stereo(&path).expect("known layout");
+    track.set_output_rate(48_000).expect("output rate");
+    let output_format = track.format();
+    let mut observed = Vec::new();
+    let mut output_frames = 0usize;
+    while let Some(block) = track
+        .read_block_observed(
+            |format, samples| {
+                assert_eq!(format, source_format);
+                assert!(!samples.is_empty());
+                observed.push(samples.to_vec());
+            },
+            |samples| {
+                samples.fill(0.0);
+                Ok::<(), Infallible>(())
+            },
+        )
+        .expect("track downmixes and resamples")
+    {
+        output_frames += block.frames;
+        assert_eq!(block.samples.len(), block.frames * 2);
+        assert!(block.samples.iter().all(|sample| *sample == 0.0));
+    }
+    assert_eq!(observed, expected);
+    assert_eq!(
+        output_frames as u64,
+        (120 * u64::from(output_format.sample_rate()))
+            .div_ceil(u64::from(source_format.sample_rate()))
+    );
+    assert!(
+        track
+            .read_block_observed(
+                |_, _| panic!("resampler tail must not be observed"),
+                |_| Ok::<(), Infallible>(()),
+            )
+            .expect("EOF")
+            .is_none()
+    );
 }
 
 #[test]

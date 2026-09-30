@@ -102,6 +102,55 @@ fn cli_rejects_an_unknown_audio_backend() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("must be native or ffplay"));
 }
 
+#[test]
+fn missing_loudness_on_later_tracks_does_not_delay_or_prevent_the_first_output() {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "aede_lazy_loudness_{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let music = root.join("music");
+    std::fs::create_dir_all(&music).expect("music directory");
+    let first = music.join("01.flac");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-core/tests/fixtures/audit-stereo.flac"),
+        &first,
+    )
+    .expect("first fixture");
+    std::fs::write(music.join("02.flac"), b"not decodable audio").expect("bad later file");
+    let ffplay = root.join("ffplay");
+    std::fs::write(&ffplay, "#!/bin/sh\ncat > \"$0.data\"\n").expect("output stub");
+    std::fs::set_permissions(&ffplay, std::fs::Permissions::from_mode(0o700)).expect("executable");
+    let mut path = std::ffi::OsString::from(root.as_os_str());
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    let result = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args([
+            "play",
+            &music.to_string_lossy(),
+            "--data",
+            &root.join("data").to_string_lossy(),
+        ])
+        .env("PATH", path)
+        .env("AEDE_AUDIO_BACKEND", "ffplay")
+        .output()
+        .expect("playback");
+    assert!(!result.status.success(), "bad later file is reported");
+    assert_eq!(
+        std::fs::read(ffplay.with_extension("data")).expect("first PCM output"),
+        pcm(&first)
+    );
+    let history = user::load(&user::user_path(&root.join("data")))
+        .expect("history")
+        .expect("saved");
+    assert_eq!(history.plays.len(), 1);
+    assert!(history.plays[0].completed);
+    assert!(String::from_utf8_lossy(&result.stdout).contains("measuring source during playback"));
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
 fn played_pcm(fixture: &str, normalization: Option<&str>) -> (Vec<f32>, user::UserData, String) {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let root = std::env::temp_dir().join(format!(

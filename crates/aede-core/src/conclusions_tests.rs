@@ -113,7 +113,7 @@ fn playback_loudness_roundtrips_and_survives_catalog_updates() {
         Some(measurement)
     );
     let mut old_method = to_json(&restored);
-    old_method.set("loudness_method_version", 0u32.into());
+    old_method.set("loudness_method_version", 1u32.into());
     let expired = from_json(&old_method).unwrap();
     assert!(expired.loudness_tracks.is_empty());
     assert!(expired.loudness_programmes.is_empty());

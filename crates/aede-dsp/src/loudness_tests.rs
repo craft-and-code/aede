@@ -61,3 +61,31 @@ fn invalid_pcm_is_refused_without_changing_the_measurement() {
     ));
     assert_eq!(meter.measurement().unwrap(), previous);
 }
+
+#[test]
+fn high_rate_programme_retains_lufs_without_claiming_true_peak() {
+    for rate in [192_000, 384_000] {
+        let mut meter = LoudnessProgramme::new();
+        meter
+            .push(PcmFormat::new(rate, 1).unwrap(), &sine(rate, 0.2))
+            .unwrap();
+        let measured = meter.measurement().unwrap().unwrap();
+        assert!(measured.integrated_lufs.is_finite());
+        assert_eq!(measured.true_peak, None);
+    }
+}
+
+#[test]
+fn programme_with_high_rate_section_does_not_claim_true_peak() {
+    let mut meter = LoudnessProgramme::new();
+    meter
+        .push(PcmFormat::new(48_000, 1).unwrap(), &sine(48_000, 0.2))
+        .unwrap();
+    assert!(meter.measurement().unwrap().unwrap().true_peak.is_some());
+    meter
+        .push(PcmFormat::new(192_000, 1).unwrap(), &sine(192_000, 0.2))
+        .unwrap();
+    let measured = meter.measurement().unwrap().unwrap();
+    assert!(measured.integrated_lufs.is_finite());
+    assert_eq!(measured.true_peak, None);
+}

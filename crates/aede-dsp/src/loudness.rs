@@ -14,7 +14,8 @@ use crate::PcmFormat;
 pub struct Measurement {
     /// Gated programme loudness in LUFS.
     pub integrated_lufs: f32,
-    /// Linear true peak, when measured; may exceed one.
+    /// Linear true peak, when every programme section has an oversampled
+    /// estimate; may exceed one. Unavailable at 192 kHz and above.
     pub true_peak: Option<f32>,
 }
 
@@ -108,18 +109,25 @@ impl LoudnessProgramme {
         if !loudness.is_finite() || !(-100.0..=20.0).contains(&loudness) {
             return Ok(None);
         }
-        let mut peak = 0.0f32;
-        for meter in &self.meters {
-            for channel in 0..meter.channels() {
-                peak = peak.max(meter.true_peak(channel)? as f32);
+        // ebur128 does not oversample at 192 kHz or above. A sample peak
+        // from even one section cannot establish the programme's true peak.
+        let true_peak = if self.meters.iter().all(|meter| meter.rate() < 192_000) {
+            let mut peak = 0.0f32;
+            for meter in &self.meters {
+                for channel in 0..meter.channels() {
+                    peak = peak.max(meter.true_peak(channel)? as f32);
+                }
             }
-        }
-        if !peak.is_finite() {
-            return Ok(None);
-        }
+            if !peak.is_finite() {
+                return Ok(None);
+            }
+            Some(peak)
+        } else {
+            None
+        };
         Ok(Some(Measurement {
             integrated_lufs: loudness as f32,
-            true_peak: Some(peak),
+            true_peak,
         }))
     }
 }

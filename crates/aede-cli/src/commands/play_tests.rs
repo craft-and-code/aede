@@ -366,6 +366,7 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
         PlaybackDiagnostics {
             meter: Some(&mut meter),
             visualizer: None,
+            normalization: None,
         },
         None,
         &mut PlaybackClock::new(),
@@ -415,6 +416,7 @@ fn tone_processing_reaches_the_serialized_playback_stream() {
         PlaybackDiagnostics {
             meter: None,
             visualizer: None,
+            normalization: None,
         },
         None,
         &mut PlaybackClock::new(),
@@ -457,6 +459,7 @@ fn surround_source_reaches_cli_output_as_stereo_frames() {
         PlaybackDiagnostics {
             meter: None,
             visualizer: None,
+            normalization: None,
         },
         None,
         &mut PlaybackClock::new(),

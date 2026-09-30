@@ -11,6 +11,10 @@ use crate::playback::normalization::{self, Mode as NormalizationMode, Source};
 use crate::store_lock::StoreLock;
 use crate::tags;
 
+#[path = "gain_plan_ready.rs"]
+mod ready;
+pub use ready::{LoudnessUpdate, ReadyNormalization};
+
 /// The gain chosen before the DSP enforces output headroom.
 #[derive(Clone, Copy)]
 pub struct GainPlan {
@@ -96,8 +100,9 @@ fn album_groups(paths: &[PathBuf], is_album: bool, catalog: Option<&Catalog>) ->
     groups
 }
 
-/// Select and cache normalization gain for an ordered playback selection.
-/// This policy is shared by the terminal and future remote audio handlers.
+/// Explicitly premeasure and cache an ordered playback selection.
+/// This blocking preparation can decode every missing track or whole album.
+/// Interactive CLI and future remote playback use [`ReadyNormalization`].
 pub fn plan_normalization(
     paths: &[PathBuf],
     is_album: bool,

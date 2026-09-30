@@ -151,6 +151,22 @@ impl PcmTrack {
         &mut self,
         process: impl FnOnce(&mut [f32]) -> Result<(), E>,
     ) -> Result<Option<PcmBlock<'_>>, StreamError<E>> {
+        self.read_block_observed(|_, _| {}, process)
+    }
+
+    /// Read a block while observing decoded source PCM before any downmix,
+    /// rate conversion or caller-supplied processing.
+    ///
+    /// The observer receives each nonempty source block exactly once with its
+    /// original format. One output block may require several source blocks,
+    /// or contain only a converter tail; the tail and EOF are never observed.
+    /// Observers that perform optional measurements should retain their own
+    /// errors without interrupting playback.
+    pub fn read_block_observed<E>(
+        &mut self,
+        mut observe: impl FnMut(PcmStreamFormat, &[f32]),
+        process: impl FnOnce(&mut [f32]) -> Result<(), E>,
+    ) -> Result<Option<PcmBlock<'_>>, StreamError<E>> {
         if self.ended {
             return Ok(None);
         }
@@ -162,6 +178,9 @@ impl PcmTrack {
                     .read_frames(&mut self.samples)
                     .map_err(StreamError::Decode)?;
                 let source_count = frames * usize::from(self.source_format.channels());
+                if frames > 0 {
+                    observe(self.source_format, &self.samples[..source_count]);
+                }
                 let count = frames * usize::from(self.decode_format.channels());
                 let samples = if let Some(downmix) = &self.downmix {
                     let stereo = &mut self.stereo[..count];
@@ -204,6 +223,7 @@ impl PcmTrack {
             return Ok(None);
         }
         let source_count = frames * usize::from(self.source_format.channels());
+        observe(self.source_format, &self.samples[..source_count]);
         let count = frames * usize::from(self.decode_format.channels());
         let samples = if let Some(downmix) = &self.downmix {
             let stereo = &mut self.stereo[..count];
