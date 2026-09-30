@@ -6,6 +6,85 @@
 
 use super::*;
 
+#[test]
+fn the_newest_report_result_wins_independently_of_import_order() {
+    let older = FileAnalysis {
+        path: "/music/Artist/Album/01.flac".into(),
+        source: "flaccompagnon".into(),
+        result_at_ns: 1_750_000_000_000_000_100,
+        summary: Some("older group result".into()),
+        ..Default::default()
+    };
+    let newer = FileAnalysis {
+        result_at_ns: older.result_at_ns + 100,
+        summary: Some("newer album result".into()),
+        ..older.clone()
+    };
+    for records in [
+        vec![newer.clone(), older.clone()],
+        vec![older.clone(), newer.clone()],
+    ] {
+        let mut catalog = Catalog::default();
+        merge_into(&mut catalog, records, 99);
+        assert_eq!(
+            catalog.analyses,
+            vec![FileAnalysis {
+                imported_at: 99,
+                ..newer.clone()
+            }]
+        );
+        let outcome = merge_into(&mut catalog, vec![older.clone()], 100);
+        assert_eq!(outcome.older, 1);
+        assert_eq!(catalog.analyses[0].imported_at, 99);
+        assert_eq!(catalog.analyses[0].summary, newer.summary);
+    }
+    let legacy = crate::store::analysis_from_json(
+        &crate::json::parse(
+            r#"{"path":"/music/01.flac","source":"flaccompagnon","imported_at":10}"#,
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        legacy.result_at_ns, 0,
+        "older stored records remain readable"
+    );
+}
+
+#[test]
+fn a_valid_report_replaces_a_stale_measurement_regardless_of_report_dates() {
+    let path = "/music/Artist/Album/01.flac";
+    let current = FileAnalysis {
+        path: path.into(),
+        source: "flaccompagnon".into(),
+        size_bytes: 10,
+        modified_unix: 3,
+        result_at_ns: 100,
+        summary: Some("current bytes".into()),
+        ..Default::default()
+    };
+    let mut catalog = Catalog {
+        files: vec![crate::model::AudioFile {
+            path: path.into(),
+            size: 10,
+            mtime: 3,
+            ..Default::default()
+        }],
+        analyses: vec![FileAnalysis {
+            modified_unix: 2,
+            result_at_ns: 200,
+            summary: Some("different bytes".into()),
+            ..current.clone()
+        }],
+        ..Default::default()
+    };
+    let outcome = merge_into(&mut catalog, vec![current], 300);
+    assert_eq!(outcome.older, 0);
+    assert_eq!(
+        catalog.analyses[0].summary.as_deref(),
+        Some("current bytes")
+    );
+}
+
 /// A report holding one file, with the fields a real one carries.
 fn example(extra: &str) -> String {
     format!(

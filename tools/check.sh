@@ -10,6 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+echo "-> Build helper tests (offline)"
+python3 tools/update_flaccompagnon_tests.py
+
 echo "-> Formatting"
 cargo fmt --all -- --check
 

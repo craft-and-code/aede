@@ -55,6 +55,7 @@ const VALUED_WORD: &[&str] = &[
     "year",
     "output",
     "threads",
+    "json-layout",
     "separator",
     "source",
     "offset",

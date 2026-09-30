@@ -345,6 +345,9 @@ const OPTIONS: &[&str] = &[
     "year",
     "output",
     "threads",
+    "force",
+    "show-results",
+    "json-layout",
     "genre",
     "label",
     "json",
@@ -627,6 +630,17 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "threads",
         &["scan", "check", "spectrum", "copy", "analyze"],
         "read on several threads",
+    ),
+    (
+        "force",
+        &["analyze"],
+        "reanalyze and replace selected reports",
+    ),
+    ("show-results", &["analyze"], "print acoustic measurements"),
+    (
+        "json-layout",
+        &["analyze"],
+        "save reports in album or artist folders",
     ),
     ("replace", &["scan", "copy"], "forget the watched folders"),
     (

@@ -80,6 +80,8 @@ for files absent from the new scan. Full scans, backups and graph exports carry
 legacy conclusions without depending on a read-side migration. An unreadable
 independent conclusions store is an error, not permission to overwrite it.
 
+Analysis rows also retain the report's modification time, or the completion time of an in-process analysis, as `result_at_ns`. This backward-compatible field defaults to zero for older undated rows. It is distinct from the audio file's whole-second modification date: subsecond precision orders successive reports without changing the byte-identity contract. When results for the same file and source overlap, the latest dated result survives imports and scans. Deleting an imported report does not remove the independent row. See [Imported analyses](../imported-analyses.md#re-running-an-analysis-and-keeping-its-results).
+
 ## What it does not solve
 
 `roots` and `excluded` stay in the catalog, and no scan invents them. A

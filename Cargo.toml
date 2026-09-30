@@ -10,6 +10,8 @@ repository = "https://github.com/craft-and-code/aede"
 rust-version = "1.89"
 
 [workspace.dependencies]
+# Shared analysis engine; tools/build.sh selects the latest published release.
+flaccompagnon-core = { git = "https://github.com/craft-and-code/FlacCompagnon", tag = "v0.9.5" }
 # Tag reading for the containers Aede has no parser of its own for.
 lofty = "0.25"
 # HTTP for M1, behind aede-core's `fetch` feature. Pinned rather than floating:

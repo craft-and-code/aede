@@ -53,6 +53,10 @@ jobs:
       # No bash script on Windows, and no `--offline` subtleties either: the
       # point of this leg is that the parsers and the path handling work on a
       # system where a separator is a backslash.
+      - name: Build helper tests (Windows, offline)
+        if: runner.os == 'Windows'
+        run: python tools/update_flaccompagnon_tests.py
+
       - name: Tests (Windows)
         if: runner.os == 'Windows'
         run: cargo test --locked

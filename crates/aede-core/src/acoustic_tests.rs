@@ -65,3 +65,26 @@ fn albums_with_same_track_name_remain_in_separate_reports() {
     };
     assert_eq!(album_files(&catalog, &[]).len(), 2);
 }
+
+#[test]
+fn progress_is_reported_before_decoding_the_file() {
+    let folder = std::env::temp_dir().join(format!("aede_start_progress_{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("track.wav");
+    std::fs::write(&path, b"not audio").unwrap();
+    let report = analyze_album_with_progress(
+        &folder,
+        std::slice::from_ref(&path),
+        &ScanOptions::default(),
+        1,
+        |index, total, file| {
+            assert_eq!((index, total), (1, 1));
+            // Removal in the callback proves it runs before the decoder opens the file.
+            std::fs::remove_file(file).unwrap();
+        },
+    );
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(report.files[0].size_bytes, 0);
+    assert!(report.files[0].error.is_some());
+    std::fs::remove_dir(&folder).unwrap();
+}

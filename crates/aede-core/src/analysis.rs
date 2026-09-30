@@ -51,6 +51,10 @@ pub struct FileAnalysis {
     pub source_version: u32,
     /// When it was imported, in seconds since the Unix epoch.
     pub imported_at: u64,
+    /// Report modification time, or in-process measurement completion, in
+    /// nanoseconds since the Unix epoch. Zero means an older stored result
+    /// whose date is unknown. Distinct from the audio file's own mtime.
+    pub result_at_ns: u64,
     /// Size the analysed file had, in bytes.
     ///
     /// With [`FileAnalysis::modified_unix`], this makes an exact-path or legacy
@@ -186,6 +190,9 @@ pub struct Attachment {
     pub stale: usize,
     /// Records kept although no file matches them yet.
     pub waiting: usize,
+    /// Incoming records superseded by a more recent result for the same file
+    /// and source. Re-reading an old report must not undo a newer analysis.
+    pub older: usize,
     /// The first few waiting **folders**, each with how many wait in it, for a
     /// report that names rather than counts.
     ///
@@ -304,7 +311,9 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
     }
 
     for record in resolved {
-        store_one(catalog, record);
+        if !store_one(catalog, record) {
+            out.older += 1;
+        }
     }
     sort_analyses(catalog);
     out
@@ -453,13 +462,24 @@ fn file_md5(path: &Path) -> std::io::Result<String> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
-/// Stores one record, replacing what that source had already said about that
-/// path. Importing the same report twice replaces, it does not accumulate.
-fn store_one(catalog: &mut Catalog, record: FileAnalysis) {
+/// Stores the latest dated result for one path and source. Equal or unknown
+/// dates retain the legacy import-order rule; records never accumulate.
+fn store_one(catalog: &mut Catalog, record: FileAnalysis) -> bool {
+    if record.result_at_ns != 0
+        && catalog.analyses.iter().any(|held| {
+            held.path == record.path
+                && held.source == record.source
+                && held.still_applies(record.size_bytes, record.modified_unix)
+                && held.result_at_ns > record.result_at_ns
+        })
+    {
+        return false;
+    }
     catalog
         .analyses
         .retain(|a| !(a.path == record.path && a.source == record.source));
     catalog.analyses.push(record);
+    true
 }
 
 fn sort_analyses(catalog: &mut Catalog) {
@@ -521,7 +541,12 @@ const SUPPORTED_VERSION: u32 = 1;
 /// measurements, and a report carrying one must still import the rest.
 pub fn read_report(path: &Path) -> Result<Report, ImportError> {
     let text = std::fs::read_to_string(path)?;
-    parse_report(&text)
+    let mut report = parse_report(&text)?;
+    let result_at_ns = crate::clock::mtime_nanoseconds(&std::fs::metadata(path)?);
+    for file in &mut report.files {
+        file.result_at_ns = result_at_ns;
+    }
+    Ok(report)
 }
 
 /// Parse a report already held in memory, including a newly produced analysis.
@@ -593,6 +618,7 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
         source: "flaccompagnon".to_string(),
         source_version: version,
         imported_at: 0,
+        result_at_ns: 0,
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
         file_md5: item.field_str("file_md5"),

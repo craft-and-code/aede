@@ -57,9 +57,9 @@ pub fn analyze_album(
     analyze_album_with_progress(folder, paths, options, threads, |_, _, _| {})
 }
 
-/// Analyze an album while reporting each completed file to the caller.
+/// Analyze an album while reporting each starting file to the caller.
 ///
-/// The callback runs on an analysis worker after its file has been stored, so
+/// The callback runs on an analysis worker before decoding its file, so
 /// a terminal client can show useful progress without changing ordering or
 /// requiring the core to write to a terminal itself.
 pub fn analyze_album_with_progress<F>(
@@ -73,7 +73,6 @@ where
     F: Fn(usize, usize, &Path) + Sync,
 {
     let next = AtomicUsize::new(0);
-    let completed = AtomicUsize::new(0);
     let slots: Vec<OnceLock<FileAnalysis>> = (0..paths.len()).map(|_| OnceLock::new()).collect();
     std::thread::scope(|scope| {
         for _ in 0..threads.max(1).min(paths.len()) {
@@ -83,9 +82,8 @@ where
                     if index >= paths.len() {
                         break;
                     }
+                    on_progress(index + 1, paths.len(), &paths[index]);
                     let _ = slots[index].set(fc::analyze_file(&paths[index], options));
-                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                    on_progress(done, paths.len(), &paths[index]);
                 }
             });
         }

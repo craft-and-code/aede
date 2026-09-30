@@ -62,7 +62,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Create spectrograms beside the selected music.",
         },
         "analyze" => CommandPage {
-            usage: "aede analyze [folder…] [--json] [--threads N]",
+            usage: "aede analyze [folder…] [--json | --json-layout album|artist] [--force] [--show-results] [--threads N]",
             summary: "Analyze albums with FlacCompagnon and optionally save one JSON report per album.",
         },
         "playlist" => CommandPage {
@@ -989,6 +989,10 @@ pub fn print_command(command: &str) {
         println!("\n  Also available as: aede {alias}");
     }
     match command {
+        "analyze" => {
+            print_analyze_help();
+            print_delegation_help(command);
+        }
         "play" => print_play_help(),
         "serve" => print_server_help(),
         "cancel" => print_cancel_help(),
@@ -1014,6 +1018,21 @@ pub fn print_command(command: &str) {
         }
     }
     print_global_options(command != "play");
+}
+
+fn print_analyze_help() {
+    println!("\n{}", ui::cyan("RESULTS AND REPORTS"));
+    for paragraph in [
+        "Unchanged tracks with valid existing reports are reused. --force analyzes them again. Results are stored in Aede even without --json.",
+        "--json saves <album>.json in its album folder. --json-layout album|artist selects album or parent artist folders and enables saving. --force replaces selected reports. --show-results prints track results; progress is always shown.",
+        "An artist-level FlacCompagnon report may cover several albums. Scan the folder containing it, or use aede import, to attach each result to its audio file. Album-level reports work the same way.",
+        "When dates are available, the newer report modification date wins for overlapping results; new in-process measurements use their completion date. Imported results stay in conclusions.json when a report is deleted, including after a full scan. Changed audio files make their old measurements stale.",
+    ] {
+        for line in ui::wrap(paragraph, 76) {
+            println!("  {line}");
+        }
+        println!();
+    }
 }
 
 fn print_play_help() {

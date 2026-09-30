@@ -28,12 +28,10 @@ pub fn is_interactive() -> bool {
 
 /// Animate a temporary line while a blocking operation runs. The operation
 /// must not print until it returns; redirected output gets no animation.
-#[cfg(feature = "fetch")]
 pub fn with_loading<T>(message: &str, operation: impl FnOnce() -> T) -> T {
     with_loading_output(std::io::stdout(), is_interactive(), message, operation)
 }
 
-#[cfg(any(feature = "fetch", test))]
 fn with_loading_output<T>(
     mut output: impl std::io::Write + Send,
     interactive: bool,

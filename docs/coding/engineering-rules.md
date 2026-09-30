@@ -127,6 +127,8 @@ The same correctly ordered selection renders as `A album/01.flac` on Unix and `A
 
 Compare strings only when their spelling is part of the output contract, such as the `/`-separated relative paths in exported playlists. Do not normalize native stored paths by replacing backslashes: a backslash can be a literal Unix filename character, and verbatim Windows paths must retain their native spelling. See [Catalog paths on Unix and Windows](../design/paths.md).
 
+For CLI snapshots that include temporary native paths, replace the complete known fixture path with a stable reference spelling. Replacing only the folder prefix leaves `/` or `\` after the placeholder and makes the reference platform-dependent. Never replace backslashes throughout the output: tags, notes and other text must remain strictly checked. Cover Windows drive, UNC and verbatim spellings in the snapshot normalization regression.
+
 Passing on macOS or Linux does not establish native Windows compatibility; the Windows CI job must verify filesystem behaviour on Windows.
 
 ---

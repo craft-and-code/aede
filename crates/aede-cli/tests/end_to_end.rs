@@ -395,7 +395,12 @@ fn analyze_writes_a_reimportable_report_next_to_its_album() {
 
     let (_, err, ok) = sandbox.run(&["scan", album.to_str().unwrap()]);
     assert!(ok, "scan failed: {err}");
-    let (out, err, ok) = sandbox.run(&["analyze", album.to_str().unwrap(), "--json"]);
+    let (out, err, ok) = sandbox.run(&[
+        "analyze",
+        album.to_str().unwrap(),
+        "--json",
+        "--show-results",
+    ]);
     assert!(ok, "analysis failed: {err}\n{out}");
     assert!(
         out.contains("track.flac —"),
@@ -414,6 +419,186 @@ fn analyze_writes_a_reimportable_report_next_to_its_album() {
     let (out, err, ok) = sandbox.run(&["track", "So What"]);
     assert!(ok, "track query failed: {err}");
     assert!(out.contains("Analysed by flaccompagnon"), "{out}");
+
+    let mut saved = report.clone();
+    saved.files[0].flac_md5 = Some(flaccompagnon_core::FlacMd5Status::Mismatch);
+    flaccompagnon_core::report::write_json(&report_path, &saved).unwrap();
+    let external = std::fs::read_to_string(&report_path).unwrap();
+    let (out, err, ok) = sandbox.run(&["analyze", album.to_str().unwrap()]);
+    assert!(ok, "analysis failed: {err}\n{out}");
+    assert_eq!(std::fs::read_to_string(&report_path).unwrap(), external);
+    let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        catalog.analyses.len(),
+        1,
+        "new measures replace, not duplicate"
+    );
+    assert!(err.contains("Reusing"), "{err}");
+    assert_eq!(catalog.analyses[0].md5_state.as_deref(), Some("Mismatch"));
+
+    let (out, err, ok) = sandbox.run(&["analyze", album.to_str().unwrap(), "--json", "--force"]);
+    assert!(ok, "analysis failed: {err}\n{out}");
+    assert!(
+        !out.contains("track.flac —"),
+        "results hidden by default: {out}"
+    );
+    let updated = aede_core::analysis::read_report(&report_path).unwrap();
+    assert_eq!(updated.files[0].md5_state.as_deref(), Some("Match"));
+
+    let (out, err, ok) = sandbox.run(&[
+        "analyze",
+        album.to_str().unwrap(),
+        "--json-layout",
+        "artist",
+    ]);
+    assert!(ok, "artist layout failed: {err}\n{out}");
+    assert!(err.contains("Reusing"), "{err}");
+    let parent_report = album.parent().unwrap().join("album.json");
+    assert!(parent_report.exists());
+    std::fs::remove_file(&parent_report).unwrap();
+    std::fs::remove_file(&report_path).unwrap();
+    let (out, err, ok) = sandbox.run(&["scan", "--full"]);
+    assert!(ok, "scan failed: {err}\n{out}");
+    let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        catalog.analyses.len(),
+        1,
+        "deleting the JSON does not forget its measurements"
+    );
+    assert_eq!(catalog.analyses[0].md5_state.as_deref(), Some("Match"));
+    assert!(catalog.analyses[0].source_data.is_some());
+}
+
+#[test]
+fn an_artist_report_and_per_album_reports_attach_to_the_same_files() {
+    let sandbox = Sandbox::new("artist_and_album_reports");
+    let artist = sandbox.dir.join("Artist");
+    let mut audio = Vec::new();
+    for name in ["First album", "Second album"] {
+        let album = artist.join(name);
+        std::fs::create_dir_all(&album).unwrap();
+        let path = album.canonicalize().unwrap().join("01.flac");
+        std::fs::copy(library_flac(), &path).unwrap();
+        audio.push(path);
+    }
+    let artist = artist.canonicalize().unwrap();
+    // Its name sorts after the album reports: freshness must decide, not names.
+    let group_report = artist.join("zz-Artist.json");
+    let mut report = aede_core::acoustic::analyze_album(
+        &artist,
+        &audio,
+        &flaccompagnon_core::ScanOptions::default(),
+        1,
+    );
+    for file in &mut report.files {
+        file.detections.summary = "Older artist result".into();
+    }
+    flaccompagnon_core::report::write_json(&group_report, &report).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&group_report)
+        .unwrap()
+        .set_times(
+            std::fs::FileTimes::new()
+                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000)),
+        )
+        .unwrap();
+    let original = std::fs::read_to_string(&group_report).unwrap();
+    let unrelated = artist.join("notes.json");
+    std::fs::write(&unrelated, r#"{"note":"keep this"}"#).unwrap();
+
+    let (out, err, ok) = sandbox.run(&["scan", artist.to_str().unwrap()]);
+    assert!(ok, "scan failed: {err}\n{out}");
+    let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    assert_eq!(catalog.analyses.len(), 2);
+    assert_eq!(catalog.pending_analyses(), 0);
+    assert_eq!(catalog.releases.len(), 2);
+    let (out, err, ok) = sandbox.run(&["import", group_report.to_str().unwrap()]);
+    assert!(ok, "group import failed: {err}\n{out}");
+
+    let (out, err, ok) = sandbox.run(&["analyze", artist.to_str().unwrap(), "--json"]);
+    assert!(ok, "analysis failed: {err}\n{out}");
+    assert_eq!(std::fs::read_to_string(&group_report).unwrap(), original);
+    assert_eq!(
+        std::fs::read_to_string(&unrelated).unwrap(),
+        r#"{"note":"keep this"}"#
+    );
+    for (name, path) in ["First album", "Second album"].into_iter().zip(&audio) {
+        let report_path = artist.join(name).join(format!("{name}.json"));
+        let report = aede_core::analysis::read_report(&report_path).unwrap();
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(Path::new(&report.files[0].path), path);
+    }
+    let (out, err, ok) = sandbox.run(&["scan", "--full"]);
+    assert!(ok, "scan failed: {err}\n{out}");
+    let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        catalog.analyses.len(),
+        2,
+        "overlapping reports do not duplicate analyses"
+    );
+    assert_eq!(catalog.pending_analyses(), 0);
+    assert!(
+        catalog
+            .analyses
+            .iter()
+            .all(|result| result.summary.as_deref() != Some("Older artist result")),
+        "an old group report replaced fresh album results"
+    );
+
+    for name in ["First album", "Second album"] {
+        std::fs::remove_file(artist.join(name).join(format!("{name}.json"))).unwrap();
+    }
+    for args in [vec!["scan"], vec!["scan", "--full"]] {
+        let (out, err, ok) = sandbox.run(&args);
+        assert!(ok, "scan failed: {err}\n{out}");
+        let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+            .unwrap()
+            .unwrap();
+        assert_eq!(catalog.analyses.len(), 2);
+        assert!(
+            catalog
+                .analyses
+                .iter()
+                .all(|result| result.summary.as_deref() != Some("Older artist result")),
+            "the retained measurements must outlive their JSON reports"
+        );
+    }
+
+    for file in &mut report.files {
+        file.detections.summary = "Newer artist result".into();
+    }
+    flaccompagnon_core::report::write_json(&group_report, &report).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&group_report)
+        .unwrap()
+        .set_times(
+            std::fs::FileTimes::new()
+                .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)),
+        )
+        .unwrap();
+    let (out, err, ok) = sandbox.run(&["scan", "--full"]);
+    assert!(ok, "scan failed: {err}\n{out}");
+    let catalog = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .unwrap()
+        .unwrap();
+    assert_eq!(catalog.analyses.len(), 2);
+    assert!(
+        catalog
+            .analyses
+            .iter()
+            .all(|result| result.summary.as_deref() == Some("Newer artist result")),
+        "a newer group report must replace album measurements"
+    );
 }
 
 #[test]
@@ -7662,6 +7847,33 @@ fn fetching_the_words_says_what_it_is_before_it_asks_anything() {
     assert!(out.contains("aede fetch \"Crazy Train\" --lyrics"), "{out}");
 }
 
+/// Replace only known complete fixture paths. Replacing a folder prefix leaves
+/// native separators behind; replacing every backslash would alter tag text.
+fn snapshot_path(output: &str, paths: &[PathBuf], replacement: &str) -> String {
+    paths.iter().fold(output.to_string(), |output, path| {
+        output.replace(path.to_str().expect("snapshot fixture path"), replacement)
+    })
+}
+
+#[test]
+fn snapshot_paths_accept_windows_spellings_without_changing_other_text() {
+    for path in [
+        "/tmp/music/compilation.flac",
+        r"C:\Music\compilation.flac",
+        r"\\nas\music\compilation.flac",
+        r"\\?\C:\Music\compilation.flac",
+        r"\\?\UNC\nas\music\compilation.flac",
+    ] {
+        let output =
+            format!("  Path          {path}\n  Comment       keep \\slashes\\ in this tag\n");
+        assert_eq!(
+            snapshot_path(&output, &[PathBuf::from(path)], "<MUSIC>/compilation.flac"),
+            "  Path          <MUSIC>/compilation.flac\n  Comment       keep \\slashes\\ in this tag\n",
+            "snapshot path spelling: {path}"
+        );
+    }
+}
+
 #[test]
 fn cli_output_snapshots_match_the_real_binary() {
     let sandbox = Sandbox::new("cli_output_snapshots");
@@ -7718,12 +7930,14 @@ fn cli_output_snapshots_match_the_real_binary() {
     let canonical_music = music
         .canonicalize()
         .expect("canonical fixture music folder");
-    let out = out
-        .replace(
-            canonical_music.to_str().expect("canonical music path"),
-            "<MUSIC>",
-        )
-        .replace(music.to_str().expect("music path"), "<MUSIC>");
+    let out = snapshot_path(
+        &out,
+        &[
+            canonical_music.join("compilation.flac"),
+            music.join("compilation.flac"),
+        ],
+        "<MUSIC>/compilation.flac",
+    );
     assert_eq!(out, include_str!("snapshots/track.txt"));
     #[cfg(feature = "fetch")]
     check(

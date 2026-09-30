@@ -84,6 +84,7 @@ CREATE TABLE analysis (
     source           TEXT    NOT NULL,   -- 'flaccompagnon'
     source_version   INTEGER NOT NULL,   -- version of that tool's report format
     imported_at      INTEGER NOT NULL,   -- Unix epoch in seconds
+    result_at_ns     INTEGER NOT NULL DEFAULT 0, -- report mtime or measurement completion; zero = unknown
     size_bytes       INTEGER NOT NULL,
     modified_unix    INTEGER NOT NULL,
     source_data      TEXT,               -- complete JSON file entry from the source report

@@ -15,3 +15,15 @@ fn report_path_keeps_dots_in_an_album_name() {
         PathBuf::from("/music/Album.v1/Album.v1.json")
     );
 }
+
+#[test]
+fn invalid_analysis_options_fail_before_catalog_loading() {
+    for options in [
+        vec!["analyze", "--json-layout", "wrong"],
+        vec!["analyze", "--json-layout"],
+        vec!["analyze", "--force=wrong"],
+    ] {
+        let args = Args::parse(options.into_iter().map(str::to_string));
+        assert!(analyze(&args).is_err());
+    }
+}

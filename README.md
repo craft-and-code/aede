@@ -48,7 +48,8 @@ Aède uses a two-tier parsing architecture. Mainstream, high-fidelity containers
 
 ### Prerequisites
 
-- **Rust Toolchain:** Stable Rust compiler (1.75+) and `cargo`.
+- **Rust Toolchain:** Rust compiler (1.89+) and `cargo`, including `rustfmt` and `clippy`.
+- **Python 3.9+:** Standard library only, for the published-release build helper.
 - **FFmpeg (Optional, Recommended):** Required for on-the-fly transcoding (`aede copy --compress`) and acoustic spectrogram generation (`aede spectrum`).
 
 ### System Dependencies
@@ -75,12 +76,19 @@ sudo pacman -S base-devel rust ffmpeg
 
 ```sh
 # Clone the repository
-git clone https://github.com/your-org/aede.git
+git clone https://github.com/craft-and-code/aede.git
 cd aede
 
-# Build and install the binary
-cargo install --path crates/aede-cli
+# Select the latest published FlacCompagnon Core, verify and build Aede
+bash tools/build.sh
+
+# Install the verified binary using the same locked dependencies
+cargo install --path crates/aede-cli --locked --offline
 ```
+
+`tools/build.sh` queries FlacCompagnon's latest published stable GitHub release, updates the shared `flaccompagnon-core` tag and its exact revision in `Cargo.lock`, fetches dependencies, then runs Aède's full verification and release build. It requires internet access and stops if release discovery or dependency resolution fails; it never silently falls back to an older release. Draft releases and prereleases are excluded. The selected version is printed before compilation.
+
+To update just the dependency, run `python3 tools/update-flaccompagnon.py`. Keep the resulting `Cargo.toml` and `Cargo.lock` changes together. Ordinary `cargo build --release --locked --offline` and `tools/check.sh` keep using that recorded revision without discovering a newer release. CI and release archives also retain their checked-in lockfile.
 
 ---
 

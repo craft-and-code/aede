@@ -39,7 +39,8 @@ The current implementation includes:
 - copying selections;
 - catalog export;
 - integrity checks;
-- imported analyses;
+- imported artist- and album-level analyses, retaining the newest dated
+  result per file across scans and report deletion;
 - direct album analysis through FlacCompagnon's Rust library;
 - backup and restore;
 - a local read-only catalog API with CLI-shaped album/entity navigation, attributed artist origins, diagnostics, statistics and public search/query, plus opt-in asynchronous scan/fetch jobs with polling/cancellation and WebSocket task activity (see the [complete route reference](../../crates/aede-server/README.md));

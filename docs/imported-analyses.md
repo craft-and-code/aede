@@ -12,6 +12,23 @@ aede analyze ~/Music --json --threads 4 # one report per album folder
 
 An album's folder comes from Aède's catalog, so a multi-disc release gets one report in the shared album folder. Re-running `--json` replaces that generated report with current measurements. Audio files and tags are read-only. Files without an album tag are grouped by their containing folder.
 
+### Re-running an analysis and keeping its results
+
+`analyze` recomputes the selected tracks on every run, even when a JSON report or stored measurements already exist. Without `--json`, the measurements are saved in Aède and existing JSON files are untouched. With `--json`, Aède also writes `<album-folder-name>.json` inside each album folder, replacing that destination if it exists. Reports with other names, including a report in the artist folder, are left untouched.
+
+Both FlacCompagnon layouts are supported:
+
+| Report location | Coverage | How Aède reads it |
+| --- | --- | --- |
+| `Artist/Artist.json` | Several albums below the artist folder | Scan the artist folder or an ancestor, or import the report explicitly |
+| `Artist/Album/Album.json` | One album, including its disc subfolders | Scan the album folder or an ancestor, or import the report explicitly |
+
+Attachment follows each audio file's path, size and modification date, independently of where the JSON is saved. A scan of an album alone does not search its parent artist folder for reports; use `aede import Artist/Artist.json` when that parent is outside the watched scan scope.
+
+Overlapping reports produce one result per audio file and source. Among results that describe the same current file, the result with the most recent **report-file modification time** wins when dates are available, regardless of filenames or whether it came from an artist or album report. In-process measurements use their completion time. These dates are retained with subsecond precision in `conclusions.json`, so an old report cannot replace a newer stored measurement on a subsequent incremental or full scan. A stale measurement of an earlier version of the audio file cannot block a valid report of its current bytes. Equal or unknown dates keep the existing import-order rule; older stores remain readable.
+
+Deleting a JSON **after it has been imported or analyzed** does not remove its measurements from Aède, even after a full scan. They stay in `conclusions.json` until explicitly forgotten with `aede import --forget`, or replaced by a newer result. Changing the audio file's size or modification date makes the old measurement stale; deleting its report does not. A report that Aède never read cannot be recovered after deletion.
+
 If you already have a FlacCompagnon report from the desktop app or its standalone `flaccompagnon` command, `aede import` still folds it into your catalog:
 
 ```sh
@@ -169,3 +186,9 @@ Both methods are named because they prove different truths. When they disagree, 
 In the vault, and nowhere else: `~/.local/share/aede/catalog.json` simply grows a new table, `analysis`, tracking one row per path and per source. The `.json` report you imported is never required again—you are free to archive it elsewhere or discard it. `aede export` faithfully includes this table, `aede import --forget` cleanses it, and `aede reset` politely warns you about it before dismantling the catalog.
 
 `--data <folder>` lets you move the catalog to a custom location, and `$AEDE_HOME` does the same via environment variables. `aede roots` concludes by naming the exact catalog file it just consulted, ensuring the answer to "where is all this kept?" is always plainly visible.
+
+## Reusing acoustic reports
+
+`aede analyze` shows filenames before decoding and hides per-track results unless `--show-results` is supplied. Catalog loading has an animated indicator in interactive terminals. Successful results in existing reports in an album folder or its parent are reused when path, size and modification time agree; new, changed and previously failed files are analyzed. Use `--force` to recompute with the current engine, including edits that retained those metadata.
+
+`--json` saves `<album>.json` inside each album folder. `--json-layout album|artist` enables saving and selects that folder or its parent artist folder, keeping one report per album. `--force` replaces the reports selected for saving. A malformed destination is refused unless `--force` is supplied.

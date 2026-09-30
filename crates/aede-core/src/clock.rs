@@ -1,4 +1,4 @@
-//! The one unit of time the catalog stores: whole seconds since the Unix epoch.
+//! Unix timestamps shared by catalog and conclusion stores.
 //!
 //! Small enough to be tempting to rewrite on the spot — which is exactly what
 //! had happened, in three places, each with its own answer to "and if the clock
@@ -16,6 +16,24 @@ pub fn now_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Now with subsecond precision, for ordering analysis results produced in
+/// quick succession. Audio-file identity still uses whole-second mtimes.
+pub fn now_nanoseconds() -> u64 {
+    nanoseconds(SystemTime::now())
+}
+
+/// A report file's modification time, with the same precision as new results.
+pub fn mtime_nanoseconds(meta: &std::fs::Metadata) -> u64 {
+    meta.modified().map(nanoseconds).unwrap_or(0)
+}
+
+fn nanoseconds(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_nanos()).ok())
         .unwrap_or(0)
 }
 

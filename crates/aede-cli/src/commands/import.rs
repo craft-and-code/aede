@@ -91,6 +91,12 @@ pub fn import(args: &Args) -> Res {
     let mut table = Table::plain(2).align(1, Align::Right);
     table.push(vec!["Reports read".into(), reports.len().to_string()]);
     table.push(vec!["Files matched".into(), outcome.matched.to_string()]);
+    if outcome.older > 0 {
+        table.push(vec![
+            "Older results skipped".into(),
+            outcome.older.to_string(),
+        ]);
+    }
     if outcome.moved > 0 {
         table.push(vec![
             "Matched by name and size".into(),

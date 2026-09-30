@@ -383,6 +383,7 @@ pub fn analysis_to_json(a: &FileAnalysis) -> Json {
     o.set("source", a.source.clone().into());
     o.set("source_version", a.source_version.into());
     o.set("imported_at", a.imported_at.into());
+    o.set("result_at_ns", a.result_at_ns.into());
     o.set("size_bytes", a.size_bytes.into());
     o.set("modified_unix", a.modified_unix.into());
     o.set("file_md5", opt_str(&a.file_md5));
@@ -417,6 +418,7 @@ pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
         source: item.field_str("source").unwrap_or_default(),
         source_version: item.field_u32("source_version").unwrap_or(0),
         imported_at: item.field_u64("imported_at").unwrap_or(0),
+        result_at_ns: item.field_u64("result_at_ns").unwrap_or(0),
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
         file_md5: item.field_str("file_md5"),
