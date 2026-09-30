@@ -27,6 +27,7 @@ pub mod text;
 pub mod copy;
 pub mod coverart;
 pub mod credit_coverage;
+pub mod discogs;
 pub mod doctor;
 pub mod fanarttv;
 pub mod ffmpeg;

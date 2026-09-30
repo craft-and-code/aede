@@ -8,7 +8,7 @@ use aede_core::sources::{
 use aede_core::user::EntityRef;
 use aede_core::{clock, text};
 
-use super::{Res, data_dir, load, sources_held};
+use super::{Res, data_dir, load};
 use crate::args::Args;
 use crate::ui;
 
@@ -35,7 +35,7 @@ pub fn credit(args: &Args) -> Res {
         );
     }
     let catalog = load(args)?;
-    let mut held = sources_held(args)?;
+    let mut held = sources::load_all(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
     let path = sources::sources_path(&data_dir(args));
     if let Some(selector) = excluding.or(undoing) {
         if !args.positionals.is_empty()

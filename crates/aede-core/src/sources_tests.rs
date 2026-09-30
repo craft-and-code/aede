@@ -962,6 +962,104 @@ fn a_summary_without_its_attribution_is_not_read_back() {
 }
 
 #[test]
+fn a_label_summary_round_trips_with_its_attribution() {
+    let mut held = Sources::default();
+    let summary = Prose {
+        text: "An independent record label.".to_string(),
+        url: "https://en.wikipedia.org/wiki/Record_label".to_string(),
+        lang: "en".to_string(),
+        licence: "CC BY-SA 4.0".to_string(),
+    };
+    held.set(record(
+        "roadracer records",
+        "wikipedia",
+        Facts::Label(LabelFacts {
+            summary: Some(summary.clone()),
+            ..Default::default()
+        }),
+    ));
+    let back = from_json(&to_json(&held)).expect("a readable layer");
+    assert_eq!(back.records[0].facts, held.records[0].facts);
+
+    let text = format!(
+        r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+             {{"entity":"label:roadracer records","source":"wikipedia",
+               "confidence":"identified","fetched_at":1,
+               "facts":{{"summary":{{"text":"A label.","lang":"en"}}}}}}
+           ]}}"#
+    );
+    let incomplete =
+        from_json(&crate::json::parse(&text).expect("valid JSON")).expect("a readable layer");
+    let Facts::Label(label) = &incomplete.records[0].facts else {
+        panic!("label facts");
+    };
+    assert_eq!(label.summary, None, "uncredited prose is discarded");
+}
+
+#[test]
+fn an_expired_discogs_profile_is_hidden_when_sources_are_loaded() {
+    let dir = std::env::temp_dir().join(format!(
+        "aede_expired_discogs_{}",
+        std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace("::", "_")
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = sources_path(&dir);
+    let mut held = Sources::default();
+    let mut old = record(
+        "roadracer records",
+        crate::discogs::SOURCE,
+        Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: "An old profile.".to_string(),
+                url: "https://www.discogs.com/label/33088".to_string(),
+                lang: "und".to_string(),
+                licence: "CC0".to_string(),
+            }),
+            ..Default::default()
+        }),
+    );
+    old.fetched_at = crate::clock::now_seconds() - crate::discogs::MAX_AGE_SECONDS;
+    held.set(old.clone());
+    save(&held, &path).expect("saved");
+    let loaded = load(&path).expect("readable").expect("layer");
+    assert!(
+        loaded.records.is_empty(),
+        "stale text cannot be displayed or exported"
+    );
+    let mut stored = load_all(&path).expect("readable").expect("layer");
+    assert_eq!(stored.records.len(), 1, "the original text stays stored");
+    stored.set(record(
+        "another label",
+        MUSICBRAINZ,
+        Facts::Label(LabelFacts::default()),
+    ));
+    save(&stored, &path).expect("unrelated update");
+    assert_eq!(
+        load_all(&path)
+            .expect("readable")
+            .expect("layer")
+            .records
+            .len(),
+        2,
+        "an unrelated write must not erase the old Discogs profile"
+    );
+
+    old.fetched_at = crate::clock::now_seconds();
+    held.set(old);
+    save(&held, &path).expect("saved");
+    let loaded = load(&path).expect("readable").expect("layer");
+    assert_eq!(
+        loaded.records.len(),
+        1,
+        "a current profile remains available"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_credit_line_names_the_page_and_the_terms() {
     let prose = Prose {
         text: "A trumpeter.".to_string(),

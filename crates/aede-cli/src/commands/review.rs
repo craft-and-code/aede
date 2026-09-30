@@ -21,7 +21,16 @@ const DEFAULT_LIMIT: usize = 50;
 pub fn review(args: &Args) -> Res {
     let catalog = load(args)?;
     let path = sources::sources_path(&data_dir(args));
-    let mut held = sources::load(&path)?.unwrap_or_default();
+    let mut held = if args.has("accept")
+        || args.has("reject")
+        || args.has("undo")
+        || args.has("interactive")
+    {
+        sources::load_all(&path)?
+    } else {
+        sources::load(&path)?
+    }
+    .unwrap_or_default();
 
     let actions = ["accept", "reject", "undo"]
         .into_iter()

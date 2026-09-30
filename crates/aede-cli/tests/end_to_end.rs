@@ -2454,7 +2454,7 @@ fn a_genre_and_a_label_are_pages_of_their_own() {
     assert!(ok);
     assert!(m3u.starts_with("#EXTM3U"), "output: {m3u}");
 
-    let (out, _, ok) = sandbox.run(&["label", "Columbia"]);
+    let (out, _, ok) = sandbox.run(&["label", "Columbia", "--offline"]);
     assert!(ok, "output: {out}");
     assert!(out.contains("Columbia"), "output: {out}");
     assert!(out.contains("Kind of Blue"), "output: {out}");
@@ -2482,7 +2482,7 @@ fn a_genre_and_a_label_are_pages_of_their_own() {
     // tracks for a band whose albums on the label hold 29 — credited both as
     // main artist and as performer on each one — which the albums table
     // directly above visibly contradicted.
-    let (out, _, ok) = sandbox.run(&["label", "Columbia"]);
+    let (out, _, ok) = sandbox.run(&["label", "Columbia", "--offline"]);
     assert!(ok, "output: {out}");
     let page_holds = tracks_on_line(&out, "9 track");
     let artists = section(&out, "Artists");
@@ -2498,6 +2498,95 @@ fn a_genre_and_a_label_are_pages_of_their_own() {
              ({count} > {page_holds}):\n{out}"
         );
     }
+}
+
+#[test]
+fn a_label_page_shows_a_credited_biography() {
+    use aede_core::sources::{Confidence, Facts, LabelFacts, Prose, SourceRecord, Sources};
+
+    let sandbox = Sandbox::new("label_bio");
+    let root = library();
+    let (_, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+
+    let mut held = Sources::default();
+    held.set(SourceRecord {
+        key: "columbia".to_string(),
+        source: "wikipedia".to_string(),
+        source_id: Some("Q123".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: "Columbia is a record label.".to_string(),
+                url: "https://en.wikipedia.org/wiki/Columbia_Records".to_string(),
+                lang: "en".to_string(),
+                licence: "CC BY-SA 4.0".to_string(),
+            }),
+            ..Default::default()
+        }),
+    });
+    aede_core::sources::save(&held, &aede_core::sources::sources_path(&sandbox.dir))
+        .expect("source layer");
+
+    let (out, err, ok) = sandbox.run(&["label", "Columbia", "--offline"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("Columbia is a record label."), "{out}");
+    assert!(
+        out.contains("https://en.wikipedia.org/wiki/Columbia_Records"),
+        "{out}"
+    );
+    assert!(out.contains("CC BY-SA 4.0"), "{out}");
+}
+
+#[test]
+fn a_label_page_credits_a_fresh_discogs_profile_and_marks_an_expired_one() {
+    use aede_core::sources::{Confidence, Facts, LabelFacts, Prose, SourceRecord, Sources};
+
+    let sandbox = Sandbox::new("label_discogs_profile");
+    let root = library();
+    let (_, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "stderr: {err}");
+    let mut held = Sources::default();
+    let profile = "Originally a Dutch label.\r\nLabel Code: LC 9231 / LC 09231\r\nPlease use Roadrunner Productions if the release credits them.\r\n\r\nA Discogs label profile.";
+    let displayed = "  Originally a Dutch label.\n  Label Code: LC 9231 / LC 09231\n  Please use Roadrunner Productions if the release credits them.\n\n  A Discogs label profile.";
+    let mut record = SourceRecord {
+        key: "columbia".to_string(),
+        source: "discogs".to_string(),
+        source_id: Some("123".to_string()),
+        fetched_at: aede_core::clock::now_seconds(),
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: profile.to_string(),
+                url: "https://www.discogs.com/label/123".to_string(),
+                lang: "und".to_string(),
+                licence: "CC0".to_string(),
+            }),
+            ..Default::default()
+        }),
+    };
+    held.set(record.clone());
+    let path = aede_core::sources::sources_path(&sandbox.dir);
+    aede_core::sources::save(&held, &path).expect("source layer");
+    let (out, err, ok) = sandbox.run(&["label", "Columbia", "--offline"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("A Discogs label profile."), "{out}");
+    assert!(out.contains(displayed), "profile layout was lost: {out}");
+    assert!(out.contains("Data provided by Discogs."), "{out}");
+    assert!(out.contains("https://www.discogs.com/label/123"), "{out}");
+
+    record.fetched_at -= aede_core::discogs::MAX_AGE_SECONDS;
+    held.set(record);
+    aede_core::sources::save(&held, &path).expect("source layer");
+    let (out, err, ok) = sandbox.run(&["label", "Columbia", "--offline"]);
+    assert!(ok, "stderr: {err}");
+    assert!(out.contains("A Discogs label profile."), "{out}");
+    assert!(
+        out.contains(displayed),
+        "stored profile layout was lost: {out}"
+    );
+    assert!(out.contains("update needed"), "{out}");
 }
 
 /// The body of one `ui::section`, up to the next heading.
@@ -7610,7 +7699,10 @@ fn cli_output_snapshots_match_the_real_binary() {
     check(&["genres"], include_str!("snapshots/genres.txt"));
     check(&["genre", "jazz"], include_str!("snapshots/genre.txt"));
     check(&["labels"], include_str!("snapshots/labels.txt"));
-    check(&["label", "Columbia"], include_str!("snapshots/label.txt"));
+    check(
+        &["label", "Columbia", "--offline"],
+        include_str!("snapshots/label.txt"),
+    );
     check(&["years"], include_str!("snapshots/years.txt"));
     check(
         &["query", "genre:jazz", "--limit", "3"],

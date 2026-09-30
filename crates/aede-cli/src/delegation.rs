@@ -14,5 +14,5 @@ pub fn allowed(raw: &[String], command: &str) -> bool {
     !args.has("help")
         && !args.has("version")
         && crate::canonical(&args.command) == command
-        && crate::mutates_store(crate::canonical(&args.command))
+        && crate::mutates_store_with_args(command, &args)
 }

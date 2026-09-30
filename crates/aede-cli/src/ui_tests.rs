@@ -1,5 +1,53 @@
 use super::*;
 
+struct LoadingOutput {
+    bytes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    flushed: std::sync::mpsc::Sender<()>,
+}
+
+impl std::io::Write for LoadingOutput {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = self.flushed.send(());
+        Ok(())
+    }
+}
+
+#[test]
+fn loading_is_visible_during_the_request_and_cleared_after_failure() {
+    let bytes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (flushed, flushes) = std::sync::mpsc::channel();
+    let output = LoadingOutput {
+        bytes: bytes.clone(),
+        flushed,
+    };
+    let result = with_loading_output(output, true, "Loading...", || {
+        // The initial line is already flushed when the request starts.
+        flushes.try_recv().unwrap();
+        assert!(bytes.lock().unwrap().starts_with(b"\r  | Loading..."));
+        flushes
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the indicator should animate while the request waits");
+        Err::<(), _>("network unavailable")
+    });
+    assert_eq!(result, Err("network unavailable"));
+    let rendered = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+    assert!(rendered.contains("\r  / Loading..."));
+    assert!(rendered.ends_with("\r              \r"));
+}
+
+#[test]
+fn redirected_loading_keeps_output_clean_and_returns_the_request_result() {
+    let mut output = Vec::new();
+    let result = with_loading_output(&mut output, false, "Loading...", || 42);
+    assert_eq!(result, 42);
+    assert!(output.is_empty());
+}
+
 #[test]
 fn a_moment_and_a_span_are_not_the_same_number() {
     // The bug this pair exists to prevent: `ago` takes a duration and a

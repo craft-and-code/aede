@@ -25,7 +25,7 @@ pub fn rules(args: &Args) -> Res {
     let user_path = user::user_path(&directory);
     let sources_path = sources::sources_path(&directory);
     let mut personal = user::load(&user_path)?.unwrap_or_default();
-    let mut evidence = sources::load(&sources_path)?.unwrap_or_default();
+    let mut evidence = sources::load_all(&sources_path)?.unwrap_or_default();
 
     if args.has("export") {
         return export(args, &personal, &evidence);

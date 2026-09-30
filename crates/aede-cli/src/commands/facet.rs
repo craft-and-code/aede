@@ -77,6 +77,21 @@ pub fn show_label(args: &Args) -> Res {
     let ids: Vec<Id> = found.iter().map(|l| l.id).collect();
     let names: Vec<String> = found.iter().map(|l| l.name.clone()).collect();
 
+    if args.has("online") && args.has("offline") {
+        return Err("choose --online or --offline, not both".into());
+    }
+    if args.has("online") {
+        if ids.len() != 1 {
+            return Err("--online needs one label; give a more precise name".into());
+        }
+        if ["csv", "json", "m3u", "output"]
+            .iter()
+            .any(|option| args.has(option))
+        {
+            return Err("--online displays a sourced profile on the label page; use it without an export option".into());
+        }
+    }
+
     let tracks = tracks_from(&ids, |id| catalog.tracks_of_label(id));
     let mut releases: Vec<Id> = Vec::new();
     for &id in &ids {
@@ -91,7 +106,16 @@ pub fn show_label(args: &Args) -> Res {
 
     println!("{}", ui::section(&names.join(", ")));
     announce_match(kind, &name, &names, "label");
-    let held = sources::load(&sources::sources_path(&data_dir(args)))?.unwrap_or_default();
+    let path = sources::sources_path(&data_dir(args));
+    let mut held = sources::load_all(&path)?.unwrap_or_default();
+    let mut refresh_failed = false;
+    if crate::checks_label_online("label", args)
+        && ids.len() == 1
+        && let Err(error) = super::discogs::refresh_online(&catalog, ids[0], &mut held, &path)
+    {
+        refresh_failed = true;
+        eprintln!("  {} Discogs check: {error}", ui::yellow("!"));
+    }
     for &id in &ids {
         if let Some(identity) = held.label_identity(&catalog, id) {
             print_label_identity(&identity);
@@ -101,7 +125,14 @@ pub fn show_label(args: &Args) -> Res {
     print_albums(&catalog, &releases, args)?;
     print_artists(&catalog, &tracks, args)?;
     for &id in &ids {
-        super::panel_for(args, &catalog, aede_core::model::EntityKind::Label, id);
+        super::sources_panel_for(args, &catalog, aede_core::model::EntityKind::Label, id);
+        super::sources::panel_for_held(
+            &catalog,
+            aede_core::model::EntityKind::Label,
+            id,
+            &held,
+            refresh_failed,
+        );
     }
     let mut navigation = super::navigation::Navigation::default();
     // The current page may cover several partial matches; one exact command

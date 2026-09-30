@@ -96,6 +96,7 @@ See `docs/coding/engineering-rules.md` for detailed project-specific rules.
 - Avoid process-global state in tests.
 - Test names describe observable behaviour.
 - Do not weaken an existing test merely to make a change pass.
+- For filesystem or path tests, follow [Portable path tests](docs/coding/engineering-rules.md#portable-path-tests).
 
 Do not update test counts manually during normal development.
 

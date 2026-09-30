@@ -46,6 +46,7 @@ The summary is fetched in a **single** language and kept as such; the choice bel
 aede fetch --summaries                       # terminal language, English fallback
 aede fetch --summaries --lang=fr             # French, English fallback
 aede fetch --summaries --full --lang=fr ozzy # replaces already stored data
+aede fetch --labels --summaries roadracer    # identify a label, then fetch its article
 ```
 
 Without `--lang`, the terminal's `LANG` or `LC_ALL` variable is read (`fr_FR.UTF-8` for French). **English always remains the last resort**, never excluded: for many artists, it is the only available article. The pass indicates what it is looking for before sending the request:
@@ -301,7 +302,17 @@ aede fetch --summaries --full   # ask again about what is already held
   381 of them have a wikidata link — aede fetch --summaries reads the article
 ```
 
-This is a **second pass on** `fetch` **data**, not a new search. The program reads the `wikidata` link, queries Wikidata to get the corresponding article, then retrieves the first paragraph from Wikipedia (two queries per artist).
+This is a **second pass on** `fetch` **data**, not a new Wikipedia name search. The program reads an artist's or label's `wikidata` link, queries Wikidata to get the corresponding article, then retrieves the first paragraph from Wikipedia (two queries per entity). `fetch --labels` now asks MusicBrainz for each label's Wikidata link. A label fetched by an older Aède version can be refreshed with `aede fetch --labels --full <name>` before `aede fetch --summaries <name>`. When MusicBrainz has no Wikidata link, or Wikidata has no article in the requested languages, that pass has no Wikipedia biography to show.
+
+For a label with no Wikipedia biography, opening its page checks the Discogs link on its MusicBrainz record:
+
+```sh
+aede label roadracer
+```
+
+The Discogs profile is kept in `sources.json` with its source, page and fetch time. Opening the page checks the current profile and replaces the stored copy if available. `--offline` skips the request. When a check fails, the label page shows the stored profile with an update notice; `--offline` also shows that notice when the copy is older than five hours. Other source views and exports still hide a profile that old. Aède verifies the Discogs label ID and name and never searches Discogs by name. Discogs label references such as `[l30552]` and artist references such as `[a1258936]` are resolved to their names independently of the local catalog; presentation tags such as `[b]` are removed. An already stored profile with unresolved artist codes is reprocessed on the next successful visit. The original profile is normally English: Discogs does not supply a French version of that field, even on its French site. The display includes “Data provided by Discogs.” and the source page. [Discogs' API terms](design/discogs.md) limit how old displayed data may be, so the offline fallback has a compliance limitation when a refresh is unavailable for a long time.
+
+The label page preserves Discogs line breaks and blank lines between paragraphs, and emphasizes the label-code line when terminal styling is enabled. Long lines are wrapped without merging the paragraphs. This layout also applies to already stored profiles, including offline display.
 
 Articles are searched **primarily in the system language** (`LANG` variable), then in English.
 

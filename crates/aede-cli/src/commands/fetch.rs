@@ -570,7 +570,7 @@ pub(super) fn asked_nothing(asked: &Asked, what: &[String]) -> bool {
 /// command says so when there is more than one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pass {
-    /// Wikipedia, through the wikidata link already in the layer.
+    /// Wikipedia, through artist or label Wikidata links already in the layer.
     Summaries,
     /// Everything MusicBrainz credits to each artist.
     Discography,
@@ -596,6 +596,7 @@ impl Pass {
     /// The passes asked for, in the order they will run.
     fn asked_for(args: &Args) -> Vec<Pass> {
         [
+            ("labels", Pass::Labels),
             ("summaries", Pass::Summaries),
             ("discography", Pass::Discography),
             ("covers", Pass::Covers),
@@ -603,7 +604,6 @@ impl Pass {
             ("identify", Pass::Identify),
             ("credits", Pass::Credits),
             ("recordings", Pass::Credits),
-            ("labels", Pass::Labels),
             ("portraits", Pass::Portraits),
             ("logos", Pass::Logos),
             ("fanart", Pass::Logos),
@@ -1005,7 +1005,7 @@ pub fn run(args: &Args, transport: &mut dyn Ask) -> Res {
 pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Duration]) -> Res {
     let data_dir = super::data_dir(args);
     let path = sources::sources_path(&data_dir);
-    let mut held = sources::load(&path)?.unwrap_or_default();
+    let mut held = sources::load_all(&path)?.unwrap_or_default();
 
     // An option that only means something to another pass, given on its own,
     // is refused rather than ignored: a reader who typed `--images` and got an

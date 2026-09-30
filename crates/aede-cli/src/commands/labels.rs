@@ -28,8 +28,8 @@
 //!
 //! # What is stored
 //!
-//! The identifier, in [`aede_core::sources::SourceRecord::source_id`] —
-//! [`aede_core::sources::LabelFacts`] carries nothing else, and says why.
+//! The identifier, in [`aede_core::sources::SourceRecord::source_id`], and
+//! the Wikidata link when the label has one.
 
 // Compiled in every build, for the reason `fetch` is.
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
@@ -60,7 +60,11 @@ impl Target {
     /// already known.
     fn url(&self) -> String {
         match &self.known_mbid {
-            Some(mbid) => format!("{}/label/{mbid}?fmt=json", musicbrainz::WEB_SERVICE),
+            Some(mbid) => format!(
+                "{}/label/{mbid}?fmt=json&inc={}",
+                musicbrainz::WEB_SERVICE,
+                musicbrainz::LABEL_INCLUDES
+            ),
             None => format!(
                 "{}/label/?query={}&fmt=json&limit=5",
                 musicbrainz::WEB_SERVICE,
@@ -99,9 +103,14 @@ pub fn run(
         return Ok(());
     }
 
-    let total_ms = targets.len() as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
+    let requests = targets.len()
+        + targets
+            .iter()
+            .filter(|target| target.known_mbid.is_none())
+            .count();
+    let total_ms = requests as u64 * musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
     println!(
-        "  {}, one request each, about {}",
+        "  {}, up to {requests} requests, about {}",
         ui::plural(targets.len(), "label"),
         ui::long_duration(total_ms)
     );
@@ -145,7 +154,42 @@ pub fn run(
         };
 
         match target.read(&answer) {
-            Ok((candidate, confidence)) => {
+            Ok((mut candidate, confidence)) => {
+                // Search results omit URL relationships. Read the matched
+                // label by identifier before filing it, so this pass can
+                // supply the Wikidata link needed for a summary immediately.
+                if target.known_mbid.is_none() {
+                    let url = format!(
+                        "{}/label/{}?fmt=json&inc={}",
+                        musicbrainz::WEB_SERVICE,
+                        candidate.mbid,
+                        musicbrainz::LABEL_INCLUDES
+                    );
+                    let detail = match ask_with_backoff(transport, &url, backoff) {
+                        Ok(detail) => detail,
+                        Err(why) => {
+                            failed += 1;
+                            eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                            done += 1;
+                            continue;
+                        }
+                    };
+                    match musicbrainz::label(&detail) {
+                        Some(found) if found.mbid == candidate.mbid => {
+                            candidate.facts = found.facts;
+                        }
+                        _ => {
+                            failed += 1;
+                            eprintln!(
+                                "\r  {} {}: label lookup did not confirm the search result",
+                                ui::red("×"),
+                                target.name
+                            );
+                            done += 1;
+                            continue;
+                        }
+                    }
+                }
                 held.set(SourceRecord {
                     key: target.entity.key.clone(),
                     source: sources::MUSICBRAINZ.to_string(),

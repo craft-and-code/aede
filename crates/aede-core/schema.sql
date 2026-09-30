@@ -188,10 +188,16 @@ CREATE TABLE artist (
 CREATE INDEX artist_key_idx ON artist (key);
 
 CREATE TABLE label (
-    id   INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    key  TEXT NOT NULL,
-    mbid TEXT UNIQUE
+    id             INTEGER PRIMARY KEY,
+    name           TEXT NOT NULL,
+    key            TEXT NOT NULL,
+    mbid           TEXT UNIQUE,
+    -- Imported biography, kept with the attribution its licence requires.
+    bio_text       TEXT,
+    bio_lang       TEXT,
+    bio_source_url TEXT,
+    bio_license    TEXT,
+    bio_fetched_at INTEGER
 );
 
 CREATE TABLE release (

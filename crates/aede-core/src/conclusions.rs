@@ -224,8 +224,7 @@ fn measurement_from_json(value: Option<&Json>) -> Result<Option<Measurement>, St
     }
     if !loudness.is_finite()
         || peak.is_some_and(|peak| !peak.is_finite() || peak < 0.0 || peak > f32::MAX as f64)
-        || loudness < -100.0
-        || loudness > 20.0
+        || !(-100.0..=20.0).contains(&loudness)
     {
         return Err(StoreError::ConclusionsInvalid(
             "out-of-range loudness measurement",

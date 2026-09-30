@@ -26,6 +26,58 @@ pub fn is_interactive() -> bool {
             && std::env::var_os("AEDE_DELEGATED_STDOUT_TTY").is_some())
 }
 
+/// Animate a temporary line while a blocking operation runs. The operation
+/// must not print until it returns; redirected output gets no animation.
+#[cfg(feature = "fetch")]
+pub fn with_loading<T>(message: &str, operation: impl FnOnce() -> T) -> T {
+    with_loading_output(std::io::stdout(), is_interactive(), message, operation)
+}
+
+#[cfg(any(feature = "fetch", test))]
+fn with_loading_output<T>(
+    mut output: impl std::io::Write + Send,
+    interactive: bool,
+    message: &str,
+    operation: impl FnOnce() -> T,
+) -> T {
+    if !interactive {
+        return operation();
+    }
+    // Flush before starting the request, so even a short wait is visible.
+    if write!(output, "\r  | {message}")
+        .and_then(|_| output.flush())
+        .is_err()
+    {
+        return operation();
+    }
+    std::thread::scope(|scope| {
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        scope.spawn(move || {
+            let frames = ['/', '-', '\\', '|'];
+            let mut frame = 0;
+            while matches!(
+                stopped.recv_timeout(std::time::Duration::from_millis(100)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                if write!(output, "\r  {} {message}", frames[frame])
+                    .and_then(|_| output.flush())
+                    .is_err()
+                {
+                    break;
+                }
+                frame = (frame + 1) % frames.len();
+            }
+            // Presentation is best effort if the terminal has gone away.
+            let _ = write!(output, "\r{}\r", " ".repeat(display_width(message) + 4))
+                .and_then(|_| output.flush());
+        });
+        let result = operation();
+        // Disconnecting also stops and clears the line when operation unwinds.
+        drop(stop);
+        result
+    })
+}
+
 fn colorize(code: &str, text: &str) -> String {
     if COLOR_ENABLED.load(Ordering::Relaxed) {
         format!("\x1b[{code}m{text}\x1b[0m")

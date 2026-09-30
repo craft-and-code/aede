@@ -775,3 +775,21 @@ fn a_relationship_of_another_kind_is_not_a_membership() {
         "and the link relations still work"
     );
 }
+
+#[test]
+fn a_label_lookup_keeps_its_external_links() {
+    let response = parse(
+        r#"{"id":"label-id","name":"Roadracer Records","relations":[
+            {"type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q123"}},
+            {"type":"discogs","url":{"resource":"https://www.discogs.com/label/33088"}}]}"#,
+    );
+    let found = label(&response).expect("a label");
+    assert_eq!(
+        found.facts.wikidata.as_deref(),
+        Some("https://www.wikidata.org/wiki/Q123")
+    );
+    assert_eq!(
+        found.facts.discogs.as_deref(),
+        Some("https://www.discogs.com/label/33088")
+    );
+}

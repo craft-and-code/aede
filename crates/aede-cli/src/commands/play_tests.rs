@@ -510,15 +510,15 @@ fn a_folder_plays_audio_in_sorted_recursive_order() {
     let paths = resolve(&root.to_string_lossy(), None, None).unwrap().paths;
     let names: Vec<_> = paths
         .iter()
-        .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().to_string())
+        .map(|p| p.strip_prefix(&root).unwrap().to_path_buf())
         .collect();
     assert_eq!(
         names,
         [
-            "A album/01.flac",
-            "A album/02.flac",
-            "B album/01.flac",
-            "B album/02.flac"
+            PathBuf::from("A album").join("01.flac"),
+            PathBuf::from("A album").join("02.flac"),
+            PathBuf::from("B album").join("01.flac"),
+            PathBuf::from("B album").join("02.flac")
         ]
     );
     std::fs::remove_dir_all(root).unwrap();

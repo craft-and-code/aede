@@ -2,11 +2,11 @@
 //!
 //! It is a second pass rather than part of the first because it depends on the
 //! first. MusicBrainz is what supplies the `wikidata` link, and that link is
-//! the only reliable way from an artist in a library to an article about them:
+//! the only reliable way from an artist or label to an article about them:
 //! searching Wikipedia by name would put "Manson" in front of a reader and
 //! call it a description.
 //!
-//! **Two requests per artist, on top of one.** The Wikidata entity holds a
+//! **Two requests per entity, on top of one.** The Wikidata entity holds a
 //! page *title* per language; the title then has to be turned into a summary.
 //! For six hundred artists that is twenty minutes added to ten, which is why
 //! it is asked for rather than assumed — and why this pass, like the first,
@@ -29,7 +29,7 @@ use crate::ui;
 use super::Res;
 use super::fetch::{Ask, ask_with_backoff, defer, queue};
 
-/// An artist to ask about: where to file the answer, what to call them, and
+/// An artist or label to ask about: where to file the answer, what to call it, and
 /// the Wikidata id MusicBrainz gave.
 struct Target {
     entity: EntityRef,
@@ -85,7 +85,7 @@ pub fn run(
     let total_ms = targets.len() as u64 * 2 * wikipedia::REQUEST_INTERVAL.as_millis() as u64;
     println!(
         "  {} with a wikidata link, two requests each, about {}",
-        ui::plural(targets.len(), "artist"),
+        ui::plural(targets.len(), "entity"),
         ui::long_duration(total_ms)
     );
     println!(
@@ -184,9 +184,16 @@ pub fn run(
 /// article" is exactly what the layer exists to keep apart from "never asked",
 /// and without it every run would ask about the same artists forever.
 fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::sources::Prose>) {
-    let facts = aede_core::sources::ArtistFacts {
-        summary: prose,
-        ..Default::default()
+    let facts = match target.entity.kind {
+        aede_core::model::EntityKind::Artist => Facts::Artist(aede_core::sources::ArtistFacts {
+            summary: prose,
+            ..Default::default()
+        }),
+        aede_core::model::EntityKind::Label => Facts::Label(aede_core::sources::LabelFacts {
+            summary: prose,
+            ..Default::default()
+        }),
+        _ => return,
     };
     held.set(SourceRecord {
         key: target.entity.key.clone(),
@@ -199,7 +206,7 @@ fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::
         // was matched by name anywhere in this pass, which is the whole reason
         // it goes through Wikidata.
         confidence: aede_core::sources::Confidence::Identified,
-        facts: Facts::Artist(facts),
+        facts,
     });
 }
 
@@ -213,7 +220,7 @@ pub fn waiting(held: &sources::Sources) -> usize {
     targets(held, &[], &super::fetch::EVERYTHING, false).len()
 }
 
-/// Who to ask about: artists MusicBrainz gave a Wikidata link for.
+/// Who to ask about: artists and labels MusicBrainz gave a Wikidata link for.
 ///
 /// Reads the layer rather than the catalog, because the link is the input and
 /// the catalog does not hold it. An artist whose record has already been
@@ -238,13 +245,12 @@ fn targets(
         // Which is also why a folder arrives here already turned into a set of
         // those same keys: the walk that answers "who is on that shelf" needs
         // the catalog, and it was done once, in `fetch`, before any pass ran.
-        if !scope.has_artist(&record.key) {
-            continue;
-        }
-        let Facts::Artist(artist) = &record.facts else {
-            continue;
+        let wikidata = match &record.facts {
+            Facts::Artist(artist) if scope.has_artist(&record.key) => artist.wikidata.as_deref(),
+            Facts::Label(label) if scope.has_label(&record.key) => label.wikidata.as_deref(),
+            _ => None,
         };
-        let Some(id) = artist.wikidata.as_deref().and_then(wikipedia::entity_id) else {
+        let Some(id) = wikidata.and_then(wikipedia::entity_id) else {
             continue;
         };
         let entity = record.entity();

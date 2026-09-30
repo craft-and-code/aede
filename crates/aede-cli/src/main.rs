@@ -240,7 +240,8 @@ fn main() {
         eprintln!("Run \"aede help\" for the list of commands.");
         std::process::exit(2);
     };
-    if mutates_store(command) && std::env::var_os("AEDE_DELEGATED_CHILD").is_none() {
+    if mutates_store_with_args(command, &args) && std::env::var_os("AEDE_DELEGATED_CHILD").is_none()
+    {
         match delegation::try_delegate(&args, std::env::args().skip(1).collect()) {
             Ok(Some(code)) => std::process::exit(code),
             Ok(None) => {}
@@ -252,7 +253,7 @@ fn main() {
     }
     // Hold one lock across every read/modify/write sequence. Locking only the
     // final save would still allow two processes to load the same old state.
-    let _store_lock = if mutates_store(command) {
+    let _store_lock = if mutates_store_with_args(command, &args) {
         match aede_core::store_lock::StoreLock::acquire(&commands::data_dir(&args)) {
             Ok(lock) => Some(lock),
             Err(error) => {
@@ -302,6 +303,18 @@ fn mutates_store(command: &str) -> bool {
             | "played"
             | "history"
     )
+}
+
+fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
+    mutates_store(command) || checks_label_online(command, args)
+}
+
+fn checks_label_online(command: &str, args: &args::Args) -> bool {
+    command == "label"
+        && !args.has("offline")
+        && !["csv", "json", "m3u", "output"]
+            .iter()
+            .any(|option| args.has(option))
 }
 
 /// Every option this program recognises at all.
@@ -403,6 +416,8 @@ const OPTIONS: &[&str] = &[
     "no-cdart",
     "banners",
     "labels",
+    "online",
+    "offline",
     "accept",
     "reject",
     "undo",
@@ -422,6 +437,12 @@ const OPTIONS: &[&str] = &[
 /// advises `aede fetch --artists` when `--artists` belongs to `playlist` is an
 /// option nobody can type, and only something comparing the two can notice.
 const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
+    ("online", &["label"], "check a label's Discogs profile now"),
+    (
+        "offline",
+        &["label"],
+        "show a label without a network check",
+    ),
     ("port", &["serve"], "choose the local API port"),
     (
         "normalize",

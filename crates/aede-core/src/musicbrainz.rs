@@ -50,6 +50,9 @@ pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// the year that record came out.
 pub const ARTIST_INCLUDES: &str = "genres+tags+aliases+url-rels+artist-rels";
 
+/// URL relationships include the Wikidata link used by label summaries.
+pub const LABEL_INCLUDES: &str = "url-rels";
+
 /// What a recording lookup needs for performance, production and composition
 /// credits in a single request.
 ///
@@ -837,7 +840,11 @@ pub fn label(response: &Json) -> Option<Candidate<LabelFacts>> {
         name: field(response, "name").unwrap_or_default(),
         // Nothing was ranked: the service was asked about this one thing.
         score: 100,
-        facts: LabelFacts::default(),
+        facts: LabelFacts {
+            wikidata: linked(response, "wikidata"),
+            discogs: linked(response, "discogs"),
+            ..Default::default()
+        },
     })
 }
 

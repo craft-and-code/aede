@@ -627,8 +627,7 @@ pub enum Facts {
     Release(ReleaseFacts),
     /// About one recorded performance, identified by its sound.
     Track(TrackFacts),
-    /// About a record label — see [`LabelFacts`] for why there is next to
-    /// nothing here.
+    /// About a record label, including attributed prose when available.
     Label(LabelFacts),
 }
 
@@ -657,27 +656,29 @@ impl Facts {
             Facts::Artist(a) => a == &ArtistFacts::default(),
             Facts::Release(r) => r == &ReleaseFacts::default(),
             Facts::Track(t) => t == &TrackFacts::default(),
-            // Always true, by construction — see the type's own doc. Kept as
-            // an arm rather than a wildcard so a fact ever added to this
-            // struct is forced to answer this question too.
             Facts::Label(l) => l == &LabelFacts::default(),
         }
     }
 }
 
-/// What a MusicBrainz label search or lookup adds to a label already known by
-/// name.
+/// What external sources say about a label already known by name.
 ///
-/// Usually empty: the MusicBrainz pass exists for exactly one fact — the identifier —
-/// see [`ReleaseFacts::label_mbid`] for why it could not simply live on
-/// [`crate::model::Label`]. That identifier itself lives in
+/// MusicBrainz supplies the identifier and may link to Wikidata, which can
+/// lead to a credited Wikipedia summary. The identifier itself lives in
 /// [`SourceRecord::source_id`], the same place every other MusicBrainz
 /// identifier in this layer lives, never in the facts beside it. A record
-/// with no fields still says something real: a row that exists at all means
-/// "asked, and this MBID answered", which is exactly what a later run needs
-/// to know before it asks again.
+/// with no fields still means "asked, and this MBID answered".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LabelFacts {
+    /// Wikidata link supplied by a MusicBrainz label lookup.
+    pub wikidata: Option<String>,
+    /// Discogs page supplied by a MusicBrainz label lookup.
+    pub discogs: Option<String>,
+    /// Credited prose reached through that Wikidata link.
+    pub summary: Option<Prose>,
+    /// Original Discogs markup, so an unchanged profile can reuse resolved
+    /// label names without repeating every linked-label lookup.
+    pub summary_markup: Option<String>,
     /// The label's logo, when Fanart.tv supplied one.
     pub logo: Option<Picture>,
 }
@@ -1923,6 +1924,24 @@ pub fn save(sources: &Sources, path: &Path) -> Result<(), crate::store::StoreErr
 
 /// Reads the layer; `Ok(None)` when nothing has ever been fetched.
 pub fn load(path: &Path) -> Result<Option<Sources>, crate::store::StoreError> {
+    let Some(mut sources) = load_all(path)? else {
+        return Ok(None);
+    };
+    let now = crate::clock::now_seconds();
+    // Discogs' API terms prohibit displaying an old snapshot. Readers and
+    // exports see only current profiles; writers use load_all so an unrelated
+    // change does not erase the local copy before it can be refreshed.
+    sources.records.retain(|record| {
+        record.source != crate::discogs::SOURCE
+            || !matches!(&record.facts, Facts::Label(_))
+            || crate::discogs::fresh(record.fetched_at, now)
+    });
+    Ok(Some(sources))
+}
+
+/// Read every stored claim, including Discogs profiles awaiting revalidation.
+/// Only use this for a read/modify/write operation or a backup, not display.
+pub fn load_all(path: &Path) -> Result<Option<Sources>, crate::store::StoreError> {
     if !path.exists() {
         return Ok(None);
     }
@@ -2279,6 +2298,23 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("relationships_complete", rel.relationships_complete.into());
                 }
                 Facts::Label(label) => {
+                    facts.set("wikidata", opt_str(&label.wikidata));
+                    facts.set("discogs", opt_str(&label.discogs));
+                    facts.set("summary_markup", opt_str(&label.summary_markup));
+                    facts.set(
+                        "summary",
+                        match &label.summary {
+                            Some(prose) => {
+                                let mut o = Json::obj();
+                                o.set("text", prose.text.clone().into());
+                                o.set("url", prose.url.clone().into());
+                                o.set("lang", prose.lang.clone().into());
+                                o.set("licence", prose.licence.clone().into());
+                                o
+                            }
+                            None => Json::Null,
+                        },
+                    );
                     facts.set(
                         "logo",
                         match &label.logo {
@@ -2583,6 +2619,17 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .unwrap_or_default(),
             }),
             EntityKind::Label => Facts::Label(LabelFacts {
+                wikidata: facts.and_then(|f| f.field_str("wikidata")),
+                discogs: facts.and_then(|f| f.field_str("discogs")),
+                summary_markup: facts.and_then(|f| f.field_str("summary_markup")),
+                summary: facts.and_then(|f| f.get("summary")).and_then(|p| {
+                    Some(Prose {
+                        text: p.field_str("text")?,
+                        url: p.field_str("url")?,
+                        lang: p.field_str("lang")?,
+                        licence: p.field_str("licence")?,
+                    })
+                }),
                 logo: facts.and_then(|f| f.get("logo")).and_then(|p| {
                     Some(Picture {
                         url: p.field_str("url")?,

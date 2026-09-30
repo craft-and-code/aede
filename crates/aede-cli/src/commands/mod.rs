@@ -17,6 +17,7 @@ mod covers;
 mod credit;
 mod credits;
 mod discography;
+mod discogs;
 mod doctor;
 mod export;
 mod facet;

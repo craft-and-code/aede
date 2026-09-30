@@ -119,6 +119,16 @@ Path handling must remain correct across:
 
 Persisted paths require particular care because changing their spelling can break user annotations keyed by path.
 
+### Portable path tests
+
+Filesystem paths must be compared as `Path` or `PathBuf` values. Build expected paths with `join`, and keep relative paths returned by `strip_prefix` as paths instead of converting them with `to_string_lossy` for comparison.
+
+The same correctly ordered selection renders as `A album/01.flac` on Unix and `A album\01.flac` on Windows. A test of recursive playback order must check the ordered list of paths, including every expected file, without requiring either separator spelling. Do not weaken the ordering assertion or disable the test on Windows.
+
+Compare strings only when their spelling is part of the output contract, such as the `/`-separated relative paths in exported playlists. Do not normalize native stored paths by replacing backslashes: a backslash can be a literal Unix filename character, and verbatim Windows paths must retain their native spelling. See [Catalog paths on Unix and Windows](../design/paths.md).
+
+Passing on macOS or Linux does not establish native Windows compatibility; the Windows CI job must verify filesystem behaviour on Windows.
+
 ---
 
 ## 8. Parsers

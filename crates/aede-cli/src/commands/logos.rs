@@ -804,7 +804,10 @@ fn store_label(held: &mut sources::Sources, target: &LabelTarget, outcome: &Outc
         source_id: Some(target.mbid.clone()),
         fetched_at: clock::now_seconds(),
         confidence: sources::Confidence::Identified,
-        facts: Facts::Label(LabelFacts { logo }),
+        facts: Facts::Label(LabelFacts {
+            logo,
+            ..Default::default()
+        }),
     });
 }
 

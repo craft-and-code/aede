@@ -792,6 +792,15 @@ fn the_passes_run_in_their_own_order_and_not_the_typed_one() {
 }
 
 #[test]
+fn label_identification_precedes_its_wikipedia_summary() {
+    let passes = Pass::asked_for(&args(
+        std::path::Path::new("/tmp"),
+        &["--summaries", "--labels"],
+    ));
+    assert_eq!(passes, vec![Pass::Labels, Pass::Summaries]);
+}
+
+#[test]
 fn an_unusable_size_stops_the_run_before_any_pass_asks_anything() {
     // `--size` is read once for the whole run now rather than inside the
     // cover pass, and a value the archive does not generate must still be

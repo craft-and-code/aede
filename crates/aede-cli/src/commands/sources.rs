@@ -252,7 +252,22 @@ fn says(facts: &Facts) -> String {
                 parts.push(label.clone());
             }
         }
-        Facts::Label(LabelFacts { logo }) => {
+        Facts::Label(LabelFacts {
+            logo,
+            summary,
+            wikidata,
+            discogs,
+            ..
+        }) => {
+            if let Some(url) = wikidata {
+                parts.push(url.clone());
+            }
+            if let Some(url) = discogs {
+                parts.push(url.clone());
+            }
+            if let Some(prose) = summary {
+                parts.push(prose.text.clone());
+            }
             if let Some(logo) = logo {
                 parts.push(format!("logo: {}", logo.url));
             }
@@ -276,7 +291,7 @@ fn import(args: &Args, path: &std::path::Path) -> Res {
         aede_core::json::parse(&text).map_err(|e| format!("\"{file}\" is not JSON: {e}"))?;
     let incoming = sources::from_json(&value)?;
 
-    let mut held = sources::load(path)?.unwrap_or_default();
+    let mut held = sources::load_all(path)?.unwrap_or_default();
     let (mut updated, mut added) = (0usize, 0usize);
     for record in incoming.records {
         match held.set(record) {
@@ -406,7 +421,7 @@ fn template(args: &Args) -> Res {
 
 /// Drops what one source said, or everything.
 fn forget(args: &Args, path: &std::path::Path) -> Res {
-    let mut held = sources::load(path)?.unwrap_or_default();
+    let mut held = sources::load_all(path)?.unwrap_or_default();
     let before = held.records.len();
     if before == 0 {
         println!("{}", ui::section("Sources"));
@@ -458,10 +473,22 @@ fn forget(args: &Args, path: &std::path::Path) -> Res {
 /// Silent when nothing was fetched. A page that announced an empty section for
 /// a feature nobody has used yet would be noise on every album in the library.
 pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
-    let Some(entity) = EntityRef::of(catalog, kind, id) else {
+    let Ok(held) = super::sources_held(args) else {
         return;
     };
-    let Ok(held) = super::sources_held(args) else {
+    panel_for_held(catalog, kind, id, &held, false);
+}
+
+/// The label page may deliberately show its retained Discogs profile when
+/// offline or when a refresh failed. Other pages use the filtered loader.
+pub fn panel_for_held(
+    catalog: &Catalog,
+    kind: EntityKind,
+    id: Id,
+    held: &Sources,
+    refresh_failed: bool,
+) {
+    let Some(entity) = EntityRef::of(catalog, kind, id) else {
         return;
     };
     let records: Vec<&SourceRecord> = held.about(&entity).collect();
@@ -475,29 +502,81 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
     // and it is the one thing here meant to be read rather than compared with
     // a tag — there is nothing in a file to compare it against.
     for record in &records {
-        if let Facts::Artist(artist) = &record.facts
-            && let Some(prose) = &artist.summary
-        {
-            for line in ui::wrap(&prose.text, 72) {
-                println!("  {line}");
+        let prose = match &record.facts {
+            Facts::Artist(artist) => artist.summary.as_ref(),
+            Facts::Label(label) => label.summary.as_ref(),
+            _ => None,
+        };
+        if let Some(prose) = prose {
+            if record.source == aede_core::discogs::SOURCE
+                && (refresh_failed
+                    || !aede_core::discogs::fresh(
+                        record.fetched_at,
+                        aede_core::clock::now_seconds(),
+                    ))
+            {
+                println!(
+                    "  {}",
+                    ui::yellow(
+                        "Stored Discogs profile: update needed; the latest version could not be confirmed."
+                    )
+                );
             }
-            // The credit is not a nicety: this text is CC BY-SA, and reusing
-            // it obliges naming where it came from and under what terms. It is
-            // printed every time the text is, because that is what the licence
-            // asks and because a reader deserves to know they are reading an
-            // encyclopaedia rather than the program's own opinion.
-            println!("  {}", ui::dim(&prose.credit()));
-            // Named where it is read, not only in `fetch --help`: a reader
-            // looking at a paragraph in the wrong language is exactly the
-            // reader who needs the command that changes it, and they are
-            // looking at this line and not at the help.
-            println!(
-                "  {}",
-                ui::dim(&format!(
-                    "aede fetch --summaries --full --lang=<code> \"{}\" asks for another",
-                    record.key
-                ))
-            );
+            let display = if record.source == aede_core::discogs::SOURCE {
+                aede_core::discogs::render_profile(
+                    &prose.text,
+                    &Default::default(),
+                    &Default::default(),
+                )
+            } else {
+                prose.text.clone()
+            };
+            let lines = if record.source == aede_core::discogs::SOURCE {
+                discogs_profile_lines(&display, 72)
+            } else {
+                ui::wrap(&display, 72)
+            };
+            for line in lines {
+                if line.is_empty() {
+                    println!();
+                } else {
+                    println!("  {line}");
+                }
+            }
+            if record.source == aede_core::discogs::SOURCE {
+                println!(
+                    "  {}",
+                    ui::dim(
+                        "Discogs profile: original text (usually English; no French translation supplied)"
+                    )
+                );
+                println!(
+                    "  {}",
+                    ui::dim(&format!("Data provided by Discogs. {} — CC0", prose.url))
+                );
+                println!(
+                    "  {}",
+                    ui::dim(
+                        "This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC."
+                    )
+                );
+                println!(
+                    "  {}",
+                    ui::dim(&format!(
+                        "aede label \"{}\" checks this profile whenever the page opens",
+                        record.key
+                    ))
+                );
+            } else {
+                println!("  {}", ui::dim(&prose.credit()));
+                println!(
+                    "  {}",
+                    ui::dim(&format!(
+                        "aede fetch --summaries --full --lang=<code> \"{}\" asks for another",
+                        record.key
+                    ))
+                );
+            }
             println!();
         }
     }
@@ -546,7 +625,9 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
             // A record whose only content is the paragraph just printed has
             // no row here, and saying it "holds nothing" directly under its
             // own text would be plainly false.
-            if matches!(&record.facts, Facts::Artist(a) if a.summary.is_some()) {
+            if matches!(&record.facts, Facts::Artist(a) if a.summary.is_some())
+                || matches!(&record.facts, Facts::Label(l) if l.summary.is_some())
+            {
                 continue;
             }
             println!(
@@ -568,6 +649,27 @@ pub fn panel_for(args: &Args, catalog: &Catalog, kind: EntityKind, id: Id) {
         "{}",
         ui::dim("  beside your tags, never on top of them — aede sources --forget removes them")
     );
+}
+
+/// Discogs separates identity notes from the biography with hard line breaks.
+/// Wrap each source line independently and apply emphasis after measuring it,
+/// so terminal escape sequences do not count toward the available width.
+fn discogs_profile_lines(text: &str, width: usize) -> Vec<String> {
+    text.lines()
+        .flat_map(|line| {
+            if line.trim().is_empty() {
+                return vec![String::new()];
+            }
+            let label_code = line
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("label code:");
+            ui::wrap(line, width)
+                .into_iter()
+                .map(|line| if label_code { ui::bold(&line) } else { line })
+                .collect()
+        })
+        .collect()
 }
 
 /// Where each of these answers came from, as an address a reader can follow.
@@ -604,13 +706,15 @@ fn address_of(record: &SourceRecord) -> Option<String> {
         // edition's — see `musicbrainz::release`. Naming the wrong path here
         // would produce a link that 404s on the one page a reader came to open.
         EntityKind::Release => "release-group",
-        // `Facts` has only those two shapes today. A third would be one this
-        // function has never seen, and guessing a path for it is how a link
-        // that looks right leads nowhere.
+        EntityKind::Label => "label",
+        // Other entity kinds have no known MusicBrainz URL here.
         _ => return Some(id.to_string()),
     };
     Some(match record.source.as_str() {
         sources::MUSICBRAINZ => format!("https://musicbrainz.org/{kind}/{id}"),
+        aede_core::discogs::SOURCE if kind == "label" => {
+            format!("https://www.discogs.com/label/{id}")
+        }
         "wikipedia" => format!("https://www.wikidata.org/wiki/{id}"),
         // A source this build knows nothing about still has an identifier, and
         // the identifier is the useful half. Inventing an address for it would
@@ -838,7 +942,14 @@ fn compared(
         // Nothing to show — see `LabelFacts`. There is no tag for a label's
         // own identifier to be compared against, the same reason an
         // artist's row above compares no name either.
-        Facts::Label(LabelFacts { .. }) => {}
+        Facts::Label(label) => {
+            if let Some(url) = &label.wikidata {
+                rows.push(("wikidata", url.clone(), None));
+            }
+            if let Some(url) = &label.discogs {
+                rows.push(("discogs", url.clone(), None));
+            }
+        }
     }
     rows
 }

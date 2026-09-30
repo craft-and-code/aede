@@ -80,7 +80,7 @@ pub fn backup(args: &Args) -> Res {
         catalog,
         conclusions: gathered,
         user: part(user::load(&user::user_path(&data))),
-        sources: part(sources::load(&sources::sources_path(&data))),
+        sources: part(sources::load_all(&sources::sources_path(&data))),
     };
 
     // The same store summary a restore prints, from the same function, so the two

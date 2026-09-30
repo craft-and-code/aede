@@ -6,7 +6,7 @@
 use super::*;
 use aede_core::json::Json;
 use aede_core::model::EntityKind;
-use aede_core::sources::{ArtistFacts, Confidence, Prose, Sources};
+use aede_core::sources::{ArtistFacts, Confidence, LabelFacts, Prose, Sources};
 
 /// The options a pass reads, as `fetch` gathers them.
 fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
@@ -108,6 +108,52 @@ fn stored(sources: &Sources) -> Option<Prose> {
         Facts::Artist(a) => a.summary.clone(),
         _ => None,
     }
+}
+
+#[test]
+fn a_label_summary_is_fetched_and_saved_with_its_credit() {
+    let dir = sandbox("label_summary");
+    let path = sources::sources_path(&dir);
+    let mut layer = Sources::default();
+    layer.set(SourceRecord {
+        key: "roadracer records".to_string(),
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("label-id".to_string()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            wikidata: Some("https://www.wikidata.org/wiki/Q11649".to_string()),
+            ..Default::default()
+        }),
+    });
+    let mut transport = Canned {
+        answers: vec![Ok(ENTITY.to_string()), Ok(SUMMARY.to_string())],
+        asked: Vec::new(),
+    };
+    run(
+        &mut transport,
+        &[],
+        &["en".to_string()],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .expect("the pass ran");
+    let back = sources::load(&path).expect("readable").expect("a layer");
+    let entity = EntityRef {
+        kind: EntityKind::Label,
+        key: "roadracer records".to_string(),
+    };
+    let record = back
+        .get(&entity, wikipedia::SOURCE)
+        .expect("a label answer");
+    let Facts::Label(label) = &record.facts else {
+        panic!("label facts");
+    };
+    let prose = label.summary.as_ref().expect("a summary");
+    assert_eq!(prose.text, "An American rock band.");
+    assert_eq!(prose.licence, wikipedia::LICENCE);
+    assert!(prose.credit().contains("en.wikipedia.org"));
 }
 
 #[test]

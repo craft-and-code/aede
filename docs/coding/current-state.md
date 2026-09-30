@@ -47,6 +47,11 @@ The current implementation includes:
 - MusicBrainz fetching;
 - MusicBrainz discography information;
 - Wikipedia/Wikidata summaries;
+- a Discogs profile fallback for labels without Wikipedia prose, checked when
+  the label page opens unless `--offline` is used, with source attribution and
+  plain-text rendering of linked label and artist names, preserved source
+  paragraphs with an emphasized label code, and an animated loading indicator
+  during online requests;
 - cover-art fetching;
 - language selection for fetched prose;
 - artist identity: spellings merged on a shared MusicBrainz identifier, and

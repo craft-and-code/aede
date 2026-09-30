@@ -14,6 +14,25 @@ use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{ArtistFacts, ReleaseFacts};
 use aede_core::tags::RawTags;
 
+#[test]
+fn discogs_layout_keeps_paragraphs_and_emphasizes_a_wrapped_label_code() {
+    let text = "Originally a Dutch label.\r\n[b]Label Code: LC 9231 / LC 09231[/b]\r\nPlease use [l=Roadrunner Productions].\r\n\r\nThe biography starts here.";
+    let plain = aede_core::discogs::render_profile(text, &Default::default(), &Default::default());
+    assert_eq!(
+        discogs_profile_lines(&plain, 25),
+        vec![
+            "Originally a Dutch label.".to_string(),
+            ui::bold("Label Code: LC 9231 / LC"),
+            ui::bold("09231"),
+            "Please use Roadrunner".to_string(),
+            "Productions.".to_string(),
+            String::new(),
+            "The biography starts".to_string(),
+            "here.".to_string(),
+        ]
+    );
+}
+
 /// A one-album, one-artist catalog whose tags say what is given.
 fn catalog_with(genre: &str, label: &str) -> Catalog {
     let mut tags = RawTags::default();

@@ -210,8 +210,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "List record labels in the catalog.",
         },
         "label" => CommandPage {
-            usage: "aede label <name>",
-            summary: "Show a record label's catalog and artists.",
+            usage: "aede label <name> [--offline]",
+            summary: "Show a label's catalog and artists; check a Discogs profile when needed.",
         },
         "years" => CommandPage {
             usage: "aede years",
@@ -478,7 +478,9 @@ pub fn print_index() {
                        MusicBrainz ID removes ambiguity between equal titles
   genre <name>         Genre page: albums and artists carrying it
   label <name>         Label page: its catalogue, artists, and MusicBrainz
-                       identity status (local, confirmed, proposed, conflict)
+                       identity status (local, confirmed, proposed, conflict).
+                       Checks Discogs on each visit when Wikipedia has no bio;
+                       --offline reads only local data
   search <text>        Search artists, albums, tracks, recordings, works,
                        release groups, labels, trusted source-only credit
                        contributors and parent works. --comments also looks in the
@@ -735,7 +737,7 @@ fn command_examples(command: &str) -> &'static [&'static str] {
         ],
         "work" => &["aede work <MusicBrainz-work-ID>"],
         "release-group" => &["aede release-group <MusicBrainz-release-group-ID>"],
-        "label" => &["aede label \"Blue Note\""],
+        "label" => &["aede label \"Blue Note\"", "aede label roadracer --offline"],
         "search" => &["aede search coltrane"],
         "query" => &[
             "aede query \"genre:metal year:1990..1999\"",

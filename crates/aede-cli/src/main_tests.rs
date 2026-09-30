@@ -45,6 +45,18 @@ fn every_store_writer_and_the_backup_hold_the_data_lock() {
 }
 
 #[test]
+fn label_lookup_is_a_store_writer_unless_offline() {
+    let plain = args::Args::parse(vec!["label".into(), "Roadracer".into()]);
+    let offline = args::Args::parse(vec!["label".into(), "Roadracer".into(), "--offline".into()]);
+    assert!(mutates_store_with_args("label", &plain));
+    assert!(!mutates_store_with_args("label", &offline));
+    assert!(delegation::allowed(
+        &["label".into(), "Roadracer".into()],
+        "label"
+    ));
+}
+
+#[test]
 fn every_command_has_a_dedicated_help_page() {
     for (command, _, _) in COMMANDS {
         let page = help::command_page(command);

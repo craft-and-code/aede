@@ -8,6 +8,66 @@ use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{Confidence, ReleaseFacts, Sources};
 use aede_core::tags::RawTags;
 
+struct Canned {
+    answers: Vec<aede_core::json::Json>,
+    asked: Vec<String>,
+}
+
+impl Ask for Canned {
+    fn get_json(
+        &mut self,
+        url: &str,
+    ) -> Result<aede_core::json::Json, super::super::fetch::Refusal> {
+        self.asked.push(url.to_string());
+        Ok(self.answers.remove(0))
+    }
+
+    fn get_bytes(&mut self, _url: &str) -> Result<Vec<u8>, super::super::fetch::Refusal> {
+        unreachable!("labels do not download images")
+    }
+}
+
+#[test]
+fn a_name_search_is_confirmed_by_lookup_and_keeps_the_wikidata_link() {
+    let catalog = catalog_with_label("Columbia");
+    let mut held = Sources::default();
+    let mut transport = Canned {
+        answers: [
+            r#"{"labels":[{"id":"columbia-id","name":"Columbia","score":100}]}"#,
+            r#"{"id":"columbia-id","name":"Columbia","relations":[{"type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q123"}}]}"#,
+        ]
+        .iter()
+        .map(|text| aede_core::json::parse(text).expect("fixture"))
+        .collect(),
+        asked: Vec::new(),
+    };
+    let path =
+        std::env::temp_dir().join(format!("aede_labels_wikidata_{}.json", std::process::id()));
+    let asked = crate::commands::fetch::Asked {
+        scope: &crate::commands::fetch::EVERYTHING,
+        names: &[],
+        again: false,
+        dry_run: false,
+        size: crate::commands::covers::DEFAULT_SIZE,
+        images: false,
+        fanart: Default::default(),
+        key: None,
+        portrait_key: None,
+        langs: vec!["en".to_string()],
+    };
+    run(&catalog, &mut transport, &[], &mut held, &path, &asked).expect("label pass");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(transport.asked.len(), 2);
+    assert!(transport.asked[1].contains("inc=url-rels"));
+    let Facts::Label(facts) = &held.records[0].facts else {
+        panic!("label facts");
+    };
+    assert_eq!(
+        facts.wikidata.as_deref(),
+        Some("https://www.wikidata.org/wiki/Q123")
+    );
+}
+
 /// A one-album catalog whose release is tagged with the given label.
 fn catalog_with_label(label: &str) -> Catalog {
     let mut tags = RawTags::default();
