@@ -15,9 +15,7 @@ use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
 use aede_core::{clock, model::EntityKind, query, tags};
-use aede_dsp::{
-    Dsp, OutputMeter, OutputMeterError, ProcessStats, ToneControls, gain_with_headroom_db,
-};
+use aede_dsp::{OutputMeter, OutputMeterError, ToneControls, gain_with_headroom_db};
 
 use super::{Res, data_dir};
 use crate::args::Args;
@@ -33,6 +31,9 @@ use controls::{Action, Controls};
 #[path = "play_output.rs"]
 mod output;
 use output::LocalOutput;
+
+#[path = "play_session.rs"]
+mod session;
 
 pub fn play(args: &Args) -> Res {
     let requested_normalization = normalization_mode(args)?;
@@ -82,52 +83,16 @@ pub fn play(args: &Args) -> Res {
         }
         Ok(())
     });
-    let playback_result = (|| -> Res {
-        let mut index = 0;
-        while index < paths.len() {
-            let path = &paths[index];
-            let selected_gain = normalization.prepare(index)?;
-            let started = clock::now_seconds();
-            let mut played_ms = 0;
-            let label = playing_label(path, catalog.as_ref());
-            let result = play_file(
-                path,
-                &label,
-                &mut played_ms,
-                controls.as_ref(),
-                &mut output,
-                index + 1 == paths.len(),
-                PlaybackSettings {
-                    normalization_mode,
-                    selected_gain,
-                    tone,
-                },
-                &mut normalization,
-            );
-            if played_ms > 0 {
-                history_send
-                    .send(PlaybackRecord::History(HistoryItem {
-                        path: path.clone(),
-                        started,
-                        played_ms,
-                        completed: matches!(result, Ok(PlaybackEnd::Natural)),
-                    }))
-                    .map_err(|_| "listening history worker stopped")?;
-            }
-            match normalization.finish_track(index, matches!(result, Ok(PlaybackEnd::Natural))) {
-                Ok(Some(update)) => history_send
-                    .send(PlaybackRecord::Loudness(update))
-                    .map_err(|_| "playback record worker stopped")?,
-                Ok(None) => {}
-                Err(error) => eprintln!("Warning: source loudness was not cached: {error}"),
-            }
-            match next_index(index, paths.len(), played_ms, result?) {
-                Some(next) => index = next,
-                None => break,
-            }
-        }
-        Ok(())
-    })();
+    let playback_result = session::play_selection(
+        &paths,
+        catalog.as_ref(),
+        normalization_mode,
+        tone,
+        &mut normalization,
+        controls.as_ref(),
+        &mut output,
+        &history_send,
+    );
     drop(history_send);
     let history_result = history_worker
         .join()
@@ -568,276 +533,6 @@ fn record_play(args: &Args, path: &Path, started: u64, played_ms: u64, completed
     });
     user::save(&data, &user_path)?;
     Ok(())
-}
-
-fn play_file(
-    path: &Path,
-    label: &str,
-    played_ms: &mut u64,
-    controls: Option<&Controls>,
-    output: &mut LocalOutput,
-    final_track: bool,
-    settings: PlaybackSettings,
-    normalization: &mut ReadyNormalization<'_>,
-) -> Result<PlaybackEnd, Box<dyn Error>> {
-    let mut track = PcmTrack::open_stereo(path)?;
-    let source_format = track.format();
-    if track.source_format().channels() > 2 {
-        println!(
-            "Channels: {} → stereo (LFE omitted, peak-safe downmix)",
-            track.source_format().layout().name()
-        );
-    }
-    let sink_format = output.prepare(source_format)?;
-    if let Some(description) = output.integer_description() {
-        println!("Output: {description} with TPDF dither");
-    }
-    if sink_format.sample_rate() != source_format.sample_rate() {
-        track.set_output_rate(sink_format.sample_rate())?;
-        println!(
-            "Sample rate: {} → {} Hz (device conversion)",
-            source_format.sample_rate(),
-            sink_format.sample_rate()
-        );
-    }
-    let format = track.format();
-    let mut dsp = Dsp::new(format);
-    dsp.set_tone(settings.tone)?;
-    let mut normalization_gain_db = 0.0;
-    let mut normalization_headroom_db = 0.0;
-    if let Some(selection) = settings.selected_gain {
-        let applied_gain_db = gain_with_headroom_db(selection.gain_db, selection.source_peak)?;
-        normalization_gain_db = applied_gain_db;
-        normalization_headroom_db = (selection.gain_db - applied_gain_db).max(0.0);
-        println!(
-            "Normalization: {applied_gain_db:+.2} dB ({})",
-            selection.label
-        );
-        if applied_gain_db < selection.gain_db {
-            println!(
-                "Headroom: requested {:+.2} dB reduced to {applied_gain_db:+.2} dB ({})",
-                selection.gain_db, selection.peak_label
-            );
-        }
-    } else if settings.normalization_mode != NormalizationMode::Off {
-        println!("Normalization: no stored loudness or matching gain; decoded level retained");
-    }
-    if normalization.is_measuring() {
-        println!(
-            "Loudness: measuring source during playback for a future listen; current gain stays fixed"
-        );
-    }
-    let preamp_db = settings.tone.safe_preamp_db();
-    dsp.set_gain_db(normalization_gain_db + preamp_db, 0)?;
-    if !settings.tone.is_flat() {
-        println!(
-            "Tone: bass {:+.1} dB, treble {:+.1} dB; headroom preamp {preamp_db:+.1} dB",
-            settings.tone.bass_db(),
-            settings.tone.treble_db()
-        );
-    }
-
-    let mut meter = match OutputMeter::new(format) {
-        Ok(meter) => meter,
-        Err(error) => {
-            eprintln!("True-peak meter unavailable: {error}");
-            OutputMeter::sample_peak_only(format)
-        }
-    };
-    println!("Playing: {label}");
-    let mut clock = PlaybackClock::new();
-    let mut visualizer = TerminalVisualizer::new(format);
-    let normalization_stage = match settings.selected_gain {
-        Some(selection) => format!("{} {normalization_gain_db:+.2} dB", selection.label),
-        None if settings.normalization_mode == NormalizationMode::Off => "off".to_string(),
-        None => "no gain available".to_string(),
-    };
-    println!(
-        "DSP stages: downmix {}; resample {}; normalization {}; tone {}; output guard on; limiter off; output {}; spectrum {}",
-        if track.source_format().channels() > 2 {
-            "to stereo"
-        } else {
-            "bypass"
-        },
-        if sink_format.sample_rate() != source_format.sample_rate() {
-            "on"
-        } else {
-            "bypass"
-        },
-        normalization_stage,
-        if settings.tone.is_flat() {
-            "bypass"
-        } else {
-            "on"
-        },
-        output.stage_description(),
-        if visualizer.is_some() {
-            "display on"
-        } else {
-            "off"
-        },
-    );
-    println!(
-        "Headroom reserve: normalization {:.2} dB; tone {:.2} dB; dynamic gain reduction unavailable (limiter off)",
-        normalization_headroom_db, -preamp_db,
-    );
-    let mut frames = 0;
-    let mut clamped_samples = 0;
-    let streamed = stream_pcm_counted(
-        &mut track,
-        &mut dsp,
-        output,
-        &mut frames,
-        &mut clamped_samples,
-        PlaybackDiagnostics {
-            meter: Some(&mut meter),
-            visualizer: visualizer.as_mut(),
-            normalization: Some(normalization),
-        },
-        controls,
-        &mut clock,
-    );
-    let measured = match meter.snapshot() {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            eprintln!("True-peak meter unavailable: {error}");
-            meter.sample_peak_snapshot()
-        }
-    };
-    if measured.frames > 0 {
-        let true_peak = measured
-            .output_true_peak
-            .map(|peak| format!("{} dBTP", peak_db(peak)))
-            .unwrap_or_else(|| "unavailable".to_string());
-        println!(
-            "Submitted signal (before dither/device): sample peak {} dBFS; estimated true peak {true_peak}; pre-guard peak {} dBFS; guarded samples {}",
-            peak_db(measured.output_sample_peak),
-            peak_db(measured.pre_guard_sample_peak),
-            measured.guarded_samples,
-        );
-    }
-    if clamped_samples > 0 {
-        eprintln!(
-            "Warning: {clamped_samples} PCM samples were hard-clamped at full scale before output; peak metadata or filter transients may explain this"
-        );
-    }
-    *played_ms = frames.saturating_mul(1000) / u64::from(format.sample_rate());
-    match streamed {
-        Ok(PlaybackEnd::Natural) if final_track => {
-            output.close_input();
-            loop {
-                match control_action(controls, output, &mut clock) {
-                    Ok(Some(action)) => {
-                        *played_ms = (*played_ms).min(clock.active_ms());
-                        output.abort()?;
-                        return Ok(action);
-                    }
-                    Err(error) => {
-                        let _ = output.abort();
-                        return Err(error);
-                    }
-                    Ok(None) => {}
-                }
-                if output.drained()? {
-                    output.finish()?;
-                    return Ok(PlaybackEnd::Natural);
-                }
-                std::thread::sleep(Duration::from_millis(25));
-            }
-        }
-        Ok(PlaybackEnd::Natural) => {
-            if output.stopped_early()? {
-                return Err("audio output stopped before the selection ended".into());
-            }
-            Ok(PlaybackEnd::Natural)
-        }
-        Ok(action) => {
-            *played_ms = (*played_ms).min(clock.active_ms());
-            output.abort()?;
-            Ok(action)
-        }
-        Err(error) => {
-            *played_ms = (*played_ms).min(clock.active_ms());
-            let exit = output.stopped_early().err();
-            let _ = output.abort();
-            if let Some(exit) = exit {
-                return Err(exit);
-            }
-            Err(error)
-        }
-    }
-}
-
-struct PlaybackDiagnostics<'a, 'selection> {
-    meter: Option<&'a mut OutputMeter>,
-    visualizer: Option<&'a mut TerminalVisualizer>,
-    normalization: Option<&'a mut ReadyNormalization<'selection>>,
-}
-
-fn stream_pcm_counted(
-    track: &mut PcmTrack,
-    dsp: &mut Dsp,
-    output: &mut impl PlaybackOutput,
-    frames_written: &mut u64,
-    clamped_samples: &mut u64,
-    mut diagnostics: PlaybackDiagnostics<'_, '_>,
-    controls: Option<&Controls>,
-    clock: &mut PlaybackClock,
-) -> Result<PlaybackEnd, Box<dyn Error>> {
-    loop {
-        if let Some(action) = control_action(controls, output, clock)? {
-            return Ok(action);
-        }
-        let mut block_stats = ProcessStats::default();
-        let Some(block) = track.read_block_observed(
-            |format, samples| {
-                if let Some(session) = diagnostics.normalization.as_deref_mut()
-                    && let Err(error) = session.observe_source(format, samples)
-                {
-                    eprintln!("Source loudness meter stopped: {error}");
-                }
-            },
-            |samples| {
-                dsp.process_for_output(samples).map(|stats| {
-                    block_stats = stats;
-                })
-            },
-        )?
-        else {
-            return Ok(PlaybackEnd::Natural);
-        };
-        let mut pending = block.f32le;
-        while !pending.is_empty() {
-            match output.write(pending) {
-                Ok(0) => return Err("audio output closed before accepting PCM".into()),
-                Ok(count) => pending = &pending[count..],
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if let Some(action) = control_action(controls, output, clock)? {
-                        return Ok(action);
-                    }
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-                Err(error) => return Err(format!("audio output closed: {error}").into()),
-            }
-        }
-        *frames_written = frames_written.saturating_add(block.frames as u64);
-        *clamped_samples = clamped_samples.saturating_add(block_stats.overfull_samples as u64);
-        if let Some(meter) = diagnostics.meter.as_deref_mut() {
-            match meter.observe(block.samples, block_stats) {
-                Ok(()) => {}
-                Err(OutputMeterError::Meter(error)) => {
-                    eprintln!("True-peak meter stopped: {error}");
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        if let Some(meter) = diagnostics.visualizer.as_deref_mut()
-            && let Err(error) = meter.observe(block.samples)
-        {
-            eprintln!("visualizer stopped: {error}");
-            meter.disable();
-        }
-    }
 }
 
 fn peak_db(peak: f32) -> String {

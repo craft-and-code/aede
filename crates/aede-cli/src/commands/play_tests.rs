@@ -1,13 +1,11 @@
 use std::path::PathBuf;
 
 use aede_core::playback::decoder::FileDecoder;
+use aede_core::playback::session::PcmSession;
 use aede_core::playback::stream::PcmTrack;
-use aede_dsp::{Dsp, ToneControls};
+use aede_dsp::ToneControls;
 
-use super::{
-    PlaybackClock, PlaybackDiagnostics, PlaybackEnd, next_index, play, record_play, resolve,
-    stream_pcm_counted,
-};
+use super::{PlaybackClock, PlaybackEnd, next_index, play, record_play, resolve};
 use crate::args::Args;
 use aede_core::conclusions;
 use aede_core::model::{Artist, AudioFile, Catalog, Release, Track};
@@ -352,24 +350,20 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
     let path = fixture("audit-stereo.flac");
     let mut track = PcmTrack::open(&path).expect("fixture opens");
     let format = track.format();
-    let mut dsp = Dsp::new(format);
+    let mut session =
+        PcmSession::new(format, format.sample_rate(), ToneControls::FLAT).expect("session");
+    session.begin_track(0, 0.0).expect("track");
     let mut output = Vec::new();
     let mut frames_written = 0;
     let mut clamped_samples = 0;
     let mut meter = aede_dsp::OutputMeter::new(format).expect("output meter");
     stream_pcm_counted(
         &mut track,
-        &mut dsp,
+        &mut session,
         &mut output,
         &mut frames_written,
         &mut clamped_samples,
-        PlaybackDiagnostics {
-            meter: Some(&mut meter),
-            visualizer: None,
-            normalization: None,
-        },
-        None,
-        &mut PlaybackClock::new(),
+        Some(&mut meter),
     )
     .expect("stream succeeds");
     assert!(frames_written > 0);
@@ -401,25 +395,21 @@ fn tone_processing_reaches_the_serialized_playback_stream() {
     let path = fixture("audit-stereo.flac");
     let mut track = PcmTrack::open(&path).expect("fixture opens");
     let tone = ToneControls::new(6.0, -3.0).expect("tone");
-    let mut dsp = Dsp::new(track.format());
-    dsp.set_tone(tone).expect("filters");
-    dsp.set_gain_db(tone.safe_preamp_db(), 0).expect("preamp");
+    let mut session =
+        PcmSession::new(track.format(), track.format().sample_rate(), tone).expect("session");
+    session
+        .begin_track(0, tone.safe_preamp_db())
+        .expect("track");
     let mut output = Vec::new();
     let mut frames_written = 0;
     let mut clamped_samples = 0;
     stream_pcm_counted(
         &mut track,
-        &mut dsp,
+        &mut session,
         &mut output,
         &mut frames_written,
         &mut clamped_samples,
-        PlaybackDiagnostics {
-            meter: None,
-            visualizer: None,
-            normalization: None,
-        },
         None,
-        &mut PlaybackClock::new(),
     )
     .expect("stream succeeds");
     let decoded = output
@@ -446,23 +436,23 @@ fn surround_source_reaches_cli_output_as_stereo_frames() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../aede-core/tests/channel_fixtures/surround-5_1.wav");
     let mut track = PcmTrack::open_stereo(&path).expect("known layout");
-    let mut dsp = Dsp::new(track.format());
+    let mut session = PcmSession::new(
+        track.format(),
+        track.format().sample_rate(),
+        ToneControls::FLAT,
+    )
+    .expect("session");
+    session.begin_track(0, 0.0).expect("track");
     let mut output = Vec::new();
     let mut frames_written = 0;
     let mut clamped_samples = 0;
     stream_pcm_counted(
         &mut track,
-        &mut dsp,
+        &mut session,
         &mut output,
         &mut frames_written,
         &mut clamped_samples,
-        PlaybackDiagnostics {
-            meter: None,
-            visualizer: None,
-            normalization: None,
-        },
         None,
-        &mut PlaybackClock::new(),
     )
     .expect("stream succeeds");
     assert_eq!(frames_written, 120);
@@ -641,4 +631,53 @@ fn a_direct_file_records_history_without_a_catalog() {
     assert_eq!(data.plays[0].ms_played, 456);
     assert!(data.plays[0].completed);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+// Exercise the same processing session and attributed writer as real playback.
+fn stream_pcm_counted(
+    track: &mut PcmTrack,
+    session: &mut PcmSession,
+    output: &mut Vec<u8>,
+    frames_written: &mut u64,
+    clamped_samples: &mut u64,
+    mut meter: Option<&mut aede_dsp::OutputMeter>,
+) -> super::Res {
+    let channels = usize::from(session.output_format().channels());
+    let mut clock = PlaybackClock::new();
+    let mut submitted_bytes = 0usize;
+    let mut accepted = |event: super::session::Submitted<'_>| -> super::Res {
+        match event {
+            super::session::Submitted::Bytes { count, .. } => {
+                submitted_bytes += count;
+                *frames_written = (submitted_bytes / (channels * 4)) as u64;
+            }
+            super::session::Submitted::Complete { span, samples } => {
+                *clamped_samples += span.stats.overfull_samples as u64;
+                if !samples.is_empty()
+                    && let Some(meter) = meter.as_deref_mut()
+                {
+                    meter.observe(samples, span.stats)?;
+                }
+            }
+        }
+        Ok(())
+    };
+    while let Some(raw) = track.read_block(|_| Ok::<(), std::convert::Infallible>(()))? {
+        super::session::submit_block(
+            session.push_source(raw.samples)?,
+            output,
+            None,
+            &mut clock,
+            &mut accepted,
+        )?;
+    }
+    super::session::submit_block(
+        session.end_track()?,
+        output,
+        None,
+        &mut clock,
+        &mut accepted,
+    )?;
+    super::session::submit_block(session.finish()?, output, None, &mut clock, &mut accepted)?;
+    Ok(())
 }

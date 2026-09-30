@@ -1,6 +1,6 @@
 # DSP implementation and playback review
 
-Reviewed on 2026-09-30. This document records the current free DSP foundation, the correction to slow normalization startup, and the remaining quality work. The [product proposal](../design/dsp-product-proposal.md) remains the feature roadmap; [playback design](../design/playback.md) describes the behavior of the player.
+Reviewed on 2026-09-30. This document records the current free DSP foundation, the corrections to slow normalization startup and per-track filter resets, and the remaining quality work. The [product proposal](../design/dsp-product-proposal.md) remains the feature roadmap; [playback design](../design/playback.md) describes the behavior of the player.
 
 ## Assessment
 
@@ -13,13 +13,13 @@ The DSP is shared code for local playback and a future server audio path. Only l
 | Item | Current implementation | Remaining limits and evidence to obtain |
 | --- | --- | --- |
 | F1: output continuity and negotiation | CPAL keeps a device stream for consecutive compatible output formats; ffplay keeps its process. Formats and channel counts are explicit. | Source/device format changes can reopen output. Native selection ranks sample format before rate distance: a floating configuration at a different rate may win over an integer configuration supporting the source rate. Make this product policy explicit and test competing choices. |
-| F2: gapless playback | Progressive decoding, encoder trimming for declared MP3 and Opus data, exact PCM joins in fixtures, bounded output queue and transport controls. | Native Vorbis ending without ffmpeg remains uncertain. Hardware continuity and underrun behavior are unmeasured. With EQ or conversion enabled, per-track processor recreation can interrupt filter state even if the output stream stays open. |
+| F2: gapless playback | Progressive decoding, encoder trimming for declared MP3 and Opus data, exact PCM joins in fixtures, bounded output queue and transport controls. Compatible natural joins share EQ and conversion state, with bit-identical whole-versus-split signal tests. | Native Vorbis ending without ffmpeg remains uncertain. Hardware continuity and underrun behavior are unmeasured. Opening/decoding a next file can still exhaust the bounded output buffer. |
 | F3: metadata normalization | ReplayGain and Opus R128 gains, track/album/off policy, -18 LUFS playback target, explicit gain origin, Opus header gain handling. | The target is a playback choice, not EBU R128's -23 LUFS broadcast target. Metadata may be missing or inaccurate; headroom attenuation may prevent reaching the target. |
 | F4: headroom and clipping policy | Selected normalization gain is capped using a known peak or a conservative full-scale assumption; positive tone boosts reserve preamp headroom. A final sample guard reports hard-clamped samples. | Static reserves do not guarantee an inter-sample ceiling or prevent every filter transient. The guard can cause distortion when it intervenes; it is not a transparent limiter. |
 | F5: measured loudness | Current FlacCompagnon track analyses and persisted measurements are reused. `ebur128` supplies gated programme measurement, including multiple format histories. Missing measurements are learned from source PCM during complete playback. | Source loudness currently accepts mono/stereo only. Format changes start separate meter histories, so gating windows do not span that boundary. No true-peak estimate is claimed for a programme containing a rate at or above 192 kHz. An unknown track/album cannot be exactly normalized on its first play without prior analysis. |
-| F6: basic tone controls | Optional bass/treble shelves, per-channel floating filter state, exact flat bypass, bounded settings and conservative boost preamp. Coefficients follow the Audio EQ Cookbook through `biquad`. | State persists across PCM blocks but currently starts again per track. Preserve state across continuous album joins; parameter changes need a deliberate transition policy before live editing is offered. |
+| F6: basic tone controls | Optional bass/treble shelves, per-channel floating filter state, exact flat bypass, bounded settings and conservative boost preamp. Coefficients follow the Audio EQ Cookbook through `biquad`. State persists across blocks and compatible naturally advancing tracks. | Parameter changes need a deliberate transition policy before live editing is offered. Absolute frequency-response and transient checks remain useful. |
 | F7: channel handling | Known speaker masks are retained. Multichannel sources can be downmixed to stereo with explicit coefficients, LFE omission and a conservative peak bound; unknown layouts are refused. | This is a documented downmix policy, not a guarantee of perceptual equivalence to a commercial decoder or the original multichannel mix. Wider layout and source-format fixtures remain useful. |
-| F8: rate conversion | Rubato performs bandlimited fixed-ratio conversion when the chosen device rate differs. Ordinary rate pairs use FFT conversion; unusual ratios use sinc interpolation. Delay trimming, tail draining and block invariance have dedicated tests. | The converter is currently owned by each track. Draining/restarting it at an album join differs from processing concatenated PCM through one continuous filter. The existing single-tone alias test is a starting point; rate sweeps and quantified CPU/memory budgets remain. |
+| F8: rate conversion | Rubato performs bandlimited fixed-ratio conversion when the chosen device rate differs. Ordinary rate pairs use FFT conversion; unusual ratios use sinc interpolation. The shared session retains converter state and cumulative frame rounding across compatible files, trims startup once and drains once at group end. Both paths have whole-versus-split comparisons. | The existing single-tone alias test is a starting point; rate sweeps and quantified CPU/memory budgets remain. Incompatible source formats require a fresh processing group. |
 | F9: integer conversion and dither | Floating native formats are preferred. Supported integer output is quantized with continuous TPDF dither; floating output bypasses it and underruns produce exact silence. | The decoded `f32` path does not establish bit-perfect high-resolution integer output. ffplay's final conversion is outside Aède's control. The real-time properties of the surrounding native callback still need improvement. |
 | F10: metering and diagnostics | Submitted sample peak, pre-guard peak, available oversampled true-peak estimate, guard count, actual stage status and static headroom are reported. Spectrum display is optional. | Measurements precede dither/device conversion and do not measure analogue output. Dynamic gain reduction is unavailable without a limiter. Absolute reference signals and independent comparisons are still required for a compliance claim. |
 
@@ -61,19 +61,21 @@ The following sources support the chosen separation of analysis and playback; th
 
 An adaptive normalization effect would be a separate product choice. [FFmpeg loudnorm](https://ffmpeg.org/ffmpeg-filters.html#loudnorm) distinguishes linear scaling with prior measurements from dynamic processing. Introducing dynamic gain changes to remove startup delay would change listening behavior and could alter musical dynamics.
 
-## Remaining work in priority order
+## Continuous processing: corrected ownership and boundaries
 
-### 1. Preserve processing state across continuous album joins
+The shared [`PcmSession`](../../crates/aede-core/src/playback/session.rs) now owns persistent `aede-dsp` tone and compatible conversion state. The CLI feeds decoded/downmixed source blocks into this session instead of recreating both processors for every file. Natural source EOF seals an attribution boundary without flushing the converter. Startup trimming and tail draining happen once per compatible group. Cumulative source-to-output frame rounding avoids an extra output frame at each file boundary.
 
-Keep EQ and compatible rate-conversion state in a playback session rather than recreating both processors for every file. Feed compatible consecutive source PCM into the same filter stream, draining only at a real programme end or incompatible format/transport discontinuity. Make skips and stops reset deliberately. Add comparisons between one concatenated signal and the same signal split into files, with non-flat EQ, resampling and combined processing enabled; exact frame counts alone cannot detect all boundary artifacts.
+Delayed output spans retain their source token, fixed gain, statistics and completion marker, even when the next file is already being decoded. Gain changes occur after conversion without resetting tone filters. These spans keep listening identities, durations and deferred loudness-cache publication attached to the correct track. Partial writes count only complete submitted frames, with unavailable aggregate diagnostics explicitly reported for an interrupted span. Next, Previous, Stop and errors during a track discard processing state and queued output; incompatible formats start a fresh group. Previous also works during the final output drain. The [playback design](../design/playback.md#continuous-processing-and-track-attribution) records the full lifecycle.
 
-A synthetic diagnostic confirms the discrepancy in the current per-track processing model: two 10,001-frame constant signals at amplitude 0.25, converted from 44.1 to 48 kHz separately, produce 21,772 frames rather than the 21,771 frames of one continuous conversion. At the join, separately converted values are approximately 0.09945 and 0.24423, while the continuous result remains approximately 0.25. Resetting a +6 dB bass shelf at the same kind of join gives approximately 0.25105 instead of the continuous 0.49882. These are diagnostic signal differences, not a hardware measurement or a perceptual audibility claim; retain them as regression cases when implementing session-owned state.
+The earlier synthetic diagnostic exposed the old per-track discrepancy: two 10,001-frame constant signals at amplitude 0.25, converted from 44.1 to 48 kHz separately, produced 21,772 frames rather than the 21,771 frames of one continuous conversion. At the join, separately converted values were approximately 0.09945 and 0.24423, while the continuous result remained approximately 0.25. Resetting a +6 dB bass shelf gave approximately 0.25105 instead of the continuous 0.49882. This is the diagnosed baseline, not the behavior of the corrected session. Whole-versus-split comparisons now check exact samples and frame counts with EQ plus FFT or sinc conversion. These software comparisons do not establish physical gaplessness or perceptual audibility.
 
 Rubato's streaming model and explicit delay/tail handling support this direction. Its maintainer advises preallocated processing buffers and avoiding repeated expensive construction. [Rubato documentation](https://github.com/HEnquist/rubato#real-time-considerations) provides the implementation guidance. Reuse a continuous filter for an album stream; resetting between independent offline clips is a different case.
 
 [libsamplerate's FAQ, question 5](https://libsndfile.github.io/libsamplerate/faq.html) explains the same state requirement for chunked conversion: independent conversion calls cannot replace a stateful streaming converter. This supports the boundary tests; it does not require replacing Rubato.
 
-### 2. Strengthen the native callback's real-time contract
+## Remaining work in priority order
+
+### 1. Strengthen the native callback's real-time contract
 
 The current bounded standard-library channel and block handoff limit memory use and keep heavy processing off the callback. They do not establish a wait-free audio path: channel internals and destroying replaced sample vectors may still involve locks or deallocation. Device-error logging also belongs outside a time-critical path. Preserve bounded queues, pause/skip responsiveness and consumed-frame counters when changing this transport.
 
@@ -81,7 +83,7 @@ The native producer also converts `f32le` bytes back into an allocated sample ve
 
 PortAudio's [callback guidance](https://portaudio.com/docs/v19-doxydocs/writing_a_callback.html) recommends avoiding allocation/deallocation, I/O, mutex operations and other unbounded OS work in a callback. A preallocated SPSC ring buffer is a candidate; [`rtrb`](https://docs.rs/rtrb/latest/rtrb/) documents fixed capacity, wait-free reads/writes and no allocation after construction for plain sample elements. It is a future option, not a dependency added by this review. Record underruns and queue occupancy outside the callback to make hardware tests actionable.
 
-### 3. Add independent absolute signal validation and performance budgets
+### 2. Add independent absolute signal validation and performance budgets
 
 Use the [EBU Tech 3341 specification](https://tech.ebu.ch/publications/tech3341) and [official loudness test set](https://tech.ebu.ch/publications/ebu_loudness_test_set) to test absolute LUFS/gating and true-peak readings, not only agreement between two block sizes. Include silence, short streams, mono/stereo, gain-scaled material and sample rates with and without oversampled true-peak estimation. A comparison to another BS.1770 implementation is useful additional evidence, but is not a substitute for expected values from reference signals.
 
@@ -89,11 +91,11 @@ For F8, measure passband ripple and alias rejection across rate pairs, near the 
 
 Benchmark cold and warm startup, decode throughput, source loudness capture, output true-peak metering, EQ and resampling independently. Record release build, platform, input format/rate/channel count, queue margin and memory use. Set budgets using the intended NAS/device rather than an arbitrary development-machine result.
 
-### 4. Close decoder and physical gapless gaps
+### 3. Close decoder and physical gapless gaps
 
-Validate native Vorbis granule trimming with fixtures or explicitly retain ffmpeg as the exact-ending path. Record a loopback/device capture of consecutive test tracks, including format changes and output under CPU/I/O pressure. Check that output underruns are counted and visible. Validate real sample continuity with EQ/resampling after session state is preserved.
+Validate native Vorbis granule trimming with fixtures or explicitly retain ffmpeg as the exact-ending path. Record a loopback/device capture of consecutive test tracks, including format changes and output under CPU/I/O pressure. Check that output underruns are counted and visible. Validate physical sample continuity with the corrected continuous EQ/resampling session.
 
-### 5. Decide rate-versus-format policy and future preparation workflow
+### 4. Decide rate-versus-format policy and future preparation workflow
 
 Specify whether preserving a supported source rate is preferred over floating-point output at a different rate. Current format-first selection can cause conversion that a rate-first policy would avoid; either choice needs explicit behavior and tests. This is independent of operating-system mixer conversion and does not establish a bit-perfect device path.
 
@@ -112,9 +114,15 @@ These references support retaining the current established libraries. They do no
 
 ## Validation record
 
-The final `tools/check.sh` run on 2026-09-30 passed: build-helper tests, formatting, warning-free lint, 1,137 Rust tests including the doctest, warning-free documentation and release build. There were no ignored Rust tests. Local socket tests were run with the required sandbox permission. The first run identified the missing README entry for this review; that documentation omission was corrected before the successful runs.
+The normalization-startup correction's `tools/check.sh` run on 2026-09-30 passed: build-helper tests, formatting, warning-free lint, 1,137 Rust tests including the doctest, warning-free documentation and release build. There were no ignored Rust tests. Local socket tests were run with the required sandbox permission. The first run identified the missing README entry for this review; that documentation omission was corrected before the successful runs.
 
 The regression coverage includes 18 lazy-normalization tests (import/tag/cache priority, stale analyses, complete-source publication, skips, album restart, unavailable-layout caching and source changes), source-observer tests before downmix/resampling, an end-to-end CLI test proving a corrupt later file cannot prevent first-track PCM output/history, and high-rate programme tests. Existing tests were retained. The high-rate peak and album-restart/unavailable-layout regressions were reproduced as failing tests before their fixes.
+
+### Continuous-session verification
+
+The subsequent complete `tools/check.sh` run passed all the same gates with 1,150 Rust tests including the doctest and none ignored. Seven new core tests cover bit-identical whole/split processing with EQ and FFT/sinc conversion, fixed per-track gains, fractional cumulative boundaries, short/empty completions, delayed attribution, lifecycle errors and real WAV decoding with raw source observation. Three CLI integration tests cover continuous EQ across files, format-change resets and a corrupt later file preserving previous PCM/history. Three driver unit tests cover partial output acceptance, interrupted-write retry and delayed short-track history. Existing playback tests retain their behavior and count. The CLI boundary, partial-acceptance and interrupted-write regressions were reproduced as failures before correction.
+
+An isolated terminal test held a fake ffplay consumer open after EOF, sent Previous during final drain, then Stop during the restarted drain. Both 38,400-byte outputs with +6 dB bass and -3 dB treble were identical, confirming a fresh processor on restart; the command exited successfully and saved two incomplete listens and a count of two. It used synthetic WAV data and a separate temporary Aède data directory, with no real audio output. The report is `/private/tmp/aede-dsp-pty-9xc45exr/report.json`; the reusable driver is `/private/tmp/aede-dsp-pty.py`. These transport checks do not measure hardware playback.
 
 ### Synthetic startup comparison
 
@@ -130,4 +138,4 @@ All runs exited successfully and received exactly the expected frame count. The 
 
 Raw temporary reports are `/private/tmp/aede-dsp-bench/before-0d5b7969/summary.json`, `/private/tmp/aede-dsp-bench/before-off-adeaca30/summary.json` and `/private/tmp/aede-dsp-bench/after-final-16c6e844/summary.json`; the isolated driver is `/private/tmp/aede-dsp-bench/bench.py`. They use no user music or Aède data. Earlier binary SHA-256: `228fd6d289181f9a1fd365103e0c74c5cb723ab9dd465218c365c941a238cb76`; final binary SHA-256: `0c376704ce9f6243c26524d292e71356b276270d6bd7345dbba4dbb3b40c38ac`.
 
-No official EBU signal-set validation, physical loopback, target-NAS benchmark or blinded listening test has been performed in this review. The synthetic join diagnostics above reveal software state discontinuities and do not establish their perceptual audibility.
+No official EBU signal-set validation, physical loopback, target-NAS benchmark or blinded listening test has been performed in this review. The historical join diagnostics exposed software state discontinuities now covered by regression tests; they do not establish perceptual audibility.

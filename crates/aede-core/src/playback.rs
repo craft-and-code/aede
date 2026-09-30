@@ -12,6 +12,7 @@ pub mod gain_plan;
 pub mod loudness;
 pub mod normalization;
 pub mod output;
+pub mod session;
 pub mod stream;
 
 /// What happens when the current track reaches its end.
