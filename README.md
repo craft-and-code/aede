@@ -63,14 +63,16 @@ brew install rust ffmpeg
 # Debian / Ubuntu
 
 ```sh
-sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev ffmpeg
+sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev libasound2-dev ffmpeg
 ```
 
 # Arch Linux
 
 ```sh
-sudo pacman -S base-devel rust ffmpeg
+sudo pacman -S base-devel rust alsa-lib ffmpeg
 ```
+
+Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.3.0 release notes](docs/releases/v0.3.0.md) provide the draft highlights.
 
 ### Building & Installing from Source
 

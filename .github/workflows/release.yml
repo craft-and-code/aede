@@ -3,16 +3,13 @@ name: Release
 # Builds the command-line tool for every platform and publishes them as a
 # GitHub Release. Trigger by pushing a version tag:
 #
-#     git tag v0.2.0
-#     git push origin v0.2.0
+#     git tag v0.3.0
+#     git push origin v0.3.0
 #
 # or run it manually from the Actions tab (workflow_dispatch), which builds the
 # binaries without publishing anything.
 #
-# There is nothing to install and nothing to link: `aede` is one static-ish
-# executable with a single Rust dependency, so a release is an archive holding
-# the binary, the licence and the manual's front page. No installer, no bundle,
-# no code signing to arrange.
+# Archives include the executable, licence and README. Builds are unsigned.
 
 on:
   push:
@@ -20,7 +17,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -34,21 +31,13 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             label: macOS-Intel
-          # musl rather than glibc, and it matters for a downloaded binary: a
-          # gnu build made on Ubuntu 22.04 refuses to start on anything with an
-          # older glibc — Debian 11, an LTS server, a NAS — with a message
-          # about `GLIBC_2.34` that means nothing to the person who downloaded
-          # it. Everything here is pure Rust, so a static build costs nothing.
+          # The musl archive uses ffplay for playback; CPAL is GNU-only on Linux.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             label: Linux-x86_64
-          # Windows remains absent pending native validation of the path fix.
-          # Previously ignored path tests now run in Windows CI; see
-          # docs/design/paths.md. Re-adding it is this one entry once validated:
-          #
-          #     - os: windows-latest
-          #       target: x86_64-pc-windows-msvc
-          #       label: Windows-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: Windows-x64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -70,7 +59,7 @@ jobs:
 
       # A tag says which version this is; so does the manifest. When the two
       # disagree, somebody is about to publish `v0.2.0` of a program that
-      # reports `0.2.0` when asked — and `aede --version` is what a bug report
+      # reports `0.3.0` when asked — and `aede --version` is what a bug report
       # quotes. Cheap to check here, confusing for a year if it slips.
       - name: The tag and the manifest must agree
         if: startsWith(github.ref, 'refs/tags/')
@@ -142,6 +131,8 @@ jobs:
           retention-days: 7
 
   publish:
+    permissions:
+      contents: write
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
@@ -162,20 +153,20 @@ jobs:
       - name: List what will be published
         run: ls -lh dist
 
-      # A release body that writes itself entirely would be a commit list, and
-      # a commit list is not release notes. This generates the list — real, and
-      # useful — under a placeholder that has to be replaced by hand, so that
-      # publishing the draft forces one deliberate pass over "what changed"
-      # rather than that section quietly never existing.
+      # Keep curated highlights in the repository and append the commit history.
       - name: Draft the notes
         shell: bash
         run: |
           set -euo pipefail
           previous=$(git tag --sort=-v:refname | grep -A1 "^${GITHUB_REF_NAME}$" | tail -n1 || true)
           {
-            echo "## What's new in ${GITHUB_REF_NAME}"
-            echo
-            echo "<!-- TODO before publishing: two to four real highlights, in plain words. -->"
+            if [ -f "docs/releases/${GITHUB_REF_NAME}.md" ]; then
+              cat "docs/releases/${GITHUB_REF_NAME}.md"
+            else
+              echo "## What's new in ${GITHUB_REF_NAME}"
+              echo
+              echo "<!-- TODO before publishing: two to four real highlights, in plain words. -->"
+            fi
             echo
             if [ -n "$previous" ] && [ "$previous" != "$GITHUB_REF_NAME" ]; then
               echo "<details><summary>Commits since ${previous}</summary>"
@@ -204,11 +195,13 @@ jobs:
           | --- | --- |
           | **macOS** (M1 and later) | `aede-*-macOS-AppleSilicon.tar.gz` |
           | **macOS** (Intel) | `aede-*-macOS-Intel.tar.gz` |
-          | **Linux** (any 64-bit distribution) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
+          | **Linux** (x86_64, musl-compatible) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
+          | **Windows** (x64) | `aede-*-Windows-x64.zip` |
 
-          There is no Windows build yet: native validation of the catalog path
-          correction is required before enabling a Windows release. See
-          [Paths](https://github.com/craft-and-code/aede/blob/main/docs/design/paths.md).
+          Windows archives are built and tested on a native Windows runner.
+          Terminal playback controls and local writer delegation are currently
+          available only on Unix. Linux archives use ffplay for audio output;
+          install FFmpeg to use `aede play` on Linux.
 
           ```sh
           tar xzf aede-*-macOS-AppleSilicon.tar.gz
@@ -229,9 +222,10 @@ jobs:
           ```
 
           **ffmpeg** is not bundled and is not needed by most of the program.
-          Two commands use it — `aede copy --compress` and `aede spectrum` —
-          and both say so if it is missing (macOS: `brew install ffmpeg`,
-          Debian/Ubuntu: `sudo apt install ffmpeg`).
+          It supports `aede copy --compress`, `aede spectrum`, and playback
+          of Opus/AAC/ALAC. Linux archive playback also requires ffplay.
+          Install it with macOS: `brew install ffmpeg`,
+          Debian/Ubuntu: `sudo apt install ffmpeg`.
           EOF
 
       - name: Publish the draft release
