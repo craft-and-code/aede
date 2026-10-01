@@ -126,15 +126,15 @@ impl FileDecoder {
         if sample_rate == 0 || channels == 0 {
             return Err(Error::InvalidFormat);
         }
-        let layout = match channels {
-            1 => ChannelLayout::MONO,
-            2 => ChannelLayout::STEREO,
-            _ if let Source::Vorbis(native) = &inner => native.layout,
-            _ if matches!(inner, Source::Native(_)) => {
+        let layout = match (channels, &inner) {
+            (1, _) => ChannelLayout::MONO,
+            (2, _) => ChannelLayout::STEREO,
+            (_, Source::Vorbis(native)) => native.layout,
+            (_, Source::Native(_)) => {
                 ChannelLayout::from_mask(probe_channel_mask(path, sample_rate, channels)?)
                     .map_err(|_| Error::InvalidFormat)?
             }
-            _ => ChannelLayout::Unknown(channels),
+            (_, Source::Ffmpeg(_)) => ChannelLayout::Unknown(channels),
         };
         Ok(Self {
             inner,
