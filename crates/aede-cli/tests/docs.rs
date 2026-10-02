@@ -96,6 +96,13 @@ fn anchors(text: &str) -> BTreeSet<String> {
         if fenced {
             continue;
         }
+        // Translated topic references retain their original English fragment
+        // IDs as explicit HTML anchors, so existing deep links keep working.
+        for explicit in line.split(" id=\"").skip(1) {
+            if let Some((identifier, _)) = explicit.split_once('"') {
+                found.insert(identifier.to_string());
+            }
+        }
         if let Some(rest) = line.strip_prefix('#') {
             let title = rest.trim_start_matches('#').trim();
             if !title.is_empty() && rest.starts_with([' ', '#']) {
@@ -156,7 +163,11 @@ fn every_link_in_the_documentation_leads_somewhere() {
 
         for link in links(&text) {
             let link = link.trim();
-            if link.starts_with("http://") || link.starts_with("https://") || link.is_empty() {
+            if link.starts_with("http://")
+                || link.starts_with("https://")
+                || link.starts_with("mailto:")
+                || link.is_empty()
+            {
                 continue;
             }
             let (path, anchor) = match link.split_once('#') {
@@ -217,7 +228,7 @@ fn the_front_page_names_every_page_of_the_manual() {
     // a path *renders* is the very habit that caused this.
     let root = root();
     let readme = std::fs::read_to_string(root.join("README.md")).expect("a README");
-    let named: BTreeSet<PathBuf> = links(&readme)
+    let mut named: BTreeSet<PathBuf> = links(&readme)
         .into_iter()
         .map(|l| l.split('#').next().unwrap_or_default().trim().to_string())
         .filter(|l| !l.is_empty() && !l.starts_with("http://") && !l.starts_with("https://"))
@@ -233,6 +244,87 @@ fn the_front_page_names_every_page_of_the_manual() {
         "the README names {} local files: the links stopped being read",
         named.len()
     );
+
+    // Website navigation is now declared once in bilingual manifests, rather
+    // than listing hundreds of guide links in the repository front page.
+    // Read actual JSON source paths: a missing or unregistered page must still
+    // fail this orphan check, just as it did for the original manual.
+    let mut manifests = 0;
+    let mut documented_commands = BTreeSet::new();
+    for entry in std::fs::read_dir(root.join("docs")).expect("documentation directory") {
+        let entry = entry.expect("a documentation entry");
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("site-") || !name.ends_with(".json") {
+            continue;
+        }
+        let text = std::fs::read_to_string(entry.path()).expect("a readable site manifest");
+        let json = aede_core::json::parse(&text).expect("a valid JSON site manifest");
+        let pages = json.as_arr().expect("a site manifest is a page array");
+        assert!(
+            !pages.is_empty(),
+            "a site manifest cannot hide all its pages"
+        );
+        for page in pages {
+            if let Some(command) = page.get("command").and_then(aede_core::json::Json::as_str) {
+                assert!(
+                    documented_commands.insert(command.to_string()),
+                    "command has duplicate guide entries: {command}"
+                );
+            }
+            let sources = page.get("source").expect("a page has Markdown sources");
+            for language in ["en", "fr"] {
+                let source = sources
+                    .get(language)
+                    .and_then(aede_core::json::Json::as_str)
+                    .expect("each page declares both language sources");
+                let path = root.join(source);
+                assert!(path.is_file(), "manifest source does not exist: {source}");
+                named.insert(resolved(&path));
+            }
+        }
+        manifests += 1;
+    }
+    assert!(
+        manifests >= 2,
+        "the website must register CLI and server/DSP guides"
+    );
+
+    let cli_source = std::fs::read_to_string(root.join("crates/aede-cli/src/main.rs"))
+        .expect("the CLI command registry");
+    let registry = cli_source
+        .split_once("const COMMANDS:")
+        .expect("the canonical command registry")
+        .1
+        .split_once("];")
+        .expect("the end of the command registry")
+        .0;
+    let commands: BTreeSet<String> = registry
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("(\""))
+        .map(|line| line.split_once('"').expect("a command name").0.to_string())
+        .collect();
+    assert!(
+        commands.len() > 50,
+        "command discovery must read the registry"
+    );
+    assert_eq!(
+        documented_commands, commands,
+        "every canonical CLI command must have one bilingual website guide"
+    );
+
+    // Existing topic references can have a French sibling without a second
+    // manifest entry. The website publishes that sibling from the same topic.
+    let mut translations = Vec::new();
+    markdown_files(&root.join("docs/fr"), &mut translations);
+    for translation in translations {
+        let relative = translation
+            .strip_prefix(root.join("docs/fr"))
+            .expect("a translation below docs/fr");
+        if named.contains(&resolved(&root.join("docs").join(relative))) {
+            named.insert(resolved(&translation));
+        }
+    }
 
     let mut pages = Vec::new();
     markdown_files(&root.join("docs"), &mut pages);
@@ -256,7 +348,7 @@ fn the_front_page_names_every_page_of_the_manual() {
     orphans.sort();
     assert!(
         orphans.is_empty(),
-        "pages the README does not name:\n  {}",
+        "pages neither the README nor website navigation names:\n  {}",
         orphans.join("\n  ")
     );
 }
@@ -336,6 +428,22 @@ fn every_registered_http_route_is_listed_in_the_server_readme() {
     let repository = root();
     let readme = std::fs::read_to_string(repository.join("crates/aede-server/README.md"))
         .expect("server route reference");
+    let mut website_guides = Vec::new();
+    for language in ["server", "fr/server"] {
+        let mut pages = Vec::new();
+        markdown_files(&repository.join("docs").join(language), &mut pages);
+        assert!(
+            pages.len() >= 8,
+            "the server needs its detailed guide pages"
+        );
+        website_guides.push(
+            pages
+                .into_iter()
+                .map(|page| std::fs::read_to_string(page).expect("a server guide"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
     let mut files = Vec::new();
     rust_files(&repository.join("crates/aede-server/src"), &mut files);
     let mut routes = BTreeSet::new();
@@ -360,5 +468,11 @@ fn every_registered_http_route_is_listed_in_the_server_readme() {
             readme.contains(&format!("`{relative}`")) || readme.contains(&route),
             "undocumented route: {route}"
         );
+        for guides in &website_guides {
+            assert!(
+                guides.contains(&route),
+                "HTTP route absent from a website language: {route}"
+            );
+        }
     }
 }

@@ -1,0 +1,165 @@
+<div id="aède-http-api-v1-m2" data-legacy-anchor></div>
+
+# API HTTP d’Aède v1 (M2)
+
+Ce document définit le contrat client figé de l’API locale actuelle en lecture seule. Toute divergence entre ce contrat et l’implémentation est un défaut. Il est indépendant des valeurs `format_version` des fichiers sur disque. Le préfixe `/api/v1` fige les noms, types et sens des champs existants ; des ajouts compatibles peuvent introduire des champs facultatifs ou de nouvelles routes. Supprimer ou réinterpréter un champ, modifier le type d’un champ obligatoire ou changer le sens des paramètres impose un nouveau préfixe. Les clients doivent ignorer les champs de réponse inconnus et prendre leurs décisions à partir de `error.code`, pas de `error.message`.
+
+Démarrez avec `aede serve [--port N]` après `aede scan <folder>`. L’adresse par défaut est `127.0.0.1:8787` ; `--port 0` demande un port local disponible au système et l’affiche. Le processus lit le même catalogue JSON que la CLI. Le démarrage sans catalogue échoue. Il ne modifie jamais les fichiers audio ni leurs tags.
+
+Le [README du serveur](../../crates/aede-server/README.md) constitue la référence complète des routes et paramètres, y compris les ajouts de navigation proches de la CLI et les tâches administratives décrites ci-dessous. Les nouvelles réponses qu’il documente font partie du contrat v1. Redémarrez le serveur après une mise à jour de l’exécutable pour utiliser les nouvelles routes.
+
+<div id="access-boundary" data-legacy-anchor></div>
+
+## Frontière d’accès
+
+Toutes les routes `/api/v1`, y compris `/status` et le WebSocket, sont en lecture seule et ne demandent aucun identifiant. Elles peuvent révéler noms d’artistes, titres d’albums, chemins absolus, commentaires de tags enregistrés et origines d’artistes attribuées. Tout processus ou compte utilisateur du même ordinateur peut atteindre une écoute TCP locale ; l’adresse de boucle locale n’est pas un contrôle d’accès par utilisateur. Les annotations personnelles et les identifiants des sources externes ne sont pas exposés. Les routes d’administration distinctes décrites plus bas sont désactivées sans secret configuré.
+
+Le serveur écoute uniquement sur la boucle locale IPv4. La v1 ne propose ni écoute publique, ni redirection automatique de ports, ni TLS, ni autorisation CORS, ni accès de navigateur entre origines. Exposer le serveur sur une autre interface demandera une future configuration explicite, avec authentification, autorisations et transport chiffré conçus ensemble. Un proxy inverse ou un tunnel publiant cette API sort du contrat et ne doit pas être présenté comme accès distant pris en charge. Le catalogue public est partagé ; les annotations privées existantes sont accessibles seulement par l’API d’administration activée explicitement pour l’unique propriétaire `local`. Les futurs comptes exigeront une authentification et des autorisations par propriétaire, au lieu de cette frontière temporaire par jeton.
+
+Chaque requête HTTP et négociation WebSocket doit fournir un seul `Host` désignant `127.0.0.1` ou `localhost`, avec le port réel d’écoute. Le port 80 peut être omis s’il est effectivement utilisé. Une autorité absente, répétée, mal formée ou étrangère est rejetée avec `403 invalid_host`, ou une erreur d’analyse HTTP avant routage. Une cible de requête sous forme absolue doit utiliser HTTP et la même autorité. Les clients natifs peuvent omettre `Origin` ; si elle est présente, une unique origine HTTP correspondant à cette autorité est exigée. Les origines étrangères, `null`, mal formées ou répétées produisent `403 invalid_origin`. Ces vérifications empêchent les WebSockets entre origines et les requêtes utilisant des noms DNS étrangers ; elles n’authentifient pas les processus locaux. L’administration refuse également une origine de navigateur pourtant correspondante.
+
+<div id="transport-and-representations" data-legacy-anchor></div>
+
+## Transport et représentations
+
+Les réponses aux requêtes réussies et aux erreurs applicatives sont du JSON UTF-8 avec `Content-Type: application/json`. `GET` est défini ; les routes JSON ordinaires acceptent aussi `HEAD`, avec mêmes statut/en-têtes mais sans corps. Un chemin inconnu renvoie une erreur JSON 404 ; une méthode différente sur un chemin connu renvoie une erreur JSON 405. La négociation WebSocket est une exception : les échecs de passage en WebSocket sont des erreurs de transport, sans garantie d’enveloppe JSON. Aucune méthode d’écriture n’est définie sous `/api/v1`.
+
+Tous les noms de champs suivent `snake_case`. Les dates `scanned_at` sont en secondes Unix ; durées en millisecondes, tailles en octets. Les valeurs scalaires facultatives sont `null`, pas absentes. Les collections sont des tableaux, même vides. Noms et titres conservent l’écriture lue dans les fichiers. Les relations utilisent les jetons stables `reference` d’`EntityRef`, jamais les indices des tableaux du catalogue. Une référence de piste dépend de son chemin et change lorsque le fichier est déplacé. Les clients doivent encoder le jeton pour URL lorsqu’ils le transmettent comme paramètre.
+
+| Requête | Réponse |
+| --- | --- |
+| `GET /api/v1/status` | `{ "status": "ok", "api_version": 1, "catalog_loaded": bool }`, y compris si le catalogue disparaît après le démarrage du serveur. |
+| `GET /api/v1/library` | `{ "scanned_at": u64, "files": usize, "artists": usize, "releases": usize, "recordings": usize, "tracks": usize }`. |
+| `GET /api/v1/artists` | Page de résumés d’artistes. |
+| `GET /api/v1/releases` | Page de résumés de sorties/éditions. |
+| `GET /api/v1/tracks` | Page de résumés de pistes. |
+| `GET /api/v1/recordings` | Page de résumés d’enregistrements. |
+| `GET /api/v1/entities?ref=<token>` | Détail d’une entité sélectionnée par un jeton stable. |
+| `GET /api/v1/events` | Notifications WebSocket de catalogue, inchangées par rapport au contrat v1 figé. |
+| `GET /api/v1/activity` | Notifications WebSocket de catalogue et d’activité des tâches. |
+
+Chaque liste possède `{ "items": [...], "total": usize, "offset": usize, "limit": usize, "scanned_at": u64 }`. `total` compte les lignes **après** recherche et filtres, avant pagination. `items` est découpé après tri. `offset` et `limit` rappellent les valeurs réellement utilisées. Une page au-delà de la fin contient `items: []` et le `total` filtré. Tous les champs des tableaux de résumés/détails suivants sont obligatoires dans leur structure, même lorsqu’une valeur est `null` ou un tableau vide.
+
+| Résumé | Champs |
+| --- | --- |
+| Artiste | `reference: string`, `name: string`, `sort_name: string`, `mbid: string|null`, `aliases: string[]`. |
+| Sortie | `reference: string`, `title: string`, `year: u32|null`, `album_artist: reference|null`, `track_count: usize`, `cover_path: string|null`. |
+| Piste | `reference: string`, `title: string`, `release: reference|null`, `recording: reference|null`, `duration_ms: u64|null`. |
+| Enregistrement | `reference: string`, `title: string`, `mbid: string|null`, `track_count: usize`, `work_count: usize`. |
+
+`/entities` renvoie un objet avec `kind`, `reference` et les champs ci-dessous. Les types reconnus sont `artist`, `release`, `track`, `recording`, `work`, `release_group`, `label` et `genre`.
+
+| Type | Champs supplémentaires |
+| --- | --- |
+| `artist` | `name`, `sort_name`, `mbid`, `aliases`, `releases: reference[]`. |
+| `release` | `title`, `year`, `album_artist: reference|null`, `tracks: reference[]`, `release_group: reference|null`, `labels: reference[]`, `cover_path: string|null`. |
+| `track` | `title`, `release: reference|null`, `recording: reference|null`, `duration_ms: u64|null`, `path: string`, `size: u64` ; les serveurs récents ajoutent `analyses: object[]`. |
+| `recording` | `title`, `isrc: string|null`, `mbid: string|null`, `tracks: reference[]`, `works: reference[]`. |
+| `work` | `title`, `mbid: string`, `recordings: reference[]`. |
+| `release_group` | `title`, `mbid: string`, `releases: reference[]`. |
+| `label` | `name`, `mbid: string|null`, `releases: reference[]`. |
+| `genre` | `name`, `releases: reference[]`, `tracks: reference[]`. |
+
+Les tableaux de références d’un détail d’entité sont complets, sans pagination. Pour une simple liste, utilisez une route paginée avec ses filtres. Une future sous-ressource de relations paginées pourra être ajoutée sans modifier ces champs v1.
+
+Chaque analyse de piste contient `source`, `source_version`, `imported_at`, `stale`, les champs de mesure déjà enregistrés et `source_data`. `source_data` est l’entrée complète du fichier source lorsqu’elle est conservée, ou `null` pour les anciens imports ; les autres champs de mesure continuent de décrire ces imports. Les analyses restent attribuées à leur source, sans fusion silencieuse avec les faits locaux du fichier. `/api/v1/track` et `/api/v1/entities` renvoient la même structure de détail de piste.
+
+<div id="cli-shaped-additions" data-legacy-anchor></div>
+
+### Ajouts proches de la CLI
+
+`/albums` expose des filtres d’artiste/genre/label/nom/année proches de la CLI, tandis que `/releases` conserve le sens de ses paramètres d’origine. Les routes au singulier `/album`, `/artist`, `/track`, `/recording`, `/work`, `/release-group`, `/genre` et `/label` choisissent exactement une entité avec `ref` ou `name`. Une correspondance exacte normalisée passe avant une correspondance partielle ; une ambiguïté produit `409 ambiguous_entity`, avec au plus 200 candidats `{reference,name}` dans `error.candidates`, jamais un premier résultat arbitraire. Ces détails suivent les champs d’entité ci-dessus ; `/artist` ajoute `origin`. `/from` renvoie seulement référence, nom et origine de cet artiste, explicitement `known` ou `unknown`, avec message explicatif et attribution. Seuls des faits MusicBrainz fiables déjà enregistrés établissent l’origine.
+
+`/genres`, `/labels`, `/works`, `/release-groups`, `/countries`, `/years` et `/roles` ajoutent une navigation paginée. `/doctor`, `/stats` et `/roots` fournissent diagnostics/inspection structurés ; `/search` classe les noms et éventuellement les commentaires enregistrés ; `/query` évalue le sous-ensemble public de la grammaire CLI. Prédicats/tris dépendant du propriétaire et requêtes de paroles sont refusés. Aucune lecture ne télécharge d’information externe. Voir les [paramètres et structures complets](../../crates/aede-server/README.md#read-routes).
+
+Les nouvelles requêtes de navigation/inspection partagent deux emplacements bornés de travail bloquant et renvoient `429 inspection_busy` à saturation. Search/query limitent le texte à 2048 octets et l’analyse d’expression à 64 unités de complexité. Ce sont des protections locales, pas un budget général de requêtes Internet. Doctor lit catalogue/conclusions et sources actuels sous verrou partagé (`409 store_busy` s’il est indisponible) ; les autres routes utilisent le catalogue en cache et, au besoin, le dernier fichier de sources sauvegardé atomiquement. Une source corrompue produit une erreur, pas une origine inconnue trompeuse. Aucun instantané commun à plusieurs requêtes ou au couple catalogue/sources n’est garanti pour ces dernières lectures.
+
+<div id="search-filters-sorting-and-pagination" data-legacy-anchor></div>
+
+## Recherche, filtres, tri et pagination
+
+Ces paramètres concernent les quatre listes d’origine. Paramètres inconnus/répétés, `q` vide, tris non pris en charge et références mal formées sont des erreurs. Recherche et filtres se combinent avec ET ; chaque ligne correspondante apparaît une fois. Le texte utilise la comparaison normalisée d’Aède, sans distinction de casse/accents, par fragment. La recherche examine seulement les champs suivants, sans consulter silencieusement d’autres tags ou sources externes.
+
+| Liste | Champs examinés par `q` | Filtres exacts | `sort` accepté |
+| --- | --- | --- | --- |
+| `/artists` | `name` et `aliases` | `mbid=<string>` | `catalog` par défaut, `name` selon `sort_name`. |
+| `/releases` | `title` | `year=<u32>`, `artist=<artist reference>` | `catalog` par défaut, `title`, `year`. |
+| `/tracks` | `title` | `release=<release reference>` | `catalog` par défaut, `title`. |
+| `/recordings` | `title` | `work=<work reference>` | `catalog` par défaut, `title`. |
+
+`order=asc|desc` vaut `asc` par défaut et s’applique à tout tri accepté. `catalog` est l’ordre déterministe enregistré au scan. Le tri textuel compare le texte normalisé, puis l’ordre du catalogue pour les égalités. Le tri `year` place les années inconnues à la fin dans les deux sens ; les années égales sont départagées par titre normalisé, puis ordre du catalogue. Les filtres de références exigent le type attendu. Une référence valide mais absente produit `404 entity_not_found` ; mal formée ou du mauvais type, `400 invalid_query`. Un filtre exact `mbid` distingue la casse.
+
+Le filtre `artist` des sorties correspond à l’artiste d’album, pas à chaque artiste crédité. `release` des pistes correspond à leur album. `work` des enregistrements correspond à une œuvre explicitement identifiée. `year` est l’année enregistrée de la sortie et `mbid` l’identifiant enregistré de l’artiste. Aucun filtre ne consulte les informations téléchargées ni les annotations privées.
+
+`offset` vaut 0 par défaut. `limit` vaut 50 et doit être entre 1 et 200. Ce sont des entiers décimaux non négatifs, sans signe ni espace. Recherche/filtres précèdent le tri, puis le découpage de page. Le catalogue peut changer entre requêtes : les clients comparant les pages doivent comparer `scanned_at` et recommencer la pagination après un changement. Aucun instantané commun aux requêtes n’est garanti.
+
+<div id="errors-and-versioning" data-legacy-anchor></div>
+
+## Erreurs et versions
+
+Une erreur applicative est `{ "error": { "code": string, "message": string } }`. `code` est stable en v1 ; `message` s’adresse aux personnes et peut changer. Résultats définis :
+
+| HTTP | `error.code` | Sens |
+| --- | --- | --- |
+| 400 | `invalid_query` | Paramètre de recherche/filtre/tri/ordre inconnu, répété ou invalide. |
+| 400 | `invalid_pagination` | `offset` ou `limit` invalide. |
+| 400 | `invalid_reference` | Référence `/entities` absente ou mal formée. |
+| 403 | `invalid_host` | Autorité de requête différente de cette écoute locale, ou ambiguë. |
+| 403 | `invalid_origin` | Origine de navigateur étrangère, mal formée ou ambiguë. |
+| 404 | `entity_not_found` | Référence correctement formée absente du catalogue actuel. |
+| 404 | `not_found` | Chemin inconnu. |
+| 405 | `method_not_allowed` | Méthode HTTP non prise en charge sur un chemin connu. |
+| 409 | `ambiguous_entity` | Un nom au singulier choisit plusieurs entités ; des candidats bornés accompagnent l’erreur. |
+| 409 | `store_busy` | Doctor ou le scan administratif synchrone ne peut prendre le verrou des données. |
+| 429 | `inspection_busy` | Le budget des nouveaux travailleurs de navigation/inspection est plein. |
+| 500 | `sources_unavailable` | Un fichier de sources enregistré n’a pas pu être lu. |
+| 500 | `catalog_read_failed` | Doctor n’a pas pu lire catalogue/conclusions. |
+| 500 | `inspection_failed` | Un travail d’inspection en arrière-plan a échoué. |
+| 503 | `catalog_unavailable` | Le catalogue a été retiré pendant le fonctionnement du serveur. |
+| 503 | `connection_limit` | La limite partagée de connexions WebSocket est atteinte. |
+
+Le serveur vérifie `catalog.json` environ chaque seconde. Un remplacement réussi échange l’instantané en mémoire. Un remplacement illisible laisse l’ancien instantané en service et écrit une erreur sur la sortie d’erreur ; supprimer le fichier fait renvoyer 503 aux routes de catalogue jusqu’au chargement d’un nouveau catalogue. `/status` reste disponible. Les échecs inattendus de transport/exécution sortent de l’enveloppe d’erreur applicative.
+
+Le WebSocket `/api/v1/events` envoie immédiatement `{ "type": "snapshot", "scanned_at": u64|null }`, puis `{ "type": "catalog_changed", "scanned_at": u64|null }` après remplacement réussi ou retrait. `null` signifie aucun catalogue chargé. Ce flux figé n’ajoute pas de types de tâches ni de messages d’erreur. Il ne transmet pas de mise à jour partielle du graphe : les clients relisent les pages HTTP. Les notifications sont fournies sans garantie ; une reconnexion reçoit un nouveau snapshot, sans certitude de recevoir chaque changement intermédiaire. Le socket n’accepte aucune commande.
+
+Les deux flux partagent une limite de 64 WebSockets ouverts. Une ouverture supplémentaire produit `503 connection_limit` jusqu’à fermeture d’une connexion ; les lectures HTTP ordinaires restent disponibles. Trames/messages entrants limités à 1 Kio ; tout texte ou binaire applicatif ferme la connexion, tandis que ping/pong/close standards restent acceptés. Un envoi qui ne finit pas en cinq secondes ferme sa connexion. Ces protections locales ne constituent pas une politique complète de débit Internet : concurrence de recherche et tri HTTP demandent encore des budgets avant accès distant.
+
+<div id="activity-stream" data-legacy-anchor></div>
+
+## Flux d’activité
+
+`GET /api/v1/activity` est un WebSocket distinct pour suivre les tâches et changements de catalogue. Il commence avec le même `snapshot` et inclut `catalog_changed` avec le même sens que `/api/v1/events`. Il ajoute ces messages JSON :
+
+| `type` | Champs | Sens |
+| --- | --- | --- |
+| `task_started` | `task_id: u64`, `task_kind: string` | Une tâche acceptée commence ; une commande déléguée peut encore attendre le verrou des données. |
+| `task_progress` | `task_id`, `task_kind`, `phase: string`, `done: usize`, `total: usize` | Progression de la tâche. |
+| `task_completed` | `task_id`, `task_kind`, `scanned_at: u64|null` | Opération terminée. Le serveur tente un rechargement avant ce message ; avec un autre verrou, `catalog_changed` peut suivre plus tard. |
+| `task_failed` | `task_id`, `task_kind`, `code: string`, `message: string` | Échec ; aucun message de fin réussie ne suit. |
+| `error` | `operation: string`, `code: string`, `message: string` | Échec d’un travail sans ID, actuellement un rechargement du catalogue. |
+
+`task_id` est unique dans un processus serveur, sans persistance ni continuité entre redémarrages ; ce n’est pas un identifiant de catalogue. Les familles sont `scan`, `identification` pour un fetch CLI délégué ou HTTP asynchrone, et `command` pour les autres modifications CLI déléguées. Un scan administratif synchrone émet `task_started`, `task_progress` (phase `discovered`, puis `reading` si des fichiers demandent de nouveaux tags), `catalog_changed`, puis `task_completed`. En `discovered`, done/total valent tous deux le nombre de fichiers audio trouvés. En `reading`, ils comptent les fichiers nécessitant une lecture fraîche des tags, pas tous les fichiers découverts. Les mises à jour de lecture sont limitées à environ quatre par seconde, avec valeur finale transmise. Les commandes CLI déléguées et tâches HTTP asynchrones émettent aussi `running` avant leur exécution et `refreshing` avant publication du catalogue résultant. Ces phases utilisent `done: 0, total: 0` : aucun total fiable par élément n’est disponible. Le détail reste dans la CLI connectée ou le résultat HTTP authentifié. Une tâche déléguée peut attendre le verrou après `task_started`. Une requête refusée, notamment `401 unauthorized` ou `409 store_busy`, ne commence pas de tâche et n’émet aucun message de tâche.
+
+Les codes actuellement émis sont `scan_failed`, `store_error` ou `catalog_unavailable` pour un scan administratif en échec, `command_failed` pour une commande déléguée ou tâche HTTP, `task_cancelled` pour un scan/fetch délégué ou HTTP arrêté par l’utilisateur, et `catalog_reload_failed` pour un rechargement en arrière-plan. `message` sert à l’affichage, pas aux décisions logicielles. Les clients doivent ignorer types de messages, familles de tâches, phases et champs inconnus pour autoriser les ajouts compatibles. Ce flux est sans garantie ni rejeu : à la reconnexion, le client reçoit un nouvel état du catalogue, pas l’historique des tâches ni leur statut actuel garanti. Aucun WebSocket n’accepte de commandes. Aucun message ne contient le catalogue complet ; relisez HTTP après `catalog_changed`.
+
+Le préfixe `/api/v1` et `api_version: 1` sont indépendants des versions du programme et des stores JSON. Des routes/champs facultatifs peuvent être ajoutés en v1. Champs obligatoires, codes d’erreur et sens des requêtes existants restent stables. Une rupture reçoit `/api/v2` ; les anciens clients continuent avec v1 tant qu’elle est servie.
+
+<div id="administrative-work-separate-opt-in-api" data-legacy-anchor></div>
+
+## Travail administratif — API distincte, activée explicitement
+
+`POST /api/admin/v1/scan` **sans corps** conserve le comportement synchrone d’origine : rescan des racines suivies, avec fusions d’artistes enregistrées et conclusions indépendantes, puis `{ "status": "completed", "scanned_at": u64, "files": usize }` après sauvegarde/publication. Le verrou d’écriture reste tenu jusqu’à publication. Une écriture concurrente produit `409 store_busy` ; échec de scan/stockage : `500 scan_failed` ou `500 store_error`.
+
+Un objet de corps, même `{}`, choisit le nouveau scan asynchrone. `POST /api/admin/v1/fetch` accepte également un objet et lance une tâche typée. Les champs correspondent aux options CLI : dossiers/full/threads de scan et passes/cibles explicites de fetch. Une soumission acceptée renvoie `202 {task_id,status:"queued",status_url}`. `GET /api/admin/v1/tasks/{id}` donne statut actuel et sortie bornée ; `POST /api/admin/v1/tasks/{id}/cancel` sans corps demande l’annulation. Les tâches attendent le verrou d’écriture existant, survivent à la déconnexion HTTP et sont attendues à l’arrêt. Quatre au maximum sont actives ; 64 dossiers sont conservés en mémoire, les terminés évincés en premier. Aucun historique ne survit au redémarrage. Suivi/annulation HTTP ne concernent ni les tâches CLI déléguées ni les scans synchrones. Voir la [référence administrative](../../crates/aede-server/README.md#administrative-routes) pour champs, états, sorties et limites.
+
+L’administration des tâches refuse tout paramètre d’URL (`400 invalid_query`). Corps objet limité à 16 Kio et reçu en une seconde ; champs mal formés/inconnus : `400 invalid_body`, erreurs sémantiques d’options : `400 invalid_parameters`, délai : `408 request_timeout`. Capacité épuisée : `503 task_limit`, tâches absentes/évincées : `404 task_not_found`, ID invalide : `400 invalid_task_id`, annulation de tâche terminée : `409 task_not_cancellable`. Échec du registre : `500 task_error`. Annuler ne supprime pas la progression déjà enregistrée. Aucun exécutable arbitraire, liste d’arguments, remplacement de dossier de données ou d’identifiant n’est accepté.
+
+La même frontière facultative expose les données personnelles du seul propriétaire `local` : lecture/écriture d’annotations par `ref` stable, lecture/écriture d’historique et lecture/écriture/suppression de collections intelligentes. Ces routes ne sont pas dans `/api/v1` public et exigent le même Bearer sans `Origin`. Paramètres et JSON figurent dans la [référence du serveur](../../crates/aede-server/README.md#personal-data-annotations-plays-and-smart-collections). Aucun identifiant de propriétaire n’est accepté : liaison temporaire voulue avant authentification par comptes. Les annotations règlent favoris, étoiles 1–5, notes et tags, sans modifier les tags audio. Lectures/écritures chargent catalogue actuel et données personnelles sous verrou partagé ; les écritures le conservent jusqu’à la sauvegarde atomique de `user.json`. Conflit de verrou : `409 store_busy`, données personnelles illisibles : `500 user_unavailable`. L’historique est trié/conservé par date d’événement, y compris les soumissions retardées ; les comptes totaux incluent les événements acceptés trop anciens pour le journal borné. Playlists statiques, annotations de relations et propriété liée aux comptes restent futures.
+
+Aucune route administrative n’existe par défaut. Activez-les avec `AEDE_ADMIN_TOKEN`, secret ASCII privé d’au moins 32 caractères, **avant** `aede serve`. Envoyez un seul `Authorization: Bearer <token>` par requête administrative, y compris lecture personnelle. Ne placez jamais le secret en URL ni dans une page de navigateur. `Origin` est refusée : origine étrangère rejetée par la frontière commune en 403 ; origine correspondante rejetée en `401 unauthorized`. Identifiants absents/répétés/incorrects produisent JSON `401 unauthorized`. Retirer le jeton et redémarrer retire ces routes. Le jeton autorise scan/fetch et données locales avec le compte serveur ; ce n’est pas un compte restreint par utilisateur.
+
+Sur Unix, les commandes CLI pouvant écrire les stores se délèguent automatiquement au serveur actif du même dossier de données. Le socket Unix privé est distinct de HTTP et de tout accès distant. Le serveur exécute indépendamment, transmet l’affichage habituel à la CLI et laisse finir même si elle se déconnecte. Cela compte pour un long fetch, qui sauvegarde après chaque réponse. Scan/fetch délégués affichent leur ID ; `aede cancel <task-id>` demande à ce serveur de les arrêter. L’annulation répond immédiatement et la commande originale sort avec code 130 une fois arrêtée. Tâche déjà terminée, scan HTTP administratif et autres commandes ne s’annulent pas par cette commande. L’ID est valable dans ce processus seulement. Fermer la CLI, même par Ctrl-C, n’annule pas la tâche. Les JSON déjà sauvegardés restent ; un téléchargement interrompu peut laisser un temporaire caché, jamais image/paroles finales tronquées. Le socket est dans un dossier privé mode 0700 sous `/tmp`, adapté aux longs chemins de données ; les données ne doivent être accessibles en écriture ni au groupe ni aux autres. Aucun jeton administratif n’est nécessaire pour ce canal du même compte. Sans serveur, les commandes restent locales et cancel refuse. Sous Windows, délégation/annulation locales sont indisponibles ; la CI native vérifie scan, fichiers annexes et copies (voir [Chemins](../design/paths.md)).
+
+Le fichier exclusif `.aede.lock` reste la protection finale contre les mises à jour perdues : sous-processus délégués et CLI sans serveur le tiennent pendant toute lecture/modification/écriture ; backup le tient pour un instantané cohérent entre fichiers. Le scan administratif synchrone renvoie 409 au lieu d’attendre ; les tâches HTTP asynchrones attendent. Conservez ce fichier même à l’arrêt : le retirer pendant sa détention peut neutraliser le verrou. Le remplacement JSON atomique protège des fichiers partiels. C’est une coopération entre Aède actuels ; éditer manuellement le JSON ou utiliser simultanément un ancien exécutable reste dangereux. Le serveur recharge les changements de catalogue CLI environ chaque seconde.
+
+Ctrl-C/SIGTERM arrêtent les nouvelles connexions et ferment les WebSockets actifs. Les scans/fetch acceptés terminent avant la sortie ; annulez une tâche asynchrone indésirable avant l’arrêt. L’API reste locale avec jeton ; il ne remplace ni TLS ni conception d’accès distant.

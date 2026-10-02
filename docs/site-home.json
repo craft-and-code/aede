@@ -1,0 +1,37 @@
+[
+  {
+    "slug": "manual/privacy",
+    "section": "manual",
+    "title": {
+      "en": "Privacy and project updates",
+      "fr": "Confidentialité et nouvelles du projet"
+    },
+    "description": {
+      "en": "How your signup request and email address are used.",
+      "fr": "Comment sont utilisées votre demande et votre adresse e-mail."
+    },
+    "source": {
+      "en": "docs/manual/privacy.md",
+      "fr": "docs/fr/manual/privacy.md"
+    },
+    "navigation": false
+  },
+  {
+    "slug": "manual/subscribed",
+    "section": "manual",
+    "title": {
+      "en": "Your request has been sent",
+      "fr": "Votre demande a été envoyée"
+    },
+    "description": {
+      "en": "Project news signup: what happens next.",
+      "fr": "Inscription aux nouvelles du projet : la suite."
+    },
+    "source": {
+      "en": "docs/manual/subscribed.md",
+      "fr": "docs/fr/manual/subscribed.md"
+    },
+    "navigation": false,
+    "noindex": true
+  }
+]

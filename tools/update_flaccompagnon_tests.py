@@ -74,6 +74,19 @@ class PinTests(unittest.TestCase):
                          MANIFEST.replace('tag = "v0.9.5"', 'tag = "v0.9.6"'))
         self.assertEqual(update.pin_manifest(MANIFEST, "v0.9.5"), MANIFEST)
 
+    def test_windows_line_endings_are_preserved_when_updating_the_pin(self):
+        manifest = MANIFEST.replace("\n", "\r\n")
+        self.assertEqual(update.pin_manifest(manifest, "v0.9.6"),
+                         manifest.replace('tag = "v0.9.5"', 'tag = "v0.9.6"'))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Cargo.toml").write_bytes(manifest.encode("utf-8"))
+            with patch.object(update.subprocess, "run"):
+                update.update_dependency(root, "v0.9.6")
+            self.assertEqual((root / "Cargo.toml").read_bytes(),
+                             manifest.replace('tag = "v0.9.5"',
+                                              'tag = "v0.9.6"').encode("utf-8"))
+
     def test_unexpected_manifest_does_not_get_rewritten(self):
         for text in ["", MANIFEST.replace("flaccompagnon-core", "other-core"),
                      MANIFEST.replace(update.REPOSITORY, "https://example.invalid/repo")]:

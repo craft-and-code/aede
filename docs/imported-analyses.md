@@ -10,11 +10,11 @@ aede analyze ~/Music/Album --json       # also save Album.json in that album fol
 aede analyze ~/Music --json --threads 4 # one report per album folder
 ```
 
-An album's folder comes from Aède's catalog, so a multi-disc release gets one report in the shared album folder. Re-running `--json` replaces that generated report with current measurements. Audio files and tags are read-only. Files without an album tag are grouped by their containing folder.
+An album's folder comes from the catalog, so a multi-disc release can use its shared album folder. Files without album tags are grouped by their containing folder. Audio and tags remain read-only. Report-writing options create separate JSON files.
 
 ### Re-running an analysis and keeping its results
 
-`analyze` recomputes the selected tracks on every run, even when a JSON report or stored measurements already exist. Without `--json`, the measurements are saved in Aède and existing JSON files are untouched. With `--json`, Aède also writes `<album-folder-name>.json` inside each album folder, replacing that destination if it exists. Reports with other names, including a report in the artist folder, are left untouched.
+Unchanged tracks with valid existing reports are reused. `--force` recomputes the selected audio and allows replacement of selected report destinations. Without report-writing options, measurements are still saved in Aède. `--json` saves in album folders; `--json-layout album|artist` enables saving and chooses album or parent artist folders. A malformed existing destination is refused unless deliberately replaced with `--force`. See [analyze](cli/analyze.md) for the complete behavior and options.
 
 Both FlacCompagnon layouts are supported:
 
@@ -142,7 +142,7 @@ error  audio does not match its MD5
        although the frame checksums are valid: the stream was re-encoded
 ```
 
-Frame checksums prove the _container_ survived the journey; the MD5 proves the _audio_ is mathematically identical to the source. A file passes the first and fails the second when it was re-encoded by a tool that rewrote the frames but lazily copied the old signature—an archival tragedy Aède cannot see until the audio is fully decoded.
+Frame checksums prove the _container_ survived the journey; the decoded MD5 compares the audio with the signature stored in the FLAC. A file can pass the first and fail the second, for example after a re-encode retaining an old signature. The mismatch identifies disagreement, not a uniquely proved editing history or comparison against a separate original copy.
 
 **And that is the only thing `doctor` says about an imported report.** The spectral inferences—"transcoded," "upscaled," "upsampled"—are shown on the track page as FlacCompagnon's attributed verdicts, but they are _reported nowhere as Aède errors_. A failed MD5 is a mathematical _fact_. "Early roll-off at 33 kHz, possible transcoding" is an _inference_. A faithful 24/96 transfer of a 1988 analogue master genuinely holds nothing above 30 kHz; it will look exactly like an upsample to an algorithm. A report that turns another program's "possibly" into an Aède warning has stopped describing your library and started arguing with it. Aède remains an archivist, not an audio critic.
 
@@ -183,12 +183,10 @@ Both methods are named because they prove different truths. When they disagree, 
 
 ## Where it is all stored
 
-In the vault, and nowhere else: `~/.local/share/aede/catalog.json` simply grows a new table, `analysis`, tracking one row per path and per source. The `.json` report you imported is never required again—you are free to archive it elsewhere or discard it. `aede export` faithfully includes this table, `aede import --forget` cleanses it, and `aede reset` politely warns you about it before dismantling the catalog.
+Attributed analyses live in `conclusions.json`, separate from the rebuildable tag catalog. The original report is not required after successful ingestion: deleting it does not remove stored measurements. `import --forget` explicitly removes selected analyses. `reset` removes catalog.json and its watched roots but leaves conclusions, personal data and source stores intact.
 
-`--data <folder>` lets you move the catalog to a custom location, and `$AEDE_HOME` does the same via environment variables. `aede roots` concludes by naming the exact catalog file it just consulted, ensuring the answer to "where is all this kept?" is always plainly visible.
+`--data` selects the data folder for one command and `AEDE_HOME` selects it through the environment. Back up the persistent stores and original music separately. See [data safety](manual/catalog.md), [import](cli/import.md) and [backup](cli/backup.md).
 
 ## Reusing acoustic reports
 
-`aede analyze` shows filenames before decoding and hides per-track results unless `--show-results` is supplied. Catalog loading has an animated indicator in interactive terminals. Successful results in existing reports in an album folder or its parent are reused when path, size and modification time agree; new, changed and previously failed files are analyzed. Use `--force` to recompute with the current engine, including edits that retained those metadata.
-
-`--json` saves `<album>.json` inside each album folder. `--json-layout album|artist` enables saving and selects that folder or its parent artist folder, keeping one report per album. `--force` replaces the reports selected for saving. A malformed destination is refused unless `--force` is supplied.
+Valid existing reports are reused according to file identity and dates as described above. The [analyze reference](cli/analyze.md) details `--force`, `--show-results`, report layout and replacement rules. The [import reference](cli/import.md) details report files/directories, pending/stale states and explicit removal.

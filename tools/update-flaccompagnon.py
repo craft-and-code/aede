@@ -60,7 +60,7 @@ def pin_manifest(text, tag):
     """Change only the shared FlacCompagnon tag, preserving other dependencies."""
     if not STABLE_TAG.fullmatch(tag):
         raise UpdateError("Invalid stable version tag")
-    section = re.search(r"(?ms)^\[workspace\.dependencies\]\n(.*?)(?=^\[|\Z)", text)
+    section = re.search(r"(?ms)^\[workspace\.dependencies\]\r?\n(.*?)(?=^\[|\Z)", text)
     if section is None:
         raise UpdateError("Cargo.toml has no workspace dependency section")
     dependency = re.compile(

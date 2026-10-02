@@ -320,3 +320,6 @@ $RECYCLE.BIN/
 /target
 *.tmp
 catalog.json
+
+# Generated bilingual website
+/dist-site/

@@ -1,0 +1,365 @@
+[
+  {
+    "slug": "server/start",
+    "section": "server",
+    "title": {
+      "en": "Start the local server",
+      "fr": "Démarrer le serveur local"
+    },
+    "description": {
+      "en": "Scan a library, share one data folder and understand the local deployment boundary.",
+      "fr": "Scanner une bibliothèque, partager les données et comprendre les limites du serveur local."
+    },
+    "source": {
+      "en": "docs/server/start.md",
+      "fr": "docs/fr/server/start.md"
+    }
+  },
+  {
+    "slug": "server/http",
+    "section": "server",
+    "title": {
+      "en": "HTTP, JSON and errors",
+      "fr": "HTTP, JSON et erreurs"
+    },
+    "description": {
+      "en": "Understand URLs, references, pagination, sorting, security and API errors.",
+      "fr": "Comprendre adresses, références, pagination, tris, sécurité et erreurs."
+    },
+    "source": {
+      "en": "docs/server/http.md",
+      "fr": "docs/fr/server/http.md"
+    }
+  },
+  {
+    "slug": "server/catalog",
+    "section": "server",
+    "title": {
+      "en": "Albums, artists and tracks",
+      "fr": "Albums, artistes et pistes"
+    },
+    "description": {
+      "en": "Read albums, artists, origins, tracks and recorded performances route by route.",
+      "fr": "Consulter albums, artistes, origines, pistes et enregistrements, route par route."
+    },
+    "source": {
+      "en": "docs/server/catalog.md",
+      "fr": "docs/fr/server/catalog.md"
+    }
+  },
+  {
+    "slug": "server/graph",
+    "section": "server",
+    "title": {
+      "en": "Genres, labels, works and editions",
+      "fr": "Genres, labels, œuvres et éditions"
+    },
+    "description": {
+      "en": "Follow graph relationships and distinguish a composition from its recordings and editions.",
+      "fr": "Suivre le graphe et distinguer composition, interprétations et éditions."
+    },
+    "source": {
+      "en": "docs/server/graph.md",
+      "fr": "docs/fr/server/graph.md"
+    }
+  },
+  {
+    "slug": "server/inspection",
+    "section": "server",
+    "title": {
+      "en": "Inspect the library",
+      "fr": "Inspecter la bibliothèque"
+    },
+    "description": {
+      "en": "Status, totals, diagnostics, roots, roles, countries, years and compatibility routes.",
+      "fr": "État, statistiques, diagnostics, racines, rôles, pays, années et compatibilité."
+    },
+    "source": {
+      "en": "docs/server/inspection.md",
+      "fr": "docs/fr/server/inspection.md"
+    }
+  },
+  {
+    "slug": "server/search",
+    "section": "server",
+    "title": {
+      "en": "Search and query",
+      "fr": "Recherche et query"
+    },
+    "description": {
+      "en": "Find names and select public track expressions, with strict limits and private-field boundaries.",
+      "fr": "Rechercher les noms et sélectionner des pistes avec des expressions publiques."
+    },
+    "source": {
+      "en": "docs/server/search.md",
+      "fr": "docs/fr/server/search.md"
+    }
+  },
+  {
+    "slug": "server/events",
+    "section": "server",
+    "title": {
+      "en": "WebSocket events and activity",
+      "fr": "Événements et activité WebSocket"
+    },
+    "description": {
+      "en": "Understand every notification schema, unknown totals, reconnecting and stream limits.",
+      "fr": "Comprendre les notifications, totaux inconnus, reconnexions et limites."
+    },
+    "source": {
+      "en": "docs/server/events.md",
+      "fr": "docs/fr/server/events.md"
+    }
+  },
+  {
+    "slug": "server/administration",
+    "section": "server",
+    "title": {
+      "en": "Enable administration",
+      "fr": "Activer l’administration"
+    },
+    "description": {
+      "en": "Configure a private local Bearer token and learn JSON request rules.",
+      "fr": "Configurer le jeton local privé et les règles des requêtes JSON."
+    },
+    "source": {
+      "en": "docs/server/administration.md",
+      "fr": "docs/fr/server/administration.md"
+    }
+  },
+  {
+    "slug": "server/jobs",
+    "section": "server",
+    "title": {
+      "en": "Scan, fetch and cancellation",
+      "fr": "Scan, fetch et annulation"
+    },
+    "description": {
+      "en": "Every job method, body field, result, failure and cancellation behavior.",
+      "fr": "Chaque méthode de tâche, champ, résultat, erreur et comportement d’annulation."
+    },
+    "source": {
+      "en": "docs/server/jobs.md",
+      "fr": "docs/fr/server/jobs.md"
+    }
+  },
+  {
+    "slug": "server/personal",
+    "section": "server",
+    "title": {
+      "en": "Personal data routes",
+      "fr": "Routes de données personnelles"
+    },
+    "description": {
+      "en": "Authenticated annotations, listening history and smart collections for the local owner.",
+      "fr": "Annotations, historique et collections intelligentes du propriétaire local."
+    },
+    "source": {
+      "en": "docs/server/personal.md",
+      "fr": "docs/fr/server/personal.md"
+    }
+  },
+  {
+    "slug": "dsp/start",
+    "section": "dsp",
+    "title": {
+      "en": "Audio processing overview",
+      "fr": "Comprendre le traitement audio"
+    },
+    "description": {
+      "en": "Follow PCM from decoder to output and find the controls implemented today.",
+      "fr": "Suivre le PCM du décodeur à la sortie et repérer les réglages disponibles."
+    },
+    "source": {
+      "en": "docs/dsp/start.md",
+      "fr": "docs/fr/dsp/start.md"
+    },
+    "explainer": "pipeline"
+  },
+  {
+    "slug": "dsp/normalization",
+    "section": "dsp",
+    "title": {
+      "en": "Track and album normalization",
+      "fr": "Normalisation piste et album"
+    },
+    "description": {
+      "en": "ReplayGain, Opus R128, the −18 LUFS target and a stable gain during listening.",
+      "fr": "ReplayGain, R128, cible −18 LUFS et niveau stable pendant l’écoute."
+    },
+    "source": {
+      "en": "docs/dsp/normalization.md",
+      "fr": "docs/fr/dsp/normalization.md"
+    },
+    "explainer": "normalization"
+  },
+  {
+    "slug": "dsp/measurements",
+    "section": "dsp",
+    "title": {
+      "en": "Measurements and FlacCompagnon",
+      "fr": "Mesures et FlacCompagnon"
+    },
+    "description": {
+      "en": "Source LUFS, true peak, imported analyses, learning and cache validity.",
+      "fr": "LUFS source, crêtes vraies, analyses importées, apprentissage et validité du cache."
+    },
+    "source": {
+      "en": "docs/dsp/measurements.md",
+      "fr": "docs/fr/dsp/measurements.md"
+    },
+    "explainer": "metering"
+  },
+  {
+    "slug": "dsp/tone",
+    "section": "dsp",
+    "title": {
+      "en": "Bass and treble shelves",
+      "fr": "Graves et aigus en plateau"
+    },
+    "description": {
+      "en": "Use ±12 dB broad tone controls, exact flat bypass and boost reserves.",
+      "fr": "Régler les plateaux ±12 dB, revenir à plat et comprendre leur marge."
+    },
+    "source": {
+      "en": "docs/dsp/tone.md",
+      "fr": "docs/fr/dsp/tone.md"
+    },
+    "explainer": "tone"
+  },
+  {
+    "slug": "dsp/headroom",
+    "section": "dsp",
+    "title": {
+      "en": "Headroom and output guard",
+      "fr": "Marge et protection finale"
+    },
+    "description": {
+      "en": "Distinguish static peak caps, tone reserves, hard clipping and a future limiter.",
+      "fr": "Distinguer plafond statique, réserve de tonalité, protection dure et limiteur futur."
+    },
+    "source": {
+      "en": "docs/dsp/headroom.md",
+      "fr": "docs/fr/dsp/headroom.md"
+    },
+    "explainer": "metering"
+  },
+  {
+    "slug": "dsp/channels",
+    "section": "dsp",
+    "title": {
+      "en": "Channel mapping and LFE",
+      "fr": "Canaux et LFE"
+    },
+    "description": {
+      "en": "Known speaker layouts, peak-safe stereo downmix and omitted LFE.",
+      "fr": "Agencements reconnus, mélange stéréo prudent et LFE omis."
+    },
+    "source": {
+      "en": "docs/dsp/channels.md",
+      "fr": "docs/fr/dsp/channels.md"
+    },
+    "explainer": "channels"
+  },
+  {
+    "slug": "dsp/resampling",
+    "section": "dsp",
+    "title": {
+      "en": "Device-rate conversion",
+      "fr": "Conversion de fréquence"
+    },
+    "description": {
+      "en": "Native rate negotiation, bandlimited conversion, filter state and validation limits.",
+      "fr": "Choix de fréquence natif, conversion filtrée, continuité et limites des tests."
+    },
+    "source": {
+      "en": "docs/dsp/resampling.md",
+      "fr": "docs/fr/dsp/resampling.md"
+    },
+    "explainer": "resampling"
+  },
+  {
+    "slug": "dsp/dither",
+    "section": "dsp",
+    "title": {
+      "en": "Integer output and dither",
+      "fr": "Sortie entière et dither"
+    },
+    "description": {
+      "en": "Quantization, TPDF noise, floating bypass and honest bit-perfect boundaries.",
+      "fr": "Quantification, TPDF, bypass flottant et limites du bit-perfect."
+    },
+    "source": {
+      "en": "docs/dsp/dither.md",
+      "fr": "docs/fr/dsp/dither.md"
+    },
+    "explainer": "dither"
+  },
+  {
+    "slug": "dsp/continuity",
+    "section": "dsp",
+    "title": {
+      "en": "Continuous playback",
+      "fr": "Lecture continue"
+    },
+    "description": {
+      "en": "Encoder trimming, natural joins, resets, buffering and unmeasured hardware gapless.",
+      "fr": "Retrait du remplissage, jonctions, réinitialisations et gapless physique non mesuré."
+    },
+    "source": {
+      "en": "docs/dsp/continuity.md",
+      "fr": "docs/fr/dsp/continuity.md"
+    },
+    "explainer": "continuity"
+  },
+  {
+    "slug": "dsp/spectrum",
+    "section": "dsp",
+    "title": {
+      "en": "24-band spectrum display",
+      "fr": "Spectre à 24 bandes"
+    },
+    "description": {
+      "en": "Understand the live FFT bars without confusing them with loudness or audio EQ.",
+      "fr": "Lire les barres FFT sans les confondre avec le volume ou l’égalisation."
+    },
+    "source": {
+      "en": "docs/dsp/spectrum.md",
+      "fr": "docs/fr/dsp/spectrum.md"
+    },
+    "explainer": "metering"
+  },
+  {
+    "slug": "dsp/output",
+    "section": "dsp",
+    "title": {
+      "en": "Output and diagnostics",
+      "fr": "Sortie et diagnostics"
+    },
+    "description": {
+      "en": "Backends, submitted peaks, unknown true peak, shortages and drain limits.",
+      "fr": "Sorties, crêtes transmises, valeurs inconnues, pénuries et limites de vidange."
+    },
+    "source": {
+      "en": "docs/dsp/output.md",
+      "fr": "docs/fr/dsp/output.md"
+    },
+    "explainer": "pipeline"
+  },
+  {
+    "slug": "dsp/premium",
+    "section": "dsp",
+    "title": {
+      "en": "Future Premium processing",
+      "fr": "Futur DSP Premium"
+    },
+    "description": {
+      "en": "Parametric EQ, profiles, convolution and other research, explicitly separate from current features.",
+      "fr": "Égaliseur paramétrique, profils, convolution et recherche distincts des fonctions actuelles."
+    },
+    "source": {
+      "en": "docs/dsp/premium.md",
+      "fr": "docs/fr/dsp/premium.md"
+    }
+  }
+]

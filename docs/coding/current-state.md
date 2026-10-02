@@ -107,6 +107,14 @@ See:
 
 ---
 
+## Website and user documentation
+
+The Onde website and bilingual documentation are generated into ignored `dist-site/` from `site/`, Markdown under `docs/`/`docs/fr/`, and the `docs/site-*.json` page manifests. The user manual, all 57 CLI commands, the local server routes and current DSP stages have beginner-facing guides. Existing topic references are published from their source files. Navigation preserves sidebar position and expanded groups; DSP illustrations use synthetic signals and respect reduced motion.
+
+`tools/check.sh` now verifies the website renderer, published links/metadata, complete CLI/HTTP documentation registration and included Rustdoc. The Site workflow validates pull requests and publishes the combined website/Rustdoc artifact on default-branch or manual runs. See [site maintenance](../../site/README.md). The signup form uses an email relay with manual list management; recipient activation is required by the external provider.
+
+---
+
 ## Test status
 
 **Last recorded test count:** 1221 (including the doctest; none ignored)

@@ -1,42 +1,82 @@
 name: Site
 
-# Publishes the landing page (site/) to the root of the gh-pages branch, which
-# GitHub then serves at https://craft-and-code.github.io/aede/.
-#
-# `keep_files: true` so that anything else ever published under that branch —
-# generated API documentation, for instance — survives a site deploy.
-
 on:
   push:
     branches: [main, master]
     paths:
       - "site/**"
+      - "docs/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tools/*site*.py"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tools/*site*.py"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.89.0"
+      - name: Install native audio build libraries
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev
+      - name: Verify the documentation renderer
+        run: python3 tools/build_site_tests.py
+      - name: Build the bilingual website from Markdown
+        run: python3 tools/build-site.py --check
+      - name: Build Rust API documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --locked --workspace --no-deps
+      - name: Include Rustdoc and verify the complete publication
+        run: |
+          mkdir -p dist-site/docs/rust
+          cp -R target/doc/. dist-site/docs/rust/
+          python3 tools/check-site.py dist-site --require-rustdoc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aede-website
+          path: dist-site/
+          if-no-files-found: error
 
-      # The page is one HTML file and one stylesheet, with the system font
-      # stack and no third-party request of any kind — nothing to build, and
-      # nothing for a visitor's browser to fetch from anywhere but here.
-      - name: Publish site to the gh-pages root
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: aede-website
+          path: dist-site/
+      - name: Publish website and documentation
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          keep_files: true
-          # Without this, a run whose content already matches gh-pages pushes
-          # nothing, GitHub starts no new deployment, and a manual re-run looks
-          # like it did nothing at all.
+          publish_dir: ./dist-site
+          keep_files: false
           allow_empty_commit: ${{ github.event_name == 'workflow_dispatch' }}

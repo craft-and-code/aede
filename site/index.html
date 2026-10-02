@@ -1,311 +1,169 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aède — a local music library, in one command</title>
-    <meta
-      name="description"
-      content="Aède reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Free and open source, written in Rust, for macOS and Linux. It never writes to your files."
-    />
-    <meta
-      name="keywords"
-      content="music library, command line music library, FLAC library, music catalog, music collection manager, beets alternative, Rust music library, audio integrity check, FLAC checksum, music tags, MusicBrainz, M3U playlist, spectrogram, local music, self-hosted music, terminal music library"
-    />
-    <meta name="author" content="craft-and-code" />
-    <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://craft-and-code.github.io/aede/" />
-
-    <!-- Open Graph: Mastodon, Discord, LinkedIn, Facebook -->
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://craft-and-code.github.io/aede/" />
-    <meta property="og:site_name" content="Aède" />
-    <meta property="og:title" content="Aède — a local music library, in one command" />
-    <meta
-      property="og:description"
-      content="Reads your music folders and turns them into a catalog you can question: statistics, diagnostics, integrity checks, a real query language, favourites and notes. Written in Rust, almost no dependencies, and it never writes to your files."
-    />
-    <meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:locale" content="en_GB" />
-
-    <!-- X / Twitter card -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Aède — a local music library, in one command" />
-    <meta
-      name="twitter:description"
-      content="A catalog of your music folders you can actually question. Rust, almost no dependencies, and it never writes to your files."
-    />
-    <meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png" />
-
-    <meta name="theme-color" content="#0d0e13" />
-    <link rel="icon" href="assets/favicon.ico" sizes="any" />
-    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
-    <link rel="apple-touch-icon" href="assets/favicon-180.png" />
-    <link rel="stylesheet" href="styles.css" />
-
-    <!-- Structured data, so a search engine can show this as what it is: a
-         free, open-source application, and a project with a roadmap. -->
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Aède",
-        "url": "https://craft-and-code.github.io/aede/",
-        "description": "A local music library for the command line: it reads your music folders, builds a catalog of linked artists, albums, tracks and labels, and answers questions about it — statistics, diagnostics, checksum verification, a query language, favourites, ratings and notes. It never writes to your audio files.",
-        "applicationCategory": "MultimediaApplication",
-        "applicationSubCategory": "Music library manager",
-        "operatingSystem": "macOS, Linux",
-        "softwareVersion": "0.3.0",
-        "programmingLanguage": "Rust",
-        "downloadUrl": "https://github.com/craft-and-code/aede/releases",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
-        "author": {
-          "@type": "Organization",
-          "name": "craft-and-code",
-          "url": "https://github.com/craft-and-code"
-        },
-        "license": "https://github.com/craft-and-code/aede/blob/main/LICENSE",
-        "isAccessibleForFree": true
-      }
-    </script>
-  </head>
-
-  <body>
-    <a class="skip" href="#roadmap">Skip to the roadmap</a>
-
-    <header class="hero">
-      <div class="wrap">
-        <p class="eyebrow">Free and open source · Rust · macOS, Linux</p>
-        <h1>Aède</h1>
-        <p class="lead">A local music library, in one command.</p>
-        <p class="blurb">
-          It reads your music folders and turns them into a catalog you can actually question — not
-          a player, not a tagger, not a cloud. An <em>aède</em> (Greek ἀοιδός) was the poet-singer
-          of archaic Greece: he held the whole repertoire in memory and performed it. Keeping and
-          playing, in one word.
-        </p>
-        <p class="actions">
-          <a class="button primary" href="https://github.com/craft-and-code/aede/releases"
-            >Download</a
-          >
-          <a class="button" href="https://github.com/craft-and-code/aede">Source on GitHub</a>
-        </p>
-        <p class="note">
-          <strong>M0.6</strong> is done: the catalog, the questions, what you write about your
-          music, and getting it back out to a player. <strong>M1 — identification — has
-          started.</strong> No playback yet, and the network is reached by one command and only
-          when you run it — deliberately, and the <a href="#roadmap">roadmap</a> says what comes
-          next.
-        </p>
-      </div>
+<html lang="fr"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aède — Lecteur audio, bibliothèque musicale et DSP</title>
+<meta name="description" content="Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel.">
+<meta name="theme-color" content="#111213">
+<link rel="canonical" href="https://craft-and-code.github.io/aede/">
+<link rel="alternate" hreflang="fr" href="https://craft-and-code.github.io/aede/">
+<link rel="alternate" hreflang="en" href="https://craft-and-code.github.io/aede/en/">
+<link rel="alternate" hreflang="x-default" href="https://craft-and-code.github.io/aede/en/">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Aède">
+<meta property="og:title" content="Aède — Lecteur audio, bibliothèque musicale et DSP">
+<meta property="og:description" content="Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel.">
+<meta property="og:url" content="https://craft-and-code.github.io/aede/">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Aède — Lecteur audio, bibliothèque musicale et DSP"><meta name="twitter:description" content="Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel."><meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="styles.css">
+<script src="language.js"></script><script defer src="home-strings.js"></script><script defer src="translations.js"></script><script defer src="app.js"></script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Aède", "url": "https://craft-and-code.github.io/aede/", "applicationCategory": "MultimediaApplication", "operatingSystem": "macOS, Linux, Windows", "description": "Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel.", "license": "https://www.mozilla.org/MPL/2.0/", "codeRepository": "https://github.com/craft-and-code/aede"}</script>
+</head><body>
+<a class="skip-link" href="#main">Aller au contenu</a>
+<div id="aede-motion-concepts">
+  <div class="ae-page">
+    <header class="ae-header">
+      <a class="ae-logo cursor-interaction" href="#ae-top" aria-label="Aède, accueil">aède<span>.</span></a>
+      <nav aria-label="Navigation principale">
+        <a href="https://github.com/craft-and-code/aede" target="_blank" rel="noopener noreferrer">Le projet</a>
+        <a href="docs/fr/index.html">Documentation</a>
+      <a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a></nav>
     </header>
-
-    <main>
-      <section class="wrap" aria-labelledby="what">
-        <h2 id="what">What it does</h2>
-        <pre><code>$ aede scan ~/Music
-→ 18 402 tracks · 1 512 albums · 604 artists · 52 days
-
-$ aede query "genre:metal year:1990..1999 -label:earache"
-$ aede doctor              <span class="c">— missing tags, duplicates, incomplete albums</span>
-$ aede check               <span class="c">— has anything been damaged since it was written?</span>
-$ aede copy /Volumes/Card --query "loved" --compress opus
-</code></pre>
-
-        <ul class="grid">
-          <li>
-            <h3>A graph, not a table</h3>
-            <p>
-              Artists, albums, tracks, labels and genres, linked by who did what on what. Click a
-              drummer and see their forty appearances — the model was built for that from the first
-              line.
-            </p>
-          </li>
-          <li>
-            <h3>A real query language</h3>
-            <p>
-              Ranges, negation, <code>OR</code>, any depth of them:
-              <code>(artist:ozzy OR artist:dio) album.rating:&gt;=4 played:0</code>. Every result is
-              a selection, so CSV, JSON and M3U all apply to it.
-            </p>
-          </li>
-          <li>
-            <h3>Is it still intact?</h3>
-            <p>
-              <code>aede check</code> verifies the checksums your files already carry — FLAC frame
-              CRCs, Ogg page CRCs — and remembers the verdict, so the hour it costs is paid once.
-            </p>
-          </li>
-          <li>
-            <h3>What you think of it</h3>
-            <p>
-              Favourites, one to five stars, free-form tags and notes kept exactly as typed, in a
-              file of their own that no rescan can destroy — and searchable like everything else.
-            </p>
-          </li>
-          <li>
-            <h3>Out to a player</h3>
-            <p>
-              <code>aede copy</code> writes a selection to a card or a phone, keeping the folder
-              tree, adapting names the filesystem refuses, and encoding on the way out when a
-              64&nbsp;GB card will not hold a FLAC library.
-            </p>
-          </li>
-          <li>
-            <h3>It never writes to your files</h3>
-            <p>
-              Not a tag, not a name, not a folder. Tagging is Picard's job and it does it well; this
-              reads what is there. Two dependencies, no database daemon, and it reaches the
-              network only when you ask it to.
-            </p>
-          </li>
-        </ul>
+    <main id="main">
+      <section id="ae-top" class="ae-hero" aria-label="Aède — présentation">
+        <p class="ae-eyebrow">LECTEUR AUDIO · BIBLIOTHÈQUE LOCALE</p>
+        <h1>Votre musique.<br><span id="ae-tagline">Toute une galaxie.</span></h1>
+        <p class="ae-deck">Écouter. Explorer. Préserver.</p>
+        <a href="#ae-cli" class="ae-cta cursor-interaction">Découvrir Aède <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        <nav class="ae-index" aria-label="Les quatre parties d’Aède">
+          <a href="#ae-cli" class="ae-jump ae-jump-cli cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 4 4-4 4m6 0h4"/></svg><strong>CLI</strong><small>Explorer & préserver</small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
+          <a href="#ae-server" class="ae-jump ae-jump-server cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v6M5 17v-4h14v4"/></svg><strong>Serveur</strong><small>Un catalogue commun</small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
+          <a href="#ae-dsp" class="ae-jump ae-jump-dsp cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4m4-7v10m5-14v18m5-14v10m4-7v4"/></svg><strong>DSP</strong><small>Façonner l’écoute</small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
+          <a href="#ae-gui" class="ae-jump ae-jump-gui cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 8h18M9 8v13"/></svg><strong>Interface</strong><small>Rencontrer Phémios</small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
+        </nav>
+        <div class="ae-stage" aria-label="Illustrations des fonctions">
+          <div class="ae-scene ae-sound">
+            <canvas id="ae-sound-canvas" role="img" aria-label="Signal audio synthétique projeté en trois dimensions"></canvas>
+            <p class="ae-scene-foot">Une forme sonore en trois dimensions</p>
+          </div>
+          <div class="ae-scene ae-graph" hidden>
+            <canvas id="ae-graph-canvas" role="img" aria-label="Relations entre un album, un artiste, un musicien, un producteur, une piste, une œuvre et son compositeur"></canvas>
+            <div class="ae-graph-nodes" role="group" aria-label="Explorer les relations musicales"></div>
+            <p class="ae-scene-foot">Exemple fictif · Sélectionnez une relation</p>
+          </div>
+          <div class="ae-scene ae-preserve" hidden>
+            <div class="ae-copy-flow">
+              <div class="ae-file"><div class="ae-file-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6m-9 4v6m-4-4v2m8-3v4"/></svg>Original</div><strong>Lisières.flac</strong><div class="ae-file-wave" aria-hidden="true"></div><code>CRC32 · 9AC4 D021</code></div>
+              <div class="ae-transfer" aria-hidden="true"><span></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div>
+              <div class="ae-file ae-file-copy"><div class="ae-file-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6m-9 4v6m-4-4v2m8-3v4"/></svg>Copie</div><strong>Lisières.flac</strong><div class="ae-file-wave" aria-hidden="true"></div><code>CRC32 · 9AC4 D021</code></div>
+            </div>
+            <p class="ae-verified"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Copie vérifiée. Original intact.</p>
+            <p class="ae-scene-foot">Illustration d’une copie sans conversion</p>
+          </div>
+        </div>
+        <div class="ae-modes" role="group" aria-label="Fonctions d’Aède">
+          <button type="button" data-mode="0" aria-pressed="true" class="cursor-interaction">Écouter</button>
+          <button type="button" data-mode="1" aria-pressed="false" class="cursor-interaction">Explorer</button>
+          <button type="button" data-mode="2" aria-pressed="false" class="cursor-interaction">Préserver</button>
+        </div>
+        <p class="ae-detail" aria-live="polite">Vos fichiers, vos paroles. Une écoute à votre mesure.</p>
       </section>
+      <aside class="ae-origin" aria-label="L’origine du nom Aède"><div><span class="ae-logo ae-origin-word">aède<span>.</span></span><small>nom masculin · du grec aoidós, « chanteur »</small></div><p>Dans la Grèce antique, un poète qui composait et chantait des récits épiques.<br><span>Aujourd’hui, votre musique et les histoires qu’elle porte.</span></p></aside>
+      <section id="ae-cli" class="ae-section ae-reveal">
+        <div class="ae-section-copy">
+          <p class="ae-eyebrow">01 / LA CLI</p>
+          <h2>Une commande.<br><span class="ae-section-ink">Beaucoup de possibilités.</span></h2>
+          <p>Du premier scan à l’écoute, Aède donne une prise directe sur votre collection. Croisez les crédits, retrouvez vos favoris, enrichissez le contexte et préparez vos fichiers pour la route.</p>
+          <div class="ae-terminal-tabs" role="group" aria-label="Choisir un exemple de commande">
+            <button type="button" data-cli="scan" aria-pressed="false" class="cursor-interaction"><span>Cataloguer<small>scan</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            <button type="button" data-cli="query" aria-pressed="true" class="cursor-interaction"><span>Retrouver<small>query</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            <button type="button" data-cli="fetch" aria-pressed="false" class="cursor-interaction"><span>Enrichir<small>fetch</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            <button type="button" data-cli="play" aria-pressed="false" class="cursor-interaction"><span>Écouter<small>play</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            <button type="button" data-cli="copy" aria-pressed="false" class="cursor-interaction"><span>Emporter<small>copy</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            <button type="button" data-cli="check" aria-pressed="false" class="cursor-interaction"><span>Vérifier<small>check</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+          </div>
+          <p class="ae-question">« Quels favoris n’ai-je pas encore écoutés ? »</p>
+          <a class="ae-text-link" href="docs/fr/cli/options.html">Découvrir les commandes <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        </div>
+        <div class="ae-terminal" aria-label="Exemples de commandes">
+          <div class="ae-terminal-top"><span class="ae-terminal-dots" aria-hidden="true"><b></b><b></b><b></b></span><span>aède / votre collection</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 4 4-4 4m6 0h4"/></svg></div>
+          <p class="ae-terminal-comment" id="ae-terminal-comment"># Vos favoris encore inécoutés.</p>
+          <pre class="ae-terminal-command"><code id="ae-command">$ aede query "loved played:0"</code></pre>
+          <pre id="ae-command-result" aria-live="polite">01  Lisières       Trio Aster
+02  Rivages        Nora Vale
+03  La traversée   Trio Aster
 
-      <section class="wrap" id="roadmap" aria-labelledby="roadmap-title">
-        <h2 id="roadmap-title">Roadmap</h2>
-        <p class="intro">
-          Each milestone is a position, not a promise of a date. The reasoning behind every one of
-          them is written down in the
-          <a href="https://github.com/craft-and-code/aede/tree/main/docs/design">design notes</a> —
-          most of it exists to explain a refusal.
-        </p>
-
-        <ol class="timeline">
-          <li class="done">
-            <h3><span class="tag">M0</span> The catalog <span class="state">done</span></h3>
-            <p>
-              Scanning, the graph model, statistics, diagnostics, and command-line navigation of the
-              lot. Eleven formats read by hand-written parsers, so a truncated file is a message
-              rather than a panic.
-            </p>
-          </li>
-          <li class="done">
-            <h3><span class="tag">M0.5</span> What you write <span class="state">done</span></h3>
-            <p>
-              Favourites, ratings, notes and tags in an annotation store keyed so that a scan can
-              never destroy them; play history; the query grammar with ranges, negation and
-              <code>OR</code>; saved queries; import and export of all of it.
-            </p>
-          </li>
-          <li class="done">
-            <h3><span class="tag">M0.6</span> Getting music out <span class="state">done</span></h3>
-            <p>
-              <code>aede copy</code> to a player, a card or a drive, keeping the tree; companion
-              files chosen by the catalog rather than by extension; names adapted to what the volume
-              actually accepts, probed rather than guessed; verification and resume; encoding
-              through ffmpeg on the way out. Plus spectrograms, playlists written into the album
-              folders, and lyrics read from tags and <code>.lrc</code> files.
-            </p>
-          </li>
-          <li class="next">
-            <h3>
-              <span class="tag">M1</span> Identification
-              <span class="state">under way</span>
-            </h3>
-            <p>
-              MusicBrainz for relations and credits, AcoustID for badly tagged files, Cover Art
-              Archive for artwork. Band line-ups as dated relations, release types, and the
-              completeness report that says which albums are missing from the shelf. Decided before
-              a line of it is written: <strong>a fetched value sits beside the tag, never on top of
-              it</strong> — attributed, removable, and able to say that two sources disagree.
-            </p>
-          </li>
-          <li>
-            <h3><span class="tag">M2</span> The API</h3>
-            <p>
-              An HTTP server with JSON and WebSocket, frozen early because it is the contract
-              between the core and every future client.
-            </p>
-          </li>
-          <li>
-            <h3><span class="tag">M2.5</span> Other servers' languages</h3>
-            <p>
-              Subsonic and OpenSubsonic first — eighty-odd existing clients on every platform, which
-              is the shortest path from no mobile client to thirty of them. Jellyfin afterwards, and
-              timeboxed. Both as translations over the API, never as a second core.
-            </p>
-          </li>
-          <li>
-            <h3><span class="tag">M3</span> Playback</h3>
-            <p>
-              Local output, a queue, gapless playback and loudness normalisation (EBU R128). The
-              decoder it needs also brings the FLAC MD5 check, which verifies the audio itself
-              rather than the container.
-            </p>
-          </li>
-          <li>
-            <h3><span class="tag">M4</span> The network</h3>
-            <p>
-              Remote playback endpoints: <code>slimproto</code> first, since it opens a fleet of
-              existing devices without inventing anything, then UPnP/OpenHome for commercial
-              streamers.
-            </p>
-          </li>
-        </ol>
-
-        <p class="intro">
-          Explicitly out of scope: RAAT and “Roon Ready” certification are proprietary and licensed
-          — there is no technical path to them.
-        </p>
+3 pistes dans cette sélection.</pre>
+          <p id="ae-command-caption">Les favoris que vous n’avez pas encore écoutés.</p>
+          <div class="ae-terminal-footer"><span>Exemple illustratif</span><span>Originaux intacts</span></div>
+        </div>
+        <div class="ae-section-more ae-cli-depth">
+          <article><span class="ae-mini-label">CRÉDITS & RELATIONS</span><h3>Qui joue avec qui ?</h3><p>Musiciens, compositeurs, producteurs, groupes et membres : suivez les contributions à un album et les liens entre artistes. Pour le classique, explorez aussi les œuvres et leurs mouvements.</p></article>
+          <article><span class="ae-mini-label">PAROLES & DÉCOUVERTE</span><h3>Les histoires autour du son.</h3><p>Paroles, biographies, pochettes et portraits complètent votre catalogue à la demande. Comparez une discographie récupérée à votre collection pour repérer les albums manquants.</p></article>
+          <article><span class="ae-mini-label">RECHERCHE & QUERY</span><h3>Posez la bonne question.</h3><p>Retrouvez un titre, une parole ou une note. Combinez années, genres, formats, étoiles et rôles musicaux dans une requête, puis exportez la sélection en M3U, CSV ou JSON.</p></article>
+          <article><span class="ae-mini-label">VOTRE REGARD</span><h3>Une collection personnelle.</h3><p>Favoris, étoiles, tags et notes Markdown restent séparés des fichiers audio. Vos collections enregistrées se mettent à jour selon leurs critères ; l’historique garde la trace de vos écoutes.</p></article>
+          <article><span class="ae-mini-label">COPIE & INTÉGRITÉ</span><h3>Préserver. Puis emporter.</h3><p><code>check</code> contrôle les sommes intégrées aux trames FLAC et aux pages Ogg. Les copies identiques peuvent être relues et comparées ; après conversion, Aède vérifie la structure et la durée.</p><small>Conversion des sources sans perte. Les fichiers avec perte sont copiés sans réencodage.</small></article>
+          <article><span class="ae-mini-label">ÉCOUTE & ANALYSES</span><h3>Comprendre ses fichiers.</h3><p>Lisez un fichier, un dossier, une playlist ou une sélection locale. Lancez une analyse avec <code>analyze</code> ou importez un rapport FlacCompagnon pour retrouver ses mesures dans les détails des pistes.</p></article>
+        </div>
       </section>
-
-      <section class="wrap" aria-labelledby="get">
-        <h2 id="get">Getting it</h2>
-        <p class="intro">
-          One executable. Unpack it, put it on your <code>PATH</code>, run it. Nothing is installed
-          and nothing runs in the background.
-        </p>
-        <pre><code>$ tar xzf aede-0.3.0-macOS-AppleSilicon.tar.gz
-$ ./aede scan ~/Music
-$ ./aede stats</code></pre>
-        <p>
-          Builds for macOS (Apple Silicon and Intel) and Linux are on the
-          <a href="https://github.com/craft-and-code/aede/releases">releases page</a>, each with a
-          checksum beside it. Or build it yourself — Rust 1.89, two dependencies, and the first build
-          is the only step that needs the network:
-        </p>
-        <pre><code>$ git clone https://github.com/craft-and-code/aede.git
-$ cd aede &amp;&amp; cargo build --release</code></pre>
-        <p class="note">
-          <strong>No Windows build yet.</strong> It compiles there, but catalog paths are
-          <code>/</code>-separated by design while the scanner stores the platform's own spelling,
-          which makes everything folder-shaped wrong — album grouping, folder restrictions,
-          playlists. Sixteen tests say so, and
-          <a href="https://github.com/craft-and-code/aede/blob/main/docs/design/paths.md"
-            >the design note</a
-          >
-          has the reasoning and the fix. Shipping a binary that builds the catalog wrongly, on the
-          platform where nobody would think to check, is worse than shipping none.
-        </p>
-        <p>
-          The manual lives in the repository:
-          <a href="https://github.com/craft-and-code/aede#documentation">documentation</a>,
-          <a href="https://github.com/craft-and-code/aede/blob/main/docs/querying.md"
-            >the query language</a
-          >,
-          <a href="https://github.com/craft-and-code/aede/blob/main/docs/design/architecture.md"
-            >the architecture</a
-          >.
-        </p>
+      <section id="ae-server" class="ae-section ae-reveal">
+        <div class="ae-section-copy"><p class="ae-eyebrow">02 / LE SERVEUR</p><h2>Votre collection.<br><span class="ae-section-ink">Un point de rencontre.</span></h2><p>Le serveur local expose le catalogue aux clients et centralise les tâches de scan et de récupération d’informations.</p><p class="ae-status">API locale disponible</p><ul class="ae-feature-list"><li>Un catalogue partagé entre les clients.</li><li>Des scans et récupérations suivis au même endroit.</li><li>Une base pour les futures interfaces.</li></ul><p class="ae-future">NAS et Raspberry Pi : déploiements à valider.<br>Diffusion audio et accès distant : à venir.</p><a class="ae-text-link" href="docs/fr/server/start.html">Comprendre le serveur <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+        <div class="ae-server-visual" aria-label="Parcours du catalogue local, des fichiers à Aède puis à la CLI ; Phémios est un futur client">
+          <div class="ae-server-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2"/><path d="m3 11 3-7h12l3 7m-5 4h2m-11 0h1"/></svg><span>Vos fichiers</span></div>
+          <div class="ae-server-wire" aria-hidden="true"><span class="ae-packet ae-packet-source"></span></div>
+          <div class="ae-server-center"><span class="ae-logo">aède<span>.</span></span><small>CATALOGUE · API LOCALE</small></div>
+          <div class="ae-server-branches"><div class="ae-server-cli"><span class="ae-packet ae-packet-client" aria-hidden="true"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 4 4-4 4m6 0h4"/></svg><strong>CLI</strong><small>Disponible</small></div><div class="ae-server-planned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg><strong>Phémios</strong><small>Futur client</small></div></div>
+          <div class="ae-server-steps" aria-label="Scan, catalogage, consultation"><span>Scan</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Catalogue</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Consultation</span></div>
+        </div>
       </section>
+      <section id="ae-dsp" class="ae-section ae-reveal">
+        <div class="ae-section-copy"><p class="ae-eyebrow">03 / LE DSP</p><h2>Le son.<br><span class="ae-section-ink">À votre mesure.</span></h2><p>Le DSP traite le signal pendant l’écoute. Il ajuste les niveaux, la tonalité et le format de sortie ; vos fichiers audio restent intacts.</p><ul class="ae-feature-list"><li>Normalisation par piste ou par album.</li><li>Réglages graves / aigus avec désactivation à plat.</li><li>Réserve de niveau, suivi des crêtes et spectre.</li><li>Adaptation à la fréquence et au format de la sortie.</li></ul><div class="ae-analysis-path"><span>FlacCompagnon<small>Analyser ou importer un rapport</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Aède<small>Comprendre et ajuster l’écoute</small></span></div><a class="ae-text-link" href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">Avec FlacCompagnon <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+        <div class="ae-dsp-panel"><div class="ae-panel-heading"><span>Graves / aigus</span><span>DSP ACTUEL</span></div><canvas id="ae-eq-canvas" role="img" aria-label="Courbe illustrative du réglage graves et aigus"></canvas><div class="ae-tone-controls"><label>Graves <output id="ae-bass-value">0 dB</output><input id="ae-bass" type="range" min="-6" max="6" step="1" value="0" aria-label="Graves"></label><label>Aigus <output id="ae-treble-value">0 dB</output><input id="ae-treble" type="range" min="-6" max="6" step="1" value="0" aria-label="Aigus"></label></div><p>Courbe illustrative · Le fichier original reste intact.</p></div>
+        <div class="ae-section-more ae-dsp-depth"><a class="ae-text-link ae-dsp-guide" href="docs/fr/dsp/start.html">Explorer la chaîne audio en détail <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+          <div class="ae-depth-heading"><span class="ae-mini-label">LA CHAÎNE ACTUELLE</span><h3>Chaque étape a son rôle.</h3></div>
+          <div class="ae-signal-chain" aria-label="Mesures, niveau, tonalité, sortie"><span>Mesures<small>Tags · FlacCompagnon · cache</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Niveau<small>Gain · réserve de niveau</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Tonalité<small>Graves · aigus</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Sortie<small>Fréquence · format</small></span></div>
+          <div class="ae-info-grid">
+            <article><h3>Un volume cohérent.</h3><p>ReplayGain et Opus R128, puis les mesures de sonie et de crête vraie de FlacCompagnon quand elles sont disponibles. Le mode album conserve les écarts de niveau entre ses pistes ; le mode piste convient aux sélections mélangées.</p></article>
+            <article><h3>Des réglages lisibles.</h3><p>Les graves et les aigus travaillent sur le signal décodé, avec une réserve de niveau pour les hausses de gain. Les étapes actives, les crêtes et les interventions de la protection de sortie sont indiquées.</p></article>
+            <article><h3>Une sortie adaptée.</h3><p>Le signal est converti si la fréquence choisie par la sortie le demande. La conversion vers un format entier utilise du dither. Le spectre visualisé décrit le signal envoyé vers la sortie.</p></article>
+          </div>
+          <div class="ae-depth-heading ae-premium-heading"><div><span class="ae-mini-label">DSP PREMIUM · EN PRÉPARATION</span><h3>Plus loin dans votre écoute.</h3></div><p>Des pistes de développement progressives.<br>Périmètre, financement et calendrier à définir.</p></div>
+          <div class="ae-info-grid ae-roadmap">
+            <article><span class="ae-roadmap-no">01</span><h3>Égaliseur paramétrique.</h3><p>Choisir fréquence, gain et largeur de chaque filtre. Combiner corrections en cloche, plateaux et filtres passe-haut / passe-bas, avec préréglages et désactivation individuelle.</p></article>
+            <article><span class="ae-roadmap-no">02</span><h3>Profils par appareil.</h3><p>Conserver des réglages différents pour un casque, des enceintes ou une sortie. Importer, exporter et identifier clairement le profil utilisé pour l’écoute.</p></article>
+            <article><span class="ae-roadmap-no">03</span><h3>Convolution.</h3><p>Appliquer des filtres issus de réponses impulsionnelles fournies par l’utilisateur. Une base pour des corrections personnalisées, avec maîtrise de la latence et des transitions.</p></article>
+          </div>
+          <div class="ae-premium-groups">
+            <details name="ae-premium-plan" class="ae-premium cursor-interaction"><summary>Casque & confort d’écoute</summary><dl><dt>Correction par modèle de casque</dt><dd>Des profils optionnels, dépendant des mesures disponibles et des droits sur ces données.</dd><dt>Crossfeed</dt><dd>Mélanger une petite part filtrée de chaque canal vers l’autre pour adoucir les séparations stéréo au casque.</dd><dt>Limiteur true peak & mode nuit</dt><dd>Maîtriser les crêtes et réduire les écarts entre passages calmes et forts, avec réglages explicites.</dd><dt>Transitions</dt><dd>Configurer un fondu entre morceaux indépendants, en préservant les enchaînements d’un album.</dd></dl></details>
+            <details name="ae-premium-plan" class="ae-premium cursor-interaction"><summary>Installation & acoustique</summary><dl><dt>Réglages par canal</dt><dd>Ajuster niveau, balance, délai et polarité.</dd><dt>Gestion du grave</dt><dd>Préparer une répartition vers un caisson avec coupure et alignement, sur une sortie adaptée.</dd><dt>Correction de pièce</dt><dd>Une piste assistée par mesures, nécessitant un microphone calibré et une validation acoustique.</dd><dt>Égalisation dynamique</dt><dd>Explorer une correction qui évolue avec le contenu ou le niveau d’écoute.</dd></dl></details>
+            <details name="ae-premium-plan" class="ae-premium cursor-interaction"><summary>Pistes à explorer</summary><dl><dt>Largeur stéréo & mid/side</dt><dd>Des contrôles créatifs avec vérification de la compatibilité mono.</dd><dt>Vitesse & hauteur</dt><dd>Des outils pour la pratique et l’écoute, à valider sur les transitoires.</dd><dt>Spatialisation binaurale</dt><dd>Une piste de recherche pour restituer certains contenus multicanaux au casque.</dd></dl></details>
+          </div>
+          <p class="ae-roadmap-note">Toutes les fonctions Premium ci-dessus sont envisagées. Leurs priorités et leur disponibilité restent à confirmer.</p>
+        </div>
+      </section>
+      <section id="ae-gui" class="ae-gui-section ae-reveal">
+        <div class="ae-gui-heading"><div><p class="ae-eyebrow">04 / L’INTERFACE GRAPHIQUE</p><h2>Phémios<span class="ae-accent">.</span></h2></div><p>L’interface d’Aède.<br>Un projet client, un même univers musical.<small>Nom de travail · Concept à développer</small></p></div>
+        <p class="ae-name-story">Phémios est un aède de l’<em>Odyssée</em>, qui chante dans le palais d’Ulysse, à Ithaque. Un nom pour donner un visage à Aède.</p>
+        <div class="ph-app" aria-label="Concept d’interface Phémios">
+          <header class="ph-header"><span class="ph-logo">phémios<span>.</span></span><span>CATALOGUE AÈDE · DONNÉES FICTIVES</span></header>
+          <div class="ph-body">
+            <aside class="ph-sidebar"><span>VOTRE MUSIQUE</span><button type="button" data-app-nav="collection" aria-pressed="true" class="cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/><path d="M6 12a6 6 0 0 1 6-6m6 6a6 6 0 0 1-6 6"/></svg>Collection</button><button type="button" data-app-nav="artists" aria-pressed="false" class="cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2m1-17a3 3 0 0 1 0 6m2 5a5 5 0 0 1 3 4v2"/></svg>Artistes</button><button type="button" data-app-nav="favorites" aria-pressed="false" class="cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>Favoris</button></aside>
+            <div class="ph-content">
+              <div id="ph-album"><div class="ph-album-top"><div class="ph-cover" role="img" aria-label="Pochette abstraite de l’album fictif Échos"><span>TRIO ASTER<br>ÉCHOS</span></div><div><p>ALBUM · 2024</p><h3>Échos</h3><span>Trio Aster</span><div class="ph-album-tools"><button type="button" id="ph-favorite" aria-pressed="false" class="cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg><span>Favori</span></button><span>FLAC · 24 bits / 96 kHz</span></div></div></div>
+              <div class="ph-tabs" role="group" aria-label="Détails de l’album"><button type="button" data-app-tab="tracks" aria-pressed="true" class="cursor-interaction">Pistes</button><button type="button" data-app-tab="credits" aria-pressed="false" class="cursor-interaction">Crédits</button><button type="button" data-app-tab="lyrics" aria-pressed="false" class="cursor-interaction">Paroles</button><button type="button" data-app-tab="analysis" aria-pressed="false" class="cursor-interaction">Analyses</button></div>
+              <div class="ph-detail" id="ph-detail" aria-live="polite"></div></div>
+              <div id="ph-artists" hidden><p class="ph-small">LES LIENS DE VOTRE COLLECTION</p><h3>Artistes</h3><div class="ph-artist-row"><span class="ph-avatar">TA</span><div><strong>Trio Aster</strong><small>Artiste de l’album Échos</small></div></div><div class="ph-artist-row"><span class="ph-avatar">NV</span><div><strong>Nora Vale</strong><small>Guitare · Lisières</small></div></div><div class="ph-artist-row"><span class="ph-avatar">AM</span><div><strong>A. Morel</strong><small>Production · Échos</small></div></div></div>
+              <div id="ph-favorites" hidden><p class="ph-small">VOTRE SÉLECTION</p><h3>Favoris</h3><p id="ph-favorite-status"></p><button type="button" class="ph-back cursor-interaction">Revenir à Échos</button></div>
+            </div>
+          </div>
+          <footer class="ph-footer"><span>Local. Sourcé. Personnel.</span><span>Concept d’interface · Lecture à intégrer</span></footer>
+        </div>
+        <div class="ae-charter" aria-label="Proposition de charte graphique"><span><b style="background:#111213"></b>Charbon</span><span><b style="background:#f1f0eb"></b>Ivoire</span><span><b style="background:#d8f36a"></b>Citron / CLI</span><span><b style="background:#49d9ff"></b>Cyan / Serveur</span><span><b style="background:#b69aff"></b>Violet / DSP</span><span><b style="background:#ff7c9f"></b>Corail / Phémios</span><p>Typographie sobre · Mesures en monospace · Mouvements courts · Sources visibles</p></div>
+      </section>
+      <section class="ae-launch ae-reveal" aria-label="Informations et lancement Kickstarter"><div><p class="ae-eyebrow">LA SUITE S’ÉCRIT ENSEMBLE.</p><h2>Être là pour la suite.</h2><p>Recevez les nouvelles d’Aède et l’annonce du futur lancement Kickstarter.<br>Un e-mail par mois maximum. Aucun spam. Désinscription sur simple réponse.</p></div><form id="ae-launch-form" action="https://formsubmit.co/toto@hotmail.com" method="POST"><label for="ae-email">Votre adresse e-mail</label><div><input id="ae-email" name="email" type="email" required autocomplete="email" placeholder="vous@exemple.fr"><button type="submit" class="cursor-interaction">M’inscrire <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button></div><input type="hidden" name="_subject" value="Aède — inscription aux informations du projet"><input type="hidden" name="_template" value="table"><input type="hidden" name="_next" value="https://craft-and-code.github.io/aede/docs/fr/manual/subscribed.html"><input type="hidden" name="inscription" value="Je souhaite recevoir les informations d’Aède et l’annonce du lancement Kickstarter, un e-mail par mois maximum."><input type="hidden" name="langue" value="fr"><input class="ae-honey" type="text" name="_honey" tabindex="-1" autocomplete="off" aria-hidden="true"><p>En cliquant sur « M’inscrire », vous demandez à recevoir ces informations. Votre adresse sert uniquement à cet envoi. <a href="docs/fr/manual/privacy.html">Confidentialité</a></p></form></section>
     </main>
-
-    <footer>
-      <div class="wrap">
-        <p>
-          MIT licensed · built by
-          <a href="https://github.com/craft-and-code">craft-and-code</a> ·
-          <a href="https://github.com/craft-and-code/aede/issues">report something</a>
-        </p>
-        <p class="quiet">
-          No tracker, no analytics, no third-party request: this page is one HTML file and one
-          stylesheet.
-        </p>
-      </div>
-    </footer>
-  </body>
-</html>
+    <footer class="ae-footer"><span class="ae-logo">aède<span>.</span></span><a href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">FlacCompagnon</a><a href="docs/fr/index.html">Manuel & documentation</a><a href="docs/rust/aede_core/index.html">Rustdoc</a><a href="https://github.com/craft-and-code/aede">GitHub</a><a href="docs/fr/manual/privacy.html">Confidentialité</a><span>Logiciel libre · MPL-2.0</span></footer>
+  </div>
+</div>
+</body></html>

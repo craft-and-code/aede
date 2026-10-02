@@ -1,0 +1,44 @@
+# credits — Measure MusicBrainz recording/work credit coverage and locate gaps
+
+credits audits MusicBrainz recording/work credit coverage offline. Without a selection, it groups counts by album; with an album title, release ID or folder, it expands representative recordings and filenames. Counts refer to canonical recordings, not every duplicate file placement.
+
+credited means usable sourced credits exist; empty means a completed lookup returned none; waiting means a lookup is still needed; untrusted means evidence is held but not eligible; unidentified means no usable recording identity. These statuses prevent “no credits” from being confused with “not fetched”. Recording-level and work-level credits are counted separately.
+
+The audit does not yet measure exact-edition credit coverage. If a recording is waiting, copy the folder-scoped fetch command printed by the report. --full belongs to fetch when you deliberately repeat a completed answer, not to credits. --json exposes the same audit status for tools; no network call occurs.
+
+## Syntax and arguments
+
+```text
+aede credits [album title|MusicBrainz ID|folder] [--json]
+```
+
+Optional album title, MusicBrainz release ID or existing folder.
+
+## Options for this command
+
+| Option | Meaning |
+| --- | --- |
+| `--limit N` | Show at most N rows; use a positive whole number. Default limits depend on the page, usually 50. |
+| `--offset N` | Skip N rows before showing the result; N starts at 0. Ordering remains deterministic. |
+| `--all` | Show every row. Refused with --limit. Some commands also use it to include normally hidden categories, explained below. |
+| `--json / -j` | Write this command’s structured JSON result. With analyze, save report files instead of changing terminal output. |
+
+The shared [options reference](options.md) explains `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, option values and output/pagination rules. These shared presentation/data options do not make every command support CSV/JSON or pagination.
+
+## Examples
+
+```sh
+aede credits
+aede credits "Kind of Blue"
+aede credits "$HOME/Music/Jazz" --json
+```
+
+## Result and errors
+
+Output describes the selected operation or catalog data. Read any per-item warnings and retained-work summary; a completed process is not an independent integrity or audio-quality guarantee. Invalid command syntax/options normally exit with code 2; handler failures normally exit with code 1. Local interruption differs from a delegated server task, as explained in [cancel](cancel.md).
+
+## Related reading
+
+[fetch](fetch.md), [credit](credit.md), [recording](recording.md), [work](work.md).
+
+Detailed existing guide: [commands.md](../commands.md).

@@ -1,0 +1,1125 @@
+[
+  {
+    "slug": "manual/install",
+    "section": "manual",
+    "title": {
+      "en": "Install Aède",
+      "fr": "Installer Aède"
+    },
+    "description": {
+      "en": "Choose an executable or build the current source, with platform and optional-tool guidance.",
+      "fr": "Choisir un exécutable ou compiler les sources actuelles, selon le système et les outils facultatifs."
+    },
+    "source": {
+      "en": "docs/manual/install.md",
+      "fr": "docs/fr/manual/install.md"
+    }
+  },
+  {
+    "slug": "manual/first-steps",
+    "section": "manual",
+    "title": {
+      "en": "Your first library",
+      "fr": "Votre première bibliothèque"
+    },
+    "description": {
+      "en": "Scan, browse, listen and add personal annotations in a small first session.",
+      "fr": "Scanner, explorer, écouter et annoter dans une première session simple."
+    },
+    "source": {
+      "en": "docs/manual/first-steps.md",
+      "fr": "docs/fr/manual/first-steps.md"
+    }
+  },
+  {
+    "slug": "manual/catalog",
+    "section": "manual",
+    "title": {
+      "en": "Catalog and data safety",
+      "fr": "Catalogue et sécurité des données"
+    },
+    "description": {
+      "en": "Understand releases, tracks, graph relationships, personal data and safe storage.",
+      "fr": "Comprendre albums, pistes, relations, données personnelles et stockage sûr."
+    },
+    "source": {
+      "en": "docs/manual/catalog.md",
+      "fr": "docs/fr/manual/catalog.md"
+    }
+  },
+  {
+    "slug": "manual/workflows",
+    "section": "manual",
+    "title": {
+      "en": "Daily workflows",
+      "fr": "Usages quotidiens"
+    },
+    "description": {
+      "en": "Build useful routines for discovery, curation, copying, analysis and the local server.",
+      "fr": "Organiser découverte, annotations, copie, analyses et serveur local."
+    },
+    "source": {
+      "en": "docs/manual/workflows.md",
+      "fr": "docs/fr/manual/workflows.md"
+    }
+  },
+  {
+    "slug": "manual/troubleshooting",
+    "section": "manual",
+    "title": {
+      "en": "Troubleshooting",
+      "fr": "Résoudre les problèmes"
+    },
+    "description": {
+      "en": "Recognize common setup, selection, filesystem, fetch and playback errors.",
+      "fr": "Identifier les erreurs fréquentes d’installation, sélection, fichiers, réseau et lecture."
+    },
+    "source": {
+      "en": "docs/manual/troubleshooting.md",
+      "fr": "docs/fr/manual/troubleshooting.md"
+    }
+  },
+  {
+    "slug": "cli/scan",
+    "section": "cli",
+    "title": {
+      "en": "scan — Read watched music folders into the local catalog",
+      "fr": "scan — Indexer la musique"
+    },
+    "description": {
+      "en": "Read watched music folders into the local catalog.",
+      "fr": "Indexer la musique."
+    },
+    "source": {
+      "en": "docs/cli/scan.md",
+      "fr": "docs/fr/cli/scan.md"
+    },
+    "command": "scan",
+    "group": "catalog"
+  },
+  {
+    "slug": "cli/serve",
+    "section": "cli",
+    "title": {
+      "en": "serve — Serve the local HTTP/JSON/WebSocket catalog API and coordinate CLI writes",
+      "fr": "serve — Démarrer le serveur local"
+    },
+    "description": {
+      "en": "Serve the local HTTP/JSON/WebSocket catalog API and coordinate CLI writes.",
+      "fr": "Démarrer le serveur local."
+    },
+    "source": {
+      "en": "docs/cli/serve.md",
+      "fr": "docs/fr/cli/serve.md"
+    },
+    "command": "serve",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/cancel",
+    "section": "cli",
+    "title": {
+      "en": "cancel — Request cancellation of a delegated scan or fetch on the local server",
+      "fr": "cancel — Arrêter une tâche déléguée"
+    },
+    "description": {
+      "en": "Request cancellation of a delegated scan or fetch on the local server.",
+      "fr": "Arrêter une tâche déléguée."
+    },
+    "source": {
+      "en": "docs/cli/cancel.md",
+      "fr": "docs/fr/cli/cancel.md"
+    },
+    "command": "cancel",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/analyze",
+    "section": "cli",
+    "title": {
+      "en": "analyze — Analyze albums with FlacCompagnon and optionally save one JSON report per album",
+      "fr": "analyze — Analyser avec FlacCompagnon"
+    },
+    "description": {
+      "en": "Analyze albums with FlacCompagnon and optionally save one JSON report per album.",
+      "fr": "Analyser avec FlacCompagnon."
+    },
+    "source": {
+      "en": "docs/cli/analyze.md",
+      "fr": "docs/fr/cli/analyze.md"
+    },
+    "command": "analyze",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/roots",
+    "section": "cli",
+    "title": {
+      "en": "roots — List, add, remove, or exclude watched folders",
+      "fr": "roots — Gérer les dossiers suivis"
+    },
+    "description": {
+      "en": "List, add, remove, or exclude watched folders.",
+      "fr": "Gérer les dossiers suivis."
+    },
+    "source": {
+      "en": "docs/cli/roots.md",
+      "fr": "docs/fr/cli/roots.md"
+    },
+    "command": "roots",
+    "group": "catalog"
+  },
+  {
+    "slug": "cli/stats",
+    "section": "cli",
+    "title": {
+      "en": "stats — Show the library's size, quality, and completeness",
+      "fr": "stats — Comprendre les statistiques"
+    },
+    "description": {
+      "en": "Show the library's size, quality, and completeness.",
+      "fr": "Comprendre les statistiques."
+    },
+    "source": {
+      "en": "docs/cli/stats.md",
+      "fr": "docs/fr/cli/stats.md"
+    },
+    "command": "stats",
+    "group": "catalog"
+  },
+  {
+    "slug": "cli/doctor",
+    "section": "cli",
+    "title": {
+      "en": "doctor — Find missing metadata, duplicates, and other catalog issues",
+      "fr": "doctor — Diagnostiquer la bibliothèque"
+    },
+    "description": {
+      "en": "Find missing metadata, duplicates, and other catalog issues.",
+      "fr": "Diagnostiquer la bibliothèque."
+    },
+    "source": {
+      "en": "docs/cli/doctor.md",
+      "fr": "docs/fr/cli/doctor.md"
+    },
+    "command": "doctor",
+    "group": "catalog"
+  },
+  {
+    "slug": "cli/credits",
+    "section": "cli",
+    "title": {
+      "en": "credits — Measure MusicBrainz recording/work credit coverage and locate gaps",
+      "fr": "credits — Auditer les crédits"
+    },
+    "description": {
+      "en": "Measure MusicBrainz recording/work credit coverage and locate gaps.",
+      "fr": "Auditer les crédits."
+    },
+    "source": {
+      "en": "docs/cli/credits.md",
+      "fr": "docs/fr/cli/credits.md"
+    },
+    "command": "credits",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/credit",
+    "section": "cli",
+    "title": {
+      "en": "credit — Add a manual credit or exclude/restore one sourced credit without touching tags",
+      "fr": "credit — Corriger un crédit"
+    },
+    "description": {
+      "en": "Add a manual credit or exclude/restore one sourced credit without touching tags.",
+      "fr": "Corriger un crédit."
+    },
+    "source": {
+      "en": "docs/cli/credit.md",
+      "fr": "docs/fr/cli/credit.md"
+    },
+    "command": "credit",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/check",
+    "section": "cli",
+    "title": {
+      "en": "check — Verify the checksums stored in audio containers",
+      "fr": "check — Vérifier l’intégrité"
+    },
+    "description": {
+      "en": "Verify the checksums stored in audio containers.",
+      "fr": "Vérifier l’intégrité."
+    },
+    "source": {
+      "en": "docs/cli/check.md",
+      "fr": "docs/fr/cli/check.md"
+    },
+    "command": "check",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/copy",
+    "section": "cli",
+    "title": {
+      "en": "copy — Copy a selection to a player, card, or other destination",
+      "fr": "copy — Copier et convertir"
+    },
+    "description": {
+      "en": "Copy a selection to a player, card, or other destination.",
+      "fr": "Copier et convertir."
+    },
+    "source": {
+      "en": "docs/cli/copy.md",
+      "fr": "docs/fr/cli/copy.md"
+    },
+    "command": "copy",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/spectrum",
+    "section": "cli",
+    "title": {
+      "en": "spectrum — Create spectrograms beside the selected music",
+      "fr": "spectrum — Créer des spectrogrammes"
+    },
+    "description": {
+      "en": "Create spectrograms beside the selected music.",
+      "fr": "Créer des spectrogrammes."
+    },
+    "source": {
+      "en": "docs/cli/spectrum.md",
+      "fr": "docs/fr/cli/spectrum.md"
+    },
+    "command": "spectrum",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/playlist",
+    "section": "cli",
+    "title": {
+      "en": "playlist — Write portable playlists in album and artist folders",
+      "fr": "playlist — Créer des playlists"
+    },
+    "description": {
+      "en": "Write portable playlists in album and artist folders.",
+      "fr": "Créer des playlists."
+    },
+    "source": {
+      "en": "docs/cli/playlist.md",
+      "fr": "docs/fr/cli/playlist.md"
+    },
+    "command": "playlist",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/play",
+    "section": "cli",
+    "title": {
+      "en": "play — Play local music",
+      "fr": "play — Écouter la musique"
+    },
+    "description": {
+      "en": "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
+      "fr": "Écouter la musique."
+    },
+    "source": {
+      "en": "docs/cli/play.md",
+      "fr": "docs/fr/cli/play.md"
+    },
+    "command": "play",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/reset",
+    "section": "cli",
+    "title": {
+      "en": "reset — Remove the catalog snapshot, including watched roots, while keeping separate stores",
+      "fr": "reset — Reconstruire le catalogue"
+    },
+    "description": {
+      "en": "Remove the catalog snapshot, including watched roots, while keeping separate stores.",
+      "fr": "Reconstruire le catalogue."
+    },
+    "source": {
+      "en": "docs/cli/reset.md",
+      "fr": "docs/fr/cli/reset.md"
+    },
+    "command": "reset",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/backup",
+    "section": "cli",
+    "title": {
+      "en": "backup — Save the catalog, sources, and personal data together",
+      "fr": "backup — Sauvegarder les données"
+    },
+    "description": {
+      "en": "Save the catalog, sources, and personal data together.",
+      "fr": "Sauvegarder les données."
+    },
+    "source": {
+      "en": "docs/cli/backup.md",
+      "fr": "docs/fr/cli/backup.md"
+    },
+    "command": "backup",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/restore",
+    "section": "cli",
+    "title": {
+      "en": "restore — Restore a previously saved Aède backup",
+      "fr": "restore — Restaurer une sauvegarde"
+    },
+    "description": {
+      "en": "Restore a previously saved Aède backup.",
+      "fr": "Restaurer une sauvegarde."
+    },
+    "source": {
+      "en": "docs/cli/restore.md",
+      "fr": "docs/fr/cli/restore.md"
+    },
+    "command": "restore",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/import",
+    "section": "cli",
+    "title": {
+      "en": "import — Import acoustic analyses from FlacCompagnon",
+      "fr": "import — Importer des analyses"
+    },
+    "description": {
+      "en": "Import acoustic analyses from FlacCompagnon.",
+      "fr": "Importer des analyses."
+    },
+    "source": {
+      "en": "docs/cli/import.md",
+      "fr": "docs/fr/cli/import.md"
+    },
+    "command": "import",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/sources",
+    "section": "cli",
+    "title": {
+      "en": "sources — Inspect, export, import, or remove externally sourced data",
+      "fr": "sources — Comprendre les preuves externes"
+    },
+    "description": {
+      "en": "Inspect, export, import, or remove externally sourced data.",
+      "fr": "Comprendre les preuves externes."
+    },
+    "source": {
+      "en": "docs/cli/sources.md",
+      "fr": "docs/fr/cli/sources.md"
+    },
+    "command": "sources",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/review",
+    "section": "cli",
+    "title": {
+      "en": "review — Resolve uncertain or conflicting source identities without changing tags",
+      "fr": "review — Examiner les identités proposées"
+    },
+    "description": {
+      "en": "Resolve uncertain or conflicting source identities without changing tags.",
+      "fr": "Examiner les identités proposées."
+    },
+    "source": {
+      "en": "docs/cli/review.md",
+      "fr": "docs/fr/cli/review.md"
+    },
+    "command": "review",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/rules",
+    "section": "cli",
+    "title": {
+      "en": "rules — List, export, or import reproducible personal decisions",
+      "fr": "rules — Partager ses décisions"
+    },
+    "description": {
+      "en": "List, export, or import reproducible personal decisions.",
+      "fr": "Partager ses décisions."
+    },
+    "source": {
+      "en": "docs/cli/rules.md",
+      "fr": "docs/fr/cli/rules.md"
+    },
+    "command": "rules",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/relations",
+    "section": "cli",
+    "title": {
+      "en": "relations — List local and sourced graph relationships with stable IDs",
+      "fr": "relations — Lister le graphe relationnel"
+    },
+    "description": {
+      "en": "List local and sourced graph relationships with stable IDs.",
+      "fr": "Lister le graphe relationnel."
+    },
+    "source": {
+      "en": "docs/cli/relations.md",
+      "fr": "docs/fr/cli/relations.md"
+    },
+    "command": "relations",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/relation",
+    "section": "cli",
+    "title": {
+      "en": "relation — Inspect, annotate, or label one graph relationship",
+      "fr": "relation — Annoter une relation"
+    },
+    "description": {
+      "en": "Inspect, annotate, or label one graph relationship.",
+      "fr": "Annoter une relation."
+    },
+    "source": {
+      "en": "docs/cli/relation.md",
+      "fr": "docs/fr/cli/relation.md"
+    },
+    "command": "relation",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/fetch",
+    "section": "cli",
+    "title": {
+      "en": "fetch — Enrich artists, albums, tracks, and artwork from chosen sources",
+      "fr": "fetch — Enrichir depuis des sources"
+    },
+    "description": {
+      "en": "Enrich artists, albums, tracks, and artwork from chosen sources.",
+      "fr": "Enrichir depuis des sources."
+    },
+    "source": {
+      "en": "docs/cli/fetch.md",
+      "fr": "docs/fr/cli/fetch.md"
+    },
+    "command": "fetch",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/missing",
+    "section": "cli",
+    "title": {
+      "en": "missing — List credited studio albums that the local shelf does not hold",
+      "fr": "missing — Repérer les albums manquants"
+    },
+    "description": {
+      "en": "List credited studio albums that the local shelf does not hold.",
+      "fr": "Repérer les albums manquants."
+    },
+    "source": {
+      "en": "docs/cli/missing.md",
+      "fr": "docs/fr/cli/missing.md"
+    },
+    "command": "missing",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/merge",
+    "section": "cli",
+    "title": {
+      "en": "merge — Record that two local artist spellings name one person",
+      "fr": "merge — Rapprocher deux noms d’artiste"
+    },
+    "description": {
+      "en": "Record that two local artist spellings name one person.",
+      "fr": "Rapprocher deux noms d’artiste."
+    },
+    "source": {
+      "en": "docs/cli/merge.md",
+      "fr": "docs/fr/cli/merge.md"
+    },
+    "command": "merge",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/extract",
+    "section": "cli",
+    "title": {
+      "en": "extract — Write artwork already embedded in audio files beside the music",
+      "fr": "extract — Extraire les images intégrées"
+    },
+    "description": {
+      "en": "Write artwork already embedded in audio files beside the music.",
+      "fr": "Extraire les images intégrées."
+    },
+    "source": {
+      "en": "docs/cli/extract.md",
+      "fr": "docs/fr/cli/extract.md"
+    },
+    "command": "extract",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/fingerprint",
+    "section": "cli",
+    "title": {
+      "en": "fingerprint — Compute acoustic fingerprints without using the network",
+      "fr": "fingerprint — Calculer une empreinte acoustique"
+    },
+    "description": {
+      "en": "Compute acoustic fingerprints without using the network.",
+      "fr": "Calculer une empreinte acoustique."
+    },
+    "source": {
+      "en": "docs/cli/fingerprint.md",
+      "fr": "docs/fr/cli/fingerprint.md"
+    },
+    "command": "fingerprint",
+    "group": "enrichment"
+  },
+  {
+    "slug": "cli/query",
+    "section": "cli",
+    "title": {
+      "en": "query — Select tracks with the relational query language",
+      "fr": "query — Faire une recherche relationnelle"
+    },
+    "description": {
+      "en": "Select tracks with the relational query language.",
+      "fr": "Faire une recherche relationnelle."
+    },
+    "source": {
+      "en": "docs/cli/query.md",
+      "fr": "docs/fr/cli/query.md"
+    },
+    "command": "query",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/collection",
+    "section": "cli",
+    "title": {
+      "en": "collection — Save, run, or remove a named dynamic collection",
+      "fr": "collection — Enregistrer une sélection dynamique"
+    },
+    "description": {
+      "en": "Save, run, or remove a named dynamic collection.",
+      "fr": "Enregistrer une sélection dynamique."
+    },
+    "source": {
+      "en": "docs/cli/collection.md",
+      "fr": "docs/fr/cli/collection.md"
+    },
+    "command": "collection",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/collections",
+    "section": "cli",
+    "title": {
+      "en": "collections — List the saved dynamic collections",
+      "fr": "collections — Lister les collections"
+    },
+    "description": {
+      "en": "List the saved dynamic collections.",
+      "fr": "Lister les collections."
+    },
+    "source": {
+      "en": "docs/cli/collections.md",
+      "fr": "docs/fr/cli/collections.md"
+    },
+    "command": "collections",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/love",
+    "section": "cli",
+    "title": {
+      "en": "love — Mark an artist, album, or track as a favourite",
+      "fr": "love — Marquer un favori"
+    },
+    "description": {
+      "en": "Mark an artist, album, or track as a favourite.",
+      "fr": "Marquer un favori."
+    },
+    "source": {
+      "en": "docs/cli/love.md",
+      "fr": "docs/fr/cli/love.md"
+    },
+    "command": "love",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/rate",
+    "section": "cli",
+    "title": {
+      "en": "rate — Give an artist, album, or track a personal rating",
+      "fr": "rate — Attribuer des étoiles"
+    },
+    "description": {
+      "en": "Give an artist, album, or track a personal rating.",
+      "fr": "Attribuer des étoiles."
+    },
+    "source": {
+      "en": "docs/cli/rate.md",
+      "fr": "docs/fr/cli/rate.md"
+    },
+    "command": "rate",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/note",
+    "section": "cli",
+    "title": {
+      "en": "note — Read or write a personal note",
+      "fr": "note — Écrire des notes Markdown"
+    },
+    "description": {
+      "en": "Read or write a personal note.",
+      "fr": "Écrire des notes Markdown."
+    },
+    "source": {
+      "en": "docs/cli/note.md",
+      "fr": "docs/fr/cli/note.md"
+    },
+    "command": "note",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/tag",
+    "section": "cli",
+    "title": {
+      "en": "tag — Attach or remove personal labels",
+      "fr": "tag — Ajouter des étiquettes personnelles"
+    },
+    "description": {
+      "en": "Attach or remove personal labels.",
+      "fr": "Ajouter des étiquettes personnelles."
+    },
+    "source": {
+      "en": "docs/cli/tag.md",
+      "fr": "docs/fr/cli/tag.md"
+    },
+    "command": "tag",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/played",
+    "section": "cli",
+    "title": {
+      "en": "played — Manually record a listen made outside Aède, or undo its latest record with --remove",
+      "fr": "played — Noter une écoute extérieure"
+    },
+    "description": {
+      "en": "Manually record a listen made outside Aède, or undo its latest record with --remove.",
+      "fr": "Noter une écoute extérieure."
+    },
+    "source": {
+      "en": "docs/cli/played.md",
+      "fr": "docs/fr/cli/played.md"
+    },
+    "command": "played",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/favourites",
+    "section": "cli",
+    "title": {
+      "en": "favourites — List everything marked as a favourite",
+      "fr": "favourites — Retrouver les favoris"
+    },
+    "description": {
+      "en": "List everything marked as a favourite.",
+      "fr": "Retrouver les favoris."
+    },
+    "source": {
+      "en": "docs/cli/favourites.md",
+      "fr": "docs/fr/cli/favourites.md"
+    },
+    "command": "favourites",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/notes",
+    "section": "cli",
+    "title": {
+      "en": "notes — List, export, or import personal notes",
+      "fr": "notes — Exporter et parcourir ses notes"
+    },
+    "description": {
+      "en": "List, export, or import personal notes.",
+      "fr": "Exporter et parcourir ses notes."
+    },
+    "source": {
+      "en": "docs/cli/notes.md",
+      "fr": "docs/fr/cli/notes.md"
+    },
+    "command": "notes",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/history",
+    "section": "cli",
+    "title": {
+      "en": "history — Show listening history, newest first",
+      "fr": "history — Consulter l’historique"
+    },
+    "description": {
+      "en": "Show listening history, newest first.",
+      "fr": "Consulter l’historique."
+    },
+    "source": {
+      "en": "docs/cli/history.md",
+      "fr": "docs/fr/cli/history.md"
+    },
+    "command": "history",
+    "group": "personal"
+  },
+  {
+    "slug": "cli/artists",
+    "section": "cli",
+    "title": {
+      "en": "artists — List artists in the catalog",
+      "fr": "artists — Lister les artistes"
+    },
+    "description": {
+      "en": "List artists in the catalog.",
+      "fr": "Lister les artistes."
+    },
+    "source": {
+      "en": "docs/cli/artists.md",
+      "fr": "docs/fr/cli/artists.md"
+    },
+    "command": "artists",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/countries",
+    "section": "cli",
+    "title": {
+      "en": "countries — Summarize artists by their MusicBrainz origin",
+      "fr": "countries — Explorer les origines"
+    },
+    "description": {
+      "en": "Summarize artists by their MusicBrainz origin.",
+      "fr": "Explorer les origines."
+    },
+    "source": {
+      "en": "docs/cli/countries.md",
+      "fr": "docs/fr/cli/countries.md"
+    },
+    "command": "countries",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/albums",
+    "section": "cli",
+    "title": {
+      "en": "albums — List albums in the catalog",
+      "fr": "albums — Lister et filtrer les albums"
+    },
+    "description": {
+      "en": "List albums in the catalog.",
+      "fr": "Lister et filtrer les albums."
+    },
+    "source": {
+      "en": "docs/cli/albums.md",
+      "fr": "docs/fr/cli/albums.md"
+    },
+    "command": "albums",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/genres",
+    "section": "cli",
+    "title": {
+      "en": "genres — List genres in the catalog",
+      "fr": "genres — Parcourir les genres"
+    },
+    "description": {
+      "en": "List genres in the catalog.",
+      "fr": "Parcourir les genres."
+    },
+    "source": {
+      "en": "docs/cli/genres.md",
+      "fr": "docs/fr/cli/genres.md"
+    },
+    "command": "genres",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/genre",
+    "section": "cli",
+    "title": {
+      "en": "genre — Show albums and artists carrying one genre",
+      "fr": "genre — Explorer un genre"
+    },
+    "description": {
+      "en": "Show albums and artists carrying one genre.",
+      "fr": "Explorer un genre."
+    },
+    "source": {
+      "en": "docs/cli/genre.md",
+      "fr": "docs/fr/cli/genre.md"
+    },
+    "command": "genre",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/labels",
+    "section": "cli",
+    "title": {
+      "en": "labels — List record labels in the catalog",
+      "fr": "labels — Parcourir les labels"
+    },
+    "description": {
+      "en": "List record labels in the catalog.",
+      "fr": "Parcourir les labels."
+    },
+    "source": {
+      "en": "docs/cli/labels.md",
+      "fr": "docs/fr/cli/labels.md"
+    },
+    "command": "labels",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/label",
+    "section": "cli",
+    "title": {
+      "en": "label — Show a label's catalog and artists; check a Discogs profile when needed",
+      "fr": "label — Explorer un label"
+    },
+    "description": {
+      "en": "Show a label's catalog and artists; check a Discogs profile when needed.",
+      "fr": "Explorer un label."
+    },
+    "source": {
+      "en": "docs/cli/label.md",
+      "fr": "docs/fr/cli/label.md"
+    },
+    "command": "label",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/years",
+    "section": "cli",
+    "title": {
+      "en": "years — Break the catalog down by release year",
+      "fr": "years — Explorer par année"
+    },
+    "description": {
+      "en": "Break the catalog down by release year.",
+      "fr": "Explorer par année."
+    },
+    "source": {
+      "en": "docs/cli/years.md",
+      "fr": "docs/fr/cli/years.md"
+    },
+    "command": "years",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/artist",
+    "section": "cli",
+    "title": {
+      "en": "artist — Show a local artist or a source-only credited contributor and their links",
+      "fr": "artist — Explorer un artiste"
+    },
+    "description": {
+      "en": "Show a local artist or a source-only credited contributor and their links.",
+      "fr": "Explorer un artiste."
+    },
+    "source": {
+      "en": "docs/cli/artist.md",
+      "fr": "docs/fr/cli/artist.md"
+    },
+    "command": "artist",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/album",
+    "section": "cli",
+    "title": {
+      "en": "album — Show one album's tracks, credits, and sources",
+      "fr": "album — Explorer un album"
+    },
+    "description": {
+      "en": "Show one album's tracks, credits, and sources.",
+      "fr": "Explorer un album."
+    },
+    "source": {
+      "en": "docs/cli/album.md",
+      "fr": "docs/fr/cli/album.md"
+    },
+    "command": "album",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/track",
+    "section": "cli",
+    "title": {
+      "en": "track — Show a track's album, credits, tags, and technical facts",
+      "fr": "track — Explorer une piste"
+    },
+    "description": {
+      "en": "Show a track's album, credits, tags, and technical facts.",
+      "fr": "Explorer une piste."
+    },
+    "source": {
+      "en": "docs/cli/track.md",
+      "fr": "docs/fr/cli/track.md"
+    },
+    "command": "track",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/recording",
+    "section": "cli",
+    "title": {
+      "en": "recording — Show one recording, its local placements, and sourced work links",
+      "fr": "recording — Explorer un enregistrement"
+    },
+    "description": {
+      "en": "Show one recording, its local placements, and sourced work links.",
+      "fr": "Explorer un enregistrement."
+    },
+    "source": {
+      "en": "docs/cli/recording.md",
+      "fr": "docs/fr/cli/recording.md"
+    },
+    "command": "recording",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/work",
+    "section": "cli",
+    "title": {
+      "en": "work — Show one composition and the recordings that realize it",
+      "fr": "work — Explorer une œuvre"
+    },
+    "description": {
+      "en": "Show one composition and the recordings that realize it.",
+      "fr": "Explorer une œuvre."
+    },
+    "source": {
+      "en": "docs/cli/work.md",
+      "fr": "docs/fr/cli/work.md"
+    },
+    "command": "work",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/release-group",
+    "section": "cli",
+    "title": {
+      "en": "release-group — Show the album identity shared by every local edition",
+      "fr": "release-group — Relier les éditions d’un album"
+    },
+    "description": {
+      "en": "Show the album identity shared by every local edition.",
+      "fr": "Relier les éditions d’un album."
+    },
+    "source": {
+      "en": "docs/cli/release-group.md",
+      "fr": "docs/fr/cli/release-group.md"
+    },
+    "command": "release-group",
+    "group": "navigation"
+  },
+  {
+    "slug": "cli/search",
+    "section": "cli",
+    "title": {
+      "en": "search — Search graph objects and source-only contributors, plus optional notes, comments, or lyrics",
+      "fr": "search — Chercher simplement"
+    },
+    "description": {
+      "en": "Search graph objects and source-only contributors, plus optional notes, comments, or lyrics.",
+      "fr": "Chercher simplement."
+    },
+    "source": {
+      "en": "docs/cli/search.md",
+      "fr": "docs/fr/cli/search.md"
+    },
+    "command": "search",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/file",
+    "section": "cli",
+    "title": {
+      "en": "file — Inspect one audio file directly, without the catalog",
+      "fr": "file — Inspecter un fichier directement"
+    },
+    "description": {
+      "en": "Inspect one audio file directly, without the catalog.",
+      "fr": "Inspecter un fichier directement."
+    },
+    "source": {
+      "en": "docs/cli/file.md",
+      "fr": "docs/fr/cli/file.md"
+    },
+    "command": "file",
+    "group": "catalog"
+  },
+  {
+    "slug": "cli/export",
+    "section": "cli",
+    "title": {
+      "en": "export — Export the catalog as JSON or a table",
+      "fr": "export — Exporter le catalogue et le graphe"
+    },
+    "description": {
+      "en": "Export the catalog as JSON or a table.",
+      "fr": "Exporter le catalogue et le graphe."
+    },
+    "source": {
+      "en": "docs/cli/export.md",
+      "fr": "docs/fr/cli/export.md"
+    },
+    "command": "export",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/help",
+    "section": "cli",
+    "title": {
+      "en": "help — Show the command index or the page for one command",
+      "fr": "help — Trouver l’aide hors ligne"
+    },
+    "description": {
+      "en": "Show the command index or the page for one command.",
+      "fr": "Trouver l’aide hors ligne."
+    },
+    "source": {
+      "en": "docs/cli/help.md",
+      "fr": "docs/fr/cli/help.md"
+    },
+    "command": "help",
+    "group": "maintenance"
+  },
+  {
+    "slug": "cli/options",
+    "section": "cli",
+    "title": {
+      "en": "Options, syntax and output",
+      "fr": "Options, syntaxe et sorties"
+    },
+    "description": {
+      "en": "Shared options, command-scoped families and the complete option matrix.",
+      "fr": "Options partagées, familles à portée limitée et matrice complète."
+    },
+    "source": {
+      "en": "docs/cli/options.md",
+      "fr": "docs/fr/cli/options.md"
+    },
+    "group": "maintenance"
+  }
+]

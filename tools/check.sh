@@ -13,6 +13,10 @@ cd "$(dirname "$0")/.."
 echo "-> Build helper tests (offline)"
 python3 tools/update_flaccompagnon_tests.py
 
+echo "-> Website renderer and bilingual documentation"
+python3 tools/build_site_tests.py
+python3 tools/build-site.py --check
+
 echo "-> Formatting"
 cargo fmt --all -- --check
 
@@ -27,6 +31,10 @@ cargo test --locked --offline
 # the documentation is where the reasoning behind this code lives.
 echo "-> Documentation (no broken link)"
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --offline --no-deps --quiet
+
+mkdir -p dist-site/docs/rust
+cp -R target/doc/. dist-site/docs/rust/
+python3 tools/check-site.py dist-site --require-rustdoc
 
 echo "-> Release build"
 cargo build --locked --offline --release

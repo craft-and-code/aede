@@ -1,50 +1,48 @@
-# Formats and dependencies
+# Formats and optional tools
 
-## Supported formats: Reading the Digital Grooves
+Aède distinguishes reading a file's tags/container from decoding its audio for playback or analysis. A format in the catalog table is not automatically a native playback format. Original files and tags remain read-only.
 
-A true CDthèque must be able to read every pressing on its shelves with absolute fidelity. The core of Aède is built on bespoke parsers, handcrafted to understand the exact anatomy of your audio files.
+## Supported formats: reading the library
 
-| Container   | Codecs                    | Tags                          | Duration from                  |
-| ----------- | ------------------------- | ----------------------------- | ------------------------------ |
-| FLAC        | FLAC                      | Vorbis Comment, leading ID3v2 | STREAMINFO                     |
-| MP3         | MPEG 1/2/2.5 layers I–III | ID3v2.2/2.3/2.4, ID3v1        | Xing / VBRI / constant bitrate |
-| MP4         | ALAC, AAC                 | iTunes atoms, freeform `----` | `mvhd`                         |
-| Ogg         | Vorbis, Opus              | Vorbis Comment                | Granule position               |
-| WAV         | PCM                       | `LIST/INFO`, `id3 ` chunk     | `fmt ` + `data`                |
-| AIFF / AIFC | PCM                       | `NAME`/`AUTH`, `ID3 ` chunk   | `COMM`                         |
+The primary readers handle these containers:
 
-Extensions: `.flac` `.mp3` `.m4a` `.m4b` `.mp4` `.alac` `.ogg` `.oga` `.opus` `.wav` `.wave` `.aif` `.aiff` `.aifc`
+| Container | Codecs | Tags | Duration from |
+| --- | --- | --- | --- |
+| FLAC | FLAC | Vorbis Comment, leading ID3v2 | STREAMINFO |
+| MP3 | MPEG 1/2/2.5 layers I–III | ID3v2.2/2.3/2.4, ID3v1 | Xing / VBRI / constant bitrate |
+| MP4 | ALAC, AAC | iTunes atoms, freeform `----` | `mvhd` |
+| Ogg | Vorbis, Opus | Vorbis Comment | Granule position |
+| WAV | PCM | `LIST/INFO`, `id3 ` chunk | `fmt ` + `data` |
+| AIFF / AIFC | PCM | `NAME`/`AUTH`, `ID3 ` chunk | `COMM` |
 
-For the rarer artifacts in your archive, the formats below are read through [`lofty`](https://crates.io/crates/lofty), an external crate which gracefully takes over whenever the file's signature matches none of the dedicated primary parsers above:
+Extensions: `.flac`, `.mp3`, `.m4a`, `.m4b`, `.mp4`, `.alac`, `.ogg`, `.oga`, `.opus`, `.wav`, `.wave`, `.aif`, `.aiff`, `.aifc`.
 
-| Container      | Codecs           | Tags           | Duration from      |
-| -------------- | ---------------- | -------------- | ------------------ |
-| AAC            | AAC              | ID3v2, ID3v1   | ADTS frame headers |
-| WavPack        | WavPack          | APEv2, ID3v1   | Block headers      |
-| Monkey's Audio | APE              | APEv2, ID3v1   | Descriptor         |
-| Musepack       | Musepack SV7/SV8 | APEv2, ID3v1   | Stream header      |
-| Speex          | Speex            | Vorbis Comment | Granule position   |
+Other recognized formats are read through the `lofty` fallback when a primary reader does not match:
 
-Extensions: `.aac` `.ape` `.wv` `.mpc` `.mp+` `.mpp` `.spx`
+| Container | Codecs | Tags | Duration from |
+| --- | --- | --- | --- |
+| AAC | AAC | ID3v2, ID3v1 | ADTS frame headers |
+| WavPack | WavPack | APEv2, ID3v1 | Block headers |
+| Monkey's Audio | APE | APEv2, ID3v1 | Descriptor |
+| Musepack | Musepack SV7/SV8 | APEv2, ID3v1 | Stream header |
+| Speex | Speex | Vorbis Comment | Granule position |
 
-This fallback is only ever reached last, ensuring it can never accidentally take a mainstream format away from one of Aède's primary, high-precision parsers.
+Extensions: `.aac`, `.ape`, `.wv`, `.mpc`, `.mp+`, `.mpp`, `.spx`.
 
-### The Archivist's Parsers: Precision and Resilience
+### Parser precision and resilience
 
-The primary parsers are written by hand directly from the official format specifications. They are rigorously validated against real audio files produced by ffmpeg and cross-checked with ffprobe (`crates/aede-core/tests/real_files.rs`).
+The dedicated readers retain details needed by later operations, including LAME encoder delay/padding, Opus pre-skip, channel layout and ALAC stream information. Regression fixtures cover malformed/truncated inputs and real files produced by media tools. A successful metadata read still does not verify every audio sample or establish file integrity; use [integrity checks](integrity.md) or attributed [acoustic analysis](imported-analyses.md) for their respective questions.
 
-Digital history is full of quirks, and a robust library must handle them all. Aède intentionally covers the most awkward archival cases: UTF-16 strings with a Byte Order Mark (BOM), the notorious ID3v2.3 unsynchronisation, legacy numeric genres like `(17)Rock`, the LAME encoder delay (crucial later for gapless playback), the ALAC magic cookie that reveals the true bit depth, and the Opus pre-skip.
+## Dependencies and playback
 
-**A damaged record should never crash the player.** There are strictly no `unwrap` calls and no direct memory indexing anywhere in the parsers. A violently truncated or corrupted file yields a polite error or a partial result, but never a catastrophic panic. An automated test explicitly enforces this guarantee by deliberately truncating a real file to a quarter, a third, and a half of its true size to ensure the parser always degrades gracefully.
+`lofty` handles the secondary tag-reading formats. FlacCompagnon's Rust library provides in-process acoustic analysis. These are library dependencies; the user does not install a standalone FlacCompagnon executable to use `aede analyze`.
 
-## Dependencies: A Calculated Choice
+The current progressive player has native decoding paths for tested FLAC, PCM WAV, LAME MP3 and native Vorbis fixtures. Opus, AAC and ALAC in M4A use an optional FFmpeg decoding path. Other catalogued formats are not thereby promised a supported player path. The [play command](cli/play.md) documents current supported selections and errors.
 
-Aède relies on exactly one dependency for audio reading: [`lofty`](https://crates.io/crates/lofty), which handles the secondary formats listed in the second table.
+CPAL provides native output when the build/platform/device supports it; ffplay is the fallback. Linux musl release archives use ffplay, while GNU Linux source builds can use ALSA output. FFmpeg is also an external tool for `copy --compress` and applicable spectrogram/decoder paths. Fingerprinting needs `fpcalc` or an FFmpeg build containing Chromaprint; ordinary FFmpeg installation does not promise that feature.
 
-In this project, a dependency is a strict requirement, not a dogma. To be included, external code has to do something we could not reasonably do better ourselves, be actively maintained, widely used, and crucially, bring a dependency tree small enough to actually read and audit. `lofty` earns its place in the vault by seamlessly covering a long tail of niche formats that would each take days to parse by hand, yet are only exercised by a tiny fraction of most music collections.
+### Why preserve decoder details?
 
-### Why not use `lofty` for everything?
+Trimming and frame bounds support continuous software processing and prevent encoder padding from becoming unintended playback frames. They do not alone prove seamless physical playback on every audio device. Hardware join/drain timing and target NAS performance remain validation work. Do not describe the current player as universally bit-perfect or physically gapless.
 
-Because a generic tool cannot extract the microscopic details required for true high-fidelity playback.
-
-The encoder delay and padding of the LAME tag, the ALAC magic cookie, and the exact Opus pre-skip are simply not exposed by any general-purpose library. Milestone M3 of this project relies heavily on these exact, sample-accurate metrics to achieve mathematically perfect gapless playback. That uncompromising standard is exactly why the main formats are kept firmly under the control of Aède's own custom parsers.
+See [installation](manual/install.md), [play](cli/play.md), [copy](cli/copy.md) and [fingerprint](cli/fingerprint.md) for practical setup and command options.

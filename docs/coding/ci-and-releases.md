@@ -53,3 +53,17 @@ Run Release manually from GitHub Actions to build downloadable artifacts without
 For a release, commit the intended version and matching lockfile, verify CI, then push the matching version tag (currently `v0.3.0`). The tag must match the workspace version. The workflow attaches archives and SHA-256 checksums to a **draft**. Review its notes and downloads before publishing it in GitHub Releases. Builds are unsigned.
 
 Version-specific highlights live in `docs/releases/vVERSION.md`; the workflow uses them when present and adds download instructions and the commit history. New versions without a notes file receive a reminder to write highlights.
+
+## Website and user documentation
+
+The `Site` workflow builds the complete publication into `dist-site/`: the Onde landing page, English counterpart, user manual, CLI reference, server guide, DSP guide and Rustdoc. Pull requests build and validate an artifact without publishing it. Pushes to the default branch and manual runs publish the same validated artifact to `gh-pages`.
+
+User-facing Markdown is the source of truth. English guides live in `docs/manual/`, `docs/cli/`, `docs/server/` and `docs/dsp/`; translated guides live under `docs/fr/`. The `docs/site-*.json` manifests map titles, descriptions, navigation groups and bilingual paths. Existing topic references are published directly from their Markdown, rather than copied into hand-maintained HTML. Rendering requires Python's standard library and no package installation.
+
+```sh
+python3 tools/build_site_tests.py
+python3 tools/build-site.py --check
+python3 tools/preview-site.py
+```
+
+The output is ignored by Git. Rustdoc is built separately with the Rust toolchain and copied to `dist-site/docs/rust/`; `tools/check.sh` checks the combined publication. See [site maintenance](../../site/README.md) for preview, translation and form configuration. The signup form uses a native POST to FormSubmit, which requires the recipient to activate their address after the first submission; website builds do not send email or activate the recipient.

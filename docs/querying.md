@@ -99,7 +99,7 @@ aede track "Crazy Train" --lyrics
 
 ## Searching What You Wrote: Annotations & Scopes
 
-Every annotation added via `aede note`, `aede rating`, or `aede tag` is immediately searchable.
+Every annotation added via `aede note`, `aede rate`, or `aede tag` is immediately searchable.
 
 ```sh
 aede query "tag:vinyl"              # tracks carrying that label

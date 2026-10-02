@@ -1,5 +1,9 @@
 # Aède — Archival Music Library Manager
 
+[![CI](https://github.com/craft-and-code/aede/actions/workflows/ci.yml/badge.svg)](https://github.com/craft-and-code/aede/actions/workflows/ci.yml) [![Release](https://github.com/craft-and-code/aede/actions/workflows/release.yml/badge.svg)](https://github.com/craft-and-code/aede/actions/workflows/release.yml) [![Deploy to GitHub Pages](https://github.com/craft-and-code/aede/actions/workflows/site.yml/badge.svg)](https://github.com/craft-and-code/aede/actions/workflows/site.yml) [![Dependency security](https://github.com/craft-and-code/aede/actions/workflows/security.yml/badge.svg)](https://github.com/craft-and-code/aede/actions/workflows/security.yml)
+
+[![Site: GitHub Pages](https://img.shields.io/badge/site-GitHub%20Pages-4b82f0?logo=github&logoColor=white)](https://craft-and-code.github.io/aede/) [![Docs: Manual](https://img.shields.io/badge/docs-manual-7b4ff0?logo=rust&logoColor=white)](https://github.com/craft-and-code/aede/tree/main/docs) [![Latest release](https://img.shields.io/github/v/release/craft-and-code/aede?label=download&color=3ecf8e&logo=github)](https://github.com/craft-and-code/aede/releases/latest) [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-orange)](LICENSE)
+
 > _A digital sanctuary for serious music collectors, archivists, and audio curators._
 
 **Aède** is a high-precision, non-destructive local music library manager and cataloging system written in Rust. Designed with an uncompromising commitment to archival integrity, Aède treats your master music collection as a sanctuary: it reads metadata, verifies audio container integrity, indexes complex credit graphs, and generates derivative assets—**without ever writing a single byte back into your original audio files**.

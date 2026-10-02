@@ -31,7 +31,7 @@ When scanning your **entire library**, it answers: _"Who performed this role acr
 When visiting an **individual's page**, it answers: _"What exactly did they contribute here?"_
 This bi-directional elegance is exactly why Aède stores rich credits rather than a flat, lifeless "artist" text column.
 
-_Note:_ A role requires a human attached to it! Asking `aede album "<title>" --role performer` will be gently refused, because a role without a performer is an empty question. If you are looking for an artist on an album, `--artist` is the filter you need.
+_Note:_ A role requires a human attached to it! Asking `aede album "<title>" --role performer` will be gently refused, because a role without a performer is an empty question. To filter the album list by artist, use `aede albums --artist "<name>"`; to disambiguate a track, use `aede track "<title>" --artist "<name>"`. The individual `album` page does not accept `--artist`.
 
 A role is typed exactly the way it is **shown**: `--role "album artist"` or simply `--role album`. Quotes are optional. What you see on the screen is exactly what Aède understands. We believe a tool should never contradict itself by displaying a credit but refusing to let you search for it.
 
@@ -48,7 +48,7 @@ Roles
   producer       11       87
 ```
 
-_(Note: `main` and `album` are omitted here, as every track carries them by default. When Aède fully integrates MusicBrainz, these roles will populate magically without a single line of code, drawn directly from global liner notes rather than a hardcoded list.)_
+_(Note: `main` and `album` are omitted from this summary. The Roles table counts the local catalog credits. MusicBrainz credits can already be fetched with `aede fetch --credits` and consulted in attributed navigation/query results; they do not silently rewrite the local tags or this local-credit count.)_
 
 ## The Collector's Compass: What's Missing?
 

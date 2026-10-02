@@ -1,6 +1,6 @@
 # Spectrograms: The Ultimate Acoustic Truth
 
-A spectrogram is the final, unarguable arbiter when the provenance of a file is in doubt. Metadata can be forged, and tags can lie. A "lossless" FLAC container lazily filled from a transcoded MP3 will happily report a pristine bitrate, but its visual spectrum will violently reveal a brick-wall cutoff at 16 kHz that no tag will ever confess to.
+A spectrogram is a visual diagnostic tool when a file’s origin is uncertain. Metadata can be incorrect or misleading. A FLAC file transcoded from MP3 may still report lossless codec or container properties, while its spectrum can provide additional clues about its audio history. A spectral cutoff around 16 kHz alone does not prove transcoding: the original material and earlier processing can also limit bandwidth. Neither a spectrogram nor tags alone guarantee a lossless origin or establish complete provenance.
 
 Aède provides the microscope to see exactly what you are archiving.
 
@@ -30,7 +30,7 @@ Crucially, these are drawn using the **exact same ffmpeg filter and colour map a
 
 The dimensions of the frame are left to the curator's discretion:
 
-- **`--size half` (The Default):** Draws a picture at `900x470`—exactly a quarter of the pixels of FlacCompagnon's original `1800x940`. Because a spectrogram is essentially high-frequency noise that a PNG algorithm cannot efficiently compress, the resulting file on disk shrinks by roughly the same quarter. For a library of thousands of tracks, this keeps the visual archive in the manageable megabytes rather than bloating into gigabytes.
+- **`--size half` (The Default):** Draws a picture at `900x470`—exactly a quarter of the pixels of FlacCompagnon's original `1800x940`. These smaller dimensions can reduce storage use, but the encoded PNG size and the amount saved depend on the image content and compression. There is no fixed quarter-size guarantee and no guarantee that an archive of thousands of tracks will remain within megabytes rather than gigabytes.
 - **`--size full`:** Reproduces the exact FlacCompagnon dimensions for flawless, pixel-perfect side-by-side analysis.
 
 Note that switching the `--size` flag does not automatically redraw what is already safely in the vault. An image is only redrawn when it is missing or out of date. To force a library-wide resize, you must use `aede spectrum --full`.

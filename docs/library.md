@@ -6,7 +6,7 @@ Aède maintains a strict boundary: **it never writes to your master audio files*
 
 [MusicBrainz Picard](https://picard.musicbrainz.org/) is the recommended companion for this task. The two tools work in harmony rather than competition: Picard inspects your audio, queries the MusicBrainz database, and writes standardized tags (`MUSICBRAINZ_*` tags); Aède reads these tags, indexes the structure, and builds your searchable catalog.
 
-When a library is pre-tagged with Picard, Aède seamlessly binds entity IDs to global MusicBrainz relationships and credits without guessing. Metadata conflicts become exceptionally rare because your local tags and the global registry share a common origin. If you choose not to use Picard, Aède will still parse standard ID3, Vorbis, or MP4 tags gracefully, and `aede doctor` will point out any missing or incomplete metadata fields.
+When a library is pre-tagged with Picard, Aède reads its MusicBrainz identifiers to establish local entity identities. An explicit `aede fetch --credits` can then obtain attributed MusicBrainz relationships and credits; scanning alone never makes that network request. Shared identifiers reduce identity ambiguity but do not guarantee agreement between local tags and external claims. If you choose not to use Picard, Aède still reads standard ID3, Vorbis or MP4 tags, and `aede doctor` points out missing or incomplete metadata fields.
 
 ## Resolving Identity: When One Artist Appears Twice
 
@@ -28,11 +28,11 @@ Exclusion rules are stored directly inside the catalog alongside watched roots. 
 
 Path matching uses canonical resolution, meaning symbolic links pointing to excluded folders are properly honored.
 
-Exclusion updates take effect immediately by running a target rescan in the background:
+Exclusion updates take effect by automatically rescanning the watched folders before the command finishes:
 
 - Adding or removing an exclusion automatically re-indexes the relevant paths.
 - Pass `--no-scan` to defer indexing when batching multiple exclusion changes across slow storage.
-- `aede reset` leaves root configuration intact until explicitly cleared, preserving your administrative preferences.
+- `aede reset` removes the catalog, including watched roots and exclusions; independent conclusions, personal data and source stores remain intact.
 
 ## Disc Anatomy: Box Sets & Multi-Disc Releases
 
@@ -75,7 +75,7 @@ Every `aede scan` concludes with a comprehensive diagnostic breakdown:
 | Metric                        | Description                                                                                           |
 | :---------------------------- | :---------------------------------------------------------------------------------------------------- |
 | **Files found**               | Total audio files discovered during directory traversal (duplicates removed).                         |
-| **Read from disk**            | Files whose metadata tags were parsed (new or modified since last scan).                              |
+| **Read from disk**            | Files selected for a fresh metadata read, including attempts that later report an error.              |
 | **Reused from previous scan** | Files unchanged in path, size, and modification timestamp; metadata loaded instantly from catalog.    |
 | **Gone since last scan**      | Files previously indexed but no longer present on disk; safely purged from catalog.                   |
 | **Analyses imported**         | External [FlacCompagnon reports](imported-analyses.md#what-another-tool-found) detected and ingested. |
@@ -118,7 +118,7 @@ Those historical measurements show that libraries up to 50,000 tracks loaded in 
 
 ## Safeguarding Your Data: Backups & Disaster Recovery
 
-Aède consolidates complete system state into a portable, versioned backup file:
+Aède consolidates its JSON data stores into a portable, versioned backup file. The bundle does not contain original music or derivative image/lyric files, which need separate backups:
 
 ```
 aede backup ~/aede-2026-09-03.json    # export catalog state and annotations
@@ -184,9 +184,8 @@ About to remove the catalog
   Integrity verdicts      20 148
   Imported analyses          312
   File                    9.4 MB
-  a scan rebuilds the catalog; the watched folders and the integrity
-  verdicts are lost and have to be redone
-  the imported analyses go too, and have to be imported again
+  a scan rebuilds the catalog; watched folders must be named again
+  integrity verdicts, fingerprints and imported analyses are kept
   Type "yes" to confirm:
 ```
 
