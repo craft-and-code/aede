@@ -41,7 +41,7 @@
     "Aujourd’hui, votre musique et les histoires qu’elle porte.": "Today, your music and the stories it carries.",
     "01 / LA CLI": "01 / THE CLI",
     "Une commande.": "One command.",
-    "Beaucoup de possibilités.": "Many possibilities.",
+    "Pour les contrôler tous.": "To control them all.",
     "Du premier scan à l’écoute, Aède donne une prise directe sur votre collection. Croisez les crédits, retrouvez vos favoris, enrichissez le contexte et préparez vos fichiers pour la route.": "From your first scan to playback, Aède puts your collection in your hands. Connect credits, find favourites, add context and prepare your files for the road.",
     "Choisir un exemple de commande": "Choose a command example",
     "Cataloguer": "Catalog",
@@ -76,7 +76,6 @@
     "ÉCOUTE & ANALYSES": "PLAYBACK & ANALYSIS",
     "Comprendre ses fichiers.": "Understand your files.",
     "Lisez un fichier, un dossier, une playlist ou une sélection locale. Lancez une analyse avec": "Play a file, folder, playlist or local selection. Run an analysis with",
-    "ou importez un rapport FlacCompagnon pour retrouver ses mesures dans les détails des pistes.": "or import a FlacCompagnon report to see its measurements in track details.",
     "02 / LE SERVEUR": "02 / THE SERVER",
     "Votre collection.": "Your collection.",
     "Un point de rencontre.": "A meeting place.",
@@ -124,7 +123,6 @@
     "Sortie": "Output",
     "Fréquence · format": "Sample rate · format",
     "Un volume cohérent.": "Consistent volume.",
-    "ReplayGain et Opus R128, puis les mesures de sonie et de crête vraie de FlacCompagnon quand elles sont disponibles. Le mode album conserve les écarts de niveau entre ses pistes ; le mode piste convient aux sélections mélangées.": "ReplayGain and Opus R128, followed by FlacCompagnon loudness and true peak measurements when available. Album mode preserves level differences between tracks; track mode suits mixed selections.",
     "Des réglages lisibles.": "Clear controls.",
     "Les graves et les aigus travaillent sur le signal décodé, avec une réserve de niveau pour les hausses de gain. Les étapes actives, les crêtes et les interventions de la protection de sortie sont indiquées.": "Bass and treble act on the decoded signal, with headroom for gain increases. Active stages, peaks and output guard interventions are shown.",
     "Une sortie adaptée.": "Adapted output.",
@@ -256,7 +254,6 @@
     "Profondeur mesurée": "Measured bit depth",
     "FLAC audio MD5": "FLAC audio MD5",
     "Concordant": "Matching",
-    "Analysé par FlacCompagnon · Valeurs illustratives.": "Analysed by FlacCompagnon · Illustrative values.",
     "Échos · Trio Aster — ajouté à vos favoris dans ce concept.": "Échos · Trio Aster — added to your favourites in this concept.",
     "Aucun favori. Vous pouvez marquer Échos depuis la collection.": "No favourites. You can mark Échos from the collection.",
     "Favori ajouté": "Favourite added",
@@ -267,7 +264,13 @@
     "+ Crédits     MusicBrainz\n+ Paroles     LRCLIB\n+ Pochette    Cover Art Archive\n\nSources conservées.\nAudio et tags inchangés.": "+ Credits     MusicBrainz\n+ Lyrics      LRCLIB\n+ Cover art   Cover Art Archive\n\nSources retained.\nAudio and tags unchanged.",
     "Lecture locale\n\n  Normalisation : piste\n  Graves / aigus : à plat\n  Spectre       : actif\n\nLes écoutes rejoignent votre historique.": "Local playback\n\n  Normalisation : track\n  Bass / treble : flat\n  Spectrum      : active\n\nPlays are added to your history.",
     "Sélection : favoris\n\n✓ Lisières.flac  copie relue\n✓ Rivages.flac   CRC32 identique\n\nOriginaux préservés.": "Selection: favourites\n\n✓ Lisières.flac  copy read back\n✓ Rivages.flac   identical CRC32\n\nOriginals preserved.",
-    "✓ Lisières.flac  CRC valides\n✓ Rivages.ogg    CRC valides\n\nFLAC : trames contrôlées\nOgg  : pages contrôlées\n\nAutres formats : contrôle CRC indisponible.": "✓ Lisières.flac  valid CRCs\n✓ Rivages.ogg    valid CRCs\n\nFLAC: frames checked\nOgg : pages checked\n\nOther formats: CRC check unavailable."
+    "✓ Lisières.flac  CRC valides\n✓ Rivages.ogg    CRC valides\n\nFLAC : trames contrôlées\nOgg  : pages contrôlées\n\nAutres formats : contrôle CRC indisponible.": "✓ Lisières.flac  valid CRCs\n✓ Rivages.ogg    valid CRCs\n\nFLAC: frames checked\nOgg : pages checked\n\nOther formats: CRC check unavailable.",
+    "ou importez un rapport": "or import a",
+    "pour retrouver ses mesures dans les détails des pistes.": "report to see its measurements in track details.",
+    "ReplayGain et Opus R128, puis les mesures de sonie et de crête vraie de": "ReplayGain and Opus R128, followed by loudness and true peak measurements from",
+    "quand elles sont disponibles. Le mode album conserve les écarts de niveau entre ses pistes ; le mode piste convient aux sélections mélangées.": "when available. Album mode preserves level differences between tracks; track mode suits mixed selections.",
+    "Analysé par": "Analysed by",
+    "· Valeurs illustratives.": "· Illustrative values."
   },
   "fr": {}
 }

@@ -17,6 +17,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY = "https://github.com/craft-and-code/aede"
+REPOSITORY_BRANCH = "master"
 BASE_URL = "https://craft-and-code.github.io/aede/"
 TOPICS = {
     "library": ("manual", "Understanding your library", "Comprendre sa bibliothèque"),
@@ -363,7 +364,7 @@ def rewrite_link(href: str, source: str, output: str, language: str, pages: list
         fragment = translated_fragment(parsed.fragment, page, language, root)
         return relative(output, destination) + ("?" + parsed.query if parsed.query else "") + ("#" + fragment if fragment else "")
     if file.endswith(".md") or target.startswith(("docs/design/", "docs/coding/", "crates/")) or target in ("README.md", "CLAUDE.md", "LICENSE", "schema.sql"):
-        return REPOSITORY + "/blob/main/" + quote(target, safe="/") + ("#" + parsed.fragment if parsed.fragment else "")
+        return REPOSITORY + f"/blob/{REPOSITORY_BRANCH}/" + quote(target, safe="/") + ("#" + parsed.fragment if parsed.fragment else "")
     if (root / target).is_file():
         return relative(output, "source-assets/" + target) + ("#" + parsed.fragment if parsed.fragment else "")
     return href
@@ -415,7 +416,7 @@ def document_shell(page: dict, language: str, content: Rendered, pages: list[dic
     notice = '<aside class="translation-notice">Cette référence est actuellement publiée en anglais. Les guides principaux sont disponibles en français.</aside>' if fallback else ""
     section = next((label for key, label in GROUPS[language] if key == page.get("section")), "Documentation")
     toc_links = "".join(f'<li class="toc-level-{level}"><a href="#{esc(identifier)}">{esc(label)}</a></li>' for level, identifier, label in content.headings if level in (2, 3))
-    source_link = f'<a href="{REPOSITORY}/blob/main/{quote(source_path, safe="/")}">{"Modifier la source Markdown" if language == "fr" else "Edit the Markdown source"}</a>' if source_path else ""
+    source_link = f'<a href="{REPOSITORY}/edit/{REPOSITORY_BRANCH}/{quote(source_path, safe="/")}">{"Modifier la source Markdown" if language == "fr" else "Edit the Markdown source"}</a>' if source_path else ""
     explainer = f'<section class="dsp-explainer" data-explainer="{esc(page["explainer"])}" aria-label="{"Illustration interactive du DSP" if language == "fr" else "Interactive DSP illustration"}"></section>' if page.get("explainer") else ""
     body_lang = ' lang="en"' if fallback else ""
     privacy_page = next((candidate for candidate in pages if candidate["slug"] == "manual/privacy"), None)
@@ -431,7 +432,7 @@ def document_shell(page: dict, language: str, content: Rendered, pages: list[dic
             def neighbour(candidate, label):
                 if candidate is None: return "<span></span>"
                 href = relative(output, "docs/" + language + "/" + candidate["slug"] + ".html")
-                return f'<a href="{esc(href)}"><small>{label}</small>{esc(candidate["title"][language])}</a>'
+                return f'<a href="{esc(href)}"><small>{label}</small><span class="guide-next-title">{esc(candidate["title"][language])}</span></a>'
             prev_next = '<nav class="guide-next" aria-label="' + ("Pages voisines" if language == "fr" else "Adjacent pages") + '">' + neighbour(previous, "← " + ("Précédent" if language == "fr" else "Previous")) + neighbour(following, ("Suivant" if language == "fr" else "Next") + " →") + "</nav>"
     return f'''<!doctype html>
 <html lang="{language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

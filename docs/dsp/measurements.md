@@ -10,7 +10,7 @@ aede scan /path/to/music
 aede play /path/to/song.flac --normalize track
 ```
 
-`analyze` runs FlacCompagnon's acoustic analysis on catalogued albums; `--json` also saves an album report. Scan imports supported reports and retains attributed results in conclusions. Imported results can appear in track details and supply track LUFS/true peak for DSP when they still match the current file. A saved report is not a ReplayGain tag-writing pass. The [analysis-import guide](../imported-analyses.md) explains report recognition, timestamps, source attribution and retained data.
+`analyze` runs [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)'s acoustic analysis on catalogued albums; `--json` also saves an album report. Scan imports supported reports and retains attributed results in conclusions. Imported results can appear in track details and supply track LUFS/true peak for DSP when they still match the current file. A saved report is not a ReplayGain tag-writing pass. The [analysis-import guide](../imported-analyses.md) explains report recognition, timestamps, source attribution and retained data.
 
 In track playback, a valid tag for the requested scope is preferred. If absent, Aède checks current FlacCompagnon track analysis, then a fresh derived cache. The other metadata scope can provide fallback where the requested scope is unavailable and no suitable measurement is ready. Invalid selected tags are reported rather than hidden. Album data must describe the whole ordered programme: individual track reports do not become an album measurement by averaging.
 

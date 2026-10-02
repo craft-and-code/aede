@@ -1,6 +1,6 @@
 # import — Import acoustic analyses from FlacCompagnon
 
-import reads FlacCompagnon JSON reports, including reports saved at artist level covering several albums. It can precede the first scan: measurements attach by file path and wait until matching music is catalogued. The command does not perform a new acoustic analysis or contact the network.
+import reads [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) JSON reports, including reports saved at artist level covering several albums. It can precede the first scan: measurements attach by file path and wait until matching music is catalogued. The command does not perform a new acoustic analysis or contact the network.
 
 --list shows attached, waiting and stale results. --pending narrows to results whose file is not yet catalogued. --forget removes the selected stored analyses; with --pending it removes only waiting results. Folder arguments narrow --list, --pending and --forget --pending; bare --forget refuses a folder argument. Ordinary import accepts report files or recursively walked report directories. --source narrows by tool name.
 

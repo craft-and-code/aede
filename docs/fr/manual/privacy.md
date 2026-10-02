@@ -4,7 +4,7 @@ Le formulaire demande votre adresse e-mail pour que le responsable d’Aède pui
 
 ## Ce qui est envoyé et qui le reçoit
 
-Le formulaire transmet votre adresse e-mail, la langue choisie et votre demande d’inscription à **toto@hotmail.com**, l’adresse de contact fournie par le responsable du projet. [FormSubmit](https://formsubmit.co/) assure l’envoi par e-mail. La demande passe donc par FormSubmit et par le fournisseur de messagerie du destinataire.
+Le formulaire transmet votre adresse e-mail, la langue choisie et votre demande d’inscription au responsable d’Aède. [FormSubmit](https://formsubmit.co/) assure l’envoi par e-mail. La demande passe donc par FormSubmit et par le fournisseur de messagerie du destinataire.
 
 FormSubmit peut afficher une vérification contre les envois automatisés avant d’accepter le formulaire. Sa documentation indique que les archives des demandes sont conservées pendant 30 jours. Consultez sa [politique de confidentialité](https://formsubmit.co/privacy.pdf) et sa [documentation](https://formsubmit.co/documentation).
 
@@ -16,7 +16,7 @@ La liste est gérée manuellement. Votre adresse est conservée tant que vous so
 
 ## Changer d’avis ou poser une question sur vos données
 
-Répondez à un message d’Aède ou écrivez à [toto@hotmail.com](mailto:toto@hotmail.com) pour vous désinscrire, corriger votre adresse, demander sa suppression ou connaître les informations détenues à votre sujet. Aucun compte n’est nécessaire.
+Répondez à un message d’Aède ou utilisez la [page de contact](https://formsubmit.co/el/togive) pour vous désinscrire, corriger votre adresse, demander sa suppression ou connaître les informations détenues à votre sujet. Cette page de contact est hébergée par FormSubmit. Aucun compte n’est nécessaire.
 
 ## Navigation sur le site
 

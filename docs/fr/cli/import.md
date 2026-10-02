@@ -1,6 +1,6 @@
 # import — Importer des analyses
 
-import lit les rapports JSON FlacCompagnon, y compris ceux d’artiste couvrant plusieurs albums. Il peut précéder le premier scan : les mesures se rattachent par chemin et attendent que la musique correspondante soit cataloguée. Il ne relance ni analyse acoustique ni réseau.
+import lit les rapports JSON [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/), y compris ceux d’artiste couvrant plusieurs albums. Il peut précéder le premier scan : les mesures se rattachent par chemin et attendent que la musique correspondante soit cataloguée. Il ne relance ni analyse acoustique ni réseau.
 
 --list distingue résultats rattachés, en attente et obsolètes. --pending garde ceux sans fichier encore catalogué. --forget retire les analyses mémorisées sélectionnées ; avec --pending, seulement celles en attente. Les dossiers limitent --list, --pending et --forget --pending ; --forget seul refuse un dossier. L’import normal accepte des rapports ou des dossiers de rapports parcourus récursivement. --source limite à un outil.
 

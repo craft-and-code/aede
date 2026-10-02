@@ -1,6 +1,6 @@
 # analyze — Analyser avec FlacCompagnon
 
-analyze lance le moteur Rust de FlacCompagnon sur les albums catalogués. Il mesure l’audio et conserve les résultats attribués pour les détails de pistes et les décisions de niveau à la lecture. Les résultats restent dans Aède même sans option de rapport.
+analyze lance le moteur Rust de [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) sur les albums catalogués. Il mesure l’audio et conserve les résultats attribués pour les détails de pistes et les décisions de niveau à la lecture. Les résultats restent dans Aède même sans option de rapport.
 
 Les pistes inchangées avec un rapport valable sont réutilisées. --force relance les mesures choisies. --json crée un rapport dans chaque dossier d’album ; --json-layout artist l’enregistre dans le dossier parent d’artiste. Un rapport existant non réutilisable/remplaçable peut nécessiter --force. L’écriture exige les droits à côté de la musique ; aucun tag audio n’est modifié.
 

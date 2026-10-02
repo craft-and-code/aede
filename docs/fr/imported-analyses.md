@@ -5,7 +5,7 @@
 
 Cette fonction est facultative : la bibliothèque fonctionne aussi sans analyse acoustique.
 
-Les lecteurs d’Aède lisent les tags, trames et conteneurs. Pour examiner l’audio décodé — indices de transcodage ou de suréchantillonnage, coupure spectrale, niveau sonore et MD5 audio FLAC — `aede analyze` appelle directement la bibliothèque Rust [FlacCompagnon](https://github.com/craft-and-code/FlacCompagnon). Les mesures restent attribuées à cet outil ; elles ne deviennent pas des observations des lecteurs de tags d’Aède.
+Les lecteurs d’Aède lisent les tags, trames et conteneurs. Pour examiner l’audio décodé — indices de transcodage ou de suréchantillonnage, coupure spectrale, niveau sonore et MD5 audio FLAC — `aede analyze` appelle directement la bibliothèque Rust [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/). Les mesures restent attribuées à cet outil ; elles ne deviennent pas des observations des lecteurs de tags d’Aède.
 
 ```sh
 aede analyze                            # analyser les albums catalogués et garder les mesures

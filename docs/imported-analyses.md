@@ -2,7 +2,7 @@
 
 Entirely optional, and it changes nothing if you never use it.
 
-Aède's native parsers read tags, frames, and containers. For questions about the decoded audio—possible transcoding, upsampling, spectral cutoff, loudness, and the FLAC audio MD5—`aede analyze` calls the [FlacCompagnon](https://github.com/craft-and-code/FlacCompagnon) Rust analysis library directly. The measurements stay attributed to FlacCompagnon in Aède's catalog.
+Aède's native parsers read tags, frames, and containers. For questions about the decoded audio—possible transcoding, upsampling, spectral cutoff, loudness, and the FLAC audio MD5—`aede analyze` calls the [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) Rust analysis library directly. The measurements stay attributed to FlacCompagnon in Aède's catalog.
 
 ```sh
 aede analyze                            # analyze catalogued albums and store results in Aède

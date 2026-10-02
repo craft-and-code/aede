@@ -10,7 +10,7 @@ aede scan /chemin/vers/musique
 aede play /chemin/vers/morceau.flac --normalize track
 ```
 
-`analyze` exécute l’analyse acoustique FlacCompagnon sur les albums catalogués ; `--json` enregistre aussi un rapport d’album. Scan importe les rapports reconnus et conserve leurs résultats attribués dans les conclusions. Ils peuvent apparaître dans le détail de piste et fournir LUFS/crête vraie au DSP s’ils correspondent toujours au fichier. Ce n’est pas une écriture de tags ReplayGain. Le [guide d’import](../../imported-analyses.md) décrit reconnaissance, dates, attribution et données conservées.
+`analyze` exécute l’analyse acoustique [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) sur les albums catalogués ; `--json` enregistre aussi un rapport d’album. Scan importe les rapports reconnus et conserve leurs résultats attribués dans les conclusions. Ils peuvent apparaître dans le détail de piste et fournir LUFS/crête vraie au DSP s’ils correspondent toujours au fichier. Ce n’est pas une écriture de tags ReplayGain. Le [guide d’import](../../imported-analyses.md) décrit reconnaissance, dates, attribution et données conservées.
 
 En lecture piste, un tag valide du périmètre demandé est prioritaire. Sans lui, Aède consulte l’analyse FlacCompagnon actuelle, puis le cache dérivé frais. L’autre périmètre de métadonnées peut servir de repli si aucune mesure appropriée n’est prête. Les tags retenus invalides sont signalés, pas masqués. Pour l’album, la donnée doit couvrir tout le programme ordonné : on ne calcule pas ses LUFS en moyennant ceux des pistes.
 

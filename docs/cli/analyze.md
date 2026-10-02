@@ -1,6 +1,6 @@
 # analyze — Analyze albums with FlacCompagnon and optionally save one JSON report per album
 
-analyze runs FlacCompagnon’s Rust analysis engine on catalogued albums. It reports acoustic measurements and stores attributed results for track details and playback loudness decisions. Results are saved in Aède even without report-writing options.
+analyze runs [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)’s Rust analysis engine on catalogued albums. It reports acoustic measurements and stores attributed results for track details and playback loudness decisions. Results are saved in Aède even without report-writing options.
 
 Unchanged tracks with valid reports are reused. --force measures selected albums again. --json creates report files in album folders; --json-layout artist instead saves in the parent artist folder. A pre-existing report that cannot be safely reused/replaced can require --force. Report creation requires write permission beside music; analysis never modifies audio tags.
 
