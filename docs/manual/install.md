@@ -9,11 +9,10 @@ The release workflow prepares the following archives. Download an actually publi
 | System | Archive label | Playback notes |
 | --- | --- | --- |
 | macOS, Apple Silicon | `macOS-AppleSilicon` | Native CPAL output when compatible, ffplay fallback |
-| macOS, Intel | `macOS-Intel` | Same native/fallback choices |
 | Linux, x86_64 | `Linux-x86_64` | Release archive uses musl and needs ffplay for playback |
 | Windows, x64 | `Windows-x64` | Native path scanning/copying tested in Windows CI; terminal transport controls/local writer delegation remain Unix-only |
 
-There is no packaged Linux ARM/Raspberry Pi release or published Docker image in the current workflow. Building on another target requires its own validation. The existing server is a local catalog API, not an audio streamer.
+Future releases do not include a prebuilt macOS Intel archive. There is no packaged Linux ARM/Raspberry Pi release or published Docker image in the current workflow. Building on another target requires its own validation. The existing server is a local catalog API, not an audio streamer.
 
 ## Run a downloaded executable
 

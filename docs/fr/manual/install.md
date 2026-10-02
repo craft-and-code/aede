@@ -9,11 +9,10 @@ Le processus de publication prépare les archives suivantes. Télécharger un fi
 | Système | Nom dans l’archive | Lecture |
 | --- | --- | --- |
 | macOS, Apple Silicon | `macOS-AppleSilicon` | Sortie CPAL native compatible, sinon ffplay |
-| macOS, Intel | `macOS-Intel` | Même choix natif/recours |
 | Linux, x86_64 | `Linux-x86_64` | Archive musl, ffplay nécessaire à la lecture |
 | Windows, x64 | `Windows-x64` | Scan/copie testés en CI Windows ; touches de lecture/délégation locale encore Unix seulement |
 
-Aucune archive Linux ARM/Raspberry Pi ni image Docker publiée dans le processus actuel. Compiler une autre cible exige une validation spécifique. Le serveur existant est une API de catalogue locale, pas un diffuseur audio.
+Les prochaines versions ne proposeront plus d’archive précompilée pour les Mac Intel. Aucune archive Linux ARM/Raspberry Pi ni image Docker publiée dans le processus actuel. Compiler une autre cible exige une validation spécifique. Le serveur existant est une API de catalogue locale, pas un diffuseur audio.
 
 ## Lancer un exécutable téléchargé
 

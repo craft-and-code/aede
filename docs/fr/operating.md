@@ -2,7 +2,7 @@
 
 # Exploiter le serveur local
 
-Le serveur M2 d’Aède est une **API de catalogue locale**, pas encore un serveur musical distant. Il sert du JSON et des notifications WebSocket, sans diffuser l’audio ni authentifier les auditeurs. La procédure de publication construit des archives macOS (Apple silicon et Intel), Linux x86_64 et Windows x64. La CI Windows native valide scan, fichiers annexes et copies ; la délégation locale par socket Unix reste indisponible sous Windows. Ces builds ne prouvent pas un déploiement validé en service ou sur NAS pour chaque plateforme. Voir les [chemins](../design/paths.md).
+Le serveur M2 d’Aède est une **API de catalogue locale**, pas encore un serveur musical distant. Il sert du JSON et des notifications WebSocket, sans diffuser l’audio ni authentifier les auditeurs. La procédure de publication construit des archives macOS Apple Silicon, Linux x86_64 et Windows x64. La CI Windows native valide scan, fichiers annexes et copies ; la délégation locale par socket Unix reste indisponible sous Windows. Ces builds ne prouvent pas un déploiement validé en service ou sur NAS pour chaque plateforme. Voir les [chemins](../design/paths.md).
 
 <div id="start-and-stop" data-legacy-anchor></div>
 

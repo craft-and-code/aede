@@ -28,9 +28,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             label: macOS-AppleSilicon
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            label: macOS-Intel
           # The musl archive uses ffplay for playback; CPAL is GNU-only on Linux.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
@@ -194,7 +191,6 @@ jobs:
           | Your system | Download |
           | --- | --- |
           | **macOS** (M1 and later) | `aede-*-macOS-AppleSilicon.tar.gz` |
-          | **macOS** (Intel) | `aede-*-macOS-Intel.tar.gz` |
           | **Linux** (x86_64, musl-compatible) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
           | **Windows** (x64) | `aede-*-Windows-x64.zip` |
 

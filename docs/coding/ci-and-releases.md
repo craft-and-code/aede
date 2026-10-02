@@ -46,9 +46,9 @@ This downloads actions and a container image. It approximates the GitHub environ
 
 ## Prepare a release
 
-The Release workflow builds macOS Apple Silicon, macOS Intel, Linux x86_64 musl and Windows x64 archives. Tests for every target must pass before a draft release is created. Linux archives require ffplay for playback; GNU source builds support native ALSA output. Windows terminal playback controls and local writer delegation remain unavailable.
+The Release workflow builds macOS Apple Silicon, Linux x86_64 musl and Windows x64 archives. Future releases do not include macOS Intel archives. Tests for every target must pass before a draft release is created. Linux archives require ffplay for playback; GNU source builds support native ALSA output. Windows terminal playback controls and local writer delegation remain unavailable.
 
-Run Release manually from GitHub Actions to build downloadable artifacts without creating a release. This is the rehearsal for packaging on all four targets.
+Run Release manually from GitHub Actions to build downloadable artifacts without creating a release. This is the rehearsal for packaging on all three targets.
 
 For a release, commit the intended version and matching lockfile, verify CI, then push the matching version tag (currently `v0.4.0`). The tag must match the workspace version. The workflow attaches archives and SHA-256 checksums to a **draft**. Review its notes and downloads before publishing it in GitHub Releases. Builds are unsigned.
 
