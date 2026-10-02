@@ -76,7 +76,7 @@ sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev lib
 sudo pacman -S base-devel rust alsa-lib ffmpeg
 ```
 
-Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.3.0 release notes](docs/releases/v0.3.0.md) provide the draft highlights.
+Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.4.0 release notes](docs/releases/v0.4.0.md) provide the draft highlights. Previous draft highlights remain available in the [v0.3.0 notes](docs/releases/v0.3.0.md).
 
 ### Building & Installing from Source
 

@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aede-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aede-core",
  "aede-dsp",
@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "aede-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aede-dsp",
  "flaccompagnon-core",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "aede-dsp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "biquad",
  "ebur128",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "aede-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aede-core",
  "axum",

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/aede-core", "crates/aede-server", "crates/aede-cli", "crates/aede-dsp"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/craft-and-code/aede"
