@@ -91,7 +91,7 @@
   const eq=root.querySelector('#ae-eq-canvas'),ex=eq.getContext('2d'),bass=root.querySelector('#ae-bass'),treble=root.querySelector('#ae-treble');let actualBass=0,actualTreble=0,eqStart=0,fromBass=0,fromTreble=0;
   function drawEq(){
     const rect=eq.getBoundingClientRect();if(!rect.width)return;const ratio=Math.min(devicePixelRatio||1,2);eq.width=rect.width*ratio;eq.height=rect.height*ratio;ex.setTransform(ratio,0,0,ratio,0,0);const W=rect.width,H=rect.height,pad=23;
-    ex.strokeStyle='#303236';ex.lineWidth=1;ex.beginPath();ex.moveTo(pad,H*.52);ex.lineTo(W-pad,H*.52);ex.stroke();ex.fillStyle='#a4a6a7';ex.font='9px Helvetica, Arial, sans-serif';ex.textAlign='left';ex.fillText('20 Hz',pad,H-13);ex.textAlign='right';ex.fillText('20 kHz',W-pad,H-13);ex.textAlign='left';ex.fillText('+6',pad,22);ex.fillText('−6',pad,H-34);
+    ex.strokeStyle='#303236';ex.lineWidth=1;ex.beginPath();ex.moveTo(pad,H*.52);ex.lineTo(W-pad,H*.52);ex.stroke();ex.fillStyle='#a4a6a7';ex.font='12px Helvetica, Arial, sans-serif';ex.textAlign='left';ex.fillText('20 Hz',pad,H-13);ex.textAlign='right';ex.fillText('20 kHz',W-pad,H-13);ex.textAlign='left';ex.fillText('+6',pad,22);ex.fillText('−6',pad,H-34);
     ex.beginPath();for(let i=0;i<=170;i++){const u=i/170,value=actualBass/(1+Math.exp((u-.23)*17))+actualTreble/(1+Math.exp((.78-u)*17)),x=pad+u*(W-pad*2),y=H*.52-value*6;if(i===0)ex.moveTo(x,y);else ex.lineTo(x,y);}ex.strokeStyle=getComputedStyle(eq).getPropertyValue('--ae-accent').trim();ex.lineWidth=1.6;ex.stroke();
   }
   function toneChange(){root.querySelector('#ae-bass-value').textContent=(Number(bass.value)>0?'+':'')+bass.value+' dB';root.querySelector('#ae-treble-value').textContent=(Number(treble.value)>0?'+':'')+treble.value+' dB';fromBass=actualBass;fromTreble=actualTreble;eqStart=performance.now();const targetBass=Number(bass.value),targetTreble=Number(treble.value);function tick(now){const u=reduce.matches?1:Math.min(1,(now-eqStart)/350);actualBass=fromBass+(targetBass-fromBass)*u;actualTreble=fromTreble+(targetTreble-fromTreble)*u;drawEq();if(u<1)requestAnimationFrame(tick);}requestAnimationFrame(tick);}
@@ -101,7 +101,7 @@
     tracks:'<div class="ph-track"><span>01</span>Lisières<small>4:12</small></div><div class="ph-track"><span>02</span>Rivages<small>5:38</small></div><div class="ph-track"><span>03</span>La traversée<small>3:56</small></div>',
     credits:'<div class="ph-credit">Trio Aster<small>Artiste</small></div><div class="ph-credit">Nora Vale<small>Guitare · Lisières</small></div><div class="ph-credit">A. Morel<small>Production</small></div><p class="ph-source">Exemple fictif de crédits attribués.</p>',
     lyrics:'<p class="ph-lyrics">Les jours passent, les échos restent.<br>Un horizon au creux des mains.<small>Paroles fictives pour cette maquette.</small></p>',
-    analysis:'<div class="ph-measures"><div>Sonie intégrée<strong>−14.2 LUFS</strong></div><div>Crête vraie<strong>−1.1 dBTP</strong></div><div>Profondeur mesurée<strong>24 bits</strong></div><div>FLAC audio MD5<strong>Concordant</strong></div></div><p class="ph-source">Analysé par FlacCompagnon · Valeurs illustratives.</p>'
+    analysis:'<div class="ph-measures"><div>Sonie intégrée<strong>−14.2 LUFS</strong></div><div>Crête vraie<strong>−1.1 dBTP</strong></div><div>Profondeur mesurée<strong>24 bits</strong></div><div>FLAC audio MD5<strong>Concordant</strong></div></div><p class="ph-source">Analysé par <a class="ae-inline-link" href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">FlacCompagnon</a> · Valeurs illustratives.</p>'
   };
   function setAppTab(tab){appTab=tab;root.querySelectorAll('[data-app-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.appTab===tab)));appDetail.innerHTML=appViews[tab];}
   function setAppNav(nav){root.querySelectorAll('[data-app-nav]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.appNav===nav)));root.querySelector('#ph-album').hidden=nav!=='collection';root.querySelector('#ph-artists').hidden=nav!=='artists';root.querySelector('#ph-favorites').hidden=nav!=='favorites';root.querySelector('#ph-favorite-status').textContent=favorite?'Échos · Trio Aster — ajouté à vos favoris dans ce concept.':'Aucun favori. Vous pouvez marquer Échos depuis la collection.';}
@@ -109,7 +109,14 @@
   root.querySelectorAll('[data-app-nav]').forEach(b=>b.addEventListener('click',()=>setAppNav(b.dataset.appNav)));
   root.querySelector('#ph-favorite').addEventListener('click',()=>{favorite=!favorite;root.querySelector('#ph-favorite').setAttribute('aria-pressed',String(favorite));root.querySelector('#ph-favorite>span').textContent=favorite?'Favori ajouté':'Favori';});
   root.querySelector('.ph-back').addEventListener('click',()=>setAppNav('collection'));setAppTab('tracks');
-  const revealObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){if(!reduce.matches&&settings.motion)entry.target.animate([{transform:'translateY(17px)',opacity:.3},{transform:'translateY(0)',opacity:1}],{duration:650,easing:'cubic-bezier(.2,.8,.2,1)'});revealObserver.unobserve(entry.target);}}),{threshold:.13});
+  // Keep full-width colour surfaces stationary and opaque so scrolling cannot expose dark seams.
+  const revealObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{
+    if(!entry.isIntersecting)return;
+    if(!reduce.matches&&settings.motion)for(const content of entry.target.children){
+      content.animate([{transform:'translateY(12px)',opacity:.6},{transform:'translateY(0)',opacity:1}],{duration:650,easing:'cubic-bezier(.2,.8,.2,1)'});
+    }
+    revealObserver.unobserve(entry.target);
+  }),{threshold:0,rootMargin:'0px 0px -64px 0px'});
   root.querySelectorAll('.ae-reveal').forEach(el=>revealObserver.observe(el));
   reduce.addEventListener('change',()=>{root.getAnimations({subtree:true}).forEach(a=>a.cancel());serverAnimations=[];syncServerMotion();drawSound();drawGraph();drawEq();});
   window.aedeLocalize?.(root);
