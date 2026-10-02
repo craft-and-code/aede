@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_LIMIT"],"fn":["discs_spanned","print_album","say_who_was_in_the_band","show_album","summary","track_number","verification","wording"],"struct":["Reading"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Doing"],"fn":["backup","catalog_of","catch_up","conclusions_of","named","part","restore","sources_of","state","summarise","user_of"]};

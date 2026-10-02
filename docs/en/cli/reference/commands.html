@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Command overview — Aède</title><meta name="description" content="Detailed Aède reference: command overview."><meta name="robots" content="index,follow">
+<link rel="canonical" href="https://craft-and-code.github.io/aede/docs/en/cli/reference/commands.html"><link rel="alternate" hreflang="en" href="https://craft-and-code.github.io/aede/docs/en/cli/reference/commands.html"><link rel="alternate" hreflang="fr" href="https://craft-and-code.github.io/aede/docs/fr/cli/reference/commands.html"><link rel="alternate" hreflang="x-default" href="https://craft-and-code.github.io/aede/docs/index.html">
+<meta property="og:type" content="article"><meta property="og:title" content="Command overview — Aède"><meta property="og:description" content="Detailed Aède reference: command overview."><meta property="og:url" content="https://craft-and-code.github.io/aede/docs/en/cli/reference/commands.html"><meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
+<meta name="theme-color" content="#121317"><link rel="icon" type="image/svg+xml" href="../../../../assets/favicon.svg"><link rel="stylesheet" href="../../../../styles.css"><link rel="stylesheet" href="../../../../guide.css"><script src="../../../../guide.js" defer></script><script src="../../../../explainers.js" defer></script>
+</head><body class="guide-document" data-section="cli"><a class="guide-skip" href="#main">Skip to content</a>
+<header class="guide-header"><a class="guide-logo" href="../../../../en/index.html" aria-label="Aède — home">aède<span>.</span></a><a class="guide-header-label" href="../../index.html">Documentation</a><div class="guide-header-actions"><a class="guide-project" href="https://github.com/craft-and-code/aede">Project</a><nav class="guide-language" aria-label="Language"><a href="commands.html" data-language="en" aria-current="page">EN</a><a href="../../../fr/cli/reference/commands.html" data-language="fr" data-fragment-map="{&quot;commands-options-and-output&quot;: &quot;commandes-options-et-sorties&quot;, &quot;where-each-option-applies&quot;: &quot;à-quelles-commandes-sapplique-chaque-option&quot;, &quot;getting-the-data-out&quot;: &quot;exporter-les-données&quot;, &quot;naming-a-folder&quot;: &quot;indiquer-un-dossier&quot;, &quot;paging-through-a-result&quot;: &quot;parcourir-les-pages-dun-résultat&quot;}">FR</a></nav><button type="button" class="guide-menu" aria-controls="guide-sidebar" aria-expanded="false">Menu</button></div></header>
+<div class="guide-layout"><aside class="guide-sidebar" id="guide-sidebar" aria-label="Documentation navigation"><a class="guide-docs-home" href="../../index.html">All documentation</a><label class="guide-search">Find a command or topic<input type="search" placeholder="Find a command or topic" aria-controls="guide-nav"></label><p class="guide-search-status" role="status"></p><nav id="guide-nav" aria-label="Documentation"><details data-nav-section="manual" open><summary>User manual<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../../manual/install.html">Install Aède</a></li><li data-nav-item><a href="../../manual/first-steps.html">Your first library</a></li><li data-nav-item><a href="../../manual/catalog.html">Catalog and data safety</a></li><li data-nav-item><a href="../../manual/workflows.html">Daily workflows</a></li><li data-nav-item><a href="../../manual/troubleshooting.html">Troubleshooting</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="../../manual/reference/library.html">Understanding your library</a></li><li data-nav-item><a href="../../manual/reference/formats.html">Audio formats</a></li><li data-nav-item><a href="../../manual/reference/licensing.html">Licensing</a></li></ul></div></details><details data-nav-section="cli" open><summary>CLI — Commands<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Build and inspect</p><ul><li data-nav-item><a href="../scan.html"><code>scan</code> Read watched music folders into the local catalog</a></li><li data-nav-item><a href="../roots.html"><code>roots</code> List, add, remove, or exclude watched folders</a></li><li data-nav-item><a href="../stats.html"><code>stats</code> Show the library&#x27;s size, quality, and completeness</a></li><li data-nav-item><a href="../doctor.html"><code>doctor</code> Find missing metadata, duplicates, and other catalog issues</a></li><li data-nav-item><a href="../file.html"><code>file</code> Inspect one audio file directly, without the catalog</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Preserve and administer</p><ul><li data-nav-item><a href="../serve.html"><code>serve</code> Serve the local HTTP/JSON/WebSocket catalog API and coordinate CLI writes</a></li><li data-nav-item><a href="../cancel.html"><code>cancel</code> Request cancellation of a delegated scan or fetch on the local server</a></li><li data-nav-item><a href="../check.html"><code>check</code> Verify the checksums stored in audio containers</a></li><li data-nav-item><a href="../reset.html"><code>reset</code> Remove the catalog snapshot, including watched roots, while keeping separate stores</a></li><li data-nav-item><a href="../backup.html"><code>backup</code> Save the catalog, sources, and personal data together</a></li><li data-nav-item><a href="../restore.html"><code>restore</code> Restore a previously saved Aède backup</a></li><li data-nav-item><a href="../rules.html"><code>rules</code> List, export, or import reproducible personal decisions</a></li><li data-nav-item><a href="../help.html"><code>help</code> Show the command index or the page for one command</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Enrich and correct</p><ul><li data-nav-item><a href="../analyze.html"><code>analyze</code> Analyze albums with FlacCompagnon and optionally save one JSON report per album</a></li><li data-nav-item><a href="../credits.html"><code>credits</code> Measure MusicBrainz recording/work credit coverage and locate gaps</a></li><li data-nav-item><a href="../credit.html"><code>credit</code> Add a manual credit or exclude/restore one sourced credit without touching tags</a></li><li data-nav-item><a href="../spectrum.html"><code>spectrum</code> Create spectrograms beside the selected music</a></li><li data-nav-item><a href="../import.html"><code>import</code> Import acoustic analyses from FlacCompagnon</a></li><li data-nav-item><a href="../sources.html"><code>sources</code> Inspect, export, import, or remove externally sourced data</a></li><li data-nav-item><a href="../review.html"><code>review</code> Resolve uncertain or conflicting source identities without changing tags</a></li><li data-nav-item><a href="../fetch.html"><code>fetch</code> Enrich artists, albums, tracks, and artwork from chosen sources</a></li><li data-nav-item><a href="../missing.html"><code>missing</code> List credited studio albums that the local shelf does not hold</a></li><li data-nav-item><a href="../merge.html"><code>merge</code> Record that two local artist spellings name one person</a></li><li data-nav-item><a href="../extract.html"><code>extract</code> Write artwork already embedded in audio files beside the music</a></li><li data-nav-item><a href="../fingerprint.html"><code>fingerprint</code> Compute acoustic fingerprints without using the network</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Find and select</p><ul><li data-nav-item><a href="../copy.html"><code>copy</code> Copy a selection to a player, card, or other destination</a></li><li data-nav-item><a href="../playlist.html"><code>playlist</code> Write portable playlists in album and artist folders</a></li><li data-nav-item><a href="../play.html"><code>play</code> Play local music</a></li><li data-nav-item><a href="../query.html"><code>query</code> Select tracks with the relational query language</a></li><li data-nav-item><a href="../collection.html"><code>collection</code> Save, run, or remove a named dynamic collection</a></li><li data-nav-item><a href="../collections.html"><code>collections</code> List the saved dynamic collections</a></li><li data-nav-item><a href="../search.html"><code>search</code> Search graph objects and source-only contributors, plus optional notes, comments, or lyrics</a></li><li data-nav-item><a href="../export.html"><code>export</code> Export the catalog as JSON or a table</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Browse the catalog</p><ul><li data-nav-item><a href="../relations.html"><code>relations</code> List local and sourced graph relationships with stable IDs</a></li><li data-nav-item><a href="../relation.html"><code>relation</code> Inspect, annotate, or label one graph relationship</a></li><li data-nav-item><a href="../artists.html"><code>artists</code> List artists in the catalog</a></li><li data-nav-item><a href="../countries.html"><code>countries</code> Summarize artists by their MusicBrainz origin</a></li><li data-nav-item><a href="../albums.html"><code>albums</code> List albums in the catalog</a></li><li data-nav-item><a href="../genres.html"><code>genres</code> List genres in the catalog</a></li><li data-nav-item><a href="../genre.html"><code>genre</code> Show albums and artists carrying one genre</a></li><li data-nav-item><a href="../labels.html"><code>labels</code> List record labels in the catalog</a></li><li data-nav-item><a href="../label.html"><code>label</code> Show a label&#x27;s catalog and artists; check a Discogs profile when needed</a></li><li data-nav-item><a href="../years.html"><code>years</code> Break the catalog down by release year</a></li><li data-nav-item><a href="../artist.html"><code>artist</code> Show a local artist or a source-only credited contributor and their links</a></li><li data-nav-item><a href="../album.html"><code>album</code> Show one album&#x27;s tracks, credits, and sources</a></li><li data-nav-item><a href="../track.html"><code>track</code> Show a track&#x27;s album, credits, tags, and technical facts</a></li><li data-nav-item><a href="../recording.html"><code>recording</code> Show one recording, its local placements, and sourced work links</a></li><li data-nav-item><a href="../work.html"><code>work</code> Show one composition and the recordings that realize it</a></li><li data-nav-item><a href="../release-group.html"><code>release-group</code> Show the album identity shared by every local edition</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Personalise</p><ul><li data-nav-item><a href="../love.html"><code>love</code> Mark an artist, album, or track as a favourite</a></li><li data-nav-item><a href="../rate.html"><code>rate</code> Give an artist, album, or track a personal rating</a></li><li data-nav-item><a href="../note.html"><code>note</code> Read or write a personal note</a></li><li data-nav-item><a href="../tag.html"><code>tag</code> Attach or remove personal labels</a></li><li data-nav-item><a href="../played.html"><code>played</code> Manually record a listen made outside Aède, or undo its latest record with --remove</a></li><li data-nav-item><a href="../favourites.html"><code>favourites</code> List everything marked as a favourite</a></li><li data-nav-item><a href="../notes.html"><code>notes</code> List, export, or import personal notes</a></li><li data-nav-item><a href="../history.html"><code>history</code> Show listening history, newest first</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../options.html">Options, syntax and output</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="querying.html">Query language</a></li><li data-nav-item><a href="browsing.html">Browsing the catalog</a></li><li data-nav-item><a href="commands.html" aria-current="page">Command overview</a></li><li data-nav-item><a href="copying.html">Copying and conversion</a></li><li data-nav-item><a href="playlists.html">Playlists</a></li><li data-nav-item><a href="annotating.html">Favourites, ratings and notes</a></li><li data-nav-item><a href="integrity.html">File integrity</a></li><li data-nav-item><a href="spectrograms.html">Spectrograms</a></li><li data-nav-item><a href="sources.html">External sources and provenance</a></li></ul></div></details><details data-nav-section="server"><summary>Server — API<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../../server/start.html">Start the local server</a></li><li data-nav-item><a href="../../server/http.html">HTTP, JSON and errors</a></li><li data-nav-item><a href="../../server/catalog.html">Albums, artists and tracks</a></li><li data-nav-item><a href="../../server/graph.html">Genres, labels, works and editions</a></li><li data-nav-item><a href="../../server/inspection.html">Inspect the library</a></li><li data-nav-item><a href="../../server/search.html">Search and query</a></li><li data-nav-item><a href="../../server/events.html">WebSocket events and activity</a></li><li data-nav-item><a href="../../server/administration.html">Enable administration</a></li><li data-nav-item><a href="../../server/jobs.html">Scan, fetch and cancellation</a></li><li data-nav-item><a href="../../server/personal.html">Personal data routes</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="../../server/reference/api.html">API contract</a></li><li data-nav-item><a href="../../server/reference/operating.html">Operating reference</a></li></ul></div></details><details data-nav-section="dsp"><summary>DSP — Audio<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../../dsp/start.html">Audio processing overview</a></li><li data-nav-item><a href="../../dsp/normalization.html">Track and album normalization</a></li><li data-nav-item><a href="../../dsp/measurements.html">Measurements and FlacCompagnon</a></li><li data-nav-item><a href="../../dsp/tone.html">Bass and treble shelves</a></li><li data-nav-item><a href="../../dsp/headroom.html">Headroom and output guard</a></li><li data-nav-item><a href="../../dsp/channels.html">Channel mapping and LFE</a></li><li data-nav-item><a href="../../dsp/resampling.html">Device-rate conversion</a></li><li data-nav-item><a href="../../dsp/dither.html">Integer output and dither</a></li><li data-nav-item><a href="../../dsp/continuity.html">Continuous playback</a></li><li data-nav-item><a href="../../dsp/spectrum.html">24-band spectrum display</a></li><li data-nav-item><a href="../../dsp/output.html">Output and diagnostics</a></li><li data-nav-item><a href="../../dsp/premium.html">Future Premium processing</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="../../dsp/reference/imported-analyses.html">FlacCompagnon analysis reports</a></li></ul></div></details><a class="guide-rustdoc" href="../../../rust/aede_core/index.html">RustDoc ↗</a></nav></aside>
+<main class="guide-main" id="main"><p class="guide-eyebrow">CLI — Commands</p><h1 id="commands-options-and-output">Command overview</h1><p class="guide-description">Detailed Aède reference: command overview.</p><article class="guide-prose">
+<h2 id="where-each-option-applies">Where each option applies<a class="heading-link" href="#where-each-option-applies" aria-label="Where each option applies">#</a></h2>
+<p>Three groups, and an option that a command cannot honour is <strong>refused</strong>, never ignored. So is an <strong>argument</strong>: <code>aede artists ozzy</code> used to list every artist and drop the word, which looks like an answer. It now tells you exactly what to type instead, guiding you rather than leaving you guessing.</p>
+<p>The main <code>aede help</code> page is an index: it groups library, fetch, artwork, filtering, copy, and import options without turning the terminal into a manual. Every command has its own page through <code>aede help &lt;command&gt;</code> or <code>aede &lt;command&gt; --help</code>; aliases work there too. <code>aede help fetch</code> adds its metadata, lyrics, artwork, Fanart.tv, and exclusion details.</p>
+<p><code>aede help serve</code> explains setup, the local access boundary and optional HTTP administration. <code>aede serve</code> exposes the local HTTP/JSON/WebSocket catalog API. On Unix, store-changing CLI commands automatically delegate to that server when it is running for the same account and data directory. The command continues if its CLI disconnects, including through Ctrl-C; <code>aede cancel &lt;task-id&gt;</code> explicitly stops a delegated scan or fetch. Other delegated commands have no explicit cancellation yet. With no server, commands run locally as before. Use the same <code>--data &lt;folder&gt;</code> or <code>AEDE_HOME</code> for every command, including <code>cancel</code>. See <a href="../../server/reference/operating.html">Operating the local server</a> for startup, backup and security guidance, and the <a href="../../server/reference/api.html">API contract</a> for client behavior.</p>
+<p><code>export</code> describes the whole library and takes no argument. Its ordinary JSON
+is the derived <strong>catalog</strong>; <code>--csv</code> gives one row per album and <code>--tracks</code> one
+row per track. <code>--graph</code> instead keeps the catalog, source evidence, review
+decisions, personal data and a materialized attributed edge list together.</p>
+<p>The <strong>listings</strong> — <code>albums</code>, <code>artists</code>, <code>genres</code>, <code>labels</code>, <code>years</code> — turn into a precise table of exactly what they show, filters included. This is how you gather several albums into one focused file:</p>
+<pre><code class="language-sh">aede albums --csv --artist=&quot;Deicide&quot; --output=deicide.csv
+aede albums --csv --year=1990
+aede albums --csv --compilations --output=compilations.csv
+aede artists --csv --limit=100 --output=artists.csv
+</code></pre>
+<p><code>album</code>, <code>artist</code>, <code>track</code> and <code>search</code> describe a curated <strong>selection</strong>: <code>--csv</code> and <code>--m3u</code> both apply to it, acting as a table of tracks or as a ready-to-play playlist. For an artist, that means the tracks they are audible on; for a search, the track hits and not the artists or albums found.</p>
+<p><code>recording</code> and <code>work</code> traverse the canonical music graph. A recording gathers
+the local album placements that share its MusicBrainz recording identity and
+shows attributed work relationships and recording-level credits. A work gathers
+the recordings that realize the composition and shows its composers, lyricists,
+writers and arrangers when MusicBrainz provides them. <code>aede work</code> also accepts
+a work obtained by <code>aede fetch --credits</code>: it is clearly marked as external
+evidence and does not pretend that the fetch added a tag to the audio file.</p>
+<p><code>aede fetch --credits</code> uses recording and release identifiers already present
+in the local tags. It keeps performers and production roles on the recording,
+creative roles on the work, and album-edition roles on the exact release. It
+preserves credited-as names, instruments or qualifiers, dates, order and
+MusicBrainz relationship identifiers. The same sourced credits are
+shown by <code>track</code>, <code>album</code>, <code>artist</code>, <code>recording</code> and <code>work</code>; <code>track --json</code>
+keeps them separate from credits read locally from tags and identifies edition
+credits separately. The older
+<code>--recordings</code> spelling remains an alias.</p>
+<p><code>aede credit --add recording:&lt;ID&gt;|work:&lt;ID&gt;|release:&lt;ID&gt; --artist=&lt;name&gt; --role=&lt;role&gt;</code> stores a manual, attributed credit at the specified scope;
+<code>--artist-id=&lt;MBID&gt;</code> and <code>--instrument=&lt;name&gt;</code> are optional. To correct one
+MusicBrainz assertion, identify its stable credit ID with <code>aede relations</code>,
+then use <code>aede credit --exclude=&lt;ID&gt;</code> and, if needed, add a corrected manual
+credit. <code>aede credit --undo=&lt;ID&gt;</code> restores the excluded assertion. Exclusion
+affects graph navigation and search but retains the original source evidence.
+It does not remove locally tagged credits or rewrite files. Credit exclusions
+travel with <code>aede rules --export</code> and <code>--import</code>.</p>
+<p><code>aede credits</code> audits the recording/work part of this pass without contacting
+the network. It does not yet measure edition-credit coverage. It counts
+canonical recordings, not file placements, and lists albums
+with separate <code>credited</code>, <code>empty</code>, <code>waiting</code>, <code>untrusted</code>, and <code>unidentified</code>
+counts. <code>aede credits &quot;&lt;album&gt;&quot;</code> expands those counts to each recording and a
+representative local filename, separates direct recording from work-level
+credit counts, and prints a folder-scoped fetch command when anything is
+waiting. <code>--json</code> provides the same statuses for scripts. A completed lookup
+with no credits is reported as
+<code>empty</code>, not as a request still pending; use
+<code>aede fetch --credits --full &lt;folder&gt;</code> only when you intend to query it again.</p>
+<p>For classical releases, the same recording lookup can retain MusicBrainz&#x27;s
+explicit part-of-work relation on a linked work. <code>aede work &lt;parent ID&gt;</code> then
+lists locally held movements in the source&#x27;s order, while a movement&#x27;s work
+page links back to its parent. Ordinary <code>search</code> lists source-only parent works
+separately from local works. <code>album</code> shows local work/grouping and movement
+tags alongside the separately attributed parent; <code>track --json</code> exports both
+the tags and <code>parent_works</code> with source and trust. <code>query work:&lt;parent ID&gt;</code>
+selects the local recordings of its identified parts. A <code>work:&lt;title&gt;</code> query
+can also match one file&#x27;s own WORK/grouping tag, and <code>movement:&lt;title&gt;</code> searches
+its movement tag, without turning either title into a shared work identity.
+This does not infer a
+composition from a shared title, does not interpret a partial <em>recording</em> as a
+new movement, and does not alter audio tags. Refresh an earlier relationship
+answer with <code>aede fetch --credits --full &lt;album folder&gt;</code> if needed.</p>
+<p>Classical personnel are separate roles: <code>orchestra</code>, <code>choir</code>, <code>ensemble</code>,
+<code>soloist</code>, <code>conductor</code> and <code>composer</code> can each be queried by name. The
+<code>orchestra</code> field also recognizes MusicBrainz&#x27;s <code>performing orchestra</code> role;
+<code>soloist</code> recognizes its explicit <code>solo</code> performance qualifier. <code>performing</code>
+includes performance participants, including conductors; it is not a claim
+that every participant is literally audible.</p>
+<p>The local graph is traversable in both directions. <code>track</code> names the abstract
+recording, its works and its release group; <code>recording</code> lists every local album
+placement; <code>work</code> lists every recording; <code>album</code> identifies the release group
+and its other local editions; <code>label</code> lists its releases; and <code>artist</code> keeps
+discography, guest appearances, compilation appearances, writing/production
+contributions, collaborations and dated memberships distinct. Ordinary
+<code>search</code> also finds recordings, works and release groups by title or identity.</p>
+<p>Source-only contributors now have an <code>artist</code> page too. Trusted recording, work
+and edition credits group them by MusicBrainz artist ID; their card names the external
+origin, roles, local album placements, recordings and works. The tag-built
+catalog is not changed. <code>aede artist &lt;MusicBrainz artist ID&gt;</code> is the precise
+route when names collide, and <code>search</code> lists source-only contributors
+separately from local artists (also in <code>--json</code>). <code>track</code>, <code>album</code>, <code>recording</code>
+and <code>work</code> print copyable commands to open every trusted credited artist,
+whether or not the person appears in local tags. A local recording without an
+MBID is opened by <code>aede recording &#x27;local:&lt;file path&gt;&#x27;</code>, avoiding ambiguous
+same-titled recordings. A sourced artist&#x27;s <code>--role</code> filters their credited
+recordings; <code>--members</code> and <code>--with</code> require local artists and are refused
+explicitly on a source-only card.
+If an existing local artist has the same name as a source-only contributor,
+the name still opens the local card; it shows a separate, ID-based route to
+the source-backed card without asserting that the two are the same person.</p>
+<p>The same graph is available to <code>query</code>: <code>recording</code>, <code>work</code> and <code>releasegroup</code>
+match canonical identities, <code>instrument</code> matches credit attributes, and
+<code>guest</code>, <code>compilationartist</code>, <code>contributor</code> and <code>with</code> distinguish the way an
+artist participates. These fields project the relationship back onto tracks,
+so they can be combined with genre, year, labels and annotations:</p>
+<pre><code class="language-sh">aede query &#x27;work:&quot;War Pigs&quot; instrument:guitar&#x27;
+aede query &#x27;guest:&quot;Zakk Wylde&quot; -compilationartist&#x27;
+aede query &#x27;label:&quot;Epic&quot; contributor:&quot;Rick Rubin&quot;&#x27;
+</code></pre>
+<p>These pages are navigation points rather than terminal reports. Their
+<code>Continue</code> section prints copyable commands for adjacent objects and <code>search</code>
+includes an <code>Open</code> command on every named result. Stable MusicBrainz IDs are
+used for recordings, works, release groups and precise editions whenever they
+exist. <code>release-group &lt;title|MBID&gt;</code> is the page between an album identity and
+all its local editions; <code>album</code> accepts a release MBID so two same-titled
+pressings do not lead back to an ambiguous page.</p>
+<p><code>label</code> applies the same rule to identity. It says whether the MusicBrainz ID
+came from a local tag, was confirmed by an identifier lookup, is only a
+name-search proposal, or conflicts with the local tag. Proposals and conflicts
+are never applied silently. <code>aede review</code> lists them with stable IDs, while
+<code>aede review --interactive</code> presents the local and sourced facts in one card;
+<code>--accept=&lt;ID&gt;</code> allows one exact claim into navigation and queries,
+<code>--reject=&lt;ID&gt;</code> keeps it as evidence only, and <code>--undo=&lt;ID&gt;</code> reverses either
+decision without touching the files. <code>aede doctor</code> also reports pending
+claims, conflicting identities, incomplete fetched credits and disagreements
+between trusted sources.</p>
+<p><code>relations</code> is the inventory underneath those entity pages. It assigns every
+directed local or sourced edge a stable ID without hiding where the assertion
+came from or whether it is trusted. A name searches either endpoint and the
+relationship kind; <code>--source</code> and <code>--tag</code> narrow the list:</p>
+<pre><code class="language-sh">aede relations &quot;Andrew Watt&quot;
+aede relations --source=musicbrainz
+aede relation &lt;ID&gt;
+aede relation &lt;ID&gt; --text=&quot;Verify against booklet&quot; --tag=dubious,liner-notes
+aede relations --tag=dubious
+</code></pre>
+<p><code>relation --remove</code> removes the whole personal annotation, while
+<code>--tag=dubious --remove</code> removes only that label. The edge and its endpoints
+are never changed. An annotation whose edge disappears is retained and
+reported by <code>doctor</code>; its ID can still be passed to <code>relation --remove</code>.</p>
+<p><code>rules</code> separates reproducible human choices from a complete backup. It lists
+them without an option, exports them as one versioned document, and merges that
+document on import:</p>
+<pre><code class="language-sh">aede rules
+aede rules --export --output=rules.json
+aede rules --import=rules.json
+</code></pre>
+<p>The bundle contains source-review decisions, manual source records, artist
+filing rules, set-aside missing releases, saved queries and relationship
+annotations. It deliberately excludes listening history and remote prose:
+those are data, not correction rules.</p>
+<pre><code class="language-sh">aede album &quot;To Hell With God&quot; --csv --output=album.csv
+aede artist &quot;Deicide&quot; --csv --separator=tab | sort -t$&#x27;\t&#x27; -k9,9n     # sorted by size
+</code></pre>
+<p><code>sort -t,</code> on the plain comma-separated form is a trap here and elsewhere: a title with a comma in it — a reissue, a live album, anything worded &quot;Compilation, Vol. 2&quot; — comes back quoted, exactly as RFC 4180 asks (<code>&quot;Once Upon the Cross, Reissue&quot;</code>), but standard tools like <code>sort</code> and <code>cut</code> know nothing about CSV quoting. They split on every comma they see, quoted or not, breaking your columns so that every field after the comma shifts one position to the right. This wreaks havoc on precise sorting parameters like <code>-k9,9n</code> (which tells <code>sort</code> to isolate the 9th column — in this case, the file size — and sort it numerically as a number rather than alphabetically). <code>--separator=tab</code> elegantly sidesteps this entire trap: nothing in a tag is ever tab-separated, so a title containing commas never needs quoting in the first place, keeping your data and your <code>-k9,9n</code> numeric sort perfectly aligned.</p>
+<p><code>aede album</code> takes <strong>one</strong> title — the words are joined so a title can be typed seamlessly without quotes — and gently reminds you which command lists several when given more.</p>
+<p>The same fluid logic holds for an option whose value is a <strong>name</strong>: <code>--artist</code>, <code>--album</code>, <code>--with</code>, <code>--genre</code> and <code>--label</code> gracefully take the words that follow, up to the next option. Options like <code>--limit</code>, <code>--year</code>, or <code>--output</code> take exactly one word, because a number or a path is a single distinct entity.</p>
+<pre><code class="language-sh">aede artist Ozzy --with Zakk Wylde        # no quotes needed anywhere
+aede artist Ozzy --with &quot;Zakk Wylde&quot;      # the same thing
+aede track So What --artist Miles Davis --limit 1
+</code></pre>
+<p>Always put the positional argument before the option: <code>aede track --artist Miles Davis So What</code> gives the whole tail to <code>--artist</code>, and the command will simply tell you it was given no title — ensuring it never pretends to answer a question you didn&#x27;t ask.</p>
+<p><code>--output &lt;file&gt;</code>, or <code>-o</code>, writes to a file instead of filling your terminal — but only alongside <code>--csv</code>, <code>--json</code> or <code>--m3u</code> on a selection or a listing, or on <code>export</code>, <code>sources --export</code>, <code>notes --export</code> and <code>rules --export</code>. Those are the only commands with a tangible file&#x27;s worth of text to deliver. Everything else here is a vibrant page meant for the screen, and <code>--output</code> is explicitly refused rather than silently ignored:</p>
+<pre><code class="language-">$ aede artist Ozzy --with Zakk Wylde -o test.txt
+Error: --output writes what --csv, --json or --m3u produce; this page has none of those to give it.
+Drop --output to see it on screen, or add one of the three to write it out.
+</code></pre>
+<p><code>stats</code> is another deeply insightful page, offering a vital pulse check of your library, with no exportable file attached:</p>
+<pre><code class="language-">$ aede stats
+
+Library
+
+  Tracks                        20
+  Albums                         6
+    of which compilations        1
+  Artists                        8
+  Total duration              38 s
+  Size on disk              1.3 MB
+
+Quality
+
+                       Count      Size
+  ───────────────────  ─────  ────────  ────────────────────
+  Lossless (CD)           11  399.3 kB  ████████████████████
+  Hi-res                   4  664.3 kB  ███████·············
+  Lossy (&gt;= 256 kbps)      3  248.3 kB  █████···············
+</code></pre>
+<h2 id="getting-the-data-out">Getting the data out<a class="heading-link" href="#getting-the-data-out" aria-label="Getting the data out">#</a></h2>
+<p>Three formats, because you ask your collection three different types of questions.</p>
+<p><strong>JSON</strong> (<code>aede export</code>) is the faithful structural catalog dump. It is the raw
+material that rebuilds the derived catalog or feeds another program.</p>
+<p><strong>Graph JSON</strong> (<code>aede export --graph</code>) preserves all three voices in one
+document: what the files say, what external sources assert, and what the user
+decided or annotated. Its materialized <code>relations</code> array makes traversal easy,
+while the unflattened catalog, source and user sections preserve every detail
+and provenance field.</p>
+<p><strong>CSV</strong> (<code>aede export --csv</code>) is built for the spreadsheet, the ultimate sorting tool. It writes <strong>one row per album</strong> — artist, title, year, track and disc counts, duration, size, formats, sample rates, bit depths, label, catalogue number, genres, integrity, folder. This is your view from above: sort by size to pinpoint what to re-rip, filter on <code>lossless</code> to uncover what is left to upgrade. <code>--tracks</code> shifts focus to one row per track when you need microscopic precision.</p>
+<p>Its values are <strong>raw and honest</strong>: <code>duration_ms</code> and <code>size_bytes</code>, not <code>4:20</code> and <code>31.2 MB</code>. A column that cannot be mathematically added is a column that fails the archivist.</p>
+<p>Use <code>--separator=;</code> for Excel in a French or German locale, <code>--separator=tab</code> for a flawless TSV.</p>
+<p><strong>M3U</strong> (<code>--m3u</code>) transforms the cold data into music: whatever is on your screen becomes a living playlist.</p>
+<pre><code class="language-sh">aede album &quot;To Hell With God&quot; --m3u --output=deicide.m3u8
+aede search coltrane --m3u --output=coltrane.m3u8
+mpv --playlist=deicide.m3u8
+</code></pre>
+<p>Paths are absolute, ensuring the playlist works seamlessly wherever it is saved. <code>#EXTINF</code> carries the duration and title, letting players display them instantly without touching every file. Without <code>--output</code> it flows to standard output, ready to be piped straight into a player like <code>mpv --playlist=&lt;(aede artist &quot;Ozzy Osbourne&quot; --m3u)</code>.</p>
+<h2 id="naming-a-folder">Naming a folder<a class="heading-link" href="#naming-a-folder" aria-label="Naming a folder">#</a></h2>
+<p><code>check</code>, <code>spectrum</code>, <code>playlist</code>, <code>extract</code>, <code>fingerprint</code>, and <code>analyze</code> all take folders, and all six operate directly from the <strong>catalog</strong> rather than polling the disk. A folder the catalog has never met is immediately refused, saving you from running a hollow command:</p>
+<pre><code class="language-">$ aede extract ~/Desktop/new-rips
+Error: no file in the catalog is under &quot;/Users/kcell/Desktop/new-rips&quot;.
+It is on disk, so this catalog was scanned 3 days ago and has not seen it — a folder added since is not in it yet.
+Add it: aede scan &quot;/Users/kcell/Desktop/new-rips&quot;
+</code></pre>
+<p>The date is provided because context is everything: you can effortlessly weigh &quot;scanned three days ago&quot; against the rips you&#x27;ve made since Tuesday.</p>
+<h2 id="paging-through-a-result">Paging through a result<a class="heading-link" href="#paging-through-a-result" aria-label="Paging through a result">#</a></h2>
+<p>Every listing displays a comfortable <strong>50 rows</strong> by default and clearly states your position:</p>
+<pre><code class="language-">  1–50 of 312 albums — --offset=50 for the next page, --all for every row
+</code></pre>
+<p>Three elegant options, one consistent window:</p>
+<pre><code class="language-sh">aede albums                        # the first 50
+aede albums --limit 50 --offset 50 # the next 50
+aede albums --all                  # every row, however many
+aede albums --all --csv -o all.csv # and into a file
+</code></pre>
+<p><strong>Only the truth of the current screen is offered.</strong> On the final page, no next step is suggested — preventing you from marching into the void:</p>
+<pre><code class="language-">  301–312 of 312 albums — these are the last; drop --offset to start from the first
+</code></pre>
+<p><code>--offset</code> provides absolute predictability: the order of every listing is deterministic, so page two is undeniably the continuation of page one. <code>--all</code> uses plain language to say &quot;everything&quot; rather than relying on obscure encodings (like <code>--limit=0</code>, which is rightfully refused).</p>
+<p>When your entire query fits on one screen, nothing extra is printed. Silence means completion. A window pushed past the end explicitly tells you so, never showing a blank screen that might induce a panic of a lost library.</p>
+<p><code>-o</code> is simply the swift companion to <code>--output</code>.</p></article><footer class="guide-source"><a href="https://github.com/craft-and-code/aede/blob/main/docs/commands.md">Edit the Markdown source</a><p>Repository Markdown is this page’s single source.</p></footer></main>
+<aside class="guide-toc"><p>On this page</p><nav aria-label="Contents"><ul><li class="toc-level-2"><a href="#where-each-option-applies">Where each option applies</a></li><li class="toc-level-2"><a href="#getting-the-data-out">Getting the data out</a></li><li class="toc-level-2"><a href="#naming-a-folder">Naming a folder</a></li><li class="toc-level-2"><a href="#paging-through-a-result">Paging through a result</a></li></ul></nav></aside></div>
+<footer class="guide-footer">aède<span>.</span> <a href="https://craft-and-code.github.io/FlacCompagnon/">FlacCompagnon ↗</a><a href="https://github.com/craft-and-code/aede">GitHub ↗</a><a href="../../manual/privacy.html">Privacy</a></footer></body></html>

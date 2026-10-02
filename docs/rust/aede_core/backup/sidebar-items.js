@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BACKUP_FORMAT_VERSION"],"enum":["Part"],"fn":["from_json","read","to_json","write"],"struct":["Backup"]};

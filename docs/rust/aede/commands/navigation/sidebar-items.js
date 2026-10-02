@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["open_command","shell_arg"],"struct":["Navigation"]};

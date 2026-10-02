@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["EXTRAS","SOURCE","WEB_SERVICE"],"enum":["Kind","Size","Written"],"fn":["exists_beside","extras_in","file_name","front","image_kind","image_name","images","index_url","positions","release_index_url","write_beside","write_image"],"struct":["Front"]};

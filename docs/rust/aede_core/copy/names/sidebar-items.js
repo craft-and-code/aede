@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["adapt","make_unique","restricts_names"]};

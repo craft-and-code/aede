@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_LIMIT"],"fn":["annotation","annotation_summary","attribute_json","attribute_text","change_annotation","edge_json","parse_tags","print_edge","provenance","relation","relations","select_annotation"]};

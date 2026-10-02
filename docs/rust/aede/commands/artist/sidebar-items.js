@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ArtistPage","TrackColumn"],"fn":["collect_genres_for_artist","collect_roles","one_artist","print_measures","print_members","print_release_table","print_track_table","print_tracks_in_common","print_tracks_in_role","resolve_artist","rows_in_order","say_what_is_missing","say_who_played","show_artist"]};

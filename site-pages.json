@@ -1,0 +1,1228 @@
+{
+  "pages": [
+    {
+      "slug": "manual/install",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/install.md",
+        "fr": "docs/fr/manual/install.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/first-steps",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/first-steps.md",
+        "fr": "docs/fr/manual/first-steps.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/catalog",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/catalog.md",
+        "fr": "docs/fr/manual/catalog.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/workflows",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/workflows.md",
+        "fr": "docs/fr/manual/workflows.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/troubleshooting",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/troubleshooting.md",
+        "fr": "docs/fr/manual/troubleshooting.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/scan",
+      "section": "cli",
+      "command": "scan",
+      "source": {
+        "en": "docs/cli/scan.md",
+        "fr": "docs/fr/cli/scan.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/serve",
+      "section": "cli",
+      "command": "serve",
+      "source": {
+        "en": "docs/cli/serve.md",
+        "fr": "docs/fr/cli/serve.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/cancel",
+      "section": "cli",
+      "command": "cancel",
+      "source": {
+        "en": "docs/cli/cancel.md",
+        "fr": "docs/fr/cli/cancel.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/analyze",
+      "section": "cli",
+      "command": "analyze",
+      "source": {
+        "en": "docs/cli/analyze.md",
+        "fr": "docs/fr/cli/analyze.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/roots",
+      "section": "cli",
+      "command": "roots",
+      "source": {
+        "en": "docs/cli/roots.md",
+        "fr": "docs/fr/cli/roots.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/stats",
+      "section": "cli",
+      "command": "stats",
+      "source": {
+        "en": "docs/cli/stats.md",
+        "fr": "docs/fr/cli/stats.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/doctor",
+      "section": "cli",
+      "command": "doctor",
+      "source": {
+        "en": "docs/cli/doctor.md",
+        "fr": "docs/fr/cli/doctor.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/credits",
+      "section": "cli",
+      "command": "credits",
+      "source": {
+        "en": "docs/cli/credits.md",
+        "fr": "docs/fr/cli/credits.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/credit",
+      "section": "cli",
+      "command": "credit",
+      "source": {
+        "en": "docs/cli/credit.md",
+        "fr": "docs/fr/cli/credit.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/check",
+      "section": "cli",
+      "command": "check",
+      "source": {
+        "en": "docs/cli/check.md",
+        "fr": "docs/fr/cli/check.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/copy",
+      "section": "cli",
+      "command": "copy",
+      "source": {
+        "en": "docs/cli/copy.md",
+        "fr": "docs/fr/cli/copy.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/spectrum",
+      "section": "cli",
+      "command": "spectrum",
+      "source": {
+        "en": "docs/cli/spectrum.md",
+        "fr": "docs/fr/cli/spectrum.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/playlist",
+      "section": "cli",
+      "command": "playlist",
+      "source": {
+        "en": "docs/cli/playlist.md",
+        "fr": "docs/fr/cli/playlist.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/play",
+      "section": "cli",
+      "command": "play",
+      "source": {
+        "en": "docs/cli/play.md",
+        "fr": "docs/fr/cli/play.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reset",
+      "section": "cli",
+      "command": "reset",
+      "source": {
+        "en": "docs/cli/reset.md",
+        "fr": "docs/fr/cli/reset.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/backup",
+      "section": "cli",
+      "command": "backup",
+      "source": {
+        "en": "docs/cli/backup.md",
+        "fr": "docs/fr/cli/backup.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/restore",
+      "section": "cli",
+      "command": "restore",
+      "source": {
+        "en": "docs/cli/restore.md",
+        "fr": "docs/fr/cli/restore.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/import",
+      "section": "cli",
+      "command": "import",
+      "source": {
+        "en": "docs/cli/import.md",
+        "fr": "docs/fr/cli/import.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/sources",
+      "section": "cli",
+      "command": "sources",
+      "source": {
+        "en": "docs/cli/sources.md",
+        "fr": "docs/fr/cli/sources.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/review",
+      "section": "cli",
+      "command": "review",
+      "source": {
+        "en": "docs/cli/review.md",
+        "fr": "docs/fr/cli/review.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/rules",
+      "section": "cli",
+      "command": "rules",
+      "source": {
+        "en": "docs/cli/rules.md",
+        "fr": "docs/fr/cli/rules.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/relations",
+      "section": "cli",
+      "command": "relations",
+      "source": {
+        "en": "docs/cli/relations.md",
+        "fr": "docs/fr/cli/relations.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/relation",
+      "section": "cli",
+      "command": "relation",
+      "source": {
+        "en": "docs/cli/relation.md",
+        "fr": "docs/fr/cli/relation.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/fetch",
+      "section": "cli",
+      "command": "fetch",
+      "source": {
+        "en": "docs/cli/fetch.md",
+        "fr": "docs/fr/cli/fetch.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/missing",
+      "section": "cli",
+      "command": "missing",
+      "source": {
+        "en": "docs/cli/missing.md",
+        "fr": "docs/fr/cli/missing.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/merge",
+      "section": "cli",
+      "command": "merge",
+      "source": {
+        "en": "docs/cli/merge.md",
+        "fr": "docs/fr/cli/merge.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/extract",
+      "section": "cli",
+      "command": "extract",
+      "source": {
+        "en": "docs/cli/extract.md",
+        "fr": "docs/fr/cli/extract.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/fingerprint",
+      "section": "cli",
+      "command": "fingerprint",
+      "source": {
+        "en": "docs/cli/fingerprint.md",
+        "fr": "docs/fr/cli/fingerprint.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/query",
+      "section": "cli",
+      "command": "query",
+      "source": {
+        "en": "docs/cli/query.md",
+        "fr": "docs/fr/cli/query.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/collection",
+      "section": "cli",
+      "command": "collection",
+      "source": {
+        "en": "docs/cli/collection.md",
+        "fr": "docs/fr/cli/collection.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/collections",
+      "section": "cli",
+      "command": "collections",
+      "source": {
+        "en": "docs/cli/collections.md",
+        "fr": "docs/fr/cli/collections.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/love",
+      "section": "cli",
+      "command": "love",
+      "source": {
+        "en": "docs/cli/love.md",
+        "fr": "docs/fr/cli/love.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/rate",
+      "section": "cli",
+      "command": "rate",
+      "source": {
+        "en": "docs/cli/rate.md",
+        "fr": "docs/fr/cli/rate.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/note",
+      "section": "cli",
+      "command": "note",
+      "source": {
+        "en": "docs/cli/note.md",
+        "fr": "docs/fr/cli/note.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/tag",
+      "section": "cli",
+      "command": "tag",
+      "source": {
+        "en": "docs/cli/tag.md",
+        "fr": "docs/fr/cli/tag.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/played",
+      "section": "cli",
+      "command": "played",
+      "source": {
+        "en": "docs/cli/played.md",
+        "fr": "docs/fr/cli/played.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/favourites",
+      "section": "cli",
+      "command": "favourites",
+      "source": {
+        "en": "docs/cli/favourites.md",
+        "fr": "docs/fr/cli/favourites.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/notes",
+      "section": "cli",
+      "command": "notes",
+      "source": {
+        "en": "docs/cli/notes.md",
+        "fr": "docs/fr/cli/notes.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/history",
+      "section": "cli",
+      "command": "history",
+      "source": {
+        "en": "docs/cli/history.md",
+        "fr": "docs/fr/cli/history.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/artists",
+      "section": "cli",
+      "command": "artists",
+      "source": {
+        "en": "docs/cli/artists.md",
+        "fr": "docs/fr/cli/artists.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/countries",
+      "section": "cli",
+      "command": "countries",
+      "source": {
+        "en": "docs/cli/countries.md",
+        "fr": "docs/fr/cli/countries.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/albums",
+      "section": "cli",
+      "command": "albums",
+      "source": {
+        "en": "docs/cli/albums.md",
+        "fr": "docs/fr/cli/albums.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/genres",
+      "section": "cli",
+      "command": "genres",
+      "source": {
+        "en": "docs/cli/genres.md",
+        "fr": "docs/fr/cli/genres.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/genre",
+      "section": "cli",
+      "command": "genre",
+      "source": {
+        "en": "docs/cli/genre.md",
+        "fr": "docs/fr/cli/genre.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/labels",
+      "section": "cli",
+      "command": "labels",
+      "source": {
+        "en": "docs/cli/labels.md",
+        "fr": "docs/fr/cli/labels.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/label",
+      "section": "cli",
+      "command": "label",
+      "source": {
+        "en": "docs/cli/label.md",
+        "fr": "docs/fr/cli/label.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/years",
+      "section": "cli",
+      "command": "years",
+      "source": {
+        "en": "docs/cli/years.md",
+        "fr": "docs/fr/cli/years.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/artist",
+      "section": "cli",
+      "command": "artist",
+      "source": {
+        "en": "docs/cli/artist.md",
+        "fr": "docs/fr/cli/artist.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/album",
+      "section": "cli",
+      "command": "album",
+      "source": {
+        "en": "docs/cli/album.md",
+        "fr": "docs/fr/cli/album.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/track",
+      "section": "cli",
+      "command": "track",
+      "source": {
+        "en": "docs/cli/track.md",
+        "fr": "docs/fr/cli/track.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/recording",
+      "section": "cli",
+      "command": "recording",
+      "source": {
+        "en": "docs/cli/recording.md",
+        "fr": "docs/fr/cli/recording.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/work",
+      "section": "cli",
+      "command": "work",
+      "source": {
+        "en": "docs/cli/work.md",
+        "fr": "docs/fr/cli/work.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/release-group",
+      "section": "cli",
+      "command": "release-group",
+      "source": {
+        "en": "docs/cli/release-group.md",
+        "fr": "docs/fr/cli/release-group.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/search",
+      "section": "cli",
+      "command": "search",
+      "source": {
+        "en": "docs/cli/search.md",
+        "fr": "docs/fr/cli/search.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/file",
+      "section": "cli",
+      "command": "file",
+      "source": {
+        "en": "docs/cli/file.md",
+        "fr": "docs/fr/cli/file.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/export",
+      "section": "cli",
+      "command": "export",
+      "source": {
+        "en": "docs/cli/export.md",
+        "fr": "docs/fr/cli/export.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/help",
+      "section": "cli",
+      "command": "help",
+      "source": {
+        "en": "docs/cli/help.md",
+        "fr": "docs/fr/cli/help.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/options",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/cli/options.md",
+        "fr": "docs/fr/cli/options.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/start",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/start.md",
+        "fr": "docs/fr/server/start.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/http",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/http.md",
+        "fr": "docs/fr/server/http.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/catalog",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/catalog.md",
+        "fr": "docs/fr/server/catalog.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/graph",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/graph.md",
+        "fr": "docs/fr/server/graph.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/inspection",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/inspection.md",
+        "fr": "docs/fr/server/inspection.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/search",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/search.md",
+        "fr": "docs/fr/server/search.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/events",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/events.md",
+        "fr": "docs/fr/server/events.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/administration",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/administration.md",
+        "fr": "docs/fr/server/administration.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/jobs",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/jobs.md",
+        "fr": "docs/fr/server/jobs.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/personal",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/personal.md",
+        "fr": "docs/fr/server/personal.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/start",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/start.md",
+        "fr": "docs/fr/dsp/start.md"
+      },
+      "explainer": "pipeline",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/normalization",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/normalization.md",
+        "fr": "docs/fr/dsp/normalization.md"
+      },
+      "explainer": "normalization",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/measurements",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/measurements.md",
+        "fr": "docs/fr/dsp/measurements.md"
+      },
+      "explainer": "metering",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/tone",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/tone.md",
+        "fr": "docs/fr/dsp/tone.md"
+      },
+      "explainer": "tone",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/headroom",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/headroom.md",
+        "fr": "docs/fr/dsp/headroom.md"
+      },
+      "explainer": "metering",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/channels",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/channels.md",
+        "fr": "docs/fr/dsp/channels.md"
+      },
+      "explainer": "channels",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/resampling",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/resampling.md",
+        "fr": "docs/fr/dsp/resampling.md"
+      },
+      "explainer": "resampling",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/dither",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/dither.md",
+        "fr": "docs/fr/dsp/dither.md"
+      },
+      "explainer": "dither",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/continuity",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/continuity.md",
+        "fr": "docs/fr/dsp/continuity.md"
+      },
+      "explainer": "continuity",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/spectrum",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/spectrum.md",
+        "fr": "docs/fr/dsp/spectrum.md"
+      },
+      "explainer": "metering",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/output",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/output.md",
+        "fr": "docs/fr/dsp/output.md"
+      },
+      "explainer": "pipeline",
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/premium",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/dsp/premium.md",
+        "fr": "docs/fr/dsp/premium.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/privacy",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/privacy.md",
+        "fr": "docs/fr/manual/privacy.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": false
+    },
+    {
+      "slug": "manual/subscribed",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/subscribed.md",
+        "fr": "docs/fr/manual/subscribed.md"
+      },
+      "explainer": null,
+      "noindex": true,
+      "navigation": false
+    },
+    {
+      "slug": "manual/reference/library",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/library.md",
+        "fr": "docs/fr/library.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/querying",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/querying.md",
+        "fr": "docs/fr/querying.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/browsing",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/browsing.md",
+        "fr": "docs/fr/browsing.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/commands",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/commands.md",
+        "fr": "docs/fr/commands.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/copying",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/copying.md",
+        "fr": "docs/fr/copying.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/playlists",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/playlists.md",
+        "fr": "docs/fr/playlists.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/annotating",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/annotating.md",
+        "fr": "docs/fr/annotating.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/reference/formats",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/formats.md",
+        "fr": "docs/fr/formats.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/integrity",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/integrity.md",
+        "fr": "docs/fr/integrity.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/spectrograms",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/spectrograms.md",
+        "fr": "docs/fr/spectrograms.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "dsp/reference/imported-analyses",
+      "section": "dsp",
+      "command": null,
+      "source": {
+        "en": "docs/imported-analyses.md",
+        "fr": "docs/fr/imported-analyses.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/reference/sources",
+      "section": "cli",
+      "command": null,
+      "source": {
+        "en": "docs/sources.md",
+        "fr": "docs/fr/sources.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "manual/reference/licensing",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/licensing.md",
+        "fr": "docs/fr/licensing.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/reference/api",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/api.md",
+        "fr": "docs/fr/api.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/reference/operating",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/operating.md",
+        "fr": "docs/fr/operating.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    }
+  ]
+}

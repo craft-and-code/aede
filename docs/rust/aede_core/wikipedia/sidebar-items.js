@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FALLBACK_LANGS","LICENCE","PORTRAIT_SOURCE","REQUEST_INTERVAL","SOURCE"],"fn":["article","commons_file_url","entity_data_url","entity_id","portrait_file","prose","summary_url"],"struct":["Article"]};

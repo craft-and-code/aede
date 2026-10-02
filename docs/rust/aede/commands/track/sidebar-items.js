@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_LIMIT"],"fn":["analysis_json","analysis_table","as_json","attribute_json","dedupe","event_location","event_summary","integrity_line","loudness_peak","movement_tag","phase_summary","position","print_analyses","print_graph_links","print_lyrics","print_track","show_track","stereo_balance","track_query","yes_no"]};

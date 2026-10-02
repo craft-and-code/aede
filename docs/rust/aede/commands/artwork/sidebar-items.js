@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["artwork","skipped","survey","write_one","write_others"],"struct":["Survey","Target"]};

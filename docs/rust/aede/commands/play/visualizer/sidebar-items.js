@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["HEIGHT","REFRESH","SIZE_REFRESH"],"fn":["bar_rows","terminal_columns"],"struct":["TerminalVisualizer"]};

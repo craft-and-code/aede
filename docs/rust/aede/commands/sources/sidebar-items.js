@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["address_of","compared","credit_summary","discogs_profile_lines","export","forget","import","list","panel_for","panel_for_held","says","sources","summary","tags_of_artist","tags_of_track","template","whence"]};

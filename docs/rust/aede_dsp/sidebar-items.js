@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SPECTRUM_BANDS"],"enum":["ChannelLayout","DspError","OutputMeterError","RateError"],"fn":["gain_with_headroom_db","protect_output"],"mod":["loudness"],"struct":["Dsp","OutputMeter","OutputSnapshot","PcmFormat","ProcessStats","RateConverter","Spectrum","StereoDownmixer","ToneControls","TpdfQuantizer"]};

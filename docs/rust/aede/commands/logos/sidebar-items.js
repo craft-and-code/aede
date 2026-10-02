@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Outcome"],"fn":["attempt","attempt_label","excluded_names","fetch_album_artwork","fetch_extra","has_logo","label_targets","run","run_label_logos","store","store_artwork","store_label","targets","waiting","write"],"struct":["AlbumTarget","ExtraReport","LabelTarget","Target"]};

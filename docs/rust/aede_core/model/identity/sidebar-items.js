@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["aliases","filed_as"],"struct":["Chosen","Said"],"type":["Aliases"]};

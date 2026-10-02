@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FLACCOMPAGNON_FORMAT"],"enum":["ImportError"],"fn":["looks_like_a_report","merge_into","parse_report","read_report","reconcile"],"struct":["Attachment","FileAnalysis","Report"]};

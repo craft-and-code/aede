@@ -1,0 +1,47 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Where the artists on the shelf are from."><title>aede_core::places - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-84e720fa.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="aede_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.89.0 (29483883e 2025-08-04)" data-channel="1.89.0" data-search-js="search-92309212.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fd3af306.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../aede_core/index.html">aede_<wbr>core</a><span class="version">0.3.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module places</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#why-this-is-not-a-field-of-the-catalog" title="Why this is not a field of the catalog">Why this is not a field of the catalog</a></li><li><a href="#the-vocabulary-is-read-from-the-data" title="The vocabulary is read from the data">The vocabulary is read from the data</a></li><li><a href="#short-forms-and-where-they-are-allowed-to-come-from" title="Short forms, and where they are allowed to come from">Short forms, and where they are allowed to come from</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate aede_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">aede_core</a></div><h1>Module <span>places</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/aede_core/places.rs.html#1-312">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Where the artists on the shelf are from.</p>
+<h2 id="why-this-is-not-a-field-of-the-catalog"><a class="doc-anchor" href="#why-this-is-not-a-field-of-the-catalog">§</a>Why this is not a field of the catalog</h2>
+<p>There is no widely used tag for an artist’s country. <code>RELEASECOUNTRY</code>
+exists, but it answers a different question — the country a <em>release</em> came
+out in — and answers this one wrongly: an American pressing of a French
+band is not an American band. So the fact comes from MusicBrainz, which
+means it lives in the attributed layer and not in the graph.</p>
+<p>That makes this the first thing in the program a listing can be filtered by
+that <strong>the catalog does not know</strong>. The consequence is worth stating plainly
+rather than discovering: a library that has never run <code>aede fetch</code> has no
+countries at all, and every command here says so instead of answering with
+an empty table that looks like a library of stateless musicians.</p>
+<h2 id="the-vocabulary-is-read-from-the-data"><a class="doc-anchor" href="#the-vocabulary-is-read-from-the-data">§</a>The vocabulary is read from the data</h2>
+<p>No table of countries is written down here. What <code>aede countries</code> lists is
+what MusicBrainz actually said about <em>these</em> artists, the way
+<code>Catalog::roles_in_use</code> reads the roles from the credits rather than from a
+fixed list. A country nobody on the shelf is from is not a country this
+program has an opinion about.</p>
+<p>The price of that, stated rather than discovered: MusicBrainz answers the
+<strong>most specific area</strong> it holds for an artist, which is usually a country
+and is sometimes a county or a city. A reader’s shelf produced a row for
+<em>County Antrim</em>. These are the places the source named, and the listing says
+so; the ISO code is the only thing in the table that an authority assigned,
+which is why it has a column to itself.</p>
+<h2 id="short-forms-and-where-they-are-allowed-to-come-from"><a class="doc-anchor" href="#short-forms-and-where-they-are-allowed-to-come-from">§</a>Short forms, and where they are allowed to come from</h2>
+<p>Nobody wants to type “United Kingdom”. The temptation is a table of
+synonyms — UK, GB, Great Britain, Royaume-Uni — and it is a slope with no
+bottom: whose vernacular, in which language, and who maintains it. So a
+country is resolved in four steps, and <strong>each one is derived from the
+source or from the name itself</strong>, never from a list this program invented:</p>
+<ol>
+<li>the <strong>name</strong>, exactly: <code>united kingdom</code>;</li>
+<li>the <strong>ISO code</strong> the source states: <code>gb</code>, <code>fr</code>, <code>us</code>;</li>
+<li>the <strong>initials</strong> of a multi-word name: <code>uk</code>, <code>nz</code> — computed from the
+name, so no country needs to be known about in advance, and offered only
+where they name one place on this shelf — see <code>keep_usable_initials</code>;</li>
+<li>any <strong>substring</strong> of the name: <code>kingdom</code>, <code>united</code>, which may reach
+several and says so.</li>
+</ol>
+<p><code>USA</code> and <code>Royaume-Uni</code> are therefore refused, and that is the intended
+answer rather than a gap: neither is the source’s name nor its code, and
+this program speaks English throughout. The error names <code>aede countries</code>,
+which lists every form that works — because what a screen displays must be
+what the parser accepts.</p>
+<p>An unmatched value is an error naming the listing — the same contract
+<code>--genre</code>, <code>--label</code> and <code>--role</code> already have.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Place.html" title="struct aede_core::places::Place">Place</a></dt><dd>One country, and who on the shelf is from it.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.asked_about.html" title="fn aede_core::places::asked_about">asked_<wbr>about</a></dt><dd>How many artists on the shelf have been asked about at all.</dd><dt><a class="fn" href="fn.countries.html" title="fn aede_core::places::countries">countries</a></dt><dd>Every country the layer knows about, most artists first.</dd><dt><a class="fn" href="fn.country_of.html" title="fn aede_core::places::country_of">country_<wbr>of</a></dt><dd>The country an artist is from, as the layer holds it.</dd><dt><a class="fn" href="fn.find.html" title="fn aede_core::places::find">find</a></dt><dd>Every country a typed value reaches, and how it reached them.</dd><dt><a class="fn" href="fn.without_code.html" title="fn aede_core::places::without_code">without_<wbr>code</a></dt><dd>How many of these places carry no ISO code.</dd></dl></section></div></main></body></html>

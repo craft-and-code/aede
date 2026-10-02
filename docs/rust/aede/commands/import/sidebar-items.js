@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collect_reports","forget","import","list_all","list_pending","scope","selected","walk_for_reports"],"struct":["Fate"]};

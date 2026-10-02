@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MANUAL"],"enum":["Scope"],"fn":["credit","representative_track","resolve_scope"]};

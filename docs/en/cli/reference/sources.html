@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>External sources and provenance — Aède</title><meta name="description" content="Detailed Aède reference: external sources and provenance."><meta name="robots" content="index,follow">
+<link rel="canonical" href="https://craft-and-code.github.io/aede/docs/en/cli/reference/sources.html"><link rel="alternate" hreflang="en" href="https://craft-and-code.github.io/aede/docs/en/cli/reference/sources.html"><link rel="alternate" hreflang="fr" href="https://craft-and-code.github.io/aede/docs/fr/cli/reference/sources.html"><link rel="alternate" hreflang="x-default" href="https://craft-and-code.github.io/aede/docs/index.html">
+<meta property="og:type" content="article"><meta property="og:title" content="External sources and provenance — Aède"><meta property="og:description" content="Detailed Aède reference: external sources and provenance."><meta property="og:url" content="https://craft-and-code.github.io/aede/docs/en/cli/reference/sources.html"><meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
+<meta name="theme-color" content="#121317"><link rel="icon" type="image/svg+xml" href="../../../../assets/favicon.svg"><link rel="stylesheet" href="../../../../styles.css"><link rel="stylesheet" href="../../../../guide.css"><script src="../../../../guide.js" defer></script><script src="../../../../explainers.js" defer></script>
+</head><body class="guide-document" data-section="cli"><a class="guide-skip" href="#main">Skip to content</a>
+<header class="guide-header"><a class="guide-logo" href="../../../../en/index.html" aria-label="Aède — home">aède<span>.</span></a><a class="guide-header-label" href="../../index.html">Documentation</a><div class="guide-header-actions"><a class="guide-project" href="https://github.com/craft-and-code/aede">Project</a><nav class="guide-language" aria-label="Language"><a href="sources.html" data-language="en" aria-current="page">EN</a><a href="../../../fr/cli/reference/sources.html" data-language="fr" data-fragment-map="{&quot;what-other-sources-say&quot;: &quot;ce-que-disent-les-autres-sources&quot;, &quot;querying-musicbrainz&quot;: &quot;interroger-musicbrainz&quot;, &quot;prose-language&quot;: &quot;langue-des-textes&quot;, &quot;identified-or-matched&quot;: &quot;identification-exacte-ou-correspondance&quot;, &quot;manual-corrections&quot;: &quot;corrections-manuelles&quot;, &quot;viewing-and-deleting&quot;: &quot;consulter-et-supprimer&quot;, &quot;secondary-passes-and-combined-runs&quot;: &quot;passes-complémentaires-et-exécutions-combinées&quot;, &quot;restricting-an-execution-by-folder&quot;: &quot;restreindre-une-exécution-à-un-dossier&quot;, &quot;querying-wikipedia&quot;: &quot;interroger-wikipédia&quot;, &quot;credit-is-part-of-the-text&quot;: &quot;lattribution-fait-partie-du-texte&quot;, &quot;images-already-present-in-your-files&quot;: &quot;images-déjà-présentes-dans-vos-fichiers&quot;, &quot;other-embedded-visuals&quot;: &quot;autres-visuels-intégrés&quot;, &quot;album-cover-art&quot;: &quot;couvertures-dalbums&quot;, &quot;fanarttv-artwork&quot;: &quot;visuels-fanarttv&quot;, &quot;missing-from-the-shelf&quot;: &quot;ce-qui-manque-dans-la-bibliothèque&quot;, &quot;exclude-or-re-include-an-album&quot;: &quot;exclure-ou-réintégrer-un-album&quot;, &quot;identifying-a-file-by-acoustic-fingerprint&quot;: &quot;identifier-un-fichier-par-empreinte-acoustique&quot;, &quot;comparison-and-duplicate-detection&quot;: &quot;comparaison-et-détection-des-doublons&quot;, &quot;what-musicbrainz-does-not-contain&quot;: &quot;ce-que-musicbrainz-ne-contient-pas&quot;}">FR</a></nav><button type="button" class="guide-menu" aria-controls="guide-sidebar" aria-expanded="false">Menu</button></div></header>
+<div class="guide-layout"><aside class="guide-sidebar" id="guide-sidebar" aria-label="Documentation navigation"><a class="guide-docs-home" href="../../index.html">All documentation</a><label class="guide-search">Find a command or topic<input type="search" placeholder="Find a command or topic" aria-controls="guide-nav"></label><p class="guide-search-status" role="status"></p><nav id="guide-nav" aria-label="Documentation"><details data-nav-section="manual" open><summary>User manual<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../../manual/install.html">Install Aède</a></li><li data-nav-item><a href="../../manual/first-steps.html">Your first library</a></li><li data-nav-item><a href="../../manual/catalog.html">Catalog and data safety</a></li><li data-nav-item><a href="../../manual/workflows.html">Daily workflows</a></li><li data-nav-item><a href="../../manual/troubleshooting.html">Troubleshooting</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="../../manual/reference/library.html">Understanding your library</a></li><li data-nav-item><a href="../../manual/reference/formats.html">Audio formats</a></li><li data-nav-item><a href="../../manual/reference/licensing.html">Licensing</a></li></ul></div></details><details data-nav-section="cli" open><summary>CLI — Commands<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Build and inspect</p><ul><li data-nav-item><a href="../scan.html"><code>scan</code> Read watched music folders into the local catalog</a></li><li data-nav-item><a href="../roots.html"><code>roots</code> List, add, remove, or exclude watched folders</a></li><li data-nav-item><a href="../stats.html"><code>stats</code> Show the library&#x27;s size, quality, and completeness</a></li><li data-nav-item><a href="../doctor.html"><code>doctor</code> Find missing metadata, duplicates, and other catalog issues</a></li><li data-nav-item><a href="../file.html"><code>file</code> Inspect one audio file directly, without the catalog</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Preserve and administer</p><ul><li data-nav-item><a href="../serve.html"><code>serve</code> Serve the local HTTP/JSON/WebSocket catalog API and coordinate CLI writes</a></li><li data-nav-item><a href="../cancel.html"><code>cancel</code> Request cancellation of a delegated scan or fetch on the local server</a></li><li data-nav-item><a href="../check.html"><code>check</code> Verify the checksums stored in audio containers</a></li><li data-nav-item><a href="../reset.html"><code>reset</code> Remove the catalog snapshot, including watched roots, while keeping separate stores</a></li><li data-nav-item><a href="../backup.html"><code>backup</code> Save the catalog, sources, and personal data together</a></li><li data-nav-item><a href="../restore.html"><code>restore</code> Restore a previously saved Aède backup</a></li><li data-nav-item><a href="../rules.html"><code>rules</code> List, export, or import reproducible personal decisions</a></li><li data-nav-item><a href="../help.html"><code>help</code> Show the command index or the page for one command</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Enrich and correct</p><ul><li data-nav-item><a href="../analyze.html"><code>analyze</code> Analyze albums with FlacCompagnon and optionally save one JSON report per album</a></li><li data-nav-item><a href="../credits.html"><code>credits</code> Measure MusicBrainz recording/work credit coverage and locate gaps</a></li><li data-nav-item><a href="../credit.html"><code>credit</code> Add a manual credit or exclude/restore one sourced credit without touching tags</a></li><li data-nav-item><a href="../spectrum.html"><code>spectrum</code> Create spectrograms beside the selected music</a></li><li data-nav-item><a href="../import.html"><code>import</code> Import acoustic analyses from FlacCompagnon</a></li><li data-nav-item><a href="../sources.html"><code>sources</code> Inspect, export, import, or remove externally sourced data</a></li><li data-nav-item><a href="../review.html"><code>review</code> Resolve uncertain or conflicting source identities without changing tags</a></li><li data-nav-item><a href="../fetch.html"><code>fetch</code> Enrich artists, albums, tracks, and artwork from chosen sources</a></li><li data-nav-item><a href="../missing.html"><code>missing</code> List credited studio albums that the local shelf does not hold</a></li><li data-nav-item><a href="../merge.html"><code>merge</code> Record that two local artist spellings name one person</a></li><li data-nav-item><a href="../extract.html"><code>extract</code> Write artwork already embedded in audio files beside the music</a></li><li data-nav-item><a href="../fingerprint.html"><code>fingerprint</code> Compute acoustic fingerprints without using the network</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Find and select</p><ul><li data-nav-item><a href="../copy.html"><code>copy</code> Copy a selection to a player, card, or other destination</a></li><li data-nav-item><a href="../playlist.html"><code>playlist</code> Write portable playlists in album and artist folders</a></li><li data-nav-item><a href="../play.html"><code>play</code> Play local music</a></li><li data-nav-item><a href="../query.html"><code>query</code> Select tracks with the relational query language</a></li><li data-nav-item><a href="../collection.html"><code>collection</code> Save, run, or remove a named dynamic collection</a></li><li data-nav-item><a href="../collections.html"><code>collections</code> List the saved dynamic collections</a></li><li data-nav-item><a href="../search.html"><code>search</code> Search graph objects and source-only contributors, plus optional notes, comments, or lyrics</a></li><li data-nav-item><a href="../export.html"><code>export</code> Export the catalog as JSON or a table</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Browse the catalog</p><ul><li data-nav-item><a href="../relations.html"><code>relations</code> List local and sourced graph relationships with stable IDs</a></li><li data-nav-item><a href="../relation.html"><code>relation</code> Inspect, annotate, or label one graph relationship</a></li><li data-nav-item><a href="../artists.html"><code>artists</code> List artists in the catalog</a></li><li data-nav-item><a href="../countries.html"><code>countries</code> Summarize artists by their MusicBrainz origin</a></li><li data-nav-item><a href="../albums.html"><code>albums</code> List albums in the catalog</a></li><li data-nav-item><a href="../genres.html"><code>genres</code> List genres in the catalog</a></li><li data-nav-item><a href="../genre.html"><code>genre</code> Show albums and artists carrying one genre</a></li><li data-nav-item><a href="../labels.html"><code>labels</code> List record labels in the catalog</a></li><li data-nav-item><a href="../label.html"><code>label</code> Show a label&#x27;s catalog and artists; check a Discogs profile when needed</a></li><li data-nav-item><a href="../years.html"><code>years</code> Break the catalog down by release year</a></li><li data-nav-item><a href="../artist.html"><code>artist</code> Show a local artist or a source-only credited contributor and their links</a></li><li data-nav-item><a href="../album.html"><code>album</code> Show one album&#x27;s tracks, credits, and sources</a></li><li data-nav-item><a href="../track.html"><code>track</code> Show a track&#x27;s album, credits, tags, and technical facts</a></li><li data-nav-item><a href="../recording.html"><code>recording</code> Show one recording, its local placements, and sourced work links</a></li><li data-nav-item><a href="../work.html"><code>work</code> Show one composition and the recordings that realize it</a></li><li data-nav-item><a href="../release-group.html"><code>release-group</code> Show the album identity shared by every local edition</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Personalise</p><ul><li data-nav-item><a href="../love.html"><code>love</code> Mark an artist, album, or track as a favourite</a></li><li data-nav-item><a href="../rate.html"><code>rate</code> Give an artist, album, or track a personal rating</a></li><li data-nav-item><a href="../note.html"><code>note</code> Read or write a personal note</a></li><li data-nav-item><a href="../tag.html"><code>tag</code> Attach or remove personal labels</a></li><li data-nav-item><a href="../played.html"><code>played</code> Manually record a listen made outside Aède, or undo its latest record with --remove</a></li><li data-nav-item><a href="../favourites.html"><code>favourites</code> List everything marked as a favourite</a></li><li data-nav-item><a href="../notes.html"><code>notes</code> List, export, or import personal notes</a></li><li data-nav-item><a href="../history.html"><code>history</code> Show listening history, newest first</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../options.html">Options, syntax and output</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="querying.html">Query language</a></li><li data-nav-item><a href="browsing.html">Browsing the catalog</a></li><li data-nav-item><a href="commands.html">Command overview</a></li><li data-nav-item><a href="copying.html">Copying and conversion</a></li><li data-nav-item><a href="playlists.html">Playlists</a></li><li data-nav-item><a href="annotating.html">Favourites, ratings and notes</a></li><li data-nav-item><a href="integrity.html">File integrity</a></li><li data-nav-item><a href="spectrograms.html">Spectrograms</a></li><li data-nav-item><a href="sources.html" aria-current="page">External sources and provenance</a></li></ul></div></details><details data-nav-section="server"><summary>Server — API<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../../server/start.html">Start the local server</a></li><li data-nav-item><a href="../../server/http.html">HTTP, JSON and errors</a></li><li data-nav-item><a href="../../server/catalog.html">Albums, artists and tracks</a></li><li data-nav-item><a href="../../server/graph.html">Genres, labels, works and editions</a></li><li data-nav-item><a href="../../server/inspection.html">Inspect the library</a></li><li data-nav-item><a href="../../server/search.html">Search and query</a></li><li data-nav-item><a href="../../server/events.html">WebSocket events and activity</a></li><li data-nav-item><a href="../../server/administration.html">Enable administration</a></li><li data-nav-item><a href="../../server/jobs.html">Scan, fetch and cancellation</a></li><li data-nav-item><a href="../../server/personal.html">Personal data routes</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="../../server/reference/api.html">API contract</a></li><li data-nav-item><a href="../../server/reference/operating.html">Operating reference</a></li></ul></div></details><details data-nav-section="dsp"><summary>DSP — Audio<span aria-hidden="true">⌄</span></summary><div class="guide-nav-bucket" data-nav-bucket><ul><li data-nav-item><a href="../../dsp/start.html">Audio processing overview</a></li><li data-nav-item><a href="../../dsp/normalization.html">Track and album normalization</a></li><li data-nav-item><a href="../../dsp/measurements.html">Measurements and FlacCompagnon</a></li><li data-nav-item><a href="../../dsp/tone.html">Bass and treble shelves</a></li><li data-nav-item><a href="../../dsp/headroom.html">Headroom and output guard</a></li><li data-nav-item><a href="../../dsp/channels.html">Channel mapping and LFE</a></li><li data-nav-item><a href="../../dsp/resampling.html">Device-rate conversion</a></li><li data-nav-item><a href="../../dsp/dither.html">Integer output and dither</a></li><li data-nav-item><a href="../../dsp/continuity.html">Continuous playback</a></li><li data-nav-item><a href="../../dsp/spectrum.html">24-band spectrum display</a></li><li data-nav-item><a href="../../dsp/output.html">Output and diagnostics</a></li><li data-nav-item><a href="../../dsp/premium.html">Future Premium processing</a></li></ul></div><div class="guide-nav-bucket" data-nav-bucket><p class="guide-nav-subtitle">Topic references</p><ul><li data-nav-item><a href="../../dsp/reference/imported-analyses.html">FlacCompagnon analysis reports</a></li></ul></div></details><a class="guide-rustdoc" href="../../../rust/aede_core/index.html">RustDoc ↗</a></nav></aside>
+<main class="guide-main" id="main"><p class="guide-eyebrow">CLI — Commands</p><h1 id="what-other-sources-say">External sources and provenance</h1><p class="guide-description">Detailed Aède reference: external sources and provenance.</p><article class="guide-prose">
+<p>Three voices coexist in this program, and separating them is the core of the project:</p>
+<ul><li><strong>what the files say</strong> — the catalog, rebuilt from your folders with each scan;</li><li><strong>what you say</strong> — favorites, notes, ratings, and tags, in a file that a new scan never touches;</li><li><strong>what a third party says</strong> — MusicBrainz, Wikipedia, Fanart.tv, and the other explicit sources, in <code>sources.json</code>.</li></ul>
+<p>A value coming from a source <strong>sits alongside your tags and never overwrites them</strong>. Nothing is rewritten, nothing is merged, and every piece of data can be traced back to its author, dated, and removed. When a source and your tags disagree, both are displayed and <code>doctor</code> flags it — determining which one is right is beyond the scope of this program.</p>
+<h2 id="querying-musicbrainz">Querying MusicBrainz<a class="heading-link" href="#querying-musicbrainz" aria-label="Querying MusicBrainz">#</a></h2>
+<pre><code class="language-sh">aede fetch                      # all artists and all albums
+aede fetch manson               # only matching the name (artist or release)
+aede fetch ~/Music/Alastis      # only what is on this shelf
+aede fetch --dry-run            # show what would be requested without sending anything
+aede fetch --full               # re-query what is already kept
+</code></pre>
+<p>A name and a folder correspond to two distinct questions, and <code>fetch</code> accepts both — see <a href="#restricting-an-execution-by-folder">Restricting an execution by folder</a>.</p>
+<p><strong>Artists and albums, in a single pass</strong>. Albums are the most important part: no tag indicates a musician&#x27;s origin, so what MusicBrainz says about an artist can only be added alongside your library. It is different for an album — Picard records <code>RELEASETYPE</code>, <code>DATE</code>, and <code>LABEL</code>; so your files have an opinion, MusicBrainz has another, and the two can diverge. This disagreement is the reason for this storage model, and it applies to albums.</p>
+<p>Date is the most common case. Your <code>DATE</code> tag says 1997 because that is the year of the reissue you ripped; MusicBrainz indicates that the album was first released in 1959. Neither is wrong, and Aède displays both rather than choosing one.</p>
+<p><strong>One request per album, regardless of your tags</strong>. If they contain the MusicBrainz album ID, the response arrives with certainty and brings the label in the same request. If they only contain the release group ID (release-group), the response remains certain, but without the label — a release group doesn&#x27;t have one, and completing it with the label of the first matching pressing would attribute an edition&#x27;s label to the album itself. If they contain neither, the album title and artist are searched, evaluated, and rejected below 70% instead of being guessed.</p>
+<p>MusicBrainz allows <strong>one request per second</strong>; scanning a large library therefore takes time. The program displays the estimated duration before starting and asks for confirmation above 20 artists. It saves after each response, so an interrupted run loses nothing and a second run only costs the remaining requests.</p>
+<p>Its search server sometimes returns a temporary <code>503</code> code, even when respecting the rate limit. The program waits — three attempts, with increasing delays — and stops only if the rejections persist.</p>
+<p>A second run queries nothing it already possesses. <code>--full</code> <strong>allows re-querying</strong>, which is also required after an update that reads a field not previously stored:</p>
+<pre><code class="language-sh">aede fetch --full manson
+</code></pre>
+<p>Some artists return with no data stored, which confirms the system is working properly. A response that does not clearly concern your artist is ignored rather than guessed.</p>
+<h2 id="prose-language">Prose Language<a class="heading-link" href="#prose-language" aria-label="Prose Language">#</a></h2>
+<p>The summary is fetched in a <strong>single</strong> language and kept as such; the choice belongs to <code>fetch</code> and not to the subsequent display:</p>
+<pre><code class="language-sh">aede fetch --summaries                       # terminal language, English fallback
+aede fetch --summaries --lang=fr             # French, English fallback
+aede fetch --summaries --full --lang=fr ozzy # replaces already stored data
+aede fetch --labels --summaries roadracer    # identify a label, then fetch its article
+</code></pre>
+<p>Without <code>--lang</code>, the terminal&#x27;s <code>LANG</code> or <code>LC_ALL</code> variable is read (<code>fr_FR.UTF-8</code> for French). <strong>English always remains the last resort</strong>, never excluded: for many artists, it is the only available article. The pass indicates what it is looking for before sending the request:</p>
+<pre><code class="language-">searching for articles in fr, en, in that order
+</code></pre>
+<p>An artist without a French article gets the English version, and the credit below the paragraph specifies the source read:</p>
+<pre><code class="language-">  https://en.wikipedia.org/wiki/Ozzy_Osbourne — in en — CC BY-SA 4.0
+  aede fetch --summaries --full --lang=fr &quot;ozzy osbourne&quot; asks for another
+</code></pre>
+<p>This last line makes it possible to differentiate between an ignored preference, a non-existent article in your language, or data retrieved before setting a preference.</p>
+<p><code>--full</code> is necessary to replace text that is already stored.</p>
+<h2 id="identified-or-matched">Identified or Matched<a class="heading-link" href="#identified-or-matched" aria-label="Identified or Matched">#</a></h2>
+<p>If your files went through <strong>Picard</strong>, they already contain MusicBrainz IDs, and <code>fetch</code> uses them: it queries the artist directly instead of searching for a name.</p>
+<p>It is <strong>exact</strong> — the response concerns the requested ID, so the registry displays <code>identified</code> instead of a percentage. A percentage indicates search indexing quality, never that an artist is 88% correct.</p>
+<p>And the <strong>response is more complete</strong>: a search result is abbreviated, whereas a direct lookup returns the full entity — current band activity or the disambiguation line used by MusicBrainz to distinguish homonymous artists.</p>
+<p>Without an ID, the name is searched and the result comes with a score. Below 70%, nothing is saved, and two equivalent answers are rejected rather than arbitrated:</p>
+<pre><code class="language-">? Nirvana: several answers are equally good: Nirvana, Nirvana (UK)
+? Sh: the closest was &quot;Shellac&quot; at 61%, not close enough
+</code></pre>
+<p>An approximate match is stored as evidence, but it is not a graph identity
+until you decide it is the right one. Exact MusicBrainz answers that contradict
+an identifier already present in your tags follow the same review path:</p>
+<pre><code class="language-sh">aede review                         # unresolved claims
+aede review --interactive           # compare and decide one claim at a time
+aede review manson                  # narrow them by entity name
+aede review --accept=&lt;ID&gt;           # trust this exact claim
+aede review --reject=&lt;ID&gt;           # keep it visible, but never traverse it
+aede review --undo=&lt;ID&gt;             # return the decision to pending
+aede review --all                   # include accepted and rejected claims
+</code></pre>
+<p>The interactive view shows the local identity and the source proposal before
+asking for a decision. Use <code>A</code> to accept, <code>R</code> to reject, <code>S</code> to leave the claim
+pending, <code>P</code> to go back, <code>U</code> to undo an existing decision, and <code>Q</code> to stop.
+Every decision is saved immediately, so an interrupted session can simply be
+resumed.</p>
+<p>Acceptance never changes <code>matched 92%</code> into <code>identified</code>: the original
+confidence remains visible. It only records that you approved this precise
+entity/source/identifier tuple for navigation and queries. A different
+candidate returned by a later fetch needs its own decision. Rejection is not
+deletion, and every choice can be undone.</p>
+<h2 id="manual-corrections">Manual Corrections<a class="heading-link" href="#manual-corrections" aria-label="Manual Corrections">#</a></h2>
+<p>Retrieved values are not the final word. Records are indexed by <strong>(entity, source)</strong>, which means anything you classify under your own source won&#x27;t be overwritten by MusicBrainz: a subsequent <code>aede fetch --full</code> will add its line next to yours without touching it.</p>
+<p>Generate a document with the right keys:</p>
+<pre><code class="language-sh">aede sources --template --source=manual --output=fix.json &quot;Kind of Blue&quot;
+</code></pre>
+<p>Fill in the desired fields (<code>null</code> if data is missing):</p>
+<pre><code class="language-json">{
+  &quot;entity&quot;: &quot;release:miles davis|kind of blue|/Users/you/Music/Miles/Kind of Blue&quot;,
+  &quot;source&quot;: &quot;manual&quot;,
+  &quot;facts&quot;: {
+    &quot;primary_type&quot;: &quot;Album&quot;,
+    &quot;first_released&quot;: &quot;1959-08-17&quot;,
+    &quot;label&quot;: &quot;Columbia&quot;,
+    &quot;secondary_types&quot;: []
+  }
+}
+</code></pre>
+<p>Import it:</p>
+<pre><code class="language-sh">aede sources --import=fix.json
+</code></pre>
+<p><code>--source=manual</code> protects this entry. Any name works (<code>manual</code>, yours, <code>discogs</code>…), the key being to avoid <code>musicbrainz</code>, as a source only replaces what <strong>it</strong> previously stated.</p>
+<p>When the correction and the review decisions must be repeated on another Aède
+catalog, export the rules rather than the whole fetched source layer:</p>
+<pre><code class="language-sh">aede rules --export --output=rules.json
+aede rules --import=rules.json
+</code></pre>
+<p>The versioned bundle includes manual source records, accepted or rejected
+source identities and exact credit exclusions, together with the personal
+filing and relationship rules.
+Import merges those choices; it does not copy biographies, artwork, listening
+history, or change any audio file. Use <code>aede export --graph</code> when the goal is
+instead to preserve every catalog, source and user layer for analysis.</p>
+<h2 id="viewing-and-deleting">Viewing and Deleting<a class="heading-link" href="#viewing-and-deleting" aria-label="Viewing and Deleting">#</a></h2>
+<pre><code class="language-sh">aede sources                    # one line per source: how much, how much lands
+aede sources --list             # every record, and whether the catalog places it
+aede sources --export --output=backup.json
+aede sources --forget --source=musicbrainz
+aede review                     # ambiguous identities needing a decision
+</code></pre>
+<p><code>aede artist</code> and <code>aede album</code> display a &quot;What sources say&quot; block, matching each value against your tag:</p>
+<pre><code class="language-">  Source                        Field           Says        Your tags
+  ────────────────────────────  ──────────────  ──────────  ────────────────────
+  musicbrainz 88% · 2 days ago  release type    Album       nothing in your tags
+  musicbrainz 88% · 2 days ago  first released  1959-08-17  matches your tags
+  musicbrainz 88% · 2 days ago  label           Blue Note   Columbia
+  musicbrainz: https://musicbrainz.org/release-group/c9fdb94c-…
+</code></pre>
+<p><strong>The last line indicates the source address of the response</strong>, one per source. This identifier is essential for any manual verification — opening the page, running the request with <code>curl</code>, or fixing data at the source.</p>
+<p>The ID is included in the URL and can be copied separately. An album address points to its <strong>release group</strong>, which defines the album as a whole rather than a specific pressing.</p>
+<p>Three distinct states are differentiated: a value confirmed by your tags, a value in contradiction, and a value missing from your tags.</p>
+<p>Two labels deserve clarification:</p>
+<ul><li><code>from</code> corresponds to the geographical area according to MusicBrainz (country, city, or region).</li><li><code>note</code> corresponds to disambiguation, written to distinguish homonymous artists.</li></ul>
+<h2 id="secondary-passes-and-combined-runs">Secondary Passes and Combined Runs<a class="heading-link" href="#secondary-passes-and-combined-runs" aria-label="Secondary Passes and Combined Runs">#</a></h2>
+<p>Running <code>aede fetch</code> alone queries MusicBrainz for your artists and albums. Options enable complementary passes over the identified catalog:</p>
+<pre><code class="language-sh">aede fetch --summaries      # the Wikipedia article behind each wikidata link
+aede fetch --discography    # everything MusicBrainz credits to each artist
+aede fetch --lyrics         # missing words from LRCLIB, as .lrc sidecars
+aede fetch --covers         # the front image of every album that has none
+aede fetch --portraits      # Wikidata first, then Fanart.tv as fallback
+aede fetch --labels         # identify record labels through MusicBrainz
+aede fetch --credits        # recording/work credits and exact-edition credits, where IDs exist
+aede fetch --logos          # artist and identified-label logos from Fanart.tv
+aede fetch --fanart         # every supported Fanart.tv image family
+</code></pre>
+<p><code>--credits</code> never searches by title: it follows only a
+<code>MUSICBRAINZ_RECORDINGID</code> attached to a local recording or a release ID on a
+local edition. A recording lookup keeps direct roles, linked works and their
+creative roles. A separate edition lookup keeps release-level artist credits,
+without assigning them to every recording. The pass preserves details such as
+credited-as spellings, instruments and qualifiers, dates, ordering
+and relationship identifiers. Existing data fetched with the former
+<code>--recordings</code> option is refreshed once into this richer form; <code>--recordings</code>
+continues to work as an alias.</p>
+<p>When a linked work includes an explicit MusicBrainz part-of-work relationship,
+its parent identifier, title, movement/act qualifier and order are retained
+with the same source and trust boundary. <code>aede work &lt;parent ID&gt;</code> and
+<code>query work:&lt;parent ID&gt;</code> can then reach locally held movements. Work/grouping
+and movement tags stay local and are shown separately; they do not establish
+a parent identity on their own. An already completed recording lookup is not
+automatically re-requested just for this addition: use
+<code>aede fetch --credits --full &lt;album folder&gt;</code> to refresh a chosen edition.</p>
+<p>To see which recordings still need the recording/work lookup, run <code>aede credits</code>, then
+<code>aede credits &quot;&lt;album&gt;&quot;</code>. This read-only report distinguishes an unanswered
+recording (<code>waiting</code>) from a completed answer with no credits (<code>empty</code>) and
+from credits attached to untrusted source evidence (<code>untrusted</code>). Its album
+detail suggests the folder-scoped fetch command for waiting recordings;
+records without a local MusicBrainz recording ID must be identified first.
+This report does not yet count edition-credit lookups.
+<code>aede fetch --credits --dry-run</code> shows pending requests for both scopes.</p>
+<p>Once trusted credits are present, a contributor who is absent from local tags
+can be opened with <code>aede artist &lt;MusicBrainz artist ID&gt;</code>. The resulting card is
+explicitly source-backed: it navigates to locally held recordings and albums,
+and to the works carrying creative credits, without manufacturing a catalog
+artist. <code>aede search &lt;name&gt;</code> includes those contributors in a separate section;
+namesakes stay distinct by ID. Pending or rejected source claims do not create
+such a navigable identity.</p>
+<p><strong>Each accepts names and folders</strong>:</p>
+<pre><code class="language-sh">aede fetch --discography &quot;pink floyd&quot;
+aede fetch --covers manson portishead      # a list is fine
+aede fetch --summaries mika                # nothing here matches mika
+aede fetch --lyrics ~/Music/Alastis        # that shelf, whatever it is called
+</code></pre>
+<p>A name targets an artist by name, and an album by title <strong>or</strong> artist.</p>
+<h2 id="restricting-an-execution-by-folder">Restricting an Execution by Folder<a class="heading-link" href="#restricting-an-execution-by-folder" aria-label="Restricting an Execution by Folder">#</a></h2>
+<p>All <code>fetch</code> options accept folders, following the same logic as <code>check</code>, <code>playlist</code>, and <code>fingerprint</code>:</p>
+<pre><code class="language-sh">aede fetch ~/Music/Alastis                 # the artists and albums on that shelf
+aede fetch --lyrics ~/Desktop/test/Alastis # the words, for those tracks only
+aede fetch --covers --lyrics ~/Music/80s   # several passes, one shelf
+aede fetch ozzy ~/Music/80s                # that person, on that shelf
+</code></pre>
+<p><strong>Any existing path on disk is treated as a folder; everything else is treated as a name</strong>. The run displays the folders taken into account before querying:</p>
+<pre><code class="language-">  only what is under /Users/you/Music/Alastis
+
+Lyrics
+</code></pre>
+<p>Both criteria apply independently: name defines <strong>who</strong>, folder defines <strong>where</strong>.</p>
+<p>A folder not scanned by the catalog is <strong>rejected</strong>:</p>
+<pre><code class="language-">no file in the catalog is under &quot;~/Music/New&quot;.
+It is on disk, so this catalog was scanned 3 days ago and has not seen it — a folder added since is not in it yet.
+Add it: aede scan &quot;~/Music/New&quot;
+</code></pre>
+<p>Options can be combined and execute sequentially:</p>
+<pre><code class="language-sh">aede fetch --covers --discography          # both, in one go
+aede fetch --summaries --discography --covers --dry-run
+</code></pre>
+<p>Execution order follows a centrifugal logic starting from the artist: identity, discography, visuals.</p>
+<h2 id="querying-wikipedia">Querying Wikipedia<a class="heading-link" href="#querying-wikipedia" aria-label="Querying Wikipedia">#</a></h2>
+<p>MusicBrainz does not store full biographies, but keeps a link to them. Fetching them is an <strong>option of</strong> <code>fetch</code>:</p>
+<pre><code class="language-sh">aede fetch --summaries          # follow it, for every artist already fetched
+aede fetch --summaries --full   # ask again about what is already held
+</code></pre>
+<pre><code class="language-">→ 402 stored, 3 left alone, 0 failed
+  381 of them have a wikidata link — aede fetch --summaries reads the article
+</code></pre>
+<p>This is a <strong>second pass on</strong> <code>fetch</code> <strong>data</strong>, not a new Wikipedia name search. The program reads an artist&#x27;s or label&#x27;s <code>wikidata</code> link, queries Wikidata to get the corresponding article, then retrieves the first paragraph from Wikipedia (two queries per entity). <code>fetch --labels</code> now asks MusicBrainz for each label&#x27;s Wikidata link. A label fetched by an older Aède version can be refreshed with <code>aede fetch --labels --full &lt;name&gt;</code> before <code>aede fetch --summaries &lt;name&gt;</code>. When MusicBrainz has no Wikidata link, or Wikidata has no article in the requested languages, that pass has no Wikipedia biography to show.</p>
+<p>For a label with no Wikipedia biography, opening its page checks the Discogs link on its MusicBrainz record:</p>
+<pre><code class="language-sh">aede label roadracer
+</code></pre>
+<p>The Discogs profile is kept in <code>sources.json</code> with its source, page and fetch time. Opening the page checks the current profile and replaces the stored copy if available. <code>--offline</code> skips the request. When a check fails, the label page shows the stored profile with an update notice; <code>--offline</code> also shows that notice when the copy is older than five hours. Other source views and exports still hide a profile that old. Aède verifies the Discogs label ID and name and never searches Discogs by name. Discogs label references such as <code>[l30552]</code> and artist references such as <code>[a1258936]</code> are resolved to their names independently of the local catalog; presentation tags such as <code>[b]</code> are removed. An already stored profile with unresolved artist codes is reprocessed on the next successful visit. The original profile is normally English: Discogs does not supply a French version of that field, even on its French site. The display includes “Data provided by Discogs.” and the source page. <a href="https://github.com/craft-and-code/aede/blob/main/docs/design/discogs.md">Discogs&#x27; API terms</a> limit how old displayed data may be, so the offline fallback has a compliance limitation when a refresh is unavailable for a long time.</p>
+<p>The label page preserves Discogs line breaks and blank lines between paragraphs, and emphasizes the label-code line when terminal styling is enabled. Long lines are wrapped without merging the paragraphs. This layout also applies to already stored profiles, including offline display.</p>
+<p>Articles are searched <strong>primarily in the system language</strong> (<code>LANG</code> variable), then in English.</p>
+<h2 id="credit-is-part-of-the-text">Credit is Part of the Text<a class="heading-link" href="#credit-is-part-of-the-text" aria-label="Credit is Part of the Text">#</a></h2>
+<p>Wikipedia articles are licensed under <strong>CC BY-SA</strong>. Using the text requires citing the source and license. Aède stores the paragraph, page, language, and license as <strong>an inseparable value</strong>:</p>
+<pre><code class="language-">  Marilyn Manson is an American rock band formed in Fort Lauderdale,
+  Florida, in 1989.
+  https://en.wikipedia.org/wiki/Marilyn_Manson_(band) — CC BY-SA 4.0
+</code></pre>
+<p><code>aede sources --forget --source=wikipedia</code> deletes the whole set.</p>
+<h2 id="images-already-present-in-your-files">Images Already Present in Your Files<a class="heading-link" href="#images-already-present-in-your-files" aria-label="Images Already Present in Your Files">#</a></h2>
+<p>Before downloading anything, a local solution exists. An album without a <code>cover.jpg</code> file in its folder can extract its visual <strong>from inside the audio files</strong>:</p>
+<pre><code class="language-sh">aede extract                    # write it out, everywhere it is missing
+aede extract ~/Music/Manson     # only under these folders
+aede extract --images           # the back and the booklet too, in artwork/
+aede extract --dry-run          # say which folders, write nothing
+</code></pre>
+<p><strong>The program reads your files without ever modifying them</strong>. No writing occurs inside audio files. The image is created alongside (folder, playlist, spectrogram). Works across <strong>all formats</strong> (FLAC, ID3, MP4, Ogg).</p>
+<p>Extraction runs <strong>per folder</strong>. A folder that already contains an image is skipped.</p>
+<h2 id="other-embedded-visuals">Other Embedded Visuals<a class="heading-link" href="#other-embedded-visuals" aria-label="Other Embedded Visuals">#</a></h2>
+<p>In addition to the front cover, <code>--images</code> extracts back cover, booklet, or disc into an <code>artwork/</code> subfolder so as not to interfere with front cover detection by media players:</p>
+<pre><code class="language-">/music/Miles Davis/Kind of Blue/
+    cover.jpg
+    artwork/
+        back.jpg
+        booklet-01.jpg
+        booklet-02.jpg
+        media.jpg
+</code></pre>
+<h2 id="album-cover-art">Album Cover Art<a class="heading-link" href="#album-cover-art" aria-label="Album Cover Art">#</a></h2>
+<p>Retrieving visuals from Cover Art Archive (MusicBrainz).</p>
+<pre><code class="language-sh">aede fetch --covers                 # albums with no cover, at 1200 px
+aede fetch --covers --size=500      # 250, 500, 1200 or original
+aede fetch --covers --images        # the back and the booklet too, in artwork/
+aede fetch --covers --dry-run       # say which albums, ask nothing
+</code></pre>
+<p><strong>Run</strong> <code>aede extract</code> <strong>first</strong>. <code>--covers</code> only downloads if no image is present (neither embedded nor in the folder). There is no <code>--replace</code> flag to prevent accidental overwrites.</p>
+<p>Downloaded images are saved as <code>cover.jpg</code> alongside audio tracks. Audio files are never altered. Only valid files (JPEG/PNG) are saved to avoid corruption from HTML error pages.</p>
+<h2 id="fanarttv-artwork">Fanart.tv Artwork<a class="heading-link" href="#fanarttv-artwork" aria-label="Fanart.tv Artwork">#</a></h2>
+<p>Fanart.tv complements the Cover Art Archive with artist artwork, label marks, and additional album visuals. It requires a free application key in <code>AEDE_FANARTTV_KEY</code>:</p>
+<pre><code class="language-sh">export AEDE_FANARTTV_KEY=&quot;your-key&quot;
+aede fetch --fanart
+</code></pre>
+<p><code>--fanart</code> enables every supported family in one pass:</p>
+<div class="guide-table" tabindex="0" role="region" aria-label="Table"><table><thead><tr><th>Family</th><th>Selection rule</th><th>Destination</th></tr></thead><tbody><tr><td>Artist logo</td><td>HD first, standard resolution as fallback</td><td><code>logo.jpg</code> or <code>logo.png</code> beside the artist&#x27;s music, or in <code>assets/artists/&lt;MusicBrainz ID&gt;/</code></td></tr><tr><td>Label logo</td><td>Best-liked available logo</td><td><code>assets/labels/&lt;MusicBrainz ID&gt;/</code></td></tr><tr><td>Artist portrait</td><td>Best-liked portrait</td><td><code>artist.jpg</code> or <code>artist.png</code> beside the artist&#x27;s music, or in <code>assets/</code></td></tr><tr><td>Background</td><td><strong>4K first</strong>, 1080p only when no 4K background exists</td><td><code>background.jpg</code> or <code>background.png</code> beside the artist&#x27;s music, or in <code>assets/</code></td></tr><tr><td>Banner</td><td>Best-liked wide banner</td><td><code>banner.jpg</code> or <code>banner.png</code> beside the artist&#x27;s music, or in <code>assets/</code></td></tr><tr><td>Album cover</td><td>Best-liked Fanart.tv album cover</td><td><code>artwork/cover.jpg</code> or <code>artwork/cover.png</code> inside the album folder</td></tr><tr><td>cdART</td><td>One image per disc</td><td><code>artwork/media.jpg</code>, or numbered <code>media-01.jpg</code>, <code>media-02.jpg</code>, and so on</td></tr></tbody></table></div>
+<p>Start from everything and remove only what you do not want:</p>
+<pre><code class="language-sh">aede fetch --fanart --no-logo
+aede fetch --fanart --no-label-logo --no-banner
+aede fetch --fanart --no-portrait --no-background
+aede fetch --fanart --no-album-cover --no-cdart
+</code></pre>
+<p>The complete exclusion list is <code>--no-logo</code>, <code>--no-label-logo</code>, <code>--no-portrait</code>, <code>--no-background</code>, <code>--no-banner</code>, <code>--no-album-cover</code>, and <code>--no-cdart</code>. An exclusion without <code>--fanart</code> is refused instead of silently ignored. Contradictory requests such as <code>--fanart --logos --no-logo</code> or <code>--fanart --banners --no-banner</code> are refused as well.</p>
+<p>The narrower forms remain available for compatibility and focused runs:</p>
+<pre><code class="language-sh">aede fetch --logos              # artist and identified-label logos only
+aede fetch --logos --banners    # the same artist response also yields a banner
+</code></pre>
+<p>Each family has its own completion record. If backgrounds are excluded today, a later <code>aede fetch --fanart --no-portrait</code> can still fetch them without repeating image families already completed. <code>--full</code> deliberately asks again. Existing JPEG and PNG files are never overwritten, and downloaded bytes are checked as images before anything is written.</p>
+<h2 id="missing-from-the-shelf">Missing from the Shelf<a class="heading-link" href="#missing-from-the-shelf" aria-label="Missing from the Shelf">#</a></h2>
+<pre><code class="language-sh">aede fetch --discography    # browse everything credited to each artist
+aede missing                # what is credited to them and not here
+aede missing davis          # narrowed, by artist or by title
+</code></pre>
+<p><code>missing</code> performs <strong>no network request</strong>. It calculates the result from stored discography data.</p>
+<pre><code class="language-">Missing
+
+  Artist       Album              Year
+  ───────────  ─────────────────  ────
+  Miles Davis  Sketches of Spain  1960
+  Miles Davis  Bitches Brew       1970
+  2 studio albums
+  9 records left out — --all lists them here, with the reason for each: singles,
+  live records, compilations, demos, and anything you set aside
+</code></pre>
+<h2 id="exclude-or-re-include-an-album">Exclude or Re-include an Album<a class="heading-link" href="#exclude-or-re-include-an-album" aria-label="Exclude or Re-include an Album">#</a></h2>
+<pre><code class="language-sh">aede missing --forget &quot;Sweet Dreams&quot;            # stop listing it
+aede missing --list                             # what you set aside
+aede missing --list manson                      # narrowed, by artist or by title
+aede missing --forget &quot;Sweet Dreams&quot; --remove   # put it back
+</code></pre>
+<p>Choices are saved in <code>user.json</code> and indexed on the MusicBrainz release group ID.</p>
+<p>The default filter only keeps <strong>studio albums</strong> from artists having at least one complete album in the local library.</p>
+<h2 id="identifying-a-file-by-acoustic-fingerprint">Identifying a File by Acoustic Fingerprint<a class="heading-link" href="#identifying-a-file-by-acoustic-fingerprint" aria-label="Identifying a File by Acoustic Fingerprint">#</a></h2>
+<p>Acoustic fingerprint computed from decoded audio signal to identify mislabelled files or missing metadata.</p>
+<pre><code class="language-sh">aede fingerprint                # decode and work out what the audio is
+aede fingerprint ~/Music/Rips   # only under these folders
+aede fingerprint --full         # every file, not just the nameless ones
+aede fingerprint --list         # print what is stored, to compare it
+aede fetch --identify           # ask AcoustID what it hears
+</code></pre>
+<p>By default, properly tagged files or files already holding a MusicBrainz ID are skipped.</p>
+<h2 id="comparison-and-duplicate-detection">Comparison and Duplicate Detection<a class="heading-link" href="#comparison-and-duplicate-detection" aria-label="Comparison and Duplicate Detection">#</a></h2>
+<p><code>aede doctor</code> groups files sharing the same acoustic fingerprint to identify strictly identical recordings, regardless of their tags:</p>
+<pre><code class="language-">  ! the same audio — 2 files are the same recording (379.1 kB recoverable)
+      /music/Copie/track07.flac
+      /music/Original/01.flac
+</code></pre>
+<p>Prerequisites: Chromaprint (<code>ffmpeg</code> or <code>fpcalc</code>) and an AcoustID API key configured in <code>AEDE_ACOUSTID_KEY</code>. The system identifies and suggests matches, but never alters audio files.</p>
+<h2 id="what-musicbrainz-does-not-contain">What MusicBrainz Does Not Contain<a class="heading-link" href="#what-musicbrainz-does-not-contain" aria-label="What MusicBrainz Does Not Contain">#</a></h2>
+<ul><li><strong>No full biography</strong> (only type, area, dates, and disambiguation note are provided). Wikipedia/Wikidata fills this gap.</li><li><p><strong>No overwriting of your files</strong>: retrieved data remains independent of your original tags, and deleting <code>sources.json</code> does not affect your local files.</p></li></ul></article><footer class="guide-source"><a href="https://github.com/craft-and-code/aede/blob/main/docs/sources.md">Edit the Markdown source</a><p>Repository Markdown is this page’s single source.</p></footer></main>
+<aside class="guide-toc"><p>On this page</p><nav aria-label="Contents"><ul><li class="toc-level-2"><a href="#querying-musicbrainz">Querying MusicBrainz</a></li><li class="toc-level-2"><a href="#prose-language">Prose Language</a></li><li class="toc-level-2"><a href="#identified-or-matched">Identified or Matched</a></li><li class="toc-level-2"><a href="#manual-corrections">Manual Corrections</a></li><li class="toc-level-2"><a href="#viewing-and-deleting">Viewing and Deleting</a></li><li class="toc-level-2"><a href="#secondary-passes-and-combined-runs">Secondary Passes and Combined Runs</a></li><li class="toc-level-2"><a href="#restricting-an-execution-by-folder">Restricting an Execution by Folder</a></li><li class="toc-level-2"><a href="#querying-wikipedia">Querying Wikipedia</a></li><li class="toc-level-2"><a href="#credit-is-part-of-the-text">Credit is Part of the Text</a></li><li class="toc-level-2"><a href="#images-already-present-in-your-files">Images Already Present in Your Files</a></li><li class="toc-level-2"><a href="#other-embedded-visuals">Other Embedded Visuals</a></li><li class="toc-level-2"><a href="#album-cover-art">Album Cover Art</a></li><li class="toc-level-2"><a href="#fanarttv-artwork">Fanart.tv Artwork</a></li><li class="toc-level-2"><a href="#missing-from-the-shelf">Missing from the Shelf</a></li><li class="toc-level-2"><a href="#exclude-or-re-include-an-album">Exclude or Re-include an Album</a></li><li class="toc-level-2"><a href="#identifying-a-file-by-acoustic-fingerprint">Identifying a File by Acoustic Fingerprint</a></li><li class="toc-level-2"><a href="#comparison-and-duplicate-detection">Comparison and Duplicate Detection</a></li><li class="toc-level-2"><a href="#what-musicbrainz-does-not-contain">What MusicBrainz Does Not Contain</a></li></ul></nav></aside></div>
+<footer class="guide-footer">aède<span>.</span> <a href="https://craft-and-code.github.io/FlacCompagnon/">FlacCompagnon ↗</a><a href="https://github.com/craft-and-code/aede">GitHub ↗</a><a href="../../manual/privacy.html">Privacy</a></footer></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_SIZE"],"fn":["spectrum","to_draw"]};

@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["aede_core",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.89.0/core/cmp/trait.Ord.html\" title=\"trait core::cmp::Ord\">Ord</a> for <a class=\"enum\" href=\"aede_core/copy/enum.ItemKind.html\" title=\"enum aede_core::copy::ItemKind\">ItemKind</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.89.0/core/cmp/trait.Ord.html\" title=\"trait core::cmp::Ord\">Ord</a> for <a class=\"enum\" href=\"aede_core/doctor/enum.IssueKind.html\" title=\"enum aede_core::doctor::IssueKind\">IssueKind</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.89.0/core/cmp/trait.Ord.html\" title=\"trait core::cmp::Ord\">Ord</a> for <a class=\"enum\" href=\"aede_core/doctor/enum.Severity.html\" title=\"enum aede_core::doctor::Severity\">Severity</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.89.0/core/cmp/trait.Ord.html\" title=\"trait core::cmp::Ord\">Ord</a> for <a class=\"enum\" href=\"aede_core/model/enum.EntityKind.html\" title=\"enum aede_core::model::EntityKind\">EntityKind</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.89.0/core/cmp/trait.Ord.html\" title=\"trait core::cmp::Ord\">Ord</a> for <a class=\"struct\" href=\"aede_core/graph/struct.RelationRef.html\" title=\"struct aede_core::graph::RelationRef\">RelationRef</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.89.0/core/cmp/trait.Ord.html\" title=\"trait core::cmp::Ord\">Ord</a> for <a class=\"struct\" href=\"aede_core/user/struct.EntityRef.html\" title=\"struct aede_core::user::EntityRef\">EntityRef</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1572]}

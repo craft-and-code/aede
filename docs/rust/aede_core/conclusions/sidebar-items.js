@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CONCLUSIONS_FILE","FORMAT_VERSION"],"fn":["conclusions_path","from_json","load","save","to_json"],"struct":["Conclusions","FileConclusion"]};

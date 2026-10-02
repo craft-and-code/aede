@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["HISTORY_LIMIT","LOCAL_USER","RELEASE_KEY_SEPARATOR","USER_FILE","USER_FORMAT_VERSION"],"fn":["from_json","load","merge","reconcile","save","to_json","user_path"],"struct":["Annotation","Attachment","Collection","EntityRef","Merge","Play","PlayCount","RelationAnnotation","SameArtist","SetAside","UserData"],"type":["UserRef"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["PERFORMING_ROLES"],"enum":["EntityKind"],"fn":["is_performing_role"],"mod":["builder","identity","query","relations"],"struct":["Artist","AudioFile","Catalog","Credit","CreditAttribute","Genre","GenreLink","IntegrityRecord","Label","Recording","Relation","Release","ReleaseGroup","Track","Work"],"type":["Id"]};

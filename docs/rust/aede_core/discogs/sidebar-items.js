@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_AGE_SECONDS","REQUEST_INTERVAL","SOURCE"],"fn":["api_url","artist_api_url","artist_name","fresh","label_id","label_name","label_url","profile","referenced_artists","referenced_labels","render_profile"]};

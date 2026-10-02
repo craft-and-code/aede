@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["KEY_VARIABLE","REQUEST_INTERVAL","SOURCE","WEB_SERVICE"],"fn":["best","key","lookup_url","no_key","refused"],"struct":["Heard"]};

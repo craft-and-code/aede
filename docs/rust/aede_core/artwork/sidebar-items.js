@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["embedded","extract_extras_into","extract_into","pictures"],"struct":["Extracted"]};

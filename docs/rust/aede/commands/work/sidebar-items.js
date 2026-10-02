@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["part_position","print_family","print_recordings","show_work"]};

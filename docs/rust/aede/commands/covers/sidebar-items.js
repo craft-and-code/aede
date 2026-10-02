@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_SIZE"],"fn":["download","download_others","has_embedded_art","reasons","run","skipped","store","survey","targets","waiting"],"struct":["Survey","Target"]};

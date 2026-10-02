@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["fingerprint","first","identified","length","listed","skipped","survey"],"struct":["Survey","Target"]};

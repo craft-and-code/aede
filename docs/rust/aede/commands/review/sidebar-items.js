@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_LIMIT"],"fn":["artist_paths","card_field","impact","interactive_review","local_facts","plain_status","print_decision","push_list","push_paths","push_some","reason","record_for","render_card","review","source_facts","source_url","status","tag_identity"]};

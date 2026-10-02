@@ -1,0 +1,52 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="The acoustic fingerprint of a file: what the audio is, not what it says."><title>aede_core::fingerprint - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-84e720fa.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="aede_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.89.0 (29483883e 2025-08-04)" data-channel="1.89.0" data-search-js="search-92309212.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fd3af306.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../aede_core/index.html">aede_<wbr>core</a><span class="version">0.3.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module fingerprint</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#why-this-exists" title="Why this exists">Why this exists</a></li><li><a href="#it-is-computed-not-fetched--and-stored-beside-the-checksum" title="It is computed, not fetched — and stored beside the checksum">It is computed, not fetched — and stored beside the checksum</a></li><li><a href="#two-ways-to-compute-one-and-why-ffmpeg-comes-first" title="Two ways to compute one, and why ffmpeg comes first">Two ways to compute one, and why ffmpeg comes first</a></li><li><a href="#the-duration-is-part-of-the-question" title="The duration is part of the question">The duration is part of the question</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate aede_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">aede_core</a></div><h1>Module <span>fingerprint</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/aede_core/fingerprint.rs.html#1-288">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>The acoustic fingerprint of a file: what the audio <em>is</em>, not what it says.</p>
+<h2 id="why-this-exists"><a class="doc-anchor" href="#why-this-exists">§</a>Why this exists</h2>
+<p>Every other identifier in this program comes out of the tags, and a badly
+tagged file therefore cannot be identified at all: <code>track03.mp3</code> with no
+title and no artist is invisible to MusicBrainz, because there is nothing
+to ask about. A fingerprint is computed from the <strong>decoded audio</strong>, so it
+answers for a file whose tags say nothing, and it disagrees with a file
+whose tags say the wrong thing.</p>
+<h2 id="it-is-computed-not-fetched--and-stored-beside-the-checksum"><a class="doc-anchor" href="#it-is-computed-not-fetched--and-stored-beside-the-checksum">§</a>It is computed, not fetched — and stored beside the checksum</h2>
+<p>A fingerprint is Aède’s own conclusion about the bytes, like
+<a href="../audit/integrity/index.html" title="mod aede_core::audit::integrity"><code>crate::audit::integrity</code></a> and unlike anything in <code>sources.json</code>: nobody
+told us, we worked it out. So it lives on <a href="../model/struct.AudioFile.html" title="struct aede_core::model::AudioFile"><code>crate::model::AudioFile</code></a> and
+is carried across a rescan by the same size-and-mtime rule the integrity
+verdict uses. What <strong>AcoustID</strong> answers when shown one is a different
+thing entirely, and goes in the attributed layer where every other
+source’s claim goes.</p>
+<h2 id="two-ways-to-compute-one-and-why-ffmpeg-comes-first"><a class="doc-anchor" href="#two-ways-to-compute-one-and-why-ffmpeg-comes-first">§</a>Two ways to compute one, and why ffmpeg comes first</h2>
+<p>Chromaprint is the algorithm; there are two ordinary ways to run it.</p>
+<ul>
+<li><strong>ffmpeg</strong>, <em>when</em> it was built with <code>--enable-chromaprint</code>. Debian and
+Ubuntu build it that way, so on those machines this is no new dependency
+at all — Aède already requires ffmpeg for <code>spectrum</code> and
+<code>copy --compress</code>.</li>
+<li><strong><code>fpcalc</code></strong>, the tool Chromaprint itself ships. Canonical, and the one
+AcoustID’s own documentation names.</li>
+</ul>
+<p><strong>Homebrew’s ffmpeg does not have chromaprint</strong>, which this module’s first
+version claimed it did — a guess written as a fact, corrected by a reader
+pasting the <code>configuration:</code> line of a fresh <code>brew install ffmpeg</code>. On
+macOS the answer is <code>brew install chromaprint</code>, and it is a small package.
+The lesson is not about ffmpeg: <strong>a build option is a property of somebody
+else’s packaging decision, and this program has no business asserting one
+it has not seen.</strong> So the availability check asks the muxer list rather
+than reading a version string, and the message names both ways out with
+the right one first for each platform.</p>
+<p><strong>The two agree, and that has been checked rather than assumed</strong> — on one
+file, <code>ffmpeg -algorithm 1</code> and a bare <code>fpcalc</code> answer the same string, byte
+for byte. They agree only on those exact flags: <code>fpcalc -algorithm 1</code> is a
+<em>different</em> algorithm and answers something else — the measurement is beside
+the <code>ALGORITHM</code> constant below.</p>
+<p>ffmpeg is tried first because it is more likely to be there already; the
+fallback exists because “built with chromaprint” is not a promise anyone
+made. <strong>Neither is linked or vendored</strong>, exactly as ffmpeg is not: a
+checkout with neither installed builds, passes its tests, and says plainly
+what is missing.</p>
+<h2 id="the-duration-is-part-of-the-question"><a class="doc-anchor" href="#the-duration-is-part-of-the-question">§</a>The duration is part of the question</h2>
+<p>AcoustID is asked for a fingerprint <em>and</em> a length, and refuses without
+both — the length is how it tells a full track from an excerpt that
+fingerprints alike. <code>fpcalc</code> prints it; ffmpeg’s muxer does not, so the
+caller supplies it from the catalog, which read it out of the file’s own
+header at scan time.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Fingerprint.html" title="struct aede_core::fingerprint::Fingerprint">Fingerprint</a></dt><dd>What one file’s audio amounts to, for a service that identifies audio.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.By.html" title="enum aede_core::fingerprint::By">By</a></dt><dd>Which program produced a fingerprint, for a message to name.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.find.html" title="fn aede_core::fingerprint::find">find</a></dt><dd>Whether either program is available, and which.</dd><dt><a class="fn" href="fn.missing.html" title="fn aede_core::fingerprint::missing">missing</a></dt><dd>What to tell somebody who has neither program, worded so they can act.</dd><dt><a class="fn" href="fn.of.html" title="fn aede_core::fingerprint::of">of</a></dt><dd>Computes the fingerprint of one file.</dd><dt><a class="fn" href="fn.read_ffmpeg.html" title="fn aede_core::fingerprint::read_ffmpeg">read_<wbr>ffmpeg</a></dt><dd>Reads what ffmpeg’s chromaprint muxer wrote to its output.</dd><dt><a class="fn" href="fn.read_fpcalc.html" title="fn aede_core::fingerprint::read_fpcalc">read_<wbr>fpcalc</a></dt><dd>Reads <code>fpcalc</code>’s two lines: <code>DURATION=</code> and <code>FINGERPRINT=</code>.</dd></dl></section></div></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["PORTRAIT_WIDTH"],"enum":["Outcome"],"fn":["attempt","has_portrait","run","store","targets","waiting","write"],"struct":["Target"]};

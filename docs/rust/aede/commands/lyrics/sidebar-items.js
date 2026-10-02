@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BULK"],"fn":["report","run","survey","write_beside"],"struct":["Skipped","Target"]};

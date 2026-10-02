@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["WEB_SERVICE"],"enum":["Found"],"fn":["get_url","read"],"struct":["Words"]};

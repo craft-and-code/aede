@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SHORT","VALUED_NAME","VALUED_WORD"],"fn":["distance","is_value","join_and","long_name","nearest","split_option"],"struct":["Args","Window"]};

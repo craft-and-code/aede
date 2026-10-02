@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["RULES_FORMAT_VERSION"],"fn":["export","print_summary","rules"]};

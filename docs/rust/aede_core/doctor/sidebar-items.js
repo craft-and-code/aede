@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IssueKind","Severity"],"fn":["diagnose","orphaned_relation_annotations","summary"],"struct":["Issue"]};

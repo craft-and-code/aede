@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FLAC_METHOD","OGG_METHOD"],"enum":["Verdict"],"fn":["check"],"struct":["Report"]};

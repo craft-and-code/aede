@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["asked_about","countries","country_of","find","without_code"],"struct":["Place"]};

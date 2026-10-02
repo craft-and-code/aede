@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_PAGES"],"fn":["absent","absent_for","aside_rows","browse","has_shelf","left_out","listed","matches","missing","run","set_aside","store","targets","waiting","whose"],"struct":["Absent","Target"]};

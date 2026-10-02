@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["refresh","refresh_online"]};

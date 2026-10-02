@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Extras","ItemKind","Wrote"],"fn":["copy_one","inside_a_watched_root","partial_path","plan"],"mod":["names","transcode"],"struct":["Failed","Item","Plan","Recipe","Renamed"]};
