@@ -5,7 +5,7 @@
   const scenes=[root.querySelector('.ae-sound'),root.querySelector('.ae-graph'),root.querySelector('.ae-preserve')];
   const descriptions=['Vos fichiers, vos paroles. Une écoute à votre mesure.','Artistes, crédits, œuvres. Chaque lien ouvre une nouvelle piste.','Copie vérifiée, intégrité, analyses. Vos originaux restent intacts.'];
   const canvas=root.querySelector('#ae-sound-canvas'),ctx=canvas.getContext('2d'),graph=root.querySelector('#ae-graph-canvas'),gx=graph.getContext('2d');
-  let w=0,h=0,t=0,last=0,end=0,active=true,rx=0,ry=0,targetX=0,targetY=0;
+  let w=0,h=0,t=0,last=0,lastDraw=0,animationId=0,active=false,rx=0,ry=0,targetX=0,targetY=0;
   const nodes=[
     {title:'Échos',type:'Album',x:-.08,y:-.02,detail:'Échos : un album relié à son artiste, sa production et ses pistes.'},
     {title:'Trio Aster',type:'Artiste',x:-.75,y:-.72,detail:'Trio Aster est l’artiste de l’album Échos.'},
@@ -29,18 +29,40 @@
     edges.forEach(e=>{const a=graphPos(nodes[e.a]),b=graphPos(nodes[e.b]),lit=e.a===state.node||e.b===state.node;gx.beginPath();gx.moveTo(a.x,a.y);gx.lineTo(b.x,b.y);gx.strokeStyle=lit?accent:'#4c5055';gx.globalAlpha=lit?.65:.7;gx.lineWidth=1;gx.stroke();if(w<420&&((e.a===0&&e.b===3)||(e.a===2&&e.b===0)))return;const x=(a.x+b.x)/2,y=(a.y+b.y)/2;gx.font='11px Helvetica, Arial, sans-serif';const tw=gx.measureText(tr(e.label)).width;gx.fillStyle='#111213';gx.globalAlpha=1;gx.fillRect(x-tw/2-5,y-7,tw+10,15);gx.fillStyle=lit?'#d4d6cb':'#a4a6a7';gx.textAlign='center';gx.textBaseline='middle';gx.fillText(tr(e.label),x,y);});
     gx.globalAlpha=1;
   }
-  function signal(u,time,depth){
-    const env=.12+.74*Math.exp(-Math.pow((u-.30)/.12,2))+.57*Math.exp(-Math.pow((u-.61)/.18,2))+.30*Math.exp(-Math.pow((u-.82)/.05,2));
-    return env*(.64*Math.sin(u*120+time*3.5+depth*.65)+.23*Math.sin(u*267-time*1.7)+.13*Math.sin(u*431+time*2.1));
-  }
-  function project(x,y,z){const yaw=-.09+rx*.12,pitch=.44+ry*.05;const xx=x*Math.cos(yaw)+z*Math.sin(yaw),zz=-x*Math.sin(yaw)+z*Math.cos(yaw);return {x:w/2+xx*Math.min(w*.44,325),y:h*.51+(-y*Math.cos(pitch)+zz*Math.sin(pitch))*h*.38};}
   function drawSound(){
-    if(!w)return;ctx.clearRect(0,0,w,h);
-    for(let d=30;d>=0;d--){const z=(d/30-.5)*.80,depth=d/30;
-      ctx.beginPath();for(let i=0;i<=235;i++){const u=i/235,p=project((u-.5)*2,signal(u,t*.65,depth)*.50,z);if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);}
-      ctx.strokeStyle=d%7===0?'#f1f0eb':'#c3b8ff';ctx.globalAlpha=.15+(1-depth)*.52;ctx.lineWidth=d===0?1.35:.70;ctx.stroke();
+    if(!w)return;
+    ctx.clearRect(0,0,w,h);
+    const time=reduce.matches?0:t,span=Math.min(w-32,700),left=(w-span)/2+rx*8,mid=h*.43+ry*10;
+    const phase=(time*2.1)%1,kick=Math.exp(-phase*9),height=Math.min(h*.30,105);
+    const palette=ctx.createLinearGradient(left,0,left+span,0);
+    palette.addColorStop(0,'#d8f36a');palette.addColorStop(.48,'#49d9ff');palette.addColorStop(1,'#b69aff');
+    ctx.strokeStyle='#303236';ctx.lineWidth=1;ctx.globalAlpha=.55;
+    for(const y of [mid-height,mid,mid+height]){ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(left+span,y);ctx.stroke();}
+    // The beat drives motion only: this is an illustration, not a measured spectrum.
+    for(let ring=0;ring<2;ring++){
+      const progress=(phase+ring*.5)%1,radius=22+progress*height;
+      ctx.beginPath();ctx.arc(w/2,mid,radius,0,Math.PI*2);ctx.strokeStyle='#49d9ff';ctx.globalAlpha=(1-progress)*.16;ctx.stroke();
     }
-    for(let i=6;i<235;i+=7){const u=i/235;ctx.beginPath();for(let d=0;d<=30;d++){const p=project((u-.5)*2,signal(u,t*.65,d/30)*.50,(d/30-.5)*.80);if(!d)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);}ctx.strokeStyle='#c3b8ff';ctx.globalAlpha=.08;ctx.lineWidth=.6;ctx.stroke();}
+    const count=w<460?42:64,step=span/count;
+    for(let i=0;i<count;i++){
+      const u=i/(count-1),bass=Math.exp(-Math.pow((u-.20)/.19,2)),body=Math.exp(-Math.pow((u-.57)/.28,2));
+      const texture=.35+.65*Math.pow(Math.sin(i*1.71-time*3.8),2);
+      const energy=Math.min(1,.08+texture*(.28+.40*body)+kick*.48*bass+.14*Math.sin(time*5+i*.47)**2);
+      const amplitude=energy*height,x=left+(i+.5)*step,barWidth=Math.max(2,step*.56);
+      ctx.fillStyle=palette;ctx.globalAlpha=.55+.25*energy;ctx.fillRect(x-barWidth/2,mid-amplitude,barWidth,amplitude);
+      ctx.globalAlpha=.20+.13*energy;ctx.fillRect(x-barWidth/2,mid+3,barWidth,amplitude*.72);
+      ctx.fillStyle='#f1f0eb';ctx.globalAlpha=.65;ctx.fillRect(x-barWidth/2,mid-amplitude-5,barWidth,2);
+    }
+    for(let trail=2;trail>=0;trail--){
+      ctx.beginPath();
+      for(let i=0;i<=300;i++){
+        const u=i/300,envelope=Math.sin(Math.PI*u)**.7;
+        const wave=.56*Math.sin(u*67-time*14+trail*.22)+.28*Math.sin(u*151+time*8)+.16*Math.sin(u*239-time*11);
+        const y=mid-wave*envelope*(18+kick*29),x=left+u*span;
+        if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle=trail?palette:'#f1f0eb';ctx.globalAlpha=trail?.16:1;ctx.lineWidth=trail?5-trail:2;ctx.stroke();
+    }
     ctx.globalAlpha=1;
   }
   function animatePreserve(){
@@ -52,7 +74,7 @@
     state.mode=mode;root.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.mode)===mode)));
     scenes.forEach((scene,i)=>scene.hidden=i!==mode);root.querySelector('.ae-detail').textContent=descriptions[mode];
     if(!reduce.matches&&settings.motion)scenes[mode].animate([{opacity:.25,transform:'translateY(9px)'},{opacity:1,transform:'translateY(0)'}],{duration:500,easing:'cubic-bezier(.2,.8,.2,1)'});
-    if(mode===0){end=performance.now()+4400;drawSound();}if(mode===1)drawGraph();if(mode===2)animatePreserve();
+    if(mode===0)drawSound();if(mode===1)drawGraph();if(mode===2)animatePreserve();syncSoundMotion();
   }
   root.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(Number(b.dataset.mode))));
   const serverVisual=root.querySelector('.ae-server-visual');let serverVisible=false,serverAnimations=[];
@@ -73,12 +95,22 @@
   }
   const serverObserver=new IntersectionObserver(entries=>{serverVisible=entries[0].isIntersecting;syncServerMotion();},{threshold:.08});serverObserver.observe(serverVisual);
   document.addEventListener('visibilitychange',syncServerMotion);
-  canvas.addEventListener('pointermove',e=>{if(reduce.matches||!settings.motion)return;const r=canvas.getBoundingClientRect();targetX=(e.clientX-r.left)/r.width-.5;targetY=(e.clientY-r.top)/r.height-.5;end=performance.now()+1000;});
-  canvas.addEventListener('pointerleave',()=>{targetX=targetY=0;end=performance.now()+650;});
+  canvas.addEventListener('pointermove',e=>{if(reduce.matches||!settings.motion)return;const r=canvas.getBoundingClientRect();targetX=(e.clientX-r.left)/r.width-.5;targetY=(e.clientY-r.top)/r.height-.5;});
+  canvas.addEventListener('pointerleave',()=>{targetX=targetY=0;});
   new ResizeObserver(resize).observe(root.querySelector('.ae-stage'));
-  new IntersectionObserver(entries=>{active=entries[0].isIntersecting;if(active&&state.mode===0)end=performance.now()+4400;},{threshold:.08}).observe(root.querySelector('.ae-stage'));
-  function frame(now){const dt=Math.min((now-last)/1000,.04);last=now;if(active&&!document.hidden&&state.mode===0&&!reduce.matches&&settings.motion&&now<end){t+=dt;rx+=(targetX-rx)*.07;ry+=(targetY-ry)*.07;drawSound();}requestAnimationFrame(frame);}
-  requestAnimationFrame(frame);end=performance.now()+4400;
+  function soundCanAnimate(){return active&&!document.hidden&&state.mode===0&&!reduce.matches&&settings.motion;}
+  function syncSoundMotion(){
+    if(soundCanAnimate()){if(!animationId){last=0;animationId=requestAnimationFrame(frame);}}
+    else if(animationId){cancelAnimationFrame(animationId);animationId=0;last=0;}
+  }
+  function frame(now){
+    animationId=0;if(!soundCanAnimate())return;
+    t+=last?Math.min((now-last)/1000,.05):0;last=now;
+    if(now-lastDraw>=1000/30){rx+=(targetX-rx)*.12;ry+=(targetY-ry)*.12;drawSound();lastDraw=now;}
+    animationId=requestAnimationFrame(frame);
+  }
+  document.addEventListener('visibilitychange',syncSoundMotion);
+  new IntersectionObserver(entries=>{active=entries[0].isIntersecting;syncSoundMotion();},{threshold:.08}).observe(root.querySelector('.ae-stage'));
   const cli={
     scan:{command:'$ aede scan ~/Music',comment:'# Tout commence avec votre dossier Musique.',output:'Lecture des fichiers…\nConstruction du catalogue…\n\n 3 albums\n 9 pistes\n 4 artistes\n\nAudio et tags inchangés.',caption:'Vos dossiers deviennent un catalogue de liens musicaux.',question:'« Comment commencer avec mon dossier Musique ? »'},
     query:{command:'$ aede query "loved played:0"',comment:'# Vos favoris encore inécoutés.',output:'01  Lisières       Trio Aster\n02  Rivages        Nora Vale\n03  La traversée   Trio Aster\n\n3 pistes dans cette sélection.',caption:'Les favoris que vous n’avez pas encore écoutés.',question:'« Quels favoris n’ai-je pas encore écoutés ? »'},
@@ -118,7 +150,7 @@
     revealObserver.unobserve(entry.target);
   }),{threshold:0,rootMargin:'0px 0px -64px 0px'});
   root.querySelectorAll('.ae-reveal').forEach(el=>revealObserver.observe(el));
-  reduce.addEventListener('change',()=>{root.getAnimations({subtree:true}).forEach(a=>a.cancel());serverAnimations=[];syncServerMotion();drawSound();drawGraph();drawEq();});
+  reduce.addEventListener('change',()=>{root.getAnimations({subtree:true}).forEach(a=>a.cancel());serverAnimations=[];syncServerMotion();syncSoundMotion();drawSound();drawGraph();drawEq();});
   window.aedeLocalize?.(root);
   new MutationObserver(records=>{for(const record of records){if(record.type==='characterData')window.aedeLocalize?.(record.target.parentElement);else for(const node of record.addedNodes)if(node.nodeType===1)window.aedeLocalize?.(node);else if(node.nodeType===3)window.aedeLocalize?.(node.parentElement);}}).observe(root,{childList:true,characterData:true,subtree:true});
   resize();

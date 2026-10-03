@@ -27,8 +27,8 @@ html{scroll-behavior:smooth;scroll-padding-top:100px;background:#111213}body{mar
   #aede-motion-concepts .ae-modes button{border:0;border-bottom:1px solid transparent;padding:12px 0;background:none;color:var(--ae-muted);font-size:15px}
   #aede-motion-concepts .ae-modes button[aria-pressed="true"]{color:var(--ae-fg);border-color:var(--ae-accent)}
   #aede-motion-concepts .ae-detail{font-size:15px;color:var(--ae-muted);line-height:1.65;min-height:40px;margin:15px auto 23px;max-width:640px}
-  #aede-motion-concepts .ae-index{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:38px calc(-1 * var(--ae-page-gutter)) 0;text-align:left;border-top:1px solid var(--ae-line);border-bottom:1px solid var(--ae-line)}
-  #aede-motion-concepts .ae-jump{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto 1fr;gap:6px 16px;padding:28px;border-right:1px solid var(--ae-line);background:transparent;color:var(--ae-jump-color);transition:background .2s}
+  #aede-motion-concepts .ae-index{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:0 calc(-1 * var(--ae-page-gutter));text-align:left;border-top:1px solid var(--ae-line);border-bottom:1px solid var(--ae-line)}
+  #aede-motion-concepts .ae-jump{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto 1fr;gap:6px 16px;padding:28px max(28px,calc((25vw - 240px)/2));border-right:1px solid var(--ae-line);background:transparent;color:var(--ae-jump-color);transition:background .2s}
   #aede-motion-concepts .ae-jump:last-child{border-right:0}
   #aede-motion-concepts .ae-jump:hover{background:var(--ae-panel)}
   #aede-motion-concepts .ae-jump:focus-visible{outline-color:var(--ae-jump-color);outline-offset:-5px}
@@ -37,7 +37,7 @@ html{scroll-behavior:smooth;scroll-padding-top:100px;background:#111213}body{mar
   #aede-motion-concepts .ae-jump small{grid-column:1/-1;grid-row:3;font-size:16px;line-height:1.5;color:var(--ae-muted)}
   #aede-motion-concepts .ae-jump>svg:last-child{grid-column:2;grid-row:1;align-self:start;margin-top:5px;width:14px;height:14px}
   #aede-motion-concepts .ae-jump-cli{--ae-jump-color:#d8f36a}#aede-motion-concepts .ae-jump-server{--ae-jump-color:#49d9ff}#aede-motion-concepts .ae-jump-dsp{--ae-jump-color:#b69aff}#aede-motion-concepts .ae-jump-gui{--ae-jump-color:#ff7c9f}
-  #aede-motion-concepts .ae-origin{display:grid;grid-template-columns:1fr 1.65fr;gap:35px;align-items:center;padding:35px 0;border-top:1px solid var(--ae-line);border-bottom:1px solid var(--ae-line);margin-top:30px}
+  #aede-motion-concepts .ae-origin{display:grid;grid-template-columns:1fr 1.65fr;gap:35px;align-items:center;padding:35px 0;border-top:1px solid var(--ae-line);margin-top:30px}
   #aede-motion-concepts .ae-origin-word{font-size:32px;letter-spacing:-1.5px;display:block}
   #aede-motion-concepts .ae-origin small{font-size:14px;color:var(--ae-muted);display:block;margin-top:10px;line-height:1.7}
   #aede-motion-concepts .ae-origin p{font-size:17px;color:var(--ae-muted);line-height:1.8;margin:0}
@@ -237,7 +237,7 @@ html{scroll-behavior:smooth;scroll-padding-top:100px;background:#111213}body{mar
     #aede-motion-concepts .ae-eyebrow{font-size:12px;letter-spacing:1.4px}#aede-motion-concepts .ae-deck{font-size:17px}
     #aede-motion-concepts .ae-stage{height:390px;margin-top:10px}#aede-motion-concepts .ae-node{min-width:76px;padding:7px 8px}#aede-motion-concepts .ae-node strong{font-size:14px}#aede-motion-concepts .ae-node small{font-size:12px}
     #aede-motion-concepts .ae-copy-flow{grid-template-columns:1fr 40px 1fr;height:290px;margin-top:40px}#aede-motion-concepts .ae-file{padding:17px 10px}#aede-motion-concepts .ae-file strong{font-size:15px}#aede-motion-concepts .ae-file-label{font-size:13px;gap:5px}#aede-motion-concepts .ae-file code{font-size:11px}
-    #aede-motion-concepts .ae-modes{gap:27px}#aede-motion-concepts .ae-detail{font-size:14px;min-height:55px}#aede-motion-concepts .ae-index{grid-template-columns:1fr 1fr;margin-top:28px}#aede-motion-concepts .ae-jump{padding:22px 18px}#aede-motion-concepts .ae-jump:nth-child(even){border-right:0}#aede-motion-concepts .ae-jump:nth-child(n+3){border-top:1px solid var(--ae-line)}#aede-motion-concepts .ae-jump strong{font-size:22px}#aede-motion-concepts .ae-jump>svg:first-child{margin-bottom:10px}#aede-motion-concepts .ae-jump small{font-size:14px}
+    #aede-motion-concepts .ae-modes{gap:27px}#aede-motion-concepts .ae-detail{font-size:14px;min-height:55px}#aede-motion-concepts .ae-index{grid-template-columns:1fr 1fr}#aede-motion-concepts .ae-jump{padding:22px 18px}#aede-motion-concepts .ae-jump:nth-child(even){border-right:0}#aede-motion-concepts .ae-jump:nth-child(n+3){border-top:1px solid var(--ae-line)}#aede-motion-concepts .ae-jump strong{font-size:22px}#aede-motion-concepts .ae-jump>svg:first-child{margin-bottom:10px}#aede-motion-concepts .ae-jump small{font-size:14px}
     #aede-motion-concepts .ae-origin{grid-template-columns:1fr;gap:20px;padding:30px 0;margin-top:15px}#aede-motion-concepts .ae-origin-word{font-size:30px}
     #aede-motion-concepts .ae-section{grid-template-columns:1fr;gap:30px;padding:65px 0}#aede-motion-concepts .ae-section h2{font-size:32px;letter-spacing:-1.5px}
     #aede-motion-concepts .ae-gui-section{padding:65px 0}#aede-motion-concepts .ae-gui-heading{display:block}#aede-motion-concepts .ae-gui-heading h2{font-size:48px}#aede-motion-concepts .ae-gui-heading>p{margin-top:18px;font-size:15px}
