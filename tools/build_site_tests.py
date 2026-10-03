@@ -226,6 +226,7 @@ class StatisticsFixture:
         report = module.collect(self.root)
         # Intentionally stale source totals prove the publisher remeasures code.
         report["source"]["total"]["physical_lines"] = 999999
+        report["commits"] = {"status": "complete", "display": {"en": "> 98,700 commits", "fr": "+ de 98 700 commits"}}
         report["unit_tests"] = {
             "kind": "libtest_inventory", "active": 1567, "ignored": 0, "total": 1567,
             "lower_bound": 1500, "display": module.public_labels(1567),
@@ -315,6 +316,54 @@ class ProjectStatisticsTests(unittest.TestCase):
                 self.assertNotIn("1 567 TU", content)
                 self.assertNotIn("999,999", content)
                 self.assertNotIn("999 999", content)
+                self.assertNotIn("98,700 commits", content)
+                self.assertNotIn("98 700 commits", content)
+
+    def test_complete_commit_history_publishes_only_a_rounded_bilingual_total(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            module = builder.project_stats_module()
+            commits = {
+                "status": "complete", "reachable_from_head": 2345,
+                "lower_bound": 2300,
+                "display": {"en": "> 2,300 commits", "fr": "+ de 2 300 commits"},
+                "revision": "abcdefabcdefabcdefabcdefabcdefabcdefabcd", "reason": None,
+            }
+            with patch.object(module, "git_history", return_value=commits):
+                builder.build(fixture.root)
+            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text(encoding="utf-8")
+            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text(encoding="utf-8")
+            self.assertIn("+ de 2 300 commits", french)
+            self.assertIn("&gt; 2,300 commits", english)
+            self.assertIn("accessibles depuis", french)
+            self.assertIn("reachable from", english)
+            for content in (french, english):
+                self.assertIn("HEAD", content)
+                self.assertNotIn("2345", content)
+                self.assertNotIn("2,345", content)
+                self.assertNotIn("2 345", content)
+                self.assertIn(commits["revision"], content)
+
+    def test_partial_or_missing_commit_history_never_publishes_a_complete_total(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            module = builder.project_stats_module()
+            for status, labels in (
+                ("partial", {"en": "Unavailable (shallow history)", "fr": "Indisponible (historique partiel)"}),
+                ("unavailable", {"en": "Unavailable (Git history missing)", "fr": "Indisponible (historique Git absent)"}),
+            ):
+                with self.subTest(status=status):
+                    commits = {"status": status, "reachable_from_head": 17 if status == "partial" else None,
+                               "lower_bound": None, "display": labels,
+                               "revision": None, "reason": status}
+                    with patch.object(module, "git_history", return_value=commits):
+                        builder.build(fixture.root)
+                    for language in ("en", "fr"):
+                        content = (fixture.root / f"dist-site/docs/{language}/manual/project-statistics.html").read_text(encoding="utf-8")
+                        self.assertIn(labels[language], content)
+                        self.assertNotIn("+ de", content)
+                        self.assertNotIn("&gt; 10 commits", content)
+                        self.assertNotIn("17 commits", content)
 
     def test_stale_inventory_refuses_publication_and_preserves_the_existing_generated_site(self):
         with tempfile.TemporaryDirectory() as directory:

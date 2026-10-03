@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behaviour checks for source metrics and compiled Rust unit-test inventories."""
+"""Behaviour checks for source metrics, Git history and Rust test inventories."""
 from __future__ import annotations
 
 import importlib.util
@@ -104,6 +104,87 @@ class SourceMetricTests(unittest.TestCase):
             rust.write_bytes(b"\xff")
             with self.assertRaisesRegex(stats.StatsError, "UTF-8"):
                 stats.collect(fixture.root)
+
+
+class GitHistoryTests(unittest.TestCase):
+    def git(self, root, *arguments):
+        # Identity and signing settings belong to each fixture command, never
+        # the developer's global Git configuration. Cloning stays on local disk.
+        result = subprocess.run([
+            "git", "-c", "user.name=Aede statistics tests",
+            "-c", "user.email=statistics@example.invalid",
+            "-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always",
+            *arguments,
+        ], cwd=root, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(0, result.returncode, result.stderr)
+        return result.stdout.strip()
+
+    def repository(self, root):
+        self.git(root, "init", "--quiet", "--initial-branch=main")
+        for message in ("First", "Second", "Third"):
+            self.git(root, "commit", "--quiet", "--allow-empty", "-m", message)
+
+    def test_complete_history_counts_only_commits_reachable_from_head_including_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = ProjectFixture(root)
+            self.repository(root)
+            self.git(root, "checkout", "--quiet", "-b", "unmerged")
+            for message in ("Unmerged first", "Unmerged second"):
+                self.git(root, "commit", "--quiet", "--allow-empty", "-m", message)
+            self.git(root, "checkout", "--quiet", "main")
+            report = stats.collect(fixture.root)
+            commits = report["commits"]
+            self.assertEqual("complete", commits["status"])
+            self.assertEqual(3, commits["reachable_from_head"])
+            self.assertEqual(2, commits["lower_bound"])
+            self.assertEqual({"en": "> 2 commits", "fr": "+ de 2 commits"}, commits["display"])
+            self.assertEqual(self.git(root, "rev-parse", "HEAD"), commits["revision"])
+            self.assertEqual(commits["revision"], report["provenance"]["revision"])
+            self.git(root, "merge", "--quiet", "--no-ff", "unmerged", "-m", "Merge branch")
+            self.assertEqual(6, stats.git_history(root)["reachable_from_head"])
+
+    def test_shallow_history_is_explicitly_partial_without_a_project_total(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original"
+            original.mkdir()
+            self.repository(original)
+            clone = root / "shallow"
+            self.git(root, "clone", "--quiet", "--depth", "1", original.as_uri(), str(clone))
+            commits = stats.git_history(clone)
+            self.assertEqual("partial", commits["status"])
+            self.assertEqual(1, commits["reachable_from_head"])
+            self.assertIsNone(commits["lower_bound"])
+            self.assertIn("shallow", commits["display"]["en"])
+            self.assertIn("partiel", commits["display"]["fr"])
+            self.assertNotIn("+ de", commits["display"]["fr"])
+
+    def test_missing_git_history_is_unavailable_and_not_advertised_as_zero_commits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for initialized in (False, True):
+                if initialized:
+                    self.git(root, "init", "--quiet", "--initial-branch=main")
+                with self.subTest(initialized=initialized):
+                    commits = stats.git_history(root)
+                    self.assertEqual("unavailable", commits["status"])
+                    self.assertIsNone(commits["reachable_from_head"])
+                    self.assertIsNone(commits["lower_bound"])
+                    self.assertIsNone(commits["revision"])
+                    self.assertIn("Unavailable", commits["display"]["en"])
+                    self.assertIn("Indisponible", commits["display"]["fr"])
+
+    def test_source_archive_inside_another_repository_does_not_borrow_its_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            self.repository(parent)
+            fixture = ProjectFixture(parent / "exported-sources")
+            report = stats.collect(fixture.root)
+            self.assertEqual("unavailable", report["commits"]["status"])
+            self.assertIsNone(report["commits"]["reachable_from_head"])
+            self.assertIsNone(report["commits"]["revision"])
+            self.assertIsNone(report["provenance"]["revision"])
 
 
 class UnitInventoryTests(unittest.TestCase):

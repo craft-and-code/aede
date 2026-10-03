@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure authored project sources and optionally inventory active Rust unit tests.
+"""Measure authored project sources, Git history and optional active Rust tests.
 
 Python 3.9+, standard library only. Source measurement never invokes Cargo.
 ``--tests`` builds the workspace's library/binary test harnesses offline, then
@@ -177,15 +177,55 @@ def rust_fingerprint(root: Path) -> str:
     return fingerprint(root, sources)
 
 
-def git_revision(root: Path) -> Optional[str]:
+def git_output(root: Path, *arguments: str) -> Optional[str]:
+    """Read local Git metadata, without fetching or requiring Git to be present."""
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"], cwd=root,
-            capture_output=True, text=True, timeout=5,
+            ["git", *arguments], cwd=root,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def git_revision(root: Path) -> Optional[str]:
+    return git_output(root, "rev-parse", "--verify", "HEAD^{commit}")
+
+
+def git_history(root: Path) -> dict:
+    """Count commits reachable from one captured HEAD, refusing shallow totals."""
+    toplevel = git_output(root, "rev-parse", "--show-toplevel")
+    # Git searches enclosing directories. An exported project inside another
+    # checkout must not acquire that unrelated repository's history or revision.
+    revision = git_revision(root) if toplevel and Path(toplevel).resolve() == root.resolve() else None
+    result = {
+        "status": "unavailable", "reachable_from_head": None, "lower_bound": None,
+        "display": {"en": "Unavailable (Git history missing)", "fr": "Indisponible (historique Git absent)"},
+        "revision": revision, "reason": "git_history_unavailable",
+    }
+    if revision is None:
+        return result
+    shallow = git_output(root, "rev-parse", "--is-shallow-repository")
+    # Anchoring this command to the captured revision keeps both figures and
+    # provenance consistent even if another process changes HEAD meanwhile.
+    count = git_output(root, "rev-list", "--count", revision)
+    if shallow not in {"true", "false"} or not count or not re.fullmatch(r"[0-9]+", count) or int(count) < 1:
+        result["display"] = {"en": "Unavailable (Git history unreadable)", "fr": "Indisponible (historique Git illisible)"}
+        return result
+    result["reachable_from_head"] = int(count)
+    if shallow == "true":
+        result.update({
+            "status": "partial", "reason": "shallow_history",
+            "display": {"en": "Unavailable (shallow history)", "fr": "Indisponible (historique partiel)"},
+        })
+    else:
+        bound = lower_bound(result["reachable_from_head"])
+        result.update({
+            "status": "complete", "reason": None, "lower_bound": bound,
+            "display": {"en": f"> {bound:,} commits", "fr": "+ de " + f"{bound:,}".replace(",", " ") + " commits"},
+        })
+    return result
 
 
 def documentation_counts(root: Path) -> dict:
@@ -212,7 +252,7 @@ def documentation_counts(root: Path) -> dict:
 
 
 def collect(root: Path = ROOT) -> dict:
-    """Return fresh source metrics; unit_tests stays null without a live inventory."""
+    """Measure sources and local Git; unit_tests stays null without an inventory."""
     root = root.resolve()
     sources = {
         path: read_bytes(path)
@@ -239,6 +279,7 @@ def collect(root: Path = ROOT) -> dict:
                 add_count(crate_rows[name]["total"], count)
                 add_count(crate_rows[name][kind], count)
                 break
+    commits = git_history(root)
     return {
         "schema_version": 1,
         "source": {
@@ -247,8 +288,9 @@ def collect(root: Path = ROOT) -> dict:
             "by_language": dict(sorted(by_language.items())), "by_category": by_category,
             "crates": list(crate_rows.values()), "documentation": documentation_counts(root),
         },
+        "commits": commits,
         "unit_tests": None,
-        "provenance": {"source_fingerprint": fingerprint(root, sources), "generated_at": utc_now(), "revision": git_revision(root)},
+        "provenance": {"source_fingerprint": fingerprint(root, sources), "generated_at": utc_now(), "revision": commits["revision"]},
     }
 
 
@@ -314,9 +356,9 @@ def listed_tests(output: str) -> set:
 
 
 def lower_bound(active: int) -> Optional[int]:
-    """A strict rounded lower bound: 1500 tests must not be advertised as >1500."""
+    """A strict rounded lower bound: 1500 must not be advertised as >1500."""
     if isinstance(active, bool) or not isinstance(active, int) or active < 0:
-        raise StatsError("Active unit-test count must be a nonnegative integer")
+        raise StatsError("Count must be a nonnegative integer")
     if active == 0:
         return None
     below = active - 1
@@ -423,6 +465,7 @@ def text_report(report: dict) -> str:
     lines = [f"Authored source: {source['total']['physical_lines']:,} physical lines in {source['total']['files']:,} files", LINE_DEFINITION, "", "Crate                     Production      Tests   Examples      Total"]
     for crate in source["crates"]:
         lines.append(f"{crate['name']:<25} {crate['production']['physical_lines']:>10,} {crate['tests']['physical_lines']:>10,} {crate['examples']['physical_lines']:>10,} {crate['total']['physical_lines']:>10,}")
+    lines.extend(["", "Commits reachable from HEAD: " + report["commits"]["display"]["en"]])
     unit = report["unit_tests"]
     lines.extend(["", unit["display"]["en"] if unit else "Active Rust unit tests: not inventoried (use --tests)"])
     if unit:

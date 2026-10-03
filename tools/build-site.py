@@ -520,6 +520,7 @@ def project_statistics(report: dict, language: str) -> str:
     """Generate tables/body text only; the Markdown source owns every heading."""
     french = language == "fr"
     source = report["source"]
+    commits = report["commits"]
     def number(value): return f"{value:,}".replace(",", " ") if french else f"{value:,}"
     def cell(value): return str(value).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
     def table(headers, rows):
@@ -533,8 +534,11 @@ def project_statistics(report: dict, language: str) -> str:
         ("Fichiers Markdown de documentation" if french else "Documentation Markdown files", source["documentation"]["markdown_files"]),
     ]
     result = [
-        table(("Mesure" if french else "Metric", "Projet" if french else "Project"), [(label, number(value)) for label, value in general]),
+        table(("Mesure" if french else "Metric", "Projet" if french else "Project"), [(label, number(value)) for label, value in general] + [
+            ("Commits du projet" if french else "Project commits", commits["display"][language]),
+        ]),
         "Les lignes physiques incluent les commentaires et les lignes vides. Les sources de test et les exemples restent distingués du code de production." if french else "Physical lines include comments and blank lines. Test sources and examples remain distinct from production code.",
+        "Le nombre de commits couvre les ancêtres accessibles depuis la révision HEAD de cette publication, merges compris, sans compter les autres branches non fusionnées. Le seuil arrondi n’est publié que lorsque l’historique Git local est complet ; un historique partiel ou absent laisse le total indisponible. Aucun historique n’est récupéré sur le réseau pendant ce calcul." if french else "The commit count covers ancestors reachable from this publication’s HEAD revision, including merges, without counting other unmerged branches. The rounded lower bound is published only when the local Git history is complete; partial or missing history leaves the total unavailable. The calculation never fetches history over the network.",
         table(("Crate", "Production", "Tests", "Exemples" if french else "Examples", "Total"), [
             (crate["name"], *(number(crate[kind]["physical_lines"]) for kind in ("production", "tests", "examples", "total"))) for crate in source["crates"]
         ]),
