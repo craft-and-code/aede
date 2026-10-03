@@ -21,11 +21,22 @@ Open <http://127.0.0.1:4174/> for French or <http://127.0.0.1:4174/en/> for Engl
 `docs/site-manual-cli.json`, `docs/site-server-dsp.json` and any further `docs/site-*.json` manifest declare the published pages. Each entry provides:
 
 - `slug`: stable, lowercase URL path without `.html`, for example `cli/query`;
-- `section`: `manual`, `cli`, `server` or `dsp`;
+- `section`: `manual`, `cli`, `server`, `compatibility` or `dsp`; `compatibility` is the dedicated **Compatible Aède** section for client developers;
 - `title` and `description`: English and French metadata;
 - `source`: the English and French Markdown paths;
 - optional `command` and `group`: command label and sidebar category;
 - optional `explainer`: an interactive DSP illustration identifier.
+- optional `generated`: `project-statistics` for the statistics page, with exactly one `<!-- project-statistics -->` marker in each authored translation.
+
+`docs/site-project.json` registers the generated project statistics and client specification. The statistics text explains the measurement rules; its tables are rendered from fresh source measurements. The publisher never maintains numeric claims in authored Markdown. To include the rounded active-TU display, supply a compiled test inventory:
+
+```sh
+python3 tools/project_stats_tests.py
+python3 tools/project-stats.py --tests --output target/project-stats.json
+python3 tools/build-site.py --check --project-stats target/project-stats.json
+```
+
+The inventory builds existing library/binary test harnesses offline, then lists active tests without executing them. It requires the normal Cargo/native build prerequisites and already fetched dependencies. A stale Rust/Cargo fingerprint is refused. Without `--project-stats`, source tables remain current and the active-TU display is explicitly unavailable; no count is inferred from test attributes. The [statistics guide](../docs/manual/project-statistics.md) defines inclusions, exclusions and feature/platform provenance. Both the Site workflow and `tools/check.sh` generate an inventory before publishing the tables.
 
 The publisher also includes the existing user-facing topic references without copying their text. When a reference has no French translation, its French navigation page explicitly labels the article as English and marks the article language accordingly. Engineering and design links continue to open the corresponding versioned repository source. Relative links between published Markdown sources are rewritten to the selected locale, with fragments preserved or mapped to corresponding translated headings.
 

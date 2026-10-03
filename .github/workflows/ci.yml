@@ -67,6 +67,14 @@ jobs:
         if: runner.os == 'Windows'
         run: python tools/update_flaccompagnon_tests.py
 
+      - name: Project statistics tests (Windows, offline)
+        if: runner.os == 'Windows'
+        run: python tools/project_stats_tests.py
+
+      - name: Documentation renderer tests (Windows, offline)
+        if: runner.os == 'Windows'
+        run: python tools/build_site_tests.py
+
       - name: Tests (Windows)
         if: runner.os == 'Windows'
         run: cargo test --locked

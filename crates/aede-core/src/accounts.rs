@@ -275,11 +275,11 @@ impl Accounts {
         if candidate == self.records[index] {
             return Ok(());
         }
-        if !(candidate.enabled && candidate.role == Role::Administrator)
-            && !self.records.iter().enumerate().any(|(other, account)| {
+        let keeps_administrator = (candidate.enabled && candidate.role == Role::Administrator)
+            || self.records.iter().enumerate().any(|(other, account)| {
                 other != index && account.enabled && account.role == Role::Administrator
-            })
-        {
+            });
+        if !keeps_administrator {
             return Err("keep at least one enabled administrator".into());
         }
         candidate.revision = next_revision(candidate.revision)?;

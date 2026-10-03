@@ -466,6 +466,7 @@ Complete guides to Aède's features and architecture:
 
 - [Library Fundamentals](docs/library.md) — Overview of the catalog structure
 - [Local API](docs/api.md) — HTTP/JSON endpoints, catalog change events and task activity
+- [Compatible Aède](docs/server/compatible-aede.md) — Client profiles, integration requirements and acceptance checks for native and Subsonic readers
 - [Accounts and sessions](docs/server/accounts.md) — Local authentication, roles and private personal data; [CLI management](docs/cli/accounts.md)
 - [Account design](docs/design/accounts.md) — Stable owners, credential policy, session limits and backup compatibility
 - [Server route reference](crates/aede-server/README.md) — All available routes, parameters, scan/fetch jobs and examples
@@ -504,6 +505,7 @@ Complete guides to Aède's features and architecture:
 ### Development & Engineering
 
 - [Current State](docs/coding/current-state.md) — Project status and active work
+- [Project Statistics](docs/manual/project-statistics.md) — Generated code measurements by crate and a rounded inventory of active unit tests
 - [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support

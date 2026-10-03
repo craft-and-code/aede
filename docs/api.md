@@ -1,5 +1,7 @@
 # Aède HTTP API v1 (M2)
 
+For a new or adapted reader, start with the [Compatible Aède client specification](server/compatible-aede.md): it defines catalog, native-player and adapter profiles, requirements and acceptance checks. This API reference defines their wire contract.
+
 The separate [Subsonic/OpenSubsonic adapter](server/subsonic.md) uses `/rest`, revocable API keys and XML/JSON protocol envelopes. It adds ID3 browsing, original audio, sidecar artwork and private favourites, ratings, ordered playlists and client-declared listens without changing the native v1 contract below. Public extension discovery is the only anonymous adapter method; remote access retains the HTTPS/Host/Origin boundary. The guide includes a first macOS test with Supersonic.
 
 This is the frozen client contract for the read-only catalog API and its additive account/personal interfaces. A divergence between this document and the implementation is a bug. It is independent of the on-disk `format_version` values. The prefix `/api/v1` freezes the existing field names, types and meanings; compatible additions may add optional fields or new endpoints. Removing or reinterpreting a field, changing a required field's type, or changing query semantics requires a new prefix. Clients must ignore unknown response fields and use `error.code`, not `error.message`, for decisions.

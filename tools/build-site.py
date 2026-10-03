@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 from functools import lru_cache
 import html
+import importlib.util
 import json
 import posixpath
 import re
 import shutil
+import sys
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,9 +39,10 @@ TOPICS = {
     "operating": ("server", "Operating reference", "Référence d’exploitation"),
 }
 GROUPS = {
-    "fr": [("manual", "Manuel utilisateur"), ("cli", "CLI — Commandes"), ("server", "Serveur — API"), ("dsp", "DSP — Audio")],
-    "en": [("manual", "User manual"), ("cli", "CLI — Commands"), ("server", "Server — API"), ("dsp", "DSP — Audio")],
+    "fr": [("manual", "Manuel utilisateur"), ("cli", "CLI — Commandes"), ("server", "Serveur — API"), ("dsp", "DSP — Audio"), ("compatibility", "Compatible Aède")],
+    "en": [("manual", "User manual"), ("cli", "CLI — Commands"), ("server", "Server — API"), ("dsp", "DSP — Audio"), ("compatibility", "Compatible Aède")],
 }
+PROJECT_STATS_MARKER = "<!-- project-statistics -->"
 COMMAND_GROUPS = {
     "scan": "catalog", "stats": "catalog", "doctor": "catalog", "roots": "catalog",
     "albums": "browse", "album": "browse", "artists": "browse", "artist": "browse", "track": "browse", "tracks": "browse", "genres": "browse", "genre": "browse", "labels": "browse", "label": "browse", "countries": "browse", "years": "browse", "roles": "browse", "works": "browse", "work": "browse", "release-groups": "browse", "search": "browse", "query": "browse",
@@ -305,6 +308,7 @@ def load_pages(root: Path) -> list[dict]:
     for page in pages:
         if page["slug"] in seen: raise ValueError(f"Duplicate page slug: {page['slug']}")
         if page["section"] not in {group[0] for group in GROUPS["en"]}: raise ValueError(f"Unknown section: {page['section']}")
+        if page.get("generated") not in (None, "project-statistics"): raise ValueError(f"Unknown generated page content: {page['generated']}")
         if not re.fullmatch(r"[a-z0-9][a-z0-9/_-]*", page["slug"]) or ".." in page["slug"]: raise ValueError(f"Unsafe page slug: {page['slug']}")
         seen.add(page["slug"])
         for language in ("en", "fr"):
@@ -374,6 +378,7 @@ def sidebar(pages: list[dict], language: str, output: str, current="") -> str:
     sections = []
     for section, title in GROUPS[language]:
         relevant = [p for p in pages if p["section"] == section and p.get("navigation", True)]
+        if not relevant: continue
         buckets = {}
         for page in relevant:
             group = "reference" if page.get("reference") else page.get("group", COMMAND_GROUPS.get(page.get("command"), "other")) if section == "cli" and page.get("command") else ""
@@ -417,6 +422,9 @@ def document_shell(page: dict, language: str, content: Rendered, pages: list[dic
     section = next((label for key, label in GROUPS[language] if key == page.get("section")), "Documentation")
     toc_links = "".join(f'<li class="toc-level-{level}"><a href="#{esc(identifier)}">{esc(label)}</a></li>' for level, identifier, label in content.headings if level in (2, 3))
     source_link = f'<a href="{REPOSITORY}/edit/{REPOSITORY_BRANCH}/{quote(source_path, safe="/")}">{"Modifier la source Markdown" if language == "fr" else "Edit the Markdown source"}</a>' if source_path else ""
+    source_note = "Le Markdown du dépôt est la source unique de cette page." if language == "fr" else "Repository Markdown is this page’s single source."
+    if page.get("generated") == "project-statistics":
+        source_note = "Le texte vient du Markdown du dépôt ; les statistiques sont calculées depuis les sources et l’inventaire fourni." if language == "fr" else "The text comes from repository Markdown; statistics are calculated from sources and the supplied inventory."
     explainer = f'<section class="dsp-explainer" data-explainer="{esc(page["explainer"])}" aria-label="{"Illustration interactive du DSP" if language == "fr" else "Interactive DSP illustration"}"></section>' if page.get("explainer") else ""
     body_lang = ' lang="en"' if fallback else ""
     privacy_page = next((candidate for candidate in pages if candidate["slug"] == "manual/privacy"), None)
@@ -443,7 +451,7 @@ def document_shell(page: dict, language: str, content: Rendered, pages: list[dic
 </head><body class="guide-document" data-section="{esc(page.get('section', 'manual'))}"><a class="guide-skip" href="#main">{"Aller au contenu" if language == "fr" else "Skip to content"}</a>
 <header class="guide-header"><a class="guide-logo" href="{esc(home)}" aria-label="Aède — {"accueil" if language == "fr" else "home"}">aède<span>.</span></a><a class="guide-header-label" href="{esc(relative(output, f'docs/{language}/index.html'))}">Documentation</a><div class="guide-header-actions"><a class="guide-project" href="{REPOSITORY}">{"Le projet" if language == "fr" else "Project"}</a><nav class="guide-language" aria-label="{"Langue" if language == "fr" else "Language"}"><a href="{esc(relative(output, output))}" data-language="{language}" aria-current="page">{language.upper()}</a><a href="{esc(relative(output, counterpart))}" data-language="{other}" data-fragment-map="{esc(json.dumps(fragment_map, ensure_ascii=False))}">{other.upper()}</a></nav><button type="button" class="guide-menu" aria-controls="guide-sidebar" aria-expanded="false">Menu</button></div></header>
 <div class="guide-layout"><aside class="guide-sidebar" id="guide-sidebar" aria-label="{"Navigation de la documentation" if language == "fr" else "Documentation navigation"}">{sidebar(pages, language, output, slug)}</aside>
-<main class="guide-main" id="main"><p class="guide-eyebrow">{esc(section)}</p><h1 id="{esc(content.title_id)}">{esc(title)}</h1><p class="guide-description">{esc(description)}</p>{notice}{explainer}<article class="guide-prose"{body_lang}>{content.html}</article>{prev_next}<footer class="guide-source">{source_link}<p>{"Le Markdown du dépôt est la source unique de cette page." if language == "fr" else "Repository Markdown is this page’s single source."}</p></footer></main>
+<main class="guide-main" id="main"><p class="guide-eyebrow">{esc(section)}</p><h1 id="{esc(content.title_id)}">{esc(title)}</h1><p class="guide-description">{esc(description)}</p>{notice}{explainer}<article class="guide-prose"{body_lang}>{content.html}</article>{prev_next}<footer class="guide-source">{source_link}<p>{source_note}</p></footer></main>
 <aside class="guide-toc"><p>{"Sur cette page" if language == "fr" else "On this page"}</p><nav aria-label="{"Sommaire" if language == "fr" else "Contents"}"><ul>{toc_links}</ul></nav></aside></div>
 <footer class="guide-footer">aède<span>.</span> <a href="https://craft-and-code.github.io/FlacCompagnon/">FlacCompagnon ↗</a><a href="{REPOSITORY}">GitHub ↗</a>{privacy_footer}</footer></body></html>'''
 
@@ -453,8 +461,10 @@ def overview(pages: list[dict], language: str) -> Rendered:
     cards = []
     for section, title in GROUPS[language]:
         candidates = [p for p in pages if p["section"] == section and not p.get("reference") and p.get("navigation", True)]
-        first = candidates[0] if candidates else next(p for p in pages if p["section"] == section)
-        description = {"manual": ("Installer, démarrer, comprendre et préserver sa collection.", "Install, start, understand and preserve your collection."), "cli": ("Chaque commande, ses arguments, ses options et des exemples.", "Every command, its arguments, options and examples."), "server": ("Démarrer l’API locale et comprendre chaque route HTTP.", "Start the local API and understand every HTTP route."), "dsp": ("Comprendre le traitement audio, les mesures et leurs limites.", "Understand audio processing, measurements and their limits.")}[section][0 if language == "fr" else 1]
+        visible = [p for p in pages if p["section"] == section and p.get("navigation", True)]
+        if not visible: continue
+        first = candidates[0] if candidates else visible[0]
+        description = {"manual": ("Installer, démarrer, comprendre et préserver sa collection.", "Install, start, understand and preserve your collection."), "cli": ("Chaque commande, ses arguments, ses options et des exemples.", "Every command, its arguments, options and examples."), "server": ("Démarrer l’API locale et comprendre chaque route HTTP.", "Start the local API and understand every HTTP route."), "dsp": ("Comprendre le traitement audio, les mesures et leurs limites.", "Understand audio processing, measurements and their limits."), "compatibility": ("Adapter un lecteur à Aède et vérifier sa compatibilité.", "Adapt a player to Aède and verify its compatibility.")}[section][0 if language == "fr" else 1]
         cards.append(f'<a class="guide-card" data-card-section="{section}" href="{esc(first["slug"])}.html"><small>{len(candidates)} {"guides" if language == "fr" else "guides"}</small><h2>{title}</h2><p>{description}</p><span aria-hidden="true">→</span></a>')
     return Rendered(f'<p>{intro}</p><div class="guide-cards">{"".join(cards)}</div>', [], "documentation")
 
@@ -496,17 +506,100 @@ def localize_home(source: str, translations: dict, language: str) -> str:
     return re.sub(r'<html\b[^>]*\blang="[^"]*"', '<html lang="' + language + '"', result, count=1)
 
 
-def build(root=ROOT, destination=None, base_url=BASE_URL) -> list[dict]:
+@lru_cache(maxsize=1)
+def project_stats_module():
+    """Load the optional metrics helper without requiring packages or Cargo."""
+    spec = importlib.util.spec_from_file_location("aede_site_project_stats", Path(__file__).resolve().parent / "project-stats.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def project_statistics(report: dict, language: str) -> str:
+    """Generate tables/body text only; the Markdown source owns every heading."""
+    french = language == "fr"
+    source = report["source"]
+    def number(value): return f"{value:,}".replace(",", " ") if french else f"{value:,}"
+    def cell(value): return str(value).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+    def table(headers, rows):
+        return "\n".join(["| " + " | ".join(cell(value) for value in headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"] + ["| " + " | ".join(cell(value) for value in row) + " |" for row in rows])
+    general = [
+        ("Lignes physiques de source" if french else "Physical source lines", source["total"]["physical_lines"]),
+        ("Lignes non vides" if french else "Nonblank lines", source["total"]["nonblank_lines"]),
+        ("Fichiers source" if french else "Source files", source["total"]["files"]),
+        ("Crates" if french else "Crates", len(source["crates"])),
+        ("Pages publiées par langue" if french else "Published pages in this language", source["documentation"]["published_pages_by_language"][language]),
+        ("Fichiers Markdown de documentation" if french else "Documentation Markdown files", source["documentation"]["markdown_files"]),
+    ]
+    result = [
+        table(("Mesure" if french else "Metric", "Projet" if french else "Project"), [(label, number(value)) for label, value in general]),
+        "Les lignes physiques incluent les commentaires et les lignes vides. Les sources de test et les exemples restent distingués du code de production." if french else "Physical lines include comments and blank lines. Test sources and examples remain distinct from production code.",
+        table(("Crate", "Production", "Tests", "Exemples" if french else "Examples", "Total"), [
+            (crate["name"], *(number(crate[kind]["physical_lines"]) for kind in ("production", "tests", "examples", "total"))) for crate in source["crates"]
+        ]),
+        table(("Langage" if french else "Language", "Fichiers" if french else "Files", "Lignes physiques" if french else "Physical lines"), [
+            (name, number(count["files"]), number(count["physical_lines"])) for name, count in source["by_language"].items()
+        ]),
+    ]
+    unit = report["unit_tests"]
+    if unit is None:
+        result.append("**TU actifs : inventaire indisponible pour cette publication.** Aucun nombre n’est déduit des attributs `#[test]` dans les fichiers source." if french else "**Active unit tests: no inventory was supplied for this publication.** No count is inferred from source-file `#[test]` attributes.")
+        result.append("Pour fournir un inventaire actuel :" if french else "To supply a current inventory:")
+        result.append("```sh\npython3 tools/project-stats.py --tests --json --output target/project-stats.json\npython3 tools/build-site.py --project-stats target/project-stats.json --check\n```")
+    else:
+        result.append("**" + unit["display"][language] + "**")
+        result.append("Ce seuil arrondi provient des tests enregistrés dans les exécutables Cargo de bibliothèque et de binaire, après exclusion des tests ignorés. Les tests d’intégration, doctests et tests des outils Python sont distincts. Le comptage n’exécute aucun corps de test et ne prouve pas leur réussite." if french else "This rounded lower bound comes from registered Cargo library/binary tests, excluding ignored tests. Integration tests, doctests and Python helper tests are separate. Listing does not execute test bodies or establish that they pass.")
+        configuration = unit["configuration"]
+        feature_label = "fonctionnalités par défaut" if french else "default features"
+        if not configuration["default_features"]: feature_label = "sans fonctionnalités par défaut" if french else "without default features"
+        extra = configuration.get("extra_features")
+        if extra: feature_label += "; " + ("fonctionnalités supplémentaires : " if french else "extra features: ") + cell(extra)
+        host = cell(configuration.get("rustc_host") or configuration["platform"])
+        collected = cell(unit["provenance"]["collected_at"])
+        result.append(("Inventaire TU : " if french else "Unit-test inventory: ") + f"`{host}`, {feature_label}; " + ("collecté le " if french else "collected at ") + f"`{collected}`.")
+    provenance = report["provenance"]
+    result.append(("Mesures des sources générées le " if french else "Source metrics generated at ") + f"`{cell(provenance['generated_at'])}`.")
+    if provenance.get("revision"):
+        result.append(("Révision de référence : " if french else "Reference revision: ") + f"`{cell(provenance['revision'])}` " + ("(les sources locales sont mesurées, y compris les modifications non commitées)." if french else "(local sources are measured, including uncommitted changes)."))
+    result.append(("Empreinte des sources mesurées : " if french else "Measured source fingerprint: ") + f"`{provenance['source_fingerprint']}`.")
+    return "\n\n".join(result)
+
+
+def generated_page_sources(root: Path, pages: list[dict], stats_path=None) -> dict:
+    generated = [page for page in pages if page.get("generated")]
+    if not generated:
+        if stats_path is not None: raise ValueError("A project statistics inventory was supplied but no statistics page is registered")
+        return {}
+    sources = {}
+    for page in generated:
+        for language in ("fr", "en"):
+            path = page["source"][language]
+            source = (root / path).read_text()
+            if source.count(PROJECT_STATS_MARKER) != 1:
+                raise ValueError(f"{path}: project-statistics requires exactly one {PROJECT_STATS_MARKER} placeholder")
+            sources[page["slug"], language] = source
+    module = project_stats_module()
+    try:
+        report = module.collect(root)
+        if stats_path is not None: report["unit_tests"] = module.load_test_inventory(Path(stats_path), root)
+    except module.StatsError as error:
+        raise ValueError(str(error)) from error
+    return {key: source.replace(PROJECT_STATS_MARKER, project_statistics(report, key[1])) for key, source in sources.items()}
+
+
+def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> list[dict]:
     destination = destination or root / "dist-site"
     if destination.resolve() == root.resolve() or root.resolve() in destination.resolve().parents and destination.resolve() != (root / "dist-site").resolve():
         raise ValueError("Refusing to replace an authored source directory; use dist-site")
     if destination.exists() and destination.resolve().parent != root.resolve() and not (destination / ".nojekyll").exists():
         raise ValueError("Refusing to replace an existing external directory without a generated-site marker")
+    pages = load_pages(root)
+    generated = generated_page_sources(root, pages, stats_path)
     if destination.exists(): shutil.rmtree(destination)
     shutil.copytree(root / "site", destination)
     for filename in ("README.md", "home-translations.json", "index.en.html"):
         (destination / filename).unlink(missing_ok=True)
-    pages = load_pages(root)
     home_source = (root / "site/index.html").read_text()
     translation_path = root / "site/home-translations.json"
     translations = json.loads(translation_path.read_text()) if translation_path.exists() else {}
@@ -552,15 +645,17 @@ def build(root=ROOT, destination=None, base_url=BASE_URL) -> list[dict]:
             source_path = page["source"][language]
             renderer = Markdown(lambda href: rewrite_link(href, source_path, output, language, pages, root))
             try:
-                content = renderer.render((root / source_path).read_text())
+                source = generated.get((page["slug"], language))
+                content = renderer.render(source if source is not None else (root / source_path).read_text())
             except ValueError as error:
                 raise ValueError(f"{source_path}: {error}") from error
             target = destination / output; target.parent.mkdir(parents=True, exist_ok=True)
             other = "en" if language == "fr" else "fr"
-            counterpart_content = Markdown().render((root / page["source"][other]).read_text())
+            counterpart = generated.get((page["slug"], other))
+            counterpart_content = Markdown().render(counterpart if counterpart is not None else (root / page["source"][other]).read_text())
             target.write_text(document_shell(page, language, content, pages, base_url, counterpart_content))
             if not page.get("noindex"): urls.append(base_url + output)
-        index_page = {"slug": "", "section": "manual", "title": {"en": "Documentation", "fr": "Documentation"}, "description": {"en": "Aède user manual, complete command reference, local server API and interactive audio DSP guides.", "fr": "Manuel utilisateur Aède, référence complète des commandes, API du serveur local et guides interactifs du DSP audio."}}
+        index_page = {"slug": "", "section": "manual", "title": {"en": "Documentation", "fr": "Documentation"}, "description": {"en": "Aède user manual, complete command reference, local server API, interactive audio DSP guides and player compatibility specifications.", "fr": "Manuel utilisateur Aède, référence complète des commandes, API du serveur local, guides interactifs du DSP audio et spécifications de compatibilité des lecteurs."}}
         (destination / f"docs/{language}/index.html").write_text(document_shell(index_page, language, overview(pages, language), pages, base_url))
         urls.append(base_url + f"docs/{language}/index.html")
     (destination / "docs/index.html").write_text(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Documentation — Aède</title><meta name="description" content="Choisissez votre langue / Choose your language for the Aède documentation."><link rel="canonical" href="{esc(base_url + "docs/index.html")}"><link rel="alternate" hreflang="fr" href="{esc(base_url + "docs/fr/index.html")}"><link rel="alternate" hreflang="en" href="{esc(base_url + "docs/en/index.html")}"><link rel="stylesheet" href="../guide.css"></head><body class="guide-document"><main class="guide-locale"><a class="guide-logo" href="../">aède<span>.</span></a><h1>Documentation</h1><p>Choisissez votre langue / Choose your language</p><a href="fr/index.html" lang="fr">Français →</a><a href="en/index.html" lang="en">English →</a></main></body></html>')
@@ -583,8 +678,9 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "dist-site")
     parser.add_argument("--base-url", default=BASE_URL)
     parser.add_argument("--check", action="store_true", help="Validate generated metadata, local links and fragments")
+    parser.add_argument("--project-stats", type=Path, help="Include a source-matching Rust unit-test inventory from project-stats.py")
     args = parser.parse_args()
-    pages = build(destination=args.output, base_url=args.base_url.rstrip("/") + "/")
+    pages = build(destination=args.output, base_url=args.base_url.rstrip("/") + "/", stats_path=args.project_stats)
     print(f"Built {len(pages)} documentation pages in both languages into {args.output}")
     if args.check:
         import runpy

@@ -1,0 +1,23 @@
+[
+  {
+    "slug": "manual/project-statistics",
+    "section": "manual",
+    "title": { "en": "Project statistics", "fr": "Statistiques du projet" },
+    "description": {
+      "en": "Generated code measurements by crate and a verified, rounded active unit-test inventory.",
+      "fr": "Mesures générées du code par crate et inventaire vérifié, arrondi, des TU actifs."
+    },
+    "source": { "en": "docs/manual/project-statistics.md", "fr": "docs/fr/manual/project-statistics.md" },
+    "generated": "project-statistics"
+  },
+  {
+    "slug": "compatibility/specification",
+    "section": "compatibility",
+    "title": { "en": "Compatible Aède — Client specification", "fr": "Compatible Aède — Cahier des charges" },
+    "description": {
+      "en": "Requirements, profiles and acceptance checks for clients integrating Aède's native or Subsonic interfaces.",
+      "fr": "Exigences, profils et tests d’acceptation pour les lecteurs utilisant les interfaces natives ou Subsonic d’Aède."
+    },
+    "source": { "en": "docs/server/compatible-aede.md", "fr": "docs/fr/server/compatible-aede.md" }
+  }
+]

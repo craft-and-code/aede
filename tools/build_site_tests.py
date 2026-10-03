@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("aede_site_builder", TOOLS / "build-site.py")
@@ -193,6 +194,128 @@ class PublishTests(unittest.TestCase):
         for path in ('docs','docs/fr/manual','site/assets','tools/nested','crates/aede-core','docs/dist-site'):
             with self.subTest(path=path):
                 with self.assertRaises(ValueError): builder.build(destination=builder.ROOT/path)
+
+
+class StatisticsFixture:
+    def __init__(self, root):
+        self.root = Path(root)
+        self.write("site/index.html", '<html lang="fr"><head><title>Aède</title><meta name="description" content="Accueil"></head><body><a href="docs/fr/index.html">Documentation</a></body></html>')
+        for asset in ("styles.css", "guide.css", "guide.js", "explainers.js", "assets/favicon.svg", "assets/og-image.png"):
+            self.write("site/" + asset, "")
+        self.write("Cargo.toml", '[workspace]\nmembers = ["crates/aede-core"]\n')
+        self.write("crates/aede-core/Cargo.toml", '[package]\nname = "aede-core"\nversion = "0.1.0"\n')
+        self.write("crates/aede-core/src/lib.rs", "// Core source\n\npub fn run() {}\n")
+        # An orphan source count must never become an advertised active TU count.
+        self.write("crates/aede-core/src/orphan_tests.rs", "#[test]\nfn unregistered() {}\n")
+        self.write("docs/en/stats.md", "# Project statistics\n\n## Current snapshot\n\n<!-- project-statistics -->\n\n## Method\n\nAuthored explanation.\n")
+        self.write("docs/fr/stats.md", "# Statistiques du projet\n\n## Instantané actuel\n\n<!-- project-statistics -->\n\n## Méthode\n\nExplication rédigée.\n")
+        self.pages = [{"slug": "manual/project-statistics", "section": "manual", "generated": "project-statistics", "title": {"en": "Project statistics", "fr": "Statistiques du projet"}, "description": {"en": "Measured source statistics", "fr": "Mesures des sources"}, "source": {"en": "docs/en/stats.md", "fr": "docs/fr/stats.md"}}]
+        self.save_manifest()
+
+    def write(self, name, content):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def save_manifest(self):
+        self.write("docs/site-project.json", json.dumps(self.pages))
+
+    def inventory(self):
+        module = builder.project_stats_module()
+        report = module.collect(self.root)
+        # Intentionally stale source totals prove the publisher remeasures code.
+        report["source"]["total"]["physical_lines"] = 999999
+        report["unit_tests"] = {
+            "kind": "libtest_inventory", "active": 1567, "ignored": 0, "total": 1567,
+            "lower_bound": 1500, "display": module.public_labels(1567),
+            "by_crate": [{"name": "aede-core", "active": 1567, "ignored": 0, "total": 1567, "targets": ["aede_core"]}],
+            "configuration": {"default_features": True, "extra_features": "", "rustc_host": "x86_64-unknown-linux-gnu", "platform": "linux"},
+            "provenance": {"rust_source_fingerprint": module.rust_fingerprint(self.root), "executed_tests": False, "collected_at": "2026-10-03T08:00:00+00:00"},
+        }
+        return self.write("stats.json", json.dumps(report))
+
+
+class ProjectStatisticsTests(unittest.TestCase):
+    def test_optional_documentation_groups_are_hidden_until_they_have_visible_pages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            for language in ("en", "fr"):
+                overview = builder.overview(fixture.pages, language).html
+                navigation = builder.sidebar(fixture.pages, language, f"docs/{language}/index.html")
+                self.assertIn('data-card-section="manual"', overview)
+                self.assertNotIn('data-card-section="compatibility"', overview)
+                self.assertNotIn('data-nav-section="compatibility"', navigation)
+                self.assertNotIn('data-nav-section="cli"', navigation)
+            page = {"slug": "compatibility/specification", "section": "compatibility", "title": {"en": "Player requirements", "fr": "Exigences du lecteur"}}
+            fixture.pages.append(page)
+            for language in ("en", "fr"):
+                self.assertIn('data-card-section="compatibility"', builder.overview(fixture.pages, language).html)
+                self.assertIn("Compatible Aède", builder.sidebar(fixture.pages, language, f"docs/{language}/index.html"))
+
+    def test_fresh_source_tables_are_collected_once_without_inventing_tests_or_generated_headings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            module = builder.project_stats_module()
+            with patch.object(module, "collect", wraps=module.collect) as collect, patch.object(module, "inventory", side_effect=AssertionError("Website publication must never build tests")):
+                builder.build(fixture.root)
+            collect.assert_called_once_with(fixture.root)
+            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text()
+            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text()
+            self.assertIn("TU actifs : inventaire indisponible", french)
+            self.assertIn("no inventory was supplied", english)
+            self.assertIn("aede-core", french)
+            self.assertIn("Lignes physiques de source", french)
+            self.assertIn("Physical source lines", english)
+            self.assertNotIn("<!-- project-statistics -->", french)
+            self.assertIn('id="instantané-actuel"', french)
+            self.assertIn('current-snapshot', french)
+            self.assertIn('id="current-snapshot"', english)
+            self.assertEqual(2, french.count('<h2 id="'))
+            self.assertEqual([], checker.check(fixture.root / "dist-site"))
+
+    def test_valid_inventory_publishes_only_rounded_bilingual_tu_counts_with_fresh_source_totals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            snapshot = fixture.inventory()
+            builder.build(fixture.root, stats_path=snapshot)
+            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text()
+            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text()
+            self.assertIn("+ de 1 500 TU actifs", french)
+            self.assertIn("&gt; 1,500 active unit tests", english)
+            for content in (french, english):
+                self.assertIn("x86_64-unknown-linux-gnu", content)
+                self.assertIn("2026-10-03T08:00:00+00:00", content)
+                self.assertNotIn("1567 active", content)
+                self.assertNotIn("1,567 active", content)
+                self.assertNotIn("1 567 TU", content)
+                self.assertNotIn("999,999", content)
+                self.assertNotIn("999 999", content)
+
+    def test_stale_inventory_refuses_publication_and_preserves_the_existing_generated_site(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            snapshot = fixture.inventory()
+            builder.build(fixture.root, stats_path=snapshot)
+            preserved = fixture.write("dist-site/previous-publication.txt", "Existing publication\n")
+            fixture.write("crates/aede-core/src/lib.rs", "pub fn changed() {}\n")
+            with self.assertRaisesRegex(ValueError, "stale"):
+                builder.build(fixture.root, stats_path=snapshot)
+            self.assertEqual("Existing publication\n", preserved.read_text())
+
+    def test_unknown_generated_content_and_missing_or_repeated_markers_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            fixture.pages[0]["generated"] = "unknown-content"
+            fixture.save_manifest()
+            with self.assertRaisesRegex(ValueError, "Unknown generated page content"):
+                builder.build(fixture.root)
+            fixture.pages[0]["generated"] = "project-statistics"
+            fixture.save_manifest()
+            for marker in ("", "<!-- project-statistics -->\n<!-- project-statistics -->"):
+                fixture.write("docs/fr/stats.md", "# Statistiques\n\n" + marker + "\n")
+                with self.subTest(marker=marker), self.assertRaisesRegex(ValueError, "exactly one"):
+                    builder.build(fixture.root)
 
 
 @unittest.skipUnless(shutil.which('node'), 'Node is optional; the static publisher itself only requires Python')

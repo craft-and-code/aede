@@ -10,6 +10,7 @@
 //! rule the listings follow. `aede copy /Volumes/USB --query "loved
 //! rating:>=4"` reuses, exactly, what `aede query` would have shown.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -594,7 +595,6 @@ fn run(
             if current != last && current.is_multiple_of(REDRAW_EVERY) {
                 last = current;
                 print!("\r  {current}/{total}   ");
-                use std::io::Write;
                 let _ = std::io::stdout().flush();
             }
             std::thread::sleep(std::time::Duration::from_millis(60));
@@ -682,19 +682,26 @@ fn write_one(
             ));
         }
         let temporary = copy::TemporaryOutput::new(&target)?;
-        std::fs::write(temporary.path(), contents).map_err(|error| error.to_string())?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(temporary.path())
+            .map_err(|error| error.to_string())?;
+        file.write_all(contents.as_bytes())
+            .map_err(|error| error.to_string())?;
         if verify {
-            std::fs::File::open(temporary.path())
-                .and_then(|file| file.sync_all())
-                .map_err(|error| error.to_string())?;
-            if std::fs::read(temporary.path()).map_err(|error| error.to_string())?
+            // Windows requires write access to flush buffered file contents.
+            file.sync_all().map_err(|error| error.to_string())?;
+        }
+        drop(file);
+        if verify
+            && std::fs::read(temporary.path()).map_err(|error| error.to_string())?
                 != contents.as_bytes()
-            {
-                return Err(format!(
-                    "{}: written playlist does not match its planned text",
-                    target.display()
-                ));
-            }
+        {
+            return Err(format!(
+                "{}: written playlist does not match its planned text",
+                target.display()
+            ));
         }
         copy::validate_destination(destination, &item.relative)?;
         publish(temporary, replace)?;

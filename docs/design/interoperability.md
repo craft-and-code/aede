@@ -2,6 +2,8 @@
 
 ## Speaking other servers' languages
 
+The [Compatible Aède client specification](../server/compatible-aede.md) defines the current native and adapter profiles, mandatory behaviours and acceptance cases for creating or adapting a reader. The interfaces it links are the implementation target; the priorities below describe architectural direction.
+
 The [Subsonic/OpenSubsonic adapter](../server/subsonic.md) implements API-key authentication, public extension discovery, ID3 browsing/search, bounded original audio, verified JPEG/PNG sidecars and private favourites/ratings/static playlists. Clients without native API-key fields can send a complete revocable key through legacy `u+p`; account passwords and salted-MD5 tokens remain unsupported. Submitted scrobbles retain only client-declared track/time evidence, alongside all-time counts; temporary now-playing reports remain private and expire without becoming history. Supersonic on macOS is the first real-client validation target, using legacy authentication, original audio and Title (A-Z); its request shape has been checked in official sources, but actual interoperability and target-device capacity still need validation. Missing routes and sort types fail explicitly; queue persistence, rich information, embedded artwork and transcoding remain future work. The architectural priorities below still guide those additions.
 
 Aède's own API (M2) is the contract, and it should be designed for Aède rather than for anyone else. Compatibility surfaces are then **translations on top of it**, never a second core — the moment a foreign API's model reaches into the catalog, that model has won.

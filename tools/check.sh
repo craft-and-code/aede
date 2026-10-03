@@ -12,10 +12,10 @@ cd "$(dirname "$0")/.."
 
 echo "-> Build helper tests (offline)"
 python3 tools/update_flaccompagnon_tests.py
+python3 tools/project_stats_tests.py
 
 echo "-> Website renderer and bilingual documentation"
 python3 tools/build_site_tests.py
-python3 tools/build-site.py --check
 
 echo "-> Formatting"
 cargo fmt --all -- --check
@@ -35,6 +35,11 @@ else
 fi
 cargo test --locked --offline
 
+echo "-> Generated project statistics and bilingual documentation"
+stats_target="${CARGO_TARGET_DIR:-target}"
+python3 tools/project-stats.py --tests --output "$stats_target/project-stats.json"
+python3 tools/build-site.py --check --project-stats "$stats_target/project-stats.json"
+
 # Broken doc links are silent everywhere else: neither the build nor clippy
 # reads them. Moving an item between modules is exactly what breaks them, and
 # the documentation is where the reasoning behind this code lives.
@@ -42,7 +47,7 @@ echo "-> Documentation (no broken link)"
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --offline --no-deps --quiet
 
 mkdir -p dist-site/docs/rust
-cp -R target/doc/. dist-site/docs/rust/
+cp -R "$stats_target/doc/." dist-site/docs/rust/
 python3 tools/check-site.py dist-site --require-rustdoc
 
 echo "-> Release build"

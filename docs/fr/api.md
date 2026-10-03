@@ -2,6 +2,8 @@
 
 # API HTTP d’Aède v1 (M2)
 
+Pour créer ou adapter un lecteur, commencez par le [cahier des charges Compatible Aède](server/compatible-aede.md) : il définit les profils catalogue, lecteur natif et adaptateur, leurs exigences et tests d’acceptation. Cette référence API précise leur contrat d’échange.
+
 L’[adaptateur Subsonic/OpenSubsonic](server/subsonic.md) utilise séparément `/rest`, des clés API révocables et des enveloppes XML/JSON. Il ajoute la navigation ID3, la diffusion des originaux, les pochettes présentes à côté des fichiers et les favoris, notes, playlists ordonnées et écoutes déclarées privés, sans changer le contrat natif v1 ci-dessous. Seule la découverte d’extensions est anonyme ; l’accès distant conserve la frontière HTTPS/Host/Origin. Le guide propose un premier essai sur macOS avec Supersonic.
 
 Ce document définit le contrat client figé du catalogue en lecture seule et de ses interfaces de comptes/données personnelles ajoutées. Toute divergence entre ce contrat et l’implémentation est un défaut. Il est indépendant des valeurs `format_version` des fichiers sur disque. Le préfixe `/api/v1` fige les noms, types et sens des champs existants ; des ajouts compatibles peuvent introduire des champs facultatifs ou de nouvelles routes. Supprimer ou réinterpréter un champ, modifier le type d’un champ obligatoire ou changer le sens des paramètres impose un nouveau préfixe. Les clients doivent ignorer les champs de réponse inconnus et prendre leurs décisions à partir de `error.code`, pas de `error.message`.

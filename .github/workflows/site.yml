@@ -9,7 +9,7 @@ on:
       - "crates/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "tools/*site*.py"
+      - "tools/**"
       - ".github/workflows/site.yml"
   pull_request:
     paths:
@@ -18,7 +18,7 @@ on:
       - "crates/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "tools/*site*.py"
+      - "tools/**"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -40,12 +40,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.89.0"
+      - uses: Swatinem/rust-cache@v2
       - name: Install native audio build libraries
         run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev
       - name: Verify the documentation renderer
-        run: python3 tools/build_site_tests.py
+        run: |
+          python3 tools/project_stats_tests.py
+          python3 tools/build_site_tests.py
+      - name: Fetch locked build dependencies
+        run: cargo fetch --locked
+      - name: Inventory active unit tests without executing them
+        run: python3 tools/project-stats.py --tests --output target/project-stats.json
       - name: Build the bilingual website from Markdown
-        run: python3 tools/build-site.py --check
+        run: python3 tools/build-site.py --check --project-stats target/project-stats.json
       - name: Build Rust API documentation
         env:
           RUSTDOCFLAGS: "-D warnings"

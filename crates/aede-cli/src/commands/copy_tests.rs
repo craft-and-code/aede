@@ -141,3 +141,48 @@ fn existing_encoded_comparisons_budget_concurrent_temporary_outputs() {
     assert_eq!(pending_bytes(&plan, &directory, &options, 3).unwrap(), 6000);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn generated_playlists_can_be_verified_published_and_resumed_without_an_encoder() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "aede_copy_verified_playlist_{}_{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let directory = directory.canonicalize().unwrap();
+    let mut item = Item {
+        source: PathBuf::from("selected tracks"),
+        relative: PathBuf::from("Album").join("selection.m3u8"),
+        size: 0,
+        kind: ItemKind::Other,
+        convert: None,
+        contents: Some("#EXTM3U\n01.mp3\n".into()),
+    };
+    let target = directory.join(&item.relative);
+    assert_eq!(
+        write_one(&item, &directory, true, false, false, &recipe(None), None).unwrap(),
+        copy::Wrote::Copied
+    );
+    assert_eq!(std::fs::read(&target).unwrap(), b"#EXTM3U\n01.mp3\n");
+    assert_eq!(
+        write_one(&item, &directory, true, false, false, &recipe(None), None).unwrap(),
+        copy::Wrote::Skipped
+    );
+    item.contents = Some("#EXTM3U\n02.mp3\n".into());
+    assert!(write_one(&item, &directory, true, false, false, &recipe(None), None).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"#EXTM3U\n01.mp3\n");
+    assert_eq!(
+        write_one(&item, &directory, true, true, false, &recipe(None), None).unwrap(),
+        copy::Wrote::Copied
+    );
+    assert_eq!(std::fs::read(&target).unwrap(), b"#EXTM3U\n02.mp3\n");
+    assert_eq!(
+        std::fs::read_dir(target.parent().unwrap()).unwrap().count(),
+        1
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
