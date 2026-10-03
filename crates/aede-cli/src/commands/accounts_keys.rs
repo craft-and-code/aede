@@ -33,9 +33,8 @@ fn public_json(key: &ApiKey) -> Json {
 pub(super) fn run(args: &Args, words: &[&str]) -> Res {
     let (username, operation) = parse(words)?;
     let path = accounts::accounts_path(&super::super::data_dir(args));
-    let mut data = accounts::load(&path)?.ok_or(
-        "initialize the first administrator with aede accounts init <name> --password-stdin",
-    )?;
+    let mut data = accounts::load(&path)?
+        .ok_or("initialize the first administrator with aede accounts init <name>")?;
     let issued = match operation {
         Operation::List => None,
         Operation::Create(label) => {

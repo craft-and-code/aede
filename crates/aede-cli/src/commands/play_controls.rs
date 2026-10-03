@@ -4,9 +4,9 @@ use std::error::Error;
 use std::sync::mpsc::Receiver;
 
 #[cfg(unix)]
-use std::io::{self, IsTerminal, Read};
+use super::super::terminal_mode::TerminalMode;
 #[cfg(unix)]
-use std::process::{Command, Stdio};
+use std::io::{self, IsTerminal, Read};
 #[cfg(unix)]
 use std::sync::mpsc;
 
@@ -61,7 +61,7 @@ impl KeyParser {
 pub(super) struct Controls {
     actions: Receiver<Action>,
     #[cfg(unix)]
-    original_mode: String,
+    _terminal_mode: TerminalMode,
 }
 
 impl Controls {
@@ -70,21 +70,7 @@ impl Controls {
         if !io::stdin().is_terminal() {
             return Ok(None);
         }
-        let original = Command::new("stty")
-            .arg("-g")
-            .stdin(Stdio::inherit())
-            .output()?;
-        if !original.status.success() {
-            return Err("cannot read terminal mode with stty".into());
-        }
-        let original_mode = String::from_utf8(original.stdout)?.trim().to_string();
-        let changed = Command::new("stty")
-            .args(["-icanon", "-echo", "min", "1", "time", "0"])
-            .stdin(Stdio::inherit())
-            .status()?;
-        if !changed.success() {
-            return Err("cannot enable immediate keyboard controls with stty".into());
-        }
+        let terminal_mode = TerminalMode::start(&["-icanon", "-echo", "min", "1", "time", "0"])?;
         let (sender, actions) = mpsc::channel();
         std::thread::spawn(move || {
             let mut input = io::stdin().lock();
@@ -110,7 +96,7 @@ impl Controls {
         });
         Ok(Some(Self {
             actions,
-            original_mode,
+            _terminal_mode: terminal_mode,
         }))
     }
 
@@ -125,21 +111,6 @@ impl Controls {
 
     pub(super) fn wait(&self) -> Option<Action> {
         self.actions.recv().ok()
-    }
-}
-
-#[cfg(unix)]
-impl Drop for Controls {
-    fn drop(&mut self) {
-        match Command::new("stty")
-            .arg(&self.original_mode)
-            .stdin(Stdio::inherit())
-            .status()
-        {
-            Ok(status) if status.success() => {}
-            Ok(status) => eprintln!("cannot restore terminal mode: stty exited with {status}"),
-            Err(error) => eprintln!("cannot restore terminal mode: {error}"),
-        }
     }
 }
 

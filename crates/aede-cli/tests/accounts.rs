@@ -208,6 +208,62 @@ fn invalid_arguments_and_passwords_never_publish_credentials() {
 }
 
 #[test]
+fn redirected_passwords_require_the_flag_and_keep_output_secret_free() {
+    let fixture = Fixture::new();
+    let result = fixture.run(&["accounts", "init", "operator", "--json"], Some(PASSWORD));
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    let error = String::from_utf8(result.stderr).unwrap();
+    assert!(error.contains("--password-stdin"));
+    assert!(!error.contains(PASSWORD) && !error.contains("Password:"));
+    let secret = " a long Unicode é音🔑 passphrase ";
+    let result = fixture.run(
+        &["accounts", "init", "operator", "--password-stdin", "--json"],
+        Some(&format!("{secret}\r\n")),
+    );
+    assert!(result.status.success());
+    assert!(result.stderr.is_empty());
+    let output = String::from_utf8(result.stdout).unwrap();
+    assert!(aede_core::json::parse(&output).unwrap().as_arr().is_some());
+    assert!(!output.contains(secret));
+    assert!(
+        fixture
+            .accounts()
+            .authenticate("operator", secret)
+            .is_some()
+    );
+}
+
+#[test]
+fn invalid_names_roles_and_missing_accounts_are_refused_before_password_entry() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let before = std::fs::read(accounts::accounts_path(&fixture.0)).unwrap();
+    for (arguments, expected) in [
+        (vec!["accounts", "init", "other"], "already initialized"),
+        (
+            vec!["accounts", "create", "alice", "invalid"],
+            "role must be",
+        ),
+        (
+            vec!["accounts", "create", "operator", "user"],
+            "already in use",
+        ),
+        (vec!["accounts", "password", "missing"], "no account has"),
+    ] {
+        let result = fixture.run(&arguments, None);
+        assert!(!result.status.success());
+        let error = String::from_utf8(result.stderr).unwrap();
+        assert!(error.contains(expected), "{error}");
+        assert!(!error.contains("Password:") && !error.contains("masked password entry"));
+    }
+    assert_eq!(
+        std::fs::read(accounts::accounts_path(&fixture.0)).unwrap(),
+        before
+    );
+}
+
+#[test]
 fn account_backup_restores_owners_and_passwords_with_a_fresh_session_epoch() {
     let fixture = Fixture::new();
     fixture.init();

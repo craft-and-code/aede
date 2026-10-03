@@ -321,6 +321,12 @@ def relative(source: str, destination: str) -> str:
     return posixpath.relpath(destination, posixpath.dirname(source) or ".")
 
 
+def asset_href(output: str, filename: str, versions=None) -> str:
+    href = relative(output, filename)
+    version = (versions or {}).get(filename)
+    return href + (f"?v={version}" if version else "")
+
+
 @lru_cache(maxsize=512)
 def heading_outline(path: str, modified: int, size: int):
     rendered = Markdown().render(Path(path).read_text(encoding="utf-8"))
@@ -405,7 +411,7 @@ def sidebar(pages: list[dict], language: str, output: str, current="") -> str:
     return f'<a class="guide-docs-home" href="{esc(home)}">{"Toute la documentation" if language == "fr" else "All documentation"}</a><label class="guide-search">{placeholder}<input type="search" placeholder="{placeholder}" aria-controls="guide-nav"></label><p class="guide-search-status" role="status"></p><nav id="guide-nav" aria-label="Documentation">{"".join(sections)}<a class="guide-rustdoc" href="{esc(rust)}">RustDoc ↗</a></nav>'
 
 
-def document_shell(page: dict, language: str, content: Rendered, pages: list[dict], base_url=BASE_URL, counterpart_content=None) -> str:
+def document_shell(page: dict, language: str, content: Rendered, pages: list[dict], base_url=BASE_URL, counterpart_content=None, asset_versions=None) -> str:
     slug = page["slug"]
     output = f"docs/{language}/{slug}.html" if slug else f"docs/{language}/index.html"
     other = "en" if language == "fr" else "fr"
@@ -448,7 +454,7 @@ def document_shell(page: dict, language: str, content: Rendered, pages: list[dic
 <title>{esc(title)} — Aède</title><meta name="description" content="{esc(description)}"><meta name="robots" content="{'noindex,follow' if page.get('noindex') else 'index,follow'}">
 <link rel="canonical" href="{esc(canonical)}"><link rel="alternate" hreflang="{language}" href="{esc(canonical)}"><link rel="alternate" hreflang="{other}" href="{esc(base_url + counterpart)}"><link rel="alternate" hreflang="x-default" href="{esc(base_url + 'docs/index.html')}">
 <meta property="og:type" content="article"><meta property="og:title" content="{esc(title)} — Aède"><meta property="og:description" content="{esc(description)}"><meta property="og:url" content="{esc(canonical)}"><meta property="og:image" content="{esc(base_url + 'assets/og-image.png')}">
-<meta name="theme-color" content="#121317"><link rel="icon" type="image/svg+xml" href="{esc(relative(output, 'assets/favicon.svg'))}"><link rel="stylesheet" href="{esc(relative(output, 'styles.css'))}"><link rel="stylesheet" href="{esc(relative(output, 'guide.css'))}"><script src="{esc(relative(output, 'guide.js'))}" defer></script><script src="{esc(relative(output, 'explainers.js'))}" defer></script>
+<meta name="theme-color" content="#121317"><link rel="icon" type="image/svg+xml" href="{esc(relative(output, 'assets/favicon.svg'))}"><link rel="stylesheet" href="{esc(asset_href(output, 'styles.css', asset_versions))}"><link rel="stylesheet" href="{esc(asset_href(output, 'guide.css', asset_versions))}"><script src="{esc(asset_href(output, 'guide.js', asset_versions))}" defer></script><script src="{esc(asset_href(output, 'explainers.js', asset_versions))}" defer></script>
 </head><body class="guide-document" data-section="{esc(page.get('section', 'manual'))}"><a class="guide-skip" href="#main">{"Aller au contenu" if language == "fr" else "Skip to content"}</a>
 <header class="guide-header"><a class="guide-logo" href="{esc(home)}" aria-label="Aède — {"accueil" if language == "fr" else "home"}">aède<span>.</span></a><a class="guide-header-label" href="{esc(relative(output, f'docs/{language}/index.html'))}">Documentation</a><div class="guide-header-actions"><a class="guide-project" href="{REPOSITORY}">{"Le projet" if language == "fr" else "Project"}</a><nav class="guide-language" aria-label="{"Langue" if language == "fr" else "Language"}"><a href="{esc(relative(output, output))}" data-language="{language}" aria-current="page">{language.upper()}</a><a href="{esc(relative(output, counterpart))}" data-language="{other}" data-fragment-map="{esc(json.dumps(fragment_map, ensure_ascii=False))}">{other.upper()}</a></nav><button type="button" class="guide-menu" aria-controls="guide-sidebar" aria-expanded="false">Menu</button></div></header>
 <div class="guide-layout"><aside class="guide-sidebar" id="guide-sidebar" aria-label="{"Navigation de la documentation" if language == "fr" else "Documentation navigation"}">{sidebar(pages, language, output, slug)}</aside>
@@ -663,12 +669,12 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
             other = "en" if language == "fr" else "fr"
             counterpart = generated.get((page["slug"], other))
             counterpart_content = Markdown().render(counterpart if counterpart is not None else (root / page["source"][other]).read_text(encoding="utf-8"))
-            target.write_text(document_shell(page, language, content, pages, base_url, counterpart_content), encoding="utf-8")
+            target.write_text(document_shell(page, language, content, pages, base_url, counterpart_content, asset_versions), encoding="utf-8")
             if not page.get("noindex"): urls.append(base_url + output)
         index_page = {"slug": "", "section": "manual", "title": {"en": "Documentation", "fr": "Documentation"}, "description": {"en": "Aède user manual, complete command reference, local server API, interactive audio DSP guides and player compatibility specifications.", "fr": "Manuel utilisateur Aède, référence complète des commandes, API du serveur local, guides interactifs du DSP audio et spécifications de compatibilité des lecteurs."}}
-        (destination / f"docs/{language}/index.html").write_text(document_shell(index_page, language, overview(pages, language), pages, base_url), encoding="utf-8")
+        (destination / f"docs/{language}/index.html").write_text(document_shell(index_page, language, overview(pages, language), pages, base_url, asset_versions=asset_versions), encoding="utf-8")
         urls.append(base_url + f"docs/{language}/index.html")
-    (destination / "docs/index.html").write_text(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Documentation — Aède</title><meta name="description" content="Choisissez votre langue / Choose your language for the Aède documentation."><link rel="canonical" href="{esc(base_url + "docs/index.html")}"><link rel="alternate" hreflang="fr" href="{esc(base_url + "docs/fr/index.html")}"><link rel="alternate" hreflang="en" href="{esc(base_url + "docs/en/index.html")}"><link rel="stylesheet" href="../guide.css"></head><body class="guide-document"><main class="guide-locale"><a class="guide-logo" href="../">aède<span>.</span></a><h1>Documentation</h1><p>Choisissez votre langue / Choose your language</p><a href="fr/index.html" lang="fr">Français →</a><a href="en/index.html" lang="en">English →</a></main></body></html>', encoding="utf-8")
+    (destination / "docs/index.html").write_text(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Documentation — Aède</title><meta name="description" content="Choisissez votre langue / Choose your language for the Aède documentation."><link rel="canonical" href="{esc(base_url + "docs/index.html")}"><link rel="alternate" hreflang="fr" href="{esc(base_url + "docs/fr/index.html")}"><link rel="alternate" hreflang="en" href="{esc(base_url + "docs/en/index.html")}"><link rel="stylesheet" href="{esc(asset_href("docs/index.html", "guide.css", asset_versions))}"></head><body class="guide-document"><main class="guide-locale"><a class="guide-logo" href="../">aède<span>.</span></a><h1>Documentation</h1><p>Choisissez votre langue / Choose your language</p><a href="fr/index.html" lang="fr">Français →</a><a href="en/index.html" lang="en">English →</a></main></body></html>', encoding="utf-8")
     urls.append(base_url + "docs/index.html")
     # Copy images/files linked from Markdown. Generated pages reference these
     # source assets without requiring handwritten copies in site/.

@@ -262,9 +262,9 @@ fn main() {
             }
         }
     }
-    // Hold one lock across every read/modify/write sequence. Locking only the
-    // final save would still allow two processes to load the same old state.
-    let _store_lock = if mutates_store_with_args(command, &args) {
+    // Account commands acquire their own lock after password entry, then
+    // reload. Other writers hold it across the entire read/modify/write cycle.
+    let _store_lock = if command != "accounts" && mutates_store_with_args(command, &args) {
         match aede_core::store_lock::StoreLock::acquire(&commands::data_dir(&args)) {
             Ok(lock) => Some(lock),
             Err(error) => {
@@ -499,7 +499,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     (
         "password-stdin",
         &["accounts"],
-        "read an account password from redirected input",
+        "read an account password from redirected input for scripts",
     ),
     ("online", &["label"], "check a label's Discogs profile now"),
     (

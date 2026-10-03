@@ -146,6 +146,46 @@ class HomeTests(unittest.TestCase):
 
 
 class PublishTests(unittest.TestCase):
+    def test_documentation_reloads_changed_assets_without_invalidating_unchanged_ones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            destination = fixture.root / 'dist-site'
+            assets = ('styles.css', 'guide.css', 'guide.js', 'explainers.js')
+            documents = ('docs/en/index.html', 'docs/fr/index.html',
+                         'docs/en/manual/project-statistics.html', 'docs/fr/manual/project-statistics.html')
+
+            def versions(document):
+                source = (destination / document).read_text(encoding='utf-8')
+                urls = [url.rsplit('/', 1)[-1] for url in re.findall(r'(?:href|src)="([^"]+)"', source)]
+                result = {}
+                for asset in assets:
+                    matches = [url for url in urls if url.split('?', 1)[0] == asset]
+                    self.assertEqual(len(matches), 1, (document, asset))
+                    self.assertRegex(matches[0], r'\?v=[a-f0-9]+$')
+                    result[asset] = matches[0]
+                return result
+
+            builder.build(fixture.root)
+            initial = versions(documents[0])
+            for document in documents[1:]:
+                self.assertEqual(versions(document), initial)
+            chooser = (destination / 'docs/index.html').read_text(encoding='utf-8')
+            self.assertIn(initial['guide.css'], chooser)
+            builder.build(fixture.root)
+            self.assertEqual(versions(documents[0]), initial)
+            fixture.write('site/guide.css', '/* Updated field and menu styles */')
+            fixture.write('site/guide.js', '/* Updated documentation navigation */')
+            builder.build(fixture.root)
+            updated = versions(documents[0])
+            for asset in ('guide.css', 'guide.js'):
+                self.assertNotEqual(updated[asset], initial[asset])
+            for asset in ('styles.css', 'explainers.js'):
+                self.assertEqual(updated[asset], initial[asset])
+            for document in documents[1:]:
+                self.assertEqual(versions(document), updated)
+            self.assertIn(updated['guide.css'], (destination / 'docs/index.html').read_text(encoding='utf-8'))
+            self.assertEqual([], checker.check(destination))
+
     def test_build_produces_bilingual_source_pages_and_valid_internal_links(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/'site/assets').mkdir(parents=True); (root/'docs').mkdir()

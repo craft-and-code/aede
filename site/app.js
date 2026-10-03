@@ -1,5 +1,9 @@
 (() => {
   const root=document.getElementById('aede-motion-concepts'),reduce=matchMedia('(prefers-reduced-motion: reduce)');
+  const header=root.querySelector('.ae-header');
+  // Match the sticky header after language, viewport or font changes.
+  const alignAnchors=()=>document.documentElement.style.setProperty('--ae-header-height',`${header.getBoundingClientRect().height}px`);
+  alignAnchors();new ResizeObserver(alignAnchors).observe(header);
   const tr=value=>window.aedeTranslate?.(value)??value;
   const state={mode:0,node:0},settings={motion:true};
   const scenes=[root.querySelector('.ae-sound'),root.querySelector('.ae-graph'),root.querySelector('.ae-preserve')];

@@ -50,6 +50,8 @@ mod sources;
 mod spectrum;
 mod stats;
 mod summaries;
+#[cfg(unix)]
+mod terminal_mode;
 mod track;
 mod work;
 

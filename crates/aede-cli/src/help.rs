@@ -19,7 +19,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
     match command {
         "accounts" => CommandPage {
             usage: "aede accounts [list | init <name> | create <name> <admin|user|auditor> | password <name> | role <name> <admin|user|auditor> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name> | keys <name> [create <label> | revoke <id>]] [--password-stdin] [--json]",
-            summary: "Manage local accounts without exposing passwords; the first administrator retains existing personal data. Client API keys are shown once at creation, remain valid until revoked and are cleared by account changes or credential restoration.",
+            summary: "Manage local accounts; init, create and password ask for a masked password and confirmation. Use --password-stdin with redirected input for scripts. The first administrator retains existing personal data. Client API keys are shown once at creation, remain valid until revoked and are cleared by account changes or credential restoration.",
         },
         "scan" => CommandPage {
             usage: "aede scan [folder…]",

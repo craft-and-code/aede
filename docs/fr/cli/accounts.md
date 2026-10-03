@@ -6,9 +6,9 @@ Les comptes partagent le catalogue musical et conservent favoris, notes, étoile
 
 ```text
 aede accounts [list]
-aede accounts init <name> --password-stdin
-aede accounts create <name> <admin|user|auditor> --password-stdin
-aede accounts password <name> --password-stdin
+aede accounts init <name> [--password-stdin]
+aede accounts create <name> <admin|user|auditor> [--password-stdin]
+aede accounts password <name> [--password-stdin]
 aede accounts role <name> <admin|user|auditor>
 aede accounts rename <name> <new-name>
 aede accounts enable <name>
@@ -23,20 +23,32 @@ aede accounts keys <name> revoke <key-id>
 
 `keys` liste les clés OpenSubsonic persistantes d’un compte nommé. `keys … create <label>` sauvegarde une clé et affiche son secret complet une seule fois ; `keys … revoke <key-id>` retire uniquement cette clé. Le libellé est non blanc et limité à 128 octets UTF-8. Maximum : huit clés par compte, 512 au total. `--json` produit des tableaux de métadonnées pour liste/révocation, ou un objet de métadonnées avec `token` pour création. Gardez cette sortie de création privée. La liste ne demande pas de verrou ; création/révocation le prennent. Ces clés survivent au redémarrage, sans expiration automatique, et sont retirées par modification du compte, révocation globale du compte ou restauration. Voir [configuration client et méthodes disponibles](../server/subsonic.md).
 
-Les identifiants acceptent 1–64 lettres ASCII, chiffres, points, tirets ou tirets bas, sans distinction de casse. Une lettre ou un chiffre est obligatoire. Un mot de passe contient au moins 15 caractères Unicode et au plus 1024 octets UTF-8, sans NUL. L’entrée accepte une ligne et retire un LF ou CRLF final ; les sauts de ligne internes sont refusés.
+Les identifiants acceptent 1–64 lettres ASCII, chiffres, points, tirets ou tirets bas, sans distinction de casse. Une lettre ou un chiffre est obligatoire. Un mot de passe contient au moins 15 caractères Unicode et au plus 1024 octets UTF-8, sans NUL. Les espaces au début et à la fin sont conservés.
+
+Dans un terminal, `init`, `create` et `password` demandent `Password:` puis `Confirm password:`. Rien ne s’affiche pendant la saisie ou le collage, pas même des astérisques. Appuyez sur Entrée après chaque saisie. Retour arrière retire le dernier caractère Unicode ; Ctrl-U efface la saisie. Ctrl-C, Ctrl-D ou Échap annulent sans sauvegarder. Une confirmation différente ou une longueur excessive conserve également les identifiants existants. La saisie au terminal accepte les caractères imprimables et refuse les caractères de contrôle. Les invites utilisent stderr : la sortie JSON sur stdout peut donc être redirigée. L’entrée standard et stderr doivent toutes deux être des terminaux pour la saisie masquée. Sur macOS et Linux, `stty` doit être disponible, comme pour les commandes de lecture locale ; Windows utilise sa console native. La fin d’un collage encore en attente est supprimée pendant que la saisie reste masquée, puis le mode initial du terminal est restauré avant la sauvegarde, y compris après une annulation ou une erreur de saisie. Si le nettoyage échoue, aucun identifiant n’est sauvegardé. Le message d’erreur indique si le terminal reste masqué pour protéger la saisie encore en attente.
+
+Pour les scripts, utilisez explicitement `--password-stdin` avec une entrée redirigée. Ce mode accepte une ligne et retire un LF ou CRLF final ; les sauts de ligne internes sont refusés. Il ne demande pas de confirmation. Le drapeau refuse une entrée provenant d’un terminal pour éviter une saisie visible. Les mots de passe ne sont jamais des arguments de commande.
 
 ## Options de cette commande
 
 | Option | Effet |
 | --- | --- |
-| `--password-stdin` | Lire le mot de passe depuis une entrée redirigée pour `init`, `create` ou `password`. La saisie directe depuis un terminal est refusée. Aucun mot de passe en argument. |
+| `--password-stdin` | Lire une ligne de mot de passe depuis une entrée redirigée pour les scripts utilisant `init`, `create` ou `password`, sans confirmation. Omettre ce drapeau pour la saisie masquée au terminal. |
 | `--json` | Les opérations de comptes donnent des tableaux de métadonnées sans mot de passe/vérificateur/jeton de session. Les clés utilisent les formes ci-dessus ; la création inclut le secret affiché une fois. |
 
-La [référence des options](options.md) explique `--data`, couleurs et aide. La liste ne demande ni catalogue ni verrou d’écriture. Les modifications prennent directement le verrou du dossier de données, même avec un serveur actif ; les commandes de comptes ne passent jamais par la délégation.
+La [référence des options](options.md) explique `--data`, couleurs et aide. La liste ne demande ni catalogue ni verrou d’écriture. Les modifications prennent directement le verrou du dossier de données, même avec un serveur actif ; les commandes de comptes ne passent jamais par la délégation. La saisie du mot de passe précède le verrouillage : attendre une réponse ne bloque donc pas les autres écritures. Les comptes sont ensuite relus sous verrou et les règles de modification sont vérifiées à nouveau avant publication.
 
 ## Exemples
 
-Avec un fichier privé contenant une seule ligne, déjà préparé à `/private/path/account-password` :
+Depuis un terminal, saisir et confirmer chaque mot de passe lorsque la commande le demande :
+
+```sh
+aede accounts init operator
+aede accounts create alice user
+aede accounts password alice
+```
+
+Pour un script, avec un fichier privé contenant une seule ligne, déjà préparé à `/private/path/account-password` :
 
 ```sh
 aede accounts init operator --password-stdin < /private/path/account-password

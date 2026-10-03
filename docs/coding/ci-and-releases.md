@@ -14,6 +14,8 @@ RUSTUP_TOOLCHAIN=1.89 bash tools/check.sh
 
 Linux GNU builds also need `pkg-config` and ALSA development headers (`sudo apt install pkg-config libasound2-dev` on Ubuntu). Allow local socket communication for the integration tests.
 
+The Unix gate also tests masked account entry in real pseudo-terminals: no echo between keys or during confirmation, Unicode editing, cancellation and mode restoration, queued-paste cleanup, rejected flow-control characters, byte limits, JSON output, and concurrent initialization. It needs the standard `stty` utility, also used by local playback controls. Portable password-input rules, Windows key-event/UTF-16 cases and redirected-input account integration tests run through Cargo on all three platforms; real Windows console behaviour requires a Windows host.
+
 On Windows, reproduce the Windows job in PowerShell:
 
 ```powershell

@@ -35,8 +35,11 @@ else
 fi
 cargo test --locked --offline
 
-echo "-> Generated project statistics and bilingual documentation"
+echo "-> Masked account entry in real pseudo-terminals"
 stats_target="${CARGO_TARGET_DIR:-target}"
+python3 tools/accounts_terminal_tests.py --binary "$stats_target/debug/aede"
+
+echo "-> Generated project statistics and bilingual documentation"
 python3 tools/project-stats.py --tests --output "$stats_target/project-stats.json"
 python3 tools/build-site.py --check --project-stats "$stats_target/project-stats.json"
 
