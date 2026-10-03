@@ -1,5 +1,43 @@
 use super::*;
 
+fn one_track(path: &str) -> Catalog {
+    crate::model::build(
+        vec![crate::model::ScannedFile {
+            path: path.into(),
+            size: 1,
+            mtime: 0,
+            tags: crate::tags::RawTags::default(),
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec![],
+        0,
+        &[],
+    )
+}
+
+#[test]
+fn a_line_break_in_a_path_cannot_inject_another_playlist_entry() {
+    let catalog = one_track("/music/real.flac\nhttps://unwanted.invalid/track");
+    let text = render(&catalog, &[0], None, Style::Extended);
+    assert!(!text.contains("https://unwanted"));
+    assert!(
+        !text.contains("#EXTINF"),
+        "an unrepresentable path has no metadata row either"
+    );
+    assert!(try_render(&catalog, &[0], None, Style::Extended).is_err());
+}
+
+#[test]
+fn rounding_an_extreme_duration_does_not_overflow() {
+    let mut catalog = one_track("/music/track.flac");
+    catalog.tracks[0].duration_ms = Some(u64::MAX);
+    let text = render(&catalog, &[0], None, Style::Extended);
+    assert!(text.contains("#EXTINF:18446744073709552,"));
+}
+
 #[test]
 fn windows_playlists_are_relative_without_rewriting_absolute_verbatim_paths() {
     for root in [

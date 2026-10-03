@@ -19,7 +19,7 @@ Zero or more folders containing catalogued audio. No argument covers the catalog
 | Option | Meaning |
 | --- | --- |
 | `--full` | Reread every selected file’s supported container checksum, including existing verdicts. |
-| `--threads N` | Number of worker threads. A positive integer fixes the count; 0 selects an automatic count. Plain copying defaults to one worker. |
+| `--threads N` | Number of worker threads. A positive integer fixes the count; 0 or an omitted option uses the available processor parallelism, falling back to four workers if unavailable. |
 
 The shared [options reference](options.md) explains `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, option values and output/pagination rules. These shared presentation/data options do not make every command support CSV/JSON or pagination.
 
@@ -34,6 +34,10 @@ aede check --threads 4
 ## Result and errors
 
 Read the verdict report, including damaged/no-checksum/unreadable categories. The current check handler can finish with exit code 0 after reporting unreadable files or damaged verdicts: process success alone is not proof that every file is healthy. Invalid arguments and catalog/storage failures still return an error.
+
+The complete supported stream must fit the current 2 GiB read limit: FLAC audio after metadata, or the entire Ogg file. Larger streams and files whose size changes during reading are reported as read errors without a new verdict. A partial read cannot produce an intact verdict. Existing verdicts are still reused unless `--full` is supplied.
+
+A failed recheck clears that file's previous verdict and leaves it eligible for another attempt. Other conclusions and files not yet attempted are preserved. Earlier versions could retain a prefix-only verdict at the read limit; use `--full` on folders containing large files checked by those versions.
 
 ## Related reading
 

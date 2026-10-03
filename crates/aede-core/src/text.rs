@@ -284,7 +284,7 @@ pub fn plural(count: usize, singular: &str) -> String {
 /// a second less on roughly half the tracks of a library, and the sum of the
 /// displayed times would drift away from the announced total.
 pub fn format_duration(ms: u64) -> String {
-    let total = (ms + 500) / 1000;
+    let total = ms / 1000 + u64::from(ms % 1000 >= 500);
     let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
     if h > 0 {
         format!("{h}:{m:02}:{s:02}")
@@ -318,19 +318,15 @@ pub fn format_size(bytes: u64) -> String {
 /// Extracts the first year from a tag date, whatever its shape
 /// (`1986`, `1986-03-05`, `05/03/1986`, `1986.03`).
 pub fn extract_year(raw: &str) -> Option<u32> {
-    let bytes = raw.as_bytes();
-    let mut i = 0;
-    while i + 4 <= bytes.len() {
-        let window = &raw[i..i + 4];
-        if window.bytes().all(|b| b.is_ascii_digit())
-            && let Ok(year) = window.parse::<u32>()
-            && (1500..=2200).contains(&year)
-        {
-            return Some(year);
+    raw.as_bytes().windows(4).find_map(|window| {
+        if !window.iter().all(u8::is_ascii_digit) {
+            return None;
         }
-        i += 1;
-    }
-    None
+        let year = window
+            .iter()
+            .fold(0u32, |year, digit| year * 10 + u32::from(digit - b'0'));
+        (1500..=2200).contains(&year).then_some(year)
+    })
 }
 
 /// Reads a track number in the `5` or `5/12` form, returning

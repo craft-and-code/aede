@@ -12,6 +12,130 @@ use crate::sources::{
 };
 use crate::user::{EntityRef, LOCAL_USER, Play, UserData};
 
+#[test]
+fn attached_negations_keep_the_same_cursor_and_depth_as_separate_ones() {
+    for (attached, expanded) in [
+        ("-title:x title:y", "NOT title:x title:y"),
+        ("---title:x OR title:y", "NOT NOT NOT title:x OR title:y"),
+        ("-NOT title:x title:y", "NOT NOT title:x title:y"),
+        ("-- title:x title:y", "NOT NOT title:x title:y"),
+        (
+            "-NOT (title:x OR title:y) title:z",
+            "NOT NOT (title:x OR title:y) title:z",
+        ),
+    ] {
+        assert_eq!(
+            parse(attached).unwrap(),
+            parse(expanded).unwrap(),
+            "{attached}"
+        );
+    }
+    assert!(parse(&format!("{}title:x", "-".repeat(128))).is_ok());
+    assert!(parse(&format!("{}title:x", "-".repeat(129))).is_err());
+}
+
+#[test]
+fn personal_queries_preserve_owner_scope_and_the_first_legacy_row() {
+    let catalog = catalog();
+    let target = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+    let mut data = UserData::default();
+    data.entry("other", &target, 0).rating = Some(5);
+    data.entry(LOCAL_USER, &target, 0).rating = Some(2);
+    let mut duplicate = data.find(LOCAL_USER, &target).unwrap().clone();
+    duplicate.rating = Some(5);
+    data.annotations.push(duplicate);
+    for (owner, count) in [("other", 9), (LOCAL_USER, 3), (LOCAL_USER, 9)] {
+        data.counts.push(crate::user::PlayCount {
+            owner: owner.into(),
+            track: target.clone(),
+            count,
+            last_played: 0,
+        });
+    }
+    let local = Context::new(&catalog, &data, LOCAL_USER);
+    let other = Context::new(&catalog, &data, "other");
+    assert_eq!(run(&parse("rating:2 played:3").unwrap(), &local), [0]);
+    assert!(run(&parse("rating:5 OR played:9").unwrap(), &local).is_empty());
+    assert_eq!(run(&parse("rating:5 played:9").unwrap(), &other), [0]);
+}
+
+#[test]
+fn reassigning_public_context_fields_keeps_queries_consistent() {
+    let catalog = catalog();
+    let mut uncredited = catalog.clone();
+    uncredited.credits.clear();
+    uncredited.genre_links.clear();
+    let target = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &target, 0).rating = Some(2);
+    data.entry("other", &target, 0).rating = Some(5);
+    let mut replacement = UserData::default();
+    replacement.entry(LOCAL_USER, &target, 0).rating = Some(4);
+    let mut context = Context::new(&catalog, &data, LOCAL_USER);
+    context.owner = "other";
+    assert_eq!(run(&parse("rating:5").unwrap(), &context), [0]);
+    context.owner = LOCAL_USER;
+    context.data = &replacement;
+    assert_eq!(run(&parse("rating:4").unwrap(), &context), [0]);
+    context.catalog = &uncredited;
+    assert!(run(&parse("artist:Deicide OR genre:Metal").unwrap(), &context).is_empty());
+}
+
+#[test]
+fn boolean_operators_require_an_expression_on_both_sides() {
+    for expression in [
+        "AND title:Track",
+        "title:Track AND",
+        "title:Track AND AND title:Other",
+        "title:Track AND OR title:Other",
+        "NOT AND title:Track",
+        "NOT OR title:Track",
+        "(title:Track AND)",
+        "(AND title:Track)",
+        "NOT )",
+        "-AND title:Track",
+    ] {
+        assert!(parse(expression).is_err(), "accepted {expression}");
+    }
+    assert!(parse("title:Track AND (artist:One OR artist:Two)").is_ok());
+    assert!(parse("title:Track artist:One").is_ok());
+}
+
+#[test]
+fn numeric_queries_refuse_nonfinite_negative_and_inverted_bounds() {
+    for expression in [
+        "rating:NaN",
+        "duration:inf",
+        "size:-1",
+        "year:1999..1990",
+        "duration:1:90",
+        "duration:-1:20",
+        "duration:1:NaN",
+        "duration:1e308",
+        "rating:..",
+        "played:1e999",
+    ] {
+        assert!(parse(expression).is_err(), "accepted {expression}");
+    }
+    assert!(parse("duration:1:59.5").is_ok());
+    assert!(parse("year:1990..").is_ok());
+}
+
+#[test]
+fn deeply_nested_queries_are_refused_without_recursing_indefinitely() {
+    let grouped = format!("{}title:Track{}", "(".repeat(256), ")".repeat(256));
+    assert!(parse(&grouped).is_err());
+    assert!(parse(&format!("{}title:Track", "NOT ".repeat(256))).is_err());
+    assert!(parse("NOT (title:Track OR title:Other)").is_ok());
+    let grouped = format!("{}title:Track{}", "(".repeat(128), ")".repeat(128));
+    assert!(
+        parse(&grouped).is_ok(),
+        "the documented boundary is allowed"
+    );
+    assert!(parse(&format!("{}title:Track", "NOT ".repeat(128))).is_ok());
+    assert!(parse(&format!("{}title:Track", "NOT ".repeat(129))).is_err());
+}
+
 fn catalog() -> Catalog {
     model::build(
         vec![

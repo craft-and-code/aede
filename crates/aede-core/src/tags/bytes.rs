@@ -14,9 +14,6 @@ pub struct Cursor<'a> {
     pos: usize,
 }
 
-/// Not every primitive is used by every format; together they form a coherent
-/// set that future parsers (DSF, WavPack…) will draw on.
-#[allow(dead_code)]
 impl<'a> Cursor<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Cursor { data, pos: 0 }
@@ -30,16 +27,8 @@ impl<'a> Cursor<'a> {
         self.data.len().saturating_sub(self.pos)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.remaining() == 0
-    }
-
     pub fn skip(&mut self, n: usize) {
-        self.pos = (self.pos + n).min(self.data.len());
-    }
-
-    pub fn seek_to(&mut self, pos: usize) {
-        self.pos = pos.min(self.data.len());
+        self.pos = self.pos.saturating_add(n).min(self.data.len());
     }
 
     pub fn take(&mut self, n: usize) -> Option<&'a [u8]> {
@@ -57,11 +46,6 @@ impl<'a> Cursor<'a> {
 
     pub fn u16_be(&mut self) -> Option<u16> {
         self.take(2).map(|s| u16::from_be_bytes([s[0], s[1]]))
-    }
-
-    pub fn u24_be(&mut self) -> Option<u32> {
-        self.take(3)
-            .map(|s| ((s[0] as u32) << 16) | ((s[1] as u32) << 8) | s[2] as u32)
     }
 
     pub fn u32_be(&mut self) -> Option<u32> {
@@ -83,30 +67,12 @@ impl<'a> Cursor<'a> {
             .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
     }
 
-    pub fn u64_le(&mut self) -> Option<u64> {
-        self.take(8)
-            .map(|s| u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
-    }
-
     /// Reads `n` bytes and interprets them as UTF-8, replacing invalid
     /// sequences rather than failing: a slightly damaged name is better than a
     /// skipped file.
     pub fn utf8(&mut self, n: usize) -> Option<String> {
         self.take(n)
             .map(|s| String::from_utf8_lossy(s).into_owned())
-    }
-
-    /// Checks a magic signature without consuming it when it does not match.
-    pub fn expect_magic(&mut self, magic: &[u8]) -> bool {
-        if self.remaining() < magic.len() {
-            return false;
-        }
-        if &self.data[self.pos..self.pos + magic.len()] == magic {
-            self.pos += magic.len();
-            true
-        } else {
-            false
-        }
     }
 }
 
@@ -141,6 +107,13 @@ pub fn syncsafe(bytes: &[u8]) -> u32 {
         value = (value << 7) | (b & 0x7F) as u32;
     }
     value
+}
+
+/// Converts stream ticks or samples to milliseconds, without an overflowing
+/// intermediate product. An unrepresentable duration or zero rate is unknown.
+pub(super) fn duration_ms(units: u64, rate: u32) -> Option<u64> {
+    let milliseconds = (u128::from(units) * 1000).checked_div(u128::from(rate))?;
+    u64::try_from(milliseconds).ok()
 }
 
 /// Converts an 80-bit "extended" float (used by AIFF) into an `f64`.

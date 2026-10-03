@@ -5,11 +5,12 @@ use aede_core::model::Catalog;
 use aede_core::stats;
 use aede_core::text;
 
-use super::{Res, load};
-use crate::args::Args;
+use super::{Res, announce_window, load};
+use crate::args::{Args, Window};
 use crate::ui::{self, Align, Table};
 
 pub fn show_stats(args: &Args) -> Res {
+    let window = args.window(10)?;
     let catalog = load(args)?;
     let s = stats::compute(&catalog);
     // Empty until a fetch has asked MusicBrainz where each artist is from —
@@ -21,7 +22,7 @@ pub fn show_stats(args: &Args) -> Res {
     if args.has("json") {
         println!(
             "{}",
-            stats_to_json(&catalog, &s, &countries).to_string_pretty()
+            stats_to_json(&catalog, &s, &countries, window).to_string_pretty()
         );
         return Ok(());
     }
@@ -73,29 +74,32 @@ pub fn show_stats(args: &Args) -> Res {
     }
     print!("{}", t.render());
 
-    print_buckets("Formats", "Format", &s.by_codec, true);
-    print_buckets("Quality", "Quality", &s.by_quality, true);
-    print_buckets("Sample rates", "Sample rate", &s.by_sample_rate, false);
-    print_buckets("Decades (albums)", "Decade", &s.by_decade, false);
+    print_buckets("Formats", "Format", &s.by_codec, true, window);
+    print_buckets("Quality", "Quality", &s.by_quality, true, window);
+    print_buckets(
+        "Sample rates",
+        "Sample rate",
+        &s.by_sample_rate,
+        false,
+        window,
+    );
+    print_buckets("Decades (albums)", "Decade", &s.by_decade, false, window);
 
     // The credit vocabulary as it actually exists in *this* library. Without
     // it, `--role composer` returning nothing is indistinguishable from a bug:
     // the user knows their library holds composers, and has no way to see that
     // their files never carried a `composer` tag. A count of zero is an
     // answer; an empty screen is not.
-    print_roles(&catalog);
+    print_roles(&catalog, window);
 
-    let limit = args.number_or("limit", 10)?;
-    println!(
-        "{}",
-        ui::section(&format!("Most present performers (top {limit})"))
-    );
+    println!("{}", ui::section("Most present performers"));
     let mut t = Table::new(&["Artist", "Tracks", ""])
         .align(1, Align::Right)
         .limit(0, 40);
-    let top = stats::top_artists(&catalog, limit);
+    let top = stats::top_artists(&catalog, usize::MAX);
+    announce_window(window, top.len(), "performer");
     let max = top.first().map(|(_, n)| *n).unwrap_or(0);
-    for (id, count) in &top {
+    for (id, count) in page(&top, window) {
         let name = catalog
             .artist(*id)
             .map(|a| a.name.clone())
@@ -104,19 +108,15 @@ pub fn show_stats(args: &Args) -> Res {
     }
     print!("{}", t.render());
 
-    let writers = stats::top_writers(&catalog, limit);
+    let writers = stats::top_writers(&catalog, usize::MAX);
     if !writers.is_empty() {
-        println!(
-            "{}",
-            ui::section(&format!(
-                "Most credited writers and producers (top {limit})"
-            ))
-        );
+        println!("{}", ui::section("Most credited writers and producers"));
         let mut t = Table::new(&["Name", "Tracks", ""])
             .align(1, Align::Right)
             .limit(0, 40);
         let max = writers.first().map(|(_, n)| *n).unwrap_or(0);
-        for (id, count) in &writers {
+        announce_window(window, writers.len(), "writer");
+        for (id, count) in page(&writers, window) {
             let name = catalog
                 .artist(*id)
                 .map(|a| a.name.clone())
@@ -126,17 +126,15 @@ pub fn show_stats(args: &Args) -> Res {
         print!("{}", t.render());
     }
 
-    let genres = stats::top_genres(&catalog, limit);
+    let genres = stats::top_genres(&catalog, usize::MAX);
     if !genres.is_empty() {
-        println!(
-            "{}",
-            ui::section(&format!("Most frequent genres (top {limit})"))
-        );
+        println!("{}", ui::section("Most frequent genres"));
         let mut t = Table::new(&["Genre", "Tracks", ""])
             .align(1, Align::Right)
             .limit(0, 40);
         let max = genres.first().map(|(_, n)| *n).unwrap_or(0);
-        for (id, count) in &genres {
+        announce_window(window, genres.len(), "genre");
+        for (id, count) in page(&genres, window) {
             let name = catalog
                 .genre(*id)
                 .map(|g| g.name.clone())
@@ -146,10 +144,14 @@ pub fn show_stats(args: &Args) -> Res {
         print!("{}", t.render());
     }
 
-    print_buckets("Countries", "Country", &countries, false);
+    print_buckets("Countries", "Country", &countries, false, window);
 
     where_it_lives(args, &catalog);
     Ok(())
+}
+
+fn page<T>(items: &[T], window: Window) -> impl Iterator<Item = &T> {
+    items.iter().skip(window.offset).take(window.limit)
 }
 
 /// Where Aède keeps its own files, how much they weigh, and how old they are.
@@ -171,6 +173,7 @@ fn where_it_lives(args: &Args, catalog: &Catalog) {
     let dir = super::data_dir(args);
     let files = [
         aede_core::store::catalog_path(&dir),
+        aede_core::conclusions::conclusions_path(&dir),
         aede_core::user::user_path(&dir),
         aede_core::sources::sources_path(&dir),
     ];
@@ -178,7 +181,7 @@ fn where_it_lives(args: &Args, catalog: &Catalog) {
         .iter()
         .filter_map(|path| std::fs::metadata(path).ok())
         .map(|meta| meta.len())
-        .sum();
+        .fold(0, u64::saturating_add);
 
     println!("{}", ui::section("This catalog"));
     let mut t = Table::plain(2);
@@ -198,7 +201,7 @@ fn where_it_lives(args: &Args, catalog: &Catalog) {
     print!("{}", t.render());
     println!(
         "  {}",
-        ui::dim("aede backup writes all three to one file; AEDE_HOME moves them")
+        ui::dim("aede backup writes all four to one file; AEDE_HOME moves them")
     );
 }
 
@@ -219,11 +222,18 @@ fn country_buckets(catalog: &Catalog, held: &aede_core::sources::Sources) -> Vec
         .collect()
 }
 
-fn print_buckets(title: &str, column: &str, buckets: &[stats::Bucket], with_size: bool) {
+fn print_buckets(
+    title: &str,
+    column: &str,
+    buckets: &[stats::Bucket],
+    with_size: bool,
+    window: Window,
+) {
     if buckets.is_empty() {
         return;
     }
     println!("{}", ui::section(title));
+    announce_window(window, buckets.len(), "category");
     let headers: Vec<&str> = if with_size {
         vec![column, "Count", "Size", ""]
     } else {
@@ -234,7 +244,7 @@ fn print_buckets(title: &str, column: &str, buckets: &[stats::Bucket], with_size
         t = t.align(2, Align::Right);
     }
     let max = buckets.iter().map(|b| b.count).max().unwrap_or(0);
-    for bucket in buckets {
+    for bucket in page(buckets, window) {
         let mut row = vec![bucket.label.clone(), bucket.count.to_string()];
         if with_size {
             row.push(text::format_size(bucket.bytes));
@@ -250,7 +260,7 @@ fn print_buckets(title: &str, column: &str, buckets: &[stats::Bucket], with_size
 /// `main` and `album` are left out: they are on every track and every release
 /// by construction, and would say nothing about the library. What is left is
 /// exactly what `aede artists --role <role>` can be asked for.
-fn print_roles(catalog: &Catalog) {
+fn role_counts(catalog: &Catalog) -> Vec<(&str, usize, usize)> {
     let mut rows: Vec<(&str, usize, usize)> = Vec::new();
     for role in catalog.roles_in_use() {
         if role == "main" || role == "album" {
@@ -260,6 +270,12 @@ fn print_roles(catalog: &Catalog) {
         let credits: usize = artists.iter().map(|(_, n)| n).sum();
         rows.push((role, artists.len(), credits));
     }
+    rows.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(b.0)));
+    rows
+}
+
+fn print_roles(catalog: &Catalog, window: Window) {
+    let rows = role_counts(catalog);
     if rows.is_empty() {
         println!("{}", ui::section("Roles"));
         println!(
@@ -272,13 +288,12 @@ fn print_roles(catalog: &Catalog) {
         );
         return;
     }
-    rows.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(b.0)));
-
     println!("{}", ui::section("Roles"));
+    announce_window(window, rows.len(), "role");
     let mut t = Table::new(&["Role", "Artists", "Credits"])
         .align(1, Align::Right)
         .align(2, Align::Right);
-    for (role, artists, credits) in rows {
+    for (role, artists, credits) in page(&rows, window) {
         t.push(vec![
             super::role_label(role),
             artists.to_string(),
@@ -292,7 +307,12 @@ fn print_roles(catalog: &Catalog) {
     );
 }
 
-fn stats_to_json(catalog: &Catalog, s: &stats::Stats, countries: &[stats::Bucket]) -> Json {
+fn stats_to_json(
+    catalog: &Catalog,
+    s: &stats::Stats,
+    countries: &[stats::Bucket],
+    window: Window,
+) -> Json {
     let mut root = Json::obj();
     root.set("tracks", s.tracks.into());
     root.set("albums", s.releases.into());
@@ -307,7 +327,7 @@ fn stats_to_json(catalog: &Catalog, s: &stats::Stats, countries: &[stats::Bucket
 
     let buckets = |list: &[stats::Bucket]| {
         Json::Arr(
-            list.iter()
+            page(list, window)
                 .map(|b| {
                     let mut o = Json::obj();
                     o.set("label", b.label.clone().into());
@@ -323,19 +343,15 @@ fn stats_to_json(catalog: &Catalog, s: &stats::Stats, countries: &[stats::Bucket
     root.set(
         "roles",
         Json::Arr(
-            catalog
-                .roles_in_use()
+            role_counts(catalog)
                 .into_iter()
-                .filter(|r| *r != "main" && *r != "album")
-                .map(|role| {
-                    let artists = catalog.artists_in_role(role);
+                .skip(window.offset)
+                .take(window.limit)
+                .map(|(role, artists, credits)| {
                     let mut o = Json::obj();
                     o.set("role", role.to_string().into());
-                    o.set("artists", artists.len().into());
-                    o.set(
-                        "credits",
-                        artists.iter().map(|(_, n)| *n).sum::<usize>().into(),
-                    );
+                    o.set("artists", artists.into());
+                    o.set("credits", credits.into());
                     o
                 })
                 .collect(),
@@ -359,8 +375,10 @@ fn stats_to_json(catalog: &Catalog, s: &stats::Stats, countries: &[stats::Bucket
     top.set(
         "artists",
         Json::Arr(
-            stats::top_artists(catalog, 20)
+            stats::top_artists(catalog, usize::MAX)
                 .into_iter()
+                .skip(window.offset)
+                .take(window.limit)
                 .map(|(id, count)| {
                     let mut o = Json::obj();
                     o.set(

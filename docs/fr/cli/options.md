@@ -34,6 +34,8 @@ Pagination : `--limit N`, `--offset N`, `--all` seulement sur les commandes list
 
 Sortie : choisir CSV, JSON ou M3U si proposé. `--output`/`-o` écrit un véritable export, pas toute page humaine. `--separator` exige CSV ; `export --tracks` exige CSV. CSV cite les titres contenant des virgules : un outil qui coupe aveuglément à chaque virgule casse ces colonnes. `--separator tab` convient aux traitements simples à tabulations. M3U garde des chemins, sans copier l’audio.
 
+La destination d’export est contrôlée avant toute modification des données personnelles. Les stores actifs et verrous d’Aède, fichiers audio existants, liens symboliques et cibles non ordinaires sont refusés. Un rapport ordinaire est remplacé atomiquement après écriture complète ; ses dossiers manquants peuvent être créés. L’affichage humain échappe les instructions de contrôle des notes, chemins et métadonnées. Les exports JSON/CSV gardent les valeurs originales ; traiter le texte CSV comme une donnée non fiable à l’ouverture dans un tableur.
+
 Confirmation : `--yes` existe seulement pour reset, history, fetch, backup, restore. Il accepte leur confirmation réelle, sans ignorer les erreurs. Sans terminal, une confirmation nécessaire refuse sauf acceptation volontaire.
 
 Réutilisation : `--full` concerne scan/check/spectrum/fetch/fingerprint avec des effets différents ; analyze utilise `--force`. Ne pas déduire l’effet du nom seul.
@@ -67,7 +69,7 @@ Cette liste suit répartition et traitements actuels. Elle décrit la portée ac
 | `--json-layout album\|artist` | [analyze](analyze.md) |
 | `--genre NAME` | [albums](albums.md) |
 | `--label NAME` | [albums](albums.md) |
-| `--json / -j` | [analyze](analyze.md), [stats](stats.md), [doctor](doctor.md), [credits](credits.md), [relations](relations.md), [query](query.md), [collection](collection.md), [favourites](favourites.md), [notes](notes.md), [artists](artists.md), [countries](countries.md), [albums](albums.md), [genres](genres.md), [genre](genre.md), [labels](labels.md), [label](label.md), [years](years.md), [artist](artist.md), [album](album.md), [track](track.md), [search](search.md), [export](export.md) |
+| `--json / -j` | [analyze](analyze.md), [stats](stats.md), [doctor](doctor.md), [credits](credits.md), [relations](relations.md), [query](query.md), [collection](collection.md), [favourites](favourites.md), [notes](notes.md), [artists](artists.md), [countries](countries.md), [albums](albums.md), [genres](genres.md), [genre](genre.md), [labels](labels.md), [label](label.md), [years](years.md), [artist](artist.md), [album](album.md), [track](track.md), [search](search.md), [export](export.md), [scan](scan.md) |
 | `--no-color` | Partagée (voir ci-dessus) |
 | `--yes` | [reset](reset.md), [backup](backup.md), [restore](restore.md), [fetch](fetch.md), [history](history.md) |
 | `--forget` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md) |
@@ -79,7 +81,14 @@ Cette liste suit répartition et traitements actuels. Elle décrit la portée ac
 | `--simple` | [playlist](playlist.md) |
 | `--artists` | [playlist](playlist.md) |
 | `--extras none\|cover\|images\|all` | [copy](copy.md) |
-| `--dry-run` | [copy](copy.md), [spectrum](spectrum.md), [playlist](playlist.md), [fetch](fetch.md), [extract](extract.md), [fingerprint](fingerprint.md) |
+| `--dry-run` | [copy](copy.md), [spectrum](spectrum.md), [playlist](playlist.md), [fetch](fetch.md), [extract](extract.md), [fingerprint](fingerprint.md), [scan](scan.md), [notes](notes.md) |
+| `--verify-existing` | [copy](copy.md) |
+| `--playlists` | [copy](copy.md) |
+| `--waiting` | [notes](notes.md) |
+| `--relink REFERENCE` | [notes](notes.md) |
+| `--to REFERENCE` | [notes](notes.md) |
+| `--undo-relink ID` | [notes](notes.md) |
+| `--relinks` | [notes](notes.md) |
 | `--verify` | [copy](copy.md) |
 | `--safe-names` | [copy](copy.md) |
 | `--raw-names` | [copy](copy.md) |

@@ -54,7 +54,7 @@ const TARGETS: &[(&str, Target, &str, &str, bool)] = &[
     ("vorbis", Target::Vorbis, "ogg", "libvorbis", false),
     ("ogg", Target::Vorbis, "ogg", "libvorbis", false),
     ("flac", Target::Flac, "flac", "flac", true),
-    ("wav", Target::Wav, "wav", "pcm_s16le", true),
+    ("wav", Target::Wav, "wav", "pcm", true),
 ];
 
 impl Target {
@@ -86,6 +86,17 @@ impl Target {
             .map(|(name, ..)| *name)
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    /// Accepted quality settings for this encoder, for actionable refusals.
+    pub fn quality_forms(self) -> &'static str {
+        match self {
+            Target::Mp3 => "V0…V9 or a supported MP3 bitrate (8…320k, e.g. 192k)",
+            Target::Vorbis => "q0…q10 or a bitrate (32…500k, e.g. 192k)",
+            Target::Opus => "a bitrate (8…510k, e.g. 128k)",
+            Target::Aac => "a bitrate (8…2048k, e.g. 192k)",
+            Target::Flac | Target::Wav => "no quality setting",
+        }
     }
 
     fn row(self) -> (&'static str, &'static str, bool) {
@@ -158,8 +169,14 @@ impl Target {
             return Some(kbps);
         }
         Some(match self {
-            // V0 averages around 245 kbps on real music.
-            Target::Mp3 => 245,
+            // LAME's VBR scale is only a planning estimate, never a fixed rate.
+            Target::Mp3 => match quality {
+                Some(Quality::Variable(level)) => [245, 225, 190, 175, 165, 130, 115, 100, 85, 65]
+                    .get(level as usize)
+                    .copied()
+                    .unwrap_or(245),
+                _ => 245,
+            },
             Target::Opus => 128,
             Target::Aac => 192,
             Target::Vorbis => 192,
@@ -201,6 +218,33 @@ impl Quality {
             .ok()
             .filter(|kbps| (8..=2048).contains(kbps))
             .map(Quality::Bitrate)
+    }
+
+    /// Reads and validates a quality setting for one encoder.
+    ///
+    /// MP3 accepts only its V scale and supported constant bitrates; Vorbis
+    /// accepts its q scale or a bitrate. Opus and AAC have bitrate settings.
+    pub fn parse_for(target: Target, word: &str) -> Option<Quality> {
+        let word = word.trim();
+        let quality = Self::parse(word)?;
+        let valid = match quality {
+            Quality::Variable(level) => match target {
+                Target::Mp3 => word.starts_with(['V', 'v']) && level <= 9,
+                Target::Vorbis => word.starts_with(['Q', 'q']) && level <= 10,
+                _ => false,
+            },
+            Quality::Bitrate(kbps) => match target {
+                Target::Mp3 => [
+                    8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 192, 224, 256, 320,
+                ]
+                .contains(&kbps),
+                Target::Opus => (8..=510).contains(&kbps),
+                Target::Aac => (8..=2048).contains(&kbps),
+                Target::Vorbis => (32..=500).contains(&kbps),
+                _ => false,
+            },
+        };
+        valid.then_some(quality)
     }
 
     /// How the setting is written, for a message that repeats what was typed.
@@ -245,8 +289,8 @@ pub fn estimated_size(
         Some(kbps) => duration_ms.saturating_mul(kbps as u64) / 8,
         // Lossless from lossless: FLAC lands around 60 % of PCM on real music,
         // and PCM from FLAC around the inverse.
-        None if target == Target::Flac => source * 3 / 5,
-        None => source * 2,
+        None if target == Target::Flac => source.saturating_mul(3) / 5,
+        None => source.saturating_mul(2),
     }
 }
 
@@ -266,6 +310,21 @@ pub fn missing_ffmpeg() -> String {
     crate::ffmpeg::missing("--compress")
 }
 
+/// Refuses lossless conversions that cannot represent the source samples.
+///
+/// FLAC stores integer PCM; arbitrary floating-point PCM must remain in a
+/// floating-capable container such as WAV rather than being quantized silently.
+pub fn validate_conversion(
+    properties: &crate::tags::AudioProperties,
+    target: Target,
+) -> Result<(), String> {
+    if target == Target::Flac && matches!(properties.codec.as_str(), "pcm_float" | "fl32" | "fl64")
+    {
+        return Err("FLAC cannot preserve arbitrary floating-point PCM; use WAV or copy the source unchanged".into());
+    }
+    Ok(())
+}
+
 /// Converts one file, and reports what went wrong in words rather than in an
 /// exit status.
 ///
@@ -276,6 +335,11 @@ pub fn missing_ffmpeg() -> String {
 /// holds one — but losing the artist and the title on the way to a player is
 /// not a trade anybody would accept, and ffmpeg's mapping is what beets relies
 /// on for the same reason.
+///
+/// Sources must resolve to ordinary local files. Output is encoded in an
+/// isolated temporary directory, then atomically replaces an ordinary target;
+/// final symlinks and the source itself are refused. A different hard-link
+/// alias is replaced without writing through to the original source inode.
 pub fn convert(
     ffmpeg: &str,
     source: &Path,
@@ -283,7 +347,52 @@ pub fn convert(
     target: Target,
     quality: Option<Quality>,
 ) -> Result<(), String> {
-    let (_, codec, _) = target.row();
+    if let Some(quality) = quality {
+        let valid = match quality {
+            Quality::Variable(level) => {
+                matches!(target, Target::Mp3) && level <= 9
+                    || matches!(target, Target::Vorbis) && level <= 10
+            }
+            Quality::Bitrate(kbps) => Quality::parse_for(target, &format!("{kbps}k")).is_some(),
+        };
+        if !valid {
+            return Err("quality is not supported by the selected encoder".into());
+        }
+    }
+    super::validate_source(source)?;
+    // Absolute input prevents a literal filename such as `pipe:123` from
+    // becoming an ffmpeg protocol, and keeps local conversion local.
+    let source = source.canonicalize().map_err(|error| error.to_string())?;
+    if destination.canonicalize().is_ok_and(|path| path == source) {
+        return Err("source and destination are the same file".into());
+    }
+    let temporary = super::TemporaryOutput::new(destination)?;
+    encode(ffmpeg, &source, temporary.path(), target, quality)?;
+    temporary.publish()
+}
+
+fn encode(
+    ffmpeg: &str,
+    source: &Path,
+    destination: &Path,
+    target: Target,
+    quality: Option<Quality>,
+) -> Result<(), String> {
+    let high_precision_flac = if target == Target::Flac {
+        let properties = crate::tags::read(source)
+            .map_err(|error| format!("cannot determine source PCM representation: {error}"))?
+            .properties;
+        validate_conversion(&properties, target)?;
+        properties.bit_depth.is_some_and(|bits| bits > 24)
+    } else {
+        false
+    };
+    let (_, default_codec, _) = target.row();
+    let codec = if target == Target::Wav {
+        wav_codec(source)?
+    } else {
+        default_codec
+    };
     let mut command = Command::new(ffmpeg);
     command
         // Without this a run in a terminal can stop dead waiting for an answer
@@ -307,6 +416,19 @@ pub fn convert(
             "attached_pic",
         ]);
     }
+    if high_precision_flac {
+        // FFmpeg otherwise quantizes s32 input to 24 bits. Versions with
+        // 32-bit FLAC support require this explicit experimental opt-in;
+        // older versions must fail instead of publishing lower precision.
+        command.args([
+            "-sample_fmt",
+            "s32",
+            "-strict",
+            "experimental",
+            "-bits_per_raw_sample",
+            "32",
+        ]);
+    }
     command
         .args(["-map_metadata", "0"])
         .args(["-c:a", codec])
@@ -317,6 +439,15 @@ pub fn convert(
         .output()
         .map_err(|e| format!("ffmpeg could not be run: {e}"))?;
     if output.status.success() {
+        if target.lossless() {
+            let source = crate::tags::read(source)
+                .map_err(|error| format!("cannot read source precision: {error}"))?
+                .properties;
+            let written = crate::tags::read(destination)
+                .map_err(|error| format!("cannot read encoded precision: {error}"))?
+                .properties;
+            verify_lossless_properties(&source, &written)?;
+        }
         return Ok(());
     }
     // ffmpeg's own words, trimmed to the last few lines: the first ones are
@@ -335,6 +466,56 @@ pub fn convert(
         true => "ffmpeg failed without saying why".to_string(),
         false => format!("ffmpeg: {tail}"),
     })
+}
+
+/// A successful encoder must still retain the source's PCM representation.
+fn verify_lossless_properties(
+    source: &crate::tags::AudioProperties,
+    written: &crate::tags::AudioProperties,
+) -> Result<(), String> {
+    if !written.lossless
+        || source
+            .bit_depth
+            .is_some_and(|bits| written.bit_depth.is_none_or(|output| output < bits))
+        || source
+            .sample_rate
+            .is_some_and(|rate| written.sample_rate != Some(rate))
+        || source
+            .channels
+            .is_some_and(|channels| written.channels != Some(channels))
+    {
+        return Err(
+            "lossless encoder cannot preserve the source precision, sample rate or channel count"
+                .into(),
+        );
+    }
+    if matches!(source.codec.as_str(), "pcm_float" | "fl32" | "fl64")
+        && !matches!(written.codec.as_str(), "pcm_float" | "fl32" | "fl64")
+    {
+        return Err("lossless encoder quantized floating-point PCM to integer samples".into());
+    }
+    Ok(())
+}
+
+/// Uses enough PCM precision for the source rather than forcing CD precision.
+/// Unsupported/unknown precision is refused instead of silently quantized.
+fn wav_codec(source: &Path) -> Result<&'static str, String> {
+    let properties = crate::tags::read(source)
+        .map_err(|error| format!("cannot determine source PCM precision: {error}"))?
+        .properties;
+    if matches!(properties.codec.as_str(), "pcm_float" | "fl32" | "fl64") {
+        return match properties.bit_depth {
+            Some(32) => Ok("pcm_f32le"),
+            Some(64) => Ok("pcm_f64le"),
+            _ => Err("cannot preserve unsupported floating-point WAV precision".into()),
+        };
+    }
+    match properties.bit_depth {
+        Some(1..=16) => Ok("pcm_s16le"),
+        Some(17..=24) => Ok("pcm_s24le"),
+        Some(25..=32) => Ok("pcm_s32le"),
+        _ => Err("cannot preserve unknown or unsupported source PCM precision in WAV".into()),
+    }
 }
 
 /// Longest a converted file's playing time may differ from its source.

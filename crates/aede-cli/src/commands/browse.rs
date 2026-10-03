@@ -561,6 +561,8 @@ pub fn list_genres(args: &Args) -> Res {
     if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = top
             .iter()
+            .skip(window.offset)
+            .take(window.limit)
             .map(|&(id, count)| {
                 let tracks = tracks_of_genre(&catalog, id);
                 let (duration, size) = totals(&catalog, &tracks);
@@ -641,6 +643,8 @@ pub fn list_labels(args: &Args) -> Res {
     if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = top
             .iter()
+            .skip(window.offset)
+            .take(window.limit)
             .map(|&(id, count)| {
                 let tracks = tracks_of_label(&catalog, id);
                 let (duration, size) = totals(&catalog, &tracks);
@@ -704,28 +708,6 @@ pub fn list_years(args: &Args) -> Res {
         entry.0 += 1;
         entry.1.extend(release.track_ids.iter().copied());
     }
-    if args.has("csv") || args.has("json") {
-        let table: Vec<Vec<String>> = by_year
-            .iter()
-            .map(|(year, (albums, tracks))| {
-                let (duration, size) = totals(&catalog, tracks);
-                vec![
-                    year.to_string(),
-                    albums.to_string(),
-                    tracks.len().to_string(),
-                    duration.to_string(),
-                    size.to_string(),
-                ]
-            })
-            .collect();
-        return export::rows_table(
-            &["year", "albums", "tracks", "duration_ms", "size_bytes"],
-            &table,
-            args,
-        );
-    }
-
-    println!("{}", ui::section("Years"));
     // A BTreeMap is already in year order, which is the order chosen for this
     // listing. `--sort` turns it into a list so another order can be given.
     const YEAR_ORDERS: &[Order] = &[
@@ -753,6 +735,28 @@ pub fn list_years(args: &Args) -> Res {
             )
         });
     }
+    if args.has("csv") || args.has("json") {
+        let table: Vec<Vec<String>> = by_year
+            .iter()
+            .map(|(year, (albums, tracks))| {
+                let (duration, size) = totals(&catalog, tracks);
+                vec![
+                    year.to_string(),
+                    albums.to_string(),
+                    tracks.len().to_string(),
+                    duration.to_string(),
+                    size.to_string(),
+                ]
+            })
+            .collect();
+        return export::rows_table(
+            &["year", "albums", "tracks", "duration_ms", "size_bytes"],
+            &table,
+            args,
+        );
+    }
+
+    println!("{}", ui::section("Years"));
     let mut t = Table::new(&["Year", "Albums", "Tracks", "Duration", "Size", ""])
         .align(1, Align::Right)
         .align(2, Align::Right)

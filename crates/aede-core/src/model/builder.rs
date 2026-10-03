@@ -31,8 +31,9 @@ pub struct ScannedFile {
     pub path: String,
     /// Size in bytes at the moment of the scan.
     pub size: u64,
-    /// Modification date, in seconds since the Unix epoch; with `size`, it is
-    /// what lets a later scan leave an unchanged file alone.
+    /// Modification date in seconds since the Unix epoch. The scanner stores
+    /// its nanosecond fraction separately on [`Catalog::file_mtime_subseconds`]
+    /// after building the graph; both parts and `size` decide cache reuse.
     pub mtime: u64,
     /// Tags and stream properties, exactly as the decoder handed them over.
     pub tags: RawTags,
@@ -211,8 +212,12 @@ impl Builder {
             }
         }
 
-        let is_compilation = tags.first("compilation").is_some()
-            || album_artist_names.iter().any(|n| is_various_artists(n));
+        let is_compilation = tags.first("compilation").is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        }) || album_artist_names.iter().any(|n| is_various_artists(n));
         let release_id = self.release_for(
             item,
             &folder,
@@ -555,9 +560,13 @@ impl Builder {
 
     /// Attaches genres to the track, and to its release the first time round.
     fn add_genres(&mut self, item: &ScannedFile, entities: &FileEntities, track_id: Id) {
+        let mut track_genres = HashSet::new();
         for value in item.tags.all("genre") {
             for name in value.split(';').map(str::trim).filter(|s| !s.is_empty()) {
                 let genre_id = self.intern_genre(name);
+                if !track_genres.insert(genre_id) {
+                    continue;
+                }
                 self.catalog.genre_links.push(GenreLink {
                     genre_id,
                     entity_kind: EntityKind::Track,

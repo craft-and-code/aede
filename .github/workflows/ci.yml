@@ -21,6 +21,8 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      AEDE_REQUIRE_FFMPEG: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -36,9 +38,17 @@ jobs:
       - name: Cache the build
         uses: Swatinem/rust-cache@v2
 
-      - name: Install ALSA development files
+      - name: Install ALSA development files and FFmpeg
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev ffmpeg
+
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: command -v ffmpeg || brew install ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
 
       # `check.sh` runs with `--offline`, which is deliberate: the dependencies
       # are fetched once here, and a step that then needs the network means one

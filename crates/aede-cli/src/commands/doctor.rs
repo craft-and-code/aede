@@ -8,6 +8,7 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn show_doctor(args: &Args) -> Res {
+    let window = args.window(25)?;
     let catalog = load(args)?;
     let sources = super::sources_held(args)?;
     let mut issues = doctor::diagnose(&catalog, &sources);
@@ -41,7 +42,9 @@ pub fn show_doctor(args: &Args) -> Res {
     }
 
     if args.has("json") {
-        println!("{}", issues_to_json(&issues).to_string_pretty());
+        let start = window.offset.min(issues.len());
+        let end = start.saturating_add(window.limit).min(issues.len());
+        println!("{}", issues_to_json(&issues[start..end]).to_string_pretty());
         return Ok(());
     }
 
@@ -78,7 +81,6 @@ pub fn show_doctor(args: &Args) -> Res {
     }
     print!("{}", t.render());
 
-    let window = args.window(25)?;
     println!("{}", ui::section("Details"));
     for issue in issues.iter().skip(window.offset).take(window.limit) {
         let mark = match issue.severity() {
@@ -89,10 +91,10 @@ pub fn show_doctor(args: &Args) -> Res {
         println!(
             "  {mark} {} — {}",
             ui::bold(issue.kind.label()),
-            issue.detail
+            ui::literal(&issue.detail)
         );
         for file in issue.files.iter().take(4) {
-            println!("      {}", ui::dim(file));
+            println!("      {}", ui::dim(&ui::literal(file)));
         }
         if issue.files.len() > 4 {
             println!(

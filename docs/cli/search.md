@@ -4,7 +4,7 @@ search finds catalog artists, albums, tracks, recordings, works and release grou
 
 Comments, personal notes and lyrics are opt-in with --comments, --notes and --lyrics. Lyrics search shows matching lines rather than flooding the screen with entire songs. --json includes match origin (found_in) for prose matches. Search only reads stored/source-sidecar information; it does not fetch missing biographies or lyrics.
 
-CSV/M3U export only track hits, not every artist/album result; JSON can preserve result categories. Pagination applies to the shown hits. Use query when you need numeric ranges, OR, exclusions or graph-role criteria rather than a plain text match.
+CSV/M3U export only track hits, not every artist/album result. They combine name, optional comment and optional lyric hits, remove duplicate tracks, then apply the requested offset and limit. Artist or album matches do not consume that track window. JSON and human output page each result category separately; JSON retains match origins and honours --output, including an empty array when nothing matches. Use query when you need numeric ranges, OR, exclusions or graph-role criteria rather than a plain text match.
 
 ## Syntax and arguments
 

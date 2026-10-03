@@ -33,7 +33,7 @@ La recherche parcourt la structure relationnelle du catalogue. Un préfixe préc
 | `duration` | Durée | Durée de la piste | `duration:..4:00`, `duration:3:30..5:00` |
 | `size` | Octets | Taille du fichier en octets | `size:>50000000` |
 | `codec` / `format` | Texte | Codec audio ou conteneur | `codec:flac`, `format:mp3` |
-| `bitrate` / `samplerate` | Nombre | Débit / fréquence d’échantillonnage | `bitrate:>=320k`, `samplerate:96000` |
+| `bitrate` / `samplerate` | Nombre | Débit / fréquence d’échantillonnage | `bitrate:>=320`, `samplerate:96000` |
 | `lossless` | Booléen | Compression sans perte | `lossless:true`, `-lossless` |
 | `compilation` | Booléen | Compilation de plusieurs artistes | `compilation:true` |
 | `played` | Compteur | Nombre d’écoutes | `played:0`, `played:>=10` |
@@ -107,7 +107,7 @@ aede query "tag:vinyl"              # pistes portant cette étiquette
 aede query "album.tag:vinyl"        # pistes dont l’album porte cette étiquette
 aede query "note:remaster"          # notes contenant « remaster »
 aede query "artist.note:live"       # notes de l’artiste
-aede query "album.rating:>=4 -played"
+aede query "album.rating:>=4 played:0"
 ```
 
 <div id="scope-isolation-and-diagnostic-guidance" data-legacy-anchor></div>
@@ -199,3 +199,9 @@ aede collection wishlist --remove
 Une collection conserve la **formule**, pas une liste figée de fichiers. À chaque consultation ou export (`--m3u`, `--csv`, `--json`), Aède réévalue cette formule avec le catalogue actuel. Les albums nouvellement scannés et les tags mis à jour changent donc les résultats sans réécrire la définition de la collection.
 
 La syntaxe est validée lors de l’enregistrement : une expression invalide dans `aede collection --query` est refusée immédiatement, avant de pouvoir provoquer un échec dans un export ultérieur.
+
+## Validation et sélections vides
+
+Les bornes numériques sont finies et positives ou nulles. `bitrate` se mesure en kbps (`bitrate:>=320`) et `samplerate` en Hz. Une durée accepte des secondes ou `minutes:secondes`, avec des minutes entières et des secondes inférieures à 60. Une plage exige au moins une borne et un ordre croissant. Les opérateurs incomplets/répétés et plus de 128 niveaux de parenthèses ou de négation sont refusés.
+
+`played:0` sélectionne les pistes jamais écoutées ; le mot seul `played` recherche du texte. Une sélection vide réussit avec `[]` en JSON ou le seul en-tête CSV.

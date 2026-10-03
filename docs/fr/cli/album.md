@@ -4,7 +4,7 @@ album ouvre une parution/édition locale avec pistes ordonnées, détails techni
 
 Un identifiant MusicBrainz de parution distingue des éditions homonymes. Le groupe de parution relie l’identité d’album et les autres éditions locales. Tags œuvre/groupement/mouvement restent distincts d’une œuvre parente sourcée ; interprètes et compositeurs sont séparés.
 
-CSV/JSON/M3U couvrent les pistes sélectionnées/paginées. --all les inclut toutes avant export. La commande singulière doit viser une parution ; l’ambiguïté est refusée avec indication, sans choisir une édition au hasard. Continue ouvre enregistrements, artistes crédités et groupe.
+Les noms correspondent d’abord exactement après normalisation, puis par sous-chaîne lorsqu’aucun titre exact n’existe. Plusieurs éditions correspondantes sont montrées ensemble ; un identifiant MusicBrainz de parution limite le résultat à cette identité. --limit et --offset paginent les éditions, cinq par défaut, pour l’affichage comme pour les exports. CSV/JSON/M3U incluent toutes les pistes de ces éditions sélectionnées, sans seconde pagination des pistes. --all inclut toutes les éditions correspondantes. Continue ouvre enregistrements, artistes crédités et groupe.
 
 ## Syntaxe et arguments
 

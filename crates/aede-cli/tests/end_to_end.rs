@@ -33,23 +33,25 @@ fn library() -> PathBuf {
         .expect("reference folder")
 }
 
-/// The test that owns this folder, for a name no other test can produce.
-///
-/// **Both halves are needed, and each was learnt the hard way.** Naming a
-/// folder by the argument alone works only while no two tests pass the same
-/// word — a rule nothing enforces and no grep can check, because a helper
-/// called from three tests spells the word once: three of them shared a folder,
-/// each deleting it as it started, and the race passed on Linux and failed on
-/// macOS. Naming it by the test alone then broke the opposite case within a
-/// single test, where two sandboxes are two folders on purpose. So the name is
-/// the test **and** the argument: unique across tests however they arrive here,
-/// unique within one, and the same on the next run, so a re-run still clears
-/// what the last one left.
+/// Names fixture ownership; `temporary_path` adds process and instance isolation.
 fn owner() -> String {
     std::thread::current()
         .name()
         .map(|name| name.replace("::", "_"))
         .unwrap_or_else(|| "main".to_string())
+}
+
+/// Keeps independent test processes from deleting each other's fixtures.
+fn temporary_path(name: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = Path::new(name);
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let suffix = path
+        .extension()
+        .map(|ext| format!(".{}", ext.to_string_lossy()))
+        .unwrap_or_default();
+    std::env::temp_dir().join(format!("{stem}-{}-{sequence}{suffix}", std::process::id()))
 }
 
 /// A throwaway data directory, removed when the test ends.
@@ -59,7 +61,7 @@ struct Sandbox {
 
 impl Sandbox {
     fn new(name: &str) -> Sandbox {
-        let dir = std::env::temp_dir().join(format!("aede_e2e_{}_{name}", owner()));
+        let dir = temporary_path(&format!("aede_e2e_{}_{name}", owner()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temporary folder");
         Sandbox { dir }
@@ -1094,7 +1096,7 @@ fn a_note_is_a_written_thing_with_a_section_of_its_own() {
     let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
     assert!(ok);
 
-    let note = std::env::temp_dir().join("aede_e2e_note.md");
+    let note = temporary_path("aede_e2e_note.md");
     std::fs::write(
         &note,
         "# Kind of Blue\n\nThe 1997 remaster is the one:\n\n- side A was fast\n- side B was not\n",
@@ -1194,7 +1196,7 @@ fn a_blank_note_is_refused_to_write_and_not_shown_once_it_exists() {
     assert!(!ok, "whitespace is not text either");
     assert!(err.contains("not a note"), "stderr: {err}");
 
-    let empty_file = std::env::temp_dir().join("aede_e2e_blank_note.md");
+    let empty_file = temporary_path("aede_e2e_blank_note.md");
     std::fs::write(&empty_file, "\n\n   \n").unwrap();
     let (_, err, ok) = sandbox.run(&[
         "note",
@@ -1216,7 +1218,7 @@ fn a_blank_note_is_refused_to_write_and_not_shown_once_it_exists() {
     assert!(ok);
     let (_, err, ok) = source.run(&["note", "artist", "Dave Brubeck", "--text", "time out"]);
     assert!(ok, "stderr: {err}");
-    let backup = std::env::temp_dir().join("aede_e2e_blank_note_backup.json");
+    let backup = temporary_path("aede_e2e_blank_note_backup.json");
     let (_, err, ok) = source.run(&["notes", "--export", "-o", backup.to_str().unwrap()]);
     assert!(ok, "stderr: {err}");
 
@@ -2136,7 +2138,7 @@ fn what_the_user_wrote_can_leave_and_come_back() {
     let (_, _, ok) = source.run(&["collection", "jazz", "--query", "genre:jazz"]);
     assert!(ok);
 
-    let backup = std::env::temp_dir().join("aede_e2e_backup.json");
+    let backup = temporary_path("aede_e2e_backup.json");
     let (_, err, ok) = source.run(&["notes", "--export", "-o", backup.to_str().unwrap()]);
     assert!(ok, "stderr: {err}");
 
@@ -2511,7 +2513,7 @@ fn watched_folders_accumulate_across_scans() {
     // to it, silently losing everything scanned before.
     let sandbox = Sandbox::new("roots");
     let fixtures = library();
-    let scratch = std::env::temp_dir().join("aede_e2e_roots_src");
+    let scratch = temporary_path("aede_e2e_roots_src");
     let (a, b) = (scratch.join("a"), scratch.join("b"));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&a).unwrap();
@@ -3175,7 +3177,7 @@ fn a_listing_never_stops_without_saying_so() {
     // Sorted by year, that meant the most recent albums of a real library
     // simply did not exist as far as the user could see.
     let sandbox = Sandbox::new("listing_limit");
-    let root = std::env::temp_dir().join("aede_e2e_listing_limit_src");
+    let root = temporary_path("aede_e2e_listing_limit_src");
     let _ = std::fs::remove_dir_all(&root);
     let source = library().join("track.flac");
     for year in 1960..1960 + 60 {
@@ -3282,7 +3284,7 @@ fn a_watched_folder_is_weighed_and_not_confused_with_its_neighbour() {
     // every file of "/music/Rockabilly": one folder counting a neighbour's
     // files, silently.
     let sandbox = Sandbox::new("roots_weight");
-    let root = std::env::temp_dir().join("aede_e2e_roots_weight_src");
+    let root = temporary_path("aede_e2e_roots_weight_src");
     let (rock, rockabilly) = (root.join("Rock"), root.join("Rockabilly"));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&rock).unwrap();
@@ -3481,7 +3483,7 @@ fn output_is_refused_on_an_artist_page_with_nothing_to_write() {
     let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
     assert!(ok);
 
-    let target = std::env::temp_dir().join("aede_e2e_artist_output_refused.md");
+    let target = temporary_path("aede_e2e_artist_output_refused.md");
     let _ = std::fs::remove_file(&target);
     let target_str = target.to_str().unwrap();
 
@@ -3524,7 +3526,7 @@ fn dropping_the_last_folder_lets_the_catalog_be_emptied() {
     // removed was the only one, that scan used to fail for want of a folder,
     // and the files had no way out of the catalog.
     let sandbox = Sandbox::new("last_root");
-    let scratch = std::env::temp_dir().join("aede_e2e_last_root_src");
+    let scratch = temporary_path("aede_e2e_last_root_src");
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).unwrap();
     std::fs::copy(library().join("track.flac"), scratch.join("1.flac")).unwrap();
@@ -3559,7 +3561,7 @@ fn a_change_to_what_is_watched_takes_effect_at_once() {
     // describes a library nobody has any more, with nothing on screen saying
     // so. The command that creates the need now satisfies it.
     let sandbox = Sandbox::new("takes_effect");
-    let root = std::env::temp_dir().join("aede_e2e_takes_effect_src");
+    let root = temporary_path("aede_e2e_takes_effect_src");
     let keep = root.join("Keep");
     let drop = root.join("Drop");
     let _ = std::fs::remove_dir_all(&root);
@@ -3700,7 +3702,7 @@ fn the_summary_lines_agree_with_the_roles_panel() {
     // plays on. A number answering a narrower question than its label is worse
     // than no number.
     let sandbox = Sandbox::new("writer");
-    let scratch = std::env::temp_dir().join("aede_e2e_writer_src");
+    let scratch = temporary_path("aede_e2e_writer_src");
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).unwrap();
     std::fs::copy(library().join("track.flac"), scratch.join("1.flac")).unwrap();
@@ -3738,7 +3740,7 @@ fn checking_a_library_finds_a_damaged_file() {
     // temporary path alone is sixty columns before the file name starts. The
     // report has to keep the name, which is the only part that identifies the
     // file.
-    let root = std::env::temp_dir().join("aede_e2e_check_src");
+    let root = temporary_path("aede_e2e_check_src");
     let scratch = root.join("a-library-buried-under-a-long-and-tiresome-path/second-level");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&scratch).unwrap();
@@ -3794,11 +3796,44 @@ fn checking_a_library_finds_a_damaged_file() {
 }
 
 #[test]
+fn a_failed_full_check_removes_the_previous_reusable_verdict() {
+    let sandbox = Sandbox::new("check_failed_refresh");
+    let root = temporary_path("aede_e2e_check_failed_refresh_src");
+    std::fs::create_dir_all(&root).unwrap();
+    let audio = root.join("good.flac");
+    std::fs::copy(library_flac(), &audio).unwrap();
+    let (out, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
+    assert!(ok, "scan: {out}\n{err}");
+    let (out, err, ok) = sandbox.run(&["check"]);
+    assert!(ok, "check: {out}\n{err}");
+    let catalog_path = aede_core::store::catalog_path(&sandbox.dir);
+    let catalog = aede_core::store::load(&catalog_path).unwrap().unwrap();
+    assert!(matches!(
+        catalog.files[0].integrity.as_ref().unwrap().verdict,
+        aede_core::audit::integrity::Verdict::Intact
+    ));
+
+    std::fs::remove_file(&audio).unwrap();
+    let (out, err, ok) = sandbox.run(&["check", "--full"]);
+    assert!(ok, "read failures remain part of the report: {out}\n{err}");
+    assert!(out.contains("Unreadable files"), "{out}");
+    assert!(out.contains("Not verified"), "old verdict survived: {out}");
+    let catalog = aede_core::store::load(&catalog_path).unwrap().unwrap();
+    assert!(catalog.files[0].integrity.is_none());
+
+    let (out, err, ok) = sandbox.run(&["check"]);
+    assert!(ok, "retry: {out}\n{err}");
+    assert!(out.contains("Unreadable files"), "must retry: {out}");
+    assert!(!out.contains("nothing to read"), "{out}");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn checking_can_be_restricted_to_one_folder() {
     // Verifying a whole library is a long job; being able to try it on a corner
     // first is what makes it approachable.
     let sandbox = Sandbox::new("check_scope");
-    let root = std::env::temp_dir().join("aede_e2e_scope_src");
+    let root = temporary_path("aede_e2e_scope_src");
     let (left, right) = (root.join("left"), root.join("right"));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&left).unwrap();
@@ -3907,7 +3942,7 @@ fn exporting_as_csv_and_as_a_playlist() {
     assert!(out.contains(".flac"), "absolute paths: {out}");
 
     // --- Written to a file rather than printed ------------------------------
-    let target = std::env::temp_dir().join("aede_e2e_export.m3u8");
+    let target = temporary_path("aede_e2e_export.m3u8");
     let _ = std::fs::remove_file(&target);
     let (out, _, ok) = sandbox.run(&[
         "album",
@@ -3970,7 +4005,7 @@ fn every_listing_can_become_a_table() {
     }
 
     // --output writes the file instead of printing it.
-    let target = std::env::temp_dir().join("aede_e2e_listing.csv");
+    let target = temporary_path("aede_e2e_listing.csv");
     let _ = std::fs::remove_file(&target);
     let (out, _, ok) = sandbox.run(&["albums", "--csv", &format!("--output={}", target.display())]);
     assert!(ok);
@@ -4049,7 +4084,7 @@ fn resetting_asks_before_removing_the_catalog() {
 #[test]
 fn an_album_query_does_not_pick_one_answer_in_silence() {
     let sandbox = Sandbox::new("album_match");
-    let root = std::env::temp_dir().join("aede_e2e_album_match");
+    let root = temporary_path("aede_e2e_album_match");
     let _ = std::fs::remove_dir_all(&root);
     for (folder, album) in [("one", "Danzig"), ("four", "Danzig 4")] {
         let dir = root.join(folder);
@@ -4141,7 +4176,7 @@ fn write_report_naming(
 #[test]
 fn another_tools_analysis_can_be_taken_in_and_given_back() {
     let sandbox = Sandbox::new("import");
-    let root = std::env::temp_dir().join("aede_e2e_import_src");
+    let root = temporary_path("aede_e2e_import_src");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let flac = root.join("01 So What.flac");
@@ -4316,7 +4351,7 @@ fn an_analysis_can_arrive_before_the_library_does() {
     // order for someone who already owns the other tool. The import must
     // therefore not require the files to be known yet.
     let sandbox = Sandbox::new("import_first");
-    let root = std::env::temp_dir().join("aede_e2e_import_first_src");
+    let root = temporary_path("aede_e2e_import_first_src");
     let music = root.join("music");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&music).unwrap();
@@ -4371,7 +4406,7 @@ fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
     // learn which ones, and to be rid of them without losing analyses that did
     // attach.
     let sandbox = Sandbox::new("import_pending");
-    let root = std::env::temp_dir().join("aede_e2e_import_pending_src");
+    let root = temporary_path("aede_e2e_import_pending_src");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let flac = root.join("01 So What.flac");
@@ -4508,7 +4543,7 @@ fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
     // The report may equally well be sitting in the album folder. A scan walks
     // over it anyway, so it costs nothing to notice it.
     let sandbox = Sandbox::new("import_scan");
-    let root = std::env::temp_dir().join("aede_e2e_import_scan_src");
+    let root = temporary_path("aede_e2e_import_scan_src");
     let deep = root.join("Danzig/1996 Blackacidevil");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&deep).unwrap();
@@ -4532,7 +4567,7 @@ fn a_report_left_in_the_library_is_picked_up_by_the_scan() {
 #[test]
 fn a_full_scan_keeps_conclusions_but_prefers_a_fresh_report() {
     let sandbox = Sandbox::new("full_scan_conclusions");
-    let root = std::env::temp_dir().join("aede_e2e_full_scan_conclusions_src");
+    let root = temporary_path("aede_e2e_full_scan_conclusions_src");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let flac = root.join("01 So What.flac");
@@ -4565,7 +4600,7 @@ fn reports_are_looked_for_in_every_folder_underneath() {
     // Reports are kept the way albums are: one folder per artist, one per
     // album. Only looking at the top level would find nothing.
     let sandbox = Sandbox::new("import_recursive");
-    let root = std::env::temp_dir().join("aede_e2e_import_recursive_src");
+    let root = temporary_path("aede_e2e_import_recursive_src");
     let music = root.join("music");
     let reports = root.join("reports/Danzig/1996 Blackacidevil");
     let _ = std::fs::remove_dir_all(&root);
@@ -4599,8 +4634,8 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     // survive, a name the card refuses halfway through, a copy written into the
     // library itself.
     let sandbox = Sandbox::new("copy");
-    let root = std::env::temp_dir().join("aede_e2e_copy_src");
-    let out = std::env::temp_dir().join("aede_e2e_copy_dest");
+    let root = temporary_path("aede_e2e_copy_src");
+    let out = temporary_path("aede_e2e_copy_dest");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&out);
     let album = root.join("Pixies/Surfer Rosa");
@@ -4661,14 +4696,26 @@ fn a_selection_is_copied_out_keeping_its_tree() {
         std::fs::metadata(album.join(audio_name)).unwrap().len()
     );
     // And nothing half-written is left wearing a real name.
-    assert!(!track.with_extension("aede-partial").exists());
+    assert!(!aede_core::copy::partial_path(&track).exists());
+    assert!(
+        std::fs::read_dir(track.parent().unwrap())
+            .unwrap()
+            .all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".aede-partial-")
+            }),
+        "private temporary output is cleaned after publication"
+    );
 
     // --- Several at a time -------------------------------------------------
     // A plain copy writes one file at a time by default — one card is one
     // queue, and several writers on it seek against each other — but the pool
     // is what --compress runs on, so it has to be exercised without an encoder
     // in reach. Every file must arrive, and the run must still be a success.
-    let many = std::env::temp_dir().join("aede_e2e_copy_dest_threads");
+    let many = temporary_path("aede_e2e_copy_dest_threads");
     let _ = std::fs::remove_dir_all(&many);
     std::fs::create_dir_all(&many).unwrap();
     let (report, err, ok) = sandbox.run(&[
@@ -4740,7 +4787,7 @@ fn a_selection_is_copied_out_keeping_its_tree() {
     // /private/var, so every path under it arrives in two spellings. `scan`
     // and `check` both canonicalize; `copy`, the one command that *writes*,
     // was the one that did not.
-    let link = std::env::temp_dir().join("aede_e2e_copy_link");
+    let link = temporary_path("aede_e2e_copy_link");
     let _ = std::fs::remove_file(&link);
     #[cfg(unix)]
     std::os::unix::fs::symlink(&root, &link).unwrap();
@@ -4787,7 +4834,7 @@ fn the_words_are_read_from_the_tags_and_from_the_lrc_beside_the_file() {
     // Lyrics sit in libraries already, in two places, and the parsers walked
     // past both. No network is involved in reading what is on the disk.
     let sandbox = Sandbox::new("lyrics");
-    let root = std::env::temp_dir().join("aede_e2e_lyrics_src");
+    let root = temporary_path("aede_e2e_lyrics_src");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::copy(library().join("track.flac"), root.join("01.flac")).unwrap();
@@ -4869,7 +4916,7 @@ fn the_words_are_read_from_the_tags_and_from_the_lrc_beside_the_file() {
 #[test]
 fn a_playlist_is_written_beside_the_music_and_only_when_it_has_changed() {
     let sandbox = Sandbox::new("playlist");
-    let root = std::env::temp_dir().join("aede_e2e_playlist_src");
+    let root = temporary_path("aede_e2e_playlist_src");
     let artist = root.join("Miles Davis");
     let album = artist.join("1959 Kind of Blue");
     let _ = std::fs::remove_dir_all(&root);
@@ -4955,7 +5002,7 @@ fn a_playlist_is_written_beside_the_music_and_only_when_it_has_changed() {
 #[test]
 fn a_spectrogram_is_drawn_once_and_only_once() {
     let sandbox = Sandbox::new("spectrum");
-    let root = std::env::temp_dir().join("aede_e2e_spectrum_src");
+    let root = temporary_path("aede_e2e_spectrum_src");
     let album = root.join("Album");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&album).unwrap();
@@ -5012,7 +5059,7 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
 #[test]
 fn size_changes_the_picture_but_never_by_itself() {
     let sandbox = Sandbox::new("spectrum_size");
-    let root = std::env::temp_dir().join("aede_e2e_spectrum_size_src");
+    let root = temporary_path("aede_e2e_spectrum_size_src");
     let album = root.join("Album");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&album).unwrap();
@@ -5072,6 +5119,10 @@ fn ffmpeg_is_installed() -> bool {
         .status()
         .is_ok_and(|s| s.success());
     if !there {
+        assert!(
+            std::env::var_os("AEDE_REQUIRE_FFMPEG").is_none(),
+            "ffmpeg is required for the conversion coverage of this verification run"
+        );
         eprintln!("skipped: ffmpeg is not installed");
     }
     there
@@ -5088,8 +5139,8 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
         return;
     }
     let sandbox = Sandbox::new("copy_compress");
-    let root = std::env::temp_dir().join("aede_e2e_compress_src");
-    let out = std::env::temp_dir().join("aede_e2e_compress_dest");
+    let root = temporary_path("aede_e2e_compress_src");
+    let out = temporary_path("aede_e2e_compress_dest");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&out);
     let album = root.join("Miles/Kind of Blue");
@@ -5167,7 +5218,7 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
     // a second lossy pass over a first one is audible, and an MP3 grown into a
     // FLAC is larger, no better, and lossless in name only.
     for (format, extension) in [("opus", "opus"), ("flac", "flac")] {
-        let other = std::env::temp_dir().join(format!("aede_e2e_compress_{format}"));
+        let other = temporary_path(&format!("aede_e2e_compress_{format}"));
         let _ = std::fs::remove_dir_all(&other);
         std::fs::create_dir_all(&other).unwrap();
         let (report, err, ok) =
@@ -5206,6 +5257,16 @@ fn only_what_is_lossless_is_encoded_on_the_way_out() {
     );
     // And nothing half-encoded is left wearing a whole file's name.
     assert!(!album_out.join("01 lossless.aede-partial.mp3").exists());
+    assert!(
+        std::fs::read_dir(&album_out).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".aede-partial-")
+        }),
+        "temporary encoding output is cleaned after publication"
+    );
 
     // --- What it refuses ----------------------------------------------------
     let (_, err, ok) = sandbox.run(&["copy", out.to_str().unwrap(), "--compress", "wma"]);
@@ -5270,8 +5331,8 @@ fn a_cover_and_a_tag_wav_cannot_hold_are_named_before_the_copy_runs() {
         return;
     }
     let sandbox = Sandbox::new("copy_compress_wav_loses");
-    let root = std::env::temp_dir().join("aede_e2e_compress_wav_loses_src");
-    let out = std::env::temp_dir().join("aede_e2e_compress_wav_loses_dest");
+    let root = temporary_path("aede_e2e_compress_wav_loses_src");
+    let out = temporary_path("aede_e2e_compress_wav_loses_dest");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&out);
     let album = root.join("Miles/Kind of Blue");
@@ -5282,7 +5343,7 @@ fn a_cover_and_a_tag_wav_cannot_hold_are_named_before_the_copy_runs() {
     // artist — none of them the six fields WAV keeps — but no fixture on disk
     // needed an embedded picture until now, so one is built here, directly
     // with ffmpeg, the same way the source files this project ships were.
-    let cover = std::env::temp_dir().join("aede_e2e_compress_wav_loses_cover.png");
+    let cover = temporary_path("aede_e2e_compress_wav_loses_cover.png");
     let status = std::process::Command::new("ffmpeg")
         .args([
             "-y",
@@ -5372,8 +5433,8 @@ fn a_conversion_with_nothing_to_convert_says_so() {
     // that was ignored. It was honoured; it simply had nothing to do, and
     // that is worth one line.
     let sandbox = Sandbox::new("copy_nothing_to_convert");
-    let root = std::env::temp_dir().join("aede_e2e_nothing_src");
-    let out = std::env::temp_dir().join("aede_e2e_nothing_dest");
+    let root = temporary_path("aede_e2e_nothing_src");
+    let out = temporary_path("aede_e2e_nothing_dest");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&out);
     let album = root.join("a");
@@ -5473,6 +5534,30 @@ fn an_empty_answer_says_where_what_you_wrote_actually_is() {
     let (out, _, ok) = sandbox.run(&["query", "album.rating:5"]);
     assert!(ok);
     assert!(!out.contains("that is where you wrote it"), "{out}");
+}
+
+#[test]
+fn empty_query_and_collection_exports_keep_their_machine_readable_shape() {
+    let sandbox = Sandbox::new("empty_query_exports");
+    let (_, error, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "{error}");
+    let (_, error, ok) = sandbox.run(&["collection", "Nobody", "--query", "played:>999"]);
+    assert!(ok, "{error}");
+    for selection in [["query", "played:>999"], ["collection", "Nobody"]] {
+        let (output, error, ok) = sandbox.run(&[selection[0], selection[1], "--json"]);
+        assert!(ok, "{error}");
+        assert_eq!(
+            aede_core::json::parse(&output).unwrap(),
+            aede_core::json::Json::Arr(vec![])
+        );
+        let (output, error, ok) = sandbox.run(&[selection[0], selection[1], "--csv"]);
+        assert!(ok, "{error}");
+        assert_eq!(
+            output.lines().count(),
+            1,
+            "an empty CSV retains its header: {output}"
+        );
+    }
 }
 
 #[test]
@@ -5620,7 +5705,7 @@ fn a_folder_can_be_kept_out_of_the_library_for_good() {
     // to reorganise the disk to suit the program, which is the wrong way
     // round.
     let sandbox = Sandbox::new("scan_exclude");
-    let root = std::env::temp_dir().join("aede_e2e_exclude_src");
+    let root = temporary_path("aede_e2e_exclude_src");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("Music/Album")).unwrap();
     std::fs::create_dir_all(root.join("Audiobooks/Book")).unwrap();
@@ -5880,7 +5965,7 @@ fn a_copy_takes_its_selection_from_the_grammar() {
     // `copy` has no filters of its own: the selection is the one `query`
     // answers, which is the rule every listing already follows.
     let sandbox = Sandbox::new("copy_selection");
-    let out = std::env::temp_dir().join("aede_e2e_copy_sel_dest");
+    let out = temporary_path("aede_e2e_copy_sel_dest");
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
     let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
@@ -6935,8 +7020,8 @@ fn a_watched_folder_that_is_not_on_this_machine_is_named_before_a_scan_drops_it(
         "the folder is named, not merely counted: {out}"
     );
     assert!(
-        out.contains("would drop every file under it"),
-        "and what a scan would do to it, before they run one: {out}"
+        out.contains("retains unavailable roots without refreshing them"),
+        "and the current scan retention rule is clear: {out}"
     );
 }
 

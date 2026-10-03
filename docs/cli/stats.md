@@ -2,7 +2,9 @@
 
 stats describes the whole catalog: tracks, albums, artists, duration, space and quality categories. Lossless, hi-res and lossy summaries describe file characteristics; they do not prove the recording’s audible quality or original source.
 
-Use this after the first scan to check that the expected folders were read. Pagination limits long subsidiary lists rather than selecting a different library. --json returns a structured report for tools, but stats has no --output export option: shell redirection can save its standard output.
+Use this after the first scan to check that the expected folders were read. Pagination applies separately to each subsidiary list (formats, quality, sample rates, decades, countries, roles and rankings), in both human and JSON output. It never changes library totals or completeness ratios. --json returns a structured report for tools, but stats has no --output export option: shell redirection can save its standard output.
+
+The data-folder weight includes `catalog.json`, `conclusions.json`, `user.json` and `sources.json`. Aggregate durations and sizes saturate at the largest supported integer if malformed or imported measures would overflow it; ordinary library values are summed exactly.
 
 No metadata or music is changed. When a count surprises you, inspect roots and doctor, then scan again. A missing catalog means scanning is needed, not that stats should be pointed at the music with --data.
 
@@ -18,10 +20,10 @@ No positional arguments; statistics describe the selected data directory.
 
 | Option | Meaning |
 | --- | --- |
-| `--limit N` | Show at most N rows; use a positive whole number. Default limits depend on the page, usually 50. |
+| `--limit N` | Show at most N rows per subsidiary list; use a positive whole number. Default: 10. |
 | `--offset N` | Skip N rows before showing the result; N starts at 0. Ordering remains deterministic. |
-| `--all` | Show every row. Refused with --limit. Some commands also use it to include normally hidden categories, explained below. |
-| `--json / -j` | Write this command’s structured JSON result. With analyze, save report files instead of changing terminal output. |
+| `--all` | Show every row from the requested offset. Refused with --limit. |
+| `--json / -j` | Write the structured statistics, with the same list pagination. |
 
 The shared [options reference](options.md) explains `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, option values and output/pagination rules. These shared presentation/data options do not make every command support CSV/JSON or pagination.
 

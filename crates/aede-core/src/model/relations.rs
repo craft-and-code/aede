@@ -25,7 +25,7 @@ use super::{Catalog, EntityKind, Id, Relation, is_performing_role};
 /// `store::FORMAT_VERSION` — refusing to load would be out of proportion, and
 /// would throw away integrity verdicts that cost hours to obtain. Bump this
 /// instead, and every catalog rebuilds its relations on the next load.
-pub const RELATION_RULES: u32 = 2;
+pub const RELATION_RULES: u32 = 3;
 
 /// Recomputes every inferred relation from the entities already in place.
 ///
@@ -246,12 +246,13 @@ fn build_entity_graph(catalog: &mut Catalog) {
 /// The two are told apart by their audio, not by their folder: same album
 /// artist, same title, same track list, and then
 ///
-/// - the same quality on both sides — nothing distinguishes the copies, and one
-///   of them is wasted space;
+/// - the same quality for each corresponding track — nothing distinguishes the
+///   copies, and one of them is wasted space;
 /// - a different quality — the second copy is there on purpose.
 ///
-/// Anything else keeps the weaker `other_edition` link: a deluxe edition with
-/// three bonus tracks is not a duplicate, but it is not unrelated either.
+/// Different disc positions, track positions or titles leave the releases
+/// unlinked. Recognizing a deluxe edition with bonus tracks needs stronger
+/// evidence than the local tags currently supply.
 fn build_release_relations(catalog: &mut Catalog) {
     let mut groups: BTreeMap<(Option<Id>, String), Vec<Id>> = BTreeMap::new();
     for release in &catalog.releases {
@@ -301,9 +302,10 @@ fn build_release_relations(catalog: &mut Catalog) {
 
 /// `true` when two releases hold the same tracks.
 ///
-/// Positions and titles have to match exactly; durations only have to be
-/// **close**. Two rips of one disc differ by a few hundred milliseconds, and a
-/// transcode to a lossy format shifts the end of a track further still — but a
+/// Disc and track positions and normalised titles have to match exactly;
+/// durations only have to be **close**. Two rips of one disc differ by a few
+/// hundred milliseconds, and a transcode to a lossy format shifts the end of a
+/// track further still — but a
 /// live rendition of the same song differs by minutes. Three seconds is the
 /// tolerance the duplicate-track check uses, for the same reason.
 fn same_track_list(catalog: &Catalog, left: Id, right: Id) -> bool {
@@ -312,20 +314,22 @@ fn same_track_list(catalog: &Catalog, left: Id, right: Id) -> bool {
         && left
             .iter()
             .zip(right.iter())
-            .all(|(a, b)| a.0 == b.0 && a.1 == b.1 && a.2.abs_diff(b.2) <= 3_000)
+            .all(|(a, b)| a.0 == b.0 && a.1 == b.1 && a.2 == b.2 && a.3.abs_diff(b.3) <= 3_000)
 }
 
-/// Positions, titles and durations of a release, in a comparable order.
-fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, String, u64)> {
+/// Disc and track positions, titles and durations of a release, in a comparable
+/// order.
+fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, u64)> {
     let Some(release) = catalog.release(release_id) else {
         return Vec::new();
     };
-    let mut out: Vec<(u32, String, u64)> = release
+    let mut out: Vec<_> = release
         .track_ids
         .iter()
         .filter_map(|&id| catalog.track(id))
         .map(|t| {
             (
+                t.disc_no.unwrap_or(1),
                 t.track_no.unwrap_or(0),
                 text::normalize(&t.title),
                 t.duration_ms.unwrap_or(0),
@@ -336,19 +340,30 @@ fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, String, u64)> {
     out
 }
 
-/// How the release is encoded, which is what separates a wasted copy from a
-/// second one kept on purpose.
-fn quality_fingerprint(catalog: &Catalog, release_id: Id) -> BTreeSet<String> {
+/// How each corresponding track is encoded, which is what separates a wasted
+/// copy from a second one kept on purpose. Keeping positions and multiplicity
+/// avoids equating two releases merely because they contain the same set of
+/// encodings, attached to different tracks.
+fn quality_fingerprint(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, String)> {
     let Some(release) = catalog.release(release_id) else {
-        return BTreeSet::new();
+        return Vec::new();
     };
-    release
+    let mut qualities: Vec<_> = release
         .track_ids
         .iter()
         .filter_map(|&id| catalog.track(id))
-        .filter_map(|t| catalog.file(t.file_id))
-        .map(|f| f.properties.quality_label())
-        .collect()
+        .filter_map(|track| catalog.file(track.file_id).map(|file| (track, file)))
+        .map(|(track, file)| {
+            (
+                track.disc_no.unwrap_or(1),
+                track.track_no.unwrap_or(0),
+                text::normalize(&track.title),
+                file.properties.quality_label(),
+            )
+        })
+        .collect();
+    qualities.sort();
+    qualities
 }
 
 /// Two artists credited on the same track are considered to have

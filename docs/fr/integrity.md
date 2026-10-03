@@ -22,6 +22,8 @@ Le rapport distingue :
 
 Les fichiers illisibles sont signalés séparément et ne reçoivent pas de verdict sain. Le traitement actuel peut finir avec code 0 malgré fichiers illisibles ou verdicts endommagés. Lire le rapport ; le code seul n’est pas un certificat. `doctor` signale aussi dégâts mémorisés et fichiers non vérifiés.
 
+La vérification exige le flux complet. Le lecteur actuel refuse plus de 2 Gio de trames audio FLAC après les métadonnées, ou plus de 2 Gio pour un fichier Ogg entier. Ces fichiers sont signalés en erreur de lecture, sans nouveau verdict : vérifier un préfixe ne permet jamais de déclarer le fichier entier intact. Un fichier dont la taille change pendant la lecture est également refusé. Une relecture échouée retire l’ancien verdict de ce fichier, afin que le contrôle ordinaire suivant le retente ; empreintes et analyses sont conservées. Les anciennes versions pouvaient enregistrer un verdict portant seulement sur le préfixe à la limite de lecture. Les verdicts existants restent réutilisés jusqu’à une relecture explicite : lancer `check --full` sur les dossiers contenant de gros fichiers vérifiés par une ancienne version.
+
 <div id="reuse-and-current-scope" data-legacy-anchor></div>
 
 ## Réutilisation et portée

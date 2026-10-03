@@ -179,7 +179,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "notes" => CommandPage {
             usage: "aede notes",
-            summary: "List, export, or import personal notes.",
+            summary: "List, export, import, or safely relink personal records.",
         },
         "history" => CommandPage {
             usage: "aede history",
@@ -671,9 +671,12 @@ pub fn print_index() {
                        so it leaves spectrograms and booklet scans behind
   --collection <name>  Copy what a saved query holds
   --verify             Read each file back and compare it with the source
+  --verify-existing    Compare existing files before resuming; conversion
+                       compares against a fresh encode using this recipe
+  --playlists          Write a selection playlist and remap copied M3U paths
   --dry-run            Say what would be copied, and write nothing
   --safe-names         Adapt names a destination refuses: ? : * < > and more
-  --raw-names          Leave names exactly as they are
+  --raw-names          Keep original characters; distinguish name collisions
   --replace            Write files again even when they are already there
   --compress <format>  Encode on the way out: mp3, opus, aac, vorbis, flac,
                        wav. Needs ffmpeg installed. Only lossless sources are
@@ -763,7 +766,17 @@ fn command_examples(command: &str) -> &'static [&'static str] {
         ],
         "export" => &["aede export --graph --output=graph.json"],
         "fetch" => &["aede fetch --fanart --no-background ~/Music/Jazz"],
-        "copy" => &["aede copy /Volumes/Player --query \"loved rating:>=4\" --verify"],
+        "copy" => &[
+            "aede copy /Volumes/Player --query \"album.rating:>=4\" --verify --playlists",
+            "aede copy /Volumes/Player --verify-existing",
+        ],
+        "scan" => &["aede scan ~/Music --dry-run", "aede scan --dry-run --json"],
+        "notes" => &[
+            "aede notes --waiting",
+            "aede notes --relink=\"track:<old path>\" --to=\"track:<new path>\" --dry-run",
+            "aede notes --relinks",
+            "aede notes --undo-relink=<ID>",
+        ],
         _ => &[],
     }
 }

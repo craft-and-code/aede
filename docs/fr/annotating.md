@@ -65,3 +65,5 @@ Lorsque les deux jeux de données concernent la même entité :
 - **Nombre d’écoutes :** le plus grand compteur est conservé ; importer une ancienne sauvegarde ne fait pas reculer ce nombre.
 
 Importer une seconde fois la même sauvegarde ne change plus les données : les mêmes éléments ne créent pas de doublons.
+
+Les événements d’écoute sont fusionnés selon leur contenu complet et leur multiplicité : plusieurs écoutes dans la même seconde sont conservées, sans multiplication lors d’un nouvel import identique. Des journaux de rattachement indépendants gardent leurs snapshots distincts même si leurs numéros locaux coïncident. Les tables présentes doivent être des tableaux JSON ; une forme invalide est refusée plutôt que transformée en données vides. L’affichage humain échappe les caractères de contrôle du terminal, tandis que le stockage et les exports JSON/CSV gardent les valeurs originales.

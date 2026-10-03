@@ -6,8 +6,8 @@
 //! confirmation says what is at stake rather than asking a bare "are you sure",
 //! and the command prints the scan that rebuilds what it removed.
 
-use aede_core::store;
 use aede_core::text;
+use aede_core::{conclusions, store};
 
 use super::{Res, data_dir, load};
 use crate::args::Args;
@@ -87,6 +87,17 @@ pub fn reset(args: &Args) -> Res {
         return Ok(());
     }
 
+    // Read-only loading keeps old inline conclusions available in memory.
+    // Preserve them independently before deleting their only on-disk copy;
+    // an unsuccessful migration must leave that original catalog intact.
+    let conclusions_file = conclusions::conclusions_path(&dir);
+    if conclusions::load(&conclusions_file)?.is_none() {
+        let retained = conclusions::Conclusions::from_catalog(&catalog);
+        if !retained.files.is_empty() || !retained.analyses.is_empty() {
+            conclusions::save(&retained, &conclusions_file)?;
+        }
+    }
+
     // The folders are printed after the deletion, not before: at that point
     // they are the only way back, and they have to be readable on screen.
     let roots = &catalog.roots;
@@ -95,7 +106,7 @@ pub fn reset(args: &Args) -> Res {
     if !roots.is_empty() {
         let quoted: Vec<String> = roots.iter().map(|r| format!("\"{r}\"")).collect();
         println!("  {}", ui::dim("to rebuild it:"));
-        println!("  aede scan {}", quoted.join(" "));
+        println!("  aede scan {}", ui::literal(&quoted.join(" ")));
     }
     Ok(())
 }

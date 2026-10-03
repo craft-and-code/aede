@@ -6,6 +6,95 @@
 use super::*;
 
 #[test]
+fn catalog_path_keys_preserve_native_unicode_spelling() {
+    let path = Path::new("Music").join("été — 東京");
+    assert_eq!(path_key(&path).unwrap(), path.to_str().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn catalog_path_keys_refuse_non_utf8_instead_of_replacing_bytes() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let path = PathBuf::from(std::ffi::OsString::from_vec(b"music/invalid-\xff".to_vec()));
+    let error = path_key(&path).expect_err("an unrepresentable path must have no catalog key");
+    let error = error.to_string();
+    assert!(error.contains("UTF-8"), "{error}");
+    assert!(
+        error.contains("\\xFF"),
+        "the refused native byte stays visible: {error}"
+    );
+    assert!(
+        !error.contains('\u{fffd}'),
+        "no lossy path is shown: {error}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_symlink_targets_cannot_select_or_change_a_different_catalog_path() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let sandbox =
+        std::env::temp_dir().join(format!("aede_path_identity_{}_{nonce}", std::process::id()));
+    let target = sandbox.join(std::ffi::OsString::from_vec(b"music-\xff".to_vec()));
+    let counterpart = sandbox.join("music-\u{fffd}");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::create_dir_all(&counterpart).unwrap();
+    let alias = sandbox.join("valid-alias");
+    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    let counterpart = counterpart.canonicalize().unwrap();
+    assert_eq!(
+        canonical(&alias).to_string_lossy(),
+        counterpart.to_str().unwrap()
+    );
+    let catalog = Catalog {
+        roots: vec![counterpart.to_str().unwrap().to_owned()],
+        files: vec![aede_core::model::AudioFile {
+            path: counterpart.join("track.flac").to_str().unwrap().to_owned(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let alias = alias.to_str().unwrap().to_owned();
+    let scoped = Args::parse(vec!["check".into(), alias.clone()]);
+    let error =
+        scope_of(&scoped, &catalog).expect_err("a lossy folder cannot select its counterpart");
+    assert!(error.to_string().contains("UTF-8"), "{error}");
+
+    let data = sandbox.join("data");
+    let catalog_file = store::catalog_path(&data);
+    for (options, has_exclusion) in [
+        (vec![format!("--exclude={alias}")], false),
+        (vec![format!("--exclude={alias}"), "--remove".into()], true),
+        (vec!["--remove".into(), alias.clone()], false),
+    ] {
+        let mut saved = catalog.clone();
+        if has_exclusion {
+            saved.excluded = saved.roots.clone();
+        }
+        store::save(&saved, &catalog_file).unwrap();
+        let before = std::fs::read(&catalog_file).unwrap();
+        let mut tokens = vec![
+            "roots".into(),
+            "--data".into(),
+            data.to_str().unwrap().to_owned(),
+            "--no-scan".into(),
+        ];
+        tokens.extend(options);
+        let error = scan::roots(&Args::parse(tokens))
+            .expect_err("an unrepresentable target must be refused before changing watched policy");
+        assert!(error.to_string().contains("UTF-8"), "{error}");
+        assert_eq!(std::fs::read(&catalog_file).unwrap(), before);
+    }
+    std::fs::remove_dir_all(sandbox).unwrap();
+}
+
+#[test]
 fn queued_work_survives_a_poisoned_lock() {
     let queue = std::sync::Mutex::new(vec![1, 2]);
     let _ = std::panic::catch_unwind(|| {

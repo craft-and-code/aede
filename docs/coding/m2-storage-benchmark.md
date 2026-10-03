@@ -26,3 +26,33 @@ At 100,000 tracks, a release server was started against the generated catalog an
 The old pre-M2 measurements in [Architecture](../design/architecture.md#when-this-becomes-a-database) used a different generated document and machine conditions; their disk size and memory figures must not be directly compared with this run. The new baseline confirms that JSON load and resident graph memory grow materially with library size. Basic paginated reads remain quick at 100,000 synthetic tracks, while broad filtered/sorted reads cost hundreds of milliseconds. On a small-memory NAS, the startup footprint may matter more than single-request latency.
 
 Do **not** migrate storage on these results alone. The next decision needs a target NAS memory budget and acceptable startup/search times, a repeat under lower memory pressure, and at least one anonymized measurement from a large real catalog if one becomes available. A real scan and concurrent-client load are still unmeasured. If JSON misses those targets, profile the parser and listing paths first, then compare a small SQLite prototype against the same workload while preserving JSON compatibility and user data. Until then JSON remains the supported store; there is no SQLite toggle to implement yet.
+
+## Local evaluation and scan scaling, 2026-10-03
+
+The M0/M0.5/M0.6 follow-up measured targeted changes on this macOS host. Before/after fixtures and result counts were identical. These are synthetic wall-clock medians, with other applications active; they do not measure end-to-end scans of real audio, NAS hardware, cold filesystem caches or concurrent HTTP clients. No timing thresholds were added to tests.
+
+| Workload | Mode | Before | After |
+| --- | --- | ---: | ---: |
+| 10,000 tracks, `artist:Artist` plus artist sort | release, 3 runs | 288.9 ms | 21.4 ms |
+| 10,000 tracks, `genre:Genre` plus artist sort | release, 3 runs | 266.2 ms | 18.1 ms |
+| 10,000 annotated tracks, `rating:>=4 played:>=2` plus artist sort | release, 3 runs | 603.5 ms | 7.5 ms |
+| Parse 10,000 separate `-title:x` terms | release, 3 runs | 918.9 ms | 2.2 ms |
+| Reconcile 2,000 attached notes, identity evidence already primed | debug library, optimized driver, 3 runs | 68.9 ms | 11.8 ms |
+| Reconcile 8,000 attached notes, identity evidence already primed | debug library, optimized driver, 3 runs | 1,087.0 ms | 51.9 ms |
+| Rescan 4,000 unavailable folders, preserving 4,000 old tracks | debug, 3 runs | 17,871 ms | 183 ms |
+| Plan 1,200 albums and 19,200 companions, hot filesystem cache | release, 9 measured runs after 3 warmups | 194.3 ms | 174.5 ms |
+
+Query timings include construction of borrowed credit/genre/personal-data indexes, evaluation and sorting, while catalog construction and parsing the short expression are outside the interval. The owner scope and first-row behavior of legacy personal duplicates are preserved; reassignment of public context references falls back to the current data. Negative-term parsing borrows token suffixes instead of cloning the rest of the expression. Reconciliation indexes reference resolution and identity updates. Scan retention indexes unreadable paths and ancestors rather than comparing every old track with every failure. Companion planning enumerates each album directory once; its 20,400 outputs retain the same relative-path/size/kind hash (`ee65262916462704`). The latter improvement varied around 10–14% on repeated hot-cache measurements.
+
+Reproduce the final workloads with:
+
+```sh
+cargo run --offline --release -p aede-core --example catalog_bench -- query 10000
+cargo run --offline --release -p aede-core --example catalog_bench -- parse 10000
+cargo rustc --offline -p aede-core --example user_reconcile_bench -- -C opt-level=3
+target/debug/examples/user_reconcile_bench
+cargo run --offline -p aede-core --example scan_retention_bench -- 4000
+cargo run --offline --release -p aede-core --example audit_copy_bench
+```
+
+The query/reconciliation examples use only in-memory synthetic data. The retention example walks nonexistent synthetic roots without writing music. The copy-planning example creates and removes a disposable tree of small fixture files; setup is outside the timing. Before figures refer to the unindexed implementation from the same review, not the older storage baseline above. JSON startup size and remote query concurrency remain separate measurements.

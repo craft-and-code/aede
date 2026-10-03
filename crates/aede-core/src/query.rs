@@ -217,241 +217,8 @@ fn error(message: impl Into<String>) -> QueryError {
     }
 }
 
-// --------------------------------------------------------------------------
-// Reading a query
-// --------------------------------------------------------------------------
-
-/// Splits a query into its words, keeping quoted runs whole.
-///
-/// Parentheses are words of their own so that `(a OR b)` needs no spaces around
-/// them, which nobody would remember to type.
-fn tokenize(input: &str) -> Result<Vec<String>, QueryError> {
-    let mut out: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut quote: Option<char> = None;
-    for ch in input.chars() {
-        match quote {
-            Some(q) if ch == q => quote = None,
-            Some(_) => current.push(ch),
-            None if ch == '"' || ch == '\'' => quote = Some(ch),
-            None if ch.is_whitespace() => {
-                if !current.is_empty() {
-                    out.push(std::mem::take(&mut current));
-                }
-            }
-            None if ch == '(' || ch == ')' => {
-                if !current.is_empty() {
-                    out.push(std::mem::take(&mut current));
-                }
-                out.push(ch.to_string());
-            }
-            None => current.push(ch),
-        }
-    }
-    if quote.is_some() {
-        return Err(error("a quotation mark is left open"));
-    }
-    if !current.is_empty() {
-        out.push(current);
-    }
-    Ok(out)
-}
-
-/// Reads a query.
-pub fn parse(input: &str) -> Result<Query, QueryError> {
-    let words = tokenize(input)?;
-    if words.is_empty() {
-        return Ok(Query::All);
-    }
-    let mut at = 0usize;
-    let query = parse_or(&words, &mut at)?;
-    if at < words.len() {
-        return Err(error(format!("\"{}\" is one bracket too many", words[at])));
-    }
-    Ok(query)
-}
-
-fn parse_or(words: &[String], at: &mut usize) -> Result<Query, QueryError> {
-    let mut parts = vec![parse_and(words, at)?];
-    while *at < words.len() && is_or(&words[*at]) {
-        *at += 1;
-        parts.push(parse_and(words, at)?);
-    }
-    Ok(if parts.len() == 1 {
-        parts.remove(0)
-    } else {
-        Query::Or(parts)
-    })
-}
-
-fn is_or(word: &str) -> bool {
-    word.eq_ignore_ascii_case("or") || word == "|" || word == "||"
-}
-
-fn parse_and(words: &[String], at: &mut usize) -> Result<Query, QueryError> {
-    let mut parts: Vec<Query> = Vec::new();
-    while *at < words.len() && words[*at] != ")" && !is_or(&words[*at]) {
-        // `AND` may be written, and is what juxtaposition already means.
-        if words[*at].eq_ignore_ascii_case("and") {
-            *at += 1;
-            continue;
-        }
-        parts.push(parse_unary(words, at)?);
-    }
-    if parts.is_empty() {
-        return Err(error("something is missing between the brackets"));
-    }
-    Ok(if parts.len() == 1 {
-        parts.remove(0)
-    } else {
-        Query::And(parts)
-    })
-}
-
-fn parse_unary(words: &[String], at: &mut usize) -> Result<Query, QueryError> {
-    let word = &words[*at];
-    if word == "-" || word.eq_ignore_ascii_case("not") {
-        *at += 1;
-        if *at >= words.len() {
-            return Err(error("nothing follows the minus sign"));
-        }
-        return Ok(Query::Not(Box::new(parse_unary(words, at)?)));
-    }
-    if let Some(rest) = word.strip_prefix('-')
-        && !rest.is_empty()
-    {
-        // `-genre:metal`, the common spelling, with no space after the sign.
-        let mut inner = vec![rest.to_string()];
-        inner.extend_from_slice(&words[*at + 1..]);
-        let mut inner_at = 0usize;
-        let negated = parse_unary(&inner, &mut inner_at)?;
-        *at += inner_at;
-        return Ok(Query::Not(Box::new(negated)));
-    }
-    if word == "(" {
-        *at += 1;
-        let inside = parse_or(words, at)?;
-        if *at >= words.len() || words[*at] != ")" {
-            return Err(error("a bracket is left open"));
-        }
-        *at += 1;
-        return Ok(inside);
-    }
-    if word == ")" {
-        return Err(error("a closing bracket has nothing to close"));
-    }
-    let term = parse_term(word)?;
-    *at += 1;
-    Ok(Query::Term(term))
-}
-
-fn parse_term(word: &str) -> Result<Term, QueryError> {
-    let Some((name, value)) = word.split_once(':') else {
-        // A bare word is a question when it names a field that can be asked
-        // one, and a search otherwise.
-        if let Some(field) = field_named(word)
-            && asks_whether_it_holds_anything(&field)
-        {
-            return Ok(Term {
-                field,
-                test: Test::Set,
-            });
-        }
-        return Ok(Term {
-            field: Field::Anything,
-            test: Test::Contains(word.to_string()),
-        });
-    };
-    let Some(field) = field_named(name) else {
-        return Err(error(format!(
-            "\"{name}\" is not a field.\nFields: {}",
-            FIELD_NAMES
-                .iter()
-                .map(|(n, _)| *n)
-                .collect::<Vec<_>>()
-                .join(", ")
-        )));
-    };
-    let test = parse_test(&field, value)?;
-    Ok(Term { field, test })
-}
-
-fn parse_test(field: &Field, value: &str) -> Result<Test, QueryError> {
-    if value.is_empty() {
-        return Err(error("a field needs something after the colon"));
-    }
-    // A flag asked with a word: `lossless:false` reads better than `-lossless`
-    // and means the same, so both are accepted rather than one being a trap.
-    if is_flag(field) {
-        match value.to_lowercase().as_str() {
-            "true" | "yes" | "1" => return Ok(Test::Set),
-            "false" | "no" | "0" => return Ok(Test::Unset),
-            other => {
-                return Err(error(format!(
-                    "\"{other}\" is not a yes or a no: try true or false"
-                )));
-            }
-        }
-    }
-    if is_numeric(field) {
-        // A range, either end of which may be left open: `1990..`, `..1999`.
-        if let Some((low, high)) = value.split_once("..") {
-            let low = parse_number(field, low)?;
-            let high = parse_number(field, high)?;
-            return Ok(Test::Between(low, high));
-        }
-        for (prefix, compare) in [
-            (">=", Compare::AtLeast),
-            ("<=", Compare::AtMost),
-            (">", Compare::Greater),
-            ("<", Compare::Less),
-            ("=", Compare::Equal),
-        ] {
-            if let Some(rest) = value.strip_prefix(prefix) {
-                let Some(number) = parse_number(field, rest)? else {
-                    return Err(error(format!("\"{rest}\" is not a number")));
-                };
-                return Ok(Test::Compare(compare, number));
-            }
-        }
-        let Some(number) = parse_number(field, value)? else {
-            return Err(error(format!("\"{value}\" is not a number")));
-        };
-        return Ok(Test::Compare(Compare::Equal, number));
-    }
-    if let Some(exact) = value.strip_prefix('=') {
-        return Ok(Test::Is(exact.to_string()));
-    }
-    Ok(Test::Contains(value.to_string()))
-}
-
-/// Reads a number, accepting `3:45` wherever a duration is expected.
-fn parse_number(field: &Field, raw: &str) -> Result<Option<f64>, QueryError> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    if *field == Field::Duration
-        && let Some((minutes, seconds)) = raw.split_once(':')
-    {
-        let minutes: f64 = minutes
-            .parse()
-            .map_err(|_| error(format!("\"{raw}\" is not a length")))?;
-        let seconds: f64 = seconds
-            .parse()
-            .map_err(|_| error(format!("\"{raw}\" is not a length")))?;
-        return Ok(Some((minutes * 60.0 + seconds) * 1000.0));
-    }
-    let number: f64 = raw
-        .parse()
-        .map_err(|_| error(format!("\"{raw}\" is not a number")))?;
-    // Durations are stored in milliseconds and typed in seconds.
-    Ok(Some(if *field == Field::Duration {
-        number * 1000.0
-    } else {
-        number
-    }))
-}
+mod parsing;
+pub use parsing::parse;
 
 /// Every field, by the name it is typed under.
 const FIELD_NAMES: &[(&str, Field)] = &[
@@ -743,192 +510,9 @@ pub fn field_names() -> Vec<&'static str> {
 // Running a query
 // --------------------------------------------------------------------------
 
-/// How a result is ordered.
-///
-/// A query with no order is a query whose second page means nothing: paging is
-/// only meaningful while the order is the same on every run. Catalog order is
-/// the default because it is deterministic; everything else is asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Sort {
-    /// What to order on.
-    pub key: SortKey,
-    /// `true` to put the largest, latest or highest first.
-    pub descending: bool,
-}
-
-/// What a result can be ordered on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortKey {
-    /// The order the catalog was built in, which groups an album together.
-    Catalog,
-    /// Track title.
-    Title,
-    /// Main artist, by filing name.
-    Artist,
-    /// Album title, then disc and track number.
-    Album,
-    /// Year of the album.
-    Year,
-    /// Playing time.
-    Duration,
-    /// Size on disk.
-    Size,
-    /// Stars given to the track.
-    Rating,
-    /// How many times it was played.
-    Played,
-}
-
-/// The sort keys, by the name they are typed under.
-const SORT_KEYS: &[(&str, SortKey)] = &[
-    ("catalog", SortKey::Catalog),
-    ("title", SortKey::Title),
-    ("artist", SortKey::Artist),
-    ("album", SortKey::Album),
-    ("year", SortKey::Year),
-    ("duration", SortKey::Duration),
-    ("length", SortKey::Duration),
-    ("size", SortKey::Size),
-    ("rating", SortKey::Rating),
-    ("played", SortKey::Played),
-];
-
-impl Sort {
-    /// Reads `year`, `year-` or `-year`; the sign is the direction.
-    pub fn parse(input: &str) -> Result<Sort, QueryError> {
-        let raw = input.trim();
-        let (name, descending) = match raw.strip_suffix('-').or_else(|| raw.strip_prefix('-')) {
-            Some(rest) => (rest, true),
-            None => (raw.trim_end_matches('+').trim_start_matches('+'), false),
-        };
-        let wanted = name.trim().to_lowercase();
-        let Some((_, key)) = SORT_KEYS.iter().find(|(n, _)| *n == wanted) else {
-            return Err(error(format!(
-                "\"{name}\" is not something to sort on.\nTry: {}",
-                sort_key_names().join(", ")
-            )));
-        };
-        Ok(Sort {
-            key: *key,
-            descending,
-        })
-    }
-}
-
-/// The sort keys, for a help message.
-pub fn sort_key_names() -> Vec<&'static str> {
-    SORT_KEYS.iter().map(|(name, _)| *name).collect()
-}
-
-/// Puts a result in order.
-///
-/// Ties fall back on catalog order, so the same query gives the same rows in
-/// the same places twice running — without which `--offset` would show a track
-/// twice and hide another.
-pub fn sort(tracks: &mut [Id], sort: Sort, context: &Context) {
-    if sort.key == SortKey::Catalog {
-        if sort.descending {
-            tracks.reverse();
-        }
-        return;
-    }
-    let position: std::collections::BTreeMap<Id, usize> = tracks
-        .iter()
-        .enumerate()
-        .map(|(at, &id)| (id, at))
-        .collect();
-    tracks.sort_by(|&a, &b| {
-        use std::cmp::Ordering;
-        // "Unknown" is not "smallest", and it is not "largest" either: a track
-        // with nothing to compare goes last **whichever way round the sort was
-        // asked**, which is why this sits outside the reversal. Sorting by year
-        // must not open with everything nobody ever tagged.
-        let order = match (missing(sort.key, context, a), missing(sort.key, context, b)) {
-            (true, true) => Ordering::Equal,
-            (true, false) => Ordering::Greater,
-            (false, true) => Ordering::Less,
-            (false, false) => {
-                let order = compare(sort.key, context, a, b);
-                if sort.descending {
-                    order.reverse()
-                } else {
-                    order
-                }
-            }
-        };
-        order.then_with(|| position.get(&a).cmp(&position.get(&b)))
-    });
-}
-
-/// `true` when a track has no value for this key, and therefore belongs at the
-/// end rather than at either extreme.
-fn missing(key: SortKey, context: &Context, track: Id) -> bool {
-    match sort_field(key) {
-        Some(field) => number_of(&field, context, track).is_none(),
-        None => false,
-    }
-}
-
-/// The field a numeric sort key reads, if it is a numeric one.
-fn sort_field(key: SortKey) -> Option<Field> {
-    Some(match key {
-        SortKey::Year => Field::Year,
-        SortKey::Duration => Field::Duration,
-        SortKey::Size => Field::Size,
-        SortKey::Rating => Field::Rating(Scope::Track),
-        SortKey::Played => Field::Played,
-        _ => return None,
-    })
-}
-
-fn compare(key: SortKey, context: &Context, a: Id, b: Id) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let catalog = context.catalog;
-    match key {
-        SortKey::Catalog => Ordering::Equal,
-        SortKey::Title => catalog
-            .track(a)
-            .map(|t| text::normalize(&t.title))
-            .cmp(&catalog.track(b).map(|t| text::normalize(&t.title))),
-        SortKey::Artist => sort_name(context, a).cmp(&sort_name(context, b)),
-        SortKey::Album => album_position(context, a).cmp(&album_position(context, b)),
-        SortKey::Year | SortKey::Duration | SortKey::Size | SortKey::Rating | SortKey::Played => {
-            let Some(field) = sort_field(key) else {
-                return Ordering::Equal;
-            };
-            let left = number_of(&field, context, a);
-            let right = number_of(&field, context, b);
-            match (left, right) {
-                (Some(l), Some(r)) => l.partial_cmp(&r).unwrap_or(Ordering::Equal),
-                _ => Ordering::Equal,
-            }
-        }
-    }
-}
-
-fn sort_name(context: &Context, track: Id) -> Option<String> {
-    context
-        .catalog
-        .credits_on(EntityKind::Track, track)
-        .into_iter()
-        .find(|(_, role)| *role == "main")
-        .map(|(artist, _)| artist.sort_name.clone())
-}
-
-/// Album title, then where the track sits in it: sorting by album and getting
-/// the tracks shuffled inside it would be half an answer.
-fn album_position(context: &Context, track: Id) -> (String, u32, u32) {
-    let catalog = context.catalog;
-    let Some(row) = catalog.track(track) else {
-        return (String::new(), 0, 0);
-    };
-    let title = row
-        .release_id
-        .and_then(|r| catalog.release(r))
-        .map(|r| text::normalize(&r.title))
-        .unwrap_or_default();
-    (title, row.disc_no.unwrap_or(1), row.track_no.unwrap_or(0))
-}
+mod indexes;
+mod sorting;
+pub use sorting::{Sort, SortKey, sort, sort_key_names};
 
 /// Everything needed to answer, gathered once rather than per track.
 pub struct Context<'a> {
@@ -940,6 +524,7 @@ pub struct Context<'a> {
     pub owner: &'a str,
     /// Certain external relationships, indexed once for this evaluation.
     sourced: SourcedRelations,
+    local: indexes::LocalIndexes<'a>,
 }
 
 impl<'a> Context<'a> {
@@ -950,6 +535,7 @@ impl<'a> Context<'a> {
             data,
             owner,
             sourced: SourcedRelations::default(),
+            local: indexes::LocalIndexes::new(catalog, data, owner),
         }
     }
 
@@ -1091,11 +677,8 @@ fn scoped(scope: Scope, context: &Context, track: Id) -> Option<EntityRef> {
             .track(track)
             .and_then(|t| t.release_id)
             .and_then(|r| EntityRef::of(catalog, EntityKind::Release, r)),
-        Scope::Artist => catalog
-            .credits_on(EntityKind::Track, track)
-            .into_iter()
-            .find(|(_, role)| *role == "main")
-            .and_then(|(artist, _)| EntityRef::of(catalog, EntityKind::Artist, artist.id)),
+        Scope::Artist => main_artist(context, track)
+            .and_then(|artist| EntityRef::of(catalog, EntityKind::Artist, artist.id)),
     }
 }
 
@@ -1105,7 +688,33 @@ fn annotation<'a>(
     track: Id,
 ) -> Option<&'a crate::user::Annotation> {
     let reference = scoped(scope, context, track)?;
-    context.data.find(context.owner, &reference)
+    context
+        .local
+        .annotation(context.data, context.owner, &reference)
+}
+
+fn main_artist<'a>(context: &Context<'a>, track: Id) -> Option<&'a crate::model::Artist> {
+    context
+        .local
+        .credits(context.catalog, EntityKind::Track, track)
+        .iter()
+        .filter(|credit| credit.role == "main")
+        .find_map(|credit| context.catalog.artist(credit.artist_id))
+}
+
+fn local_credits<'a>(context: &Context<'a>, track: Id) -> Vec<&'a crate::model::Credit> {
+    let mut credits = context
+        .local
+        .credits(context.catalog, EntityKind::Track, track)
+        .to_vec();
+    if let Some(release) = context.catalog.track(track).and_then(|row| row.release_id) {
+        credits.extend_from_slice(&context.local.credits(
+            context.catalog,
+            EntityKind::Release,
+            release,
+        ));
+    }
+    credits
 }
 
 fn flag_of(field: &Field, context: &Context, track: Id) -> bool {
@@ -1153,9 +762,11 @@ fn number_of(field: &Field, context: &Context, track: Id) -> Option<f64> {
         Field::SampleRate => file.and_then(|f| f.properties.sample_rate).map(f64::from),
         Field::Played => {
             let reference = scoped(Scope::Track, context, track)?;
-            Some(f64::from(
-                context.data.play_count(context.owner, &reference),
-            ))
+            Some(f64::from(context.local.play_count(
+                context.data,
+                context.owner,
+                &reference,
+            )))
         }
         Field::Rating(scope) => annotation(*scope, context, track)
             .and_then(|a| a.rating)
@@ -1175,10 +786,10 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
         Field::Title => vec![track_row.title.clone()],
         Field::Artist => {
             let mut values = Vec::new();
-            for credit in catalog
-                .credits
+            for credit in context
+                .local
+                .credits(context.catalog, EntityKind::Track, track)
                 .iter()
-                .filter(|c| c.entity_kind == EntityKind::Track && c.entity_id == track)
             {
                 extend_artist_values(catalog, credit.artist_id, &mut values);
                 if let Some(credited_as) = &credit.credited_as {
@@ -1186,9 +797,11 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
                 }
             }
             if let Some(release_id) = track_row.release_id {
-                for credit in catalog.credits.iter().filter(|credit| {
-                    credit.entity_kind == EntityKind::Release && credit.entity_id == release_id
-                }) {
+                for credit in context
+                    .local
+                    .credits(context.catalog, EntityKind::Release, release_id)
+                    .iter()
+                {
                     extend_artist_values(catalog, credit.artist_id, &mut values);
                 }
             }
@@ -1267,16 +880,18 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
             .map(|a| artist_values(catalog, a))
             .unwrap_or_default(),
         Field::Genre => {
-            let mut names: Vec<String> = catalog
-                .genres_of(EntityKind::Track, track)
-                .into_iter()
+            let mut names: Vec<String> = context
+                .local
+                .genres(context.catalog, EntityKind::Track, track)
+                .iter()
                 .map(|g| g.name.clone())
                 .collect();
             if let Some(release) = release {
                 names.extend(
-                    catalog
-                        .genres_of(EntityKind::Release, release.id)
-                        .into_iter()
+                    context
+                        .local
+                        .genres(context.catalog, EntityKind::Release, release.id)
+                        .iter()
                         .map(|g| g.name.clone()),
                 );
             }
@@ -1332,10 +947,10 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
         }),
         Field::Instrument => {
             let mut values = Vec::new();
-            for credit in catalog
-                .credits
+            for credit in context
+                .local
+                .credits(context.catalog, EntityKind::Track, track)
                 .iter()
-                .filter(|c| c.entity_kind == EntityKind::Track && c.entity_id == track)
             {
                 for attribute in &credit.attributes {
                     push_unique(&mut values, attribute.name.clone());
@@ -1443,15 +1058,8 @@ fn credits_as_text(
 ) -> Vec<String> {
     let catalog = context.catalog;
     let mut values = Vec::new();
-    for credit in catalog
-        .credits
-        .iter()
-        .filter(|credit| {
-            (credit.entity_kind == EntityKind::Track && credit.entity_id == track)
-                || (credit.entity_kind == EntityKind::Release
-                    && catalog.track(track).and_then(|row| row.release_id)
-                        == Some(credit.entity_id))
-        })
+    for credit in local_credits(context, track)
+        .into_iter()
         .filter(|credit| wanted(&credit.role, &credit.attributes))
     {
         extend_artist_values(catalog, credit.artist_id, &mut values);
@@ -1478,14 +1086,12 @@ fn participation_values(
     if catalog.track(track).is_none() {
         return Vec::new();
     }
-    let performing: Vec<&crate::model::Credit> = catalog
-        .credits
+    let performing: Vec<&crate::model::Credit> = context
+        .local
+        .credits(context.catalog, EntityKind::Track, track)
         .iter()
-        .filter(|credit| {
-            credit.entity_kind == EntityKind::Track
-                && credit.entity_id == track
-                && crate::model::is_performing_role(&credit.role)
-        })
+        .copied()
+        .filter(|credit| crate::model::is_performing_role(&credit.role))
         .collect();
     let sourced_performing: Vec<&crate::sources::CreditLink> = sourced_credits(context, track)
         .into_iter()
@@ -1502,12 +1108,10 @@ fn participation_values(
     );
     if matches!(field, Field::Contributor) {
         let mut values = Vec::new();
-        for credit in catalog.credits.iter().filter(|credit| {
-            ((credit.entity_kind == EntityKind::Track && credit.entity_id == track)
-                || (credit.entity_kind == EntityKind::Release
-                    && release.is_some_and(|release| release.id == credit.entity_id)))
-                && !crate::model::is_performing_role(&credit.role)
-        }) {
+        for credit in local_credits(context, track)
+            .into_iter()
+            .filter(|credit| !crate::model::is_performing_role(&credit.role))
+        {
             extend_artist_values(catalog, credit.artist_id, &mut values);
         }
         for credit in sourced_credits(context, track)

@@ -2,7 +2,7 @@
 
 copy prepares a separate destination, preserving the source folder tree. Without --query or --collection it selects the whole library. The destination must already exist and have no overlap with any watched root (neither inside it, equal to it nor above it); excluded subfolders inside a watched root are still covered by that guard. Aède never creates the base destination, so an unplugged drive cannot silently become a new folder on the internal disk.
 
-Start with --dry-run. Existing plain copies with the expected nonzero size are skipped without CRC reread, even with --verify. Existing nonempty converted outputs are also skipped without full validation. --replace deliberately writes and verifies them again when --verify is supplied; size/existence alone does not prove identity. --extras cover copies the selected cover only, images all images, all all sidecars, and none only audio. Automatic probing adapts names rejected by the destination; --safe-names or --raw-names override that choice.
+Start with --dry-run. Existing plain copies with the expected nonzero size are skipped without content reread, even with --verify. Existing nonempty converted outputs are also skipped without full validation. --replace deliberately writes and verifies them again when --verify is supplied; size/existence alone does not prove identity. --extras cover copies the selected cover only, images all images, all all sidecars, and none only audio. A real transfer probes character restrictions safely. Preview creates no probe and uses conservative name adaptation; --safe-names or --raw-names override that choice.
 
 Conversion needs ffmpeg. Only lossless sources are encoded, while already-lossy audio is copied as it stands. --quality is refused without --compress or for lossless targets. --verify rereads ordinary copies and validates converted outputs; it cannot prove that lossy output equals the source. Errors list failed files and return failure after completed copies are kept. Insufficient space and empty selections are reported. Sources and their tags are never rewritten.
 
@@ -23,9 +23,11 @@ Exactly one destination folder. Selection belongs in --query or --collection, no
 | `--query EXPRESSION` | Pass a relational query expression. Its projection depends on the command: save it, select tracks or retain matching albums/artists. |
 | `--extras none\|cover\|images\|all` | Choose sidecar content to copy: none, cover (default), images or all. Embedded artwork is already inside copied audio. |
 | `--dry-run` | Preview the work without making downloads or creating outputs. It can still validate tools and inputs. |
-| `--verify` | Read back destination files after copying. For plain copies compare checksums; for conversion verify the encoded output and duration. |
+| `--verify-existing` | Compare existing plain outputs with their source; converted outputs with a fresh encode using this recipe. Preserve/report mismatches unless --replace is supplied. |
+| `--playlists` | Generate a destination selection M3U8 and remap copied M3U/M3U8 companions to final filenames; omit and count unselected entries. |
+| `--verify` | Read back destination files after copying. For new plain copies compare bytes with bounded memory; for conversion verify the encoded output and duration. |
 | `--safe-names` | Adapt filenames to destination restrictions, even if the automatic destination probe would keep them. |
-| `--raw-names` | Preserve names verbatim instead of adapting them. Refused with --safe-names; unsupported names may fail. |
+| `--raw-names` | Keep original characters; collision counters still apply. Refused with --safe-names; unsupported names may fail. |
 | `--collection NAME` | Use a previously saved collection as the copy selection. Refused with --query. |
 | `--compress FORMAT` | Use ffmpeg to encode lossless sources as mp3, opus, aac, vorbis, flac or wav on the destination. Already-lossy sources are copied unchanged. |
 | `--quality SETTING` | With lossy --compress only: MP3 V0–V9, Vorbis q0–q10 or a bitrate such as 192k. Not applicable to flac/wav. |
@@ -42,7 +44,11 @@ aede copy "/Volumes/Player" --query "genre:jazz" --compress mp3 --quality V0 --v
 
 ## Result and errors
 
-The plan lists tracks, sidecars, bytes and destination; adaptation of names is listed separately. --dry-run returns after this plan without writing audio. A real run reports files written, already present and failed, plus failed paths and reasons. Per-file failures return an error after completed files remain in place; rerunning can resume. A destination missing/overlapping a root, empty selection, invalid conversion setting, missing encoder or insufficient available space is refused. Skipped files were not CRC-verified; the newly encoded-file check is a readable nonzero duration with source-duration tolerance when available, not complete decoded equality. Sources remain unchanged.
+Without --replace, different-size plain outputs and empty converted outputs are preserved and reported. Atomic publication of new files requires filesystem hard links and refuses a competing writer's file; this capability is checked before transfer. FAT/exFAT usually requires explicit --replace, which also permits overwriting existing files. Already-complete resumes need no new-file publication. Space checks exclude skipped outputs and account for temporary encodes. Requested-sidecar enumeration errors prevent transfer.
+
+The plan lists tracks, sidecars, bytes and destination; adaptation of names is listed separately. --dry-run returns after this plan without writing audio. A real run reports files written, already present and failed, plus failed paths and reasons. Per-file failures return an error after completed files remain in place; rerunning can resume. A destination missing/overlapping a root, empty selection, invalid conversion setting, missing encoder or insufficient available space is refused. Skipped files are unchecked unless --verify-existing is supplied; the newly encoded-file check is a readable nonzero duration with source-duration tolerance when available, not complete decoded equality. Sources remain unchanged.
+
+Destination files and folders use conservative matching of case, common composed/decomposed accents and punctuation. A real transfer checks additional aliases against the destination filesystem before changing real outputs. Linked destination components are refused. Each write uses a private, exclusively created temporary directory. WAV conversion preserves known integer or floating-point source precision; FLAC conversion refuses floating-point sources because it would quantize their samples. MP3 accepts V0–V9, Vorbis q0–q10, AAC/Opus bitrates; incompatible settings are errors. Fresh-encode comparison can differ across encoder versions or nondeterministic metadata and requires FFmpeg plus temporary space.
 
 ## Related reading
 

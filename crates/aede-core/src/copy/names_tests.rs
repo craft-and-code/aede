@@ -111,3 +111,27 @@ fn two_names_that_became_one_are_told_apart() {
     // above, so this one is the fourth.
     assert_eq!(make_unique("Vol. 1_ Live", &mut taken), "Vol. 1_ Live (4)");
 }
+
+#[test]
+fn probing_names_preserves_existing_user_files() {
+    let dir = std::env::temp_dir().join(format!("aede_copy_name_probe_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sentinel = dir.join("aede-name-probe?.tmp");
+    if std::fs::write(&sentinel, b"keep this").is_ok() {
+        restricts_names(&dir);
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"keep this");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn collision_suffixes_fit_the_component_limit() {
+    let name = format!("{}.flac", "x".repeat(250));
+    let mut taken = BTreeSet::new();
+    make_unique(&name, &mut taken);
+    let second = make_unique(&name, &mut taken);
+    assert!(second.len() <= MAX_COMPONENT);
+    assert_ne!(second, name);
+    assert!(second.ends_with(".flac"));
+}

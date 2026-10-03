@@ -4,7 +4,7 @@ search retrouve artistes, albums, pistes, enregistrements, œuvres et groupes de
 
 Commentaires, notes et paroles sont optionnels via --comments, --notes, --lyrics. Les paroles montrent les lignes trouvées plutôt que toute la chanson. --json garde l’origine found_in des textes. Il lit les informations mémorisées/annexes sans télécharger biographies ni paroles manquantes.
 
-CSV/M3U exportent seulement les pistes trouvées, pas tous les résultats d’artistes/albums ; JSON peut garder les catégories. La pagination affecte les résultats. query convient aux intervalles, OU, exclusions et rôles relationnels.
+CSV/M3U exportent seulement les pistes trouvées, pas les résultats d’artistes/albums. Ils réunissent les correspondances de nom, de commentaire et de paroles demandées, retirent les pistes en double, puis appliquent --offset et --limit. Les artistes et albums ne consomment pas cette fenêtre de pistes. JSON et l’affichage humain paginent chaque catégorie de résultat séparément ; JSON garde les origines et respecte --output, y compris avec un tableau vide lorsqu’aucun résultat ne correspond. query convient aux intervalles, OU, exclusions et rôles relationnels.
 
 ## Syntaxe et arguments
 

@@ -107,6 +107,55 @@ fn load(path: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn queries(count: usize) -> Result<(), Box<dyn Error>> {
+    use aede_core::model::EntityKind;
+    use aede_core::query::{self, Context, Sort};
+    use aede_core::user::{Annotation, EntityRef, PlayCount, UserData};
+
+    let catalog = build((0..count).map(synthetic_file).collect(), vec![], 0, &[]);
+    let mut data = UserData::default();
+    for track in &catalog.tracks {
+        let target = EntityRef::of(&catalog, EntityKind::Track, track.id).unwrap();
+        data.annotations.push(Annotation {
+            owner: "local".into(),
+            target: target.clone(),
+            rating: Some(4),
+            ..Default::default()
+        });
+        data.counts.push(PlayCount {
+            owner: "local".into(),
+            track: target,
+            count: 3,
+            last_played: 1_700_000_000,
+        });
+    }
+    for expression in ["artist:Artist", "genre:Genre", "rating:>=4 played:>=2"] {
+        let parsed = query::parse(expression)?;
+        let start = Instant::now();
+        let context = Context::new(&catalog, &data, "local");
+        let mut selected = query::run(&parsed, &context);
+        query::sort(&mut selected, Sort::parse("artist")?, &context);
+        println!(
+            "query={expression:?},tracks={},elapsed_us={}",
+            selected.len(),
+            start.elapsed().as_micros()
+        );
+        std::hint::black_box(selected);
+    }
+    Ok(())
+}
+
+fn parse_queries(count: usize) -> Result<(), Box<dyn Error>> {
+    let expression = "-title:x ".repeat(count);
+    for _ in 0..3 {
+        let start = Instant::now();
+        let parsed = aede_core::query::parse(&expression)?;
+        println!("terms={count},parse_us={}", start.elapsed().as_micros());
+        std::hint::black_box(parsed);
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     match args.as_slice() {
@@ -114,9 +163,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             generate(raw_count.parse()?, Path::new(path))
         }
         [_, action, path] if action == "load" => load(Path::new(path)),
+        [_, action, raw_count] if action == "query" => queries(raw_count.parse()?),
+        [_, action, raw_count] if action == "parse" => parse_queries(raw_count.parse()?),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "usage: catalog_bench generate <tracks> <catalog.json> | load <catalog.json>",
+            "usage: catalog_bench generate <tracks> <catalog.json> | load <catalog.json> | query <tracks> | parse <terms>",
         )
         .into()),
     }

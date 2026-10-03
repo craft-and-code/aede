@@ -240,13 +240,22 @@ fn main() {
         eprintln!("Run \"aede help\" for the list of commands.");
         std::process::exit(2);
     };
+    // Refuse unsafe exports before delegation, locking or any store mutation.
+    if let Err(error) = commands::preflight_output(&args) {
+        eprintln!("{} {}", ui::red("Error:"), ui::literal(&error.to_string()));
+        std::process::exit(1);
+    }
     if mutates_store_with_args(command, &args) && std::env::var_os("AEDE_DELEGATED_CHILD").is_none()
     {
         match delegation::try_delegate(&args, std::env::args().skip(1).collect()) {
             Ok(Some(code)) => std::process::exit(code),
             Ok(None) => {}
             Err(error) => {
-                eprintln!("{} delegation failed: {error}", ui::red("Error:"));
+                eprintln!(
+                    "{} delegation failed: {}",
+                    ui::red("Error:"),
+                    ui::literal(&error.to_string())
+                );
                 std::process::exit(1);
             }
         }
@@ -257,7 +266,11 @@ fn main() {
         match aede_core::store_lock::StoreLock::acquire(&commands::data_dir(&args)) {
             Ok(lock) => Some(lock),
             Err(error) => {
-                eprintln!("{} cannot lock Aède data: {error}", ui::red("Error:"));
+                eprintln!(
+                    "{} cannot lock Aède data: {}",
+                    ui::red("Error:"),
+                    ui::literal(&error.to_string())
+                );
                 std::process::exit(1);
             }
         }
@@ -267,7 +280,7 @@ fn main() {
     let result = run(&args);
 
     if let Err(error) = result {
-        eprintln!("{} {error}", ui::red("Error:"));
+        eprintln!("{} {}", ui::red("Error:"), ui::literal(&error.to_string()));
         std::process::exit(1);
     }
 }
@@ -306,6 +319,14 @@ fn mutates_store(command: &str) -> bool {
 }
 
 fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
+    if matches!(command, "scan" | "notes") && args.has("dry-run") {
+        return false;
+    }
+    if command == "notes" {
+        return ["import", "relink", "undo-relink"]
+            .iter()
+            .any(|option| args.has(option));
+    }
     mutates_store(command) || checks_label_online(command, args)
 }
 
@@ -364,6 +385,13 @@ const OPTIONS: &[&str] = &[
     "extras",
     "dry-run",
     "verify",
+    "verify-existing",
+    "playlists",
+    "waiting",
+    "relink",
+    "to",
+    "undo-relink",
+    "relinks",
     "safe-names",
     "raw-names",
     "collection",
@@ -669,6 +697,8 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "dry-run",
         &[
             "copy",
+            "scan",
+            "notes",
             "spectrum",
             "playlist",
             "fetch",
@@ -689,8 +719,35 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "write one playlist per artist too",
     ),
     ("verify", &["copy"], "read back what it wrote"),
+    (
+        "verify-existing",
+        &["copy"],
+        "compare existing output content before skipping it",
+    ),
+    (
+        "playlists",
+        &["copy"],
+        "write playlists using final destination paths",
+    ),
+    (
+        "waiting",
+        &["notes"],
+        "list personal references awaiting a target",
+    ),
+    (
+        "relink",
+        &["notes"],
+        "reattach a waiting personal reference",
+    ),
+    ("to", &["notes"], "name the target of a relink"),
+    ("undo-relink", &["notes"], "undo an unchanged manual relink"),
+    ("relinks", &["notes"], "list manual relink history"),
     ("safe-names", &["copy"], "adapt names to the destination"),
-    ("raw-names", &["copy"], "leave names exactly as they are"),
+    (
+        "raw-names",
+        &["copy"],
+        "keep original characters; distinguish name collisions",
+    ),
     (
         "collection",
         &["copy"],
@@ -901,6 +958,7 @@ const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 /// `--json` used to be declared globally and read by four commands, so
 /// `aede albums --json` printed the ordinary table and dropped the word.
 const JSON_COMMANDS: &[&str] = &[
+    "scan",
     "analyze",
     "export",
     "album",

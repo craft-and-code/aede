@@ -34,6 +34,8 @@ Pagination: `--limit N`, `--offset N`, `--all` only on the commands below. N is 
 
 Output: choose one of CSV, JSON or M3U where supported. `--output`/`-o` writes a real export, not arbitrary human pages. `--separator` requires CSV; `export --tracks` requires CSV. CSV uses RFC-compatible quoting; tools that split blindly on commas can corrupt quoted titles. `--separator tab` avoids that for simple tab-delimited shell workflows. M3U contains file paths and does not copy sound.
 
+Export destinations are checked before a command changes personal data. Active Aède stores and writer locks, existing audio files, symbolic links and non-regular targets are refused. An ordinary report is replaced atomically after its full content is written; missing report folders may be created. Human terminal output escapes control instructions in notes, paths and metadata. JSON/CSV exports preserve original values; treat CSV text as untrusted data when opening it in a spreadsheet.
+
 Confirmation: `--yes` exists only for reset, history, fetch, backup and restore. It skips that command’s actual confirmation; it is not a universal “ignore errors” option. Without a terminal, a needed confirmation refuses unless deliberately accepted.
 
 Work reuse: `--full` belongs to scan/check/spectrum/fetch/fingerprint with different meanings; analyze uses `--force`. Never infer behavior from the name alone.
@@ -67,7 +69,7 @@ This inventory follows the current dispatcher and handlers. It lists accepted co
 | `--json-layout album\|artist` | [analyze](analyze.md) |
 | `--genre NAME` | [albums](albums.md) |
 | `--label NAME` | [albums](albums.md) |
-| `--json / -j` | [analyze](analyze.md), [stats](stats.md), [doctor](doctor.md), [credits](credits.md), [relations](relations.md), [query](query.md), [collection](collection.md), [favourites](favourites.md), [notes](notes.md), [artists](artists.md), [countries](countries.md), [albums](albums.md), [genres](genres.md), [genre](genre.md), [labels](labels.md), [label](label.md), [years](years.md), [artist](artist.md), [album](album.md), [track](track.md), [search](search.md), [export](export.md) |
+| `--json / -j` | [analyze](analyze.md), [stats](stats.md), [doctor](doctor.md), [credits](credits.md), [relations](relations.md), [query](query.md), [collection](collection.md), [favourites](favourites.md), [notes](notes.md), [artists](artists.md), [countries](countries.md), [albums](albums.md), [genres](genres.md), [genre](genre.md), [labels](labels.md), [label](label.md), [years](years.md), [artist](artist.md), [album](album.md), [track](track.md), [search](search.md), [export](export.md), [scan](scan.md) |
 | `--no-color` | Shared (see above) |
 | `--yes` | [reset](reset.md), [backup](backup.md), [restore](restore.md), [fetch](fetch.md), [history](history.md) |
 | `--forget` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md) |
@@ -79,7 +81,14 @@ This inventory follows the current dispatcher and handlers. It lists accepted co
 | `--simple` | [playlist](playlist.md) |
 | `--artists` | [playlist](playlist.md) |
 | `--extras none\|cover\|images\|all` | [copy](copy.md) |
-| `--dry-run` | [copy](copy.md), [spectrum](spectrum.md), [playlist](playlist.md), [fetch](fetch.md), [extract](extract.md), [fingerprint](fingerprint.md) |
+| `--dry-run` | [copy](copy.md), [spectrum](spectrum.md), [playlist](playlist.md), [fetch](fetch.md), [extract](extract.md), [fingerprint](fingerprint.md), [scan](scan.md), [notes](notes.md) |
+| `--verify-existing` | [copy](copy.md) |
+| `--playlists` | [copy](copy.md) |
+| `--waiting` | [notes](notes.md) |
+| `--relink REFERENCE` | [notes](notes.md) |
+| `--to REFERENCE` | [notes](notes.md) |
+| `--undo-relink ID` | [notes](notes.md) |
+| `--relinks` | [notes](notes.md) |
 | `--verify` | [copy](copy.md) |
 | `--safe-names` | [copy](copy.md) |
 | `--raw-names` | [copy](copy.md) |

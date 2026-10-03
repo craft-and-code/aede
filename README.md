@@ -129,7 +129,7 @@ aede doctor
 | Command       | Arguments    | Key Options                                 | Description                                                                                 |
 | :------------ | :----------- | :------------------------------------------ | :------------------------------------------------------------------------------------------ |
 | `aede roots`  | `[paths...]` | `--exclude <path>`, `--remove`, `--no-scan` | Display, add, or exclude watched storage directories.                                       |
-| `aede scan`   | `[path]`     | `--full`                                    | Traverses roots to index audio files, tags, and structure.                                  |
+| `aede scan`   | `[path]`     | `--full`, `--dry-run`, `--json`             | Traverses roots to index audio files, tags, and structure.                                  |
 | `aede serve`  | None         | `--port <N>`                                | Runs the loopback-only catalog API and coordinates Unix CLI writes.                        |
 | `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
@@ -138,7 +138,7 @@ aede doctor
 | `aede credit` | None | `--add <scope> --artist=<name> --role=<role>`, `--exclude=<ID>`, `--undo=<ID>` | Add a manual credit or exclude/restore one sourced credit without changing tags. |
 | `aede review` | None         | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
 | `aede stats`  | None         | None                                        | Displays catalog metrics, audio quality distribution, and credit roles.                     |
-| `aede reset`  | None         | `--yes`                                     | Wipes indexed catalog data while preserving root configurations.                            |
+| `aede reset`  | None         | `--yes`                                     | Removes the catalog, watched roots and exclusions; preserves independent stores.                            |
 
 ### Query, Search & Catalog Browsing
 
@@ -391,7 +391,7 @@ remain evidence and are not promoted into query results.
 | `duration`                                                             | Duration                | Length in `mm:ss` or seconds      | `duration:..4:00`, `duration:3:30..5:00`   |
 | `size`                                                                 | Bytes                   | File size in bytes                | `size:>50000000`                           |
 | `codec` / `format`                                                     | Text                    | Codec name or container extension | `codec:flac`, `format:mp3`                 |
-| `bitrate` / `samplerate`                                               | Number                  | Stream parameters                 | `bitrate:>=320k`, `samplerate:96000`       |
+| `bitrate` / `samplerate`                                               | Number                  | Stream parameters                 | `bitrate:>=320`, `samplerate:96000`       |
 | `lossless`                                                             | Boolean                 | Compression state                 | `lossless:true`, `-lossless`               |
 | `compilation`                                                          | Boolean                 | Multi-artist compilation flag     | `compilation:true`                         |
 | `played`                                                               | Counter                 | Play count                        | `played:0`, `played:>=10`                  |
@@ -415,7 +415,7 @@ remain evidence and are not promoted into query results.
 
 When transferring audio to portable devices or external drives, `aede copy` preserves folder layouts while handling non-standard target filesystems cleanly:
 
-1. **Empirical Probe Test:** Writes a temporary, invisible test file to the target filesystem to test forbidden characters (`? * : " < > |`), trailing dots, and DOS reserved names empirically.
+1. **Destination names:** A safe exclusive probe checks character restrictions during a real transfer. Dry-run creates no probe. Portable case-insensitive collision handling distinguishes both files and folders; `--safe-names` or `--raw-names` fixes the adaptation policy.
 2. **Lossless Transcoding Rule:** When `--compress` is active, **only lossless source files** (FLAC, WAV, ALAC) are re-encoded. Existing lossy files (MP3, AAC, Opus) are copied untouched to prevent generation loss.
 3. **Threading Optimization:** Transcoding jobs run in parallel across all CPU cores. Plain uncompressed file transfers queue sequentially to prevent disk head thrashing on mechanical drives or SD cards.
 
@@ -423,11 +423,13 @@ When transferring audio to portable devices or external drives, `aede copy` pres
 # Copy loved tracks to a phone SD card, encoding FLACs to Opus @ 128k
 aede copy /Volumes/Phone --query "loved" --compress opus --quality 128k
 
-# Copy a saved collection with CRC-32 read-back verification
-aede copy /Volumes/Player --collection wishlist --verify
+# Copy a saved collection with byte-for-byte read-back verification
+aede copy /Volumes/Player --collection wishlist --verify --playlists
 ```
 
 ---
+
+`--verify-existing` validates existing output content before resuming, preserving mismatches unless `--replace` is requested. Converted outputs are compared with a fresh encode using the current recipe. WAV preserves known source precision. `--playlists` writes paths matching converted/adapted outputs. Destination symlinks are refused, and new files are published from private exclusive temporary directories.
 
 ## 💾 Vault State & Storage Footprint
 

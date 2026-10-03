@@ -1913,12 +1913,7 @@ pub fn sources_path(data_dir: &Path) -> std::path::PathBuf {
 /// Pretty like `user.json` and unlike the catalog: this file is small, and it
 /// is one a user may want to open to see what was fetched and from where.
 pub fn save(sources: &Sources, path: &Path) -> Result<(), crate::store::StoreError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, to_json(sources).to_string_pretty())?;
-    std::fs::rename(&temp, path)?;
+    crate::atomic_file::write(path, to_json(sources).to_string_pretty().as_bytes())?;
     Ok(())
 }
 

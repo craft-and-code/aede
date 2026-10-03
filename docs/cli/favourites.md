@@ -6,6 +6,8 @@ Use query "loved" for the inherited track selection or query "track.loved" for d
 
 Alias: `aede favorites`. Options and behavior are identical.
 
+An empty JSON export is `[]`; an empty CSV export retains its header. Only the current owner's favourites are included.
+
 ## Syntax and arguments
 
 ```text

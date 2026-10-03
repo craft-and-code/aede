@@ -28,6 +28,32 @@ fn signed_values_use_twos_complement() {
 }
 
 #[test]
+fn full_width_signed_fields_keep_their_sign_without_overflow() {
+    for (width, raw, expected) in [
+        (63, 1u64 << 62, -(1i64 << 62)),
+        (63, (1u64 << 63) - 1, -1),
+        (63, (1u64 << 62) - 1, (1i64 << 62) - 1),
+        (64, 1u64 << 63, i64::MIN),
+        (64, u64::MAX, -1),
+        (64, i64::MAX as u64, i64::MAX),
+    ] {
+        let data = raw.to_be_bytes();
+        let mut reader = BitReader::new(&data);
+        reader.skip(64 - width as usize).unwrap();
+        assert_eq!(reader.signed_bits(width), Some(expected), "{width} bits");
+    }
+}
+
+#[test]
+fn oversized_skips_are_refused_without_consuming_the_remaining_bits() {
+    let data = [0b1010_1010];
+    let mut reader = BitReader::new(&data);
+    assert_eq!(reader.bits(1), Some(1));
+    assert_eq!(reader.skip(usize::MAX), None);
+    assert_eq!(reader.bits(7), Some(0b010_1010));
+}
+
+#[test]
 fn alignment_moves_to_the_next_whole_byte() {
     let data = [0b1010_1010, 0b1100_0000];
     let mut r = BitReader::new(&data);

@@ -73,6 +73,115 @@ fn two_editions_in_two_folders_stay_two_releases() {
 }
 
 #[test]
+fn albums_with_different_disc_positions_are_not_duplicate_track_lists() {
+    let make = |edition: &str, disc: u32, title: &str| {
+        let disc_tag = disc.to_string();
+        track(
+            &format!("/m/{edition}/Disc {disc}/01.flac"),
+            &[
+                ("title", title),
+                ("artist", "Band"),
+                ("albumartist", "Band"),
+                ("album", "Record"),
+                ("tracknumber", "1"),
+                ("discnumber", &disc_tag),
+            ],
+            60_000,
+        )
+    };
+    let catalog = build(
+        vec![
+            make("A", 1, "First"),
+            make("A", 2, "Second"),
+            make("B", 1, "Second"),
+            make("B", 2, "First"),
+        ],
+        vec!["/m".into()],
+        0,
+        &[],
+    );
+    assert_eq!(catalog.releases.len(), 2);
+    // Loading rules from before disc positions were compared repairs the old
+    // false positive without rescanning the files.
+    let mut previous = catalog.clone();
+    for (source_id, target_id) in [(0, 1), (1, 0)] {
+        previous.relations.push(Relation {
+            source_kind: EntityKind::Release,
+            source_id,
+            target_kind: EntityKind::Release,
+            target_id,
+            kind: DUPLICATE.into(),
+            weight: 1,
+            source: "tags".into(),
+        });
+    }
+    let mut saved = crate::store::to_json(&previous);
+    saved.set("relation_rules", 2u32.into());
+    let loaded = crate::store::from_json(&saved).expect("upgrade the inferred relations");
+    for catalog in [&catalog, &loaded] {
+        for release in &catalog.releases {
+            assert!(catalog.related_releases(release.id, DUPLICATE).is_empty());
+            assert!(
+                catalog
+                    .related_releases(release.id, OTHER_EDITION)
+                    .is_empty()
+            );
+        }
+    }
+}
+
+#[test]
+fn encoding_quality_is_compared_per_track_instead_of_per_album_set() {
+    let make = |edition: &str, number: u32, codec: &str| {
+        let number = number.to_string();
+        let mut file = track(
+            &format!("/m/{edition}/{number}.{codec}"),
+            &[
+                ("title", &format!("Song {number}")),
+                ("artist", "Band"),
+                ("albumartist", "Band"),
+                ("album", "Record"),
+                ("tracknumber", &number),
+            ],
+            60_000,
+        );
+        file.tags.properties.codec = codec.into();
+        file.tags.properties.lossless = codec == "flac";
+        file.tags.properties.sample_rate = Some(44_100);
+        file.tags.properties.bit_depth = (codec == "flac").then_some(16);
+        file.tags.properties.bitrate_kbps = (codec == "mp3").then_some(320);
+        file
+    };
+    let catalog = build(
+        vec![
+            make("A", 1, "flac"),
+            make("A", 2, "mp3"),
+            make("B", 1, "mp3"),
+            make("B", 2, "flac"),
+        ],
+        vec!["/m".into()],
+        0,
+        &[],
+    );
+    assert_eq!(catalog.releases.len(), 2);
+    let mut previous = catalog.clone();
+    for relation in &mut previous.relations {
+        if relation.kind == OTHER_EDITION {
+            relation.kind = DUPLICATE.into();
+        }
+    }
+    let mut saved = crate::store::to_json(&previous);
+    saved.set("relation_rules", 2u32.into());
+    let loaded = crate::store::from_json(&saved).expect("upgrade per-track quality comparisons");
+    for catalog in [&catalog, &loaded] {
+        for release in &catalog.releases {
+            assert!(catalog.related_releases(release.id, DUPLICATE).is_empty());
+            assert_eq!(catalog.related_releases(release.id, OTHER_EDITION).len(), 1);
+        }
+    }
+}
+
+#[test]
 fn every_canonical_object_link_is_navigable_both_ways() {
     let c = build(
         vec![track(

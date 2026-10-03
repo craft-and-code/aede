@@ -72,3 +72,17 @@ fn last_granule_position() {
     .concat();
     assert_eq!(last_granule(&data, 7), Some(44_100));
 }
+
+#[test]
+fn a_large_ogg_granule_does_not_overflow_duration_conversion() {
+    let mut identification = b"OpusHead".to_vec();
+    identification.extend_from_slice(&[1, 2]);
+    identification.extend_from_slice(&0u16.to_le_bytes());
+    identification.extend_from_slice(&48_000u32.to_le_bytes());
+    identification.extend_from_slice(&[0; 3]);
+    let samples = i64::MAX as u64;
+    let bytes = page(7, samples, false, &[&identification]);
+    let fixture = super::super::test_support::BinaryFile::new("opus", &bytes);
+    let tags = fixture.read().unwrap();
+    assert_eq!(tags.properties.duration_ms, Some(samples / 48));
+}

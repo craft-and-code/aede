@@ -1,9 +1,9 @@
 //! The `check` command: verify that the files are still what they were.
 //!
-//! Deliberately opt-in. Every checksum a container carries covers the whole
-//! stream, so verifying means reading every byte of the library — minutes on an
-//! SSD, an hour or more on a spinning disk. That is not something a `scan`
-//! should decide to do on its own.
+//! Deliberately opt-in. A verdict needs all supported checksums across the
+//! selected streams, within the verifier's read budget. Storage throughput and
+//! file sizes determine the cost; a metadata `scan` does not perform this work
+//! on its own.
 //!
 //! The verdict is stored per file and survives across scans, so the cost is
 //! paid once: only files that are new, or that changed, come back without one.
@@ -69,7 +69,7 @@ pub fn check(args: &Args) -> Res {
     for batch in queue.chunks(SAVE_EVERY) {
         let pending = Mutex::new(batch.to_vec());
         let results: Mutex<Vec<(Id, IntegrityRecord)>> = Mutex::new(Vec::new());
-        let batch_failures: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+        let batch_failures: Mutex<Vec<(Id, String, String)>> = Mutex::new(Vec::new());
 
         std::thread::scope(|scope| {
             for _ in 0..threads.min(batch.len()) {
@@ -92,7 +92,7 @@ pub fn check(args: &Args) -> Res {
                             Err(error) => batch_failures
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
-                                .push((path.to_string_lossy().to_string(), error.to_string())),
+                                .push((id, path.to_string_lossy().to_string(), error.to_string())),
                         }
                         // Redrawn every few files: often enough to look alive,
                         // rarely enough not to interleave between threads.
@@ -112,11 +112,18 @@ pub fn check(args: &Args) -> Res {
                 file.integrity = Some(record);
             }
         }
-        failures.extend(
-            batch_failures
-                .into_inner()
-                .unwrap_or_else(|e| e.into_inner()),
-        );
+        for (id, path, error) in batch_failures
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner())
+        {
+            // A failed explicit recheck cannot leave a reusable old verdict:
+            // the report would still count it as intact and the next ordinary
+            // run would skip it. Keep other conclusions and unattempted files.
+            if let Some(file) = catalog.files.get_mut(id as usize) {
+                file.integrity = None;
+            }
+            failures.push((path, error));
+        }
         store::save(&catalog, &catalog_file)?;
     }
     if interactive {

@@ -8,6 +8,10 @@ Do not replace backslashes with slashes in stored absolute paths. In particular,
 
 ## Catalog string operations
 
+Persistent paths must be exactly representable as UTF-8. Roots that fail this contract are refused; directory entries that fail it are reported with escaped native spelling and skipped rather than converted lossily to a different identity. Only regular files are opened as audio. Symbolic links are followed only when explicitly enabled, with deterministic native ordering of aliases and loop detection. Existing catalog entries beneath unreadable watched paths are retained, including a watched drive that is temporarily unavailable, while other roots continue to scan.
+
+CLI folder filters, root exclusions and root removals apply the same lossless path contract, including the canonical target of a symbolic-link alias. They refuse an unrepresentable target before changing the catalog.
+
 `text::file_name`, `text::folder` and `text::is_under` recognize native separators, including Windows drive, UNC and verbatim paths when tested on Unix. Verbatim paths accept only backslash separators. Ordinary Windows paths accept both separators. On Unix, backslashes inside a POSIX file name remain literal characters.
 
 Folder membership checks require a component boundary: `C:\Music-backup` is not inside `C:\Music`. Drive roots retain their separator (`C:\`, not the drive-relative `C:`). These are lexical helpers, not filesystem identity checks: they do not resolve symlinks, fold case, remove `..`, or equate ordinary and verbatim prefixes. CLI scopes and watched roots are canonicalized before comparison, as is the copy destination guard.

@@ -4,6 +4,8 @@ backup crée un fichier versionné contenant catalogue, conclusions, données pe
 
 Choisir un nom explicite et conserver une copie hors de l’ordinateur/NAS. Si ce fichier existe, Aède demande avant de l’écraser ; --yes évite cette question. Un dossier entièrement vide produit une erreur plutôt qu’une sauvegarde trompeuse.
 
+Le dossier parent de la destination doit déjà exister. Les magasins et verrous actifs d’Aède, l’audio existant, les liens symboliques finaux et les fichiers spéciaux sont refusés même avec `--yes`. L’archive complète passe par un fichier temporaire isolé avant remplacement atomique ; un autre nom lié au même fichier conserve ses octets d’origine. Sous Unix, une nouvelle sauvegarde ne donne aucun accès aux autres utilisateurs ; les permissions d’une destination existante sont conservées. Cela ne garantit pas la durabilité après une coupure de courant.
+
 Le fichier ne contient ni audio original, ni images, paroles annexes ou autres fichiers dérivés. Les sauvegarder séparément. Garder ce fichier privé : il peut inclure historique personnel et chemins absolus. Employer restore pour récupérer les données ; l’export simple du catalogue ne contient pas toutes les informations personnelles irremplaçables.
 
 ## Syntaxe et arguments
@@ -12,7 +14,7 @@ Le fichier ne contient ni audio original, ni images, paroles annexes ou autres f
 aede backup <file>
 ```
 
-Un fichier de destination en argument, pas --output.
+Exactement un fichier de destination en argument, pas --output. Les arguments supplémentaires sont refusés.
 
 ## Options de cette commande
 

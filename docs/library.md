@@ -57,13 +57,15 @@ If a four-disc set is missing its final disc on disk, Aède accurately reports `
 
 ## Managing Compilations
 
-Compilations—releases featuring tracks by multiple distinct artists without a single release-level artist—are flagged automatically during scanning. They are excluded from individual artist discographies to prevent catalog clutter.
+Scanning marks a release as a compilation when a `COMPILATION` tag is `1`, `true` or `yes`, or when its album artist is a recognized placeholder such as `Various Artists`, `VA` or `Artistes divers`. These releases are excluded from individual artist discographies to prevent catalog clutter.
+
+Different track artists alone do not establish a compilation. Without an album artist or a compilation tag, the files can form separate local releases for their track artists. Tag a multi-artist compilation consistently before scanning it.
 
 You can query compilations directly using dedicated flags:
 
 ```
-aede albums --compilations       # list only multi-artist compilations
-aede albums --no-compilations    # list only single-artist releases
+aede albums --compilations       # list releases marked as compilations
+aede albums --no-compilations    # list other releases
 ```
 
 Passing both flags simultaneously is rejected as a logical contradiction.
@@ -77,12 +79,12 @@ Every `aede scan` concludes with a comprehensive diagnostic breakdown:
 | **Files found**               | Total audio files discovered during directory traversal (duplicates removed).                         |
 | **Read from disk**            | Files selected for a fresh metadata read, including attempts that later report an error.              |
 | **Reused from previous scan** | Files unchanged in path, size, and modification timestamp; metadata loaded instantly from catalog.    |
-| **Gone since last scan**      | Files previously indexed but no longer present on disk; safely purged from catalog.                   |
+| **Gone since last scan**      | Files previously indexed and confirmed absent from accessible paths; removed from the index.                   |
 | **Analyses imported**         | External [FlacCompagnon reports](imported-analyses.md#what-another-tool-found) detected and ingested. |
 | **Analyses now attached**     | Previously pending external analyses successfully linked to newly scanned files.                      |
 | **Elapsed**                   | Total wall-clock duration for storage walk and metadata ingestion.                                    |
 
-The total `Files found` equals the sum of `Read from disk` and `Reused from previous scan`. Files that encounter read errors are flagged below the summary table and skipped without aborting the scan.
+`Files found` counts discovered audio paths; retained inaccessible entries are reported separately. `Read from disk` and `Reused from previous scan` describe metadata work on discovered files. Read errors are reported below the summary. Previous entries from inaccessible paths are retained, including during a full scan, and counted separately as preserved; an unreadable folder is not treated as empty.
 
 ## Vault Location, Storage Footprint & Scaling
 
@@ -106,7 +108,7 @@ This catalog
 
 If `AEDE_HOME` is unset, Aède falls back to `$XDG_DATA_HOME/aede` or `~/.local/share/aede`.
 
-The catalog uses an in-memory JSON document model for queries. The following synthetic-library measurements (12 tracks per album) predate the separation of `conclusions.json`; current sizes and timings have not yet been remeasured:
+The catalog uses an in-memory JSON document model for queries. The following synthetic-library measurements (12 tracks per album) predate the separation of `conclusions.json`; these historical figures should not be used as current deployment budgets. A newer synthetic baseline is recorded in [M2 storage measurements](coding/m2-storage-benchmark.md):
 
 | Tracks      | `catalog.json` Size | Save Time | Load Time | Memory Usage (Peak) |
 | :---------- | :------------------ | :-------- | :-------- | :------------------ |
@@ -202,3 +204,14 @@ aede doctor
 ```
 
 The generated test environment includes intentional metadata issues—such as missing tags, duplicate files, missing tracks, and mixed codecs—providing a complete sandbox to evaluate `aede doctor` and catalog management workflows.
+
+## Previewing changes before publication
+
+```sh
+aede scan --dry-run
+aede scan /Volumes/Archive --dry-run --json
+```
+
+The preview reports added, changed, removed and unreadable paths without publishing catalog, roots, conclusions or personal data. It may read audio metadata and local analysis reports to prepare the proposed graph. JSON emits all change paths plus counts, without terminal progress mixed into standard output. Precise timestamps distinguish same-size edits within one second when the filesystem provides that resolution; legacy catalog rows lacking subsecond precision are reread once.
+
+Imported acoustic reports keep the source tool’s recorded identity and whole-second timestamp precision. The new scan precision protects metadata reuse and native integrity/fingerprint attachment; it cannot establish subsecond freshness for an external report that never recorded it.

@@ -17,8 +17,9 @@
 //! STREAMINFO, and checking it means decoding. That verdict will come with the
 //! decoder; what is stored here is shaped to accommodate it without changing.
 //!
-//! MP3, MP4, WAV and AIFF carry nothing comparable: for them the honest answer
-//! is "there is nothing to check", which is not the same as "not checked yet".
+//! This verifier does not support checksums for MP3, MP4, WAV or AIFF. Their
+//! answer is "nothing to check", which is distinct from "not checked yet" and
+//! does not establish that the file is healthy.
 
 use std::path::Path;
 
@@ -37,8 +38,8 @@ const MAX_BYTES: usize = 2 * 1024 * 1024 * 1024;
 /// What is known about the integrity of a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
-    /// The container carries no checksum. Nothing can be said, and nothing ever
-    /// will be — running the check again will not change this answer.
+    /// This verifier has no supported checksum for the container. Repeating
+    /// the same check gives no integrity evidence; other checks may exist.
     NothingToCheck,
     /// Every checksum matched.
     Intact,
@@ -96,29 +97,35 @@ impl Report {
 /// An unreadable file is an error; a readable but damaged one is a verdict, not
 /// an error — being damaged is the answer to the question, not a failure to
 /// answer it.
+/// Supported streams exceeding the 2 GiB read budget are refused before
+/// loading their audio, rather than returning a verdict for a prefix.
 pub fn check(path: &Path) -> Result<Report, TagError> {
+    check_with_limit(path, MAX_BYTES)
+}
+
+fn check_with_limit(path: &Path, max_bytes: usize) -> Result<Report, TagError> {
     let mut file = std::fs::File::open(path)?;
     let head = read_at_most(&mut file, 0, 4)?;
     if head.len() < 4 {
         return Err(TagError::UnrecognizedFormat);
     }
     if &head[..4] == b"OggS" {
-        return check_ogg(&mut file);
+        return check_ogg(&mut file, max_bytes);
     }
     // A FLAC stream may sit behind an ID3v2 tag, which is where `fLaC` lands.
     let start = crate::tags::id3::skip_id3v2(&mut file)?;
     let signature = read_at_most(&mut file, start, 4)?;
     if signature.len() == 4 && &signature[..] == b"fLaC" {
-        return check_flac(&mut file);
+        return check_flac(&mut file, max_bytes);
     }
     Ok(Report::nothing())
 }
 
 /// Walks every frame of a FLAC stream and compares the two checksums it carries
 /// with the ones computed from its bytes.
-fn check_flac(file: &mut std::fs::File) -> Result<Report, TagError> {
+fn check_flac(file: &mut std::fs::File, max_bytes: usize) -> Result<Report, TagError> {
     let (stream_info, audio_start) = super::flac::read_stream_info(file)?;
-    let data = read_at_most(file, audio_start, MAX_BYTES)?;
+    let data = read_complete(file, audio_start, max_bytes)?;
     let mut reader = BitReader::new(&data);
     let mut frames = 0usize;
     let mut verified_to = 0usize;
@@ -176,8 +183,8 @@ fn check_flac(file: &mut std::fs::File) -> Result<Report, TagError> {
 
 /// Walks every Ogg page and compares its declared CRC-32 with the one computed
 /// over the page, its own checksum field read as zero.
-fn check_ogg(file: &mut std::fs::File) -> Result<Report, TagError> {
-    let data = read_at_most(file, 0, MAX_BYTES)?;
+fn check_ogg(file: &mut std::fs::File, max_bytes: usize) -> Result<Report, TagError> {
+    let data = read_complete(file, 0, max_bytes)?;
     let mut offset = 0usize;
     let mut pages = 0usize;
 
@@ -246,6 +253,34 @@ fn check_ogg(file: &mut std::fs::File) -> Result<Report, TagError> {
     })
 }
 
+/// A checksum verdict covers the complete stream, never just the part that
+/// happened to fit in memory and end at a valid frame or page boundary.
+fn read_complete(
+    file: &mut std::fs::File,
+    start: u64,
+    max_bytes: usize,
+) -> Result<Vec<u8>, TagError> {
+    let remaining = file.metadata()?.len().saturating_sub(start);
+    if remaining > max_bytes as u64 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "stream exceeds the checksum verification read limit",
+        )
+        .into());
+    }
+    // The budget is a bound, not an allocation target: a small file needs only
+    // its measured remaining bytes, even when the caller allows 2 GiB.
+    let data = read_at_most(file, start, remaining as usize)?;
+    if data.len() as u64 != remaining || file.metadata()?.len().saturating_sub(start) != remaining {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "stream size changed during checksum verification",
+        )
+        .into());
+    }
+    Ok(data)
+}
+
 /// `true` when nothing but a legitimate trailer follows `offset`.
 ///
 /// An ID3v1 block is 128 bytes at the very end of the file and is not part of
@@ -279,3 +314,7 @@ fn damaged_ogg(units: usize, detail: String) -> Report {
         units,
     }
 }
+
+#[cfg(test)]
+#[path = "integrity_tests.rs"]
+mod tests;

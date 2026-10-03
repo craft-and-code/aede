@@ -1,9 +1,8 @@
--- Aède — target relational schema (milestone M1).
+-- Aède — target relational vocabulary; SQLite remains deferred after M2.
 --
--- Until M1 the catalog lives in memory and is persisted as JSON: every
--- key of the file maps exactly to one table below, and every object to one
--- row. This file is therefore not prospective documentation, it is the
--- contract `store.rs` already honours.
+-- Production stores remain versioned JSON. This file describes relational
+-- concepts for a future migration, not an implemented selectable backend.
+-- Rust readers/writers and their compatibility tests define the current format.
 --
 -- Guiding principle: the model does not say "an album belongs to an artist"
 -- but "entities hold roles towards one another". The `credit` and `relation`
@@ -20,9 +19,10 @@ CREATE TABLE file (
     id                INTEGER PRIMARY KEY,
     path              TEXT    NOT NULL UNIQUE,
     size              INTEGER NOT NULL,
-    -- Unix epoch in seconds. Together with `size`, acts as the freshness test
-    -- for incremental scans: if both are unchanged, the file is not re-read.
+    -- Unix epoch in seconds, with a separately stored nanosecond fraction.
+    -- Both parts and `size` must match before the scanner reuses tags.
     mtime             INTEGER NOT NULL,
+    mtime_subseconds  INTEGER CHECK (mtime_subseconds BETWEEN 0 AND 999999999),
     container         TEXT,           -- flac, mp3, mp4, ogg, wav, aiff
     codec             TEXT,           -- flac, mp3, alac, aac, vorbis, opus, pcm
     sample_rate       INTEGER,
@@ -373,3 +373,51 @@ CREATE TABLE root (
     added_at   INTEGER,
     scanned_at INTEGER
 ) WITHOUT ROWID;
+
+-- ---------------------------------------------------------------------------
+-- Optional personal-reference evidence and explicit reattachment history
+-- ---------------------------------------------------------------------------
+
+-- `user.json` stores these as optional `track_identities` and `relinks` arrays.
+-- Missing arrays in existing user files mean no evidence and no decisions;
+-- filenames alone must never invent a relocation. Evidence is shared file
+-- metadata, while every reattachment applies to precisely one owner.
+-- Paths deliberately have no file foreign key: missing files retain evidence
+-- and personal records while a removable drive is absent or a file is moved.
+CREATE TABLE user_track_identity (
+    path         TEXT PRIMARY KEY,
+    size         INTEGER NOT NULL,
+    codec        TEXT NOT NULL,
+    duration_ms  INTEGER,
+    sample_rate  INTEGER,
+    bit_depth    INTEGER,
+    channels     INTEGER,
+    fingerprint  TEXT
+) WITHOUT ROWID;
+
+CREATE TABLE user_track_identity_tag (
+    path      TEXT NOT NULL REFERENCES user_track_identity (path) ON DELETE CASCADE,
+    key       TEXT NOT NULL,
+    position  INTEGER NOT NULL,
+    value     TEXT NOT NULL,
+    PRIMARY KEY (path, key, position)
+) WITHOUT ROWID;
+
+-- This journal is an audit trail, never a list of operations replayed on import.
+-- The flat before-snapshot contains only this owner's annotations, recent plays,
+-- all-time counts and relation annotations at the source reference. Undo checks
+-- that destination records still equal the moved snapshot and refuses newer
+-- edits/listens or source conflicts. An undone track decision also suppresses
+-- later heuristic relocation back to the same destination.
+CREATE TABLE user_relink (
+    id            INTEGER PRIMARY KEY,
+    origin_id     INTEGER NOT NULL, -- retained when import reassigns a local ID
+    owner         TEXT NOT NULL,
+    from_reference TEXT NOT NULL,
+    to_reference   TEXT NOT NULL,
+    at            INTEGER NOT NULL,
+    undone_at     INTEGER,
+    before_json   TEXT NOT NULL
+);
+
+CREATE INDEX user_relink_owner_idx ON user_relink (owner, id);

@@ -4,6 +4,8 @@ track searches a local track title and presents its release position, file prope
 
 --lyrics displays embedded or .lrc sidecar words; it does not download anything. --json separates local credits, sourced recording/work credits, exact-edition credits and parent-work provenance. Imported analyses are attributed rather than presented as fresh measurements.
 
+JSON goes to standard output, or to the requested `--output` file while retaining the same detailed fields. All output formats use the same selected tracks after filtering and pagination.
+
 Continue links open the underlying recording, works, album and credited artists. A recording is a performance identity; a track is its placement within an edition. CSV/M3U outputs use the matching local files. If too many matches appear, add artist/album restrictions instead of assuming the first is the intended edition.
 
 ## Syntax and arguments
@@ -23,7 +25,7 @@ Track title first, then name-valued filters.
 | `--output FILE / -o FILE` | Write an export to FILE instead of standard output. A selection needs --csv, --json or --m3u; command-specific exports have their own rules. |
 | `--artist NAME` | Filter by artist name on albums/track; on credit, name the credited person. Multiword names are accepted. |
 | `--comment TEXT` | Filter local file comment text. Comments are embedded metadata, distinct from personal notes. |
-| `--limit N` | Show at most N rows; use a positive whole number. Default limits depend on the page, usually 50. |
+| `--limit N` | Show at most N matching tracks; use a positive whole number. The default is 10. |
 | `--offset N` | Skip N rows before showing the result; N starts at 0. Ordering remains deterministic. |
 | `--all` | Show every row. Refused with --limit. Some commands also use it to include normally hidden categories, explained below. |
 | `--json / -j` | Write this command’s structured JSON result. With analyze, save report files instead of changing terminal output. |

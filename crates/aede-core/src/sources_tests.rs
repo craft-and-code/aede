@@ -6,6 +6,31 @@
 
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn source_save_does_not_follow_a_predictable_temporary_symlink() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("aede_sources_link_{}_{nonce}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = sources_path(&dir);
+    let victim = dir.join("keep.txt");
+    std::fs::write(&victim, "keep me").unwrap();
+    std::os::unix::fs::symlink(&victim, path.with_extension("json.tmp")).unwrap();
+    save(&Sources::default(), &path).unwrap();
+    let held = std::fs::read_to_string(&victim).unwrap();
+    let published_is_regular = std::fs::symlink_metadata(&path).unwrap().is_file();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        held, "keep me",
+        "a stale temporary link must not redirect a save"
+    );
+    assert!(published_is_regular);
+}
+
 fn release(primary: &str, label: &str) -> Facts {
     Facts::Release(ReleaseFacts {
         primary_type: Some(primary.to_string()),

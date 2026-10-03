@@ -1,19 +1,15 @@
 # Querying
 
-The roadmap says "SQLite at M1" and that has been quietly standing in for a
-query language. It should not. **A query language is an interface, not a
-storage engine.** Defined on its own it works today over the in-memory catalog
-and tomorrow over SQL; defined as "whatever SQLite makes easy", it arrives late
-and shaped by the wrong concerns.
+**A query language is an interface, not a storage engine.** The grammar evaluates against the in-memory catalog independently of persistence. SQLite remains a measured M2 decision; changing storage must preserve query meaning.
 
 Where things actually stand:
 
 | Capability                       | Today                                                                                                                               |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Several criteria at once         | Yes, and any depth of them                                                                                                          |
+| Several criteria at once         | Yes; nested brackets/negation are bounded to 128 levels                                                                                                          |
 | Filters                          | Yes, per command, each refused where it means nothing                                                                               |
 | Numeric and date ranges          | Yes: `year:1990..1999`, `duration:..3:30`, `rating:>=4`                                                                             |
-| Sorting                          | Yes on `query` and `collection`; `artists` still has its own two keys                                                               |
+| Sorting                          | Yes on `query`, `collection` and command listings; supported keys depend on the result                                                               |
 | Pagination                       | Yes: `--limit`, `--offset`, `--all`, through one `Window`                                                                           |
 | Aggregation and statistics       | Yes: `stats`, `years`, and counts, durations and sizes on every listing                                                             |
 | Search on user tags              | Yes: `tag:`, `rating:`, `loved`, `note:`, and their `album.`/`artist.` forms; `aede search <text> --notes` reads the notes as prose |
@@ -50,13 +46,11 @@ single model function rather than a filter loop of its own, so routing it
 through a query string would add indirection without removing duplication —
 and `performing:` now lets anyone ask the same question in the grammar.
 
-The two real gaps are **ranges** and **boolean composition**, and they are the
-two that no amount of adding options ever fixes: options compose by AND and
-nothing else. One grammar, in the spirit of what beets settled on:
+Ranges and boolean composition are implemented by the shared grammar:
 
 ```
 genre:metal year:1990..1999 rating:>=4 -label:earache
-(artist:ozzy OR artist:dio) added:-1w..
+(artist:ozzy OR artist:dio) played:0
 ```
 
 The rule that keeps it from becoming a second implementation: **every existing
@@ -70,3 +64,5 @@ which is already the thing `--csv` and `--m3u` render and the thing M3's queue
 consumes. "Every 5-star metal album I have never played" becomes a playable
 collection with no new machinery at all. That closure is the reason to define
 the grammar early rather than bolt filters on for another year.
+
+Numeric bounds must be finite and nonnegative; ranges need an ordered bound. Duration seconds in `minutes:seconds` stay below 60. Operators require an expression on both sides. Empty JSON selections produce `[]`; empty CSV selections preserve their column header.

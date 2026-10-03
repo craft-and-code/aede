@@ -36,12 +36,21 @@ pub fn read_id3v2(file: &mut File, tags: &mut RawTags) -> Result<(), TagError> {
         return Ok(());
     }
 
-    let mut body = read_at_most(file, 10, size)?;
+    let body = read_at_most(file, 10, size)?;
+    parse_tag_body(&body, major, flags, tags);
+    Ok(())
+}
 
+/// Embedded WAV/AIFF tags use the same headers and transformations as MP3.
+fn parse_tag_body(body: &[u8], major: u8, flags: u8, tags: &mut RawTags) {
     // Global unsynchronisation (ID3v2.3): the bytes 0xFF 0x00 encode 0xFF.
-    if flags & 0x80 != 0 {
-        body = deunsynchronize(&body);
-    }
+    let decoded;
+    let body = if flags & 0x80 != 0 {
+        decoded = deunsynchronize(body);
+        &decoded[..]
+    } else {
+        body
+    };
 
     // Possible extended header: skip the size it announces.
     let mut start = 0usize;
@@ -55,7 +64,6 @@ pub fn read_id3v2(file: &mut File, tags: &mut RawTags) -> Result<(), TagError> {
     }
 
     parse_frames(&body[start..], major, tags);
-    Ok(())
 }
 
 /// Reads the ID3v1 tag from the last 128 bytes. Used only as a fallback, when
@@ -108,11 +116,7 @@ pub(crate) fn read_id3v2_buffer(buf: &[u8], tags: &mut RawTags) {
     let flags = buf[5];
     let size = syncsafe(&buf[6..10]) as usize;
     let end = (10 + size).min(buf.len());
-    let mut body = buf[10..end].to_vec();
-    if flags & 0x80 != 0 {
-        body = deunsynchronize(&body);
-    }
-    parse_frames(&body, major, tags);
+    parse_tag_body(&buf[10..end], major, flags, tags);
 }
 
 /// ID3v1 genre table, exposed to the other formats that reuse it (notably the

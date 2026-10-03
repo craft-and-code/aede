@@ -14,8 +14,8 @@ pub struct Bucket {
     pub label: String,
     /// How many items fall into this slice.
     pub count: usize,
-    /// Disk space these items occupy, so a breakdown can be read by weight and not only by
-    /// number.
+    /// Disk space these items occupy, saturating at `u64::MAX` if their sum exceeds it.
+    /// A breakdown can be read by weight and not only by number.
     pub bytes: u64,
 }
 
@@ -24,7 +24,7 @@ pub struct Bucket {
 pub struct Stats {
     /// Audio files seen on disk, whether or not they could be attached to anything.
     pub files: usize,
-    /// Recordings held by the catalog, one per file.
+    /// Local track placements held by the catalog, one per file.
     pub tracks: usize,
     /// Albums, EPs and singles reconstructed from the tags.
     pub releases: usize,
@@ -38,9 +38,10 @@ pub struct Stats {
     pub labels: usize,
     /// Distinct genres in use, after the tags have been normalized.
     pub genres: usize,
-    /// Cumulative playing time of the library, in milliseconds.
+    /// Cumulative playing time of the library, in milliseconds, saturating at `u64::MAX`.
     pub total_duration_ms: u64,
-    /// Space the audio files take up on disk, in bytes; cover art is not counted.
+    /// Space the audio files take up on disk, in bytes, saturating at `u64::MAX`.
+    /// Cover art is not counted.
     pub total_bytes: u64,
     /// Tracks with no identified album.
     pub orphan_tracks: usize,
@@ -161,17 +162,17 @@ pub fn compute(catalog: &Catalog) -> Stats {
         };
         let entry = codecs.entry(codec).or_default();
         entry.0 += 1;
-        entry.1 += file.size;
+        entry.1 = entry.1.saturating_add(file.size);
 
         let tier = quality_tier(&file.properties).label();
         let entry = qualities.entry(tier).or_default();
         entry.0 += 1;
-        entry.1 += file.size;
+        entry.1 = entry.1.saturating_add(file.size);
 
         if let Some(rate) = file.properties.sample_rate {
             let entry = rates.entry(rate).or_default();
             entry.0 += 1;
-            entry.1 += file.size;
+            entry.1 = entry.1.saturating_add(file.size);
         }
     }
 
@@ -199,10 +200,10 @@ pub fn compute(catalog: &Catalog) -> Stats {
             .filter_map(|&id| catalog.track(id))
             .filter_map(|t| catalog.file(t.file_id))
             .map(|f| f.size)
-            .sum();
+            .fold(0, u64::saturating_add);
         let entry = decades.entry(label).or_default();
         entry.0 += 1;
-        entry.1 += bytes;
+        entry.1 = entry.1.saturating_add(bytes);
     }
     stats.by_decade = decades
         .into_iter()

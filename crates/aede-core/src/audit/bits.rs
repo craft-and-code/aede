@@ -52,12 +52,10 @@ impl<'a> BitReader<'a> {
         if n == 0 {
             return Some(0);
         }
-        let sign = 1u64 << (n - 1);
-        Some(if raw & sign != 0 {
-            (raw as i64) - (1i64 << n)
-        } else {
-            raw as i64
-        })
+        // Sign-extend without constructing 2^n as a signed integer: that
+        // subtraction would overflow for 63-bit fields and shift by 64.
+        let shift = 64 - n;
+        Some(((raw << shift) as i64) >> shift)
     }
 
     /// Counts zero bits up to the next one bit, and consumes that one bit.
@@ -81,10 +79,11 @@ impl<'a> BitReader<'a> {
 
     /// Skips `n` bits, failing if the stream is shorter than that.
     pub fn skip(&mut self, n: usize) -> Option<()> {
-        if self.pos + n > self.data.len() * 8 {
+        let end = self.pos.checked_add(n)?;
+        if end > self.data.len() * 8 {
             return None;
         }
-        self.pos += n;
+        self.pos = end;
         Some(())
     }
 }

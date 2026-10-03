@@ -37,6 +37,8 @@ aede export --graph --output graph.json
 
 ## Result and errors
 
+Choose a report path outside the active stores. Exports refuse active data/lock paths, existing audio, symbolic links and non-regular targets before mutation, and replace ordinary report files atomically; see the shared [output rules](options.md).
+
 Output describes the selected operation or catalog data. Read any per-item warnings and retained-work summary; a completed process is not an independent integrity or audio-quality guarantee. Invalid command syntax/options normally exit with code 2; handler failures normally exit with code 1. Local interruption differs from a delegated server task, as explained in [cancel](cancel.md).
 
 ## Related reading

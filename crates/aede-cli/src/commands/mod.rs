@@ -69,7 +69,7 @@ pub use credit::credit;
 pub use credits::show_credits;
 pub use discography::missing;
 pub use doctor::show_doctor;
-pub use export::export;
+pub use export::{export, preflight_output};
 pub use facet::{show_genre, show_label};
 pub use fetch::fetch;
 pub use fingerprint::fingerprint;
@@ -182,6 +182,16 @@ pub fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Converts a resolved path to a catalog key without changing native spelling.
+///
+/// A symlink's target need not be UTF-8 even when its command-line name is.
+/// Refusing it avoids comparing or saving the key of a different path.
+fn path_key(path: &Path) -> Result<String, Box<dyn Error>> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{path:?}: path cannot be represented as UTF-8").into())
+}
+
 /// Folders or files a run is restricted to, canonicalized. Empty means the
 /// whole catalog.
 ///
@@ -224,7 +234,7 @@ pub fn scope_from(folders: &[String], catalog: &Catalog) -> Result<Vec<String>, 
         if !path.exists() {
             return Err(format!("\"{raw}\" does not exist").into());
         }
-        let resolved = canonical(path).to_string_lossy().to_string();
+        let resolved = path_key(&canonical(path))?;
         if !catalog
             .files
             .iter()
@@ -903,9 +913,6 @@ fn selection_output(catalog: &Catalog, tracks: &[Id], args: &Args) -> Option<Res
         return Some(play_list(catalog, tracks, args));
     }
     if args.has("csv") || args.has("json") {
-        if tracks.is_empty() {
-            return Some(Err("nothing to put in a table".into()));
-        }
         return Some(export::tracks_table(catalog, tracks, args));
     }
     None
@@ -940,7 +947,7 @@ fn play_list(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
     if tracks.is_empty() {
         return Err("nothing to put in a playlist".into());
     }
-    export::emit(args, &export::m3u(catalog, tracks))
+    export::emit(args, &export::m3u(catalog, tracks)?)
 }
 
 #[cfg(test)]

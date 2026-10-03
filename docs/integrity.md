@@ -19,6 +19,8 @@ The report distinguishes:
 
 Unreadable files are reported separately and retain no successful verdict. The current handler can finish with process exit code 0 while reporting unreadable files or damaged verdicts. Read the report; exit status alone is not an integrity certificate. `doctor` also reports held damage and files still unverified.
 
+Verification requires the complete stream. The current reader refuses more than 2 GiB of FLAC audio frames after metadata, or more than 2 GiB for an entire Ogg file. These files are reported as read errors, without a new verdict; a checked prefix never establishes that the whole file is intact. A file whose size changes while it is being read is also refused. A failed recheck removes that file's previous verdict, so the next ordinary check retries it; fingerprints and analyses are retained. Earlier versions could record a prefix-only verdict at the read limit. Existing verdicts remain reusable until explicitly rechecked: run `check --full` on folders containing large files verified by an earlier version.
+
 ## Reuse and current scope
 
 Verdicts live in `conclusions.json` and attach to unchanged catalogued files. A regular scan preserves current conclusions; a changed file makes its old verdict ineligible. A normal check skips current verdicts but still prints the report for every file in scope. `--full` deliberately rereads them.

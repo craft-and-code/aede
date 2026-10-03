@@ -439,6 +439,12 @@ Errors must tell the user:
 
 Never swallow an error silently.
 
+Persisted JSON stores use isolated, exclusively reserved temporary output for replacement writes. Never write through a predictable `.json.tmp` path. New sidecars and copy outputs need atomic no-replace publication; an existence check followed by rename does not provide that guarantee. Keep explicit replacement separate from new-file publication and report unsupported filesystem capabilities before long transfers.
+
+Replacement saves preserve existing store permissions. Newly created stores use owner-only read/write permissions on Unix; a private temporary directory alone does not keep the file private after publication.
+
+Render untrusted tags, notes, paths and external text literally on a terminal. Escape terminal control instructions before adding presentation colours; preserve original values in storage and machine-readable exports. Formats with one path per line must refuse paths containing line breaks.
+
 If processing can continue after an individual failure, report the failure rather than pretending it did not happen.
 
 ---

@@ -58,7 +58,7 @@ impl LegacyLibrary {
         library
     }
 
-    fn run(&self, args: &[&str]) {
+    fn run(&self, args: &[&str]) -> std::process::Output {
         let output = Command::new(env!("CARGO_BIN_EXE_aede"))
             .args(args)
             .arg("--data")
@@ -72,6 +72,7 @@ impl LegacyLibrary {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+        output
     }
 }
 
@@ -134,4 +135,57 @@ fn a_first_full_scan_migrates_legacy_conclusions_without_losing_them() {
         "legacy-fingerprint"
     );
     assert_eq!(catalog.analyses.len(), 1);
+}
+
+#[test]
+fn reset_preserves_legacy_conclusions_before_removing_the_catalog() {
+    let library = LegacyLibrary::new();
+    let catalog = store::catalog_path(&library.data);
+    let mut legacy = json::parse(&std::fs::read_to_string(&catalog).unwrap()).unwrap();
+    legacy.set(
+        "roots",
+        json::Json::Arr(vec!["/music/\x1b]52;c;dGVzdA==\x07\rname".into()]),
+    );
+    std::fs::write(&catalog, legacy.to_string_compact()).unwrap();
+    let result = library.run(&["reset", "--yes"]);
+    let displayed = String::from_utf8(result.stdout).unwrap();
+    assert!(
+        !displayed
+            .chars()
+            .any(|ch| ch.is_control() && !matches!(ch, '\n' | '\t')),
+        "reset emitted terminal instructions from a stored root: {displayed:?}"
+    );
+    assert!(displayed.contains("\\u{1b}]52;c;dGVzdA==\\u{7}\\rname"));
+    assert!(!store::catalog_path(&library.data).exists());
+    let retained = conclusions::load(&conclusions::conclusions_path(&library.data))
+        .unwrap()
+        .unwrap();
+    assert_eq!(retained.files.len(), 1);
+    assert_eq!(retained.analyses.len(), 1);
+    let record = retained.files.values().next().unwrap();
+    assert_eq!(record.integrity.as_ref().unwrap().checked_at, 1_700_000_500);
+    assert_eq!(
+        record.fingerprint.as_ref().unwrap().data,
+        "legacy-fingerprint"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_keeps_the_catalog_when_legacy_conclusions_cannot_be_published() {
+    let library = LegacyLibrary::new();
+    let catalog = store::catalog_path(&library.data);
+    let before = std::fs::read(&catalog).unwrap();
+    let target = library.root.join("untouched.json");
+    std::os::unix::fs::symlink(&target, conclusions::conclusions_path(&library.data)).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["reset", "--yes"])
+        .arg("--data")
+        .arg(&library.data)
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert_eq!(std::fs::read(catalog).unwrap(), before);
+    assert!(!target.exists());
 }

@@ -3,8 +3,8 @@
 //!
 //! Aède persists its catalog in a JSON file whose structure mirrors the target
 //! relational schema (`schema.sql`) exactly: one key per "table", each table
-//! being an array of rows. The day SQLite is plugged in (milestone M1), the
-//! migration is mechanical.
+//! being an array of rows. Storage remains JSON; a future database migration
+//! can preserve these concepts without changing the domain model.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -68,11 +68,12 @@ impl Json {
         }
     }
 
-    /// Reads a number as a count: negative, infinite and NaN values are refused rather than
-    /// silently clamped, since they would be meaningless for a size or a duration.
+    /// Reads an integral, finite count in the `u64` range. Fractional and
+    /// out-of-range values are refused instead of being rounded or clamped.
     pub fn as_u64(&self) -> Option<u64> {
         self.as_f64().and_then(|n| {
-            if n.is_finite() && n >= 0.0 {
+            // u64::MAX rounds up to 2^64 as f64, so the upper bound is strict.
+            if n.is_finite() && n >= 0.0 && n < u64::MAX as f64 && n.fract() == 0.0 {
                 Some(n as u64)
             } else {
                 None
@@ -83,7 +84,7 @@ impl Json {
     /// Same reading as [`Json::as_u64`], narrowed for the small counters of the schema such as a
     /// year or a track number.
     pub fn as_u32(&self) -> Option<u32> {
-        self.as_u64().map(|n| n as u32)
+        self.as_u64().and_then(|n| u32::try_from(n).ok())
     }
 
     /// Reads a boolean value; a `0` or a `"true"` string is not accepted as one.
@@ -323,9 +324,22 @@ impl std::error::Error for ParseError {}
 ///
 /// The entire input must be consumed: anything after the root value is an error, so a truncated
 /// or doubly written catalog is caught rather than half loaded.
+/// Malformed Unicode, non-finite numbers and more than 128 nested containers
+/// are rejected. Parse failures include a byte offset.
+///
+/// ```
+/// let value = aede_core::json::parse(r#"{"count":3}"#)?;
+/// assert_eq!(value.field_u32("count"), Some(3));
+/// assert!(aede_core::json::parse("01").is_err());
+/// # Ok::<(), aede_core::json::ParseError>(())
+/// ```
 pub fn parse(input: &str) -> Result<Json, ParseError> {
     let bytes = input.as_bytes();
-    let mut p = Parser { bytes, pos: 0 };
+    let mut p = Parser {
+        bytes,
+        pos: 0,
+        depth: 0,
+    };
     p.skip_ws();
     let value = p.value()?;
     p.skip_ws();
@@ -338,6 +352,7 @@ pub fn parse(input: &str) -> Result<Json, ParseError> {
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -392,8 +407,19 @@ impl<'a> Parser<'a> {
                 Ok(Json::Bool(false))
             }
             Some(b'"') => Ok(Json::Str(self.string()?)),
-            Some(b'[') => self.array(),
-            Some(b'{') => self.object(),
+            Some(b'[' | b'{') => {
+                if self.depth >= 128 {
+                    return Err(self.err("more than 128 nested containers"));
+                }
+                self.depth += 1;
+                let result = if self.peek() == Some(b'[') {
+                    self.array()
+                } else {
+                    self.object()
+                };
+                self.depth -= 1;
+                result
+            }
             Some(_) => self.number(),
         }
     }
@@ -474,27 +500,27 @@ impl<'a> Parser<'a> {
                         b't' => out.push('\t'),
                         b'u' => {
                             let hi = self.hex4()?;
-                            let ch = if (0xD800..0xDC00).contains(&hi) {
-                                // UTF-16 surrogate pair.
-                                if self.peek() == Some(b'\\') {
-                                    self.pos += 1;
-                                    self.expect(b'u')?;
-                                    let lo = self.hex4()?;
-                                    let cp = 0x10000
-                                        + (((hi as u32) - 0xD800) << 10)
-                                        + ((lo as u32) - 0xDC00);
-                                    char::from_u32(cp).unwrap_or('\u{FFFD}')
-                                } else {
-                                    '\u{FFFD}'
+                            let cp = if (0xD800..0xDC00).contains(&hi) {
+                                self.expect(b'\\')?;
+                                self.expect(b'u')?;
+                                let lo = self.hex4()?;
+                                if !(0xDC00..=0xDFFF).contains(&lo) {
+                                    return Err(self.err("invalid low UTF-16 surrogate"));
                                 }
+                                0x10000
+                                    + ((u32::from(hi) - 0xD800) << 10)
+                                    + (u32::from(lo) - 0xDC00)
                             } else {
-                                char::from_u32(hi as u32).unwrap_or('\u{FFFD}')
+                                u32::from(hi)
                             };
+                            let ch = char::from_u32(cp)
+                                .ok_or_else(|| self.err("invalid Unicode scalar"))?;
                             out.push(ch);
                         }
                         _ => return Err(self.err("unknown escape sequence")),
                     }
                 }
+                0x00..=0x1F => return Err(self.err("unescaped control character in string")),
                 _ => {
                     // Advance over one complete UTF-8 character.
                     let start = self.pos;
@@ -527,33 +553,50 @@ impl<'a> Parser<'a> {
         if self.peek() == Some(b'-') {
             self.pos += 1;
         }
-        while matches!(self.peek(), Some(b'0'..=b'9')) {
-            self.pos += 1;
+        match self.peek() {
+            Some(b'0') => {
+                self.pos += 1;
+                if matches!(self.peek(), Some(b'0'..=b'9')) {
+                    return Err(self.err("leading zero in number"));
+                }
+            }
+            Some(b'1'..=b'9') => {
+                self.digits()?;
+            }
+            _ => return Err(self.err("expected a number")),
         }
         if self.peek() == Some(b'.') {
             self.pos += 1;
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.pos += 1;
-            }
+            self.digits()?;
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
             self.pos += 1;
             if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.pos += 1;
             }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.pos += 1;
-            }
-        }
-        if start == self.pos {
-            return Err(self.err("expected a number"));
+            self.digits()?;
         }
         let text = std::str::from_utf8(&self.bytes[start..self.pos])
             .map_err(|_| self.err("malformed number"))?;
-        text.parse::<f64>().map(Json::Num).map_err(|_| ParseError {
+        let number = text.parse::<f64>().map_err(|_| ParseError {
             message: "malformed number".into(),
             offset: start,
-        })
+        })?;
+        if !number.is_finite() {
+            return Err(self.err("number is outside the finite range"));
+        }
+        Ok(Json::Num(number))
+    }
+
+    fn digits(&mut self) -> Result<(), ParseError> {
+        let start = self.pos;
+        while matches!(self.peek(), Some(b'0'..=b'9')) {
+            self.pos += 1;
+        }
+        if self.pos == start {
+            return Err(self.err("expected a decimal digit"));
+        }
+        Ok(())
     }
 }
 

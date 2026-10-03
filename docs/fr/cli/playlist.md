@@ -33,7 +33,9 @@ aede playlist "$HOME/Music/Jazz" --artists
 
 ## Résultat et erreurs
 
-Le bilan distingue playlists prévues, écrites, à jour et échouées. --dry-run liste au plus les 20 premiers chemins prévus et compte la suite sans écrire ; les playlists identiques gardent leur date. Aucun album catalogué sélectionné : message explicatif et réussite. Les erreurs de fichiers sont listées et comptées, mais le traitement actuel réussit encore après ces échecs : lire Failed plutôt que se fier au seul code de sortie. La playlist est du texte UTF-8 avec un nom .m3u ; aucun audio copié.
+Un chemin contenant un retour chariot ou saut de ligne est refusé avant toute écriture : M3U ne peut pas le représenter sans introduire une autre entrée. Les exports de sélection avec --m3u appliquent la même règle.
+
+Le bilan distingue playlists prévues, écrites, à jour et échouées. --dry-run liste au plus les 20 premiers chemins prévus et compte la suite sans écrire ; les playlists identiques gardent leur date. Les éditions partageant un dossier contribuent à une playlist commune. Un fichier modifié est publié depuis une sortie temporaire isolée après écriture complète. Aucun album catalogué sélectionné : message explicatif et réussite. Les erreurs de fichiers sont listées et comptées, et tout échec produit un code de sortie non nul. La playlist est du texte UTF-8 avec un nom .m3u ; aucun audio copié.
 
 ## Pour continuer
 

@@ -59,3 +59,20 @@ When both datasets contain information about the same entity, Aède resolves it 
 - **Play Counts:** Aède keeps the larger of the two numbers. Since counts always grow, neither dataset invalidates the other's listening sessions.
 
 And because it is built on solid, predictable logic, importing the exact same backup twice changes absolutely nothing. Peace of mind, guaranteed.
+
+Listening events are merged by full content and multiplicity, so distinct or repeated listens in the same second survive, without multiplying them on a repeated import. Independent reattachment journals retain distinct snapshots even if their local sequence numbers coincide. Present store tables must be JSON arrays; malformed table shapes are refused instead of becoming empty data. Human display escapes terminal control characters, while stored text and JSON/CSV exports preserve the original values.
+
+## Recovering waiting annotations
+
+Scans retain annotations whose targets are missing. An automatic move requires one candidate matching previously captured file size, stream properties, identifying tags and any known fingerprint; a filename alone is never enough. Legacy annotations without evidence remain waiting. An album uses its canonical release folder, so removing one disc does not detach the album note.
+
+```sh
+aede notes --waiting
+aede notes --relink "track:/old/01.flac" --to "track:/new/01.flac" --dry-run
+aede notes --relink "track:/old/01.flac" --to "track:/new/01.flac"
+aede notes --relinks
+aede notes --undo-relink 1 --dry-run
+aede notes --undo-relink 1
+```
+
+Copy the source reference from `--waiting`. For `--to`, use an exact reference or a unique name prefixed by its kind, such as `track:So What` or `album:Legion`; ambiguous names are refused. Quote references containing spaces. A move requires a waiting source and an existing target of the same kind. Conflicting personal data is refused. Notes, listening events, counts and relationship endpoints move for the current owner only. Undo preserves the original wording and refuses if affected data was edited or new conflicting data appeared. Undo also prevents the same old track reference from being automatically moved again. Identity evidence and decision history travel in personal exports/backups.

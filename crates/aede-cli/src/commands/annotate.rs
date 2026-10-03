@@ -15,6 +15,10 @@ use super::{Res, data_dir, load};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
+#[path = "annotate_relink.rs"]
+mod relink;
+use relink::{relink_notes, validate_notes_options, waiting_notes};
+
 /// Rows shown before a listing starts filling the terminal.
 const DEFAULT_LIMIT: usize = 50;
 
@@ -30,7 +34,8 @@ fn read(args: &Args, catalog: &Catalog) -> Result<UserData, Box<dyn Error>> {
     Ok(data)
 }
 
-fn write(args: &Args, data: &mut UserData) -> Res {
+fn write(args: &Args, data: &mut UserData, catalog: &Catalog) -> Res {
+    user::reconcile(data, catalog);
     data.forget_empty();
     user::save(data, &user::user_path(&data_dir(args)))?;
     Ok(())
@@ -195,7 +200,9 @@ pub fn panel(args: &Args, catalog: &Catalog, reference: &EntityRef) {
         marks.push("♥".to_string());
     }
     if !entry.tags.is_empty() {
-        marks.push(entry.tags.iter().cloned().collect::<Vec<_>>().join(", "));
+        marks.push(ui::literal(
+            &entry.tags.iter().cloned().collect::<Vec<_>>().join(", "),
+        ));
     }
     let played = if reference.kind == EntityKind::Track {
         data.play_count(&owner(args), reference)
@@ -233,10 +240,10 @@ fn print_note(entry: &Annotation) {
         return;
     };
     println!("{}", ui::section("Notes"));
-    // Printed exactly as it was written, blank lines and all. The text belongs
-    // to whoever typed it: no wrapping, no trimming, no reflowing — a note is
-    // not a field to be tidied.
-    for line in note.lines() {
+    // Preserve paragraphs and indentation. Terminal instructions are shown
+    // literally; the stored note and its machine exports remain exact.
+    let displayed = ui::literal(note);
+    for line in displayed.lines() {
         println!("  {line}");
     }
     if entry.updated_at > 0 {
@@ -270,9 +277,9 @@ pub fn love(args: &Args) -> Res {
     let changed = entry.loved != wanted;
     entry.loved = wanted;
     entry.updated_at = now;
-    write(args, &mut data)?;
+    write(args, &mut data, &catalog)?;
 
-    let name = reference.display_name(&catalog);
+    let name = ui::literal(&reference.display_name(&catalog));
     println!(
         "{} {name} {}",
         ui::green(if wanted { "♥" } else { "→" }),
@@ -311,9 +318,9 @@ pub fn rate(args: &Args) -> Res {
     let entry = data.entry(&owner(args), &reference, now);
     entry.rating = stars;
     entry.updated_at = now;
-    write(args, &mut data)?;
+    write(args, &mut data, &catalog)?;
 
-    let name = reference.display_name(&catalog);
+    let name = ui::literal(&reference.display_name(&catalog));
     match stars {
         Some(n) => println!("{} {name}: {}", ui::green("→"), stars_of(n)),
         None => println!("{} {name} is no longer rated", ui::green("→")),
@@ -324,7 +331,7 @@ pub fn rate(args: &Args) -> Res {
 /// `aede note <kind> <name> --text "…"`, `--remove`, or `--from <token>`.
 pub fn note(args: &Args) -> Res {
     let (catalog, reference, mut data, now) = editable_target(args)?;
-    let name = reference.display_name(&catalog);
+    let name = ui::literal(&reference.display_name(&catalog));
 
     // --from, --text and --file each say what to write; --remove says to take
     // it away. Two answers to "what happens to the note" is not something to
@@ -359,11 +366,11 @@ pub fn note(args: &Args) -> Res {
             )
             .into());
         }
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         println!(
             "{} copied onto {name} what was said about {}",
             ui::green("→"),
-            source.display_name(&catalog)
+            ui::literal(&source.display_name(&catalog))
         );
         return Ok(());
     }
@@ -417,7 +424,7 @@ pub fn note(args: &Args) -> Res {
                 _ => Some(text),
             };
             entry.updated_at = now;
-            write(args, &mut data)?;
+            write(args, &mut data, &catalog)?;
             println!(
                 "{} {} on {name}",
                 ui::green("→"),
@@ -432,7 +439,7 @@ pub fn note(args: &Args) -> Res {
             let had = entry.note.as_deref().is_some_and(|n| !n.trim().is_empty());
             entry.note = None;
             entry.updated_at = now;
-            write(args, &mut data)?;
+            write(args, &mut data, &catalog)?;
             println!(
                 "{} {name} {}",
                 ui::green("→"),
@@ -559,7 +566,7 @@ pub fn tag(args: &Args) -> Res {
     let now = clock::now_seconds();
     let entry = data.entry(&owner(args), &reference, now);
     entry.updated_at = now;
-    let name = reference.display_name(&catalog);
+    let name = ui::literal(&reference.display_name(&catalog));
 
     if removing {
         // Nothing named means all of them. Collected first: a set cannot be
@@ -578,7 +585,7 @@ pub fn tag(args: &Args) -> Res {
             .iter()
             .filter(|label| !taken.contains(label))
             .collect();
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         if taken.is_empty() {
             println!(
                 "{} {name} carried {}",
@@ -613,7 +620,7 @@ pub fn tag(args: &Args) -> Res {
             .filter(|label| entry.tags.insert((*label).clone()))
             .cloned()
             .collect();
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         if added.is_empty() {
             println!(
                 "{} {name} already carried {}",
@@ -643,7 +650,10 @@ pub fn tag(args: &Args) -> Res {
 /// Quoted because a tag may hold a space, and a list of bare words would then
 /// be unreadable in exactly the case where reading it matters.
 fn quoted(labels: &[String]) -> String {
-    let quoted: Vec<String> = labels.iter().map(|label| format!("\"{label}\"")).collect();
+    let quoted: Vec<String> = labels
+        .iter()
+        .map(|label| format!("\"{}\"", ui::literal(label)))
+        .collect();
     match quoted.split_last() {
         None => String::new(),
         Some((last, [])) => last.clone(),
@@ -687,7 +697,10 @@ fn elsewhere(parsed: &aede_core::query::Query, context: &aede_core::query::Conte
         );
         println!(
             "  {}",
-            ui::dim(&format!("aede query \"{}\"", scoped_text(typed, prefix)))
+            ui::dim(&format!(
+                "aede query \"{}\"",
+                ui::literal(&scoped_text(typed, prefix))
+            ))
         );
         return;
     }
@@ -727,7 +740,14 @@ pub fn played(args: &Args) -> Res {
     // A reference pasted back in names one track exactly; a title may name
     // several, and then the error says which.
     let reference = match parse_reference(&name) {
-        Some(reference) if reference.resolve(&catalog).is_some() => reference,
+        Some(reference) if reference.resolve(&catalog).is_some() => {
+            if reference.kind != EntityKind::Track {
+                return Err(
+                    "played records one track; give a track title or track reference".into(),
+                );
+            }
+            reference
+        }
         _ => find(&catalog, EntityKind::Track, &name)?,
     };
     let played_ms = reference
@@ -743,14 +763,14 @@ pub fn played(args: &Args) -> Res {
     // and a listen recorded by mistake was permanent.
     if args.has("remove") {
         let taken = data.forget_last_play(&owner(args), &reference);
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         println!(
             "{} {} {}",
             match taken {
                 true => ui::green("→"),
                 false => ui::dim("—"),
             },
-            reference.display_name(&catalog),
+            ui::literal(&reference.display_name(&catalog)),
             match taken {
                 true => "— its most recent listen is forgotten",
                 false => "has no listen on record to forget",
@@ -766,11 +786,11 @@ pub fn played(args: &Args) -> Res {
         ms_played: played_ms,
         completed: true,
     });
-    write(args, &mut data)?;
+    write(args, &mut data, &catalog)?;
     println!(
         "{} {} — played {}",
         ui::green("→"),
-        reference.display_name(&catalog),
+        ui::literal(&reference.display_name(&catalog)),
         ui::plural(data.play_count(&owner(args), &reference) as usize, "time")
     );
     Ok(())
@@ -871,6 +891,26 @@ pub fn collection(args: &Args) -> Res {
     if name.trim().is_empty() {
         return Err("which collection? aede collection metal --query \"genre:metal\"".into());
     }
+    if (args.has("query") || args.has("remove"))
+        && let Some(option) = [
+            "csv",
+            "json",
+            "m3u",
+            "output",
+            "separator",
+            "limit",
+            "offset",
+            "all",
+            "sort",
+        ]
+        .into_iter()
+        .find(|option| args.has(option))
+    {
+        return Err(format!(
+            "--{option} applies when running a collection, not saving or removing its definition"
+        )
+        .into());
+    }
     let catalog = load(args)?;
     let mut data = read(args, &catalog)?;
     let owner = owner(args);
@@ -886,11 +926,13 @@ pub fn collection(args: &Args) -> Res {
         // later.
         aede_core::query::parse(expression)?;
         let replaced = data.save_collection(&owner, &name, expression, now);
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         println!(
-            "{} {name} {}: {expression}",
+            "{} {} {}: {}",
             ui::green("→"),
-            if replaced { "now reads" } else { "saved" }
+            ui::literal(&name),
+            if replaced { "now reads" } else { "saved" },
+            ui::literal(expression)
         );
         return Ok(());
     }
@@ -899,8 +941,12 @@ pub fn collection(args: &Args) -> Res {
         if !data.forget_collection(&owner, &name) {
             return Err(format!("no collection is called \"{name}\"").into());
         }
-        write(args, &mut data)?;
-        println!("{} {name} is no longer saved", ui::green("→"));
+        write(args, &mut data, &catalog)?;
+        println!(
+            "{} {} is no longer saved",
+            ui::green("→"),
+            ui::literal(&name)
+        );
         return Ok(());
     }
 
@@ -969,6 +1015,7 @@ pub fn collections(args: &Args) -> Res {
 
 /// `aede favourites` — everything loved, whatever its kind.
 pub fn favourites(args: &Args) -> Res {
+    args.window(DEFAULT_LIMIT)?;
     let catalog = load(args)?;
     let data = read(args, &catalog)?;
     let owner = owner(args);
@@ -977,7 +1024,7 @@ pub fn favourites(args: &Args) -> Res {
         .iter()
         .filter(|a| a.owner == owner && a.loved)
         .collect();
-    if rows.is_empty() {
+    if rows.is_empty() && !args.has("json") && !args.has("csv") {
         println!(
             "{}",
             ui::dim("nothing is a favourite yet: aede love album \"<title>\"")
@@ -989,8 +1036,15 @@ pub fn favourites(args: &Args) -> Res {
 
 /// `aede notes` — everything written, whatever kind it was written on.
 pub fn notes(args: &Args) -> Res {
+    validate_notes_options(args)?;
     let catalog = load(args)?;
     let mut data = read(args, &catalog)?;
+    if args.has("relink") || args.has("undo-relink") || args.has("relinks") {
+        return relink_notes(args, &catalog, &mut data);
+    }
+    if args.has("waiting") {
+        return waiting_notes(args, &catalog, &data);
+    }
 
     // The only irreplaceable data in the program deserves a way out and a way
     // back in. Out is the file itself, so a backup is readable and repairable
@@ -1004,7 +1058,7 @@ pub fn notes(args: &Args) -> Res {
         let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
         let incoming = user::from_json(&aede_core::json::parse(&text)?)?;
         let report = user::merge(&mut data, incoming);
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         println!(
             "{} {} added, {} updated, {} kept as they were",
             ui::green("→"),
@@ -1040,7 +1094,7 @@ pub fn notes(args: &Args) -> Res {
             None => true,
         })
         .collect();
-    if rows.is_empty() {
+    if rows.is_empty() && !args.has("json") && !args.has("csv") {
         println!("{}", ui::dim("nothing has been written yet"));
         return Ok(());
     }
@@ -1080,7 +1134,7 @@ pub fn history(args: &Args) -> Res {
             return Ok(());
         }
         let (plays, counts) = data.forget_history(&owner);
-        write(args, &mut data)?;
+        write(args, &mut data, &catalog)?;
         println!(
             "{} {} and {} forgotten",
             ui::green("→"),
@@ -1132,7 +1186,7 @@ pub fn history(args: &Args) -> Res {
             "  {}",
             ui::dim(&format!(
                 "most played: {} ({})",
-                top.track.display_name(&catalog),
+                ui::literal(&top.track.display_name(&catalog)),
                 ui::plural(top.count as usize, "time")
             ))
         );
@@ -1266,6 +1320,10 @@ fn stars_of(n: u8) -> String {
     let n = n.min(5) as usize;
     format!("{}{}", "★".repeat(n), "☆".repeat(5 - n))
 }
+
+#[cfg(test)]
+#[path = "annotate_test_support.rs"]
+mod test_support;
 
 #[cfg(test)]
 #[path = "annotate_tests.rs"]

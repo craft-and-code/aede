@@ -4,6 +4,8 @@ collection NAME --query EXPRESSION saves a named question after syntax validatio
 
 --remove deletes only that saved definition, not tracks or favorites. --query and --remove are incompatible. Without either, the command displays current tracks and supports the same CSV/JSON/M3U, pagination and sorting as query: title, artist, album, year, duration, size, rating, played, catalog (suffix - reverses).
 
+Output, pagination and sorting options apply only when running the collection. They are refused with --query or --remove before changing its definition.
+
 Use collections to find saved names, copy --collection NAME to put its current selection on a player, and play collection:NAME to listen locally. An unknown name is refused with guidance to create it; a syntactically invalid definition is not saved.
 
 ## Syntax and arguments

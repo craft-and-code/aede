@@ -129,9 +129,9 @@ pub struct FileAnalysis {
 impl FileAnalysis {
     /// `true` when the analysis still describes the file as it is now.
     ///
-    /// Same test as the incremental scan: unchanged size and modification date.
-    /// A stale analysis is worse than none — it answers with confidence about
-    /// bytes that are no longer there.
+    /// Uses the source report's unchanged size and whole-second modification
+    /// date. Unlike the scanner's native cache identity, this contract has no
+    /// subsecond precision and cannot distinguish all same-second edits.
     pub fn still_applies(&self, size: u64, mtime: u64) -> bool {
         self.size_bytes == size && self.modified_unix == mtime
     }

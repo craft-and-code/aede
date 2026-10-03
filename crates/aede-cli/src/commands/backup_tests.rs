@@ -33,6 +33,14 @@ fn the_file_is_named_or_the_command_refuses_and_shows_the_form() {
     // A quoted empty word is not a file name, and treating it as one would
     // write a backup to a path nobody can type again.
     assert!(named(&args(&["   "]), "aede backup <file>").is_err());
+    assert!(named(&args(&["first.json", "ignored.json"]), "aede backup <file>").is_err());
+    assert!(
+        named(
+            &args(&["first.json", "ignored.json"]),
+            "aede restore <file>"
+        )
+        .is_err()
+    );
 }
 
 #[test]

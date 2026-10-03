@@ -62,3 +62,82 @@ fn how_many_files_at_once_follows_the_work_and_not_the_machine() {
         1
     );
 }
+
+#[test]
+fn quality_is_validated_for_the_selected_encoder() {
+    for (target, setting) in [
+        (Target::Mp3, "V10"),
+        (Target::Mp3, "q6"),
+        (Target::Vorbis, "V0"),
+        (Target::Opus, "V0"),
+        (Target::Aac, "q10"),
+    ] {
+        assert!(
+            quality(&args(&["copy", "/out", "--quality", setting]), Some(target)).is_err(),
+            "{target:?}: {setting}"
+        );
+    }
+    assert_eq!(
+        quality(
+            &args(&["copy", "/out", "--quality", "V9"]),
+            Some(Target::Mp3)
+        )
+        .unwrap(),
+        Some(Quality::Variable(9))
+    );
+}
+
+#[test]
+fn a_complete_copy_can_resume_when_only_a_little_space_remains() {
+    let directory =
+        std::env::temp_dir().join(format!("aede_copy_full_resume_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(directory.join("track.flac"), [42; 1024]).unwrap();
+    let plan = Plan {
+        items: vec![Item {
+            source: PathBuf::from("source.flac"),
+            relative: PathBuf::from("track.flac"),
+            size: 1024,
+            kind: ItemKind::Audio,
+            convert: None,
+            contents: None,
+        }],
+        ..Default::default()
+    };
+    let options = args(&["copy", "/out"]);
+    assert!(room_for_available(&plan, &directory, &options, 1, Some(100)).is_ok());
+    let verified = args(&["copy", "/out", "--verify-existing"]);
+    assert!(room_for_available(&plan, &directory, &verified, 1, Some(100)).is_ok());
+    let replaced = args(&["copy", "/out", "--replace"]);
+    assert!(room_for_available(&plan, &directory, &replaced, 1, Some(100)).is_err());
+    std::fs::remove_file(directory.join("track.flac")).unwrap();
+    assert!(room_for_available(&plan, &directory, &options, 1, Some(100)).is_err());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn existing_encoded_comparisons_budget_concurrent_temporary_outputs() {
+    let directory =
+        std::env::temp_dir().join(format!("aede_copy_compare_space_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).unwrap();
+    let mut plan = Plan::default();
+    for size in [1000, 2000, 3000] {
+        let relative = PathBuf::from(format!("{size}.mp3"));
+        std::fs::write(directory.join(&relative), b"existing encoded file").unwrap();
+        plan.items.push(Item {
+            source: PathBuf::from("source.flac"),
+            relative,
+            size,
+            kind: ItemKind::Audio,
+            convert: Some(Target::Mp3),
+            contents: None,
+        });
+    }
+    let options = args(&["copy", "/out", "--verify-existing"]);
+    assert_eq!(pending_bytes(&plan, &directory, &options, 1).unwrap(), 3000);
+    assert_eq!(pending_bytes(&plan, &directory, &options, 2).unwrap(), 5000);
+    assert_eq!(pending_bytes(&plan, &directory, &options, 3).unwrap(), 6000);
+    std::fs::remove_dir_all(directory).unwrap();
+}

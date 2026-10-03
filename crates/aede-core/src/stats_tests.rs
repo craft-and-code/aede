@@ -164,3 +164,25 @@ fn empty_catalog_does_not_divide_by_zero() {
     assert_eq!(s.cover_ratio, 0.0);
     assert!(s.by_codec.is_empty());
 }
+
+#[test]
+fn extreme_imported_measures_saturate_without_panicking_or_wrapping() {
+    let mut c = catalog();
+    for file in &mut c.files {
+        file.size = u64::MAX;
+        file.properties.codec = "flac".into();
+        file.properties.lossless = true;
+        file.properties.bit_depth = Some(16);
+        file.properties.sample_rate = Some(44_100);
+    }
+    for track in &mut c.tracks {
+        track.duration_ms = Some(u64::MAX);
+    }
+    let s = compute(&c);
+    assert_eq!(s.total_bytes, u64::MAX);
+    assert_eq!(s.total_duration_ms, u64::MAX);
+    assert_eq!(s.by_codec[0].bytes, u64::MAX);
+    assert_eq!(s.by_quality[0].bytes, u64::MAX);
+    assert_eq!(s.by_sample_rate[0].bytes, u64::MAX);
+    assert_eq!(s.by_decade[0].bytes, u64::MAX);
+}

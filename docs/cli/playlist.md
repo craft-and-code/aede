@@ -33,7 +33,9 @@ aede playlist "$HOME/Music/Jazz" --artists
 
 ## Result and errors
 
-The summary distinguishes playlists to write, written, already up to date and failed. --dry-run lists at most the first 20 planned paths and counts the rest without writing; unchanged playlists retain their timestamps. No selected catalog album returns an explanatory message and succeeds. Per-playlist filesystem errors are listed and counted, but the current handler still returns success after those failures: inspect Failed rather than relying on exit code alone. Playlist output is UTF-8 text with a .m3u filename; the command copies no audio.
+A selected path containing a carriage return or newline is refused before any playlist is written, because M3U cannot represent it without introducing another entry. Selection exports with --m3u enforce the same rule.
+
+The summary distinguishes playlists to write, written, already up to date and failed. --dry-run lists at most the first 20 planned paths and counts the rest without writing; unchanged playlists retain their timestamps. Releases sharing a physical folder contribute to one combined playlist. Changed files are published from isolated temporary output only after a complete write. No selected catalog album returns an explanatory message and succeeds. Per-playlist filesystem errors are listed and counted, and any failure gives a nonzero exit status. Playlist output is UTF-8 text with a .m3u filename; the command copies no audio.
 
 ## Related reading
 

@@ -25,6 +25,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::model::{Catalog, EntityKind, Id};
 use crate::text;
 
+#[path = "user_identity.rs"]
+mod identity;
+#[path = "user_relink.rs"]
+mod relink;
+pub use identity::{Attachment, TrackIdentity, reconcile};
+pub use relink::{Relink, RelinkSummary};
+
 /// Version of the user file on disk, independent of the catalog's.
 ///
 /// The two change for different reasons and at different times, so they are
@@ -54,8 +61,8 @@ pub const RELEASE_KEY_SEPARATOR: char = '|';
 ///
 /// The key is what the thing calls itself rather than where it currently sits:
 /// a path for a track, the release key for an album, the normalized name for
-/// the rest. At M1 the MusicBrainz identifier becomes a better key still and
-/// these become the fallback.
+/// name-based entities. Recordings, works and release groups use an explicit
+/// MusicBrainz identifier when the catalog has one.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EntityRef {
     /// Which kind of thing is named.
@@ -108,13 +115,7 @@ impl EntityRef {
                     .and_then(|a| catalog.artist(a))
                     .map(|a| a.key.clone())
                     .unwrap_or_default();
-                let folder = release
-                    .track_ids
-                    .first()
-                    .and_then(|&t| catalog.track(t))
-                    .and_then(|t| catalog.file(t.file_id))
-                    .map(|f| text::folder(&f.path).to_string())
-                    .unwrap_or_default();
+                let folder = &release.folder;
                 format!(
                     "{artist}{RELEASE_KEY_SEPARATOR}{}{RELEASE_KEY_SEPARATOR}{folder}",
                     text::normalize(&release.title)
@@ -148,11 +149,7 @@ impl EntityRef {
                 .iter()
                 .find(|t| catalog.file(t.file_id).is_some_and(|f| f.path == self.key))
                 .map(|t| t.id),
-            EntityKind::Release => catalog
-                .releases
-                .iter()
-                .find(|r| EntityRef::of(catalog, EntityKind::Release, r.id).as_ref() == Some(self))
-                .map(|r| r.id),
+            EntityKind::Release => identity::resolve_release(self, catalog),
             EntityKind::Artist => catalog
                 .artists
                 .iter()
@@ -449,6 +446,10 @@ pub struct UserData {
     pub set_aside: Vec<SetAside>,
     /// Spellings the owner says are one artist — see [`SameArtist`].
     pub same_artist: Vec<SameArtist>,
+    /// Last observed evidence for referenced files, used for safe relocation.
+    pub track_identities: Vec<TrackIdentity>,
+    /// Explicit owner-scoped reattachments, retained for conflict-safe undo.
+    pub relinks: Vec<Relink>,
 }
 
 impl UserData {
@@ -694,91 +695,6 @@ impl UserData {
     }
 }
 
-/// What a reconciliation found.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Attachment {
-    /// Records whose target is in the catalog.
-    pub attached: usize,
-    /// Records whose target is not, and which are kept as they are.
-    pub waiting: usize,
-    /// Records whose key was rewritten because the file moved.
-    pub moved: usize,
-}
-
-/// Reattaches what the user wrote to a catalog that has been rebuilt.
-///
-/// A scan renumbers everything and may have seen a file move. A reference that
-/// no longer resolves is tried again by **file name and size**, and rewritten
-/// when exactly one file matches — one, because two files of the same name and
-/// size give no reason to prefer either, and guessing there would move somebody
-/// else's note onto the wrong track.
-///
-/// What still does not resolve is left alone. An annotation is never dropped
-/// for want of a target: the folder may be on a drive that is simply not
-/// plugged in.
-pub fn reconcile(data: &mut UserData, catalog: &Catalog) -> Attachment {
-    let mut report = Attachment::default();
-    let by_name_and_size = movable_files(catalog);
-
-    for target in data
-        .annotations
-        .iter_mut()
-        .map(|a| &mut a.target)
-        .chain(data.plays.iter_mut().map(|p| &mut p.track))
-        .chain(data.counts.iter_mut().map(|c| &mut c.track))
-    {
-        if target.resolve(catalog).is_some() {
-            report.attached += 1;
-            continue;
-        }
-        if target.kind == EntityKind::Track
-            && let Some(path) = moved_to(&by_name_and_size, &target.key)
-        {
-            target.key = path;
-            report.moved += 1;
-            report.attached += 1;
-            continue;
-        }
-        report.waiting += 1;
-    }
-    report
-}
-
-/// Files reachable by name and size, for the ones that appear exactly once.
-///
-/// A name and a size shared by two files identify neither, so those are left
-/// out rather than picked between.
-fn movable_files(catalog: &Catalog) -> BTreeMap<(String, u64), Option<String>> {
-    let mut seen: BTreeMap<(String, u64), Option<String>> = BTreeMap::new();
-    for file in &catalog.files {
-        let key = (text::file_name(&file.path).to_string(), file.size);
-        seen.entry(key)
-            .and_modify(|slot| *slot = None)
-            .or_insert(Some(file.path.clone()));
-    }
-    seen
-}
-
-/// The single file that carries the same name as a vanished path.
-///
-/// The size of the old file is unknown — it is gone — so only the name is
-/// matched, and only when it is unique in the whole library.
-fn moved_to(files: &BTreeMap<(String, u64), Option<String>>, old_path: &str) -> Option<String> {
-    let name = text::file_name(old_path);
-    let mut found: Option<&String> = None;
-    for ((candidate, _), path) in files {
-        if candidate != name {
-            continue;
-        }
-        let Some(path) = path else { return None };
-        if found.is_some() {
-            return None;
-        }
-        found = Some(path);
-    }
-    found.cloned()
-}
-
 // --------------------------------------------------------------------------
 // On disk
 // --------------------------------------------------------------------------
@@ -794,13 +710,10 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// nobody reads; this file is the one a user may want to open, grep, or repair
 /// by hand after a bad restore, and it is small enough for that to cost
 /// nothing.
+/// An exclusive temporary output prevents an existing temporary symlink from
+/// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, to_json(data).to_string_pretty())?;
-    std::fs::rename(&temp, path)?;
+    crate::atomic_file::write(path, to_json(data).to_string_pretty().as_bytes())?;
     Ok(())
 }
 
@@ -963,6 +876,19 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         })
         .collect();
     root.set("same_artist", Json::Arr(same_artist));
+    root.set(
+        "track_identities",
+        Json::Arr(
+            data.track_identities
+                .iter()
+                .map(TrackIdentity::to_json)
+                .collect(),
+        ),
+    );
+    root.set(
+        "relinks",
+        Json::Arr(data.relinks.iter().map(Relink::to_json).collect()),
+    );
     root
 }
 
@@ -973,6 +899,8 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
 /// the opposite of the catalog's rule, where a broken row means the graph does
 /// not hold together and refusing is the safe answer. Here there is no graph —
 /// only statements, each standing alone.
+/// Missing optional tables remain compatible with old stores. A present table
+/// of the wrong JSON type is refused before a later write can empty it.
 pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::StoreError> {
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
@@ -982,7 +910,44 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             expected: USER_FORMAT_VERSION,
         });
     }
-    let mut data = UserData::default();
+    for (table, message) in [
+        ("annotations", "user annotations must be an array"),
+        (
+            "relation_annotations",
+            "user relation annotations must be an array",
+        ),
+        ("plays", "user plays must be an array"),
+        ("counts", "user counts must be an array"),
+        ("collections", "user collections must be an array"),
+        ("set_aside", "user set-aside decisions must be an array"),
+        ("same_artist", "user artist decisions must be an array"),
+        ("track_identities", "user track identities must be an array"),
+        ("relinks", "user relink history must be an array"),
+    ] {
+        if value
+            .get(table)
+            .is_some_and(|value| value.as_arr().is_none())
+        {
+            return Err(StoreError::Invalid(message));
+        }
+    }
+    let mut data = UserData {
+        track_identities: value
+            .get("track_identities")
+            .and_then(crate::json::Json::as_arr)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(TrackIdentity::from_json)
+            .collect(),
+        relinks: value
+            .get("relinks")
+            .and_then(crate::json::Json::as_arr)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(Relink::from_json)
+            .collect(),
+        ..Default::default()
+    };
 
     for row in value
         .get("annotations")
@@ -1182,8 +1147,54 @@ pub struct Merge {
 /// one that lost is reported rather than dropped in silence. Play counters take
 /// the larger of the two, since a count is a total and neither side ever
 /// counted the other's listens.
+/// Recent listening events are merged as a multiset of their complete values:
+/// simultaneous identical events keep their multiplicity, and reimporting a
+/// backup does not append them again. Relink history remains an audit trail;
+/// importing it never replays reattachment or undo commands.
 pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
     let mut report = Merge::default();
+
+    // These are evidence and an audit trail, not commands to replay. Preserve
+    // local evidence on conflict; imported history never moves current data.
+    for identity in incoming.track_identities {
+        if !into
+            .track_identities
+            .iter()
+            .any(|known| known.path == identity.path)
+        {
+            into.track_identities.push(identity);
+        }
+    }
+    for mut event in incoming.relinks {
+        let known = into.relinks.iter().any(|known| {
+            known.origin_id == event.origin_id
+                && known.owner == event.owner
+                && known.from == event.from
+                && known.to == event.to
+                && known.at == event.at
+                && known.before.annotations == event.before.annotations
+                && known.before.plays == event.before.plays
+                && known.before.counts == event.before.counts
+                && known.before.relation_annotations == event.before.relation_annotations
+        });
+        if known {
+            continue;
+        }
+        if into.relinks.iter().any(|known| known.id == event.id) {
+            let Some(next) = into
+                .relinks
+                .iter()
+                .map(|known| known.id)
+                .max()
+                .unwrap_or(0)
+                .checked_add(1)
+            else {
+                continue;
+            };
+            event.id = next;
+        }
+        into.relinks.push(event);
+    }
 
     for annotation in incoming.annotations {
         match into
@@ -1219,14 +1230,27 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
         }
     }
 
-    // An event is identified by who, what and when: importing the same backup
-    // twice must not double anybody's history.
+    // Equal-time listens can be distinct, including repeated identical events.
+    // Consume only the multiplicity already present, so restoring a backup
+    // keeps every listen while importing that same backup again is idempotent.
+    let play_key = |play: &Play| {
+        (
+            play.owner.clone(),
+            play.track.clone(),
+            play.at,
+            play.ms_played,
+            play.completed,
+        )
+    };
+    let mut available = BTreeMap::new();
+    for play in &into.plays {
+        *available.entry(play_key(play)).or_insert(0usize) += 1;
+    }
     for play in incoming.plays {
-        let known = into
-            .plays
-            .iter()
-            .any(|p| p.owner == play.owner && p.track == play.track && p.at == play.at);
-        if !known {
+        let copies = available.entry(play_key(&play)).or_default();
+        if *copies > 0 {
+            *copies -= 1;
+        } else {
             into.plays.push(play);
             report.plays += 1;
         }
@@ -1296,6 +1320,10 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
     }
     report
 }
+
+#[cfg(test)]
+#[path = "user_test_support.rs"]
+mod test_support;
 
 #[cfg(test)]
 #[path = "user_tests.rs"]

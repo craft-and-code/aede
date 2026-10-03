@@ -10,6 +10,87 @@ use crate::model::builder::{ScannedFile, build};
 use crate::sources::{ArtistFacts, Confidence, Facts, SourceRecord};
 use crate::tags::RawTags;
 
+fn temporary_directory(name: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let directory = std::env::temp_dir().join(format!(
+        "aede_backup_{name}_{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    directory
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_backup_destination_cannot_overwrite_another_file() {
+    let directory = temporary_directory("linked_output");
+    let victim = directory.join("original");
+    let output = directory.join("backup.json");
+    std::fs::write(&victim, b"original bytes").unwrap();
+    std::os::unix::fs::symlink(&victim, &output).unwrap();
+    assert!(write(&whole(), &output).is_err());
+    assert_eq!(std::fs::read(&victim).unwrap(), b"original bytes");
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 2);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn writing_a_backup_separates_a_destination_hard_link_from_its_original() {
+    let directory = temporary_directory("hardlinked_output");
+    let original = directory.join("original");
+    let output = directory.join("backup.json");
+    std::fs::write(&original, b"original bytes").unwrap();
+    std::fs::hard_link(&original, &output).unwrap();
+    write(&whole(), &output).unwrap();
+    assert_eq!(std::fs::read(&original).unwrap(), b"original bytes");
+    assert!(read(&output).unwrap().user.held().is_some());
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 2);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn newly_written_backups_keep_personal_data_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = temporary_directory("private_output");
+    let output = directory.join("backup.json");
+    write(&whole(), &output).unwrap();
+    let mode = std::fs::metadata(&output).unwrap().permissions().mode();
+    assert_eq!(
+        mode & 0o077,
+        0,
+        "other users must not read personal backup data"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_missing_backup_parent_is_refused_without_creating_a_new_folder() {
+    let directory = temporary_directory("missing_parent");
+    let parent = directory.join("unmounted-player");
+    assert!(write(&whole(), &parent.join("backup.json")).is_err());
+    assert!(!parent.exists());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn replacement_keeps_existing_backup_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = temporary_directory("existing_permissions");
+    let output = directory.join("backup.json");
+    std::fs::write(&output, b"old archive").unwrap();
+    std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o640)).unwrap();
+    write(&whole(), &output).unwrap();
+    assert_eq!(
+        std::fs::metadata(&output).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    assert!(read(&output).unwrap().user.held().is_some());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 /// A catalog of one track.
 fn catalog() -> Catalog {
     let mut tags = RawTags::default();

@@ -34,6 +34,115 @@ fn count(issues: &[Issue], kind: IssueKind) -> usize {
 }
 
 #[test]
+fn duplicate_guesses_require_known_tags_and_a_readable_duration() {
+    for (artist, title, duration) in [
+        (Some("A"), Some("Song"), None),
+        (Some("A"), Some("Song"), Some(0)),
+        (None, Some("Song"), Some(1000)),
+        (Some("A"), None, Some(1000)),
+    ] {
+        let mut fields = Vec::new();
+        if let Some(title) = title {
+            fields.push(("title", title));
+        }
+        if let Some(artist) = artist {
+            fields.push(("artist", artist));
+        }
+        let catalog = model::build(
+            vec![
+                file("/m/a/song.flac", &fields, duration, "flac"),
+                file("/m/b/song.flac", &fields, duration, "flac"),
+            ],
+            vec!["/m".into()],
+            0,
+            &[],
+        );
+        let issues = diagnose(&catalog, &crate::sources::Sources::default());
+        assert_eq!(
+            count(&issues, IssueKind::DuplicateTrack),
+            0,
+            "artist={artist:?}, title={title:?}, duration={duration:?}"
+        );
+    }
+}
+
+#[test]
+fn duplicate_duration_groups_do_not_chain_together_different_performances() {
+    let fields = [("title", "Song"), ("artist", "A")];
+    let catalog = model::build(
+        vec![
+            file("/m/a/song.flac", &fields, Some(100_000), "flac"),
+            file("/m/b/song.flac", &fields, Some(102_000), "flac"),
+            file("/m/c/song.flac", &fields, Some(104_000), "flac"),
+        ],
+        vec!["/m".into()],
+        0,
+        &[],
+    );
+    let issues = diagnose(&catalog, &crate::sources::Sources::default());
+    let duplicates: Vec<_> = issues
+        .iter()
+        .filter(|issue| issue.kind == IssueKind::DuplicateTrack)
+        .collect();
+    assert_eq!(duplicates.len(), 1);
+    assert_eq!(
+        duplicates[0].files,
+        vec!["/m/a/song.flac", "/m/b/song.flac"]
+    );
+}
+
+#[test]
+fn duplicate_size_estimates_saturate_instead_of_panicking() {
+    let mut files = Vec::new();
+    for folder in ["a", "b", "c"] {
+        for number in ["1", "2"] {
+            let mut scanned = file(
+                &format!("/m/{folder}/{number}.flac"),
+                &[
+                    ("title", number),
+                    ("artist", "A"),
+                    ("album", "Album"),
+                    ("tracknumber", number),
+                ],
+                Some(1000),
+                "flac",
+            );
+            scanned.size = u64::MAX;
+            scanned.fingerprint = Some(crate::fingerprint::Fingerprint {
+                data: "same-audio".into(),
+                seconds: 1,
+            });
+            files.push(scanned);
+        }
+    }
+    let catalog = model::build(files, vec!["/m".into()], 0, &[]);
+    let mut issues = Vec::new();
+    check_duplicate_albums(&catalog, &mut issues);
+    check_same_audio(&catalog, &mut issues);
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::DuplicateAlbum)
+    );
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::SameAudio)
+    );
+
+    let mut unplaced = catalog.clone();
+    for track in &mut unplaced.tracks {
+        track.release_id = None;
+    }
+    check_duplicates(&unplaced, &mut issues);
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.kind == IssueKind::DuplicateTrack)
+    );
+}
+
+#[test]
 fn detects_missing_tags() {
     let c = model::build(
         vec![file("/m/a/01 no tags.flac", &[], Some(1000), "flac")],

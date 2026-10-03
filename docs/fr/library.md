@@ -69,13 +69,15 @@ Si le dernier disque d’un coffret de quatre manque sur le stockage, Aède affi
 
 ## Gérer les compilations
 
-Les compilations — pistes d’artistes distincts sans artiste unique au niveau album — sont reconnues automatiquement au scan. Elles sont retirées des discographies individuelles pour éviter de les encombrer.
+Le scan marque une sortie comme compilation lorsque le tag `COMPILATION` vaut `1`, `true` ou `yes`, ou lorsque son artiste d’album est un libellé reconnu tel que `Various Artists`, `VA` ou `Artistes divers`. Ces sorties sont retirées des discographies individuelles pour éviter de les encombrer.
+
+Des artistes différents selon les pistes ne suffisent pas à reconnaître une compilation. Sans artiste d’album ni tag de compilation, les fichiers peuvent former des sorties locales séparées selon leurs artistes. Renseignez ces tags de manière cohérente avant de scanner une compilation.
 
 Vous pouvez les examiner avec des options dédiées :
 
 ```
-aede albums --compilations       # list only multi-artist compilations
-aede albums --no-compilations    # list only single-artist releases
+aede albums --compilations       # sorties marquées comme compilations
+aede albums --no-compilations    # autres sorties
 ```
 
 Fournir les deux options est refusé comme contradiction.
@@ -96,7 +98,7 @@ Chaque `aede scan` se termine par un bilan détaillé :
 | **Analyses rattachées (`Analyses now attached`)** | Analyses en attente liées avec succès aux fichiers nouvellement scannés. |
 | **Durée (`Elapsed`)** | Temps réel du parcours et de l’ingestion des métadonnées. |
 
-`Files found` est la somme de `Read from disk` et `Reused from previous scan`. Les fichiers en erreur de lecture sont signalés sous le bilan puis ignorés, sans interrompre le scan.
+`Files found` compte les chemins audio découverts ; les entrées inaccessibles conservées sont indiquées séparément. `Read from disk` et `Reused from previous scan` décrivent le travail de métadonnées sur les fichiers découverts. Les erreurs de lecture sont signalées sous le bilan. Les anciennes entrées des chemins inaccessibles sont conservées, même lors d’un scan complet, et comptées séparément ; un dossier illisible n’est pas considéré comme vide.
 
 <div id="vault-location-storage-footprint--scaling" data-legacy-anchor></div>
 
@@ -122,7 +124,7 @@ This catalog
 
 Sans AEDE_HOME, Aède utilise `$XDG_DATA_HOME/aede` ou `~/.local/share/aede`.
 
-Les requêtes utilisent un document JSON en mémoire. Ces mesures sur bibliothèques synthétiques (12 pistes par album) précèdent la séparation de `conclusions.json` ; tailles et temps actuels n’ont pas été mesurés à nouveau :
+Les requêtes utilisent un document JSON en mémoire. Ces mesures sur bibliothèques synthétiques (12 pistes par album) précèdent la séparation de `conclusions.json` ; ces chiffres historiques ne constituent pas un budget actuel. Une nouvelle référence synthétique figure dans les [mesures M2](../coding/m2-storage-benchmark.md) :
 
 | Pistes | Taille de `catalog.json` | Sauvegarde | Chargement | Mémoire maximale |
 | :--- | :--- | :--- | :--- | :--- |
@@ -224,3 +226,9 @@ aede doctor
 ```
 
 L’environnement contient volontairement tags manquants, doublons, pistes absentes et codecs mélangés : un terrain d’essai pour doctor et la gestion du catalogue.
+
+## Prévoir les changements
+
+`aede scan --dry-run` décrit les fichiers ajoutés, modifiés, disparus et illisibles sans publier catalogue, racines, conclusions ou données personnelles. --json fournit tous les chemins et compteurs sans mélanger la progression au résultat. La préparation peut lire les métadonnées et rapports locaux. Un sous-dossier illisible conserve les anciennes entrées, y compris avec --full ; il ne devient pas un dossier vide. Les fractions de seconde sont conservées si le système les fournit ; les anciennes lignes sans cette précision sont relues une fois.
+
+Les rapports acoustiques importés gardent l’identité et la précision temporelle enregistrées par leur source, actuellement à la seconde. La précision du scan protège la réutilisation des métadonnées et le rattachement des verdicts/empreintes internes ; elle ne prouve pas la fraîcheur à la fraction de seconde d’un rapport externe qui ne l’a jamais enregistrée.

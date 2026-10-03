@@ -48,3 +48,5 @@ Avec `--artists`, Aède cherche aussi un dossier commun aux albums d’un artist
 Aède compare le **texte** de la playlist, pas seulement l’existence du `.m3u`. Son contenu est calculé depuis les pistes actuelles du catalogue. Ajouter une piste, la scanner puis relancer la commande permet donc de mettre à jour la playlist si le nouveau texte diffère.
 
 Si le texte est identique, le fichier reste intact, date de modification comprise. Les outils de sauvegarde et de synchronisation ne le considèrent pas comme modifié sans raison.
+
+Des éditions partageant un dossier contribuent à une playlist commune, publiée depuis un temporaire privé après écriture complète. Les chemins contenant un retour chariot ou saut de ligne sont refusés avant toute écriture, y compris avec --m3u : ils ne peuvent pas tenir sur une ligne M3U sans introduire une autre entrée. Les sauts de ligne des titres sont remplacés par des espaces.

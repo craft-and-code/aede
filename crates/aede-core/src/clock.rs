@@ -20,7 +20,8 @@ pub fn now_seconds() -> u64 {
 }
 
 /// Now with subsecond precision, for ordering analysis results produced in
-/// quick succession. Audio-file identity still uses whole-second mtimes.
+/// quick succession. File identity stores seconds and the fractional part
+/// separately so both integers survive the JSON representation exactly.
 pub fn now_nanoseconds() -> u64 {
     nanoseconds(SystemTime::now())
 }
@@ -37,15 +38,23 @@ fn nanoseconds(time: SystemTime) -> u64 {
         .unwrap_or(0)
 }
 
-/// Modification date of a file, in the same unit.
+/// Modification date of a file, in seconds since the Unix epoch.
 ///
-/// Truncated to the second on purpose: it is compared against dates read back
-/// from the catalog, and the catalog stores seconds. Keeping more precision
-/// here would make every reloaded file look as though it had changed.
+/// The scanner also compares [`mtime_subseconds`]. Keeping the parts separate
+/// avoids rounding epoch nanoseconds through JSON's floating-point numbers.
 pub fn mtime_seconds(meta: &std::fs::Metadata) -> u64 {
     meta.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Nanosecond fraction of a file's modification date, or `0` when unavailable.
+pub fn mtime_subseconds(meta: &std::fs::Metadata) -> u32 {
+    meta.modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.subsec_nanos())
         .unwrap_or(0)
 }

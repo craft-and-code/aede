@@ -5,14 +5,14 @@
 //! catalog. On a library of 50,000 titles, that is the difference between
 //! several minutes and a few seconds.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use crate::analysis;
-use crate::clock::{mtime_seconds, now_seconds};
+use crate::clock::{mtime_seconds, mtime_subseconds, now_seconds};
 use crate::model::{self, Catalog, ScannedFile};
 use crate::tags::{self, RawTags};
 
@@ -25,6 +25,10 @@ const COVER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp"];
 /// entries left alone.
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
+    /// Read every accessible file again while retaining the previous catalog
+    /// as evidence for inaccessible paths. This does not discard cached data
+    /// merely because a watched drive or subfolder cannot be read.
+    pub force_read: bool,
     /// Number of reader threads. 0 = automatic detection.
     pub threads: usize,
     /// Follow symbolic links (with loop detection).
@@ -60,6 +64,7 @@ pub struct ScanOptions {
 impl Default for ScanOptions {
     fn default() -> Self {
         ScanOptions {
+            force_read: false,
             threads: 0,
             follow_symlinks: false,
             skip_hidden: true,
@@ -75,14 +80,25 @@ pub struct ScanReport {
     /// Audio files spotted during traversal, after deduplication. Always the
     /// sum of `read` and `reused`, failures included.
     pub found: usize,
-    /// Files actually read from disk.
+    /// Files selected for a fresh read, including unsuccessful attempts.
     pub read: usize,
     /// Files taken unchanged from the previous catalog.
     pub reused: usize,
     /// Files present in the old catalog and gone since.
     pub removed: usize,
-    /// Files that could not be read, as `(path, reason)` pairs sorted by path.
-    /// A failure excludes the file from the catalog but never aborts the scan.
+    /// Previous files retained because their file or directory was inaccessible.
+    /// These are separate from unchanged files counted in `reused`.
+    pub preserved: usize,
+    /// File paths newly entering the catalog, sorted by path.
+    pub added_paths: Vec<String>,
+    /// Existing file paths whose size or precise timestamp changed.
+    pub changed_paths: Vec<String>,
+    /// Previously catalogued file paths absent from accessible scanned folders.
+    pub removed_paths: Vec<String>,
+    /// Files or directories that could not be read, sorted by path.
+    /// Inaccessible paths retain their previous entries. Invalid audio content
+    /// excludes the file, with its parsing failure reported here. Non-UTF-8
+    /// entries are skipped and reported with escaped native path spelling.
     pub failures: Vec<(String, String)>,
     /// Analysis reports found inside the folders and taken in.
     pub reports: usize,
@@ -113,8 +129,19 @@ pub enum Progress {
 
 /// Scans the given folders and builds a catalog.
 ///
-/// `previous` enables the incremental scan; passing `None` forces a full
-/// re-read.
+/// `previous` enables incremental reuse and retention of inaccessible paths.
+/// To reread accessible files while keeping that evidence, set
+/// [`ScanOptions::force_read`]. Passing `None` starts without any prior data.
+///
+/// Only ordinary files are opened as audio. Roots and directory entries are
+/// traversed in native path order so followed directory aliases choose the
+/// same spelling. A root that cannot be represented exactly as UTF-8 is an
+/// invalid input; unrepresentable entries are reported and skipped.
+///
+/// Fresh reads compare filesystem metadata before and after tag parsing. An
+/// observed rewrite is reported as temporary unavailability rather than
+/// cached or mistaken for permanent corruption. This is a filesystem snapshot
+/// check, not a content hash or a transaction with concurrent file writers.
 pub fn scan(
     roots: &[PathBuf],
     previous: Option<&Catalog>,
@@ -123,10 +150,28 @@ pub fn scan(
 ) -> std::io::Result<(Catalog, ScanReport)> {
     let started = Instant::now();
     let mut report = ScanReport::default();
+    // The persistent path contract is UTF-8. Refuse an unrepresentable root
+    // before a lossy spelling could become watched or collide with another.
+    let mut roots_str: Vec<String> = roots
+        .iter()
+        .map(|path| {
+            path.to_str().map(str::to_owned).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("{path:?}: path is not valid UTF-8"),
+                )
+            })
+        })
+        .collect::<std::io::Result<_>>()?;
+    roots_str.sort();
+    roots_str.dedup();
+    let mut traversal_roots: Vec<&PathBuf> = roots.iter().collect();
+    traversal_roots.sort();
+    traversal_roots.dedup();
 
     // --- 1. Traversal ------------------------------------------------------
     let mut walker = Walker::new(options);
-    for root in roots {
+    for root in traversal_roots {
         walker.walk(root)?;
     }
     let Walker {
@@ -134,6 +179,8 @@ pub fn scan(
         reports: mut reports_found,
         folder_covers,
         sidecars,
+        failures: traversal_failures,
+        inaccessible,
         ..
     } = walker;
     reports_found.sort();
@@ -152,18 +199,28 @@ pub fn scan(
 
     let mut to_read: Vec<PathBuf> = Vec::new();
     let mut reused: Vec<ScannedFile> = Vec::new();
+    let mut fractions = BTreeMap::new();
 
     for path in &audio_files {
         let path_str = path.to_string_lossy().to_string();
-        let Ok(meta) = std::fs::metadata(path) else {
+        let Ok(meta) = file_metadata(path, options.follow_symlinks) else {
             to_read.push(path.clone());
             continue;
         };
         let size = meta.len();
         let mtime = mtime_seconds(&meta);
+        let fraction = mtime_subseconds(&meta);
 
         match cache.get(path_str.as_str()) {
-            Some(old) if old.size == size && old.mtime == mtime => {
+            Some(old)
+                if !options.force_read
+                    && old.size == size
+                    && old.mtime == mtime
+                    && previous
+                        .and_then(|catalog| catalog.file_mtime_subseconds.get(&path_str))
+                        == Some(&fraction) =>
+            {
+                fractions.insert(path_str.clone(), fraction);
                 let mut tags = RawTags {
                     fields: old.tags.clone(),
                     properties: old.properties.clone(),
@@ -194,23 +251,13 @@ pub fn scan(
     }
     report.reused = reused.len();
     report.read = to_read.len();
-    if let Some(prev) = previous {
-        let current: HashSet<String> = audio_files
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
-        report.removed = prev
-            .files
-            .iter()
-            .filter(|f| !current.contains(&f.path))
-            .count();
-    }
 
     // --- 3. Parallel reading ----------------------------------------------
     let thread_count = resolve_threads(options.threads).min(to_read.len().max(1));
     let queue = Mutex::new(to_read);
-    let results: Mutex<Vec<ScannedFile>> = Mutex::new(Vec::new());
+    let results: Mutex<Vec<(ScannedFile, u32)>> = Mutex::new(Vec::new());
     let failures: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    let unavailable: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
     let done = AtomicUsize::new(0);
     let total = report.read;
 
@@ -222,13 +269,14 @@ pub fn scan(
                         break;
                     };
                     let path_str = path.to_string_lossy().to_string();
-                    let meta = std::fs::metadata(&path).ok();
-                    match tags::read(&path) {
-                        Ok(tags) => {
+                    let outcome = read_fresh(&path, options.follow_symlinks, tags::read);
+                    match outcome {
+                        Ok((metadata, tags)) => {
+                            let fraction = mtime_subseconds(&metadata);
                             let file = ScannedFile {
                                 path: path_str,
-                                size: meta.as_ref().map(|m| m.len()).unwrap_or(0),
-                                mtime: meta.as_ref().map(mtime_seconds).unwrap_or(0),
+                                size: metadata.len(),
+                                mtime: mtime_seconds(&metadata),
                                 tags,
                                 folder_cover: cover_for(&folder_covers, &path),
                                 sidecar: sidecar_for(&sidecars, &path),
@@ -238,9 +286,12 @@ pub fn scan(
                                 integrity: None,
                                 fingerprint: None,
                             };
-                            results.lock().unwrap_or_else(|e| e.into_inner()).push(file);
+                            results.lock().unwrap_or_else(|e| e.into_inner()).push((file, fraction));
                         }
                         Err(error) => {
+                            if matches!(&error, tags::TagError::Io(error) if error.kind() != std::io::ErrorKind::NotFound) {
+                                unavailable.lock().unwrap_or_else(|e| e.into_inner()).insert(path_str.clone());
+                            }
                             failures
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
@@ -267,18 +318,78 @@ pub fn scan(
         }
     });
 
-    let mut scanned = results.into_inner().unwrap_or_else(|e| e.into_inner());
+    let mut scanned: Vec<ScannedFile> = results
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner())
+        .into_iter()
+        .map(|(file, fraction)| {
+            fractions.insert(file.path.clone(), fraction);
+            file
+        })
+        .collect();
     report.failures = failures.into_inner().unwrap_or_else(|e| e.into_inner());
+    report.failures.extend(traversal_failures.iter().cloned());
     report.failures.sort();
+    report.failures.dedup();
     scanned.extend(reused);
+    // An unsuccessful walk cannot establish absence. Preserve only entries
+    // below the failed paths, never excluded folders or intentionally removed
+    // roots. An I/O failure while opening an audio file has the same meaning.
+    let unavailable = unavailable.into_inner().unwrap_or_else(|e| e.into_inner());
+    if let Some(previous) = previous {
+        let present: HashSet<&str> = scanned.iter().map(|file| file.path.as_str()).collect();
+        let retained: Vec<&model::AudioFile> = previous
+            .files
+            .iter()
+            .filter(|file| {
+                !present.contains(file.path.as_str())
+                    && !options
+                        .excluded
+                        .iter()
+                        .any(|folder| crate::text::is_under(&file.path, &folder.to_string_lossy()))
+                    && (Path::new(&file.path)
+                        .ancestors()
+                        .any(|ancestor| inaccessible.contains(ancestor))
+                        || unavailable.contains(&file.path))
+            })
+            .collect();
+        let covers: HashMap<model::Id, &str> = if retained.is_empty() {
+            HashMap::new()
+        } else {
+            previous
+                .tracks
+                .iter()
+                .filter_map(|track| {
+                    let release = previous.release(track.release_id?)?;
+                    Some((track.file_id, release.cover_path.as_deref()?))
+                })
+                .collect()
+        };
+        for file in retained {
+            if let Some(fraction) = previous.file_mtime_subseconds.get(&file.path) {
+                fractions.insert(file.path.clone(), *fraction);
+            }
+            scanned.push(cached_file(
+                file,
+                covers.get(&file.id).map(|path| (*path).to_owned()),
+            ));
+            report.preserved += 1;
+        }
+    }
     on_progress(Progress::Read { done: total, total });
 
     // --- 4. Building the graph ---------------------------------------------
-    let roots_str: Vec<String> = roots
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
     let mut catalog = model::build(scanned, roots_str, now_seconds(), &options.same_artist);
+    catalog.file_mtime_subseconds = fractions;
+    let current_paths: HashSet<&str> = catalog
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    catalog
+        .file_mtime_subseconds
+        .retain(|path, _| current_paths.contains(path.as_str()));
+    record_changes(&catalog, previous, &mut report);
 
     // Analyses are keyed by path, so they simply travel: nothing to remap, and
     // nothing to lose. They are the one thing in a catalog that reading the
@@ -305,6 +416,109 @@ pub fn scan(
 
     report.elapsed_ms = started.elapsed().as_millis();
     Ok((catalog, report))
+}
+
+fn read_fresh(
+    path: &Path,
+    follow_symlinks: bool,
+    read_tags: impl FnOnce(&Path) -> Result<RawTags, tags::TagError>,
+) -> Result<(std::fs::Metadata, RawTags), tags::TagError> {
+    let before = file_metadata(path, follow_symlinks)?;
+    let tags = read_tags(path);
+    let after = file_metadata(path, follow_symlinks)?;
+    if !same_file_snapshot(&before, &after) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "file changed while its tags were read; scan again once it is stable",
+        )
+        .into());
+    }
+    tags.map(|tags| (after, tags))
+}
+
+fn file_metadata(path: &Path, follow_symlinks: bool) -> std::io::Result<std::fs::Metadata> {
+    let metadata = if follow_symlinks {
+        std::fs::metadata(path)?
+    } else {
+        std::fs::symlink_metadata(path)?
+    };
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "audio path is no longer an ordinary file",
+        ));
+    }
+    Ok(metadata)
+}
+
+fn same_file_snapshot(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+    if before.len() != after.len()
+        || before.modified().ok() != after.modified().ok()
+        || before.created().ok() != after.created().ok()
+    {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if before.dev() != after.dev() || before.ino() != after.ino() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Rebuilds a cached file without inspecting an inaccessible directory.
+fn cached_file(file: &model::AudioFile, folder_cover: Option<String>) -> ScannedFile {
+    ScannedFile {
+        path: file.path.clone(),
+        size: file.size,
+        mtime: file.mtime,
+        tags: RawTags {
+            fields: file.tags.clone(),
+            properties: file.properties.clone(),
+            has_embedded_art: file.has_embedded_art,
+        },
+        folder_cover,
+        sidecar: file.lyrics_path.clone(),
+        integrity: file.integrity.clone(),
+        fingerprint: file.fingerprint.clone(),
+    }
+}
+
+fn record_changes(catalog: &Catalog, previous: Option<&Catalog>, report: &mut ScanReport) {
+    let old: HashMap<&str, &model::AudioFile> = previous
+        .into_iter()
+        .flat_map(|catalog| &catalog.files)
+        .map(|file| (file.path.as_str(), file))
+        .collect();
+    let current: HashSet<&str> = catalog
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    for file in &catalog.files {
+        match old.get(file.path.as_str()) {
+            None => report.added_paths.push(file.path.clone()),
+            Some(old)
+                if old.size != file.size
+                    || old.mtime != file.mtime
+                    || previous
+                        .and_then(|catalog| catalog.file_mtime_subseconds.get(&file.path))
+                        != catalog.file_mtime_subseconds.get(&file.path) =>
+            {
+                report.changed_paths.push(file.path.clone());
+            }
+            _ => {}
+        }
+    }
+    report.removed_paths = old
+        .keys()
+        .filter(|path| !current.contains(**path))
+        .map(|path| (*path).to_string())
+        .collect();
+    report.removed_paths.sort();
+    report.removed = report.removed_paths.len();
 }
 
 /// Reads the reports found while walking, and merges what they hold.
@@ -372,6 +586,11 @@ struct Walker<'a> {
     /// Folders already visited, so as not to go round in circles on a
     /// circular symbolic link.
     visited: HashSet<PathBuf>,
+    /// Failed paths are evidence of an unavailable subtree, not its deletion.
+    failures: Vec<(String, String)>,
+    /// Native paths used for ancestor lookups. One failed subtree must not
+    /// trigger a scan of every recorded failure for every previous file.
+    inaccessible: HashSet<PathBuf>,
 }
 
 impl<'a> Walker<'a> {
@@ -383,7 +602,18 @@ impl<'a> Walker<'a> {
             folder_covers: HashMap::new(),
             sidecars: HashSet::new(),
             visited: HashSet::new(),
+            failures: Vec::new(),
+            inaccessible: HashSet::new(),
         }
+    }
+
+    fn failure(&mut self, path: &Path, reason: impl Into<String>) {
+        let spelling = path
+            .to_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{path:?}"));
+        self.failures.push((spelling, reason.into()));
+        self.inaccessible.insert(path.to_path_buf());
     }
 
     /// `true` when a folder is one the user asked never to read, or sits
@@ -411,34 +641,73 @@ impl<'a> Walker<'a> {
         let entries = match std::fs::read_dir(dir) {
             Ok(entries) => entries,
             // An unreadable folder must not interrupt the whole scan.
-            Err(_) => return Ok(()),
+            Err(error) => {
+                self.failure(dir, error.to_string());
+                return Ok(());
+            }
         };
 
         let mut best_cover: Option<(usize, PathBuf)> = None;
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
+        // Resolve directory aliases in a stable order. ReadDir order is not
+        // promised by the filesystem and otherwise decides which native path
+        // survives when two links reach the same directory.
+        let mut paths = Vec::new();
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    self.failure(dir, error.to_string());
+                    continue;
+                }
+            };
+            paths.push((entry.path(), entry.file_type()));
+        }
+        paths.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (path, file_type) in paths {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy())
+                .unwrap_or_default();
             if self.options.skip_hidden && name.starts_with('.') {
                 continue;
             }
-            let Ok(file_type) = entry.file_type() else {
+            if path.to_str().is_none() {
+                self.failure(
+                    &path,
+                    "path is not valid UTF-8 and cannot be stored without losing its identity",
+                );
                 continue;
+            }
+            let file_type = match file_type {
+                Ok(file_type) => file_type,
+                Err(error) => {
+                    self.failure(&path, error.to_string());
+                    continue;
+                }
             };
 
             if file_type.is_symlink() && !self.options.follow_symlinks {
                 continue;
             }
-            let is_dir = if file_type.is_symlink() {
-                std::fs::metadata(&path)
-                    .map(|m| m.is_dir())
-                    .unwrap_or(false)
+            let file_type = if file_type.is_symlink() {
+                match std::fs::metadata(&path) {
+                    Ok(metadata) => metadata.file_type(),
+                    Err(error) => {
+                        self.failure(&path, error.to_string());
+                        continue;
+                    }
+                }
             } else {
-                file_type.is_dir()
+                file_type
             };
 
-            if is_dir {
+            if file_type.is_dir() {
                 self.walk(&path)?;
+            } else if !file_type.is_file() {
+                // Opening a FIFO may wait forever; devices and sockets are
+                // not library audio regardless of their filename extension.
+                continue;
             } else if tags::is_audio_path(&path) {
                 self.audio_files.push(path);
             } else if name.to_ascii_lowercase().ends_with(".json")
@@ -455,7 +724,9 @@ impl<'a> Walker<'a> {
                 // questions with the answers already on the table.
                 self.sidecars.insert(path);
             } else if let Some(rank) = cover_rank(&name)
-                && best_cover.as_ref().map(|(r, _)| rank < *r).unwrap_or(true)
+                && best_cover
+                    .as_ref()
+                    .is_none_or(|(seen_rank, seen_path)| (rank, &path) < (*seen_rank, seen_path))
             {
                 best_cover = Some((rank, path));
             }
@@ -468,8 +739,6 @@ impl<'a> Walker<'a> {
     }
 }
 
-/// Preference rank of an image as cover art; `None` if it is not a usable
-/// image.
 /// The image already serving as cover art in a folder, if there is one.
 ///
 /// Reads the folder rather than the catalog, and shares its list of cover names with
@@ -487,7 +756,9 @@ pub fn cover_in(folder: &std::path::Path) -> Option<std::path::PathBuf> {
             continue;
         };
         if let Some(rank) = cover_rank(name)
-            && best.as_ref().is_none_or(|(seen, _)| rank < *seen)
+            && best
+                .as_ref()
+                .is_none_or(|(seen_rank, seen_path)| (rank, &path) < (*seen_rank, seen_path))
         {
             best = Some((rank, path));
         }

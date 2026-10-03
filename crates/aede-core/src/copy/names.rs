@@ -142,20 +142,53 @@ fn shorten(component: &str) -> String {
 /// that refuses. A counter is appended, before the extension, so the file
 /// stays playable.
 pub fn make_unique(name: &str, taken: &mut BTreeSet<String>) -> String {
-    if taken.insert(name.to_string()) {
+    unique(name, taken, false)
+}
+
+/// Reserves a component using conservative text matching for portable copies.
+/// Case, common composed/decomposed accents and punctuation are folded; this
+/// may distinguish more names than strictly required by the current volume.
+/// The set stores matching keys rather than the displayed names.
+pub(super) fn make_unique_portable(name: &str, taken: &mut BTreeSet<String>) -> String {
+    unique(name, taken, true)
+}
+
+pub(super) fn portable_key(name: &str) -> String {
+    // Remove combining marks before textual folding so an accent inside a
+    // word does not become a separator. Uppercase first also joins Unicode
+    // case variants such as sigma and final sigma. The filesystem preflight
+    // catches aliases outside this deliberately conservative vocabulary.
+    let unmarked: String = name.chars().filter(|character| !matches!(*character as u32,
+        0x0300..=0x036f | 0x1ab0..=0x1aff | 0x1dc0..=0x1dff | 0x20d0..=0x20ff | 0xfe20..=0xfe2f
+    )).collect();
+    crate::text::normalize(&unmarked.to_uppercase())
+}
+
+fn unique(name: &str, taken: &mut BTreeSet<String>, portable: bool) -> String {
+    let key = |name: &str| {
+        if portable {
+            portable_key(name)
+        } else {
+            name.to_string()
+        }
+    };
+    if taken.insert(key(name)) {
         return name.to_string();
     }
     let (stem, extension) = split_extension(name);
-    for n in 2..10_000 {
-        let candidate = format!("{stem} ({n}){extension}");
-        if taken.insert(candidate.clone()) {
+    for n in 2u64.. {
+        let suffix = format!(" ({n})");
+        let room = MAX_COMPONENT.saturating_sub(extension.len() + suffix.len());
+        let mut end = room.min(stem.len());
+        while end > 0 && !stem.is_char_boundary(end) {
+            end -= 1;
+        }
+        let candidate = format!("{}{suffix}{extension}", &stem[..end]);
+        if taken.insert(key(&candidate)) {
             return candidate;
         }
     }
-    // Ten thousand names differing only by what was replaced is not a library,
-    // it is a bug somewhere else; the name is left as it is rather than
-    // looping for ever.
-    name.to_string()
+    unreachable!("a filesystem cannot contain u64::MAX names")
 }
 
 /// Asks the destination itself what it accepts, by trying.
@@ -171,10 +204,18 @@ pub fn make_unique(name: &str, taken: &mut BTreeSet<String>) -> String {
 /// not have to costs a few odd characters, one that fails to adapt names it
 /// should have costs the run.
 pub fn restricts_names(destination: &std::path::Path) -> bool {
-    let probe = destination.join("aede-name-probe?.tmp");
-    let allowed = std::fs::write(&probe, b"").is_ok();
-    let _ = std::fs::remove_file(&probe);
-    !allowed
+    // Isolate the probe so an existing file (including a symlink) is never
+    // opened, replaced or removed. Its filename retains the questioned '?'.
+    let Ok(temporary) = super::TemporaryOutput::new(&destination.join("aede-name-probe?.tmp"))
+    else {
+        return true;
+    };
+    let probe = temporary.path().with_file_name("name?.tmp");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(probe)
+        .is_err()
 }
 
 #[cfg(test)]

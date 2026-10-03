@@ -19,6 +19,10 @@ pub mod mp4;
 pub mod ogg;
 pub mod riff;
 
+#[cfg(test)]
+#[path = "test_support.rs"]
+mod test_support;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 

@@ -12,7 +12,7 @@ The catalog is the snapshot taken on the backup date. Run scan afterward to reco
 aede restore <file>
 ```
 
-One existing Aède backup file; not a music folder, CSV or FlacCompagnon report.
+Exactly one existing ordinary Aède backup file; not a music folder, special file, CSV or FlacCompagnon report. Additional positional arguments are refused.
 
 ## Options for this command
 
@@ -31,7 +31,9 @@ aede restore aede-backup.aede
 
 ## Result and errors
 
-Before confirmation, each store says whether it will replace current data, create a missing store or be left untouched. Completion counts restored stores, reports the catalog snapshot date and warns about watched roots absent on this machine. Mount those roots before scanning. Refusing confirmation returns “nothing was restored”; an unreadable bundle or no compatible stores is an error. Stores are written separately: an I/O failure after one write may leave part of the restoration applied. Keep a backup of the current data and stop concurrent writers first; this is not a single transaction across every store.
+Before confirmation, each store says whether it will replace current data, create a missing store or be left untouched. Every included destination is checked first: final links and non-regular files are refused, and the input archive cannot be one of the stores being replaced. A known-invalid later destination therefore leaves all current stores intact. Invalid or unsupported parts remain individually skippable; supported parts can still be restored.
+
+Completion counts restored stores, reports the catalog snapshot date and warns about watched roots absent on this machine. Mount those roots before scanning so their entries can be refreshed; a temporarily unavailable root is retained without refresh. Refusing confirmation returns “nothing was restored”; an unreadable bundle or no compatible stores is an error. Each store is replaced atomically on its own, but an unexpected I/O failure after one publication may still leave part of the restoration applied. Keep a backup of the current data and stop concurrent writers first; this is not a single transaction across every store.
 
 ## Related reading
 

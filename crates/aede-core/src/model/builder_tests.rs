@@ -8,6 +8,73 @@ use super::*;
 use crate::model::tests::{example_catalog, first_release, track};
 
 #[test]
+fn repeated_genre_spellings_do_not_duplicate_track_links() {
+    let catalog = build(
+        vec![track(
+            "/m/Record/01.flac",
+            &[
+                ("title", "Song"),
+                ("artist", "Band"),
+                ("album", "Record"),
+                ("genre", "Rock;Rock"),
+                ("genre", "rock;Jazz"),
+            ],
+            60_000,
+        )],
+        vec!["/m".into()],
+        0,
+        &[],
+    );
+    let names: Vec<_> = catalog
+        .genres_of(EntityKind::Track, catalog.tracks[0].id)
+        .into_iter()
+        .map(|genre| genre.name.as_str())
+        .collect();
+    assert_eq!(names, ["Rock", "Jazz"]);
+    assert_eq!(
+        catalog
+            .genres_of(EntityKind::Release, catalog.releases[0].id)
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn compilation_tags_distinguish_false_true_and_absent_values() {
+    for value in [
+        None,
+        Some("0"),
+        Some("false"),
+        Some("no"),
+        Some("1"),
+        Some("true"),
+        Some("yes"),
+    ] {
+        let mut fields = vec![
+            ("artist", "An Artist"),
+            ("albumartist", "An Artist"),
+            ("album", "An Album"),
+        ];
+        if let Some(value) = value {
+            fields.push(("compilation", value));
+        }
+        let catalog = build(
+            vec![track("/music/Album/01.flac", &fields, 1_000)],
+            vec!["/music".into()],
+            0,
+            &[],
+        );
+        let expected = matches!(value, Some("1" | "true" | "yes"));
+        assert_eq!(catalog.releases[0].is_compilation, expected, "{value:?}");
+        assert_eq!(
+            catalog.releases[0].album_artist_id.is_none(),
+            expected,
+            "{value:?}"
+        );
+    }
+}
+
+#[test]
 fn windows_folders_separate_editions_and_fold_discs_without_changing_paths() {
     let make = |path: &str| {
         super::super::tests::track(
@@ -438,11 +505,40 @@ fn title_inferred_from_filename() {
 
 #[test]
 fn deterministic_build() {
-    let a = example_catalog();
-    let b = example_catalog();
-    let names_a: Vec<&str> = a.artists.iter().map(|x| x.name.as_str()).collect();
-    let names_b: Vec<&str> = b.artists.iter().map(|x| x.name.as_str()).collect();
-    assert_eq!(names_a, names_b, "identifiers must be stable");
+    let original = example_catalog();
+    let mut input: Vec<ScannedFile> = original
+        .files
+        .iter()
+        .map(|file| ScannedFile {
+            path: file.path.clone(),
+            size: file.size,
+            mtime: file.mtime,
+            tags: RawTags {
+                fields: file.tags.clone(),
+                properties: file.properties.clone(),
+                has_embedded_art: file.has_embedded_art,
+            },
+            folder_cover: None,
+            sidecar: file.lyrics_path.clone(),
+            integrity: file.integrity.clone(),
+            fingerprint: file.fingerprint.clone(),
+        })
+        .collect();
+    let expected = crate::store::to_json(&build(input.clone(), original.roots.clone(), 0, &[]));
+    for _ in 0..input.len() {
+        input.rotate_left(1);
+        let reordered = build(input.clone(), original.roots.clone(), 0, &[]);
+        assert_eq!(
+            crate::store::to_json(&reordered),
+            expected,
+            "all entity identifiers and relationships must be stable"
+        );
+    }
+    input.reverse();
+    assert_eq!(
+        crate::store::to_json(&build(input, original.roots, 0, &[])),
+        expected
+    );
 }
 
 #[test]

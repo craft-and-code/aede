@@ -23,10 +23,13 @@ pub fn playlist(args: &Args) -> Res {
         false => Style::Extended,
     };
 
-    let mut wanted: Vec<(PathBuf, String)> = albums(&catalog, &scope, style);
+    let mut folders = albums(&catalog, &scope);
     if args.has("artists") {
-        wanted.extend(discographies(&catalog, &scope, style));
+        for (folder, tracks) in discographies(&catalog, &scope) {
+            folders.entry(folder).or_default().extend(tracks);
+        }
     }
+    let wanted = render_folders(&catalog, folders, style)?;
 
     println!("{}", ui::section("Playlists"));
     if wanted.is_empty() {
@@ -63,14 +66,22 @@ pub fn playlist(args: &Args) -> Res {
     let mut written = 0usize;
     let mut failures: Vec<(String, String)> = Vec::new();
     for (path, text) in &to_write {
-        match std::fs::write(path, text) {
+        match playlist::write_atomic(path, text) {
             Ok(()) => written += 1,
             Err(e) => failures.push((path.display().to_string(), e.to_string())),
         }
     }
     summarise(0, written, current.len(), &failures);
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{} playlist(s) could not be written", failures.len()).into())
+    }
 }
+
+#[cfg(test)]
+#[path = "playlist_tests.rs"]
+mod tests;
 
 fn summarise(planned: usize, written: usize, current: usize, failures: &[(String, String)]) {
     let mut t = Table::plain(2).align(1, Align::Right);
@@ -102,8 +113,8 @@ fn lines(text: &str) -> usize {
 }
 
 /// One playlist per album folder, holding that album in its own order.
-fn albums(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(PathBuf, String)> {
-    let mut out = Vec::new();
+fn albums(catalog: &Catalog, scope: &[String]) -> BTreeMap<PathBuf, Vec<Id>> {
+    let mut by_folder: BTreeMap<PathBuf, Vec<Id>> = BTreeMap::new();
     for release in &catalog.releases {
         if !super::in_scope(&release.folder, scope) {
             continue;
@@ -113,13 +124,30 @@ fn albums(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(PathBuf, St
         // the discs — which is exactly the file somebody wants when the tracks
         // are numbered 1..17 twice over.
         let folder = PathBuf::from(&release.folder);
-        let text = playlist::render(catalog, &release.track_ids, Some(&folder), style);
+        by_folder
+            .entry(folder)
+            .or_default()
+            .extend(&release.track_ids);
+    }
+    by_folder
+}
+
+fn render_folders(
+    catalog: &Catalog,
+    folders: BTreeMap<PathBuf, Vec<Id>>,
+    style: Style,
+) -> Result<Vec<(PathBuf, String)>, String> {
+    let mut out = Vec::new();
+    for (folder, mut tracks) in folders {
+        let mut seen = std::collections::BTreeSet::new();
+        tracks.retain(|id| seen.insert(*id));
+        let text = playlist::try_render(catalog, &tracks, Some(&folder), style)?;
         if lines(&text) == 0 {
             continue;
         }
         out.push((folder.join(playlist::file_name(&folder)), text));
     }
-    out
+    Ok(out)
 }
 
 /// One playlist per artist folder, holding every album of that artist in order.
@@ -129,7 +157,7 @@ fn albums(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(PathBuf, St
 /// one, or share only a watched root, nothing is written: a library laid out
 /// flat would otherwise get one playlist per artist dumped in its root, which
 /// is not tidying but littering.
-fn discographies(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(PathBuf, String)> {
+fn discographies(catalog: &Catalog, scope: &[String]) -> BTreeMap<PathBuf, Vec<Id>> {
     let mut by_artist: BTreeMap<Id, Vec<&aede_core::model::Release>> = BTreeMap::new();
     for release in &catalog.releases {
         if let Some(artist) = release.album_artist_id
@@ -140,8 +168,8 @@ fn discographies(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(Path
     }
 
     let roots: Vec<&str> = catalog.roots.iter().map(String::as_str).collect();
-    let mut out = Vec::new();
-    for (_, mut releases) in by_artist {
+    let mut by_folder: BTreeMap<PathBuf, Vec<&aede_core::model::Release>> = BTreeMap::new();
+    for (_, releases) in by_artist {
         let Some(folder) = super::shared_folder(&releases) else {
             continue;
         };
@@ -152,21 +180,22 @@ fn discographies(catalog: &Catalog, scope: &[String], style: Style) -> Vec<(Path
         if roots.contains(&name.as_str()) || releases.iter().any(|r| r.folder == name) {
             continue;
         }
-        // Chronological, which is the order a discography is read in; the
-        // title breaks a tie so that two records of the same year come out the
-        // same way on every machine.
-        releases.sort_by(|a, b| {
-            a.year
-                .unwrap_or(0)
-                .cmp(&b.year.unwrap_or(0))
-                .then_with(|| a.title.cmp(&b.title))
-        });
-        let tracks: Vec<Id> = releases.iter().flat_map(|r| r.track_ids.clone()).collect();
-        let text = playlist::render(catalog, &tracks, Some(&folder), style);
-        if lines(&text) == 0 {
-            continue;
-        }
-        out.push((folder.join(playlist::file_name(&folder)), text));
+        by_folder.entry(folder).or_default().extend(releases);
     }
-    out
+    by_folder
+        .into_iter()
+        .map(|(folder, mut releases)| {
+            // Chronological, which is the order a discography is read in; the
+            // title breaks a tie so that two records of the same year come out the
+            // same way on every machine.
+            releases.sort_by(|a, b| {
+                a.year
+                    .unwrap_or(0)
+                    .cmp(&b.year.unwrap_or(0))
+                    .then_with(|| a.title.cmp(&b.title))
+            });
+            let tracks: Vec<Id> = releases.iter().flat_map(|r| r.track_ids.clone()).collect();
+            (folder, tracks)
+        })
+        .collect()
 }

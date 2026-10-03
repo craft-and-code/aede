@@ -4,6 +4,8 @@ track cherche un titre local et montre position dans l’édition, propriétés,
 
 --lyrics affiche les paroles intégrées ou .lrc sans rien télécharger. --json sépare crédits locaux, crédits sourcés d’enregistrement/œuvre, édition exacte et provenance d’œuvre parente. Les analyses importées sont attribuées, pas présentées comme fraîchement mesurées.
 
+Le JSON est écrit dans le terminal, ou dans le fichier demandé avec `--output`, avec les mêmes champs détaillés. Tous les formats utilisent les mêmes pistes sélectionnées après filtrage et pagination.
+
 Continue ouvre enregistrement, œuvres, album et artistes. Un enregistrement identifie une interprétation ; une piste la place dans une édition. CSV/M3U utilisent les fichiers correspondants. Ajouter artiste/album devant trop d’homonymes plutôt que supposer la première bonne édition.
 
 ## Syntaxe et arguments
@@ -23,7 +25,7 @@ Titre de piste d’abord, puis filtres de noms.
 | `--output FILE / -o FILE` | Écrire l’export dans FICHIER plutôt que dans le terminal. Une sélection exige --csv, --json ou --m3u ; les exports propres à une commande suivent leurs règles. |
 | `--artist NAME` | Filtrer par nom d’artiste avec albums/track ; avec credit, nommer la personne créditée. Les noms composés sont acceptés. |
 | `--comment TEXT` | Filtrer le commentaire des fichiers. Ce sont des métadonnées intégrées, distinctes des notes personnelles. |
-| `--limit N` | Afficher au plus N lignes ; entier strictement positif. La limite par défaut dépend de la page, généralement 50. |
+| `--limit N` | Afficher au plus N pistes correspondantes ; entier strictement positif. La limite par défaut est 10. |
 | `--offset N` | Ignorer N lignes avant le résultat ; N commence à 0. L’ordre reste déterministe. |
 | `--all` | Afficher toutes les lignes. Incompatible avec --limit. Certaines commandes incluent aussi des catégories habituellement masquées, précisées ci-dessous. |
 | `--json / -j` | Produire le résultat structuré JSON. Avec analyze, enregistrer des rapports plutôt que changer l’affichage du terminal. |

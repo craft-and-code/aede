@@ -27,6 +27,23 @@ fn a_timed_line_gives_up_its_moment() {
 }
 
 #[test]
+fn an_unrepresentable_timestamp_stays_readable_as_plain_lyrics() {
+    for raw in [
+        "[9223372036854775807:00]all aboard",
+        "[00:9223372036854775807]all aboard",
+        "[-9223372036854775808:00]all aboard",
+    ] {
+        assert_eq!(
+            parse(raw),
+            vec![Line {
+                at_ms: None,
+                text: raw.into()
+            }]
+        );
+    }
+}
+
+#[test]
 fn a_chorus_timed_twice_appears_twice() {
     // `[00:12][01:44] the chorus` is one line sung twice, and a reader that
     // kept only the first would leave a player silent at its second turn.
@@ -35,6 +52,80 @@ fn a_chorus_timed_twice_appears_twice() {
     assert_eq!(lines[0].at_ms, Some(12_000));
     assert_eq!(lines[1].at_ms, Some(104_000));
     assert_eq!(lines[0].text, lines[1].text);
+}
+
+#[test]
+fn an_overexpanded_chorus_stays_literal_without_losing_the_following_line() {
+    let raw = format!("{}{}", "[00:01]".repeat(512), "words ".repeat(700));
+    let lines = parse(&format!("{raw}\n[00:02]after"));
+    assert_eq!(
+        lines.len(),
+        2,
+        "one literal chorus and its following timed line"
+    );
+    assert_eq!(
+        lines,
+        vec![
+            Line {
+                at_ms: None,
+                text: raw
+            },
+            Line {
+                at_ms: Some(2000),
+                text: "after".into()
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_expansion_budget_is_shared_and_preserves_later_plain_text() {
+    let chorus = format!("{}{}", "[00:01]".repeat(512), "x".repeat(1024));
+    let raw = format!("{chorus}\n{chorus}\n{chorus}\nafter");
+    let lines = parse(&raw);
+    assert!(lines.iter().map(|line| line.text.len()).sum::<usize>() <= 1024 * 1024);
+    assert_eq!(
+        lines.iter().filter(|line| line.at_ms.is_some()).count(),
+        512
+    );
+    assert_eq!(
+        lines[512],
+        Line {
+            at_ms: None,
+            text: chorus.clone()
+        }
+    );
+    assert_eq!(
+        lines[513],
+        Line {
+            at_ms: None,
+            text: chorus
+        }
+    );
+    assert_eq!(lines.last().unwrap().text, "after");
+}
+
+#[test]
+fn large_tags_keep_a_proportional_budget_for_normal_timed_lines() {
+    let chorus = format!("{}{}", "[00:01]".repeat(48), "x".repeat(16 * 1024));
+    let raw = format!("{}\n{chorus}", "plain".repeat(62 * 1024));
+    let lyrics = from_tag("track.flac", &raw).unwrap();
+    assert_eq!(lyrics.lines.len(), 49);
+    assert_eq!(
+        lyrics
+            .lines
+            .iter()
+            .filter(|line| line.at_ms.is_some())
+            .count(),
+        48
+    );
+    let bytes = lyrics
+        .lines
+        .iter()
+        .map(|line| line.text.len())
+        .sum::<usize>();
+    assert!(bytes > 1024 * 1024);
+    assert!(bytes <= raw.len() * 4);
 }
 
 #[test]
@@ -94,9 +185,12 @@ fn a_sidecar_sits_beside_its_track_under_the_same_name() {
 
 #[test]
 fn a_sidecar_is_read_bounded_and_a_missing_one_is_no_error() {
-    let dir = std::env::temp_dir().join("aede_lyrics_read");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("aede_lyrics_read_{}_{nonce}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
     assert!(read(&dir.join("gone.lrc")).is_none());
 
     let path = dir.join("song.lrc");
@@ -117,5 +211,40 @@ fn a_sidecar_is_read_bounded_and_a_missing_one_is_no_error() {
     std::fs::write(&huge, "x\n".repeat(LIMIT)).unwrap();
     let lyrics = read(&huge).expect("lyrics");
     assert!(lyrics.text().len() <= LIMIT, "{}", lyrics.text().len());
+
+    // Lossy decoding can expand Latin-1 bytes; the sidecar still has a fixed
+    // expansion budget based on the bounded disk input.
+    let expanded = dir.join("expanded.lrc");
+    let mut bytes = vec![0xFF; 128 * 1024];
+    bytes.push(b'\n');
+    let chorus = format!("{}{}", "[00:01]".repeat(32), "x".repeat(32 * 1024));
+    bytes.extend_from_slice(chorus.as_bytes());
+    std::fs::write(&expanded, bytes).unwrap();
+    let lyrics = read(&expanded).expect("lyrics");
+    assert!(!lyrics.synced());
+    assert_eq!(lyrics.lines.len(), 2);
+    assert_eq!(lyrics.lines[1].text, chorus);
+    assert!(
+        lyrics
+            .lines
+            .iter()
+            .map(|line| line.text.len())
+            .sum::<usize>()
+            <= 1024 * 1024
+    );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn sidecar_errors_after_the_read_limit_do_not_hide_the_lyrics_prefix() {
+    struct UnreadableTail;
+    impl std::io::Read for UnreadableTail {
+        fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("must not read past the lyrics limit"))
+        }
+    }
+    let prefix = "x".repeat(LIMIT);
+    let reader = std::io::Cursor::new(prefix.as_bytes()).chain(UnreadableTail);
+    let text = read_text(reader).expect("the requested lyrics prefix is fully readable");
+    assert_eq!(text, prefix);
 }

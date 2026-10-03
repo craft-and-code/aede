@@ -862,16 +862,11 @@ fn release_size(catalog: &Catalog, release_id: Id) -> u64 {
                 .filter_map(|&id| catalog.track(id))
                 .filter_map(|t| catalog.file(t.file_id))
                 .map(|f| f.size)
-                .sum()
+                .fold(0u64, u64::saturating_add)
         })
         .unwrap_or(0)
 }
 
-/// Two tracks are considered duplicates if the same artist and the same title
-/// come back with a close duration (less than 3 seconds apart).
-///
-/// The duration is decisive: without it, a live rendition would be reported as
-/// a duplicate of the studio version.
 /// Files whose fingerprints are identical: the same audio, whatever the tags
 /// say about it.
 ///
@@ -899,7 +894,11 @@ fn check_same_audio(catalog: &Catalog, issues: &mut Vec<Issue>) {
         }
         // Everything after the first is what could go, which is the number a
         // reader is actually deciding about.
-        let wasted: u64 = files.iter().skip(1).map(|f| f.size).sum();
+        let wasted = files
+            .iter()
+            .skip(1)
+            .map(|f| f.size)
+            .fold(0u64, u64::saturating_add);
         issues.push(Issue {
             kind: IssueKind::SameAudio,
             detail: format!(
@@ -912,6 +911,10 @@ fn check_same_audio(catalog: &Catalog, issues: &mut Vec<Issue>) {
     }
 }
 
+/// Suggests copies with matching tagged artist/title and readable durations.
+///
+/// Filename-derived titles are not identity evidence. A group spans at most
+/// three seconds, so intermediate durations cannot join different versions.
 fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
     let mut groups: BTreeMap<(String, String), Vec<(Id, u64)>> = BTreeMap::new();
 
@@ -919,15 +922,16 @@ fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
         let Some(file) = catalog.file(track.file_id) else {
             continue;
         };
+        let Some(duration) = track.duration_ms.filter(|duration| *duration > 0) else {
+            continue;
+        };
         let artist = file.first_tag("artist").unwrap_or("");
-        let key = (text::normalize(artist), text::normalize(&track.title));
-        if key.1.is_empty() {
+        let title = file.first_tag("title").unwrap_or("");
+        let key = (text::normalize(artist), text::normalize(title));
+        if key.0.is_empty() || key.1.is_empty() {
             continue;
         }
-        groups
-            .entry(key)
-            .or_default()
-            .push((track.id, track.duration_ms.unwrap_or(0)));
+        groups.entry(key).or_default().push((track.id, duration));
     }
 
     for ((artist, title), mut entries) in groups {
@@ -936,12 +940,13 @@ fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
         }
         entries.sort_by_key(|&(_, duration)| duration);
 
-        // Tracks whose durations follow each other closely are grouped.
+        // Every member must be close to the shortest version. Comparing only
+        // neighbours would chain studio and live performances into one group.
         let mut cluster: Vec<(Id, u64)> = vec![entries[0]];
         let mut clusters: Vec<Vec<(Id, u64)>> = Vec::new();
         for &entry in &entries[1..] {
-            let last = cluster.last().map(|&(_, d)| d).unwrap_or(0);
-            if entry.1.abs_diff(last) <= 3_000 {
+            let first = cluster.first().map(|&(_, d)| d).unwrap_or(0);
+            if entry.1.abs_diff(first) <= 3_000 {
                 cluster.push(entry);
             } else {
                 clusters.push(std::mem::take(&mut cluster));
@@ -969,7 +974,7 @@ fn check_duplicates(catalog: &Catalog, issues: &mut Vec<Issue>) {
                 .filter_map(|&(id, _)| catalog.track(id))
                 .filter_map(|t| catalog.file(t.file_id))
                 .map(|f| f.size)
-                .sum();
+                .fold(0u64, u64::saturating_add);
             issues.push(Issue {
                 kind: IssueKind::DuplicateTrack,
                 detail: format!(
@@ -1046,7 +1051,12 @@ fn check_releases(catalog: &Catalog, issues: &mut Vec<Issue>) {
             // A total smaller than what is present is a wrong tag, not a
             // missing track, so the ceiling is whichever of the two is larger.
             let max = last.max(announced);
-            let missing: Vec<u32> = (1..=max).filter(|n| !numbers.contains(n)).collect();
+            // Only twelve positions and an ellipsis are displayed. Totals
+            // come from untrusted tags and must not allocate billions of rows.
+            let missing: Vec<u32> = (1..=max)
+                .filter(|n| numbers.binary_search(n).is_err())
+                .take(13)
+                .collect();
             if !missing.is_empty() {
                 let list: Vec<String> = missing.iter().take(12).map(|n| n.to_string()).collect();
                 issues.push(Issue {
@@ -1090,6 +1100,7 @@ fn check_releases(catalog: &Catalog, issues: &mut Vec<Issue>) {
             // releases, each of which would otherwise report the other as
             // missing. Look for it in the library before calling it lost.
             .filter(|n| !sibling.is_some_and(|discs| discs.contains(n)))
+            .take(13)
             .collect();
         if !missing.is_empty() {
             let list: Vec<String> = missing.iter().take(12).map(|n| n.to_string()).collect();

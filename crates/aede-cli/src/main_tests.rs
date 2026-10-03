@@ -8,6 +8,30 @@
 use super::*;
 
 #[test]
+fn scan_previews_and_note_reads_do_not_take_a_writer_lock() {
+    let args = args::Args::parse(vec!["scan".into(), "--dry-run".into()]);
+    assert!(!mutates_store_with_args("scan", &args));
+    let args = args::Args::parse(vec!["notes".into(), "--waiting".into()]);
+    assert!(!mutates_store_with_args("notes", &args));
+    for option in ["import", "relink", "undo-relink"] {
+        let args = args::Args::parse(vec!["notes".into(), format!("--{option}=value")]);
+        assert!(
+            mutates_store_with_args("notes", &args),
+            "{option} must hold the lock"
+        );
+        let args = args::Args::parse(vec![
+            "notes".into(),
+            format!("--{option}=value"),
+            "--dry-run".into(),
+        ]);
+        assert!(
+            !mutates_store_with_args("notes", &args),
+            "{option} preview is read-only"
+        );
+    }
+}
+
+#[test]
 fn every_store_writer_and_the_backup_hold_the_data_lock() {
     for command in [
         "scan",

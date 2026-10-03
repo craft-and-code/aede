@@ -10,9 +10,10 @@ use aede_core::model::{Artist, Catalog, EntityKind, Id};
 use aede_core::text;
 
 use super::{
-    Res, copy_marker, load, role_key, role_label, roles_offered, selection_output, totals,
+    Res, announce_window, copy_marker, load, role_key, role_label, roles_offered, selection_output,
+    totals,
 };
-use crate::args::Args;
+use crate::args::{Args, Window};
 use crate::ui::{self, Align, Table};
 
 /// The one artist a name reaches, or an error naming the several it reaches.
@@ -166,6 +167,35 @@ pub fn show_artist(args: &Args) -> Res {
     if name.trim().is_empty() {
         return Err("give a name: aede artist \"Miles Davis\"".into());
     }
+    let window = args.window(50)?;
+    let questions: Vec<_> = ["with", "members", "role"]
+        .into_iter()
+        .filter(|option| args.has(option))
+        .collect();
+    if questions.len() > 1 {
+        return Err(format!(
+            "choose one artist question: {} cannot be combined",
+            questions
+                .iter()
+                .map(|option| format!("--{option}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+        .into());
+    }
+    if args.has("members") && !["csv", "json", "m3u"].iter().any(|option| args.has(option)) {
+        super::refuse_output_without_a_format(args)?;
+    }
+    if args.has("members")
+        && ["csv", "json", "m3u", "output", "limit", "offset", "all"]
+            .iter()
+            .any(|option| args.has(option))
+    {
+        return Err(
+            "--members is a dated membership page; export and pagination options are not supported"
+                .into(),
+        );
+    }
     let held = super::sources_held(args)?;
     let contributors = contributors::sourced(&catalog, &held);
     let artist = match resolve_artist(&catalog, &contributors, &name)? {
@@ -198,11 +228,13 @@ pub fn show_artist(args: &Args) -> Res {
 
     // The tracks the artist is audible on, which is what one wants to hear or
     // to tabulate.
-    if let Some(result) = selection_output(
-        &catalog,
-        &catalog.performed_tracks_of_artist(artist.id),
-        args,
-    ) {
+    let selected: Vec<Id> = catalog
+        .performed_tracks_of_artist(artist.id)
+        .into_iter()
+        .skip(window.offset)
+        .take(window.limit)
+        .collect();
+    if let Some(result) = selection_output(&catalog, &selected, args) {
         return result;
     }
     // Reached only when none of `--csv`, `--json` or `--m3u` was given, so
@@ -279,10 +311,20 @@ pub fn show_artist(args: &Args) -> Res {
 
     let genres = collect_genres_for_artist(&catalog, artist.id);
     if !genres.is_empty() {
-        println!("  {} {}", ui::dim("genres:"), genres.join(", "));
+        println!(
+            "  {} {}",
+            ui::dim("genres:"),
+            ui::literal(&genres.join(", "))
+        );
     }
 
-    print_release_table(&catalog, "Discography", &own, TrackColumn::WholeRelease);
+    print_release_table(
+        &catalog,
+        "Discography",
+        &own,
+        TrackColumn::WholeRelease,
+        window,
+    );
     // Under *this* table and no other. It was under the last one printed,
     // which is "Appears on" — so a line about the records that are theirs sat
     // beneath a table of records that are not, and read as being about it.
@@ -305,12 +347,14 @@ pub fn show_artist(args: &Args) -> Res {
             header: "Tracks here",
             artist_id,
         },
+        window,
     );
     print_release_table(
         &catalog,
         "Written or produced, without performing on it",
         &written_elsewhere,
         TrackColumn::WholeRelease,
+        window,
     );
 
     let neighbours = catalog.neighbours_of_artist(artist.id);
@@ -319,10 +363,16 @@ pub fn show_artist(args: &Args) -> Res {
         let mut t = Table::new(&["Artist", "Tracks in common"])
             .align(1, Align::Right)
             .limit(0, 40);
-        for (other, weight, _) in neighbours.iter().take(args.number_or("limit", 20)?) {
+        let neighbours_window = args.window(20)?;
+        for (other, weight, _) in neighbours
+            .iter()
+            .skip(neighbours_window.offset)
+            .take(neighbours_window.limit)
+        {
             t.push(vec![other.name.clone(), weight.to_string()]);
         }
         print!("{}", t.render());
+        announce_window(neighbours_window, neighbours.len(), "collaborator");
         println!(
             "{}",
             ui::dim("  (inferred from the credits found in tags; MusicBrainz will enrich these)")
@@ -590,7 +640,13 @@ enum TrackColumn {
 }
 
 /// Renders one of the artist page's release tables.
-fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: TrackColumn) {
+fn print_release_table(
+    catalog: &Catalog,
+    title: &str,
+    ids: &[Id],
+    column: TrackColumn,
+    window: Window,
+) {
     if ids.is_empty() {
         return;
     }
@@ -605,7 +661,8 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
         ids.iter().filter_map(|&id| catalog.release(id)).collect();
     list.sort_by_key(|r| (r.year.unwrap_or(u32::MAX), r.title.clone()));
 
-    for release in list {
+    let total = list.len();
+    for release in list.into_iter().skip(window.offset).take(window.limit) {
         // The whole row describes the same set of tracks. Counting one track
         // and timing the entire album made a guest appearance of one song look
         // like forty minutes of music.
@@ -638,6 +695,7 @@ fn print_release_table(catalog: &Catalog, title: &str, ids: &[Id], column: Track
         ]);
     }
     print!("{}", t.render());
+    announce_window(window, total, "album");
 }
 
 fn collect_genres_for_artist(catalog: &Catalog, artist_id: Id) -> Vec<String> {
@@ -693,7 +751,7 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
         }
         .into());
     };
-    let tracks = catalog.tracks_of_artist_in_role(artist_id, &role);
+    let tracks = tracks_in_page_order(catalog, &catalog.tracks_of_artist_in_role(artist_id, &role));
     if tracks.is_empty() {
         return Err(match listed.is_empty() {
             true => format!("{name} carries no credit at all"),
@@ -706,7 +764,14 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
         .into());
     }
 
-    if let Some(result) = selection_output(catalog, &tracks, args) {
+    let window = args.window(50)?;
+    let selected: Vec<Id> = tracks
+        .iter()
+        .copied()
+        .skip(window.offset)
+        .take(window.limit)
+        .collect();
+    if let Some(result) = selection_output(catalog, &selected, args) {
         return result;
     }
     // Reached only when none of `--csv`, `--json` or `--m3u` was given, so
@@ -716,19 +781,17 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
         catalog,
         &format!("{name} as {}", role_label(&role)),
         &tracks,
+        args,
     )
 }
 
 fn print_tracks_in_common(args: &Args, catalog: &Catalog, artist_id: Id, wanted: &str) -> Res {
-    // `--with` has no `--csv`/`--json`/`--m3u` form of its own to hand
-    // `--output` to; it is a page, and always has been. Checked before the
-    // other artist is even resolved, the same order `--members` refuses in:
-    // an option that cannot be honoured is refused whether or not the rest
-    // of the command would have gone on to succeed.
-    super::refuse_output_without_a_format(args)?;
+    if !["csv", "json", "m3u"].iter().any(|option| args.has(option)) {
+        super::refuse_output_without_a_format(args)?;
+    }
     let other = one_artist(catalog, wanted)?;
 
-    let tracks = catalog.tracks_in_common(artist_id, other.id);
+    let tracks = tracks_in_page_order(catalog, &catalog.tracks_in_common(artist_id, other.id));
     let here = catalog
         .artist(artist_id)
         .map(|a| a.name.clone())
@@ -740,26 +803,67 @@ fn print_tracks_in_common(args: &Args, catalog: &Catalog, artist_id: Id, wanted:
         )
         .into());
     }
+    let window = args.window(50)?;
+    let selected: Vec<Id> = tracks
+        .iter()
+        .copied()
+        .skip(window.offset)
+        .take(window.limit)
+        .collect();
+    if let Some(result) = selection_output(catalog, &selected, args) {
+        return result;
+    }
+    super::refuse_output_without_a_format(args)?;
     print_track_table(
         catalog,
         &format!("{here} and {} on the same track", other.name),
         &tracks,
+        args,
     )
 }
 
-/// One table of tracks, with the three measures under it.
-///
-/// Shared by every way of narrowing an artist page down to a track list — the
-/// tracks two people share, the tracks one of them holds a role on — because a
-/// track list is a track list, and two renderings of it would drift apart.
-fn print_track_table(catalog: &Catalog, heading: &str, tracks: &[Id]) -> Res {
+/// The chronological order shared by narrowed human and exported track pages.
+/// Catalog IDs follow file paths; slicing those IDs before the human sort
+/// would put different tracks on the same numbered page of an export.
+fn tracks_in_page_order(catalog: &Catalog, tracks: &[Id]) -> Vec<Id> {
+    let mut rows: Vec<_> = tracks.iter().filter_map(|&id| catalog.track(id)).collect();
+    rows.sort_by(|left, right| {
+        let left_release = left.release_id.and_then(|id| catalog.release(id));
+        let right_release = right.release_id.and_then(|id| catalog.release(id));
+        left_release
+            .and_then(|release| release.year)
+            .unwrap_or(u32::MAX)
+            .cmp(
+                &right_release
+                    .and_then(|release| release.year)
+                    .unwrap_or(u32::MAX),
+            )
+            .then_with(|| {
+                left_release
+                    .map(|release| release.title.as_str())
+                    .unwrap_or_default()
+                    .cmp(
+                        right_release
+                            .map(|release| release.title.as_str())
+                            .unwrap_or_default(),
+                    )
+            })
+            .then_with(|| left.title.cmp(&right.title))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    rows.into_iter().map(|track| track.id).collect()
+}
+
+/// One ordered track table, with totals for the complete matching selection.
+fn print_track_table(catalog: &Catalog, heading: &str, tracks: &[Id], args: &Args) -> Res {
+    let window = args.window(50)?;
     println!("{}", ui::section(heading));
     let mut t = Table::new(&["Year", "Album", "Track", "Duration", "Size", "Format"])
         .align(3, Align::Right)
         .align(4, Align::Right)
         .limit(1, 32)
         .limit(2, 36);
-    let mut rows: Vec<(Option<u32>, String, String, u64, u64, String)> = tracks
+    let rows: Vec<(Option<u32>, String, String, u64, u64, String)> = tracks
         .iter()
         .filter_map(|&id| catalog.track(id))
         .map(|track| {
@@ -776,17 +880,12 @@ fn print_track_table(catalog: &Catalog, heading: &str, tracks: &[Id]) -> Res {
             )
         })
         .collect();
-    rows.sort_by(|a, b| {
-        a.0.unwrap_or(u32::MAX)
-            .cmp(&b.0.unwrap_or(u32::MAX))
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.cmp(&b.2))
-    });
 
-    let (mut duration, mut size) = (0u64, 0u64);
-    for (year, album, title, track_ms, bytes, format) in rows {
-        duration += track_ms;
-        size += bytes;
+    let total = rows.len();
+    let (duration, size) = totals(catalog, tracks);
+    for (year, album, title, track_ms, bytes, format) in
+        rows.into_iter().skip(window.offset).take(window.limit)
+    {
         t.push(vec![
             year.map(|y| y.to_string()).unwrap_or_else(|| "—".into()),
             album,
@@ -797,6 +896,7 @@ fn print_track_table(catalog: &Catalog, heading: &str, tracks: &[Id]) -> Res {
         ]);
     }
     print!("{}", t.render());
+    announce_window(window, total, "track");
     println!(
         "  {}",
         ui::dim(&format!(

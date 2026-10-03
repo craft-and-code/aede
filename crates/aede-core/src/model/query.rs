@@ -189,14 +189,20 @@ impl Catalog {
         self.genres.get(id as usize)
     }
 
-    /// Total duration of the library.
+    /// Total duration of the library, saturating at `u64::MAX` for oversized measures.
     pub fn total_duration_ms(&self) -> u64 {
-        self.tracks.iter().filter_map(|t| t.duration_ms).sum()
+        self.tracks
+            .iter()
+            .filter_map(|t| t.duration_ms)
+            .fold(0, u64::saturating_add)
     }
 
-    /// Total size on disk.
+    /// Total size on disk, saturating at `u64::MAX` for oversized measures.
     pub fn total_size(&self) -> u64 {
-        self.files.iter().map(|f| f.size).sum()
+        self.files
+            .iter()
+            .map(|f| f.size)
+            .fold(0, u64::saturating_add)
     }
 
     /// The artist's own discography: releases they are the album artist of.

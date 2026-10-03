@@ -2,8 +2,8 @@
 //!
 //! A player, a card, an external drive. The destination is not a catalog and
 //! will never be scanned, which is what separates this from everything else the
-//! program does: it is the only command that writes files, and it writes them
-//! **outside**. Nothing it does touches the library, the catalog, or what the
+//! program does: it writes derived audio and companion files **outside** the
+//! watched library. Nothing it does touches the catalog or what the
 //! user wrote.
 //!
 //! The selection is the grammar's, not a set of filters of its own — the same
@@ -57,23 +57,56 @@ pub fn copy(args: &Args) -> Res {
     // Asked of the volume rather than inferred from a filesystem name, and
     // overridable in both directions because a probe can only answer for the
     // folder it was run in.
+    let target = convert(args)?;
+    let chosen_quality = quality(args, target)?;
+    // Invalid options remain errors in a no-write preview, before probing.
+    args.number_or("threads", 0)?;
     let restrict = match (args.has("safe-names"), args.has("raw-names")) {
         (true, true) => return Err("--safe-names and --raw-names ask for opposite things".into()),
         (true, false) => true,
         (false, true) => false,
-        (false, false) => copy::names::restricts_names(&destination),
+        (false, false) => args.has("dry-run") || copy::names::restricts_names(&destination),
     };
 
-    let target = convert(args)?;
     let recipe = Recipe {
         extras,
         restrict_names: restrict,
         convert: target,
-        quality: quality(args, target)?,
+        quality: chosen_quality,
     };
 
-    let plan = copy::plan(&catalog, &tracks, &recipe);
+    let mut plan = copy::plan(&catalog, &tracks, &recipe);
+    if let Some(failure) = plan.rejected.first() {
+        return Err(format!("{}: {}", failure.source.display(), failure.reason).into());
+    }
+    for item in &plan.items {
+        copy::validate_source(&item.source)?;
+    }
+    let omitted = if args.has("playlists") {
+        plan.prepare_playlists(&catalog, &tracks)?
+    } else {
+        0
+    };
+    for item in &plan.items {
+        copy::validate_destination(&destination, &item.relative)?;
+    }
     announce(&plan, &destination, restrict, &recipe);
+    if omitted > 0 {
+        println!(
+            "  {}",
+            ui::dim(&format!(
+                "{omitted} playlist entries outside the selected audio were omitted"
+            ))
+        );
+    }
+    if args.has("dry-run") && !args.has("safe-names") && !args.has("raw-names") {
+        println!(
+            "  {}",
+            ui::dim(
+                "names are planned conservatively without probing; --raw-names previews original characters"
+            )
+        );
+    }
     if args.has("dry-run") {
         println!(
             "  {}",
@@ -91,8 +124,25 @@ pub fn copy(args: &Args) -> Res {
         false => None,
         true => Some(transcode::find_ffmpeg().ok_or_else(transcode::missing_ffmpeg)?),
     };
-    room_for(&plan, &destination)?;
-    run(&plan, &destination, args, &recipe, ffmpeg.as_deref())
+    let threads = workers(args, &recipe, plan.items.len())?;
+    room_for(&plan, &destination, args, threads)?;
+    copy::validate_filesystem_names(&destination, &plan)?;
+    if !args.has("replace")
+        && plan
+            .items
+            .iter()
+            .any(|item| !destination.join(&item.relative).exists())
+    {
+        copy::validate_new_publication(&destination)?;
+    }
+    run(
+        &plan,
+        &destination,
+        args,
+        &recipe,
+        ffmpeg.as_deref(),
+        threads,
+    )
 }
 
 /// The format to encode into, when one was asked for.
@@ -140,9 +190,14 @@ fn quality(
         )
         .into());
     }
-    Quality::parse(word)
-        .map(Some)
-        .ok_or_else(|| format!("--quality takes {}: got \"{word}\"", Quality::FORMS).into())
+    Quality::parse_for(target, word).map(Some).ok_or_else(|| {
+        format!(
+            "--quality for .{} takes {}: got \"{word}\"",
+            target.extension(),
+            target.quality_forms()
+        )
+        .into()
+    })
 }
 
 /// Where the copy is going, checked before anything else is read.
@@ -250,7 +305,13 @@ fn announce(plan: &Plan, destination: &Path, restrict: bool, recipe: &Recipe) {
         text::format_size(plan.total_bytes()),
     ]);
     print!("{}", table.render());
-    println!("  {}", ui::dim(&format!("to {}", destination.display())));
+    println!(
+        "  {}",
+        ui::dim(&format!(
+            "to {}",
+            ui::literal(&destination.to_string_lossy())
+        ))
+    );
     if plan.size_is_estimated() {
         println!(
             "  {}",
@@ -318,8 +379,8 @@ fn announce(plan: &Plan, destination: &Path, restrict: bool, recipe: &Recipe) {
         let mut t = Table::new(&["In the library", "On the destination"]);
         for renamed in plan.renamed.iter().take(20) {
             t.push(vec![
-                text::file_name(&renamed.from.to_string_lossy()).to_string(),
-                text::file_name(&renamed.to.to_string_lossy()).to_string(),
+                renamed.from.to_string_lossy().to_string(),
+                renamed.to.to_string_lossy().to_string(),
             ]);
         }
         print!("{}", t.render());
@@ -341,7 +402,7 @@ fn announce(plan: &Plan, destination: &Path, restrict: bool, recipe: &Recipe) {
             ))
         );
         for path in plan.rootless.iter().take(5) {
-            println!("      {}", ui::dim(&path.to_string_lossy()));
+            println!("      {}", ui::dim(&ui::literal(&path.to_string_lossy())));
         }
     }
 }
@@ -352,11 +413,21 @@ fn announce(plan: &Plan, destination: &Path, restrict: bool, recipe: &Recipe) {
 /// twenty minutes that one `statvfs`-shaped question could have avoided. The
 /// answer is approximate — other things may be writing to the same volume — so
 /// it refuses only when the shortfall is plain.
-fn room_for(plan: &Plan, destination: &Path) -> Res {
-    let Some(free) = free_space(destination) else {
+fn room_for(plan: &Plan, destination: &Path, args: &Args, threads: usize) -> Res {
+    room_for_available(plan, destination, args, threads, free_space(destination))
+}
+
+fn room_for_available(
+    plan: &Plan,
+    destination: &Path,
+    args: &Args,
+    threads: usize,
+    free: Option<u64>,
+) -> Res {
+    let Some(free) = free else {
         return Ok(());
     };
-    let needed = plan.total_bytes();
+    let needed = pending_bytes(plan, destination, args, threads)?;
     if needed <= free {
         return Ok(());
     }
@@ -368,6 +439,45 @@ fn room_for(plan: &Plan, destination: &Path) -> Res {
         destination.display()
     )
     .into())
+}
+
+/// Space for outputs still to write, plus concurrent comparison encodes.
+/// Existing plain files need no temporary output when they are skipped or
+/// refused; verifying converted files does need temporary space, released
+/// after each comparison rather than accumulated for the whole selection.
+fn pending_bytes(
+    plan: &Plan,
+    destination: &Path,
+    args: &Args,
+    threads: usize,
+) -> Result<u64, String> {
+    let mut needed = 0u64;
+    let mut comparisons = Vec::new();
+    for item in &plan.items {
+        match std::fs::symlink_metadata(destination.join(&item.relative)) {
+            Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "{}: output is not an ordinary file",
+                    item.relative.display()
+                ));
+            }
+            Ok(_) if !args.has("replace") => {
+                if item.convert.is_some() && args.has("verify-existing") {
+                    comparisons.push(item.size);
+                }
+            }
+            Ok(_) => needed = needed.saturating_add(item.size),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                needed = needed.saturating_add(item.size);
+            }
+            Err(error) => return Err(format!("{}: {error}", item.relative.display())),
+        }
+    }
+    comparisons.sort_unstable_by(|left, right| right.cmp(left));
+    Ok(comparisons
+        .into_iter()
+        .take(threads)
+        .fold(needed, u64::saturating_add))
 }
 
 /// Bytes free on the volume holding a folder, when the platform will say.
@@ -420,12 +530,19 @@ fn workers(
 }
 
 /// Writes the plan, saying where it is as it goes.
-fn run(plan: &Plan, destination: &Path, args: &Args, recipe: &Recipe, ffmpeg: Option<&str>) -> Res {
+fn run(
+    plan: &Plan,
+    destination: &Path,
+    args: &Args,
+    recipe: &Recipe,
+    ffmpeg: Option<&str>,
+    threads: usize,
+) -> Res {
     let verify = args.has("verify");
     let replace = args.has("replace");
+    let verify_existing = args.has("verify-existing");
     let interactive = ui::is_interactive();
     let total = plan.items.len();
-    let threads = workers(args, recipe, total)?;
 
     // Taken in reverse so that popping from the back walks the plan forwards,
     // which is what makes the progress line agree with the folder tree being
@@ -441,7 +558,15 @@ fn run(plan: &Plan, destination: &Path, args: &Args, recipe: &Recipe, ffmpeg: Op
                 // A poisoned lock must not strand the rest of the plan:
                 // one file that panicked is not a reason to stop copying.
                 while let Some(item) = super::take_queued(&queue) {
-                    match write_one(item, destination, verify, replace, recipe, ffmpeg) {
+                    match write_one(
+                        item,
+                        destination,
+                        verify,
+                        replace,
+                        verify_existing,
+                        recipe,
+                        ffmpeg,
+                    ) {
                         Ok(copy::Wrote::Copied) => {
                             counts.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
                         }
@@ -498,10 +623,20 @@ fn run(plan: &Plan, destination: &Path, args: &Args, recipe: &Recipe, ffmpeg: Op
     if verify {
         println!(
             "  {}",
-            ui::dim("each file was read back and compared with what was read")
+            ui::dim(
+                "new plain files were compared byte for byte; converted audio was checked for readable duration"
+            )
         );
     }
-    if skipped > 0 {
+    if verify_existing {
+        println!(
+            "  {}",
+            ui::dim(
+                "existing plain bytes and freshly encoded comparison outputs were checked before skipping"
+            )
+        );
+    }
+    if skipped > 0 && !verify_existing {
         println!(
             "  {}",
             ui::dim(
@@ -530,12 +665,50 @@ fn write_one(
     destination: &Path,
     verify: bool,
     replace: bool,
+    verify_existing: bool,
     recipe: &Recipe,
     ffmpeg: Option<&str>,
 ) -> Result<copy::Wrote, String> {
+    copy::validate_destination(destination, &item.relative)?;
     let target = destination.join(&item.relative);
+    if let Some(contents) = &item.contents {
+        if target.exists() && !replace {
+            if std::fs::read(&target).map_err(|error| error.to_string())? == contents.as_bytes() {
+                return Ok(copy::Wrote::Skipped);
+            }
+            return Err(format!(
+                "{}: existing playlist differs; use --replace to refresh it",
+                target.display()
+            ));
+        }
+        let temporary = copy::TemporaryOutput::new(&target)?;
+        std::fs::write(temporary.path(), contents).map_err(|error| error.to_string())?;
+        if verify {
+            std::fs::File::open(temporary.path())
+                .and_then(|file| file.sync_all())
+                .map_err(|error| error.to_string())?;
+            if std::fs::read(temporary.path()).map_err(|error| error.to_string())?
+                != contents.as_bytes()
+            {
+                return Err(format!(
+                    "{}: written playlist does not match its planned text",
+                    target.display()
+                ));
+            }
+        }
+        copy::validate_destination(destination, &item.relative)?;
+        publish(temporary, replace)?;
+        return Ok(copy::Wrote::Copied);
+    }
     let Some(format) = item.convert else {
-        return copy::copy_one(&item.source, &target, item.size, verify, replace);
+        return copy::copy_one_checked(
+            &item.source,
+            &target,
+            item.size,
+            verify,
+            replace,
+            verify_existing,
+        );
     };
     let Some(ffmpeg) = ffmpeg else {
         return Err("no encoder".into());
@@ -544,38 +717,53 @@ fn write_one(
     // A file already there is left alone, as in a plain copy — but the test
     // cannot be the size, which for an encoder's output is a guess. Existence
     // and a non-empty length is what can honestly be checked, so an
-    // interrupted conversion is finished rather than restarted, and --replace
-    // is how somebody who changed the quality asks for the work again.
+    // complete-looking outputs can resume without encoding, and --replace
+    // explicitly refreshes an empty output or a changed recipe.
     if !replace
+        && !verify_existing
         && let Ok(existing) = std::fs::metadata(&target)
         && existing.is_file()
         && existing.len() > 0
     {
         return Ok(copy::Wrote::Skipped);
     }
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    if !replace && !verify_existing && target.exists() {
+        return Err(format!(
+            "{}: existing encoded output is empty; use --replace to refresh it",
+            target.display()
+        ));
     }
-
-    // Encoded under a temporary name and moved into place, exactly as a copy
-    // is: a run interrupted mid-encode must never leave a half file wearing a
-    // whole one's name, or the resume above would count it as done.
-    let partial = copy::partial_path(&target);
-    let outcome = transcode::convert(ffmpeg, &item.source, &partial, format, recipe.quality)
-        .and_then(|()| match verify {
-            // Comparing checksums here would be meaningless: the bytes differ
-            // by construction. What can be checked is that the result reads
-            // back as audio of the right length — which catches the failure
-            // that happens, an encode cut short.
-            true => transcode::verify(&partial, source_duration(&item.source)),
-            false => Ok(()),
-        });
-    if let Err(reason) = outcome {
-        let _ = std::fs::remove_file(&partial);
-        return Err(reason);
+    let temporary = copy::TemporaryOutput::new(&target)?;
+    transcode::convert(
+        ffmpeg,
+        &item.source,
+        temporary.path(),
+        format,
+        recipe.quality,
+    )?;
+    if verify || verify_existing {
+        transcode::verify(temporary.path(), source_duration(&item.source))?;
     }
-    std::fs::rename(&partial, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+    copy::validate_destination(destination, &item.relative)?;
+    if verify_existing && !replace && target.exists() {
+        return match copy::files_match(temporary.path(), &target)? {
+            true => Ok(copy::Wrote::Skipped),
+            false => Err(format!(
+                "{}: existing content differs from this source and encoding recipe; use --replace to refresh it",
+                target.display()
+            )),
+        };
+    }
+    publish(temporary, replace)?;
     Ok(copy::Wrote::Copied)
+}
+
+fn publish(temporary: copy::TemporaryOutput, replace: bool) -> Result<(), String> {
+    if replace {
+        temporary.publish()
+    } else {
+        temporary.publish_new()
+    }
 }
 
 /// How long the source plays, read from the file rather than from the catalog.

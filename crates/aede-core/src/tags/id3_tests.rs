@@ -73,3 +73,19 @@ fn padding_stops_reading() {
     parse_frames(&body, 4, &mut tags);
     assert_eq!(tags.first("title"), Some("So What"));
 }
+
+#[test]
+fn embedded_id3_extended_headers_do_not_hide_the_following_frames() {
+    for (major, extended) in [
+        (3, vec![0, 0, 0, 6, 0, 0, 0, 0, 0, 0]),
+        (4, vec![0, 0, 0, 6, 1, 0]),
+    ] {
+        let mut body = extended;
+        body.extend(text_frame("TIT2", 3, b"So What"));
+        let mut block = vec![b'I', b'D', b'3', major, 0, 0x40, 0, 0, 0, body.len() as u8];
+        block.extend(body);
+        let mut tags = RawTags::default();
+        read_id3v2_buffer(&block, &mut tags);
+        assert_eq!(tags.first("title"), Some("So What"), "ID3v2.{major}");
+    }
+}

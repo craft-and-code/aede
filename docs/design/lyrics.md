@@ -34,6 +34,8 @@ only the first would fall silent at its second turn. The `[ar:]`, `[ti:]` and
 `.lrc` is not where an artist's name is settled; `[offset:]` is applied, since
 it exists precisely to shift a timing made against another encoding.
 
+Reading a sidecar takes at most 256 KiB from disk. Repeated timestamps share a text budget across the whole song: 1 MiB for sidecars, and the greater of 1 MiB or four times the input's UTF-8 byte length for tag lyrics. If expanding a line would exceed the remaining budget, that line is kept once as literal, unsynchronized text, including every original timestamp and word. Space is reserved for later lines so an oversized chorus cannot hide the rest of the song. Ordinary twice-timed choruses still produce both timed lines. Invalid timestamps that cannot fit in milliseconds likewise remain readable as literal text.
+
 **Where they live follows the rule the rest of the catalog follows.** Tag lyrics
 are already in it, because raw tags are kept per file. A sidecar is not in the
 file, so storing its text as though it were a tag would make the catalog lie

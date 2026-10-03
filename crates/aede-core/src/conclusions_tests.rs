@@ -1,4 +1,46 @@
 use super::*;
+
+#[test]
+fn malformed_present_tables_are_not_read_as_empty_conclusions() {
+    for table in ["file", "analysis", "loudness_track", "loudness_programme"] {
+        let mut value = to_json(&Conclusions::default());
+        value.set(table, Json::obj());
+        assert!(
+            from_json(&value).is_err(),
+            "{table} must be an array when present"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn conclusions_save_cannot_follow_a_preexisting_temporary_symlink() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let sandbox = std::env::temp_dir().join(format!(
+        "aede_conclusions_safety_{}_{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&sandbox).unwrap();
+    let path = conclusions_path(&sandbox);
+    let protected = sandbox.join("protected.txt");
+    std::fs::write(&protected, b"keep these bytes").unwrap();
+    let temporary = path.with_extension("json.tmp");
+    std::os::unix::fs::symlink(&protected, &temporary).unwrap();
+    save(&Conclusions::default(), &path).unwrap();
+    assert_eq!(std::fs::read(&protected).unwrap(), b"keep these bytes");
+    assert!(
+        !std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(load(&path).unwrap().is_some());
+    assert_eq!(std::fs::read_link(temporary).unwrap(), protected);
+    std::fs::remove_dir_all(sandbox).unwrap();
+}
 use crate::audit::integrity::Verdict;
 use crate::model::{AudioFile, IntegrityRecord};
 
@@ -48,6 +90,30 @@ fn results_live_outside_catalog_and_match_bytes() {
     read.attach(&mut fresh);
     assert!(fresh.files[0].integrity.is_none());
     assert!(fresh.files[0].fingerprint.is_none());
+}
+
+#[test]
+fn subsecond_file_identity_roundtrips_and_expires_same_second_results() {
+    let mut original = catalog();
+    original
+        .file_mtime_subseconds
+        .insert(original.files[0].path.clone(), 123_456_789);
+    original.files[0].integrity = Some(verdict());
+    let stored = from_json(&to_json(&Conclusions::from_catalog(&original))).unwrap();
+    let mut fresh = crate::store::from_json(&crate::store::to_json(&original)).unwrap();
+    stored.attach(&mut fresh);
+    assert_eq!(fresh.files[0].integrity, Some(verdict()));
+    fresh
+        .file_mtime_subseconds
+        .insert(fresh.files[0].path.clone(), 123_456_790);
+    stored.attach(&mut fresh);
+    assert!(fresh.files[0].integrity.is_none());
+    fresh.file_mtime_subseconds.clear();
+    stored.attach(&mut fresh);
+    assert!(
+        fresh.files[0].integrity.is_none(),
+        "unknown precision cannot establish the same bytes"
+    );
 }
 
 #[test]

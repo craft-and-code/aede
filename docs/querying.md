@@ -29,7 +29,7 @@ The search engine explores the entirety of the catalog's relational structure. F
 | `duration`               | Duration     | Track length                  | `duration:..4:00`, `duration:3:30..5:00`   |
 | `size`                   | Bytes        | File size in bytes            | `size:>50000000`                           |
 | `codec` / `format`       | Text         | Audio codec or container      | `codec:flac`, `format:mp3`                 |
-| `bitrate` / `samplerate` | Number       | Audio stream parameters       | `bitrate:>=320k`, `samplerate:96000`       |
+| `bitrate` / `samplerate` | Number       | Audio stream parameters       | `bitrate:>=320`, `samplerate:96000`       |
 | `lossless`               | Boolean      | Lossless compression status   | `lossless:true`, `-lossless`               |
 | `compilation`            | Boolean      | Multi-artist compilation flag | `compilation:true`                         |
 | `played`                 | Counter      | Play count                    | `played:0`, `played:>=10`                  |
@@ -106,7 +106,7 @@ aede query "tag:vinyl"              # tracks carrying that label
 aede query "album.tag:vinyl"        # tracks whose album carries it
 aede query "note:remaster"          # notes containing "remaster"
 aede query "artist.note:live"       # notes attached to the artist
-aede query "album.rating:>=4 -played"
+aede query "album.rating:>=4 played:0"
 ```
 
 ### Scope Isolation and Diagnostic Guidance
@@ -184,3 +184,9 @@ aede collection wishlist --remove
 A saved collection stores the **formula**, not a static list of files. Every time a collection is queried or exported (`--m3u`, `--csv`, `--json`), Aède re-evaluates the query against the current catalog state. As new albums are scanned or tags are updated, collections refresh automatically.
 
 Syntax validation occurs at definition time: passing an invalid query expression to `aede collection --query` is rejected immediately, preventing silent failures during future exports.
+
+## Validation and empty selections
+
+Numeric comparisons use finite, nonnegative numbers. `bitrate` is in kbps (`bitrate:>=320`); `samplerate` is in Hz. Durations accept seconds or `minutes:seconds`, with whole minutes and possibly fractional seconds below 60 (`1:59.5`). A range needs at least one bound and its lower bound cannot exceed its upper bound. Incomplete/repeated boolean operators and more than 128 nested brackets or negations are refused.
+
+Use `played:0` for tracks never played; a bare word such as `played` is a text search. An empty selection succeeds with `[]` in JSON or a header-only CSV.

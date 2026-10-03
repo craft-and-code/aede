@@ -99,6 +99,33 @@ fn two_identifiers_are_two_artists_however_alike_the_names() {
 }
 
 #[test]
+fn a_homonymous_spelling_cannot_bridge_two_explicit_artist_identities() {
+    let pairs = [
+        ("first-id", "John Smith"),
+        ("first-id", "J. Smith"),
+        ("first-id", "John S."),
+        ("second-id", "John Smith"),
+        ("second-id", "Johnny Smith"),
+        ("second-id", "Johnny S."),
+    ];
+    let found = said(&pairs);
+    assert_ne!(
+        filed_as(&found, "j smith"),
+        filed_as(&found, "johnny smith")
+    );
+    assert_eq!(filed_as(&found, "john smith"), "john smith");
+    assert_eq!(filed_as(&found, "j smith"), filed_as(&found, "john s"));
+    assert_eq!(
+        filed_as(&found, "johnny smith"),
+        filed_as(&found, "johnny s")
+    );
+    let reversed: Vec<_> = pairs.into_iter().rev().collect();
+    assert_eq!(said(&reversed), found);
+    let chosen = with_choices(&pairs, &[("J. Smith", "Johnny Smith")]);
+    assert_eq!(filed_as(&chosen, "j smith"), "johnny smith");
+}
+
+#[test]
 fn an_empty_identifier_or_name_says_nothing() {
     // A tag present and blank is not evidence, and treating it as one would
     // file every unnamed artist in the library under a single key.

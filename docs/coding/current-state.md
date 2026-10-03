@@ -21,6 +21,12 @@ pass was completed before M2; optional untested services are recorded in
 
 Aède has completed the local catalog foundation and the external identification layer.
 
+M0, M0.5 and M0.6 have received a complete hardening pass. Scans preserve inaccessible paths, use precise file timestamps and offer a no-write JSON preview. Personal references retain optional identity evidence and support explicit, conflict-checked reattachment with undo. Copying uses exclusive temporary output, refuses destination links and filesystem aliases, verifies existing content on request and generates/remaps destination playlists. Lossless conversions preserve known PCM precision or refuse an incapable encoder. Query/JSON parsing, deterministic construction, empty machine-readable results, documentation and test isolation are covered by regressions. The new persisted evidence and timestamp fields remain optional for compatibility; imported analyses and playback caches still use their existing whole-second file identity.
+
+The follow-up security and performance review adds isolated replacement writes for all four stores and named backups, protected atomic exports before personal-data mutations, literal terminal display and no-replace copy publication. Restores preflight their included destinations; reset preserves legacy inline conclusions before removing the catalog. Special scan/copy sources are refused; temporarily unavailable watched roots retain their entries while other roots advance. Malformed store tables and duplicate catalog paths are refused, imports preserve simultaneous listens, and playlists combine every contribution to a physical output folder. LRC reads and timestamp expansion are bounded; extreme LRC, MP4 and Ogg durations and malformed MP4 sizes cannot overflow. Statistics page their subsidiary lists consistently and saturate oversized aggregates. Query evaluation, personal reconciliation, scan retention and companion planning now avoid repeated full-table or directory passes; reproducible synthetic measurements and filesystem limitations are recorded in [the benchmark notes](m2-storage-benchmark.md#local-evaluation-and-scan-scaling-2026-10-03). No dependency or unsafe code was added. The registry security lookup passed for 226 locked versions; the accepted `paste` maintenance warning and the unaudited Git dependency remain visible.
+
+M0 diagnostics require tagged identity and positive durations for probable duplicates, bound missing-position reports and saturate size estimates. Local browsing applies validated pagination, sorting and file-output options consistently. Edition relations compare disc positions and each track's encoding; version 3 of the relation rules repairs older inferred links on load. Repeated genre links and automatic alias bridges through names shared by distinct MBIDs are prevented on the next ordinary scan; exact same-name artists still share an ambiguous local row. Embedded WAV/AIFF ID3 and signed FLAC fields are hardened. FLAC/Ogg checksum checks allocate file-sized buffers, refuse streams over 2 GiB rather than verify a prefix, and clear old verdicts after failed rechecks. Earlier large-file verdicts require an explicit `check --full` refresh, as explained in [integrity guidance](../integrity.md).
+
 The current implementation includes:
 
 - folder scanning;
@@ -117,9 +123,9 @@ The Onde website and bilingual documentation are generated into ignored `dist-si
 
 ## Test status
 
-**Last recorded test count:** 1221 (including the doctest; none ignored)
+**Last recorded test count:** 1413 (including three doctests; none ignored)
 
-**Last verified:** 2026-10-01, through the complete `tools/check.sh` decoder/drain checkpoint.
+**Last verified:** 2026-10-03, through the complete `tools/check.sh` checkpoint after the final targeted M0 review, on macOS with FFmpeg conversion coverage required. The synthetic benchmark example's graph invariant was checked separately during the performance review; Linux-only non-UTF-8 disk regressions and native Windows behavior still require their CI hosts.
 
 The count above is informational.
 

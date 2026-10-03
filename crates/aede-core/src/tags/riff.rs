@@ -43,12 +43,16 @@ pub fn read_wav(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
             b"fmt " => {
                 let data = read_at_most(file, body, size.min(40) as usize)?;
                 let mut c = Cursor::new(&data);
-                let format = c.u16_le().unwrap_or(1);
-                let channels = c.u16_le().unwrap_or(0);
-                let rate = c.u32_le().unwrap_or(0);
-                byte_rate = c.u32_le().unwrap_or(0);
-                c.skip(2); // block alignment
-                let bits = c.u16_le().unwrap_or(0);
+                let truncated = || TagError::Malformed("truncated WAV format chunk");
+                let mut format = c.u16_le().ok_or_else(truncated)?;
+                let channels = c.u16_le().ok_or_else(truncated)?;
+                let rate = c.u32_le().ok_or_else(truncated)?;
+                byte_rate = c.u32_le().ok_or_else(truncated)?;
+                c.u16_le().ok_or_else(truncated)?; // block alignment
+                let bits = c.u16_le().ok_or_else(truncated)?;
+                if format == 0xfffe {
+                    format = extensible_subtype(&mut c)?;
+                }
 
                 if channels > 0 {
                     tags.properties.channels = Some(channels);
@@ -62,10 +66,9 @@ pub fn read_wav(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
                 tags.properties.codec = match format {
                     1 => "pcm".into(),
                     3 => "pcm_float".into(),
-                    0xFFFE => "pcm".into(),
                     other => format!("wav_{other:#x}"),
                 };
-                tags.properties.lossless = matches!(format, 1 | 3 | 0xFFFE);
+                tags.properties.lossless = matches!(format, 1 | 3);
             }
             b"data" if byte_rate > 0 => {
                 tags.properties.duration_ms = Some(size * 1000 / byte_rate as u64);
@@ -95,6 +98,30 @@ pub fn read_wav(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
         tags.properties.bitrate_kbps = Some(rate / 1000);
     }
     Ok(tags)
+}
+
+/// Reads the WAVEFORMATEXTENSIBLE subformat rather than assuming integer PCM.
+///
+/// The GUID can also name compressed or vendor-specific formats. Only the
+/// standard WAVEFORMATEX suffix permits interpreting its first word as a
+/// format tag; an unknown GUID remains unknown and is never called lossless.
+/// See <https://learn.microsoft.com/en-us/windows/win32/api/mmreg/ns-mmreg-waveformatextensible>.
+fn extensible_subtype(cursor: &mut Cursor<'_>) -> Result<u16, TagError> {
+    let truncated = || TagError::Malformed("truncated extensible WAV format");
+    let extension_size = cursor.u16_le().ok_or_else(truncated)?;
+    if extension_size < 22 {
+        return Err(TagError::Malformed("undersized extensible WAV format"));
+    }
+    cursor.u16_le().ok_or_else(truncated)?; // valid bits per sample
+    cursor.u32_le().ok_or_else(truncated)?; // channel mask
+    let subtype = cursor.u32_le().ok_or_else(truncated)?;
+    let suffix = cursor.take(12).ok_or_else(truncated)?;
+    const WAVEFORMATEX_SUFFIX: &[u8] = &[0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71];
+    Ok(if suffix == WAVEFORMATEX_SUFFIX {
+        u16::try_from(subtype).unwrap_or(0xfffe)
+    } else {
+        0xfffe
+    })
 }
 
 /// `LIST/INFO` chunk: the handful of standard WAV fields.
@@ -136,8 +163,9 @@ fn read_info_list(data: &[u8], tags: &mut RawTags) {
 /// `file_size` bounds the chunk walk, the `FORM` header being no more reliable
 /// here than in WAV. The native `NAME`, `AUTH` and `ANNO` chunks carry very
 /// little, so most real files are described by their `ID3 ` chunk. An AIFC
-/// compression name in `COMM` overrides the `pcm` default and marks the stream
-/// as lossy.
+/// compression name in `COMM` overrides the `pcm` default. Integer PCM and the
+/// known `fl32`/`fl64` floating PCM encodings remain lossless; other encodings
+/// are not assumed to preserve samples.
 pub fn read_aiff(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
     let mut tags = RawTags::default();
     tags.properties.container = "aiff".into();
@@ -183,8 +211,8 @@ pub fn read_aiff(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
                 if let Some(codec) = c.take(4) {
                     let name = String::from_utf8_lossy(codec).trim().to_lowercase();
                     if !name.is_empty() && name != "none" && name != "sowt" {
+                        tags.properties.lossless = matches!(name.as_str(), "fl32" | "fl64");
                         tags.properties.codec = name;
-                        tags.properties.lossless = false;
                     }
                 }
             }

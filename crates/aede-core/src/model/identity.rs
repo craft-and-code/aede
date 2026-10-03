@@ -39,6 +39,12 @@
 //! never a guess. The rule this program follows everywhere: several equally
 //! good answers are refused rather than arbitrated.
 //!
+//! A spelling seen under distinct identifiers is ambiguous and cannot establish
+//! automatic aliases. The local artist key remains the normalised name, so two
+//! people with exactly the same spelling still share an ambiguous local row;
+//! their other spellings must not merge merely through that homonym. An explicit
+//! owner choice can still join those spellings.
+//!
 //! # Which spelling survives
 //!
 //! Where a person has said so, the one they named. Otherwise the one that names
@@ -47,7 +53,7 @@
 //! merging can only ever shrink the set of keys: anything filed under the
 //! surviving key in `user.json` or `sources.json` keeps pointing at it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::text;
 
@@ -126,12 +132,30 @@ pub fn aliases(said: impl Iterator<Item = Said>, chosen: &[Chosen]) -> Aliases {
         }
     }
 
+    // A shared spelling is not evidence that distinct identifiers name one
+    // person. Keep it out of automatic unions, including indirect bridges
+    // between each person's other, unambiguous spellings.
+    let mut identifiers = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for (mbid, spellings) in &seen {
+        for key in spellings.keys() {
+            if identifiers
+                .insert(key.as_str(), mbid.as_str())
+                .is_some_and(|previous| previous != mbid)
+            {
+                ambiguous.insert(key.as_str());
+            }
+        }
+    }
+
     let mut groups = Groups::default();
     for spellings in seen.values() {
         // One spelling is not an alias of anything. Joining it to itself would
         // be harmless and pointless; skipping keeps the table to the names that
         // really are somebody's alias.
-        let mut keys = spellings.keys();
+        let mut keys = spellings
+            .keys()
+            .filter(|key| !ambiguous.contains(key.as_str()));
         if let Some(first) = keys.next() {
             for other in keys {
                 groups.join(first, other);

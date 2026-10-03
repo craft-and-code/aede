@@ -2,6 +2,8 @@
 
 reset deletes catalog.json after presenting what it holds and asking for confirmation. It does not delete audio, sources.json, user.json or conclusions.json. Personal notes, ratings, favorites, fingerprints, integrity verdicts and imported analyses kept in those separate stores survive.
 
+For an older catalog still containing inline conclusions, reset saves those verdicts, fingerprints and imported analyses to conclusions.json after confirmation and before deleting the catalog. If that preservation fails, the catalog remains intact and reset reports an error.
+
 Watched folders live in catalog.json: they must be named again when rebuilding. The command prints a scan command with the previous roots. Copy it before closing the terminal. Despite an older help summary, reset does not preserve the roots inside a replacement catalog.
 
 Make a backup before using reset if you need to recover the exact catalog snapshot. --yes accepts the deletion without a prompt; it does not make it reversible. If no catalog exists, reset reports that nothing needs removing.

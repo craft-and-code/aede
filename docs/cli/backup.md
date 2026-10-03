@@ -4,6 +4,8 @@ backup creates one versioned bundle containing readable catalog, conclusions, pe
 
 Choose an explicit filename and keep a copy off the machine/NAS. If that file already exists, Aède asks before overwriting it; --yes bypasses that prompt. A completely empty data directory returns an error rather than writing a misleading empty backup.
 
+The destination's parent folder must already exist. Active Aède stores and writer locks, existing audio, final symbolic links and special files are refused even with `--yes`. The complete archive is written through an isolated temporary file before atomic replacement; another hard-link name keeps its original bytes. On Unix, new backups have no permissions for other users, while an existing destination's permissions are preserved. This does not guarantee durability after power loss.
+
 The bundle contains no original audio, artwork, lyrics sidecars or other derivative assets. Back those up separately. Treat the bundle as private because it can include personal history and absolute file paths. Use restore to recover stores, not export: an ordinary catalog export does not include all irreplaceable personal information.
 
 ## Syntax and arguments
@@ -12,7 +14,7 @@ The bundle contains no original audio, artwork, lyrics sidecars or other derivat
 aede backup <file>
 ```
 
-One destination file; use the positional filename, not --output.
+Exactly one destination file; additional positional arguments are refused. Use the positional filename, not --output.
 
 ## Options for this command
 

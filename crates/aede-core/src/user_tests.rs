@@ -4,9 +4,74 @@
 //! child and still reaches its private items through `use super::*`.
 //! Only the length of a file changed.
 
+use super::test_support::library;
 use super::*;
 use crate::model;
 
+#[cfg(unix)]
+#[test]
+fn saving_user_data_does_not_follow_an_existing_temporary_symlink() {
+    use std::os::unix::fs::symlink;
+    let root = std::env::temp_dir().join(format!("aede-user-temp-link-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("user.json");
+    let victim = root.join("original.flac");
+    let original = b"audio must remain untouched";
+    std::fs::write(&victim, original).unwrap();
+    let old_temporary = path.with_extension("json.tmp");
+    symlink(&victim, &old_temporary).unwrap();
+    save(&UserData::default(), &path).unwrap();
+    assert_eq!(std::fs::read(&victim).unwrap(), original);
+    assert!(
+        !std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(load(&path).unwrap().is_some());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn importing_tied_listens_preserves_distinct_events_and_multiplicity() {
+    let track = EntityRef::new(EntityKind::Track, "/m/a.flac");
+    let mut incoming = UserData::default();
+    for ms_played in [100, 100, 200] {
+        incoming.record_play(Play {
+            owner: LOCAL_USER.into(),
+            track: track.clone(),
+            at: 1,
+            ms_played,
+            completed: true,
+        });
+    }
+    let mut restored = UserData::default();
+    merge(&mut restored, incoming.clone());
+    assert_eq!(restored.plays, incoming.plays);
+    assert_eq!(restored.play_count(LOCAL_USER, &track), 3);
+    let before = to_json(&restored);
+    assert_eq!(merge(&mut restored, incoming).plays, 0);
+    assert_eq!(to_json(&restored), before);
+}
+
+#[test]
+fn a_present_but_malformed_user_table_is_refused_before_data_can_be_lost() {
+    for table in [
+        "annotations",
+        "relation_annotations",
+        "plays",
+        "counts",
+        "collections",
+        "set_aside",
+        "same_artist",
+        "track_identities",
+        "relinks",
+    ] {
+        let mut document = to_json(&UserData::default());
+        document.set(table, crate::json::Json::obj());
+        assert!(from_json(&document).is_err(), "accepted malformed {table}");
+    }
+}
 #[test]
 fn late_plays_keep_the_newest_events_and_all_time_counts() {
     let mut data = UserData::default();
@@ -60,25 +125,6 @@ fn legacy_history_is_read_chronologically_without_losing_tied_events() {
     assert_eq!(restored.counts, data.counts);
     assert!(restored.forget_last_play(LOCAL_USER, &track));
     assert_eq!(restored.plays.last().unwrap().ms_played, 1);
-}
-
-fn library(paths: &[&str]) -> Catalog {
-    let files: Vec<_> = paths
-        .iter()
-        .map(|p| {
-            model::tests::track(
-                p,
-                &[
-                    ("title", "T"),
-                    ("artist", "Deicide"),
-                    ("album", "Legion"),
-                    ("date", "1992"),
-                ],
-                1000,
-            )
-        })
-        .collect();
-    model::build(files, vec!["/m".into()], 0, &[])
 }
 
 #[test]
@@ -174,12 +220,48 @@ fn a_file_that_moved_takes_its_note_with_it() {
     let mut data = UserData::default();
     let old = EntityRef::new(EntityKind::Track, "/old/place/a.flac");
     data.entry(LOCAL_USER, &old, 10).rating = Some(5);
+    reconcile(&mut data, &library(&["/old/place/a.flac"]));
 
     let catalog = library(&["/m/a.flac"]);
     let report = reconcile(&mut data, &catalog);
     assert_eq!(report.moved, 1);
     assert_eq!(data.annotations[0].target.key, "/m/a.flac");
     assert_eq!(data.annotations[0].rating, Some(5));
+}
+
+#[test]
+fn an_unrelated_same_named_file_does_not_take_a_legacy_note() {
+    let mut data = UserData::default();
+    let old = EntityRef::new(EntityKind::Track, "/old/a.flac");
+    data.entry(LOCAL_USER, &old, 10).note = Some("original recording".into());
+    let catalog = library(&["/new/a.flac"]);
+    let report = reconcile(&mut data, &catalog);
+    assert_eq!(report.moved, 0);
+    assert_eq!(report.waiting, 1);
+    assert_eq!(data.annotations[0].target, old);
+}
+
+#[test]
+fn a_changed_size_does_not_match_saved_file_identity() {
+    let mut data = UserData::default();
+    let old = EntityRef::new(EntityKind::Track, "/old/a.flac");
+    data.entry(LOCAL_USER, &old, 10).loved = true;
+    reconcile(&mut data, &library(&["/old/a.flac"]));
+    let mut catalog = library(&["/new/a.flac"]);
+    catalog.files[0].size += 1;
+    let report = reconcile(&mut data, &catalog);
+    assert_eq!(report.moved, 0);
+    assert_eq!(data.annotations[0].target, old);
+}
+
+#[test]
+fn a_multidisc_album_keeps_its_note_when_the_first_disc_is_removed() {
+    let before = library(&["/m/Legion/Disc 1/01.flac", "/m/Legion/Disc 2/02.flac"]);
+    assert_eq!(before.releases.len(), 1);
+    let reference = EntityRef::of(&before, EntityKind::Release, 0).unwrap();
+    let after = library(&["/m/Legion/Disc 2/02.flac"]);
+    assert!(reference.resolve(&after).is_some());
+    assert!(reference.key.ends_with("/m/Legion"));
 }
 
 #[test]
@@ -190,11 +272,105 @@ fn two_files_of_the_same_name_are_not_guessed_between() {
     let old = EntityRef::new(EntityKind::Track, "/old/a.flac");
     data.entry(LOCAL_USER, &old, 10).loved = true;
 
+    reconcile(&mut data, &library(&["/old/a.flac"]));
     let catalog = library(&["/m/one/a.flac", "/m/two/a.flac"]);
     let report = reconcile(&mut data, &catalog);
     assert_eq!(report.moved, 0);
     assert_eq!(report.waiting, 1);
     assert_eq!(data.annotations[0].target.key, "/old/a.flac");
+}
+
+#[test]
+fn a_moved_file_requires_matching_metadata_and_preserves_evidence_on_disk() {
+    let from = EntityRef::new(EntityKind::Track, "/old/a.flac");
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &from, 1).note = Some("keep me".into());
+    reconcile(&mut data, &library(&["/old/a.flac"]));
+    let mut restored = from_json(&to_json(&data)).unwrap();
+    assert_eq!(restored.track_identities, data.track_identities);
+    let mut changed = library(&["/new/a.flac"]);
+    changed.files[0]
+        .tags
+        .insert("title".into(), vec!["another recording".into()]);
+    assert_eq!(reconcile(&mut restored, &changed).moved, 0);
+    assert_eq!(restored.annotations[0].target, from);
+    assert_eq!(
+        reconcile(&mut restored, &library(&["/new/a.flac"])).moved,
+        1
+    );
+    assert_eq!(restored.annotations[0].note.as_deref(), Some("keep me"));
+}
+
+#[test]
+fn legacy_disc_folder_references_migrate_to_the_surviving_album() {
+    for (old, remaining) in [
+        ("/m/Legion/Disc 1", "/m/Legion/Disc 2/02.flac"),
+        (r"C:\Music\Legion\Disc 1", r"C:\Music\Legion\Disc 2\02.flac"),
+    ] {
+        let catalog = library(&[remaining]);
+        let legacy = EntityRef::new(EntityKind::Release, format!("deicide|legion|{old}"));
+        let canonical = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+        assert_eq!(legacy.resolve(&catalog), Some(0));
+        let mut data = UserData::default();
+        data.entry(LOCAL_USER, &legacy, 1).note = Some("original note".into());
+        assert_eq!(reconcile(&mut data, &catalog).waiting, 0);
+        assert_eq!(data.annotations[0].target, canonical);
+        assert_eq!(data.annotations[0].note.as_deref(), Some("original note"));
+    }
+    let pipes = library(&["/m/Legion|Original/01.flac"]);
+    assert_eq!(
+        EntityRef::of(&pipes, EntityKind::Release, 0)
+            .unwrap()
+            .resolve(&pipes),
+        Some(0)
+    );
+}
+
+#[test]
+fn automatic_relocation_never_merges_personal_records() {
+    let mut data = UserData::default();
+    let old = EntityRef::new(EntityKind::Track, "/old/a.flac");
+    let next = EntityRef::new(EntityKind::Track, "/new/a.flac");
+    data.entry(LOCAL_USER, &old, 1).note = Some("old note".into());
+    reconcile(&mut data, &library(&["/old/a.flac"]));
+    data.entry(LOCAL_USER, &next, 2).note = Some("new note".into());
+    assert_eq!(reconcile(&mut data, &library(&["/new/a.flac"])).moved, 0);
+    assert_eq!(
+        data.find(LOCAL_USER, &old).unwrap().note.as_deref(),
+        Some("old note")
+    );
+    assert_eq!(
+        data.find(LOCAL_USER, &next).unwrap().note.as_deref(),
+        Some("new note")
+    );
+}
+
+#[test]
+fn two_old_references_never_converge_on_one_personal_record() {
+    let first = EntityRef::new(EntityKind::Track, "/old/one/a.flac");
+    let second = EntityRef::new(EntityKind::Track, "/old/two/a.flac");
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &first, 1).note = Some("first copy".into());
+    data.entry(LOCAL_USER, &second, 1).note = Some("second copy".into());
+    reconcile(&mut data, &library(&["/old/one/a.flac", "/old/two/a.flac"]));
+    let before = data.annotations.clone();
+    let report = reconcile(&mut data, &library(&["/new/a.flac"]));
+    assert_eq!(report.moved, 0);
+    assert_eq!(report.waiting, 2);
+    assert_eq!(data.annotations, before);
+}
+
+#[test]
+fn legacy_album_migration_never_overwrites_an_existing_canonical_note() {
+    let catalog = library(&["/m/Legion/Disc 2/02.flac"]);
+    let legacy = EntityRef::new(EntityKind::Release, "deicide|legion|/m/Legion/Disc 1");
+    let canonical = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    let mut data = UserData::default();
+    data.entry(LOCAL_USER, &legacy, 1).note = Some("legacy".into());
+    data.entry(LOCAL_USER, &canonical, 2).note = Some("current".into());
+    let before = data.annotations.clone();
+    assert_eq!(reconcile(&mut data, &catalog).moved, 0);
+    assert_eq!(data.annotations, before);
 }
 
 #[test]

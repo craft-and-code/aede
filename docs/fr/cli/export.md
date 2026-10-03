@@ -37,6 +37,8 @@ aede export --graph --output graph.json
 
 ## Résultat et erreurs
 
+Choisir un chemin de rapport distinct des stores actifs. Les exports refusent les données/verrous actifs, l’audio existant, les liens symboliques et cibles non ordinaires avant mutation, et remplacent atomiquement les rapports ordinaires ; voir la [référence des options](options.md).
+
 La sortie décrit l’opération ou les données choisies. Lire avertissements et bilan du travail conservé ; finir le processus ne garantit ni intégrité indépendante ni qualité sonore. Erreurs de syntaxe/options : généralement code 2 ; échecs de traitement : généralement code 1. Une interruption locale diffère d’une tâche serveur déléguée, comme expliqué dans [cancel](cancel.md).
 
 ## Pour continuer

@@ -3,6 +3,14 @@
 use super::*;
 
 #[test]
+fn year_extraction_handles_unicode_dates_without_splitting_a_character() {
+    for raw in ["été 2020", "発売日：1998年", "🎵2001", "éééé2024"] {
+        assert!(extract_year(raw).is_some(), "{raw}");
+    }
+    assert_eq!(extract_year("été"), None);
+}
+
+#[test]
 fn windows_catalog_paths_keep_their_native_spelling_and_folder_boundaries() {
     for (path, parent, root) in [
         (
@@ -215,6 +223,7 @@ fn formatting() {
     // Rounded, not truncated: 4 min 20.7 s is 4:21, as in any player.
     assert_eq!(format_duration(260_700), "4:21");
     assert_eq!(format_duration(260_400), "4:20");
+    assert_eq!(format_duration(u64::MAX), "5124095576030:25:52");
     assert_eq!(format_size(512), "512 B");
     assert_eq!(format_size(1500), "1.5 kB");
     // Decimal units, like the Finder: 315.7 MB, not 301.1 "MB".

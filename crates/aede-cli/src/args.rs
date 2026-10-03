@@ -75,6 +75,9 @@ const VALUED_WORD: &[&str] = &[
     "normalize",
     "bass",
     "treble",
+    "relink",
+    "to",
+    "undo-relink",
 ];
 
 /// Options whose value is the **name of something**, and names have spaces in

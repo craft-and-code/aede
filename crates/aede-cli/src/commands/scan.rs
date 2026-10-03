@@ -5,13 +5,15 @@ use std::path::{Path, PathBuf};
 
 use aede_core::model::{Catalog, Id};
 use aede_core::scan::{self, Progress, ScanOptions};
-use aede_core::stats;
 use aede_core::store;
 use aede_core::text;
 
 use super::{Res, data_dir, load, totals};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
+
+#[path = "scan_report.rs"]
+mod report_output;
 
 pub fn scan(args: &Args) -> Res {
     run_scan(args, Watched::AndWhateverWasNamed, &mut |_| {})
@@ -52,7 +54,7 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
     let stored = match store::load(&catalog_file) {
         Ok(value) => value,
         Err(store::StoreError::Version { .. }) => {
-            println!(
+            eprintln!(
                 "{}",
                 ui::yellow("Catalog from an earlier version: full scan.")
             );
@@ -68,14 +70,12 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
             .map(|c| c.roots.iter().map(PathBuf::from).collect())
             .unwrap_or_default(),
     };
-    // `--full` only disables the tag cache; the watched folders are kept.
-    let previous = if args.has("full") {
-        None
-    } else {
-        stored.as_ref()
-    };
+    // A full read still needs the previous catalog as evidence for paths the
+    // filesystem cannot currently expose. An unavailable folder is not empty.
+    let previous = stored.as_ref();
 
     let options = ScanOptions {
+        force_read: args.has("full"),
         threads: args.number_or("threads", 0)?,
         follow_symlinks: args.has("follow-symlinks"),
         skip_hidden: !args.has("include-hidden"),
@@ -93,13 +93,24 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
         same_artist: super::merge::stated(&dir),
     };
 
-    println!("{}", ui::bold("Scanning folders…"));
-    let mut discovered = 0usize;
+    let machine = args.has("json");
+    if !machine {
+        println!(
+            "{}",
+            ui::bold(if args.has("dry-run") {
+                "Previewing scan…"
+            } else {
+                "Scanning folders…"
+            })
+        );
+    }
     let (mut catalog, mut report) = scan::scan(&roots, previous, &options, |progress| {
         on_progress(progress);
+        if machine {
+            return;
+        }
         match progress {
             Progress::Discovered(count) => {
-                discovered = count;
                 println!("  {count} audio files spotted");
             }
             Progress::Read { done, total } => {
@@ -111,20 +122,19 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
             }
         }
     })?;
-    // A full scan has no cached catalog for the core to carry exclusions from.
-    // Persist the same watched-folder policy used for this traversal.
+    // Persist the watched-folder policy used for this traversal.
     catalog.excluded = options
         .excluded
         .iter()
         .map(|path| path.to_string_lossy().into_owned())
         .collect();
-    if report.read > 0 {
+    if report.read > 0 && !machine {
         println!();
     }
 
-    // A full scan (or a catalog-format change) has no previous catalog, but
-    // conclusions have their own lifetime and are matched by path and bytes.
-    if previous.is_none() {
+    // Freshly read files have no inherited verdicts. The independent store
+    // can reattach results when the complete file identity still matches.
+    if options.force_read || previous.is_none() {
         let conclusions_file = aede_core::conclusions::conclusions_path(&dir);
         let gathered = aede_core::conclusions::load(&conclusions_file)?.or_else(|| {
             // Reading a legacy catalog is pure. A full scan must carry its
@@ -147,71 +157,32 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
         }
     }
     report.analyses = catalog.analyses.len();
+    if args.has("dry-run") {
+        report_output::print(&report, &catalog, &catalog_file, true, machine);
+        return Ok(());
+    }
+
+    // Persist evidence before replacing the graph. If the final reconciliation
+    // cannot be saved, old references still carry enough evidence to recover
+    // safely on the next read rather than guessing from a filename.
+    let user_file = aede_core::user::user_path(&dir);
+    let mut personal = aede_core::user::load(&user_file)?;
+    if let (Some(data), Some(previous)) = (&mut personal, previous) {
+        let before = aede_core::user::to_json(data);
+        aede_core::user::reconcile(data, previous);
+        if aede_core::user::to_json(data) != before {
+            aede_core::user::save(data, &user_file)?;
+        }
+    }
     store::save(&catalog, &catalog_file)?;
-
-    println!("{}", ui::section("Scan complete"));
-    let mut table = Table::plain(2).align(1, Align::Right);
-    table.push(vec!["Files found".into(), report.found.to_string()]);
-    table.push(vec!["Read from disk".into(), report.read.to_string()]);
-    table.push(vec![
-        "Reused from previous scan".into(),
-        report.reused.to_string(),
-    ]);
-    if report.removed > 0 {
-        table.push(vec![
-            "Gone since last scan".into(),
-            report.removed.to_string(),
-        ]);
-    }
-    // Only shown when a report was actually met: on a library holding none, a
-    // line reading zero would answer a question nobody asked.
-    if report.reports > 0 {
-        table.push(vec![
-            "Analyses imported".into(),
-            format!(
-                "{} from {}",
-                report.analyses,
-                ui::plural(report.reports, "report")
-            ),
-        ]);
-    }
-    if report.attached > 0 {
-        table.push(vec![
-            "Analyses now attached".into(),
-            report.attached.to_string(),
-        ]);
-    }
-    table.push(vec!["Elapsed".into(), ui::elapsed(report.elapsed_ms)]);
-    print!("{}", table.render());
-
-    if !report.failures.is_empty() {
-        println!("{}", ui::section("Unreadable files"));
-        let mut t = Table::new(&["File", "Reason"]).path_limit(0, 60);
-        for (path, reason) in report.failures.iter().take(20) {
-            t.push(vec![path.clone(), reason.clone()]);
-        }
-        print!("{}", t.render());
-        if report.failures.len() > 20 {
-            println!(
-                "{}",
-                ui::dim(&format!("  … and {} more", report.failures.len() - 20))
-            );
+    if let Some(data) = &mut personal {
+        let before = aede_core::user::to_json(data);
+        aede_core::user::reconcile(data, &catalog);
+        if aede_core::user::to_json(data) != before {
+            aede_core::user::save(data, &user_file)?;
         }
     }
-
-    let s = stats::compute(&catalog);
-    println!(
-        "\n{} {} · {} · {} · {}",
-        ui::green("→"),
-        ui::plural(s.tracks, "track"),
-        ui::plural(s.releases, "album"),
-        ui::plural(s.artists, "artist"),
-        ui::long_duration(s.total_duration_ms)
-    );
-    println!(
-        "{}",
-        ui::dim(&format!("  catalog: {}", catalog_file.display()))
-    );
+    report_output::print(&report, &catalog, &catalog_file, false, machine);
     Ok(())
 }
 
@@ -233,13 +204,8 @@ fn resolve_roots(args: &Args, stored: Option<&Catalog>) -> Result<Vec<PathBuf>, 
     {
         for root in &catalog.roots {
             let path = PathBuf::from(root);
-            if !path.is_dir() {
-                return Err(format!(
-                    "watched folder \"{root}\" is unreachable.\n\
-                         Plug the drive back in, or drop it with: aede roots --remove \"{root}\"",
-                )
-                .into());
-            }
+            // A saved root may be temporarily unmounted. Let the core report
+            // its failure and preserve its entries while other roots advance.
             roots.push(path);
         }
     }
@@ -260,7 +226,7 @@ fn resolve_roots(args: &Args, stored: Option<&Catalog>) -> Result<Vec<PathBuf>, 
         if stored.is_none() {
             return Err("give at least one folder: aede scan ~/Music".into());
         }
-        println!(
+        eprintln!(
             "{}",
             ui::yellow("No folder is watched any more: the catalog will be emptied.")
         );
@@ -323,9 +289,7 @@ pub fn roots(args: &Args) -> Res {
     // watched and what is deliberately not watched are one question, and a
     // user asking "what does Aède look at" should get one screen.
     if let Some(folder) = args.value("exclude") {
-        let wanted = super::canonical(Path::new(folder))
-            .to_string_lossy()
-            .to_string();
+        let wanted = super::path_key(&super::canonical(Path::new(folder)))?;
         if args.has("remove") {
             let before = catalog.excluded.len();
             catalog.excluded.retain(|f| f != &wanted && f != folder);
@@ -357,9 +321,7 @@ pub fn roots(args: &Args) -> Res {
         if target.trim().is_empty() {
             return Err("which folder? aede roots --remove ~/Music".into());
         }
-        let wanted = super::canonical(Path::new(target))
-            .to_string_lossy()
-            .to_string();
+        let wanted = super::path_key(&super::canonical(Path::new(target)))?;
         let before = catalog.roots.len();
         catalog.roots.retain(|r| r != &wanted && r != target);
         if catalog.roots.len() == before {

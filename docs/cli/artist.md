@@ -4,6 +4,8 @@ artist opens a local artist by name or MusicBrainz ID. Its card separates discog
 
 --role narrows credited contributions, --with selects shared tracks with another local artist and --members shows dated band membership. Local albums can derive the line-up appropriate to their year from sourced dates; this is not an invented historical lineup.
 
+Choose one of --role, --with or --members; combinations are refused. On a local artist's ordinary card, --limit/--offset page each album table separately (50 rows by default) and the collaborators table (20 by default). With --role or --with, they page the track table; CSV/JSON/M3U also export that paged track selection. Ordinary track exports page the artist's performed tracks. --all removes these limits. Summary counts still describe the complete matching selection. --members is a complete dated page and refuses export and pagination options.
+
 A contributor existing only in trusted recording/work/edition evidence has a source-only artist card. Use its exact MBID when a local namesake exists. --members and --with require local artists and are refused on that source-only card. CSV/M3U outputs select the relevant tracks, not biography prose. Source provenance remains visible, and the Continue commands navigate to adjacent graph objects.
 
 ## Syntax and arguments

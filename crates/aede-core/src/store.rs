@@ -233,12 +233,7 @@ pub fn save(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
 
 /// Writes only the rebuildable catalog, for a restore that handles each store independently.
 pub fn save_catalog_only(catalog: &Catalog, path: &Path) -> Result<(), StoreError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, to_json(catalog).to_string_compact())?;
-    std::fs::rename(&temp, path)?;
+    crate::atomic_file::write(path, to_json(catalog).to_string_compact().as_bytes())?;
     Ok(())
 }
 
@@ -298,7 +293,22 @@ pub fn to_json(catalog: &Catalog) -> Json {
         Json::Arr(catalog.roots.iter().map(|r| Json::Str(r.clone())).collect()),
     );
 
-    root.set("file", array(&catalog.files, file_to_json));
+    root.set(
+        "file",
+        Json::Arr(
+            catalog
+                .files
+                .iter()
+                .map(|file| {
+                    let mut row = file_to_json(file);
+                    if let Some(fraction) = catalog.file_mtime_subseconds.get(&file.path) {
+                        row.set("mtime_subseconds", (*fraction).into());
+                    }
+                    row
+                })
+                .collect(),
+        ),
+    );
     root.set("artist", array(&catalog.artists, artist_to_json));
     root.set("release", array(&catalog.releases, release_to_json));
     root.set(
@@ -694,7 +704,20 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     let stale_relations = value.field_u32("relation_rules").unwrap_or(0) != model::RELATION_RULES;
 
     for item in rows(value, "file") {
-        catalog.files.push(file_from_json(item)?);
+        let file = file_from_json(item)?;
+        if let Some(fraction) = item.field_u32("mtime_subseconds") {
+            if fraction >= 1_000_000_000 {
+                return Err(StoreError::Invalid(
+                    "file modification fraction out of range",
+                ));
+            }
+            catalog
+                .file_mtime_subseconds
+                .insert(file.path.clone(), fraction);
+        } else if item.get("mtime_subseconds").is_some() {
+            return Err(StoreError::Invalid("invalid file modification fraction"));
+        }
+        catalog.files.push(file);
     }
     for item in rows(value, "artist") {
         catalog.artists.push(Artist {
@@ -905,9 +928,13 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
 /// The `Vec`s are indexed by identifier: we check that the file read back
 /// respects that invariant before handing it to the rest of the program.
 fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
+    let mut file_paths = std::collections::HashSet::new();
     for (index, file) in catalog.files.iter().enumerate() {
         if file.id as usize != index {
             return Err(StoreError::Invalid("non-contiguous file identifiers"));
+        }
+        if !file_paths.insert(file.path.as_str()) {
+            return Err(StoreError::Invalid("duplicate file path"));
         }
     }
     for (index, artist) in catalog.artists.iter().enumerate() {

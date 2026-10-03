@@ -96,6 +96,19 @@ fn full_round_trip() {
 }
 
 #[test]
+fn duplicate_file_paths_are_refused_before_their_identity_maps_can_collide() {
+    let mut value = to_json(&example_catalog());
+    let first = value.get("file").unwrap().as_arr().unwrap()[0].clone();
+    let mut second = first.clone();
+    second.set("id", 1u32.into());
+    value.set("file", Json::Arr(vec![first, second]));
+    assert!(matches!(
+        from_json(&value),
+        Err(StoreError::Invalid("duplicate file path"))
+    ));
+}
+
+#[test]
 fn sidecar_write_is_new_only_and_publishes_complete_content() {
     let folder = StoreSandbox::new();
     let path = folder.0.join("cover.jpg");
@@ -140,6 +153,27 @@ impl Drop for StoreSandbox {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.0).unwrap();
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn catalog_save_cannot_follow_a_preexisting_temporary_symlink() {
+    let sandbox = StoreSandbox::new();
+    let path = catalog_path(&sandbox.0);
+    let protected = sandbox.0.join("protected.txt");
+    std::fs::write(&protected, b"keep these bytes").unwrap();
+    let temporary = path.with_extension("json.tmp");
+    std::os::unix::fs::symlink(&protected, &temporary).unwrap();
+    save_catalog_only(&Catalog::default(), &path).unwrap();
+    assert_eq!(std::fs::read(&protected).unwrap(), b"keep these bytes");
+    assert!(
+        !std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(load_catalog_only(&path).unwrap().is_some());
+    assert_eq!(std::fs::read_link(temporary).unwrap(), protected);
 }
 
 fn legacy_catalog_with_conclusions() -> Json {

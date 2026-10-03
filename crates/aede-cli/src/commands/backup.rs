@@ -34,6 +34,13 @@ use crate::ui;
 /// after it is refused rather than defaulted — a backup written somewhere the
 /// reader did not choose is a backup they will not find.
 fn named(args: &Args, form: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    if args.positionals.len() > 1 {
+        return Err(format!(
+            "one file at a time: {form}; unexpected arguments: {}",
+            args.positionals[1..].join(" ")
+        )
+        .into());
+    }
     match args.positionals.first() {
         Some(path) if !path.trim().is_empty() => Ok(std::path::PathBuf::from(path)),
         _ => Err(format!("name the file: {form}").into()),
@@ -44,6 +51,7 @@ fn named(args: &Args, form: &str) -> Result<std::path::PathBuf, Box<dyn std::err
 pub fn backup(args: &Args) -> Res {
     let path = named(args, "aede backup <file>")?;
     let data = super::data_dir(args);
+    super::export::preflight_path(args, &path, "backup")?;
 
     println!("{}", ui::section("Backup"));
 
@@ -54,7 +62,7 @@ pub fn backup(args: &Args) -> Res {
     if path.exists() {
         println!(
             "  {} already exists",
-            ui::yellow(&path.display().to_string())
+            ui::yellow(&ui::literal(&path.display().to_string()))
         );
         if !super::confirmed(args, "overwrite it")? {
             return Err("nothing was written".into());
@@ -102,11 +110,11 @@ pub fn backup(args: &Args) -> Res {
     }
 
     backup::write(&made, &path)?;
-    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let size = std::fs::metadata(&path)?.len();
     println!(
         "{} {} ({})",
         ui::green("→"),
-        path.display(),
+        ui::literal(&path.display().to_string()),
         aede_core::text::format_size(size)
     );
     println!(
@@ -126,12 +134,15 @@ pub fn restore(args: &Args) -> Res {
     println!(
         "  made {} by Aède {}",
         ui::since(held.made_at),
-        match held.made_by.is_empty() {
+        ui::literal(match held.made_by.is_empty() {
             true => "of an unknown version",
             false => &held.made_by,
-        }
+        })
     );
-    println!("  into {}", ui::dim(&data.display().to_string()));
+    println!(
+        "  into {}",
+        ui::dim(&ui::literal(&data.display().to_string()))
+    );
 
     // Said before the question is asked, not after it is answered: a reader
     // agreeing to "replace files" has agreed to nothing they can picture.
@@ -141,6 +152,7 @@ pub fn restore(args: &Args) -> Res {
         user::user_path(&data),
         sources::sources_path(&data),
     ];
+    preflight_restore(&held, &path, &data, &into)?;
     let mut writing = 0usize;
     for ((name, state), path) in summarise(&held, "not in this backup").iter().zip(&into) {
         match state {
@@ -197,6 +209,41 @@ pub fn restore(args: &Args) -> Res {
     Ok(())
 }
 
+/// Rejects known-invalid destinations before any store can be replaced.
+/// Each subsequent save is atomic on its own, but an unexpected later I/O
+/// failure can still leave a partial restore across the four separate files.
+fn preflight_restore(
+    held: &Backup,
+    archive: &std::path::Path,
+    data: &std::path::Path,
+    into: &[std::path::PathBuf; 4],
+) -> Res {
+    let data = data.canonicalize()?;
+    let archive = archive.canonicalize()?;
+    let writing = [
+        held.catalog.held().is_some(),
+        held.conclusions.held().is_some(),
+        held.user.held().is_some(),
+        held.sources.held().is_some(),
+    ];
+    for (path, write) in into.iter().zip(writing) {
+        if !write {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .ok_or("restore destination has no file name")?;
+        aede_core::copy::validate_destination(&data, std::path::Path::new(name))?;
+        if path
+            .canonicalize()
+            .is_ok_and(|destination| destination == archive)
+        {
+            return Err(format!("{}: restoring would overwrite its input backup; move the archive outside the store destinations", path.display()).into());
+        }
+    }
+    Ok(())
+}
+
 /// Says that a restored catalog is a photograph, and what to do about it.
 ///
 /// **A restore does not put the library back; it puts back what the library
@@ -228,8 +275,8 @@ fn catch_up(catalog: &aede_core::model::Catalog) {
     // The case this command exists for is a disk that failed, and the machine
     // that reads the backup is often not the machine that wrote it. A watched
     // folder that is not here is not an error — the drive may simply not be
-    // mounted yet — but a scan run before mounting it would drop every file
-    // under it, which is the one way a restore can lose more than it returned.
+    // mounted yet. Scans retain temporarily unavailable roots, but cannot bring
+    // their entries up to date until the original folder is reachable again.
     let absent: Vec<&String> = catalog
         .roots
         .iter()
@@ -247,12 +294,12 @@ fn catch_up(catalog: &aede_core::model::Catalog) {
         }
     );
     for root in &absent {
-        println!("      {root}");
+        println!("      {}", ui::literal(root));
     }
     println!(
         "  {}",
         ui::dim(
-            "a scan now would drop every file under it — mount it first, or \
+            "a scan now retains unavailable roots without refreshing them — mount it first, or \
              aede roots --remove says you meant to let it go"
         )
     );
@@ -307,7 +354,7 @@ fn state<T>(part: &Part<T>, of: impl Fn(&T) -> String, nothing: &str) -> Doing {
         // Never silent. A store that will not read is the one thing here that
         // somebody must be told about now rather than discover at the moment
         // they most need the file.
-        Part::Unreadable(why) => Doing::Skip(format!("{} {why}", ui::red("×"))),
+        Part::Unreadable(why) => Doing::Skip(format!("{} {}", ui::red("×"), ui::literal(why))),
     }
 }
 

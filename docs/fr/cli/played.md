@@ -12,7 +12,7 @@ Une piste inconnue/ambiguë doit être précisée. L’historique est dans user.
 aede played <track>
 ```
 
-Un titre de piste cataloguée.
+Un titre de piste cataloguée ou une référence exacte `track:CHEMIN`. Les références à un album, un artiste ou un autre type d’entité sont refusées.
 
 ## Options de cette commande
 

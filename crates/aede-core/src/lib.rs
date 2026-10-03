@@ -1,18 +1,19 @@
 #![warn(missing_docs)]
 //! Aède — the heart of the music library.
 //!
-//! Milestone M0.6: read folders, extract a catalog of interlinked entities
+//! Read folders, extract a catalog of interlinked entities
 //! from them, answer questions about it, keep what the user thinks of it, and
 //! copy a selection of it out to a player or a card.
 //!
 //! The formats a library is made of are parsed here, from their
-//! specifications; `lofty` is the single dependency, and covers the long tail
+//! specifications; `lofty` covers the long tail
 //! of containers that do not deserve a parser of their own.
 
 pub mod acoustic;
 pub mod acoustid;
 pub mod analysis;
 pub mod artwork;
+mod atomic_file;
 pub mod audit;
 pub mod backup;
 pub mod clock;

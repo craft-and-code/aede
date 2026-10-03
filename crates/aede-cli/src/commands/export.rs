@@ -16,6 +16,7 @@
 //! screen, handed to a player.
 
 use std::collections::BTreeSet;
+use std::path::{Component, Path, PathBuf};
 
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
@@ -107,14 +108,16 @@ pub fn tracks_table(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
 
 /// Writes to the file given by `--output`, or to standard output.
 pub fn emit(args: &Args, text: &str) -> Res {
+    preflight_output(args)?;
     match args.value("output") {
         Some(path) => {
-            std::fs::write(path, text)?;
+            aede_core::playlist::write_atomic(Path::new(path), text)?;
             println!(
                 "{} {}",
                 ui::green("→"),
                 format_args!(
-                    "written to {path} ({})",
+                    "written to {} ({})",
+                    ui::literal(path),
                     aede_core::text::format_size(text.len() as u64)
                 )
             );
@@ -124,12 +127,144 @@ pub fn emit(args: &Args, text: &str) -> Res {
     Ok(())
 }
 
+/// Checks an explicit export destination before a command changes local data.
+///
+/// Active stores and their writer locks are reserved, including paths reached
+/// through directory aliases. Existing audio, final symbolic links and other
+/// non-regular outputs are refused. This reads no catalog and creates no files.
+pub fn preflight_output(args: &Args) -> Res {
+    let Some(raw) = args.value("output") else {
+        return Ok(());
+    };
+    preflight_path(args, Path::new(raw), "export")
+}
+
+/// Applies the same file protection to exports and positional backup outputs.
+pub(super) fn preflight_path(args: &Args, path: &Path, role: &str) -> Res {
+    let raw = path.display();
+    let subject = if role == "export" {
+        "an export"
+    } else {
+        "a backup"
+    };
+    let existing = match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+            return Err(format!(
+                "{raw}: refusing a symbolic link or non-regular {role} destination"
+            )
+            .into());
+        }
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(format!("{raw}: cannot inspect {role} destination: {error}").into());
+        }
+    };
+    let destination = resolved_path(path)?;
+    let directory = resolved_path(&data_dir(args))?;
+    for name in [
+        store::CATALOG_FILE,
+        aede_core::user::USER_FILE,
+        aede_core::sources::SOURCES_FILE,
+        aede_core::conclusions::CONCLUSIONS_FILE,
+        ".aede.lock",
+        ".aede-server.lock",
+    ] {
+        let protected = resolved_path(&directory.join(name))?;
+        if same_path(&destination, &protected) {
+            return Err(format!(
+                "{raw}: {subject} cannot replace an active Aède store or writer lock"
+            )
+            .into());
+        }
+    }
+    if existing {
+        if aede_core::tags::is_audio_path(path) {
+            return Err(format!("{raw}: {subject} cannot replace an audio file").into());
+        }
+        match aede_core::tags::read(path) {
+            Ok(_) | Err(aede_core::tags::TagError::Malformed(_)) => {
+                return Err(format!("{raw}: {subject} cannot replace an audio file").into());
+            }
+            Err(aede_core::tags::TagError::UnrecognizedFormat) => {}
+            Err(error) => {
+                return Err(format!("{raw}: cannot inspect {role} destination: {error}").into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        left.as_os_str()
+            .as_encoded_bytes()
+            .eq_ignore_ascii_case(right.as_os_str().as_encoded_bytes())
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+/// Resolves aliases in existing ancestors without creating missing directories.
+fn resolved_path(path: &Path) -> std::io::Result<PathBuf> {
+    let absolute = std::path::absolute(path)?;
+    let mut ancestor = absolute.as_path();
+    let mut missing = Vec::new();
+    loop {
+        match ancestor.canonicalize() {
+            Ok(mut resolved) => {
+                if !missing.is_empty() && !resolved.is_dir() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotADirectory,
+                        "export parent is not a directory",
+                    ));
+                }
+                for part in missing.iter().rev() {
+                    match part {
+                        Component::Normal(name) => resolved.push(name),
+                        Component::ParentDir => {
+                            resolved.pop();
+                        }
+                        Component::CurDir => {}
+                        _ => {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                "invalid export path",
+                            ));
+                        }
+                    }
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // A dangling directory link is not a missing directory that
+                // this command may create in another tree.
+                if std::fs::symlink_metadata(ancestor).is_ok() {
+                    return Err(error);
+                }
+                let Some(part) = ancestor.components().next_back() else {
+                    return Err(error);
+                };
+                let Some(parent) = ancestor.parent() else {
+                    return Err(error);
+                };
+                missing.push(part);
+                ancestor = parent;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 /// Field separator, `,` unless asked otherwise.
 ///
 /// Excel in a French or German locale splits on `;` and would show a one-column
 /// sheet otherwise. The alternative — a `sep=;` line at the top of the file —
 /// is understood by Excel alone and corrupts the file for every other reader.
-fn separator(args: &Args) -> Result<char, Box<dyn std::error::Error>> {
+pub(super) fn separator(args: &Args) -> Result<char, Box<dyn std::error::Error>> {
     match args.value("separator") {
         None => Ok(','),
         Some("tab") => Ok('\t'),
@@ -486,8 +621,8 @@ fn escape(value: &str, separator: char) -> String {
 /// playlist` — that one writes into the album folder and therefore names its
 /// tracks relatively, and two writers agreeing about `#EXTINF` today would
 /// disagree about it in six months.
-pub fn m3u(catalog: &Catalog, tracks: &[Id]) -> String {
-    aede_core::playlist::render(catalog, tracks, None, aede_core::playlist::Style::Extended)
+pub fn m3u(catalog: &Catalog, tracks: &[Id]) -> Result<String, String> {
+    aede_core::playlist::try_render(catalog, tracks, None, aede_core::playlist::Style::Extended)
 }
 
 #[cfg(test)]

@@ -38,6 +38,9 @@ pub struct FileConclusion {
     pub size: u64,
     /// Modification time when these results were produced.
     pub mtime: u64,
+    /// Nanosecond fraction when known. Legacy results without precision only
+    /// match legacy catalog rows; a fresh read must not guess their identity.
+    pub mtime_subseconds: Option<u32>,
     /// The most recent integrity check.
     pub integrity: Option<IntegrityRecord>,
     /// The computed acoustic fingerprint.
@@ -67,6 +70,7 @@ impl Conclusions {
                     FileConclusion {
                         size: file.size,
                         mtime: file.mtime,
+                        mtime_subseconds: catalog.file_mtime_subseconds.get(&file.path).copied(),
                         integrity: file.integrity.clone(),
                         fingerprint: file.fingerprint.clone(),
                     },
@@ -94,6 +98,7 @@ impl Conclusions {
             if let Some(record) = self.files.get(&file.path)
                 && record.size == file.size
                 && record.mtime == file.mtime
+                && record.mtime_subseconds == catalog.file_mtime_subseconds.get(&file.path).copied()
             {
                 file.integrity = record.integrity.clone();
                 file.fingerprint = record.fingerprint.clone();
@@ -114,6 +119,9 @@ pub fn to_json(conclusions: &Conclusions) -> Json {
         row.set("path", path.clone().into());
         row.set("size", record.size.into());
         row.set("mtime", record.mtime.into());
+        if let Some(fraction) = record.mtime_subseconds {
+            row.set("mtime_subseconds", fraction.into());
+        }
         if let Some(verdict) = &record.integrity {
             let mut value = Json::obj();
             value.set("state", verdict.verdict.key().into());
@@ -247,6 +255,13 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
             expected: FORMAT_VERSION,
         });
     }
+    for table in ["file", "analysis", "loudness_track", "loudness_programme"] {
+        if value.get(table).is_some_and(|rows| rows.as_arr().is_none()) {
+            return Err(StoreError::ConclusionsInvalid(
+                "conclusion table must be an array",
+            ));
+        }
+    }
     let mut result = Conclusions::default();
     for row in value.get("file").and_then(Json::as_arr).unwrap_or(&[]) {
         let path = row
@@ -279,6 +294,17 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
         let record = FileConclusion {
             size,
             mtime,
+            mtime_subseconds: match row.get("mtime_subseconds") {
+                None => None,
+                Some(value) => Some(
+                    value
+                        .as_u32()
+                        .filter(|fraction| *fraction < 1_000_000_000)
+                        .ok_or(StoreError::ConclusionsInvalid(
+                            "invalid file modification fraction",
+                        ))?,
+                ),
+            },
             integrity,
             fingerprint,
         };
@@ -359,12 +385,7 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
 
 /// Atomically saves the independent store.
 pub fn save(conclusions: &Conclusions, path: &Path) -> Result<(), StoreError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, to_json(conclusions).to_string_compact())?;
-    std::fs::rename(&temp, path)?;
+    crate::atomic_file::write(path, to_json(conclusions).to_string_compact().as_bytes())?;
     Ok(())
 }
 

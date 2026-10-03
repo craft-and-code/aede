@@ -99,8 +99,7 @@ pub fn show_track(args: &Args) -> Res {
                 })
                 .collect(),
         );
-        println!("{}", json.to_string_pretty());
-        return Ok(());
+        return super::export::emit(args, &json.to_string_pretty());
     }
     if let Some(result) = selection_output(&catalog, &ids, args) {
         return result;
@@ -521,9 +520,9 @@ fn print_lyrics(catalog: &Catalog, track: &Track) {
             Some(at) => println!(
                 "  {}  {}",
                 ui::dim(&format!("{}:{:02}", at / 60_000, at / 1000 % 60)),
-                line.text
+                ui::literal(&line.text)
             ),
-            None => println!("  {}", line.text),
+            None => println!("  {}", ui::literal(&line.text)),
         }
     }
 }

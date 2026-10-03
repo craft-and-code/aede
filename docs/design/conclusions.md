@@ -64,9 +64,12 @@ on, and the reasoning on `FileAnalysis::path` transfers word for word:
   remapped after every scan — a path does not move;
 - a record may describe a file the catalog does not hold _yet_, and can wait
   for the day a scan brings it in;
-- `still_applies(size, mtime)` is already the rule that expires one, and it is
-  already the rule that carries an integrity verdict and a fingerprint across a
-  rescan. The key is identical; only the address has to change.
+- imported analyses use their source's `still_applies(size, mtime)` contract;
+  native integrity verdicts and fingerprints require size plus both the seconds
+  and nanosecond fraction of the audio modification time. Their optional
+  `mtime_subseconds` field avoids attaching old results to a same-second edit.
+  Legacy rows without precision match only legacy catalog rows; after a fresh
+  scan, missing precision is not guessed.
 
 The four voices then have four files, which is the shape the rest of the
 program already argues for: **what the disk says** (`catalog.json`), **what
@@ -80,7 +83,7 @@ for files absent from the new scan. Full scans, backups and graph exports carry
 legacy conclusions without depending on a read-side migration. An unreadable
 independent conclusions store is an error, not permission to overwrite it.
 
-Analysis rows also retain the report's modification time, or the completion time of an in-process analysis, as `result_at_ns`. This backward-compatible field defaults to zero for older undated rows. It is distinct from the audio file's whole-second modification date: subsecond precision orders successive reports without changing the byte-identity contract. When results for the same file and source overlap, the latest dated result survives imports and scans. Deleting an imported report does not remove the independent row. See [Imported analyses](../imported-analyses.md#re-running-an-analysis-and-keeping-its-results).
+Analysis rows also retain the report's modification time, or the completion time of an in-process analysis, as `result_at_ns`. This backward-compatible field defaults to zero for older undated rows. It orders successive reports and is distinct from the audio modification date. Imported analyses retain their upstream whole-second file identity; playback loudness caches also retain their existing whole-second contract. The scanner's precision improvement therefore does not establish same-second invalidation for those stores. When results for the same file and source overlap, the latest dated result survives imports and scans. Deleting an imported report does not remove the independent row. See [Imported analyses](../imported-analyses.md#re-running-an-analysis-and-keeping-its-results).
 
 ## What it does not solve
 

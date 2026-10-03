@@ -118,8 +118,9 @@ pub struct AudioFile {
     /// Absolute path in the scanner's native spelling, including Windows
     /// verbatim prefixes. Use `text` path helpers for catalog string operations.
     pub path: String,
-    /// Size in bytes; together with [`AudioFile::mtime`] it decides whether a
-    /// later scan must read the file again or can reuse the stored tags.
+    /// Size in bytes; together with [`AudioFile::mtime`] and the catalog's
+    /// [`Catalog::file_mtime_subseconds`] it decides whether a later scan can
+    /// reuse the stored tags.
     pub size: u64,
     /// Modification date, in seconds since the Unix epoch.
     pub mtime: u64,
@@ -507,6 +508,13 @@ pub struct Catalog {
     pub scanned_at: u64,
     /// The files that were read, in the order the scan settled on.
     pub files: Vec<AudioFile>,
+    /// Nanosecond fractions of file modification dates, keyed by native path.
+    ///
+    /// Stored as an optional `mtime_subseconds` field on each file row. Legacy
+    /// rows without that field need one fresh read before they can be reused;
+    /// guessing zero would miss real same-second changes. Keeping the fraction
+    /// apart from epoch seconds avoids losing precision in JSON numbers.
+    pub file_mtime_subseconds: BTreeMap<String, u32>,
     /// Deep analyses imported from another tool, one row per path and source.
     ///
     /// Optional by nature: a catalog without a single one works exactly the

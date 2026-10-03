@@ -4,6 +4,8 @@ artist ouvre un artiste local par nom ou identifiant MusicBrainz. La carte disti
 
 --role limite les contributions, --with sélectionne les pistes communes à un autre artiste local, --members montre les membres datés. Les albums peuvent déduire la formation de leur année à partir des dates sourcées ; aucune formation historique n’est inventée.
 
+Choisir une seule question parmi --role, --with et --members ; les combinaisons sont refusées. Sur la carte locale ordinaire, --limit/--offset paginent chaque tableau d’albums séparément (50 lignes par défaut) et les collaborateurs (20 par défaut). Avec --role ou --with, ils paginent le tableau de pistes ; CSV/JSON/M3U exportent aussi cette sélection de pistes paginée. Les exports ordinaires paginent les pistes interprétées par l’artiste. --all retire ces limites. Les totaux décrivent toujours la sélection complète. --members présente toutes les relations datées et refuse les options d’export et de pagination.
+
 Un contributeur présent seulement dans des crédits de confiance possède une carte de source. Utiliser son MBID si un homonyme local existe. --members/--with exigent des artistes locaux et sont refusés sur cette carte externe. CSV/M3U sélectionnent les pistes pertinentes, pas la biographie. La provenance reste visible ; Continue propose les objets voisins.
 
 ## Syntaxe et arguments

@@ -12,7 +12,7 @@ An unknown/ambiguous track must be resolved before a record can be added. Person
 aede played <track>
 ```
 
-One catalogued track title.
+One catalogued track title or exact `track:PATH` reference. References to an album, artist or another entity kind are refused.
 
 ## Options for this command
 

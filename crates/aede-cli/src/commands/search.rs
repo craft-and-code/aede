@@ -84,14 +84,10 @@ pub fn search(args: &Args) -> Res {
         return Err("give some text to search for".into());
     }
     let window = args.window(30)?;
-    // The search ranks by how well a name matched, so a window over the hits
-    // is a window over that ranking: page two is the next thirty best, not a
-    // second search.
-    let hits: Vec<aede_core::model::SearchHit> = catalog
-        .search(&query, window.offset.saturating_add(window.limit))
-        .into_iter()
-        .skip(window.offset)
-        .collect();
+    // Keep the complete ranking until the requested shape is known. A track
+    // export has its own rows: paging mixed graph hits first could leave a
+    // playlist empty merely because albums occupied the chosen page.
+    let hits = catalog.search(&query, usize::MAX);
     let sources = sources_held(args)?;
     let sourced_parents = sourced_parent_works(&catalog, &sources, &query);
     let mut sourced_contributors: Vec<SourcedContributor> =
@@ -148,8 +144,9 @@ pub fn search(args: &Args) -> Res {
         .filter(|h| h.kind == EntityKind::Track)
         .map(|h| h.id)
         .collect();
+    let mut included: BTreeSet<Id> = ids.iter().copied().collect();
     for &id in in_comments.iter().chain(in_lyrics.iter().map(|(id, _)| id)) {
-        if !ids.contains(&id) {
+        if included.insert(id) {
             ids.push(id);
         }
     }
@@ -172,12 +169,18 @@ pub fn search(args: &Args) -> Res {
             &in_comments,
             &in_lyrics,
             &in_notes,
-            window,
+            args,
         );
     }
+    let ids: Vec<Id> = ids
+        .into_iter()
+        .skip(window.offset)
+        .take(window.limit)
+        .collect();
     if let Some(result) = selection_output(&catalog, &ids, args) {
         return result;
     }
+    super::refuse_output_without_a_format(args)?;
 
     println!("{}", ui::section(&format!("Results for \"{query}\"")));
     if hits.is_empty() && sourced_contributors.is_empty() && sourced_parents.is_empty() {
@@ -191,7 +194,7 @@ pub fn search(args: &Args) -> Res {
             .limit(1, 32)
             .limit(2, 22)
             .limit(3, 64);
-        for hit in &hits {
+        for hit in hits.iter().skip(window.offset).take(window.limit) {
             // "release" is the model's word; "album" is the user's. On screen
             // the user's wins — the JSON keeps the model's, for a client that
             // has to map it back onto a table.
@@ -213,6 +216,7 @@ pub fn search(args: &Args) -> Res {
             ]);
         }
         print!("{}", t.render());
+        announce_window(window, hits.len(), "name match");
     }
 
     if !sourced_contributors.is_empty() {
@@ -339,10 +343,13 @@ fn print_json(
     in_comments: &[Id],
     in_lyrics: &[(Id, String)],
     in_notes: &[(aede_core::user::EntityRef, String)],
-    window: Window,
+    args: &Args,
 ) -> Res {
+    let window = args.window(30)?;
     let mut rows: Vec<Json> = hits
         .iter()
+        .skip(window.offset)
+        .take(window.limit)
         .map(|h| {
             let mut o = Json::obj();
             o.set("type", h.kind.as_str().into());
@@ -446,8 +453,7 @@ fn print_json(
         o.set("found_in", "note".to_string().into());
         rows.push(o);
     }
-    println!("{}", Json::Arr(rows).to_string_pretty());
-    Ok(())
+    super::export::emit(args, &Json::Arr(rows).to_string_pretty())
 }
 
 /// The tracks whose comment carries the text, in their own section.

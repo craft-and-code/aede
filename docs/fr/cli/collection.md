@@ -4,6 +4,8 @@ collection NOM --query EXPRESSION enregistre une question nommée après validat
 
 --remove supprime seulement la définition, pas musique ni favoris. --query et --remove sont incompatibles. Sans ces options, il affiche les pistes et accepte CSV/JSON/M3U, pagination et tris de query : title, artist, album, year, duration, size, rating, played, catalog (suffixe - inverse).
 
+Les options d’export, de pagination et de tri s’appliquent seulement à l’exécution de la collection. Elles sont refusées avec --query ou --remove avant toute modification de sa définition.
+
 collections liste les noms ; copy --collection NOM copie son résultat actuel ; play collection:NOM l’écoute localement. Un nom inconnu est refusé avec indication de création ; une définition syntaxiquement invalide n’est pas sauvée.
 
 ## Syntaxe et arguments

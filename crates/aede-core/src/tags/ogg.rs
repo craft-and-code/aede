@@ -8,7 +8,7 @@
 
 use std::fs::File;
 
-use super::bytes::{Cursor, read_at_most};
+use super::bytes::{Cursor, duration_ms, read_at_most};
 use super::{RawTags, TagError};
 
 /// Head window large enough to hold the identification header and the comment
@@ -71,7 +71,7 @@ pub fn read(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
         if let Some(granule) = last_granule(&tail, serial) {
             let samples = granule.saturating_sub(tags.pre_skip());
             if rate > 0 {
-                tags.properties.duration_ms = Some(samples * 1000 / rate as u64);
+                tags.properties.duration_ms = duration_ms(samples, rate);
             }
         }
     }

@@ -66,3 +66,31 @@ fn mvhd_version_0() {
     read_mvhd(&payload, &mut tags);
     assert_eq!(tags.properties.duration_ms, Some(2500));
 }
+
+#[test]
+fn long_mp4_durations_do_not_overflow_during_unit_conversion() {
+    for (timescale, duration, expected) in [
+        (1000u32, u64::MAX / 2, Some(u64::MAX / 2)),
+        (1, u64::MAX / 2, None),
+    ] {
+        let mut payload = vec![1, 0, 0, 0];
+        payload.extend_from_slice(&[0; 16]);
+        payload.extend_from_slice(&timescale.to_be_bytes());
+        payload.extend_from_slice(&duration.to_be_bytes());
+        let mut tags = RawTags::default();
+        read_mvhd(&payload, &mut tags);
+        assert_eq!(tags.properties.duration_ms, expected);
+    }
+}
+
+#[test]
+fn invalid_extended_mp4_box_sizes_are_refused_without_a_panic() {
+    for declared in [8u64, 12, u64::MAX] {
+        let mut bytes = box_with(b"ftyp", b"M4A \0\0\0\0");
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(b"mvhd");
+        bytes.extend_from_slice(&declared.to_be_bytes());
+        let fixture = super::super::test_support::BinaryFile::new("m4a", &bytes);
+        assert!(matches!(fixture.read(), Err(TagError::Malformed(_))));
+    }
+}

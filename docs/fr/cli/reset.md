@@ -2,6 +2,8 @@
 
 reset supprime catalog.json après présentation de son contenu et confirmation. Il ne supprime ni musique, ni sources.json, user.json ou conclusions.json. Notes, étoiles, favoris, empreintes, verdicts et analyses importées gardés séparément subsistent.
 
+Si un ancien catalogue contient encore ses conclusions, reset préserve ses verdicts, empreintes et analyses importées dans conclusions.json après confirmation et avant la suppression. Si cette sauvegarde échoue, le catalogue reste intact et reset signale une erreur.
+
 Les dossiers suivis vivent dans catalog.json : il faut les nommer à nouveau lors de la reconstruction. La commande affiche un scan avec les anciennes racines. Le copier avant de fermer le terminal. Malgré un ancien résumé d’aide, reset ne conserve pas ces racines dans un catalogue de remplacement.
 
 Faire une sauvegarde auparavant pour récupérer exactement l’état du catalogue. --yes accepte la suppression sans question ; cela ne la rend pas réversible. Sans catalogue, reset indique qu’il n’y a rien à retirer.

@@ -16,3 +16,6 @@ pub mod flac;
 pub mod integrity;
 
 pub use flac::{FlacAudit, Limits, StereoContent};
+
+#[cfg(test)]
+mod test_support;

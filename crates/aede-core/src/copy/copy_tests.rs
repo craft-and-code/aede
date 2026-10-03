@@ -64,6 +64,12 @@ fn verified_copy_accepts_files_copied_with_read_only_permissions() {
         Ok(Wrote::Copied)
     ));
     assert_eq!(std::fs::read(&destination).unwrap(), b"read only audio");
+    assert!(
+        std::fs::metadata(&destination)
+            .unwrap()
+            .permissions()
+            .readonly()
+    );
 
     for path in [&source, &destination] {
         std::fs::set_permissions(path, original_permissions.clone()).unwrap();
@@ -468,7 +474,10 @@ fn extras_reach_one_level_into_a_subfolder_beside_the_audio() {
     // directory entry there failed `file_type().is_file()` and was skipped
     // outright, whatever `--extras` asked for. Both `Extras::Images` and
     // `Extras::All` document reaching a spectrogram; neither did.
-    let dir = std::env::temp_dir().join("aede_copy_extras_subfolder_test");
+    let dir = std::env::temp_dir().join(format!(
+        "aede_copy_extras_subfolder_test_{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     let album = dir.join("Danzig").join("1994 Danzig 4");
     std::fs::create_dir_all(album.join("spectrograms")).unwrap();
@@ -517,4 +526,215 @@ fn extras_reach_one_level_into_a_subfolder_beside_the_audio() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn distinct_adapted_album_folders_remain_distinct() {
+    let catalog = catalog_of(
+        &[
+            ("/m/Album:Live/01.flac", "A"),
+            ("/m/Album?Live/02.flac", "B"),
+        ],
+        &["/m"],
+    );
+    let result = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            restrict_names: true,
+            ..Default::default()
+        },
+    );
+    assert_ne!(
+        result.items[0].relative.parent(),
+        result.items[1].relative.parent()
+    );
+}
+
+#[test]
+fn case_variants_cannot_collide_on_a_portable_destination() {
+    let catalog = catalog_of(
+        &[("/m/Artist/01.flac", "A"), ("/m/artist/01.flac", "B")],
+        &["/m"],
+    );
+    let result = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            ..Default::default()
+        },
+    );
+    let paths: BTreeSet<String> = result
+        .items
+        .iter()
+        .map(|item| item.relative.to_string_lossy().to_lowercase())
+        .collect();
+    assert_eq!(paths.len(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_preexisting_partial_symlink_cannot_redirect_a_copy() {
+    let dir =
+        std::env::temp_dir().join(format!("aede_copy_partial_symlink_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("source.flac");
+    let victim = dir.join("victim.flac");
+    let destination = dir.join("output.flac");
+    std::fs::write(&source, b"new audio").unwrap();
+    std::fs::write(&victim, b"original").unwrap();
+    std::os::unix::fs::symlink(&victim, partial_path(&destination)).unwrap();
+    assert_eq!(
+        copy_one(&source, &destination, 9, true, false).unwrap(),
+        Wrote::Copied
+    );
+    assert_eq!(std::fs::read(&victim).unwrap(), b"original");
+    assert_eq!(std::fs::read(&destination).unwrap(), b"new audio");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_existing_destination_symlink_is_refused_even_when_size_matches() {
+    let dir = std::env::temp_dir().join(format!("aede_copy_target_symlink_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("source.flac");
+    let victim = dir.join("victim.flac");
+    let destination = dir.join("output.flac");
+    std::fs::write(&source, b"new audio").unwrap();
+    std::fs::write(&victim, b"unchanged").unwrap();
+    std::os::unix::fs::symlink(&victim, &destination).unwrap();
+    assert!(copy_one(&source, &destination, 9, false, false).is_err());
+    assert_eq!(std::fs::read(&victim).unwrap(), b"unchanged");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn equal_directory_names_in_distinct_roots_remain_separate() {
+    let catalog = catalog_of(
+        &[
+            ("/first/Album/01.flac", "A"),
+            ("/second/Album/02.flac", "B"),
+        ],
+        &["/first", "/second"],
+    );
+    let result = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            ..Default::default()
+        },
+    );
+    assert_ne!(
+        result.items[0].relative.parent(),
+        result.items[1].relative.parent()
+    );
+}
+
+#[test]
+fn replacing_a_source_with_itself_is_refused() {
+    let path = std::env::temp_dir().join(format!("aede_copy_self_{}.flac", std::process::id()));
+    std::fs::write(&path, b"original").unwrap();
+    assert!(copy_one(&path, &path, 8, true, true).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"original");
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn composed_and_decomposed_unicode_names_have_distinct_portable_outputs() {
+    let catalog = catalog_of(
+        &[
+            ("/one/Caféteria/01.flac", "A"),
+            ("/two/Cafe\u{301}teria/01.flac", "B"),
+            ("/three/Album/Café.flac", "C"),
+            ("/three/Album/Cafe\u{301}.flac", "C"),
+        ],
+        &["/one", "/two", "/three"],
+    );
+    let result = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            restrict_names: true,
+            ..Default::default()
+        },
+    );
+    let first = result
+        .items
+        .iter()
+        .find(|item| item.source.to_string_lossy().starts_with("/one/"))
+        .unwrap();
+    let second = result
+        .items
+        .iter()
+        .find(|item| item.source.to_string_lossy().starts_with("/two/"))
+        .unwrap();
+    assert_ne!(first.relative.parent(), second.relative.parent());
+    let files: Vec<_> = result
+        .items
+        .iter()
+        .filter(|item| item.relative.parent() == Some(Path::new("Album")))
+        .collect();
+    assert_eq!(files.len(), 2);
+    assert!(
+        files
+            .iter()
+            .any(|item| item.relative.to_string_lossy().contains("(2)"))
+    );
+}
+
+#[test]
+fn alac_in_m4a_is_encoded_when_aac_is_requested() {
+    let catalog = catalog_of_codec("/m/Album/01.m4a", "alac", true);
+    assert_eq!(
+        converted_to(&catalog, transcode::Target::Aac),
+        Some(transcode::Target::Aac)
+    );
+}
+
+#[test]
+fn flac_inside_ogg_is_encoded_to_the_native_flac_container() {
+    let mut source = file("/m/Album/01.ogg", "Album");
+    source.tags.properties.codec = "flac".into();
+    source.tags.properties.container = "ogg".into();
+    source.tags.properties.lossless = true;
+    let catalog = model::build(vec![source], vec!["/m".into()], 0, &[]);
+    assert_eq!(
+        converted_to(&catalog, transcode::Target::Flac),
+        Some(transcode::Target::Flac)
+    );
+}
+
+#[test]
+fn wav_aliases_are_already_in_the_requested_format() {
+    let mut source = file("/m/Album/float.wave", "Album");
+    source.tags.properties.codec = "pcm_float".into();
+    source.tags.properties.container = "wav".into();
+    source.tags.properties.lossless = true;
+    source.tags.properties.bit_depth = Some(32);
+    let catalog = model::build(vec![source], vec!["/m".into()], 0, &[]);
+    assert_eq!(converted_to(&catalog, transcode::Target::Wav), None);
+}
+
+#[test]
+fn a_float_source_cannot_be_planned_as_lossless_integer_flac() {
+    let catalog = catalog_of_codec("/m/Album/01.wave", "pcm_float", true);
+    let result = plan(
+        &catalog,
+        &all_tracks(&catalog),
+        &Recipe {
+            extras: Extras::None,
+            convert: Some(transcode::Target::Flac),
+            ..Default::default()
+        },
+    );
+    assert!(result.items.is_empty());
+    assert_eq!(result.rejected.len(), 1);
+    assert!(result.rejected[0].reason.contains("floating-point PCM"));
 }

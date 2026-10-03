@@ -1,5 +1,36 @@
 use super::*;
 
+#[test]
+fn terminal_metadata_cannot_emit_osc_or_c1_control_instructions() {
+    let attack = "name\x1b]52;c;Y2xpcGJvYXJk\x07\r\u{009b}2J";
+    let mut table = Table::new(&["Title"]);
+    table.push(vec![attack.into()]);
+    for shown in [table.render(), section(attack)] {
+        assert!(
+            !shown.contains("\x1b]52"),
+            "clipboard instructions must be literal"
+        );
+        assert!(!shown.contains('\u{009b}'));
+        assert!(!shown.contains('\x07'));
+        assert!(!shown.contains('\r'));
+        assert!(shown.contains("name"));
+    }
+    assert_eq!(literal("note\n\ttab\x1b\r"), "note\n\ttab\\u{1b}\\r");
+}
+
+#[test]
+fn disabling_color_removes_embedded_styles_without_enabling_other_instructions() {
+    let styled = "\x1b[31mname\x1b[0m\x1b]52;c;YQ==\x07";
+    assert_eq!(
+        literal_styled_with_color(styled, false),
+        "name\\u{1b}]52;c;YQ==\\u{7}"
+    );
+    assert_eq!(
+        literal_styled_with_color("\x1b[31mname\x1b[0m", true),
+        "\x1b[31mname\x1b[0m"
+    );
+}
+
 struct LoadingOutput {
     bytes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     flushed: std::sync::mpsc::Sender<()>,
@@ -70,6 +101,10 @@ fn a_moment_and_a_span_are_not_the_same_number() {
 
 #[test]
 fn elapsed_time_stays_readable() {
+    assert_eq!(
+        elapsed(u128::MAX),
+        "94522879700260684295381835397713 h 23 min"
+    );
     assert_eq!(elapsed(842), "842 ms");
     assert_eq!(elapsed(1_500), "1.5 s");
     // The one that prompted this: 260604 ms made the reader divide.
@@ -181,6 +216,7 @@ fn proportional_bar() {
 
 #[test]
 fn long_durations() {
+    assert_eq!(long_duration(u64::MAX), "213503982334 d 14 h 25 min");
     assert_eq!(long_duration(3_600_000), "1 h 0 min");
     assert_eq!(long_duration(90_000_000), "1 d 1 h 0 min");
     assert_eq!(long_duration(120_000), "2 min 0 s");

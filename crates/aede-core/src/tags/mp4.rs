@@ -7,7 +7,7 @@
 
 use std::fs::File;
 
-use super::bytes::{Cursor, read_at, read_at_most};
+use super::bytes::{Cursor, duration_ms, read_at, read_at_most};
 use super::{RawTags, TagError};
 
 /// Maximum nesting depth: a guard against malicious or circular files.
@@ -18,8 +18,11 @@ const MAX_BOX_LOAD: u64 = 32 * 1024 * 1024;
 /// Reads the tags and the audio properties of an open MP4 / M4A file.
 ///
 /// `file_size` bounds the box walk, since a top-level box may declare a length
-/// running past the end of the file. When the `stsd` description names no
-/// codec, the stream falls back to `aac`, the overwhelmingly common case.
+/// running past the end of the file. Sizes shorter than their header or outside
+/// their enclosing range are malformed. Metadata beyond the nesting limit is
+/// skipped, and durations that cannot fit in milliseconds remain unknown.
+/// When the `stsd` description names no codec, the stream falls back to `aac`,
+/// the overwhelmingly common case.
 pub fn read(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
     let mut tags = RawTags::default();
     tags.properties.container = "mp4".into();
@@ -45,7 +48,7 @@ fn walk(
     }
     let mut offset = start;
 
-    while offset + 8 <= end {
+    while end.saturating_sub(offset) >= 8 {
         let header = read_at(file, offset, 8)?;
         let mut size = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as u64;
         let kind = [header[4], header[5], header[6], header[7]];
@@ -53,6 +56,9 @@ fn walk(
 
         if size == 1 {
             // Size extended to 64 bits.
+            if end - offset < 16 {
+                return Err(TagError::Malformed("truncated extended MP4 box header"));
+            }
             let large = read_at(file, offset + 8, 8)?;
             size = u64::from_be_bytes([
                 large[0], large[1], large[2], large[3], large[4], large[5], large[6], large[7],
@@ -62,10 +68,12 @@ fn walk(
             size = end - offset; // the box runs to the end
         }
 
-        if size < 8 || offset + size > end {
-            break; // inconsistent structure: stop without failing
-        }
-        let body_end = offset + size;
+        // Extended sizes include their 16-byte header. Check the enclosing
+        // range before subtracting its body or following the next box.
+        let body_end = offset
+            .checked_add(size)
+            .filter(|&limit| size >= body - offset && limit <= end)
+            .ok_or(TagError::Malformed("invalid MP4 box size"))?;
 
         match &kind {
             // Pure containers: descend straight into them.
@@ -74,7 +82,11 @@ fn walk(
             }
             // `meta` carries 4 bytes of version/flags before its children.
             b"meta" => {
-                walk(file, body + 4, body_end, depth + 1, tags)?;
+                let children = body
+                    .checked_add(4)
+                    .filter(|&start| start <= body_end)
+                    .ok_or(TagError::Malformed("truncated MP4 meta flags"))?;
+                walk(file, children, body_end, depth + 1, tags)?;
             }
             b"mvhd" => {
                 let data = read_at_most(file, body, (body_end - body).min(120) as usize)?;
@@ -115,7 +127,7 @@ fn read_mvhd(data: &[u8], tags: &mut RawTags) {
         }
     };
     if timescale > 0 && duration > 0 {
-        tags.properties.duration_ms = Some(duration * 1000 / timescale as u64);
+        tags.properties.duration_ms = duration_ms(duration, timescale);
     }
 }
 

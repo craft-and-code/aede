@@ -63,7 +63,7 @@ It is also what makes an upgrade painless. The `relation` table is **inferred** 
 
 **Scanning is incremental by default.** Same path, size and modification time means the file is not read again. On the demo library: 63 ms on the first pass, 2 ms on the second. `--full` forces a re-read.
 
-**Watched folders accumulate.** `aede scan ~/Music` then `aede scan ~/Live` watches both; a plain `aede scan` refreshes everything. `--replace` keeps only the folders given, and `aede roots --remove` drops one. A watched folder that has become unreachable aborts the scan rather than quietly emptying the catalog.
+**Watched folders accumulate.** `aede scan ~/Music` then `aede scan ~/Live` watches both; a plain `aede scan` refreshes everything. `--replace` keeps only the folders given, and `aede roots --remove` drops one. A watched folder that has become unreachable is reported and its cached files are retained while other watched folders are refreshed. A newly named unavailable folder is refused before scanning.
 
 Dropping a folder from the list does not empty the catalog on its own: its files stay until the next `aede scan` rebuilds the catalog from the folders still watched. Run that scan **without naming a folder** — naming the one just dropped would simply watch it again.
 
@@ -76,7 +76,7 @@ Dropping a folder from the list does not empty the catalog on its own: its files
 | Same encoding on both sides                    | `duplicate`     | Nothing tells the copies apart: one is dead weight |
 | Different encoding                             | `other_edition` | The second copy is there on purpose                |
 
-Track positions and titles must match exactly; durations only have to be within three seconds, since two rips of one disc never agree to the millisecond. Two albums merely sharing a name are left unlinked — without MusicBrainz there is nothing reliable to say about them.
+Disc and track positions and normalized titles must match exactly; durations only have to be within three seconds, since two rips of one disc never agree to the millisecond. Encoding quality is compared for each corresponding track, including repeated tracks, rather than as an album-wide set. Two albums merely sharing a name are left unlinked — without MusicBrainz there is nothing reliable to say about them.
 
 `doctor` reports a `duplicate` once, as a warning naming both folders and the space to be recovered, instead of once per track — a copied album used to produce thirteen identical lines. An `other_edition` is reported too, as information: it is a choice, not a defect. The artist page and the album listing mark the rows, and `aede album` names the other folders.
 
@@ -89,6 +89,8 @@ _Performing_ means credited in a role that makes the artist audible on the recor
 **A title is not an identifier.** `aede track "So What"` prints every track carrying that name — the studio take, the single, the live rendition — because they are different recordings. `--artist` and `--album` narrow it down, and a list cut short by `--limit` always says so.
 
 **Construction is deterministic.** Files are sorted before processing, so two scans of the same library produce exactly the same identifiers. Without that, no readable diff and no reproducible test.
+
+**Artist aliases require unambiguous evidence.** A file contributes a MusicBrainz artist identity only when one artist name can be paired with one identifier. A normalized spelling found under distinct identifiers cannot join their other spellings automatically. Local artist rows are still keyed by normalized name: exact homonyms remain an ambiguous row, while an explicit owner merge can join names the tags cannot resolve.
 
 **`Various Artists` is not an artist**, it is the absence of an album artist. Recording it would pollute every count.
 

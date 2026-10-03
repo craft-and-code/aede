@@ -12,7 +12,7 @@ Le catalogue est une photographie de la date de sauvegarde. Exécuter scan ensui
 aede restore <file>
 ```
 
-Un fichier de sauvegarde Aède existant ; pas un dossier musical, CSV ou rapport FlacCompagnon.
+Exactement un fichier ordinaire de sauvegarde Aède existant ; pas un dossier musical, fichier spécial, CSV ou rapport FlacCompagnon. Les arguments supplémentaires sont refusés.
 
 ## Options de cette commande
 
@@ -31,7 +31,9 @@ aede restore aede-backup.aede
 
 ## Résultat et erreurs
 
-Avant confirmation, chaque magasin indique remplacement des données actuelles, création ou conservation sans changement. Le bilan compte magasins restaurés, date du catalogue sauvegardé et racines absentes sur cette machine. Monter ces racines avant de scanner. Refuser la confirmation renvoie “nothing was restored” ; bundle illisible ou sans magasin compatible : erreur. Les magasins sont écrits séparément : un échec d’écriture peut laisser une restauration partielle. Sauvegarder les données actuelles et arrêter les écritures concurrentes avant ; ce n’est pas une transaction unique pour tous les magasins.
+Avant confirmation, chaque magasin indique remplacement des données actuelles, création ou conservation sans changement. Toutes les destinations incluses sont vérifiées d’abord : liens finaux et fichiers non ordinaires sont refusés, et l’archive d’entrée ne peut pas être un magasin remplacé. Une destination ultérieure déjà invalide laisse donc tous les magasins actuels intacts. Les parties invalides ou non prises en charge sont ignorées individuellement ; les parties compatibles restent restaurables.
+
+Le bilan compte magasins restaurés, date du catalogue sauvegardé et racines absentes sur cette machine. Monter ces racines avant de scanner pour rafraîchir leurs entrées ; une racine temporairement indisponible est conservée sans rafraîchissement. Refuser la confirmation renvoie “nothing was restored” ; bundle illisible ou sans magasin compatible : erreur. Chaque magasin est remplacé atomiquement, mais un échec d’écriture imprévu après une première publication peut encore laisser une restauration partielle. Sauvegarder les données actuelles et arrêter les écritures concurrentes avant ; ce n’est pas une transaction unique pour tous les magasins.
 
 ## Pour continuer
 

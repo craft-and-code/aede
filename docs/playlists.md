@@ -40,3 +40,7 @@ When `--artists` is passed, Aède attempts to create a master playlist for an ar
 Aède does not simply check if the `.m3u` file exists; it tests the _text_. A playlist's truth is derived from the current set of tracks in the catalog, not from the physical bytes on disk. If you add a missing track to an album and re-run the command, Aède compares the newly rendered text against what is already on disk.
 
 If the text matches perfectly, the file is left completely alone. This preserves the file's original modification date—a vital detail for backup software and synchronization tools that rely on timestamps to know when an archive has truly changed.
+
+When several catalog releases share a physical folder, their selected tracks are combined in one playlist rather than replacing each other's output. Changed playlists are written to an isolated temporary file and published only when complete. A filesystem failure is reported and makes the command return a failure status; successfully completed playlists remain available.
+
+Paths containing a carriage return or newline cannot be represented on one M3U line. Both `playlist` and selection exports with `--m3u` refuse them before writing, so a file name cannot inject an extra entry or directive. Line breaks in display titles are replaced with spaces.

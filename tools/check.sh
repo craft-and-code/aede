@@ -24,6 +24,15 @@ echo "-> Lint (no warning tolerated)"
 cargo clippy --locked --offline --all-targets -- -D warnings
 
 echo "-> Tests"
+if command -v ffmpeg >/dev/null 2>&1; then
+    export AEDE_REQUIRE_FFMPEG=1
+    echo "   FFmpeg available: conversion regressions are required"
+elif [[ "${AEDE_REQUIRE_FFMPEG:-}" == "1" ]]; then
+    echo "FFmpeg is required for this verification run" >&2
+    exit 1
+else
+    echo "   FFmpeg unavailable: optional conversion coverage will be skipped"
+fi
 cargo test --locked --offline
 
 # Broken doc links are silent everywhere else: neither the build nor clippy

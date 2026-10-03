@@ -26,6 +26,23 @@ pub fn is_interactive() -> bool {
             && std::env::var_os("AEDE_DELEGATED_STDOUT_TTY").is_some())
 }
 
+/// Shows untrusted text literally, without terminal control instructions.
+///
+/// Paragraph newlines and tabs remain readable. Other C0/C1 controls, including
+/// ESC, BEL and carriage return, are escaped; storage and machine exports keep
+/// the original text. Apply this before adding Aède's own colour sequences.
+pub fn literal(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_control() && !matches!(ch, '\n' | '\t') {
+            out.extend(ch.escape_default());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// Animate a temporary line while a blocking operation runs. The operation
 /// must not print until it returns; redirected output gets no animation.
 pub fn with_loading<T>(message: &str, operation: impl FnOnce() -> T) -> T {
@@ -77,11 +94,41 @@ fn with_loading_output<T>(
 }
 
 fn colorize(code: &str, text: &str) -> String {
-    if COLOR_ENABLED.load(Ordering::Relaxed) {
+    let enabled = COLOR_ENABLED.load(Ordering::Relaxed);
+    let text = literal_styled_with_color(text, enabled);
+    if enabled {
         format!("\x1b[{code}m{text}\x1b[0m")
     } else {
-        text.to_string()
+        text
     }
+}
+
+// Keep only the handful of SGR colour/style sequences produced by this module,
+// so nested styling still works. OSC, cursor movement, erase and C1 controls
+// remain literal even in a pre-coloured table cell.
+fn literal_styled(text: &str) -> String {
+    literal_styled_with_color(text, COLOR_ENABLED.load(Ordering::Relaxed))
+}
+
+fn literal_styled_with_color(text: &str, enabled: bool) -> String {
+    let mut parts = text.split('\x1b');
+    let mut out = literal(parts.next().unwrap_or_default());
+    for part in parts {
+        if let Some(prefix) = ["[0m", "[1m", "[2m", "[31m", "[32m", "[33m", "[36m"]
+            .into_iter()
+            .find(|prefix| part.starts_with(prefix))
+        {
+            if enabled {
+                out.push('\x1b');
+                out.push_str(prefix);
+            }
+            out.push_str(&literal(&part[prefix.len()..]));
+        } else {
+            out.push_str("\\u{1b}");
+            out.push_str(&literal(part));
+        }
+    }
+    out
 }
 
 pub fn bold(text: &str) -> String {
@@ -300,7 +347,6 @@ impl Table {
         self.rows.push(row);
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
@@ -319,11 +365,12 @@ impl Table {
                 row.iter()
                     .enumerate()
                     .map(|(i, cell)| {
+                        let cell = literal_styled(cell).replace(['\n', '\t'], " ");
                         let limit = self.limits.get(i).copied().unwrap_or(0);
                         match (limit > 0, self.keep_end.get(i).copied().unwrap_or(false)) {
-                            (true, true) => truncate_start(cell, limit),
-                            (true, false) => truncate(cell, limit),
-                            (false, _) => cell.clone(),
+                            (true, true) => truncate_start(&cell, limit),
+                            (true, false) => truncate(&cell, limit),
+                            (false, _) => cell,
                         }
                     })
                     .collect()
@@ -479,7 +526,7 @@ pub fn elapsed(ms: u128) -> String {
     if ms < 60_000 {
         return format!("{:.1} s", ms as f64 / 1000.0);
     }
-    let seconds = (ms + 500) / 1000;
+    let seconds = ms / 1000 + u128::from(ms % 1000 >= 500);
     let (minutes, rest) = (seconds / 60, seconds % 60);
     if minutes < 60 {
         format!("{minutes} min {rest} s")
@@ -493,7 +540,7 @@ pub fn elapsed(ms: u128) -> String {
 pub fn long_duration(ms: u64) -> String {
     // Rounded like `text::format_duration`, so the two never disagree by a
     // second on the same value.
-    let total_sec = (ms + 500) / 1000;
+    let total_sec = ms / 1000 + u64::from(ms % 1000 >= 500);
     let total_min = total_sec / 60;
     let days = total_min / 1440;
     let hours = (total_min % 1440) / 60;

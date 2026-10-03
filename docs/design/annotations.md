@@ -121,19 +121,16 @@ FlacCompagnon analyses already taught, and it cost a rewrite to learn. An
 
 | Kind         | Stable key                                                    |
 | ------------ | ------------------------------------------------------------- |
-| Track        | the file path, with name + size as a fallback                 |
+| Track        | the file path, with persisted identity evidence for conservative relocation                 |
 | Release      | album artist + title + folder, the key it is already built on |
-| Artist       | the normalized name key, until M1 brings MBIDs                |
+| Artist       | the normalized canonical graph name key                |
 | Genre, label | the normalized key                                            |
 
 And the same reconciliation as the analyses: an annotation whose target is not
-in the catalog is **kept waiting, never dropped.** Rename a folder, rescan, and
-the note reattaches when the path comes back — or attaches by name and size if
-the file merely moved. Silently deleting what a user wrote because a file moved
+in the catalog is **kept waiting, never dropped.** A reference reattaches when its path comes back. Automatic relocation requires one candidate matching the previous basename, size, stream properties, identifying tags and any known fingerprint. Legacy records without evidence remain waiting. Evidence is captured while the old catalog is still available and travels with personal exports. Silently deleting what a user wrote because a file moved
 is the one unforgivable failure in this program.
 
-At M1 the MBID becomes a second key that survives renaming altogether, and the
-path becomes the fallback rather than the other way round.
+Track relocation remains a conservative heuristic, not a checksum or an external identity assertion. Album references use the canonical release folder; former disc-folder references migrate only when unambiguous. A manual relink cannot overwrite existing personal data and records an owner-scoped snapshot for undo. Undo refuses subsequent edits or conflicting data rather than replacing them; an undone decision also suppresses automatic relocation of that old track reference.
 
 ## Its own file, and it is the one worth backing up
 
@@ -286,3 +283,7 @@ aede artists --tag "to rip again"
 
 None of this needs the network, SQL, or M1. It needs the identity design above
 to be right, which is why it is written down before anything is typed.
+
+## Explicit reattachment
+
+`aede notes --waiting` lists every unresolved personal reference, including history and relationship endpoints. `notes --relink <old-token> --to <new-token> --dry-run` validates and previews the move without writing; omit --dry-run to apply it. Both references must have the same kind, the source must be waiting, and the target must exist. `notes --relinks` lists decisions and `notes --undo-relink <id>` reverses an unchanged move. Relink history and identity evidence are optional version-2 user-store fields, preserved by export/import and backup/restore.

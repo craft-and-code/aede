@@ -209,17 +209,42 @@ pub fn from_json(value: &Json) -> Result<Backup, StoreError> {
     })
 }
 
-/// Writes a backup where it was asked to go.
+/// Writes a backup through isolated temporary output and atomic replacement.
+///
+/// The parent folder must already exist. Final symbolic links and special
+/// destinations are refused; replacing a hard-link alias never writes through
+/// to its original inode. New files are private to their owner on Unix;
+/// existing destination permissions are preserved. Caller confirmation belongs
+/// to the CLI. This does not guarantee power-loss durability or protect against
+/// another process concurrently replacing ancestor directories.
 pub fn write(backup: &Backup, path: &Path) -> Result<(), StoreError> {
+    let parent = path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    if !std::fs::metadata(parent)?.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotADirectory,
+            "backup parent is not a folder",
+        )
+        .into());
+    }
     // Pretty rather than compact, and deliberately: this file exists to be
     // opened by a worried person, and half of what it is for is that they can
     // see their notes are in there.
-    std::fs::write(path, to_json(backup).to_string_pretty())?;
+    crate::atomic_file::write(path, to_json(backup).to_string_pretty().as_bytes())?;
     Ok(())
 }
 
-/// Reads a backup from disk.
+/// Reads a backup from an ordinary local file, refusing blocking special files.
 pub fn read(path: &Path) -> Result<Backup, StoreError> {
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "backup source is not an ordinary file",
+        )
+        .into());
+    }
     let text = std::fs::read_to_string(path)?;
     let value = crate::json::parse(&text).map_err(StoreError::Parse)?;
     from_json(&value)

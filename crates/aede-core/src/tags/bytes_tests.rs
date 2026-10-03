@@ -11,6 +11,15 @@ fn cursor_bounds_reads() {
 }
 
 #[test]
+fn skipping_an_untrusted_length_stays_within_the_buffer() {
+    let mut cursor = Cursor::new(&[1, 2, 3]);
+    cursor.skip(1);
+    cursor.skip(usize::MAX);
+    assert_eq!(cursor.position(), 3);
+    assert_eq!(cursor.take(1), None);
+}
+
+#[test]
 fn syncsafe_id3() {
     // 0x00 0x00 0x02 0x01 => 257
     assert_eq!(syncsafe(&[0x00, 0x00, 0x02, 0x01]), 257);
@@ -24,14 +33,4 @@ fn extended80() {
     let bytes = [0x40, 0x0E, 0xAC, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
     let value = extended80_to_f64(&bytes).unwrap();
     assert!((value - 44100.0).abs() < 0.001, "got {value}");
-}
-
-#[test]
-fn magic_does_not_consume_when_absent() {
-    let data = b"fLaC";
-    let mut c = Cursor::new(data);
-    assert!(!c.expect_magic(b"OggS"));
-    assert_eq!(c.position(), 0);
-    assert!(c.expect_magic(b"fLaC"));
-    assert_eq!(c.position(), 4);
 }

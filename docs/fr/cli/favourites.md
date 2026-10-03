@@ -6,6 +6,8 @@ query "loved" donne la sélection de pistes héritée ; query "track.loved" les 
 
 Alias : `aede favorites`. Options et comportement identiques.
 
+Un export JSON vide contient `[]` ; un export CSV vide conserve son en-tête. Seuls les favoris du propriétaire courant sont inclus.
+
 ## Syntaxe et arguments
 
 ```text

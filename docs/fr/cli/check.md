@@ -19,7 +19,7 @@ Zéro ou plusieurs dossiers contenant de l’audio catalogué. Sans argument : t
 | Option | Effet |
 | --- | --- |
 | `--full` | Relire les sommes de tous les fichiers sélectionnés, même avec verdict existant. |
-| `--threads N` | Nombre de traitements parallèles. Un entier positif fixe ce nombre ; 0 le choisit automatiquement. La copie simple utilise un traitement par défaut. |
+| `--threads N` | Nombre de traitements parallèles. Un entier positif fixe ce nombre ; 0 ou l’option omise utilise le parallélisme disponible du processeur, avec quatre traitements si cette information est indisponible. |
 
 La [référence des options](options.md) explique `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, valeurs et règles d’export/pagination. Elles ne rendent pas CSV/JSON ou pagination disponibles partout.
 
@@ -34,6 +34,10 @@ aede check --threads 4
 ## Résultat et erreurs
 
 Lire les verdicts, catégories endommagé/sans somme/illisible comprises. Le traitement check actuel peut finir avec code 0 malgré des fichiers illisibles ou verdicts endommagés : la réussite du processus ne prouve pas leur santé. Arguments invalides et erreurs de catalogue/stockage restent refusés.
+
+Le flux complet doit respecter la limite actuelle de lecture de 2 Gio : audio FLAC après les métadonnées, ou fichier Ogg entier. Les flux plus grands et les fichiers dont la taille change pendant la lecture sont signalés en erreur, sans nouveau verdict. Une lecture partielle ne peut pas produire un verdict intact. Les verdicts existants restent réutilisés sans `--full`.
+
+Une relecture échouée retire l’ancien verdict de ce fichier, pour qu’une prochaine tentative reste possible. Les autres conclusions et les fichiers pas encore tentés sont conservés. Les anciennes versions pouvaient garder un verdict limité au préfixe à la limite de lecture ; utiliser `--full` sur les dossiers contenant de gros fichiers contrôlés par ces versions.
 
 ## Pour continuer
 
