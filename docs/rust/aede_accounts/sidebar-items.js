@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ACCOUNTS_FILE","FORMAT_VERSION","LOCAL_OWNER","MAX_ACCOUNTS","MAX_API_KEYS","MAX_API_KEYS_PER_ACCOUNT","MAX_API_KEY_LABEL_BYTES","MAX_PASSWORD_BYTES"],"enum":["Role"],"fn":["from_json","login_name","random_token","to_json"],"struct":["Account","Accounts","ApiKey","InvalidStore"]};
