@@ -74,11 +74,12 @@ struct Capture {
     meter: Option<LoudnessProgramme>,
 }
 
-/// A lazy normalization session shared by CLI and future remote playback.
+/// A lazy normalization session shared by CLI and native PCM playback.
 ///
 /// Only the current track (or current album's tags/identities) is inspected.
-/// Missing loudness is measured from source PCM already being decoded. An
-/// album decision is frozen for the session, never changed midway through it.
+/// The CLI can measure missing loudness from source PCM already being decoded;
+/// native PCM playback only reuses existing gains and does not enable capture.
+/// An album decision is frozen for the session, never changed midway through it.
 pub struct ReadyNormalization<'a> {
     paths: &'a [PathBuf],
     catalog: Option<&'a Catalog>,

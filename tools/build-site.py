@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from functools import lru_cache
+import hashlib
 import html
 import importlib.util
 import json
@@ -608,10 +609,15 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
     translation_path = root / "site/home-translations.json"
     translations = json.loads(translation_path.read_text(encoding="utf-8")) if translation_path.exists() else {}
     (destination / "home-strings.js").write_text("window.aedeHomeTranslations = Object.freeze(" + json.dumps(translations, ensure_ascii=False).replace("<", "\\u003c") + ");\n", encoding="utf-8")
+    # Content versions prevent stale landing-page scripts/styles after a rebuild.
+    asset_versions = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+                      for path in destination.iterdir() if path.is_file() and path.suffix in (".css", ".js")}
     home_urls = []
     for language in ("fr", "en"):
         output = "index.html" if language == "fr" else "en/index.html"
         source = (root / "site/index.en.html").read_text(encoding="utf-8") if language == "en" and (root / "site/index.en.html").exists() else localize_home(home_source, translations, language)
+        source = re.sub(r'\b(href|src)="([^"?#]+)"',
+                        lambda m: m[1] + '="' + m[2] + ('?v=' + asset_versions[m[2]] if m[2] in asset_versions else '') + '"', source)
         source = source.replace("docs/fr/", f"docs/{language}/")
         if language == "en":
             def switch_language(match):

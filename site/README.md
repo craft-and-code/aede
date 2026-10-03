@@ -16,6 +16,8 @@ Open <http://127.0.0.1:4174/> for French or <http://127.0.0.1:4174/en/> for Engl
 
 `dist-site/` is generated and ignored. Edit `site/`, the Markdown sources or the documentation manifests, then rebuild. The `--output` option accepts a fresh output directory; the default is `dist-site/`. The publisher refuses to replace authored repository directories.
 
+Generated home pages version their local scripts and styles by content, so browsers load changed assets after a rebuild without requiring a cache reset.
+
 ## Documentation catalog
 
 `docs/site-manual-cli.json`, `docs/site-server-dsp.json` and any further `docs/site-*.json` manifest declare the published pages. Each entry provides:

@@ -22,7 +22,7 @@ Pas d’option downmix nécessaire : le lecteur local choisit ce parcours stér�
 
 ## Limites de décodage et sortie
 
-Le décodage de secours FFmpeg ne fournit actuellement pas de masque fiable au-delà de la stéréo : ce multicanal ne peut pas être mélangé par Aède ; mono/stéréo restent possibles. Format/agencement source sont conservés pour les diagnostics malgré une lecture stéréo. Un futur serveur pourra choisir PCM multicanal étiqueté ou le même mélange ; aucune route audio n’existe encore.
+Le décodage de secours FFmpeg ne fournit actuellement pas de masque fiable au-delà de la stéréo : ce multicanal ne peut pas être mélangé par Aède ; mono/stéréo restent possibles. Format/agencement source sont conservés pour les diagnostics malgré une lecture stéréo. La [route PCM native](../server/playback.md) utilise le même parcours mono/stéréo et le même mélange des canaux connus ; la transmission du PCM multicanal original n’est pas implémentée. [Subsonic/OpenSubsonic](../server/subsonic.md) transfère le fichier encodé original : son client gère le décodage et le mélange des canaux.
 
 La matrice n’ajoute pas de latence de traitement et n’alloue rien par bloc ; les buffers système/périphérique sont une autre question. Le modèle interactif illustre canaux connus et LFE omis, sans détecter vos enceintes ni transmettre de multicanal.
 

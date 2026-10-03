@@ -2,6 +2,12 @@
 
 Aède's server gives other programs access to your music **catalog**: albums, artists, tracks, relationships and diagnostics. It answers HTTP requests with JSON and publishes change notifications over WebSocket. Optional [accounts and sessions](accounts.md) protect local access and isolate personal data. An authenticated [audio contract](playback.md) streams processed PCM; explicit [HTTPS configuration](remote.md) enables remote access with mandatory accounts.
 
+## A dedicated home for the library
+
+For a lasting or shared collection, Aède is designed around a dedicated server, NAS or small always-on computer. Music, catalog data and background tasks stay on that host, while listening clients connect from your everyday devices. This gives the library stable paths and availability independent of your laptop's sleep or replacement, with backups managed on the library host.
+
+The engine runs without a graphical desktop, through its CLI and server API. Graphical players, including the planned Phémios interface, are separate clients; the engine's direction is a service rather than an all-in-one desktop application. The CLI also works on an everyday computer for local use, evaluation or administration. Check the [deployment status](#nas-raspberry-pi-and-containers) before choosing a host: NAS packages and target hardware remain to be validated.
+
 ## Before starting
 
 Install Aède and scan at least one music folder. The CLI and server must use the same persistent data folder. Aède reads the original music and tags without rewriting them.

@@ -1,6 +1,6 @@
 # Understand Aède's audio processing
 
-DSP means **digital signal processing**: calculations on the sound during playback. Aède's current DSP changes the playback stream, never the original file or its tags. It does not replace the system volume control. No server audio route currently uses it; the implemented listening interface is `aede play`.
+DSP means **digital signal processing**: calculations on the sound during playback. Aède's current DSP changes the playback stream, never the original file or its tags. It does not replace the system volume control. The local `aede play` command and the authenticated native PCM route use shared processing.
 
 ## Follow a sample from file to output
 
@@ -13,6 +13,8 @@ DSP means **digital signal processing**: calculations on the sound during playba
 7. Meters observe the submitted PCM; the selected sink sends it to the device. Native integer output adds TPDF dither while quantizing; floating output bypasses that conversion.
 
 The order above describes local playback. Missing-loudness capture watches **original source PCM before processing**, so later normalization does not measure its own gain/EQ as if it were the source. Output metering observes guarded submitted PCM **before** integer dither/device conversion. It does not measure your speakers.
+
+The [native PCM route](../server/playback.md) also decodes, maps known channels to stereo, applies rate conversion when needed, and uses normalization, tone/headroom and output protection. Its client owns the audio device and final device conversion. This one-track route reuses existing loudness data without learning new measurements or joining successive remote tracks. [Subsonic/OpenSubsonic](../server/subsonic.md) transfers original encoded audio without server DSP; its client owns decoding and any playback processing.
 
 ## Your current controls
 

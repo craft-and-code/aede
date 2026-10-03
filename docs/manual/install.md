@@ -12,7 +12,7 @@ The release workflow prepares the following archives. Download an actually publi
 | Linux, x86_64 | `Linux-x86_64` | Release archive uses musl and needs ffplay for playback |
 | Windows, x64 | `Windows-x64` | Native path scanning/copying tested in Windows CI; terminal transport controls/local writer delegation remain Unix-only |
 
-Future releases do not include a prebuilt macOS Intel archive. There is no packaged Linux ARM/Raspberry Pi release or published Docker image in the current workflow. Building on another target requires its own validation. The existing server is a local catalog API, not an audio streamer.
+Future releases do not include a prebuilt macOS Intel archive. There is no packaged Linux ARM/Raspberry Pi release or published Docker image in the current workflow. Building on another target requires its own validation. The server provides a catalog API, [authenticated native PCM playback](../server/playback.md) and [Subsonic/OpenSubsonic original-file streaming](../server/subsonic.md). Remote access requires the explicit [HTTPS configuration](../server/remote.md); no browser/mobile player or validated NAS deployment is supplied.
 
 ## Run a downloaded executable
 

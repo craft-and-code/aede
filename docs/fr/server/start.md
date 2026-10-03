@@ -2,6 +2,14 @@
 
 Le serveur d’Aède permet à d’autres programmes de consulter votre **catalogue** musical : albums, artistes, pistes, relations et diagnostics. Il répond en JSON et annonce les changements par WebSocket. Les [comptes et sessions](accounts.md) facultatifs protègent l’accès local et isolent les données personnelles. Un [contrat audio authentifié](playback.md) transmet le PCM traité ; une [configuration HTTPS explicite](remote.md) active l’accès distant avec comptes obligatoires.
 
+<div id="a-dedicated-home-for-the-library" data-legacy-anchor></div>
+
+## Un hôte dédié à la bibliothèque
+
+Pour une collection durable ou partagée, Aède est conçu autour d’un serveur dédié, d’un NAS ou d’un petit ordinateur toujours allumé. Musique, données du catalogue et tâches de fond restent sur cet hôte ; les lecteurs s’y connectent depuis vos appareils du quotidien. La bibliothèque dispose ainsi de chemins stables et reste disponible indépendamment de la veille ou du remplacement du portable, avec des sauvegardes gérées sur son hôte.
+
+Le moteur fonctionne sans bureau graphique, par sa CLI et son API serveur. Les lecteurs graphiques, dont la future interface Phémios, sont des clients séparés ; le moteur évolue comme un service plutôt que comme une application de bureau tout-en-un. La CLI fonctionne aussi sur un ordinateur du quotidien pour un usage local, une évaluation ou l’administration. Consultez l’[état des déploiements](#nas-raspberry-pi-et-conteneurs) avant de choisir un hôte : paquets NAS et matériel cible restent à valider.
+
 ## Avant de démarrer
 
 Installez Aède et analysez au moins un dossier musical avec `scan`. La CLI et le serveur doivent partager le même dossier de données persistant. Aède lit la musique et ses tags sans réécrire les originaux.

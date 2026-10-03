@@ -22,7 +22,7 @@ No downmix CLI flag is required: the local player chooses the supported stereo p
 
 ## Decoder and output limits
 
-FFmpeg fallback decoding currently cannot supply a trustworthy speaker mask above stereo, so such multichannel fallback cannot be downmixed by Aède; mono/stereo remain supported. Source format/layout is retained for diagnostics even when playback format becomes stereo. A future server could choose labelled original multichannel PCM or this stereo mapping, but no server audio route exists yet.
+FFmpeg fallback decoding currently cannot supply a trustworthy speaker mask above stereo, so such multichannel fallback cannot be downmixed by Aède; mono/stereo remain supported. Source format/layout is retained for diagnostics even when playback format becomes stereo. The [native PCM route](../server/playback.md) uses the same mono/stereo path and known stereo downmix; original multichannel PCM passthrough is not implemented. [Subsonic/OpenSubsonic](../server/subsonic.md) transfers the original encoded file, leaving decoding and channel mapping to its client.
 
 The downmix is a zero-processing-latency matrix with no per-block allocation; it does not account for host/device buffering. The interactive model illustrates known channel paths and omitted LFE. It does not auto-detect your speakers or send multichannel sound.
 

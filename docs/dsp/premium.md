@@ -18,7 +18,7 @@ Headphone-model EQ depends on measurement provenance, licensing and individual f
 
 Night-mode compression could reduce loud/quiet contrast for specific listening situations. Optional crossfade could blend unrelated tracks with configurable curves, while preserving continuous albums by default. Channel balance/trims/delay/polarity and bass-management crossovers require suitable output layouts. Measurement-assisted room correction needs calibrated microphones, several positions and acoustic expertise; it is not committed for the first release.
 
-Dynamic EQ/loudness compensation, mid/side width, time stretch/pitch and binaural/spatial rendering have additional perceptual/CPU/data requirements. They remain research candidates. No current CLI/API option activates them, and the future server transport is a separate prerequisite rather than a Premium DSP effect.
+Dynamic EQ/loudness compensation, mid/side width, time stretch/pitch and binaural/spatial rendering have additional perceptual/CPU/data requirements. They remain research candidates. No current CLI/API option activates them. The existing [native PCM transport](../server/playback.md) reuses the current DSP; delivering a future effect through it would require explicit settings and validation. Transport itself is not a Premium DSP effect, and original-file Subsonic transfers do not apply server processing.
 
 ## How future features should be validated
 

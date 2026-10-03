@@ -1,6 +1,6 @@
 # Comprendre le traitement audio d’Aède
 
-DSP signifie **traitement numérique du signal** : des calculs sur le son pendant la lecture. Le DSP actuel change le flux de lecture, jamais le fichier original ni ses tags. Il ne remplace pas le volume du système. Aucune route audio du serveur ne l’utilise actuellement ; l’écoute implémentée passe par `aede play`.
+DSP signifie **traitement numérique du signal** : des calculs sur le son pendant la lecture. Le DSP actuel change le flux de lecture, jamais le fichier original ni ses tags. Il ne remplace pas le volume du système. La commande locale `aede play` et la route PCM native authentifiée partagent le traitement.
 
 ## Suivre un échantillon jusqu’à la sortie
 
@@ -13,6 +13,8 @@ DSP signifie **traitement numérique du signal** : des calculs sur le son pendan
 7. Les indicateurs observent le PCM transmis ; la sortie l’envoie au périphérique. En entier natif, un dither TPDF accompagne la quantification ; en flottant, cette conversion est contournée.
 
 Cet ordre décrit la lecture locale. La capture du volume manquant observe le **PCM source avant traitement**, pour ne pas mesurer son propre gain/égalisation comme source. Les mesures de sortie voient le PCM protégé transmis **avant** dither/conversion du périphérique. Elles ne mesurent pas vos enceintes.
+
+La [route PCM native](../server/playback.md) décode également la source, ramène les canaux connus en stéréo, convertit la fréquence au besoin et applique normalisation, tonalité/marge et protection finale. Son client gère le périphérique audio et sa conversion finale. Cette route transmet une seule piste : elle réutilise les données de volume existantes sans apprendre de nouvelles mesures ni enchaîner les pistes distantes. [Subsonic/OpenSubsonic](../server/subsonic.md) transfère le fichier audio encodé original sans DSP serveur ; son client gère le décodage et ses éventuels traitements de lecture.
 
 ## Les réglages actuels
 

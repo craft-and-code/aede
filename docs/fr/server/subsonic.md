@@ -85,6 +85,31 @@ Dans le dialogue serveur de Supersonic, choisissez **Subsonic**, l’adresse `ht
 
 Dans la page **Albums**, sélectionnez **Title (A-Z)** dans le menu de tri. Le défaut Recently Added de Supersonic appelle `newest`, refusé explicitement tant qu’Aède n’a pas de vraie date d’ajout ; le [tri Title (A-Z)](https://github.com/supersonic-app/supersonic/blob/0eb34945c59e1d010ef618a0dedd3bc1edd37908/backend/mediaprovider/subsonic/albumiterator.go#L93) utilise `alphabeticalByName`. Années, genres et lecture aléatoire sont aussi pris en charge. Commencez par un album au format que le client sait décoder, puis vérifiez pochettes, déplacement dans la lecture, favoris, playlists et compteurs déclarés. Sur un téléphone/autre ordinateur, utilisez l’adresse HTTPS configurée, pas la boucle locale de ce Mac.
 
+## Configuration locale de Submariner sur macOS
+
+Pour [Submariner](https://github.com/SubmarinerApp/Submariner), utilisez le même transport de clé client. Son [authentification](https://github.com/SubmarinerApp/Submariner/blob/master/Submariner/SBServer.swift) envoie `u+t+s` quand **Use Token-Based Authentication** est coché, et `u+p=enc:<hex>` quand il est décoché. Seul ce second mode peut transporter une clé d’application Aède.
+
+Listez vos comptes existants, puis remplacez `alice` par un compte administrateur ou utilisateur actif :
+
+```sh
+aede accounts list
+aede accounts keys alice create "Submariner Mac"
+```
+
+Copiez la clé entière après `API key (shown once):`, y compris le point. Avec `aede serve --port 3412` lancé sur ce Mac, remplissez le dialogue serveur :
+
+| Champ | Valeur |
+| --- | --- |
+| Server Name | `Aède`, ou le nom de votre choix |
+| URL | `http://127.0.0.1:3412` |
+| Username | Le nom du compte utilisé pour créer la clé, par exemple `alice` |
+| Password | La clé d’application entière, pas le mot de passe du compte |
+| Use Token-Based Authentication | Décoché |
+
+L’adresse ne comporte pas de suffixe `/api/v1/status` ou `/rest`. Si les comptes ne sont pas initialisés, suivez d’abord la [configuration des comptes](../cli/accounts.md) ; leur mot de passe exige au moins 15 caractères. Si le dossier de données est personnalisé, utilisez le même `--data` pour les commandes de comptes et le serveur. Aède fournit déjà le serveur : aucune installation Subsonic séparée n’est nécessaire.
+
+Ces réglages établissent le format d’authentification, pas la compatibilité complète de Submariner. La navigation par artistes/albums est disponible ; la navigation par dossiers, certains tris et des panneaux facultatifs du client peuvent appeler des méthodes indisponibles. La navigation complète et la lecture physique avec Submariner restent à tester en conditions réelles.
+
 ## Compatibilité restant à développer
 
 Restent les tris d’albums `newest/highest/frequent/recent/starred`, l’ancienne navigation par dossiers et `getStarred`, la sauvegarde de file d’écoute, les informations détaillées artiste/album, les rapports OpenSubsonic de lecture, les pochettes intégrées, le transcodage, les podcasts, radios, vidéo et administration distante. Appels/options indisponibles échouent explicitement. Les chemins initiaux de navigation/lecture de Supersonic ont été étudiés dans ses sources officielles ; ses panneaux facultatifs qui demandent ces routes absentes peuvent encore échouer. Navigation/lecture réelles complètes, capacité NAS et compatibilité par application restent à tester. Le client choisi doit lire le format original. Symfonium sur Android prend en charge les clés API selon sa [note de version officielle](https://support.symfonium.app/t/version-11-6-0-beta-1/6358) ; son [guide fournisseur](https://docs.symfonium.app/wiki/providers/subsonic-opensubsonic-media-provider-configuration/) décrit la synchronisation rapide et les fichiers originaux, mais il n’a pas encore été testé avec Aède.

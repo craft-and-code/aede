@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -148,9 +149,9 @@ class PublishTests(unittest.TestCase):
     def test_build_produces_bilingual_source_pages_and_valid_internal_links(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/'site/assets').mkdir(parents=True); (root/'docs').mkdir()
-            (root/'site/index.html').write_text('<html lang="fr"><head><title>Accueil</title><meta name="description" content="Accueil Aède"></head><body><a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a><a href="docs/fr/index.html">Documentation</a></body></html>', encoding="utf-8")
+            (root/'site/index.html').write_text('<html lang="fr"><head><title>Accueil</title><meta name="description" content="Accueil Aède"><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head><body><a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a><a href="docs/fr/index.html">Documentation</a></body></html>', encoding="utf-8")
             (root/'site/home-translations.json').write_text(json.dumps({'en':{'Accueil':'Home','Accueil Aède':'Aède home'}}), encoding="utf-8")
-            for asset in ('styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/og-image.png'):
+            for asset in ('app.js','styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/og-image.png'):
                 (root/'site'/asset).write_text('', encoding="utf-8")
             pages=[]
             for section in ('manual','cli','server','dsp'):
@@ -174,6 +175,20 @@ class PublishTests(unittest.TestCase):
             self.assertIn('data-nav-section="cli" open',french)
             self.assertIn('href="../"', (destination/'en/index.html').read_text(encoding="utf-8"))
             self.assertIn('>FR</a>', (destination/'en/index.html').read_text(encoding="utf-8"))
+            # A revised animation must load even when a browser caches the old script.
+            home = (destination/'index.html').read_text(encoding="utf-8")
+            asset_url = re.search(r'src="(app\.js\?v=[a-f0-9]+)"', home)
+            self.assertIsNotNone(asset_url)
+            asset_url = asset_url[1]
+            self.assertIn('src="../' + asset_url + '"', (destination/'en/index.html').read_text(encoding="utf-8"))
+            self.assertRegex(home, r'href="styles\.css\?v=[a-f0-9]+"')
+            builder.build(root, destination)
+            self.assertIn('src="' + asset_url + '"', (destination/'index.html').read_text(encoding="utf-8"))
+            (root/'site/app.js').write_text('/* A new animation */', encoding="utf-8")
+            builder.build(root, destination)
+            self.assertNotIn('src="' + asset_url + '"', (destination/'index.html').read_text(encoding="utf-8"))
+            self.assertEqual('/* A new animation */', (destination/'app.js').read_text(encoding="utf-8"))
+            self.assertEqual([], checker.check(destination))
 
     def test_checker_rejects_missing_fragments_and_duplicate_ids(self):
         with tempfile.TemporaryDirectory() as directory:

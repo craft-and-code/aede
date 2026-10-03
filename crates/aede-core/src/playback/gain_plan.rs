@@ -1,4 +1,4 @@
-//! Normalization policy shared by local and future remote playback.
+//! Normalization policy shared by local CLI and native PCM playback.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -102,7 +102,7 @@ fn album_groups(paths: &[PathBuf], is_album: bool, catalog: Option<&Catalog>) ->
 
 /// Explicitly premeasure and cache an ordered playback selection.
 /// This blocking preparation can decode every missing track or whole album.
-/// Interactive CLI and future remote playback use [`ReadyNormalization`].
+/// Interactive CLI and native PCM playback use [`ReadyNormalization`].
 pub fn plan_normalization(
     paths: &[PathBuf],
     is_album: bool,

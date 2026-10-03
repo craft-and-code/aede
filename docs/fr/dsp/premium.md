@@ -18,7 +18,7 @@ L’égalisation par modèle de casque dépend des mesures, licences et de son p
 
 La compression nocturne pourrait réduire le contraste fort/calme dans certaines situations. Un fondu optionnel mélangerait des titres indépendants avec courbes réglables, tout en préservant par défaut les albums continus. Balance/niveaux/délais/polarité et gestion des graves demandent des sorties adaptées. La correction assistée de pièce exige microphone calibré, plusieurs positions et expertise acoustique ; elle n’est pas promise pour la première sortie.
 
-Égalisation dynamique/compensation de volume, largeur mid/side, vitesse/hauteur et rendu binaural/spatial ajoutent des besoins perceptuels, de calcul et de données. Ce sont des candidats de recherche. Aucune option CLI/API actuelle ne les active ; le transport serveur futur est un prérequis distinct, pas un effet DSP Premium.
+Égalisation dynamique/compensation de volume, largeur mid/side, vitesse/hauteur et rendu binaural/spatial ajoutent des besoins perceptuels, de calcul et de données. Ce sont des candidats de recherche. Aucune option CLI/API actuelle ne les active. Le [transport PCM natif](../server/playback.md) existant réutilise le DSP actuel ; diffuser un futur effet par ce transport demanderait des réglages explicites et une validation. Le transport n’est pas un effet DSP Premium, et les transferts de fichiers originaux Subsonic n’appliquent pas de traitement serveur.
 
 ## Valider les évolutions
 

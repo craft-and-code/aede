@@ -8,9 +8,26 @@
 
 Aède respecte une frontière stricte : **il n’écrit jamais dans vos fichiers audio originaux**. Tags, noms de fichiers et organisation des dossiers restent intacts. Cela protège les originaux, mais demande de préparer les métadonnées initiales avec des outils d’écriture de tags dédiés.
 
-[MusicBrainz Picard](https://picard.musicbrainz.org/) est le compagnon recommandé pour cela. Les outils se complètent : Picard examine l’audio, interroge MusicBrainz et écrit des tags normalisés `MUSICBRAINZ_*` ; Aède les lit, indexe la structure et construit le catalogue interrogeable.
+[MusicBrainz Picard](https://picard.musicbrainz.org/) est le compagnon recommandé pour cela. Aède a été développé autour d’une bibliothèque préparée avec Picard, dont les identifiants MusicBrainz fournissent une base utile pour les identités et les crédits. Picard interroge MusicBrainz et écrit des tags normalisés `MUSICBRAINZ_*` ; Aède les lit et construit le catalogue interrogeable. Picard est un conseil, pas un prérequis : un autre éditeur de tags adapté à votre collection convient aussi.
 
 Avec des fichiers préparés par Picard, Aède lit les identifiants MusicBrainz pour établir les identités locales. Un `aede fetch --credits` explicite peut ensuite obtenir relations/crédits attribués de MusicBrainz ; le scan seul n’effectue jamais cette requête réseau. Les identifiants communs réduisent l’ambiguïté sans garantir l’accord entre tags et informations externes. Sans Picard, Aède lit les tags standards ID3, Vorbis ou MP4 et doctor indique les champs manquants/incomplets.
+
+<div id="aède-and-beets" data-legacy-anchor></div>
+
+## Aède et beets
+
+[beets](https://docs.beets.io/en/stable/guides/main.html) propose importation, écriture de tags, organisation et recherches. Aède catalogue une collection existante et relie enregistrements, éditions, œuvres et crédits en gardant intacts l’audio original et ses tags.
+
+| Besoin | beets | Aède |
+| --- | --- | --- |
+| Préparer les tags | L’importeur peut écrire les métadonnées identifiées dans les fichiers. | Lit les tags existants ; leur préparation revient à un outil comme Picard ou beets. |
+| Organiser les fichiers | L’import peut copier les fichiers dans une bibliothèque organisée ou les déplacer selon la configuration. | Conserve noms et dossiers d’origine ; un `copy` explicite crée une destination séparée. |
+| Protéger les originaux | Propose une configuration d’import en lecture seule. | Préserver l’audio original et ses tags est une règle permanente pour toutes les commandes. |
+| Ajouter du contexte | Identification des métadonnées et extensions enrichissent la bibliothèque. | Informations externes, résultats d’analyse et annotations personnelles sont conservés séparément des tags, avec leurs origines. |
+
+La [référence de configuration de beets](https://docs.beets.io/en/stable/reference/config.html#importer-options) indique que l’écriture des tags et la copie sont activées par défaut, tandis que le déplacement est désactivé. Son [mode d’import en lecture seule](https://docs.beets.io/en/stable/guides/main.html#basic-configuration) désactive copie et écriture des tags : beets n’impose donc pas de modifier les originaux. La différence est que la règle de préservation d’Aède ne dépend pas d’un réglage d’importation. Ses téléchargements et analyses explicites peuvent créer des fichiers annexes, et `copy` peut convertir des fichiers de destination, tout en laissant intacts l’audio source et ses tags.
+
+Les outils peuvent se compléter : préparer les tags avec Picard ou beets si nécessaire, vérifier le résultat, puis scanner la collection avec Aède. Après une modification des tags, relancer le scan pour actualiser les métadonnées locales du catalogue.
 
 <div id="resolving-identity-when-one-artist-appears-twice" data-legacy-anchor></div>
 
