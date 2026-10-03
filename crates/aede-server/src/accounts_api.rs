@@ -6,12 +6,7 @@ use axum::extract::{Path as PathParameter, rejection::PathRejection};
 use super::*;
 
 pub(super) fn routes() -> Router<ApiState> {
-    Router::new()
-        .route(
-            "/api/auth/v1/session",
-            post(login).get(session_info).delete(logout),
-        )
-        .route("/api/auth/v1/password", axum::routing::put(change_password))
+    remote_routes()
         .route(
             "/api/admin/v1/accounts",
             get(list_accounts).post(create_account),
@@ -24,6 +19,16 @@ pub(super) fn routes() -> Router<ApiState> {
             "/api/admin/v1/accounts/:username/sessions",
             axum::routing::delete(revoke_sessions),
         )
+}
+
+/// Session endpoints that remain available over the explicit remote transport.
+pub(super) fn remote_routes() -> Router<ApiState> {
+    Router::new()
+        .route(
+            "/api/auth/v1/session",
+            post(login).get(session_info).delete(logout),
+        )
+        .route("/api/auth/v1/password", axum::routing::put(change_password))
 }
 
 #[derive(Serialize)]

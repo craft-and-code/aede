@@ -13,7 +13,10 @@ pub(super) struct ApiState {
     pub(super) admin: Option<Admin>,
     pub(super) auth: Arc<auth::AuthState>,
     pub(super) next_task_id: Arc<AtomicU64>,
+    pub(super) connection_slots: Arc<Semaphore>,
+    pub(super) remote_request_slots: Arc<Semaphore>,
     pub(super) websocket_slots: Arc<Semaphore>,
+    pub(super) playback_slots: Arc<Semaphore>,
     pub(super) inspection_slots: Arc<Semaphore>,
     pub(super) jobs: Arc<jobs::JobRegistry>,
     #[cfg(unix)]

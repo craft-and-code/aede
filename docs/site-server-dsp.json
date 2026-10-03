@@ -1,5 +1,19 @@
 [
   {
+    "slug": "server/playback",
+    "section": "server",
+    "title": { "en": "Authenticated audio playback", "fr": "Lecture audio authentifiée" },
+    "description": { "en": "Consume processed PCM, acknowledge client playback and record private listening history.", "fr": "Consommer le PCM traité, confirmer la lecture client et enregistrer son historique privé." },
+    "source": { "en": "docs/server/playback.md", "fr": "docs/fr/server/playback.md" }
+  },
+  {
+    "slug": "server/remote",
+    "section": "server",
+    "title": { "en": "Encrypted remote access", "fr": "Accès distant chiffré" },
+    "description": { "en": "Configure HTTPS, authenticate remote clients and keep administration local.", "fr": "Configurer HTTPS, authentifier les clients distants et garder l’administration locale." },
+    "source": { "en": "docs/server/remote.md", "fr": "docs/fr/server/remote.md" }
+  },
+  {
     "slug": "server/accounts",
     "section": "server",
     "title": { "en": "Accounts and sessions", "fr": "Comptes et sessions" },

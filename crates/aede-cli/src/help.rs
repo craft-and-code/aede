@@ -26,8 +26,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Read watched music folders into the local catalog.",
         },
         "serve" => CommandPage {
-            usage: "aede serve [--port N]",
-            summary: "Serve the local HTTP/JSON/WebSocket catalog API and coordinate CLI writes.",
+            usage: "aede serve [--port N] [--bind IP] [--tls-cert PATH --tls-key PATH --authority HOST:PORT]",
+            summary: "Serve the catalog API locally or through explicit HTTPS, and coordinate CLI writes.",
         },
         "cancel" => CommandPage {
             usage: "aede cancel <task-id>",
@@ -288,8 +288,8 @@ pub fn print_index() {
 
 {}
   scan [folder…]       Scan the watched folders; any folder given is added to them
-  serve [--port N]     Serve the local API at 127.0.0.1:8787 by default;
-                       CLI writes delegate to it locally on Unix.
+  serve [--bind IP]    Serve locally at 127.0.0.1:8787 by default; explicit
+                       TLS options enable HTTPS. CLI writes delegate locally on Unix.
                        Run aede help serve for setup and access limits
   cancel <task-id>     Stop a delegated scan or fetch on the local server
   accounts            Manage logins, roles and sessions; run aede help accounts
@@ -728,7 +728,12 @@ pub fn print_index() {
 /// compact cross-section so it remains a map rather than a second manual.
 fn command_examples(command: &str) -> &'static [&'static str] {
     match command {
-        "serve" => &["aede scan ~/Music", "aede serve", "aede serve --port 0"],
+        "serve" => &[
+            "aede scan ~/Music",
+            "aede serve",
+            "aede serve --port 0",
+            "aede serve --bind 192.0.2.10 --port 8443 --tls-cert server.pem --tls-key server.key --authority music.example.test:8443",
+        ],
         "cancel" => &["aede cancel <task-id> --data /path/to/aede-data"],
         "artist" => &[
             "aede artist \"Miles Davis\" --members",
@@ -872,6 +877,11 @@ fn print_server_help() {
   Use the same data directory for the server and CLI: --data <folder> or
   AEDE_HOME. The server listens only on 127.0.0.1:8787 by default.
   --port accepts 0..=65535; --port 0 chooses and prints a free local port.
+  --bind accepts one literal IP address. A non-loopback bind requires all of
+  --tls-cert, --tls-key and --authority, and never starts plaintext HTTP.
+  The certificate and key are PEM files. --authority is the exact HTTPS
+  HOST:PORT clients use, without https://; it may differ from --bind through
+  NAT. HTTPS needs a fixed port, so --port 0 is refused with TLS.
   GET /api/v1/status checks availability; /api/v1/events and /api/v1/activity
   provide WebSocket catalog changes and task activity. GET /api/v1/albums,
   /api/v1/album?name=<title>, /api/v1/artists, /api/v1/artist?name=<name>,
@@ -883,8 +893,9 @@ fn print_server_help() {
 {}
   Without accounts, catalog reads are anonymous. aede accounts init creates
   the first administrator and protects catalog access; personal data is scoped
-  to each session. See docs/server/accounts.md. There is no audio playback or
-  remote access: do not publish the port through a proxy, tunnel or router.
+  to each session. See docs/server/accounts.md. There is no audio playback.
+  Explicit HTTPS mode provides the supported remote access boundary; do not
+  publish the default local HTTP listener through a proxy, tunnel or router.
   Windows path handling is covered by regression tests; native Windows
   validation is still required before release. Local command delegation
   and aede cancel remain Unix-only. See docs/design/paths.md.

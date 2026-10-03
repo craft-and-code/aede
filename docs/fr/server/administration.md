@@ -1,6 +1,6 @@
 # Activer l’administration locale
 
-L’administration permet de lancer scan/fetch et de gérer les données du propriétaire local. Un [compte administrateur](accounts.md) utilise sa session ; le jeton administratif historique facultatif fonctionne aussi. Sans comptes ni jeton, l’administration est désactivée. Le serveur reste limité à l’écoute locale.
+En HTTP local, l’administration permet de lancer scan/fetch et de gérer les données du propriétaire local. Un [compte administrateur](accounts.md) utilise sa session ; le jeton historique facultatif fonctionne aussi. Sans comptes ni jeton, l’administration est désactivée. [HTTPS](remote.md) désactive toutes les routes `/api/admin` et le jeton historique ; utilisez la CLI locale de confiance pour les tâches de l’installation.
 
 ## Configurer le jeton avant le démarrage
 

@@ -1,6 +1,6 @@
 # Comptes, sessions et données privées
 
-Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes, les lectures du catalogue restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Une fois les comptes configurés, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou le jeton administratif. Identifiants absents, illisibles ou exposés : l’accès reste fermé. Le serveur écoute toujours uniquement en local ; les comptes ne fournissent pas d’accès distant chiffré.
+Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes, les lectures HTTP locales restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Une fois les comptes configurés, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou, en HTTP local, le jeton administratif. Identifiants absents, illisibles ou exposés : l’accès reste fermé. [HTTPS](remote.md) exige des comptes et accepte seulement les sessions ; toutes les routes `/api/admin` y sont indisponibles.
 
 Un `admin` gère les comptes et les tâches de l’installation. Un `user` lit et modifie uniquement ses propres données personnelles. Un `auditor` lit le catalogue partagé et emploie seulement `GET` ou `HEAD` sur ses propres données `/api/me/v1` ; toute modification personnelle, changement de mot de passe, administration ou tâche renvoie `403 forbidden`. Un auditeur peut toujours se connecter, consulter sa session et se déconnecter.
 
@@ -29,12 +29,13 @@ Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/a
 | `/api/me/v1/history` | GET/HEAD événements paginés ; POST une écoute |
 | `/api/me/v1/collection` | GET/HEAD/PUT/DELETE par `name` |
 | `/api/me/v1/collections` | GET/HEAD collections paginées |
+| `/api/me/v1/playback` | GET avec passage en WebSocket ; [contrat audio](playback.md), user/admin seulement |
 
 Les routes transitoires `/api/admin/v1/{annotation,history,collection,collections}` continuent à viser `local`, même pour un administrateur ayant un autre propriétaire. Le premier administrateur récupère `local`. La CLI reste une interface de confiance du propriétaire système et conserve sa portée locale.
 
 ## Administration des comptes
 
-Les administrateurs peuvent lancer les [tâches de l’installation](jobs.md) et gérer les comptes ; un `user` ou un `auditor` reçoit `403 forbidden` sur l’administration. Un administrateur actif doit toujours rester. Employer une session administrateur ou le jeton administratif historique facultatif :
+En HTTP local, les administrateurs peuvent lancer les [tâches de l’installation](jobs.md) et gérer les comptes ; un `user` ou un `auditor` reçoit `403 forbidden` sur l’administration. HTTPS désactive ces routes pour tous ; employer la CLI locale. Un administrateur actif doit toujours rester. Employer une session administrateur ou le jeton administratif historique facultatif :
 
 | Méthode et chemin | Corps | Résultat |
 | --- | --- | --- |

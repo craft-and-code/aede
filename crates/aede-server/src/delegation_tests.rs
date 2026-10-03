@@ -1,4 +1,5 @@
 use super::*;
+use crate::{MAX_PLAYBACKS, MAX_REMOTE_REQUESTS};
 
 #[test]
 fn private_command_path_stays_short_for_a_deep_data_directory() {
@@ -93,7 +94,10 @@ fn command_test_state() -> ApiState {
         auth: Arc::new(crate::auth::AuthState::default()),
         next_task_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         tasks: Arc::new(TaskRegistry::default()),
+        connection_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS)),
+        remote_request_slots: Arc::new(tokio::sync::Semaphore::new(MAX_REMOTE_REQUESTS)),
         websocket_slots: Arc::new(tokio::sync::Semaphore::new(64)),
+        playback_slots: Arc::new(tokio::sync::Semaphore::new(MAX_PLAYBACKS)),
         inspection_slots: Arc::new(tokio::sync::Semaphore::new(2)),
         jobs: Arc::new(crate::jobs::JobRegistry::default()),
     }

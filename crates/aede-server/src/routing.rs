@@ -3,7 +3,19 @@
 use super::*;
 
 pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
-    let admin_enabled = state.admin.is_some();
+    router_with_policy(state, OriginPolicy::Local(address))
+}
+
+/// Build the restricted HTTPS router. Administrative and legacy-token routes
+/// deliberately do not exist on a remotely reachable listener.
+pub(super) fn remote_router(mut state: ApiState, authority: RemoteAuthority) -> Router {
+    state.admin = None;
+    router_with_policy(state, OriginPolicy::Remote(authority))
+}
+
+fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
+    let remote = matches!(policy, OriginPolicy::Remote(_));
+    let admin_enabled = !remote && state.admin.is_some();
     let mut routes = Router::new()
         .route("/api/v1/status", get(status))
         .route("/api/v1/library", get(library))
@@ -14,8 +26,13 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
         .route("/api/v1/entities", get(entity))
         .route("/api/v1/events", get(events))
         .route("/api/v1/activity", get(activity))
-        .merge(accounts_api::routes())
+        .merge(if remote {
+            accounts_api::remote_routes()
+        } else {
+            accounts_api::routes()
+        })
         .merge(personal::account_routes())
+        .merge(playback_api::routes())
         .merge(catalog_commands::routes())
         .merge(inspection::routes());
     if admin_enabled {
@@ -24,6 +41,12 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
             .merge(jobs::routes())
             .merge(personal::routes());
     }
+    if remote {
+        routes = routes.layer(middleware::from_fn_with_state(
+            state.clone(),
+            enforce_remote_request_budget,
+        ));
+    }
     routes
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(not_found)
@@ -31,9 +54,6 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
             state.clone(),
             auth::enforce_accounts,
         ))
-        .layer(middleware::from_fn_with_state(
-            address,
-            enforce_local_origin,
-        ))
+        .layer(middleware::from_fn_with_state(policy, enforce_origin))
         .with_state(state)
 }

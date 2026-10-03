@@ -51,7 +51,7 @@ Le statut HTTP décrit la catégorie de résultat. `error.code` est la valeur st
 | --- | --- |
 | 400 `invalid_query`, `invalid_parameters`, `invalid_reference` | Vérifiez noms des paramètres, sélecteur et types des valeurs. |
 | 400 `invalid_pagination` | Utilisez des entiers sans signe et une limite de 1 à 200. |
-| 403 `invalid_host` / `invalid_origin` | Appelez l’adresse/port locaux réels, sans origine de navigateur étrangère. |
+| 403 `invalid_host` / `invalid_origin` | Employez l’adresse locale autorisée ou l’adresse HTTPS configurée et une origine de navigateur correspondante. |
 | 404 `entity_not_found` / `not_found` | Actualisez la référence ou vérifiez l’adresse. |
 | 405 `method_not_allowed` | Cette méthode HTTP n’existe pas sur cette route. |
 | 409 `ambiguous_entity` | Choisissez une référence parmi les candidats. |
@@ -64,9 +64,9 @@ Les erreurs d’authentification, de corps JSON et de tâches sont expliquées d
 
 ## La frontière locale
 
-Sans [comptes](accounts.md), les lectures du catalogue ne demandent aucun jeton et peuvent révéler chemins, commentaires et noms aux autres processus/utilisateurs. Avec des comptes, elles exigent une session Bearer ou le jeton administratif. Le serveur valide Host et Origin contre son adresse/port local ; aucune autorisation entre origines, écoute publique ou TLS.
+Sans [comptes](accounts.md), les lectures HTTP locales ne demandent aucun jeton et peuvent révéler chemins, commentaires et noms aux autres processus/utilisateurs. Avec des comptes, elles exigent une session Bearer ou, en HTTP local, le jeton administratif. [HTTPS](remote.md) exige des comptes, accepte seulement les sessions et valide Host/Origin contre son adresse configurée. HTTP reste limité à la boucle locale. Aucun transport n’autorise les origines tierces.
 
-Aucun secret dans une page web ou URL. Le jeton administratif historique refuse toute Origin ; les sessions suivent la vérification d’origine locale commune. Un futur lecteur/site nécessite encore une conception de connexion/cookies et de transport distant chiffré.
+Aucun secret dans une page web ou URL. Le jeton administratif historique refuse toute Origin ; les sessions suivent la vérification d’origine du transport. Un futur lecteur/site nécessite encore une conception de connexion/cookies.
 
 ## Choisir les routes
 
@@ -80,5 +80,7 @@ Aucun secret dans une page web ou URL. Le jeton administratif historique refuse 
 | Activer le jeton facultatif | [Administration](administration.md). |
 | Soumettre/suivre/annuler scan ou fetch | [Tâches HTTP](jobs.md). |
 | Annotations, historique et collections du propriétaire | [Données personnelles](personal.md). |
+| Configurer une écoute distante authentifiée | [HTTPS](remote.md). |
+| Diffuser l’audio traité et confirmer la lecture | [Contrat audio](playback.md). |
 
 Le [contrat versionné de l’API](../../api.md) définit la compatibilité et les types précis ; ces guides expliquent l’utilisation de l’interface actuellement implémentée.

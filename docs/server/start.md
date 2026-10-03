@@ -1,6 +1,6 @@
 # Start the local server
 
-Aède's server gives other programs access to your local music **catalog**: albums, artists, tracks, relationships and diagnostics. It answers HTTP requests with JSON and publishes change notifications over WebSocket. Optional [accounts and sessions](accounts.md) protect access and isolate personal data. Audio transmission and remote playback remain future work.
+Aède's server gives other programs access to your music **catalog**: albums, artists, tracks, relationships and diagnostics. It answers HTTP requests with JSON and publishes change notifications over WebSocket. Optional [accounts and sessions](accounts.md) protect local access and isolate personal data. An authenticated [audio contract](playback.md) streams processed PCM; explicit [HTTPS configuration](remote.md) enables remote access with mandatory accounts.
 
 ## Before starting
 
@@ -13,7 +13,7 @@ aede serve
 
 Replace `/path/to/music` with your music folder. Keep the second terminal open: `serve` runs until you stop it. Starting without a saved catalog fails; perform the scan first. The server prints its address when ready.
 
-The default address is `http://127.0.0.1:8787`. `127.0.0.1`, also called loopback, means **this computer**. On a phone it means the phone, not your music computer. Aède deliberately listens only on IPv4 loopback.
+The default address is `http://127.0.0.1:8787`. `127.0.0.1`, also called loopback, means **this computer**. On a phone it means the phone, not your music computer. Plain HTTP is restricted to loopback. Use the [HTTPS guide](remote.md) to configure an authenticated listener on another address.
 
 ```sh
 curl http://127.0.0.1:8787/api/v1/status
@@ -32,7 +32,7 @@ aede --data /path/to/aede-data serve --port 3412
 
 Alternatively set `AEDE_HOME` in the environment of both processes. Without an override, Aède uses `$XDG_DATA_HOME/aede`, then `~/.local/share/aede`; if `HOME` is absent, it uses `.aede` in the current folder. Music paths belong to the computer running the server.
 
-`--port` accepts 0–65535. Port 0 asks the operating system for an available port; read the printed address instead of assuming 8787. After upgrading the executable, restart the running server to use the new version.
+`--port` accepts 0–65535. With HTTP, port 0 asks the operating system for an available port; read the printed address instead of assuming 8787. TLS requires a nonzero port and explicit public authority. After upgrading the executable, restart the running server to use the new version.
 
 ## Stop and work alongside the server
 
@@ -44,8 +44,8 @@ Do not delete lock files or edit live JSON stores. CLI and server writers coordi
 
 ## NAS, Raspberry Pi and containers
 
-The architecture separates music, persistent catalog data and clients, making a small always-on host a relevant deployment target. Current support is a **local catalog workflow**, not a tested NAS appliance. No Aède container image is built or published; NAS packages, Raspberry Pi deployment, reboot handling and target-device performance still need validation. Published Linux release builds currently target x86_64, not Linux aarch64.
+The architecture separates music, persistent catalog data and clients, making a small always-on host a relevant deployment target. The implemented catalog, HTTPS and native audio contracts do not establish a tested NAS appliance. No Aède container image is built or published; NAS packages, Raspberry Pi deployment, reboot handling and target-device performance still need validation. Published Linux release builds currently target x86_64, not Linux aarch64.
 
-The [operating guide](../operating.md#docker-image-on-a-linux-host-procedure-only) describes a future Linux-container procedure, including stable paths, permissions and backups. Its placeholder image is not something you can pull today. Do not expose port 8787 through a router, reverse proxy or tunnel: the current API has no remote listener authentication or encrypted transport.
+The [operating guide](../operating.md#docker-image-on-a-linux-host-procedure-only) describes a future Linux-container procedure, including stable paths, permissions and backups. Its placeholder image is not something you can pull today. Remote access requires the explicit account-backed [HTTPS listener](remote.md); the default HTTP listener remains local.
 
 Next: [Understand HTTP and JSON](http.md), then [Browse albums and tracks](catalog.md).

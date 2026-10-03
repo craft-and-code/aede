@@ -1,6 +1,6 @@
 # Suivre les changements avec WebSocket
 
-HTTP répond quand on le demande. Un WebSocket conserve une connexion ouverte pour que le serveur annonce les changements. Ces flux transmettent des notifications, pas de musique, de catalogue complet ni de commandes. Leur frontière Host/Origin locale est celle de [HTTP](http.md).
+HTTP répond quand on le demande. Un WebSocket conserve une connexion ouverte pour que le serveur annonce les changements. Ces flux transmettent des notifications, pas de musique, de catalogue complet ni de commandes. Leur frontière Host/Origin selon le transport est celle de [HTTP](http.md).
 
 ## GET /api/v1/events — ouverture WebSocket
 

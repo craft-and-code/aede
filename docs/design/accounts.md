@@ -1,4 +1,4 @@
-# Accounts and local sessions
+# Accounts and sessions
 
 Accounts share one catalog. Favourites, ratings, notes, listening history, counts and collections remain scoped by the authenticated account's stable owner ID. A request cannot select another owner. The operating-system owner remains trusted: the CLI can manage accounts without an HTTP session, and existing CLI personal commands continue to use `local`.
 
@@ -12,6 +12,6 @@ The new authentication API exchanges passwords for opaque 256-bit session tokens
 
 With no account store, the existing anonymous loopback catalog and opt-in administrative token keep working. Once accounts are configured, catalog and WebSocket reads require a session or the installation's administrative token. A missing or unreadable account store then fails closed. Existing connections must be rechecked for session expiry, account changes and activation of account mode. Administrative session holders may manage accounts and installation jobs. User sessions can browse the shared catalog and use only their own personal-data API. Auditor sessions can browse the shared catalog and read only their own personal-data API. The transitional administrative personal routes continue to address `local` explicitly.
 
-The listener remains loopback-only with the existing Host/Origin checks. This foundation does not expose the server remotely or implement Subsonic, audio streaming, TLS, a web login screen or an external identity provider. Encrypted remote transport and deployment cost budgets remain separate work.
+The default HTTP listener remains loopback-only with Host/Origin checks. Explicit [HTTPS](../server/remote.md) requires accounts, a certificate/key and one exact public authority; it refuses legacy tokens and all remote administrative routes. Native clients can use the authenticated [PCM playback contract](../server/playback.md), which records only acknowledged playback for the session's owner. Subsonic, a web login screen and external identity providers remain future work. Target-device capacity still needs measured deployment validation.
 
 Backup envelope version 3 adds the independently versioned accounts store. Versions 1 and 2 remain readable, and their absent accounts part never deletes or replaces an existing account store. Sessions are never backed up. Resetting the rebuildable catalog preserves accounts.

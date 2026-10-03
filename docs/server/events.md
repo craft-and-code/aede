@@ -1,6 +1,6 @@
 # Follow changes with WebSocket
 
-HTTP gives a result when requested. A WebSocket keeps a connection open so the server can notify a client of changes. These streams send notifications, not audio, catalog contents or commands. Their local Host/Origin boundary is the same as [HTTP](http.md).
+HTTP gives a result when requested. A WebSocket keeps a connection open so the server can notify a client of changes. These streams send notifications, not audio, catalog contents or commands. Their transport-specific Host/Origin boundary is the same as [HTTP](http.md).
 
 ## GET /api/v1/events — WebSocket upgrade
 

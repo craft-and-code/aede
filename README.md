@@ -130,7 +130,7 @@ aede doctor
 | :------------ | :----------- | :------------------------------------------ | :------------------------------------------------------------------------------------------ |
 | `aede roots`  | `[paths...]` | `--exclude <path>`, `--remove`, `--no-scan` | Display, add, or exclude watched storage directories.                                       |
 | `aede scan`   | `[path]`     | `--full`, `--dry-run`, `--json`             | Traverses roots to index audio files, tags, and structure.                                  |
-| `aede serve`  | None         | `--port <N>`                                | Runs the loopback-only catalog API and coordinates Unix CLI writes.                        |
+| `aede serve`  | None         | `--bind <IP>`, `--port <N>`, TLS options                                | Serves the catalog/audio API, optional authenticated HTTPS, and coordinates Unix CLI writes.                        |
 | `aede accounts` | `list`, `init`, `create`, `password`, `role`, `rename`, `enable`, `disable`, `revoke` | `--password-stdin`, `--json` | Manages local accounts, roles and session revocation; preserves existing personal ownership. |
 | `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |

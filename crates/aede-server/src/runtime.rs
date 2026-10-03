@@ -1,6 +1,120 @@
 //! Server startup, catalog reloads and graceful shutdown.
 
 use super::*;
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
+use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::service::TowerToHyperService;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::task::JoinSet;
+use tower::ServiceExt as _;
+
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+const TLS_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+const TLS_CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
+const TLS_SERVER_DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
+const TLS_WRITE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
+const TLS_MAX_HEADERS: usize = 64;
+const TLS_MAX_HTTP_BUFFER: usize = 32 * 1024;
+const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Keeps a TCP admission permit alive for every consumer of the stream.
+///
+/// `hyper` transfers its I/O object into an upgraded WebSocket. Holding the
+/// permit beside the object instead of beside the HTTP connection task keeps
+/// the connection limit accurate after that task returns.
+struct ConnectionStream<S> {
+    stream: S,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    write_deadline: Option<Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl<S> ConnectionStream<S> {
+    fn new(stream: S, permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        Self {
+            stream,
+            _permit: permit,
+            write_deadline: None,
+        }
+    }
+
+    fn clear_write_deadline(&mut self) {
+        self.write_deadline = None;
+    }
+
+    fn pending_write(&mut self, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let deadline = self
+            .write_deadline
+            .get_or_insert_with(|| Box::pin(tokio::time::sleep(TLS_WRITE_PROGRESS_TIMEOUT)));
+        if std::future::Future::poll(deadline.as_mut(), context).is_ready() {
+            self.clear_write_deadline();
+            Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "TLS response made no write progress before its deadline",
+            )))
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for ConnectionStream<S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_read(context, buffer)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for ConnectionStream<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let stream = self.as_mut().get_mut();
+        match Pin::new(&mut stream.stream).poll_write(context, buffer) {
+            Poll::Ready(Ok(written)) => {
+                if written > 0 {
+                    stream.clear_write_deadline();
+                }
+                Poll::Ready(Ok(written))
+            }
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Pending => stream
+                .pending_write(context)
+                .map(|result| result.map(|()| 0)),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let stream = self.get_mut();
+        match Pin::new(&mut stream.stream).poll_flush(context) {
+            Poll::Ready(Ok(())) => {
+                stream.clear_write_deadline();
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Pending => stream.pending_write(context),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let stream = self.get_mut();
+        match Pin::new(&mut stream.stream).poll_shutdown(context) {
+            Poll::Ready(Ok(())) => {
+                stream.clear_write_deadline();
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Pending => stream.pending_write(context),
+        }
+    }
+}
 
 pub(super) fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
     let metadata = std::fs::metadata(path).ok()?;
@@ -185,7 +299,202 @@ pub(super) async fn run_http(
     result
 }
 
-/// Starts the loopback API until the process is stopped.
+async fn run_tls(
+    listener: tokio::net::TcpListener,
+    tls: TlsServer,
+    path: PathBuf,
+    state: ApiState,
+    #[cfg(unix)] command_listener: tokio::net::UnixListener,
+    #[cfg(unix)] command_socket: PathBuf,
+    #[cfg(unix)] command_validator: Arc<CommandValidator>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<(), std::io::Error> {
+    let watcher = tokio::spawn(watch_catalog(path, state.clone()));
+    #[cfg(unix)]
+    let commands = tokio::spawn(delegation::accept_commands(
+        command_listener,
+        state.clone(),
+        command_validator,
+    ));
+    let sender = state.shutdown.clone();
+    let shutdown_task = tokio::spawn(async move {
+        shutdown.await;
+        let _ = sender.send(());
+    });
+    let TlsServer {
+        acceptor,
+        authority,
+    } = tls;
+    let result = serve_tls(
+        listener,
+        acceptor,
+        remote_router(state.clone(), authority),
+        state.clone(),
+    )
+    .await;
+    shutdown_task.abort();
+    // Also stop the watcher and command listener if serving fails before a
+    // termination signal arrives.
+    let _ = state.shutdown.send(());
+    watcher.abort();
+    #[cfg(unix)]
+    {
+        if let Err(error) = commands.await {
+            eprintln!("Aède command shutdown failed: {error}");
+        }
+        let _ = std::fs::remove_file(&command_socket);
+        if let Some(parent) = command_socket.parent() {
+            let _ = std::fs::remove_dir(parent);
+        }
+    }
+    jobs::wait_for_jobs(&state).await;
+    result
+}
+
+/// Serve bounded HTTPS connections until the shared shutdown channel closes.
+///
+/// The function is separate from startup so tests can exercise real TLS and
+/// WebSocket upgrades without requiring a process signal or a data lock.
+pub(super) async fn serve_tls(
+    listener: tokio::net::TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+    application: Router,
+    state: ApiState,
+) -> Result<(), std::io::Error> {
+    let mut shutdown = state.shutdown.subscribe();
+    // Capture this before accepting. A WebSocket upgrade leaves the HTTP task,
+    // but retains its permit in `ConnectionStream`; shutdown below waits until
+    // every permit this listener could have issued has returned.
+    let connection_capacity = state.connection_slots.available_permits();
+    let mut connections = JoinSet::new();
+    loop {
+        tokio::select! {
+            _ = shutdown.recv() => break,
+            Some(_) = connections.join_next(), if !connections.is_empty() => {},
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => {
+                    let permit = match state.connection_slots.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => continue,
+                    };
+                    let connection_shutdown = state.shutdown.subscribe();
+                    let connection_acceptor = acceptor.clone();
+                    let connection_application = application.clone();
+                    connections.spawn(async move {
+                        serve_tls_connection(
+                            stream,
+                            permit,
+                            connection_acceptor,
+                            connection_application,
+                            connection_shutdown,
+                        )
+                        .await;
+                    });
+                }
+                Err(error) if is_connection_error(&error) => {},
+                Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
+            },
+        }
+    }
+    drop(listener);
+    drain_tls_connections(
+        &mut connections,
+        state.connection_slots.as_ref(),
+        connection_capacity,
+    )
+    .await;
+    Ok(())
+}
+
+async fn serve_tls_connection(
+    stream: tokio::net::TcpStream,
+    permit: tokio::sync::OwnedSemaphorePermit,
+    acceptor: tokio_rustls::TlsAcceptor,
+    application: Router,
+    mut shutdown: broadcast::Receiver<()>,
+) {
+    let stream = tokio::select! {
+        accepted = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)) => match accepted {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(_)) | Err(_) => return,
+        },
+        _ = shutdown.recv() => return,
+    };
+    let stream = ConnectionStream::new(stream, permit);
+    let service =
+        application.map_request(|request: Request<Incoming>| request.map(axum::body::Body::new));
+    let service = TowerToHyperService::new(service);
+    let mut http = http1::Builder::new();
+    http.timer(TokioTimer::new())
+        .header_read_timeout(TLS_HEADER_TIMEOUT)
+        .max_headers(TLS_MAX_HEADERS)
+        .max_buf_size(TLS_MAX_HTTP_BUFFER)
+        // TLS streams do not provide useful vectored writes, so avoid the
+        // extra queue/copy choice heuristic on every response.
+        .writev(false);
+    let connection = http
+        .serve_connection(TokioIo::new(stream), service)
+        .with_upgrades();
+    tokio::pin!(connection);
+    tokio::select! {
+        _ = &mut connection => {},
+        _ = shutdown.recv() => {
+            connection.as_mut().graceful_shutdown();
+            let _ = tokio::time::timeout(TLS_CONNECTION_DRAIN_TIMEOUT, &mut connection).await;
+        }
+    }
+}
+
+async fn drain_tls_connections(
+    connections: &mut JoinSet<()>,
+    connection_slots: &Semaphore,
+    connection_capacity: usize,
+) {
+    let deadline = tokio::time::Instant::now() + TLS_SERVER_DRAIN_TIMEOUT;
+    while !connections.is_empty() {
+        if tokio::time::timeout_at(deadline, connections.join_next())
+            .await
+            .is_err()
+        {
+            connections.abort_all();
+            while connections.join_next().await.is_some() {}
+            break;
+        }
+    }
+    // Upgraded WebSocket callbacks outlive Hyper's connection future. Their
+    // stream still owns a permit, so wait for the shared capacity rather than
+    // considering only the now-empty JoinSet.
+    while connection_slots.available_permits() < connection_capacity {
+        if tokio::time::timeout_at(deadline, tokio::time::sleep(Duration::from_millis(10)))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+fn is_connection_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+    )
+}
+
+/// Stop the runtime without allowing an uninterruptible filesystem operation
+/// in a blocking worker to hold process shutdown forever.
+///
+/// Accepted jobs and command requests have already finished before this runs.
+/// Timed-out workers are not forcibly interrupted: playback decoding only
+/// reads source audio, and listening-history saves use the core's atomic file
+/// writer rather than risking a partial user-data file.
+fn shutdown_runtime(runtime: tokio::runtime::Runtime, timeout: Duration) {
+    runtime.shutdown_timeout(timeout);
+}
+
+/// Starts the backwards-compatible loopback HTTP API until the process stops.
 ///
 /// Calls `on_ready` with the bound address, including the assigned port when
 /// `port` is zero. The caller decides how to present that address.
@@ -201,10 +510,44 @@ pub fn serve(
     + 'static,
     on_ready: impl FnOnce(SocketAddr),
 ) -> Result<(), Box<dyn Error>> {
+    serve_with_options(
+        data_dir,
+        ServerOptions::loopback(port),
+        admin_token,
+        on_scan,
+        on_command,
+        on_job,
+        on_ready,
+    )
+}
+
+/// Starts the local HTTP API or the explicit authenticated HTTPS listener.
+///
+/// A `tls: None` option preserves the loopback-only HTTP contract. A TLS
+/// option requires an initialized account store before any public socket is
+/// announced; legacy administrative-token and administrative routes remain
+/// local-only. Shutdown still waits for accepted installation jobs and local
+/// command requests; after that it waits at most five seconds for background
+/// playback workers that cannot be safely interrupted.
+pub fn serve_with_options(
+    data_dir: &Path,
+    options: ServerOptions,
+    admin_token: Option<String>,
+    on_scan: impl Fn(&mut (dyn FnMut(Progress) + Send)) -> Result<(), String> + Send + Sync + 'static,
+    on_command: impl Fn(&[String], &str) -> bool + Send + Sync + 'static,
+    on_job: impl Fn(JobRequest, Arc<std::sync::atomic::AtomicBool>) -> Result<JobOutput, String>
+    + Send
+    + Sync
+    + 'static,
+    on_ready: impl FnOnce(SocketAddr),
+) -> Result<(), Box<dyn Error>> {
     #[cfg(not(unix))]
     let _ = on_command;
     #[cfg(unix)]
     let _server_lock = delegation::ServerLock::acquire(data_dir)?;
+    // Read and validate certificate material before binding a public socket.
+    let tls = configure(&options)?;
+    let remote = tls.is_some();
     let path = store::catalog_path(data_dir);
     let (catalog, loaded_stamp) = {
         let _guard = StoreLock::acquire(data_dir)?;
@@ -219,13 +562,10 @@ pub fn serve(
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(async move {
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
-        #[cfg(unix)]
-        let (command_listener, command_socket) = delegation::bind_command_socket(data_dir)?;
+    let result = runtime.block_on(async move {
         let (events, _) = broadcast::channel(32);
         let (shutdown, _) = broadcast::channel(1);
-        let admin = Some(Admin {
+        let admin = (!remote).then(|| Admin {
             token: admin_token.unwrap_or_default(),
             data_dir: data_dir.to_path_buf(),
             scan: Arc::new(on_scan),
@@ -241,29 +581,65 @@ pub fn serve(
             admin,
             auth: Arc::new(auth::AuthState::default()),
             next_task_id: Arc::new(AtomicU64::new(1)),
+            connection_slots: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+            remote_request_slots: Arc::new(Semaphore::new(MAX_REMOTE_REQUESTS)),
             websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
+            playback_slots: Arc::new(Semaphore::new(MAX_PLAYBACKS)),
             inspection_slots: Arc::new(Semaphore::new(2)),
             jobs: Arc::new(jobs::JobRegistry::default()),
             #[cfg(unix)]
             tasks: Arc::new(delegation::TaskRegistry::default()),
         };
         // Refuse malformed credentials before announcing a ready listener.
-        auth::load_accounts(&state).map_err(|failure| failure.message)?;
+        let accounts = auth::load_accounts(&state).map_err(|failure| failure.message)?;
+        if remote && accounts.is_none() {
+            return Err("an HTTPS listener requires initialized accounts".into());
+        }
+        // Do not publish a socket until account-mode validation succeeds.
+        let listener = tokio::net::TcpListener::bind(options.bind).await?;
+        #[cfg(unix)]
+        let (command_listener, command_socket) = delegation::bind_command_socket(data_dir)?;
         let address = listener.local_addr()?;
         on_ready(address);
-        run_http(
-            listener,
-            path,
-            state,
-            #[cfg(unix)]
-            command_listener,
-            #[cfg(unix)]
-            command_socket,
-            #[cfg(unix)]
-            Arc::new(on_command),
-            shutdown_signal(),
-        )
-        .await?;
+        match tls {
+            Some(tls) => {
+                run_tls(
+                    listener,
+                    tls,
+                    path,
+                    state,
+                    #[cfg(unix)]
+                    command_listener,
+                    #[cfg(unix)]
+                    command_socket,
+                    #[cfg(unix)]
+                    Arc::new(on_command),
+                    shutdown_signal(),
+                )
+                .await?;
+            }
+            None => {
+                run_http(
+                    listener,
+                    path,
+                    state,
+                    #[cfg(unix)]
+                    command_listener,
+                    #[cfg(unix)]
+                    command_socket,
+                    #[cfg(unix)]
+                    Arc::new(on_command),
+                    shutdown_signal(),
+                )
+                .await?;
+            }
+        }
         Ok(())
-    })
+    });
+    shutdown_runtime(runtime, RUNTIME_SHUTDOWN_TIMEOUT);
+    result
 }
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

@@ -12,6 +12,16 @@ fn help(args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("UTF-8 help")
 }
 
+fn refusal(args: &[&str]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(args)
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run invalid server command");
+    assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
+    String::from_utf8(output.stderr).expect("UTF-8 error")
+}
+
 #[test]
 fn server_help_explains_setup_administration_and_the_local_access_boundary() {
     let page = help(&["help", "serve"]);
@@ -20,6 +30,16 @@ fn server_help_explains_setup_administration_and_the_local_access_boundary() {
         "127.0.0.1:8787",
         "0..=65535",
         "--port 0",
+        "--bind",
+        "literal IP",
+        "non-loopback",
+        "--tls-cert",
+        "--tls-key",
+        "--authority",
+        "HTTPS",
+        "PEM",
+        "HOST:PORT",
+        "NAT",
         "aede scan <folder>",
         "AEDE_HOME",
         "same data directory",
@@ -50,6 +70,48 @@ fn server_help_explains_setup_administration_and_the_local_access_boundary() {
     ] {
         assert!(page.contains(required), "missing {required:?}:\n{page}");
     }
+}
+
+#[test]
+fn server_refuses_insecure_or_ambiguous_remote_options_before_startup() {
+    for (arguments, required) in [
+        (
+            vec!["serve", "--bind", "192.0.2.10"],
+            "non-loopback --bind requires",
+        ),
+        (
+            vec!["serve", "--tls-cert", "certificate.pem"],
+            "must be provided together",
+        ),
+        (
+            vec![
+                "serve",
+                "--port=0",
+                "--tls-cert=certificate.pem",
+                "--tls-key=private-key.pem",
+                "--authority=music.example.test:8443",
+            ],
+            "--port=0 cannot be used with TLS",
+        ),
+        (
+            vec![
+                "serve",
+                "--tls-cert=certificate.pem",
+                "--tls-key=private-key.pem",
+                "--authority=https://music.example.test:8443",
+            ],
+            "--authority expects",
+        ),
+    ] {
+        let error = refusal(&arguments);
+        assert!(error.contains(required), "{arguments:?}: {error}");
+    }
+
+    let error = refusal(&["stats", "--bind", "127.0.0.1"]);
+    assert!(
+        error.contains("--bind applies to serve"),
+        "a listener option must not be accepted by another command: {error}"
+    );
 }
 
 #[test]

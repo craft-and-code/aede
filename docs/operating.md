@@ -1,6 +1,6 @@
-# Operating the local server
+# Operating the Aède server
 
-Aède's M2 server provides a local catalog API, WebSocket notifications and optional [account sessions](server/accounts.md). It does not stream audio or support remote access. The release workflow builds macOS Apple Silicon, Linux x86_64 and Windows x64 archives. Native Windows CI validates scanning, sidecars and copying; Unix-socket delegation is unavailable on Windows. These builds do not establish validated service or NAS deployment on every platform. See [Paths](design/paths.md).
+Aède's M2 server provides a local catalog API, WebSocket notifications and optional [account sessions](server/accounts.md). An explicit direct HTTPS listener supports authenticated remote catalog/personal access and the native PCM playback contract. Neither establishes a browser or mobile user interface, device output, or a validated NAS deployment. The release workflow builds macOS Apple Silicon, Linux x86_64 and Windows x64 archives. Native Windows CI validates scanning, sidecars and copying; Unix-socket delegation is unavailable on Windows. These builds do not establish validated service or NAS deployment on every platform. See [Paths](design/paths.md).
 
 ## Start and stop
 
@@ -21,6 +21,16 @@ HTTP jobs survive client disconnection and graceful shutdown waits for them. The
 
 New image and lyric sidecars are published atomically without replacing an existing file, including one created concurrently by another program. Their destination filesystem must support hard links (for example, FAT/exFAT does not); otherwise the download reports an error instead of using an unsafe overwrite fallback. A failed or interrupted download never publishes a partial final sidecar, though an interruption can leave a hidden temporary file.
 
+Once accepted jobs/commands and connection shutdown finish, Aède gives remaining uninterruptible background workers at most five seconds to finish. A decoder blocked on storage may not finish before process exit. It reads source audio; history uses atomic replacement, so original music is not altered or truncated. A late history write may remain unconfirmed.
+
+## HTTPS and native playback
+
+The default HTTP listener is for loopback use only. For remote clients, configure `--bind` and all three of `--tls-cert`, `--tls-key` and `--authority`; the [HTTPS guide](server/remote.md) defines the certificate, authority and network setup. The authority is the exact public `HOST:PORT` clients use and may differ from the listening address through a TLS-preserving port mapping. HTTPS requires initialized accounts and refuses an absent or unreadable account store. It disables every `/api/admin` route, including account administration and transitional `local` routes, and disables `AEDE_ADMIN_TOKEN` even when HTTPS listens on loopback. Do not expose default HTTP through a proxy, tunnel or router; TLS terminates in Aède.
+
+Connections, TLS handshakes, request work and WebSockets have bounded admission and timeouts, so a busy server can refuse new work. Those bounds are protective limits, not validated capacity figures for a NAS or a real library. Session revocation, logout and credential changes stop notification and audio sockets without waiting for expiry.
+
+`GET /api/me/v1/playback` is a native WebSocket for a user or administrator session. One current catalogued track is decoded and sent as processed `f32le` PCM through the shared DSP path; the client acknowledges cumulative consumed frames, which controls the stream and supports private listening history. At most four playback decoders run concurrently. This is a transport contract, not a browser/mobile player or an audio-device integration. Browser interoperability, client buffering, target-device performance and physical playback still need validation; see the [audio contract](server/playback.md).
+
 ## CLI alongside the server
 
 On Unix, write-capable CLI commands for the same account and data directory automatically run under the active server over a private local socket. They keep their usual output; a long `fetch` continues if its CLI disconnects. Delegated `scan` and `fetch` print a task ID. Use `aede cancel <task-id>` with the same `--data` or `AEDE_HOME` to request explicit cancellation; closing the terminal or pressing Ctrl-C on the CLI does **not** cancel the server task. Cancellation returns immediately and the original CLI exits with code 130 once stopped. It does not roll back answers already saved by `fetch`. Task IDs are valid only until the server restarts; finished tasks, HTTP administrative scans and other delegated commands cannot be cancelled this way. If no server is running, commands run locally and Ctrl-C stops that local process; `cancel` then reports that no server is available.
@@ -31,7 +41,7 @@ All current Aède writers coordinate through a lock in the data directory, inclu
 
 ## Backups and recovery
 
-Back up the data directory on persistent storage. It contains `catalog.json` (rebuildable graph), `conclusions.json` (integrity results and imported analyses), `user.json` (personal annotations), `sources.json` (attributed external information), and derivative assets. `aede backup <file>` produces a versioned bundle of the JSON stores; keep copies off the NAS. The bundle is **not** a backup of the original music or derivative image and lyric files. Treat both the data directory and bundle as private: they can contain listening history, file paths and fetched data.
+Back up the data directory on persistent storage. It contains `catalog.json` (rebuildable graph), `conclusions.json` (integrity results and imported analyses), `user.json` (personal annotations), `sources.json` (attributed external information), private `accounts.json` credentials, and derivative assets. `aede backup <file>` produces a versioned bundle of the JSON stores; keep copies off the NAS. The bundle is **not** a backup of the original music or derivative image and lyric files. Treat both the data directory and bundle as private: they can contain listening history, file paths and fetched data.
 
 For recovery, stop the server, preserve the damaged data directory, and run `aede restore <file>` with the same `AEDE_HOME` or `--data`. Review the command's confirmation before accepting it. Restore writes only stores present and readable in the bundle; it does not delete an absent store. Start the server again and check `/api/v1/status` and `/api/v1/library`. Legacy embedded conclusions are carried into `conclusions.json` on the next protected catalog save or when restoring a version-1 backup; reading a legacy catalog does not rewrite files. Keep a backup before upgrading or restoring. The original audio files must be backed up separately.
 
@@ -71,4 +81,4 @@ Before relying on the deployment, stop and start the container with `docker stop
 
 On 26 September 2026, a disposable macOS **non-container** rehearsal verified scan, loopback serving, backup, graceful restart and restore into a separate folder; the source audio checksum was unchanged. **No Docker image, container lifecycle, NAS volume, account permissions, off-host backup or NAS reboot has been validated.**
 
-The server stays loopback-only. Without accounts, catalog metadata/paths are visible to other local processes. Accounts add a local authentication boundary; encrypted remote transport, deployment budgets and audio streaming remain separate work. Publishing the port through a router, proxy or tunnel is outside supported deployment. Remote-phone listening is not available yet.
+This container example intentionally runs the loopback HTTP listener. A remote deployment must use the direct account-backed HTTPS configuration, not a proxy that terminates TLS before forwarding exposed plaintext HTTP. NAS packaging, startup ordering, mounted-volume permissions, target capacity and physical playback remain unvalidated. The native PCM protocol does not include a remote-phone application.

@@ -9,7 +9,14 @@ rust-version.workspace = true
 
 [dependencies]
 aede-core = { path = "../aede-core", default-features = false }
+aede-dsp = { path = "../aede-dsp" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 axum = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tower = { workspace = true }

@@ -49,10 +49,17 @@ name = "aede-server"
 version = "0.4.0"
 dependencies = [
  "aede-core",
+ "aede-dsp",
  "axum",
+ "hyper",
+ "hyper-util",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-rustls",
+ "tower",
 ]
 
 [[package]]
@@ -1782,6 +1789,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
+dependencies = [
+ "rustls",
+ "tokio",
 ]
 
 [[package]]

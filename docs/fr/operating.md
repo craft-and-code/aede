@@ -1,8 +1,8 @@
 <div id="operating-the-local-server" data-legacy-anchor></div>
 
-# Exploiter le serveur local
+# Exploiter le serveur Aède
 
-Le serveur M2 fournit une API de catalogue locale, des notifications WebSocket et des [sessions de comptes](server/accounts.md) facultatives. Aucune diffusion audio ni accès distant pris en charge. La publication construit des archives macOS Apple Silicon, Linux x86_64 et Windows x64. La CI Windows valide scan, fichiers annexes et copies ; la délégation Unix reste indisponible sous Windows. Ces builds ne prouvent pas un déploiement validé en service ou sur NAS pour chaque plateforme. Voir les [chemins](../design/paths.md).
+Le serveur M2 fournit une API de catalogue locale, des notifications WebSocket et des [sessions de comptes](server/accounts.md) facultatives. Une écoute HTTPS directe explicite prend en charge l’accès distant authentifié au catalogue/aux données personnelles et le contrat PCM natif. Ni l’un ni l’autre ne fournit une interface navigateur/mobile, une sortie sur appareil ou un déploiement NAS validé. La publication construit des archives macOS Apple Silicon, Linux x86_64 et Windows x64. La CI Windows valide scan, fichiers annexes et copies ; la délégation Unix reste indisponible sous Windows. Ces builds ne prouvent pas un déploiement validé en service ou sur NAS pour chaque plateforme. Voir les [chemins](../design/paths.md).
 
 <div id="start-and-stop" data-legacy-anchor></div>
 
@@ -25,6 +25,16 @@ Les tâches HTTP survivent à la déconnexion ; l’arrêt propre les attend. ID
 
 Les nouveaux fichiers annexes d’images/paroles sont publiés atomiquement, sans remplacer un existant, même créé simultanément par un autre logiciel. Leur système de fichiers doit accepter les liens physiques ; FAT/exFAT ne les accepte pas, par exemple. Sinon le téléchargement échoue plutôt qu’utiliser un écrasement risqué. Un échec/interruption ne publie jamais de fichier final partiel, mais peut laisser un temporaire caché.
 
+Après les tâches/commandes acceptées et l’arrêt des connexions, Aède laisse au plus cinq secondes aux travailleurs de fond non interruptibles. Un décodeur bloqué sur le stockage peut ne pas finir avant la sortie du processus. Il lit l’audio source ; l’historique utilise un remplacement atomique : les originaux ne sont ni modifiés ni tronqués. Une écriture tardive d’historique peut rester non confirmée.
+
+## HTTPS et lecture native
+
+L’écoute HTTP par défaut est réservée à la boucle locale. Pour des clients distants, choisissez `--bind` et configurez ensemble `--tls-cert`, `--tls-key` et `--authority` ; le [guide HTTPS](server/remote.md) définit le certificat, l’autorité et le réseau. L’autorité est le `HOST:PORT` public exact utilisé par les clients et peut différer de l’adresse d’écoute grâce à une redirection de port préservant TLS. HTTPS exige des comptes initialisés et refuse un store de comptes absent ou illisible. Il désactive toute route `/api/admin`, y compris l’administration des comptes et les routes transitoires `local`, et désactive `AEDE_ADMIN_TOKEN` même avec HTTPS sur la boucle locale. Ne publiez pas HTTP par défaut via proxy, tunnel ou routeur ; TLS se termine dans Aède.
+
+Connexions, négociations TLS, travail des requêtes et WebSockets ont une admission et des délais bornés ; un serveur occupé peut donc refuser un nouveau travail. Ces bornes protègent le service, sans constituer des chiffres de capacité validés pour un NAS ou une bibliothèque réelle. Révocation, déconnexion et modification des identifiants arrêtent les sockets de notifications et audio sans attendre l’expiration.
+
+`GET /api/me/v1/playback` est un WebSocket natif pour une session `user` ou administrateur. Une seule piste courante du catalogue est décodée et envoyée en PCM `f32le` traité par le DSP partagé ; le client confirme cumulativement les trames consommées, ce qui régule le flux et permet l’historique d’écoute privé. Au plus quatre décodeurs de lecture fonctionnent simultanément. C’est un contrat de transport, pas un lecteur navigateur/mobile ni une intégration de sortie audio. Interopérabilité navigateur, tampon client, performances de l’appareil cible et restitution physique restent à valider ; voir le [contrat audio](server/playback.md).
+
 <div id="cli-alongside-the-server" data-legacy-anchor></div>
 
 ## Utiliser la CLI avec le serveur
@@ -39,7 +49,7 @@ Tous les rédacteurs Aède actuels partagent le verrou des données, y compris l
 
 ## Sauvegarde et récupération
 
-Sauvegardez le dossier de données sur un stockage persistant. Il contient `catalog.json` (graphe reconstructible), `conclusions.json` (intégrité et analyses importées), `user.json` (annotations personnelles), `sources.json` (informations externes attribuées) et les ressources dérivées. `aede backup <file>` produit une sauvegarde versionnée des stores JSON ; gardez des copies hors NAS. Ce fichier **ne sauvegarde pas** la musique originale ni les images/paroles dérivées. Dossier et sauvegarde sont privés : historique, chemins et informations téléchargées peuvent y figurer.
+Sauvegardez le dossier de données sur un stockage persistant. Il contient `catalog.json` (graphe reconstructible), `conclusions.json` (intégrité et analyses importées), `user.json` (annotations personnelles), `sources.json` (informations externes attribuées), les identifiants privés `accounts.json` et les ressources dérivées. `aede backup <file>` produit une sauvegarde versionnée des stores JSON ; gardez des copies hors NAS. Ce fichier **ne sauvegarde pas** la musique originale ni les images/paroles dérivées. Dossier et sauvegarde sont privés : historique, chemins et informations téléchargées peuvent y figurer.
 
 Pour récupérer, arrêtez le serveur, préservez les données endommagées et lancez `aede restore <file>` avec les mêmes AEDE_HOME/data. Lisez la confirmation avant d’accepter. Restore écrit seulement les stores présents et lisibles dans la sauvegarde ; il ne supprime pas un store absent. Redémarrez et vérifiez `/api/v1/status` et `/api/v1/library`. Les anciennes conclusions embarquées migrent vers `conclusions.json` lors de la prochaine sauvegarde de catalogue sous verrou ou d’une restauration version 1 ; leur simple lecture ne réécrit rien. Gardez une sauvegarde avant mise à jour/restauration. Sauvegardez séparément l’audio original.
 
@@ -81,4 +91,4 @@ Avant de dépendre du déploiement, arrêtez/redémarrez avec `docker stop aede`
 
 Le 26 septembre 2026, une répétition macOS jetable **sans conteneur** a vérifié scan, serveur local, sauvegarde, redémarrage propre et restauration dans un autre dossier ; la somme de contrôle audio source est restée identique. **Aucune image Docker, vie de conteneur, volume NAS, permission de compte, sauvegarde hors hôte ni redémarrage NAS n’a été validé.**
 
-Le serveur reste limité à l’écoute locale. Sans comptes, métadonnées et chemins sont visibles aux autres processus locaux. Les comptes ajoutent l’authentification locale ; transport distant chiffré, budgets de déploiement et diffusion audio restent à réaliser. Publier le port via routeur, proxy ou tunnel sort des déploiements pris en charge. L’écoute sur téléphone distant n’est pas disponible.
+Cet exemple de conteneur utilise volontairement HTTP sur boucle locale. Un déploiement distant doit employer HTTPS direct adossé aux comptes, pas un proxy terminant TLS avant de transmettre du HTTP exposé. Paquet NAS, ordre de démarrage, permissions des volumes montés, capacité sur cible et restitution physique restent non validés. Le protocole PCM natif ne fournit pas d’application pour téléphone distant.

@@ -1,6 +1,6 @@
 # Démarrer le serveur local
 
-Le serveur d’Aède permet à d’autres programmes de consulter votre **catalogue** musical : albums, artistes, pistes, relations et diagnostics. Il répond en JSON et annonce les changements par WebSocket. Les [comptes et sessions](accounts.md) facultatifs protègent l’accès et isolent les données personnelles. Transmission audio et lecture distante restent à réaliser.
+Le serveur d’Aède permet à d’autres programmes de consulter votre **catalogue** musical : albums, artistes, pistes, relations et diagnostics. Il répond en JSON et annonce les changements par WebSocket. Les [comptes et sessions](accounts.md) facultatifs protègent l’accès local et isolent les données personnelles. Un [contrat audio authentifié](playback.md) transmet le PCM traité ; une [configuration HTTPS explicite](remote.md) active l’accès distant avec comptes obligatoires.
 
 ## Avant de démarrer
 
@@ -13,7 +13,7 @@ aede serve
 
 Remplacez `/chemin/vers/musique` par votre dossier. Gardez le second terminal ouvert : `serve` fonctionne jusqu’à son arrêt. Sans catalogue enregistré, le démarrage échoue ; commencez par le scan. Le serveur affiche son adresse lorsqu’il est prêt.
 
-L’adresse par défaut est `http://127.0.0.1:8787`. `127.0.0.1`, appelée adresse de boucle locale, désigne **cet ordinateur**. Sur un téléphone, elle désigne le téléphone, pas votre ordinateur musical. Aède écoute volontairement sur cette seule adresse IPv4 locale.
+L’adresse par défaut est `http://127.0.0.1:8787`. `127.0.0.1`, appelée adresse de boucle locale, désigne **cet ordinateur**. Sur un téléphone, elle désigne le téléphone, pas votre ordinateur musical. HTTP sans chiffrement est limité à la boucle locale. Le [guide HTTPS](remote.md) explique comment configurer une écoute authentifiée sur une autre adresse.
 
 ```sh
 curl http://127.0.0.1:8787/api/v1/status
@@ -32,7 +32,7 @@ aede --data /chemin/vers/donnees-aede serve --port 3412
 
 Vous pouvez aussi définir `AEDE_HOME` dans l’environnement des deux processus. Sans choix explicite, Aède utilise `$XDG_DATA_HOME/aede`, puis `~/.local/share/aede` ; sans `HOME`, il utilise `.aede` dans le dossier courant. Les chemins musicaux sont ceux de l’ordinateur qui exécute le serveur.
 
-`--port` accepte 0 à 65535. La valeur 0 demande un port disponible au système : lisez l’adresse affichée au lieu de supposer qu’il s’agit de 8787. Après une mise à jour de l’exécutable, redémarrez le serveur pour utiliser la nouvelle version.
+`--port` accepte 0 à 65535. En HTTP, la valeur 0 demande un port disponible au système : lisez l’adresse affichée au lieu de supposer qu’il s’agit de 8787. TLS exige un port non nul et une adresse publique explicite. Après une mise à jour de l’exécutable, redémarrez le serveur pour utiliser la nouvelle version.
 
 ## Arrêter le serveur et utiliser la CLI
 
@@ -44,8 +44,8 @@ Ne supprimez pas les fichiers de verrouillage et ne modifiez pas les JSON pendan
 
 ## NAS, Raspberry Pi et conteneurs
 
-La séparation entre musique, catalogue persistant et clients rend pertinent un petit hôte toujours allumé. Le périmètre actuel reste un **catalogue local**, pas un appareil NAS validé. Aucune image de conteneur Aède n’est construite ou publiée ; les paquets NAS, le déploiement Raspberry Pi, le redémarrage de l’hôte et les performances sur ces appareils restent à valider. Les versions Linux publiées ciblent actuellement x86_64, pas Linux aarch64.
+La séparation entre musique, catalogue persistant et clients rend pertinent un petit hôte toujours allumé. Les contrats de catalogue, HTTPS et audio natif implémentés ne constituent pas un appareil NAS validé. Aucune image de conteneur Aède n’est construite ou publiée ; les paquets NAS, le déploiement Raspberry Pi, le redémarrage de l’hôte et les performances sur ces appareils restent à valider. Les versions Linux publiées ciblent actuellement x86_64, pas Linux aarch64.
 
-Le [guide d’exploitation](../../operating.md#docker-image-on-a-linux-host-procedure-only) décrit une procédure pour un futur conteneur Linux, avec chemins stables, permissions et sauvegardes. Son nom d’image fictif ne désigne pas une image disponible au téléchargement. Ne publiez pas le port 8787 par une box, un proxy ou un tunnel : l’API actuelle ne possède ni authentification des auditeurs distants ni transport chiffré.
+Le [guide d’exploitation](../../operating.md#docker-image-on-a-linux-host-procedure-only) décrit une procédure pour un futur conteneur Linux, avec chemins stables, permissions et sauvegardes. Son nom d’image fictif ne désigne pas une image disponible au téléchargement. L’accès distant exige l’[écoute HTTPS](remote.md) explicite avec comptes ; l’écoute HTTP par défaut reste locale.
 
 Suite : [Comprendre HTTP et JSON](http.md), puis [Parcourir les albums et pistes](catalog.md).

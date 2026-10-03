@@ -1,6 +1,6 @@
 # Accounts, sessions and private data
 
-Initialize accounts with [accounts](../cli/accounts.md). With no account store, catalog reads remain anonymous and local administration uses the optional `AEDE_ADMIN_TOKEN`. Once configured, every `/api/v1` HTTP or WebSocket request needs an account session or the administrative token. Missing, unreadable or exposed credentials fail closed. The server still listens only on loopback; accounts do not provide encrypted remote access.
+Initialize accounts with [accounts](../cli/accounts.md). With no account store, local HTTP catalog reads remain anonymous and local administration uses the optional `AEDE_ADMIN_TOKEN`. Once configured, every `/api/v1` HTTP or WebSocket request needs an account session or, on local HTTP, the administrative token. Missing, unreadable or exposed credentials fail closed. [HTTPS](remote.md) requires accounts and accepts only sessions; every `/api/admin` route is unavailable there.
 
 An `admin` may manage accounts and installation work. A `user` may read and change only their own personal data. An `auditor` can read the shared catalog and use `GET` or `HEAD` only on their own `/api/me/v1` data; every personal mutation, password change, administration or job route returns `403 forbidden`. Auditors may still sign in, inspect their session and sign out.
 
@@ -29,12 +29,13 @@ Use the [personal routes](personal.md) with `/api/me/v1` replacing `/api/admin/v
 | `/api/me/v1/history` | GET/HEAD paginated events; POST a listen |
 | `/api/me/v1/collection` | GET/HEAD/PUT/DELETE by `name` |
 | `/api/me/v1/collections` | GET/HEAD paginated collections |
+| `/api/me/v1/playback` | GET WebSocket upgrade; [audio contract](playback.md), user/admin only |
 
 The transitional `/api/admin/v1/{annotation,history,collection,collections}` routes continue to address `local`, even when an administrator has a different owner. The first administrator inherits `local`. The CLI remains trusted as the OS owner and continues its existing local scope.
 
 ## Account administration
 
-Administrators can run [installation jobs](jobs.md) and manage accounts; a `user` or `auditor` receives `403 forbidden` on administration. An enabled administrator must always remain. Use an administrator session or the optional legacy administrative token:
+On local HTTP, administrators can run [installation jobs](jobs.md) and manage accounts; a `user` or `auditor` receives `403 forbidden` on administration. HTTPS disables these routes for everyone; use the local CLI. An enabled administrator must always remain. Use an administrator session or the optional legacy administrative token:
 
 | Method and path | Body | Result |
 | --- | --- | --- |

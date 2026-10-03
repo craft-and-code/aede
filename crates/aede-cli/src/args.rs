@@ -49,6 +49,10 @@ pub struct Args {
 const VALUED_WORD: &[&str] = &[
     "data",
     "port",
+    "bind",
+    "tls-cert",
+    "tls-key",
+    "authority",
     "limit",
     "sort",
     "severity",

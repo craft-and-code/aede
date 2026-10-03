@@ -1,6 +1,6 @@
 # Aède server — routes and examples
 
-This crate implements the local HTTP/JSON/WebSocket interface. The CLI supplies the scan/fetch execution callbacks; catalog logic stays in `aede-core`. See the [versioned API contract](../../docs/api.md) for compatibility, error envelopes, field definitions and the security boundary, and the [operating guide](../../docs/operating.md) for deployment.
+This crate implements the HTTP/JSON/WebSocket interface and optional direct HTTPS. The CLI supplies the scan/fetch execution callbacks; catalog and PCM/DSP logic stay in the shared core. See the [versioned API contract](../../docs/api.md) for compatibility, error envelopes, field definitions and the security boundary, and the [operating guide](../../docs/operating.md) for deployment.
 
 ## Start and read albums
 
@@ -15,7 +15,7 @@ Use the same `--data <folder>` or `AEDE_HOME` as the CLI that scanned your music
 
 All routes below use English names matching the CLI vocabulary: an **album** is a graph **release** and a **track** is a local placement of a **recording**. `/releases` remains available to existing clients; `/albums` offers the CLI-shaped filters. No route translates or executes an arbitrary command string.
 
-The server remains **loopback-only**. Without accounts, catalog reads are anonymous and reveal local metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) require authentication for HTTP/WebSocket catalog reads and isolate personal data at `/api/me/v1`. An `admin` manages accounts and installation work, a `user` may change only their own personal data, and an `auditor` may read only the catalog and their own `GET`/`HEAD` personal views. Initialize the first administrator with `aede accounts init <name> --password-stdin`; existing `local` data stays with that account. Missing/unreadable credentials fail closed after activation. No audio playback or encrypted remote access is implemented. Reads never fetch external data or alter audio. Future audio streaming must use the shared PCM/DSP normalization, headroom and output-guard layer, a bounded transport, and client playback evidence for listening history.
+The default HTTP listener is **loopback-only**. Without accounts, local catalog reads are anonymous and reveal metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) protect catalog reads and isolate personal data at `/api/me/v1`. An `admin` manages local accounts and installation work, a `user` may change only their own personal data, and an `auditor` may read only the catalog and their own personal views. Initialize the first administrator with `aede accounts init <name> --password-stdin`; existing `local` data stays with that account. Missing/unreadable credentials fail closed after activation. Explicit [HTTPS](../../docs/server/remote.md) requires accounts and disables every `/api/admin` route and legacy token, including with a loopback TLS listener. The [audio contract](../../docs/server/playback.md) uses shared PCM/DSP processing and acknowledged client frames for private listening history. Catalog reads never fetch external data or alter audio.
 
 Account routes are additive and use the same error envelope as the catalog. The [complete account reference](../../docs/server/accounts.md) defines bodies, results, limits and expiry:
 
@@ -30,6 +30,7 @@ Account routes are additive and use the same error envelope as the catalog. The 
 | `/api/me/v1/history` | GET/POST own history and counts |
 | `/api/me/v1/collection` | GET/PUT/DELETE own collection by `name` |
 | `/api/me/v1/collections` | GET own paginated collections |
+| `/api/me/v1/playback` | GET WebSocket; one catalogued track, user/admin session, processed f32le and playback acknowledgements |
 
 ## Read routes
 

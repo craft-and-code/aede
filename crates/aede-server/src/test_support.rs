@@ -109,7 +109,10 @@ pub(crate) fn sample_state() -> ApiState {
         admin: None,
         auth: Arc::new(auth::AuthState::default()),
         next_task_id: Arc::new(AtomicU64::new(1)),
+        connection_slots: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+        remote_request_slots: Arc::new(Semaphore::new(MAX_REMOTE_REQUESTS)),
         websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
+        playback_slots: Arc::new(Semaphore::new(MAX_PLAYBACKS)),
         inspection_slots: Arc::new(Semaphore::new(2)),
         jobs: Arc::new(jobs::JobRegistry::default()),
         #[cfg(unix)]

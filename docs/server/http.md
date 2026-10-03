@@ -51,7 +51,7 @@ The HTTP status gives the broad outcome; `error.code` is the stable value softwa
 | --- | --- |
 | 400 `invalid_query`, `invalid_parameters`, `invalid_reference` | Check the route's parameter names, selector and value types. |
 | 400 `invalid_pagination` | Use unsigned integers and a limit from 1 to 200. |
-| 403 `invalid_host` / `invalid_origin` | Use the actual localhost address/port; do not call through a foreign browser origin. |
+| 403 `invalid_host` / `invalid_origin` | Use the permitted local address/port or configured HTTPS authority and matching browser origin. |
 | 404 `entity_not_found` / `not_found` | Refresh the reference, or check the URL. |
 | 405 `method_not_allowed` | The route does not support this HTTP method. |
 | 409 `ambiguous_entity` | Pick one returned reference. |
@@ -64,9 +64,9 @@ Administrative authentication, body validation and task-specific errors are expl
 
 ## Local access boundary
 
-Without [accounts](accounts.md), catalog reads need no token and may reveal music paths, comments and names to other processes/users on this computer. Account mode requires a bearer session or administrative token on catalog reads. The server validates Host and supplied Origin against its local address/port and provides no cross-origin permission, public binding or TLS.
+Without [accounts](accounts.md), local HTTP catalog reads need no token and may reveal music paths, comments and names to other processes/users on this computer. Account mode requires a bearer session or, on local HTTP, administrative token on catalog reads. [HTTPS](remote.md) requires accounts, accepts only sessions and validates Host and supplied Origin against its configured authority. HTTP stays restricted to loopback. Neither transport grants cross-origin permission.
 
-Never embed a secret in a web page or URL. Legacy administrative-token requests refuse every Origin header; account sessions follow the shared local-origin check. A future website/player still needs its own login/cookie and encrypted remote-transport design.
+Never embed a secret in a web page or URL. Legacy administrative-token requests refuse every Origin header; account sessions follow the transport's same-origin check. A future website/player still needs its own login/cookie design.
 
 ## Route map
 
@@ -80,5 +80,7 @@ Never embed a secret in a web page or URL. Legacy administrative-token requests 
 | Enable the optional token boundary | [Administration](administration.md). |
 | Submit/follow/cancel scan or fetch | [HTTP jobs](jobs.md). |
 | Owner annotations, history and collections | [Personal routes](personal.md). |
+| Configure an authenticated remote listener | [HTTPS](remote.md). |
+| Stream processed audio and acknowledge playback | [Audio contract](playback.md). |
 
 The [versioned API contract](../api.md) specifies compatibility and exact field types; these guides explain how to use the implemented interface.

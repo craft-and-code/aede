@@ -1,4 +1,4 @@
-//! The local HTTP and WebSocket API over the catalog.
+//! Catalog HTTP/WebSocket API with explicit authenticated HTTPS and PCM playback.
 
 use std::error::Error;
 use std::future::Future;
@@ -57,7 +57,12 @@ pub fn cancel_task(_data_dir: &Path, _task_id: u64) -> Result<CancelOutcome, Box
 
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
+const MAX_CONNECTIONS: usize = 64;
+// Catalog filtering and sorting can traverse the entire library. Keeping this
+// small protects modest always-on hosts while work runs outside Tokio workers.
+const MAX_REMOTE_REQUESTS: usize = 2;
 const MAX_WEBSOCKETS: usize = 64;
+pub(crate) const MAX_PLAYBACKS: usize = 4;
 const MAX_WEBSOCKET_MESSAGE: usize = 1024;
 const WEBSOCKET_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -72,11 +77,13 @@ mod inspection;
 mod jobs;
 mod models;
 mod personal;
+mod playback_api;
 mod query;
 mod routing;
 mod runtime;
 mod security;
 mod state;
+mod tls;
 
 pub use jobs::{FetchRequest, JobOutput, JobRequest, ScanRequest};
 
@@ -89,10 +96,12 @@ use query::*;
 use routing::*;
 #[cfg(test)]
 use runtime::run_http;
-pub use runtime::serve;
 use runtime::{refresh_catalog, stamp};
+pub use runtime::{serve, serve_with_options};
 use security::*;
 use state::*;
+use tls::*;
+pub use tls::{ServerOptions, TlsOptions};
 
 #[cfg(test)]
 mod test_support;
@@ -101,5 +110,12 @@ mod test_support;
 mod accounts_test_support;
 
 #[cfg(test)]
+mod playback_test_support;
+
+#[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tls_tests.rs"]
+mod tls_tests;
