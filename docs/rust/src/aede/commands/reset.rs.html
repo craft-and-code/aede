@@ -6,8 +6,8 @@
 <a href=#6 id=6 data-nosnippet>6</a>//! confirmation says what is at stake rather than asking a bare "are you sure",
 <a href=#7 id=7 data-nosnippet>7</a>//! and the command prints the scan that rebuilds what it removed.
 <a href=#8 id=8 data-nosnippet>8</a>
-<a href=#9 id=9 data-nosnippet>9</a></span><span class="kw">use </span>aede_core::store;
-<a href=#10 id=10 data-nosnippet>10</a><span class="kw">use </span>aede_core::text;
+<a href=#9 id=9 data-nosnippet>9</a></span><span class="kw">use </span>aede_core::text;
+<a href=#10 id=10 data-nosnippet>10</a><span class="kw">use </span>aede_core::{conclusions, store};
 <a href=#11 id=11 data-nosnippet>11</a>
 <a href=#12 id=12 data-nosnippet>12</a><span class="kw">use super</span>::{Res, data_dir, load};
 <a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span><span class="kw">crate</span>::args::Args;
@@ -87,15 +87,26 @@
 <a href=#87 id=87 data-nosnippet>87</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
 <a href=#88 id=88 data-nosnippet>88</a>    }
 <a href=#89 id=89 data-nosnippet>89</a>
-<a href=#90 id=90 data-nosnippet>90</a>    <span class="comment">// The folders are printed after the deletion, not before: at that point
-<a href=#91 id=91 data-nosnippet>91</a>    // they are the only way back, and they have to be readable on screen.
-<a href=#92 id=92 data-nosnippet>92</a>    </span><span class="kw">let </span>roots = <span class="kw-2">&amp;</span>catalog.roots;
-<a href=#93 id=93 data-nosnippet>93</a>    std::fs::remove_file(<span class="kw-2">&amp;</span>catalog_file)<span class="question-mark">?</span>;
-<a href=#94 id=94 data-nosnippet>94</a>    <span class="macro">println!</span>(<span class="string">"{} catalog removed"</span>, ui::green(<span class="string">"→"</span>));
-<a href=#95 id=95 data-nosnippet>95</a>    <span class="kw">if </span>!roots.is_empty() {
-<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">let </span>quoted: Vec&lt;String&gt; = roots.iter().map(|r| <span class="macro">format!</span>(<span class="string">"\"{r}\""</span>)).collect();
-<a href=#97 id=97 data-nosnippet>97</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="string">"to rebuild it:"</span>));
-<a href=#98 id=98 data-nosnippet>98</a>        <span class="macro">println!</span>(<span class="string">"  aede scan {}"</span>, quoted.join(<span class="string">" "</span>));
+<a href=#90 id=90 data-nosnippet>90</a>    <span class="comment">// Read-only loading keeps old inline conclusions available in memory.
+<a href=#91 id=91 data-nosnippet>91</a>    // Preserve them independently before deleting their only on-disk copy;
+<a href=#92 id=92 data-nosnippet>92</a>    // an unsuccessful migration must leave that original catalog intact.
+<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">let </span>conclusions_file = conclusions::conclusions_path(<span class="kw-2">&amp;</span>dir);
+<a href=#94 id=94 data-nosnippet>94</a>    <span class="kw">if </span>conclusions::load(<span class="kw-2">&amp;</span>conclusions_file)<span class="question-mark">?</span>.is_none() {
+<a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">let </span>retained = conclusions::Conclusions::from_catalog(<span class="kw-2">&amp;</span>catalog);
+<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">if </span>!retained.files.is_empty() || !retained.analyses.is_empty() {
+<a href=#97 id=97 data-nosnippet>97</a>            conclusions::save(<span class="kw-2">&amp;</span>retained, <span class="kw-2">&amp;</span>conclusions_file)<span class="question-mark">?</span>;
+<a href=#98 id=98 data-nosnippet>98</a>        }
 <a href=#99 id=99 data-nosnippet>99</a>    }
-<a href=#100 id=100 data-nosnippet>100</a>    <span class="prelude-val">Ok</span>(())
-<a href=#101 id=101 data-nosnippet>101</a>}</code></pre></div></section></main></body></html>
+<a href=#100 id=100 data-nosnippet>100</a>
+<a href=#101 id=101 data-nosnippet>101</a>    <span class="comment">// The folders are printed after the deletion, not before: at that point
+<a href=#102 id=102 data-nosnippet>102</a>    // they are the only way back, and they have to be readable on screen.
+<a href=#103 id=103 data-nosnippet>103</a>    </span><span class="kw">let </span>roots = <span class="kw-2">&amp;</span>catalog.roots;
+<a href=#104 id=104 data-nosnippet>104</a>    std::fs::remove_file(<span class="kw-2">&amp;</span>catalog_file)<span class="question-mark">?</span>;
+<a href=#105 id=105 data-nosnippet>105</a>    <span class="macro">println!</span>(<span class="string">"{} catalog removed"</span>, ui::green(<span class="string">"→"</span>));
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">if </span>!roots.is_empty() {
+<a href=#107 id=107 data-nosnippet>107</a>        <span class="kw">let </span>quoted: Vec&lt;String&gt; = roots.iter().map(|r| <span class="macro">format!</span>(<span class="string">"\"{r}\""</span>)).collect();
+<a href=#108 id=108 data-nosnippet>108</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="string">"to rebuild it:"</span>));
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="macro">println!</span>(<span class="string">"  aede scan {}"</span>, ui::literal(<span class="kw-2">&amp;</span>quoted.join(<span class="string">" "</span>)));
+<a href=#110 id=110 data-nosnippet>110</a>    }
+<a href=#111 id=111 data-nosnippet>111</a>    <span class="prelude-val">Ok</span>(())
+<a href=#112 id=112 data-nosnippet>112</a>}</code></pre></div></section></main></body></html>

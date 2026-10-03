@@ -130,11 +130,11 @@
 <a href=#130 id=130 data-nosnippet>130</a>            <span class="kw">match </span>write_one(target) {
 <a href=#131 id=131 data-nosnippet>131</a>                <span class="prelude-val">Ok</span>(path) =&gt; {
 <a href=#132 id=132 data-nosnippet>132</a>                    written += <span class="number">1</span>;
-<a href=#133 id=133 data-nosnippet>133</a>                    <span class="macro">println!</span>(<span class="string">"  {} {path}"</span>, ui::green(<span class="string">"→"</span>));
+<a href=#133 id=133 data-nosnippet>133</a>                    <span class="macro">println!</span>(<span class="string">"  {} {}"</span>, ui::green(<span class="string">"→"</span>), ui::literal(<span class="kw-2">&amp;</span>path));
 <a href=#134 id=134 data-nosnippet>134</a>                }
 <a href=#135 id=135 data-nosnippet>135</a>                <span class="prelude-val">Err</span>(why) =&gt; {
 <a href=#136 id=136 data-nosnippet>136</a>                    failed += <span class="number">1</span>;
-<a href=#137 id=137 data-nosnippet>137</a>                    <span class="macro">eprintln!</span>(<span class="string">"  {} {}: {why}"</span>, ui::red(<span class="string">"×"</span>), target.folder);
+<a href=#137 id=137 data-nosnippet>137</a>                    <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.folder, <span class="kw-2">&amp;</span>why);
 <a href=#138 id=138 data-nosnippet>138</a>                }
 <a href=#139 id=139 data-nosnippet>139</a>            }
 <a href=#140 id=140 data-nosnippet>140</a>        }
@@ -145,12 +145,12 @@
 <a href=#145 id=145 data-nosnippet>145</a>            <span class="prelude-val">Ok</span>(paths) =&gt; {
 <a href=#146 id=146 data-nosnippet>146</a>                extras += paths.len();
 <a href=#147 id=147 data-nosnippet>147</a>                <span class="kw">for </span>path <span class="kw">in </span>paths {
-<a href=#148 id=148 data-nosnippet>148</a>                    <span class="macro">println!</span>(<span class="string">"  {} {path}"</span>, ui::green(<span class="string">"→"</span>));
+<a href=#148 id=148 data-nosnippet>148</a>                    <span class="macro">println!</span>(<span class="string">"  {} {}"</span>, ui::green(<span class="string">"→"</span>), ui::literal(<span class="kw-2">&amp;</span>path));
 <a href=#149 id=149 data-nosnippet>149</a>                }
 <a href=#150 id=150 data-nosnippet>150</a>            }
 <a href=#151 id=151 data-nosnippet>151</a>            <span class="prelude-val">Err</span>(why) =&gt; {
 <a href=#152 id=152 data-nosnippet>152</a>                failed += <span class="number">1</span>;
-<a href=#153 id=153 data-nosnippet>153</a>                <span class="macro">eprintln!</span>(<span class="string">"  {} {}: {why}"</span>, ui::red(<span class="string">"×"</span>), target.folder);
+<a href=#153 id=153 data-nosnippet>153</a>                <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.folder, <span class="kw-2">&amp;</span>why);
 <a href=#154 id=154 data-nosnippet>154</a>            }
 <a href=#155 id=155 data-nosnippet>155</a>        }
 <a href=#156 id=156 data-nosnippet>156</a>    }
@@ -237,74 +237,79 @@
 <a href=#237 id=237 data-nosnippet>237</a>    };
 <a href=#238 id=238 data-nosnippet>238</a>    <span class="comment">// Folders in the order the catalog holds their files, so a run reads as a
 <a href=#239 id=239 data-nosnippet>239</a>    // walk through the library rather than in whatever order a map returns.
-<a href=#240 id=240 data-nosnippet>240</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>seen: Vec&lt;<span class="kw-2">&amp;</span>str&gt; = Vec::new();
-<a href=#241 id=241 data-nosnippet>241</a>    <span class="kw">for </span>file <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.files {
-<a href=#242 id=242 data-nosnippet>242</a>        <span class="kw">if </span>!<span class="kw">super</span>::in_scope(<span class="kw-2">&amp;</span>file.path, scope) {
-<a href=#243 id=243 data-nosnippet>243</a>            <span class="kw">continue</span>;
-<a href=#244 id=244 data-nosnippet>244</a>        }
-<a href=#245 id=245 data-nosnippet>245</a>        <span class="kw">let </span>folder = text::folder(<span class="kw-2">&amp;</span>file.path);
-<a href=#246 id=246 data-nosnippet>246</a>        <span class="kw">if </span>folder.is_empty() || seen.contains(<span class="kw-2">&amp;</span>folder) {
-<a href=#247 id=247 data-nosnippet>247</a>            <span class="kw">continue</span>;
-<a href=#248 id=248 data-nosnippet>248</a>        }
-<a href=#249 id=249 data-nosnippet>249</a>        seen.push(folder);
-<a href=#250 id=250 data-nosnippet>250</a>
-<a href=#251 id=251 data-nosnippet>251</a>        <span class="comment">// The disk, not the catalog: `cover_path` answers for a release, this
-<a href=#252 id=252 data-nosnippet>252</a>        // question is about a folder, and the two differ for a double album.
-<a href=#253 id=253 data-nosnippet>253</a>        </span><span class="kw">let </span>has_image = scan::cover_in(std::path::Path::new(folder)).is_some();
-<a href=#254 id=254 data-nosnippet>254</a>        <span class="kw">if </span>has_image &amp;&amp; !images {
-<a href=#255 id=255 data-nosnippet>255</a>            out.has_image += <span class="number">1</span>;
-<a href=#256 id=256 data-nosnippet>256</a>            <span class="kw">continue</span>;
-<a href=#257 id=257 data-nosnippet>257</a>        }
-<a href=#258 id=258 data-nosnippet>258</a>        <span class="kw">match </span>catalog
-<a href=#259 id=259 data-nosnippet>259</a>            .files
-<a href=#260 id=260 data-nosnippet>260</a>            .iter()
-<a href=#261 id=261 data-nosnippet>261</a>            .find(|f| f.has_embedded_art &amp;&amp; text::folder(<span class="kw-2">&amp;</span>f.path) == folder)
-<a href=#262 id=262 data-nosnippet>262</a>        {
-<a href=#263 id=263 data-nosnippet>263</a>            <span class="prelude-val">Some</span>(source) =&gt; out.targets.push(Target {
-<a href=#264 id=264 data-nosnippet>264</a>                folder: folder.to_string(),
-<a href=#265 id=265 data-nosnippet>265</a>                source: source.path.clone(),
-<a href=#266 id=266 data-nosnippet>266</a>                cover: !has_image,
-<a href=#267 id=267 data-nosnippet>267</a>            }),
-<a href=#268 id=268 data-nosnippet>268</a>            <span class="prelude-val">None </span>=&gt; out.nothing_inside += <span class="number">1</span>,
-<a href=#269 id=269 data-nosnippet>269</a>        }
-<a href=#270 id=270 data-nosnippet>270</a>    }
-<a href=#271 id=271 data-nosnippet>271</a>    out
-<a href=#272 id=272 data-nosnippet>272</a>}
-<a href=#273 id=273 data-nosnippet>273</a>
-<a href=#274 id=274 data-nosnippet>274</a><span class="doccomment">/// Says what was left alone and why — the lesson `fetch --covers` had to learn
-<a href=#275 id=275 data-nosnippet>275</a>/// twice: a filter the reader cannot see is a trap, and "nothing happened" is
-<a href=#276 id=276 data-nosnippet>276</a>/// exactly when they most need to know which filter caught their album.
-<a href=#277 id=277 data-nosnippet>277</a>///
-<a href=#278 id=278 data-nosnippet>278</a>/// Both forms of every sentence are written out because [`ui::plural`] puts the
-<a href=#279 id=279 data-nosnippet>279</a>/// count *in* the sentence, and a count that opens a sentence takes the verb
-<a href=#280 id=280 data-nosnippet>280</a>/// with it: "1 folder have an image" is what happens otherwise, and it has now
-<a href=#281 id=281 data-nosnippet>281</a>/// happened three times in this program.
-<a href=#282 id=282 data-nosnippet>282</a></span><span class="kw">fn </span>skipped(survey: <span class="kw-2">&amp;</span>Survey, images: bool) {
-<a href=#283 id=283 data-nosnippet>283</a>    <span class="kw">let </span>already = <span class="kw">match </span>images {
-<a href=#284 id=284 data-nosnippet>284</a>        <span class="comment">// With `--images` a folder that has a cover is still worth opening, so
-<a href=#285 id=285 data-nosnippet>285</a>        // it was not skipped and must not be reported as though it had been.
-<a href=#286 id=286 data-nosnippet>286</a>        </span><span class="bool-val">true </span>=&gt; (
-<a href=#287 id=287 data-nosnippet>287</a>            <span class="string">"already has an image in it"</span>,
-<a href=#288 id=288 data-nosnippet>288</a>            <span class="string">"already have an image in them"</span>,
-<a href=#289 id=289 data-nosnippet>289</a>        ),
-<a href=#290 id=290 data-nosnippet>290</a>        <span class="bool-val">false </span>=&gt; (
-<a href=#291 id=291 data-nosnippet>291</a>            <span class="string">"already has an image in it: --images writes out the back and the booklet too"</span>,
-<a href=#292 id=292 data-nosnippet>292</a>            <span class="string">"already have an image in them: --images writes out the back and the booklet too"</span>,
-<a href=#293 id=293 data-nosnippet>293</a>        ),
-<a href=#294 id=294 data-nosnippet>294</a>    };
-<a href=#295 id=295 data-nosnippet>295</a>    <span class="kw">super</span>::print_skipped_counts(
-<a href=#296 id=296 data-nosnippet>296</a>        <span class="kw-2">&amp;</span>[
-<a href=#297 id=297 data-nosnippet>297</a>            (survey.has_image, already.<span class="number">0</span>, already.<span class="number">1</span>),
-<a href=#298 id=298 data-nosnippet>298</a>            (
-<a href=#299 id=299 data-nosnippet>299</a>                survey.nothing_inside,
-<a href=#300 id=300 data-nosnippet>300</a>                <span class="string">"holds no picture inside its files: aede fetch --covers downloads one"</span>,
-<a href=#301 id=301 data-nosnippet>301</a>                <span class="string">"hold no picture inside their files: aede fetch --covers downloads one"</span>,
-<a href=#302 id=302 data-nosnippet>302</a>            ),
-<a href=#303 id=303 data-nosnippet>303</a>        ],
-<a href=#304 id=304 data-nosnippet>304</a>        <span class="string">"folder"</span>,
-<a href=#305 id=305 data-nosnippet>305</a>    );
-<a href=#306 id=306 data-nosnippet>306</a>}
-<a href=#307 id=307 data-nosnippet>307</a>
-<a href=#308 id=308 data-nosnippet>308</a><span class="attr">#[cfg(test)]
-<a href=#309 id=309 data-nosnippet>309</a>#[path = <span class="string">"artwork_tests.rs"</span>]
-<a href=#310 id=310 data-nosnippet>310</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#240 id=240 data-nosnippet>240</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>folders: Vec&lt;(<span class="kw-2">&amp;</span>str, <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;)&gt; = Vec::new();
+<a href=#241 id=241 data-nosnippet>241</a>    <span class="kw">let </span><span class="kw-2">mut </span>positions = std::collections::HashMap::new();
+<a href=#242 id=242 data-nosnippet>242</a>    <span class="kw">for </span>file <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.files {
+<a href=#243 id=243 data-nosnippet>243</a>        <span class="kw">if </span>!<span class="kw">super</span>::in_scope(<span class="kw-2">&amp;</span>file.path, scope) {
+<a href=#244 id=244 data-nosnippet>244</a>            <span class="kw">continue</span>;
+<a href=#245 id=245 data-nosnippet>245</a>        }
+<a href=#246 id=246 data-nosnippet>246</a>        <span class="kw">let </span>folder = text::folder(<span class="kw-2">&amp;</span>file.path);
+<a href=#247 id=247 data-nosnippet>247</a>        <span class="kw">if </span>folder.is_empty() {
+<a href=#248 id=248 data-nosnippet>248</a>            <span class="kw">continue</span>;
+<a href=#249 id=249 data-nosnippet>249</a>        }
+<a href=#250 id=250 data-nosnippet>250</a>        <span class="kw">let </span>index = <span class="kw-2">*</span>positions.entry(folder).or_insert_with(|| {
+<a href=#251 id=251 data-nosnippet>251</a>            folders.push((folder, <span class="prelude-val">None</span>));
+<a href=#252 id=252 data-nosnippet>252</a>            folders.len() - <span class="number">1
+<a href=#253 id=253 data-nosnippet>253</a>        </span>});
+<a href=#254 id=254 data-nosnippet>254</a>        <span class="kw">if </span>file.has_embedded_art &amp;&amp; folders[index].<span class="number">1</span>.is_none() {
+<a href=#255 id=255 data-nosnippet>255</a>            folders[index].<span class="number">1 </span>= <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>file.path);
+<a href=#256 id=256 data-nosnippet>256</a>        }
+<a href=#257 id=257 data-nosnippet>257</a>    }
+<a href=#258 id=258 data-nosnippet>258</a>
+<a href=#259 id=259 data-nosnippet>259</a>    <span class="kw">for </span>(folder, source) <span class="kw">in </span>folders {
+<a href=#260 id=260 data-nosnippet>260</a>        <span class="comment">// The disk, not the catalog: `cover_path` answers for a release, this
+<a href=#261 id=261 data-nosnippet>261</a>        // question is about a folder, and the two differ for a double album.
+<a href=#262 id=262 data-nosnippet>262</a>        </span><span class="kw">let </span>has_image = scan::cover_in(std::path::Path::new(folder)).is_some();
+<a href=#263 id=263 data-nosnippet>263</a>        <span class="kw">if </span>has_image &amp;&amp; !images {
+<a href=#264 id=264 data-nosnippet>264</a>            out.has_image += <span class="number">1</span>;
+<a href=#265 id=265 data-nosnippet>265</a>            <span class="kw">continue</span>;
+<a href=#266 id=266 data-nosnippet>266</a>        }
+<a href=#267 id=267 data-nosnippet>267</a>        <span class="kw">match </span>source {
+<a href=#268 id=268 data-nosnippet>268</a>            <span class="prelude-val">Some</span>(source) =&gt; out.targets.push(Target {
+<a href=#269 id=269 data-nosnippet>269</a>                folder: folder.to_string(),
+<a href=#270 id=270 data-nosnippet>270</a>                source: source.to_string(),
+<a href=#271 id=271 data-nosnippet>271</a>                cover: !has_image,
+<a href=#272 id=272 data-nosnippet>272</a>            }),
+<a href=#273 id=273 data-nosnippet>273</a>            <span class="prelude-val">None </span>=&gt; out.nothing_inside += <span class="number">1</span>,
+<a href=#274 id=274 data-nosnippet>274</a>        }
+<a href=#275 id=275 data-nosnippet>275</a>    }
+<a href=#276 id=276 data-nosnippet>276</a>    out
+<a href=#277 id=277 data-nosnippet>277</a>}
+<a href=#278 id=278 data-nosnippet>278</a>
+<a href=#279 id=279 data-nosnippet>279</a><span class="doccomment">/// Says what was left alone and why — the lesson `fetch --covers` had to learn
+<a href=#280 id=280 data-nosnippet>280</a>/// twice: a filter the reader cannot see is a trap, and "nothing happened" is
+<a href=#281 id=281 data-nosnippet>281</a>/// exactly when they most need to know which filter caught their album.
+<a href=#282 id=282 data-nosnippet>282</a>///
+<a href=#283 id=283 data-nosnippet>283</a>/// Both forms of every sentence are written out because [`ui::plural`] puts the
+<a href=#284 id=284 data-nosnippet>284</a>/// count *in* the sentence, and a count that opens a sentence takes the verb
+<a href=#285 id=285 data-nosnippet>285</a>/// with it: "1 folder have an image" is what happens otherwise, and it has now
+<a href=#286 id=286 data-nosnippet>286</a>/// happened three times in this program.
+<a href=#287 id=287 data-nosnippet>287</a></span><span class="kw">fn </span>skipped(survey: <span class="kw-2">&amp;</span>Survey, images: bool) {
+<a href=#288 id=288 data-nosnippet>288</a>    <span class="kw">let </span>already = <span class="kw">match </span>images {
+<a href=#289 id=289 data-nosnippet>289</a>        <span class="comment">// With `--images` a folder that has a cover is still worth opening, so
+<a href=#290 id=290 data-nosnippet>290</a>        // it was not skipped and must not be reported as though it had been.
+<a href=#291 id=291 data-nosnippet>291</a>        </span><span class="bool-val">true </span>=&gt; (
+<a href=#292 id=292 data-nosnippet>292</a>            <span class="string">"already has an image in it"</span>,
+<a href=#293 id=293 data-nosnippet>293</a>            <span class="string">"already have an image in them"</span>,
+<a href=#294 id=294 data-nosnippet>294</a>        ),
+<a href=#295 id=295 data-nosnippet>295</a>        <span class="bool-val">false </span>=&gt; (
+<a href=#296 id=296 data-nosnippet>296</a>            <span class="string">"already has an image in it: --images writes out the back and the booklet too"</span>,
+<a href=#297 id=297 data-nosnippet>297</a>            <span class="string">"already have an image in them: --images writes out the back and the booklet too"</span>,
+<a href=#298 id=298 data-nosnippet>298</a>        ),
+<a href=#299 id=299 data-nosnippet>299</a>    };
+<a href=#300 id=300 data-nosnippet>300</a>    <span class="kw">super</span>::print_skipped_counts(
+<a href=#301 id=301 data-nosnippet>301</a>        <span class="kw-2">&amp;</span>[
+<a href=#302 id=302 data-nosnippet>302</a>            (survey.has_image, already.<span class="number">0</span>, already.<span class="number">1</span>),
+<a href=#303 id=303 data-nosnippet>303</a>            (
+<a href=#304 id=304 data-nosnippet>304</a>                survey.nothing_inside,
+<a href=#305 id=305 data-nosnippet>305</a>                <span class="string">"holds no picture inside its files: aede fetch --covers downloads one"</span>,
+<a href=#306 id=306 data-nosnippet>306</a>                <span class="string">"hold no picture inside their files: aede fetch --covers downloads one"</span>,
+<a href=#307 id=307 data-nosnippet>307</a>            ),
+<a href=#308 id=308 data-nosnippet>308</a>        ],
+<a href=#309 id=309 data-nosnippet>309</a>        <span class="string">"folder"</span>,
+<a href=#310 id=310 data-nosnippet>310</a>    );
+<a href=#311 id=311 data-nosnippet>311</a>}
+<a href=#312 id=312 data-nosnippet>312</a>
+<a href=#313 id=313 data-nosnippet>313</a><span class="attr">#[cfg(test)]
+<a href=#314 id=314 data-nosnippet>314</a>#[path = <span class="string">"artwork_tests.rs"</span>]
+<a href=#315 id=315 data-nosnippet>315</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

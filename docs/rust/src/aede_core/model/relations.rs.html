@@ -25,7 +25,7 @@
 <a href=#25 id=25 data-nosnippet>25</a>/// `store::FORMAT_VERSION` — refusing to load would be out of proportion, and
 <a href=#26 id=26 data-nosnippet>26</a>/// would throw away integrity verdicts that cost hours to obtain. Bump this
 <a href=#27 id=27 data-nosnippet>27</a>/// instead, and every catalog rebuilds its relations on the next load.
-<a href=#28 id=28 data-nosnippet>28</a></span><span class="kw">pub const </span>RELATION_RULES: u32 = <span class="number">2</span>;
+<a href=#28 id=28 data-nosnippet>28</a></span><span class="kw">pub const </span>RELATION_RULES: u32 = <span class="number">3</span>;
 <a href=#29 id=29 data-nosnippet>29</a>
 <a href=#30 id=30 data-nosnippet>30</a><span class="doccomment">/// Recomputes every inferred relation from the entities already in place.
 <a href=#31 id=31 data-nosnippet>31</a>///
@@ -246,161 +246,176 @@
 <a href=#246 id=246 data-nosnippet>246</a>/// The two are told apart by their audio, not by their folder: same album
 <a href=#247 id=247 data-nosnippet>247</a>/// artist, same title, same track list, and then
 <a href=#248 id=248 data-nosnippet>248</a>///
-<a href=#249 id=249 data-nosnippet>249</a>/// - the same quality on both sides — nothing distinguishes the copies, and one
-<a href=#250 id=250 data-nosnippet>250</a>///   of them is wasted space;
+<a href=#249 id=249 data-nosnippet>249</a>/// - the same quality for each corresponding track — nothing distinguishes the
+<a href=#250 id=250 data-nosnippet>250</a>///   copies, and one of them is wasted space;
 <a href=#251 id=251 data-nosnippet>251</a>/// - a different quality — the second copy is there on purpose.
 <a href=#252 id=252 data-nosnippet>252</a>///
-<a href=#253 id=253 data-nosnippet>253</a>/// Anything else keeps the weaker `other_edition` link: a deluxe edition with
-<a href=#254 id=254 data-nosnippet>254</a>/// three bonus tracks is not a duplicate, but it is not unrelated either.
-<a href=#255 id=255 data-nosnippet>255</a></span><span class="kw">fn </span>build_release_relations(catalog: <span class="kw-2">&amp;mut </span>Catalog) {
-<a href=#256 id=256 data-nosnippet>256</a>    <span class="kw">let </span><span class="kw-2">mut </span>groups: BTreeMap&lt;(<span class="prelude-ty">Option</span>&lt;Id&gt;, String), Vec&lt;Id&gt;&gt; = BTreeMap::new();
-<a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
-<a href=#258 id=258 data-nosnippet>258</a>        groups
-<a href=#259 id=259 data-nosnippet>259</a>            .entry((release.album_artist_id, release.key.clone()))
-<a href=#260 id=260 data-nosnippet>260</a>            .or_default()
-<a href=#261 id=261 data-nosnippet>261</a>            .push(release.id);
-<a href=#262 id=262 data-nosnippet>262</a>    }
-<a href=#263 id=263 data-nosnippet>263</a>
-<a href=#264 id=264 data-nosnippet>264</a>    <span class="kw">let </span><span class="kw-2">mut </span>links: Vec&lt;(Id, Id, <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str)&gt; = Vec::new();
-<a href=#265 id=265 data-nosnippet>265</a>    <span class="kw">for </span>ids <span class="kw">in </span>groups.values().filter(|ids| ids.len() &gt; <span class="number">1</span>) {
-<a href=#266 id=266 data-nosnippet>266</a>        <span class="kw">for </span>(i, <span class="kw-2">&amp;</span>left) <span class="kw">in </span>ids.iter().enumerate() {
-<a href=#267 id=267 data-nosnippet>267</a>            <span class="kw">for </span><span class="kw-2">&amp;</span>right <span class="kw">in </span><span class="kw-2">&amp;</span>ids[i + <span class="number">1</span>..] {
-<a href=#268 id=268 data-nosnippet>268</a>                <span class="comment">// Two albums sharing a name are not necessarily the same
-<a href=#269 id=269 data-nosnippet>269</a>                // album: without a matching track list there is nothing
-<a href=#270 id=270 data-nosnippet>270</a>                // reliable to say, and MusicBrainz will settle it at M1.
-<a href=#271 id=271 data-nosnippet>271</a>                </span><span class="kw">if </span>!same_track_list(catalog, left, right) {
-<a href=#272 id=272 data-nosnippet>272</a>                    <span class="kw">continue</span>;
-<a href=#273 id=273 data-nosnippet>273</a>                }
-<a href=#274 id=274 data-nosnippet>274</a>                <span class="kw">let </span>kind =
-<a href=#275 id=275 data-nosnippet>275</a>                    <span class="kw">if </span>quality_fingerprint(catalog, left) == quality_fingerprint(catalog, right) {
-<a href=#276 id=276 data-nosnippet>276</a>                        DUPLICATE
-<a href=#277 id=277 data-nosnippet>277</a>                    } <span class="kw">else </span>{
-<a href=#278 id=278 data-nosnippet>278</a>                        OTHER_EDITION
-<a href=#279 id=279 data-nosnippet>279</a>                    };
-<a href=#280 id=280 data-nosnippet>280</a>                links.push((left, right, kind));
-<a href=#281 id=281 data-nosnippet>281</a>            }
-<a href=#282 id=282 data-nosnippet>282</a>        }
-<a href=#283 id=283 data-nosnippet>283</a>    }
-<a href=#284 id=284 data-nosnippet>284</a>
-<a href=#285 id=285 data-nosnippet>285</a>    <span class="kw">for </span>(left, right, kind) <span class="kw">in </span>links {
-<a href=#286 id=286 data-nosnippet>286</a>        <span class="comment">// Symmetric, like the collaboration graph: navigation works from
-<a href=#287 id=287 data-nosnippet>287</a>        // either side.
-<a href=#288 id=288 data-nosnippet>288</a>        </span><span class="kw">for </span>(source, target) <span class="kw">in </span>[(left, right), (right, left)] {
-<a href=#289 id=289 data-nosnippet>289</a>            catalog.relations.push(Relation {
-<a href=#290 id=290 data-nosnippet>290</a>                source_kind: EntityKind::Release,
-<a href=#291 id=291 data-nosnippet>291</a>                source_id: source,
-<a href=#292 id=292 data-nosnippet>292</a>                target_kind: EntityKind::Release,
-<a href=#293 id=293 data-nosnippet>293</a>                target_id: target,
-<a href=#294 id=294 data-nosnippet>294</a>                kind: kind.to_string(),
-<a href=#295 id=295 data-nosnippet>295</a>                weight: <span class="number">1</span>,
-<a href=#296 id=296 data-nosnippet>296</a>                source: <span class="string">"tags"</span>.into(),
-<a href=#297 id=297 data-nosnippet>297</a>            });
-<a href=#298 id=298 data-nosnippet>298</a>        }
-<a href=#299 id=299 data-nosnippet>299</a>    }
-<a href=#300 id=300 data-nosnippet>300</a>}
-<a href=#301 id=301 data-nosnippet>301</a>
-<a href=#302 id=302 data-nosnippet>302</a><span class="doccomment">/// `true` when two releases hold the same tracks.
-<a href=#303 id=303 data-nosnippet>303</a>///
-<a href=#304 id=304 data-nosnippet>304</a>/// Positions and titles have to match exactly; durations only have to be
-<a href=#305 id=305 data-nosnippet>305</a>/// **close**. Two rips of one disc differ by a few hundred milliseconds, and a
-<a href=#306 id=306 data-nosnippet>306</a>/// transcode to a lossy format shifts the end of a track further still — but a
-<a href=#307 id=307 data-nosnippet>307</a>/// live rendition of the same song differs by minutes. Three seconds is the
-<a href=#308 id=308 data-nosnippet>308</a>/// tolerance the duplicate-track check uses, for the same reason.
-<a href=#309 id=309 data-nosnippet>309</a></span><span class="kw">fn </span>same_track_list(catalog: <span class="kw-2">&amp;</span>Catalog, left: Id, right: Id) -&gt; bool {
-<a href=#310 id=310 data-nosnippet>310</a>    <span class="kw">let </span>(left, right) = (track_list(catalog, left), track_list(catalog, right));
-<a href=#311 id=311 data-nosnippet>311</a>    left.len() == right.len()
-<a href=#312 id=312 data-nosnippet>312</a>        &amp;&amp; left
-<a href=#313 id=313 data-nosnippet>313</a>            .iter()
-<a href=#314 id=314 data-nosnippet>314</a>            .zip(right.iter())
-<a href=#315 id=315 data-nosnippet>315</a>            .all(|(a, b)| a.<span class="number">0 </span>== b.<span class="number">0 </span>&amp;&amp; a.<span class="number">1 </span>== b.<span class="number">1 </span>&amp;&amp; a.<span class="number">2</span>.abs_diff(b.<span class="number">2</span>) &lt;= <span class="number">3_000</span>)
-<a href=#316 id=316 data-nosnippet>316</a>}
-<a href=#317 id=317 data-nosnippet>317</a>
-<a href=#318 id=318 data-nosnippet>318</a><span class="doccomment">/// Positions, titles and durations of a release, in a comparable order.
-<a href=#319 id=319 data-nosnippet>319</a></span><span class="kw">fn </span>track_list(catalog: <span class="kw-2">&amp;</span>Catalog, release_id: Id) -&gt; Vec&lt;(u32, String, u64)&gt; {
-<a href=#320 id=320 data-nosnippet>320</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(release) = catalog.release(release_id) <span class="kw">else </span>{
-<a href=#321 id=321 data-nosnippet>321</a>        <span class="kw">return </span>Vec::new();
-<a href=#322 id=322 data-nosnippet>322</a>    };
-<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw">let </span><span class="kw-2">mut </span>out: Vec&lt;(u32, String, u64)&gt; = release
-<a href=#324 id=324 data-nosnippet>324</a>        .track_ids
-<a href=#325 id=325 data-nosnippet>325</a>        .iter()
-<a href=#326 id=326 data-nosnippet>326</a>        .filter_map(|<span class="kw-2">&amp;</span>id| catalog.track(id))
-<a href=#327 id=327 data-nosnippet>327</a>        .map(|t| {
-<a href=#328 id=328 data-nosnippet>328</a>            (
-<a href=#329 id=329 data-nosnippet>329</a>                t.track_no.unwrap_or(<span class="number">0</span>),
-<a href=#330 id=330 data-nosnippet>330</a>                text::normalize(<span class="kw-2">&amp;</span>t.title),
-<a href=#331 id=331 data-nosnippet>331</a>                t.duration_ms.unwrap_or(<span class="number">0</span>),
-<a href=#332 id=332 data-nosnippet>332</a>            )
-<a href=#333 id=333 data-nosnippet>333</a>        })
-<a href=#334 id=334 data-nosnippet>334</a>        .collect();
-<a href=#335 id=335 data-nosnippet>335</a>    out.sort();
-<a href=#336 id=336 data-nosnippet>336</a>    out
-<a href=#337 id=337 data-nosnippet>337</a>}
-<a href=#338 id=338 data-nosnippet>338</a>
-<a href=#339 id=339 data-nosnippet>339</a><span class="doccomment">/// How the release is encoded, which is what separates a wasted copy from a
-<a href=#340 id=340 data-nosnippet>340</a>/// second one kept on purpose.
-<a href=#341 id=341 data-nosnippet>341</a></span><span class="kw">fn </span>quality_fingerprint(catalog: <span class="kw-2">&amp;</span>Catalog, release_id: Id) -&gt; BTreeSet&lt;String&gt; {
-<a href=#342 id=342 data-nosnippet>342</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(release) = catalog.release(release_id) <span class="kw">else </span>{
-<a href=#343 id=343 data-nosnippet>343</a>        <span class="kw">return </span>BTreeSet::new();
-<a href=#344 id=344 data-nosnippet>344</a>    };
-<a href=#345 id=345 data-nosnippet>345</a>    release
-<a href=#346 id=346 data-nosnippet>346</a>        .track_ids
-<a href=#347 id=347 data-nosnippet>347</a>        .iter()
-<a href=#348 id=348 data-nosnippet>348</a>        .filter_map(|<span class="kw-2">&amp;</span>id| catalog.track(id))
-<a href=#349 id=349 data-nosnippet>349</a>        .filter_map(|t| catalog.file(t.file_id))
-<a href=#350 id=350 data-nosnippet>350</a>        .map(|f| f.properties.quality_label())
-<a href=#351 id=351 data-nosnippet>351</a>        .collect()
-<a href=#352 id=352 data-nosnippet>352</a>}
-<a href=#353 id=353 data-nosnippet>353</a>
-<a href=#354 id=354 data-nosnippet>354</a><span class="doccomment">/// Two artists credited on the same track are considered to have
-<a href=#355 id=355 data-nosnippet>355</a>/// collaborated. The weight counts the shared tracks: that is what allows
-<a href=#356 id=356 data-nosnippet>356</a>/// ranking by "played the most with".
-<a href=#357 id=357 data-nosnippet>357</a></span><span class="kw">fn </span>build_collaboration_graph(catalog: <span class="kw-2">&amp;mut </span>Catalog) {
-<a href=#358 id=358 data-nosnippet>358</a>    <span class="kw">let </span><span class="kw-2">mut </span>per_track: HashMap&lt;Id, BTreeSet&lt;Id&gt;&gt; = HashMap::new();
-<a href=#359 id=359 data-nosnippet>359</a>    <span class="kw">for </span>credit <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.credits {
-<a href=#360 id=360 data-nosnippet>360</a>        <span class="comment">// Only performers: sharing a composer does not mean two artists ever
-<a href=#361 id=361 data-nosnippet>361</a>        // met, let alone played together.
-<a href=#362 id=362 data-nosnippet>362</a>        </span><span class="kw">if </span>credit.entity_kind == EntityKind::Track &amp;&amp; is_performing_role(<span class="kw-2">&amp;</span>credit.role) {
-<a href=#363 id=363 data-nosnippet>363</a>            per_track
-<a href=#364 id=364 data-nosnippet>364</a>                .entry(credit.entity_id)
-<a href=#365 id=365 data-nosnippet>365</a>                .or_default()
-<a href=#366 id=366 data-nosnippet>366</a>                .insert(credit.artist_id);
-<a href=#367 id=367 data-nosnippet>367</a>        }
-<a href=#368 id=368 data-nosnippet>368</a>    }
-<a href=#369 id=369 data-nosnippet>369</a>
-<a href=#370 id=370 data-nosnippet>370</a>    <span class="kw">let </span><span class="kw-2">mut </span>weights: BTreeMap&lt;(Id, Id), u32&gt; = BTreeMap::new();
-<a href=#371 id=371 data-nosnippet>371</a>    <span class="kw">for </span>artists <span class="kw">in </span>per_track.values() {
-<a href=#372 id=372 data-nosnippet>372</a>        <span class="kw">let </span>list: Vec&lt;Id&gt; = artists.iter().copied().collect();
-<a href=#373 id=373 data-nosnippet>373</a>        <span class="kw">for </span>(i, <span class="kw-2">&amp;</span>a) <span class="kw">in </span>list.iter().enumerate() {
-<a href=#374 id=374 data-nosnippet>374</a>            <span class="kw">for </span><span class="kw-2">&amp;</span>b <span class="kw">in </span><span class="kw-2">&amp;</span>list[i + <span class="number">1</span>..] {
-<a href=#375 id=375 data-nosnippet>375</a>                <span class="kw-2">*</span>weights.entry((a, b)).or_insert(<span class="number">0</span>) += <span class="number">1</span>;
-<a href=#376 id=376 data-nosnippet>376</a>            }
-<a href=#377 id=377 data-nosnippet>377</a>        }
-<a href=#378 id=378 data-nosnippet>378</a>    }
-<a href=#379 id=379 data-nosnippet>379</a>
-<a href=#380 id=380 data-nosnippet>380</a>    <span class="kw">for </span>((a, b), weight) <span class="kw">in </span>weights {
-<a href=#381 id=381 data-nosnippet>381</a>        <span class="comment">// The relation is symmetric: it is stored in both directions so that
-<a href=#382 id=382 data-nosnippet>382</a>        // navigation is direct from either side.
-<a href=#383 id=383 data-nosnippet>383</a>        </span>catalog.relations.push(Relation {
-<a href=#384 id=384 data-nosnippet>384</a>            source_kind: EntityKind::Artist,
-<a href=#385 id=385 data-nosnippet>385</a>            source_id: a,
-<a href=#386 id=386 data-nosnippet>386</a>            target_kind: EntityKind::Artist,
-<a href=#387 id=387 data-nosnippet>387</a>            target_id: b,
-<a href=#388 id=388 data-nosnippet>388</a>            kind: <span class="string">"collaborated"</span>.into(),
-<a href=#389 id=389 data-nosnippet>389</a>            weight,
-<a href=#390 id=390 data-nosnippet>390</a>            source: <span class="string">"tags"</span>.into(),
-<a href=#391 id=391 data-nosnippet>391</a>        });
-<a href=#392 id=392 data-nosnippet>392</a>        catalog.relations.push(Relation {
-<a href=#393 id=393 data-nosnippet>393</a>            source_kind: EntityKind::Artist,
-<a href=#394 id=394 data-nosnippet>394</a>            source_id: b,
-<a href=#395 id=395 data-nosnippet>395</a>            target_kind: EntityKind::Artist,
-<a href=#396 id=396 data-nosnippet>396</a>            target_id: a,
-<a href=#397 id=397 data-nosnippet>397</a>            kind: <span class="string">"collaborated"</span>.into(),
-<a href=#398 id=398 data-nosnippet>398</a>            weight,
-<a href=#399 id=399 data-nosnippet>399</a>            source: <span class="string">"tags"</span>.into(),
-<a href=#400 id=400 data-nosnippet>400</a>        });
-<a href=#401 id=401 data-nosnippet>401</a>    }
-<a href=#402 id=402 data-nosnippet>402</a>}
-<a href=#403 id=403 data-nosnippet>403</a>
-<a href=#404 id=404 data-nosnippet>404</a><span class="attr">#[cfg(test)]
-<a href=#405 id=405 data-nosnippet>405</a>#[path = <span class="string">"relations_tests.rs"</span>]
-<a href=#406 id=406 data-nosnippet>406</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#253 id=253 data-nosnippet>253</a>/// Different disc positions, track positions or titles leave the releases
+<a href=#254 id=254 data-nosnippet>254</a>/// unlinked. Recognizing a deluxe edition with bonus tracks needs stronger
+<a href=#255 id=255 data-nosnippet>255</a>/// evidence than the local tags currently supply.
+<a href=#256 id=256 data-nosnippet>256</a></span><span class="kw">fn </span>build_release_relations(catalog: <span class="kw-2">&amp;mut </span>Catalog) {
+<a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">let </span><span class="kw-2">mut </span>groups: BTreeMap&lt;(<span class="prelude-ty">Option</span>&lt;Id&gt;, String), Vec&lt;Id&gt;&gt; = BTreeMap::new();
+<a href=#258 id=258 data-nosnippet>258</a>    <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
+<a href=#259 id=259 data-nosnippet>259</a>        groups
+<a href=#260 id=260 data-nosnippet>260</a>            .entry((release.album_artist_id, release.key.clone()))
+<a href=#261 id=261 data-nosnippet>261</a>            .or_default()
+<a href=#262 id=262 data-nosnippet>262</a>            .push(release.id);
+<a href=#263 id=263 data-nosnippet>263</a>    }
+<a href=#264 id=264 data-nosnippet>264</a>
+<a href=#265 id=265 data-nosnippet>265</a>    <span class="kw">let </span><span class="kw-2">mut </span>links: Vec&lt;(Id, Id, <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str)&gt; = Vec::new();
+<a href=#266 id=266 data-nosnippet>266</a>    <span class="kw">for </span>ids <span class="kw">in </span>groups.values().filter(|ids| ids.len() &gt; <span class="number">1</span>) {
+<a href=#267 id=267 data-nosnippet>267</a>        <span class="kw">for </span>(i, <span class="kw-2">&amp;</span>left) <span class="kw">in </span>ids.iter().enumerate() {
+<a href=#268 id=268 data-nosnippet>268</a>            <span class="kw">for </span><span class="kw-2">&amp;</span>right <span class="kw">in </span><span class="kw-2">&amp;</span>ids[i + <span class="number">1</span>..] {
+<a href=#269 id=269 data-nosnippet>269</a>                <span class="comment">// Two albums sharing a name are not necessarily the same
+<a href=#270 id=270 data-nosnippet>270</a>                // album: without a matching track list there is nothing
+<a href=#271 id=271 data-nosnippet>271</a>                // reliable to say, and MusicBrainz will settle it at M1.
+<a href=#272 id=272 data-nosnippet>272</a>                </span><span class="kw">if </span>!same_track_list(catalog, left, right) {
+<a href=#273 id=273 data-nosnippet>273</a>                    <span class="kw">continue</span>;
+<a href=#274 id=274 data-nosnippet>274</a>                }
+<a href=#275 id=275 data-nosnippet>275</a>                <span class="kw">let </span>kind =
+<a href=#276 id=276 data-nosnippet>276</a>                    <span class="kw">if </span>quality_fingerprint(catalog, left) == quality_fingerprint(catalog, right) {
+<a href=#277 id=277 data-nosnippet>277</a>                        DUPLICATE
+<a href=#278 id=278 data-nosnippet>278</a>                    } <span class="kw">else </span>{
+<a href=#279 id=279 data-nosnippet>279</a>                        OTHER_EDITION
+<a href=#280 id=280 data-nosnippet>280</a>                    };
+<a href=#281 id=281 data-nosnippet>281</a>                links.push((left, right, kind));
+<a href=#282 id=282 data-nosnippet>282</a>            }
+<a href=#283 id=283 data-nosnippet>283</a>        }
+<a href=#284 id=284 data-nosnippet>284</a>    }
+<a href=#285 id=285 data-nosnippet>285</a>
+<a href=#286 id=286 data-nosnippet>286</a>    <span class="kw">for </span>(left, right, kind) <span class="kw">in </span>links {
+<a href=#287 id=287 data-nosnippet>287</a>        <span class="comment">// Symmetric, like the collaboration graph: navigation works from
+<a href=#288 id=288 data-nosnippet>288</a>        // either side.
+<a href=#289 id=289 data-nosnippet>289</a>        </span><span class="kw">for </span>(source, target) <span class="kw">in </span>[(left, right), (right, left)] {
+<a href=#290 id=290 data-nosnippet>290</a>            catalog.relations.push(Relation {
+<a href=#291 id=291 data-nosnippet>291</a>                source_kind: EntityKind::Release,
+<a href=#292 id=292 data-nosnippet>292</a>                source_id: source,
+<a href=#293 id=293 data-nosnippet>293</a>                target_kind: EntityKind::Release,
+<a href=#294 id=294 data-nosnippet>294</a>                target_id: target,
+<a href=#295 id=295 data-nosnippet>295</a>                kind: kind.to_string(),
+<a href=#296 id=296 data-nosnippet>296</a>                weight: <span class="number">1</span>,
+<a href=#297 id=297 data-nosnippet>297</a>                source: <span class="string">"tags"</span>.into(),
+<a href=#298 id=298 data-nosnippet>298</a>            });
+<a href=#299 id=299 data-nosnippet>299</a>        }
+<a href=#300 id=300 data-nosnippet>300</a>    }
+<a href=#301 id=301 data-nosnippet>301</a>}
+<a href=#302 id=302 data-nosnippet>302</a>
+<a href=#303 id=303 data-nosnippet>303</a><span class="doccomment">/// `true` when two releases hold the same tracks.
+<a href=#304 id=304 data-nosnippet>304</a>///
+<a href=#305 id=305 data-nosnippet>305</a>/// Disc and track positions and normalised titles have to match exactly;
+<a href=#306 id=306 data-nosnippet>306</a>/// durations only have to be **close**. Two rips of one disc differ by a few
+<a href=#307 id=307 data-nosnippet>307</a>/// hundred milliseconds, and a transcode to a lossy format shifts the end of a
+<a href=#308 id=308 data-nosnippet>308</a>/// track further still — but a
+<a href=#309 id=309 data-nosnippet>309</a>/// live rendition of the same song differs by minutes. Three seconds is the
+<a href=#310 id=310 data-nosnippet>310</a>/// tolerance the duplicate-track check uses, for the same reason.
+<a href=#311 id=311 data-nosnippet>311</a></span><span class="kw">fn </span>same_track_list(catalog: <span class="kw-2">&amp;</span>Catalog, left: Id, right: Id) -&gt; bool {
+<a href=#312 id=312 data-nosnippet>312</a>    <span class="kw">let </span>(left, right) = (track_list(catalog, left), track_list(catalog, right));
+<a href=#313 id=313 data-nosnippet>313</a>    left.len() == right.len()
+<a href=#314 id=314 data-nosnippet>314</a>        &amp;&amp; left
+<a href=#315 id=315 data-nosnippet>315</a>            .iter()
+<a href=#316 id=316 data-nosnippet>316</a>            .zip(right.iter())
+<a href=#317 id=317 data-nosnippet>317</a>            .all(|(a, b)| a.<span class="number">0 </span>== b.<span class="number">0 </span>&amp;&amp; a.<span class="number">1 </span>== b.<span class="number">1 </span>&amp;&amp; a.<span class="number">2 </span>== b.<span class="number">2 </span>&amp;&amp; a.<span class="number">3</span>.abs_diff(b.<span class="number">3</span>) &lt;= <span class="number">3_000</span>)
+<a href=#318 id=318 data-nosnippet>318</a>}
+<a href=#319 id=319 data-nosnippet>319</a>
+<a href=#320 id=320 data-nosnippet>320</a><span class="doccomment">/// Disc and track positions, titles and durations of a release, in a comparable
+<a href=#321 id=321 data-nosnippet>321</a>/// order.
+<a href=#322 id=322 data-nosnippet>322</a></span><span class="kw">fn </span>track_list(catalog: <span class="kw-2">&amp;</span>Catalog, release_id: Id) -&gt; Vec&lt;(u32, u32, String, u64)&gt; {
+<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(release) = catalog.release(release_id) <span class="kw">else </span>{
+<a href=#324 id=324 data-nosnippet>324</a>        <span class="kw">return </span>Vec::new();
+<a href=#325 id=325 data-nosnippet>325</a>    };
+<a href=#326 id=326 data-nosnippet>326</a>    <span class="kw">let </span><span class="kw-2">mut </span>out: Vec&lt;<span class="kw">_</span>&gt; = release
+<a href=#327 id=327 data-nosnippet>327</a>        .track_ids
+<a href=#328 id=328 data-nosnippet>328</a>        .iter()
+<a href=#329 id=329 data-nosnippet>329</a>        .filter_map(|<span class="kw-2">&amp;</span>id| catalog.track(id))
+<a href=#330 id=330 data-nosnippet>330</a>        .map(|t| {
+<a href=#331 id=331 data-nosnippet>331</a>            (
+<a href=#332 id=332 data-nosnippet>332</a>                t.disc_no.unwrap_or(<span class="number">1</span>),
+<a href=#333 id=333 data-nosnippet>333</a>                t.track_no.unwrap_or(<span class="number">0</span>),
+<a href=#334 id=334 data-nosnippet>334</a>                text::normalize(<span class="kw-2">&amp;</span>t.title),
+<a href=#335 id=335 data-nosnippet>335</a>                t.duration_ms.unwrap_or(<span class="number">0</span>),
+<a href=#336 id=336 data-nosnippet>336</a>            )
+<a href=#337 id=337 data-nosnippet>337</a>        })
+<a href=#338 id=338 data-nosnippet>338</a>        .collect();
+<a href=#339 id=339 data-nosnippet>339</a>    out.sort();
+<a href=#340 id=340 data-nosnippet>340</a>    out
+<a href=#341 id=341 data-nosnippet>341</a>}
+<a href=#342 id=342 data-nosnippet>342</a>
+<a href=#343 id=343 data-nosnippet>343</a><span class="doccomment">/// How each corresponding track is encoded, which is what separates a wasted
+<a href=#344 id=344 data-nosnippet>344</a>/// copy from a second one kept on purpose. Keeping positions and multiplicity
+<a href=#345 id=345 data-nosnippet>345</a>/// avoids equating two releases merely because they contain the same set of
+<a href=#346 id=346 data-nosnippet>346</a>/// encodings, attached to different tracks.
+<a href=#347 id=347 data-nosnippet>347</a></span><span class="kw">fn </span>quality_fingerprint(catalog: <span class="kw-2">&amp;</span>Catalog, release_id: Id) -&gt; Vec&lt;(u32, u32, String, String)&gt; {
+<a href=#348 id=348 data-nosnippet>348</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(release) = catalog.release(release_id) <span class="kw">else </span>{
+<a href=#349 id=349 data-nosnippet>349</a>        <span class="kw">return </span>Vec::new();
+<a href=#350 id=350 data-nosnippet>350</a>    };
+<a href=#351 id=351 data-nosnippet>351</a>    <span class="kw">let </span><span class="kw-2">mut </span>qualities: Vec&lt;<span class="kw">_</span>&gt; = release
+<a href=#352 id=352 data-nosnippet>352</a>        .track_ids
+<a href=#353 id=353 data-nosnippet>353</a>        .iter()
+<a href=#354 id=354 data-nosnippet>354</a>        .filter_map(|<span class="kw-2">&amp;</span>id| catalog.track(id))
+<a href=#355 id=355 data-nosnippet>355</a>        .filter_map(|track| catalog.file(track.file_id).map(|file| (track, file)))
+<a href=#356 id=356 data-nosnippet>356</a>        .map(|(track, file)| {
+<a href=#357 id=357 data-nosnippet>357</a>            (
+<a href=#358 id=358 data-nosnippet>358</a>                track.disc_no.unwrap_or(<span class="number">1</span>),
+<a href=#359 id=359 data-nosnippet>359</a>                track.track_no.unwrap_or(<span class="number">0</span>),
+<a href=#360 id=360 data-nosnippet>360</a>                text::normalize(<span class="kw-2">&amp;</span>track.title),
+<a href=#361 id=361 data-nosnippet>361</a>                file.properties.quality_label(),
+<a href=#362 id=362 data-nosnippet>362</a>            )
+<a href=#363 id=363 data-nosnippet>363</a>        })
+<a href=#364 id=364 data-nosnippet>364</a>        .collect();
+<a href=#365 id=365 data-nosnippet>365</a>    qualities.sort();
+<a href=#366 id=366 data-nosnippet>366</a>    qualities
+<a href=#367 id=367 data-nosnippet>367</a>}
+<a href=#368 id=368 data-nosnippet>368</a>
+<a href=#369 id=369 data-nosnippet>369</a><span class="doccomment">/// Two artists credited on the same track are considered to have
+<a href=#370 id=370 data-nosnippet>370</a>/// collaborated. The weight counts the shared tracks: that is what allows
+<a href=#371 id=371 data-nosnippet>371</a>/// ranking by "played the most with".
+<a href=#372 id=372 data-nosnippet>372</a></span><span class="kw">fn </span>build_collaboration_graph(catalog: <span class="kw-2">&amp;mut </span>Catalog) {
+<a href=#373 id=373 data-nosnippet>373</a>    <span class="kw">let </span><span class="kw-2">mut </span>per_track: HashMap&lt;Id, BTreeSet&lt;Id&gt;&gt; = HashMap::new();
+<a href=#374 id=374 data-nosnippet>374</a>    <span class="kw">for </span>credit <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.credits {
+<a href=#375 id=375 data-nosnippet>375</a>        <span class="comment">// Only performers: sharing a composer does not mean two artists ever
+<a href=#376 id=376 data-nosnippet>376</a>        // met, let alone played together.
+<a href=#377 id=377 data-nosnippet>377</a>        </span><span class="kw">if </span>credit.entity_kind == EntityKind::Track &amp;&amp; is_performing_role(<span class="kw-2">&amp;</span>credit.role) {
+<a href=#378 id=378 data-nosnippet>378</a>            per_track
+<a href=#379 id=379 data-nosnippet>379</a>                .entry(credit.entity_id)
+<a href=#380 id=380 data-nosnippet>380</a>                .or_default()
+<a href=#381 id=381 data-nosnippet>381</a>                .insert(credit.artist_id);
+<a href=#382 id=382 data-nosnippet>382</a>        }
+<a href=#383 id=383 data-nosnippet>383</a>    }
+<a href=#384 id=384 data-nosnippet>384</a>
+<a href=#385 id=385 data-nosnippet>385</a>    <span class="kw">let </span><span class="kw-2">mut </span>weights: BTreeMap&lt;(Id, Id), u32&gt; = BTreeMap::new();
+<a href=#386 id=386 data-nosnippet>386</a>    <span class="kw">for </span>artists <span class="kw">in </span>per_track.values() {
+<a href=#387 id=387 data-nosnippet>387</a>        <span class="kw">let </span>list: Vec&lt;Id&gt; = artists.iter().copied().collect();
+<a href=#388 id=388 data-nosnippet>388</a>        <span class="kw">for </span>(i, <span class="kw-2">&amp;</span>a) <span class="kw">in </span>list.iter().enumerate() {
+<a href=#389 id=389 data-nosnippet>389</a>            <span class="kw">for </span><span class="kw-2">&amp;</span>b <span class="kw">in </span><span class="kw-2">&amp;</span>list[i + <span class="number">1</span>..] {
+<a href=#390 id=390 data-nosnippet>390</a>                <span class="kw-2">*</span>weights.entry((a, b)).or_insert(<span class="number">0</span>) += <span class="number">1</span>;
+<a href=#391 id=391 data-nosnippet>391</a>            }
+<a href=#392 id=392 data-nosnippet>392</a>        }
+<a href=#393 id=393 data-nosnippet>393</a>    }
+<a href=#394 id=394 data-nosnippet>394</a>
+<a href=#395 id=395 data-nosnippet>395</a>    <span class="kw">for </span>((a, b), weight) <span class="kw">in </span>weights {
+<a href=#396 id=396 data-nosnippet>396</a>        <span class="comment">// The relation is symmetric: it is stored in both directions so that
+<a href=#397 id=397 data-nosnippet>397</a>        // navigation is direct from either side.
+<a href=#398 id=398 data-nosnippet>398</a>        </span>catalog.relations.push(Relation {
+<a href=#399 id=399 data-nosnippet>399</a>            source_kind: EntityKind::Artist,
+<a href=#400 id=400 data-nosnippet>400</a>            source_id: a,
+<a href=#401 id=401 data-nosnippet>401</a>            target_kind: EntityKind::Artist,
+<a href=#402 id=402 data-nosnippet>402</a>            target_id: b,
+<a href=#403 id=403 data-nosnippet>403</a>            kind: <span class="string">"collaborated"</span>.into(),
+<a href=#404 id=404 data-nosnippet>404</a>            weight,
+<a href=#405 id=405 data-nosnippet>405</a>            source: <span class="string">"tags"</span>.into(),
+<a href=#406 id=406 data-nosnippet>406</a>        });
+<a href=#407 id=407 data-nosnippet>407</a>        catalog.relations.push(Relation {
+<a href=#408 id=408 data-nosnippet>408</a>            source_kind: EntityKind::Artist,
+<a href=#409 id=409 data-nosnippet>409</a>            source_id: b,
+<a href=#410 id=410 data-nosnippet>410</a>            target_kind: EntityKind::Artist,
+<a href=#411 id=411 data-nosnippet>411</a>            target_id: a,
+<a href=#412 id=412 data-nosnippet>412</a>            kind: <span class="string">"collaborated"</span>.into(),
+<a href=#413 id=413 data-nosnippet>413</a>            weight,
+<a href=#414 id=414 data-nosnippet>414</a>            source: <span class="string">"tags"</span>.into(),
+<a href=#415 id=415 data-nosnippet>415</a>        });
+<a href=#416 id=416 data-nosnippet>416</a>    }
+<a href=#417 id=417 data-nosnippet>417</a>}
+<a href=#418 id=418 data-nosnippet>418</a>
+<a href=#419 id=419 data-nosnippet>419</a><span class="attr">#[cfg(test)]
+<a href=#420 id=420 data-nosnippet>420</a>#[path = <span class="string">"relations_tests.rs"</span>]
+<a href=#421 id=421 data-nosnippet>421</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

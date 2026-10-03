@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["CreditStatus"],"fn":["recordings"],"struct":["RecordingCreditCoverage"]};
+window.SIDEBAR_ITEMS = {"enum":["CreditStatus"],"fn":["editions","recordings"],"struct":["EditionCreditCoverage","RecordingCreditCoverage"]};

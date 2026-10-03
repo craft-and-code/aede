@@ -129,9 +129,9 @@
 <a href=#129 id=129 data-nosnippet>129</a><span class="kw">impl </span>FileAnalysis {
 <a href=#130 id=130 data-nosnippet>130</a>    <span class="doccomment">/// `true` when the analysis still describes the file as it is now.
 <a href=#131 id=131 data-nosnippet>131</a>    ///
-<a href=#132 id=132 data-nosnippet>132</a>    /// Same test as the incremental scan: unchanged size and modification date.
-<a href=#133 id=133 data-nosnippet>133</a>    /// A stale analysis is worse than none — it answers with confidence about
-<a href=#134 id=134 data-nosnippet>134</a>    /// bytes that are no longer there.
+<a href=#132 id=132 data-nosnippet>132</a>    /// Uses the source report's unchanged size and whole-second modification
+<a href=#133 id=133 data-nosnippet>133</a>    /// date. Unlike the scanner's native cache identity, this contract has no
+<a href=#134 id=134 data-nosnippet>134</a>    /// subsecond precision and cannot distinguish all same-second edits.
 <a href=#135 id=135 data-nosnippet>135</a>    </span><span class="kw">pub fn </span>still_applies(<span class="kw-2">&amp;</span><span class="self">self</span>, size: u64, mtime: u64) -&gt; bool {
 <a href=#136 id=136 data-nosnippet>136</a>        <span class="self">self</span>.size_bytes == size &amp;&amp; <span class="self">self</span>.modified_unix == mtime
 <a href=#137 id=137 data-nosnippet>137</a>    }

@@ -8,7 +8,7 @@
 <a href=#8 id=8 data-nosnippet>8</a>
 <a href=#9 id=9 data-nosnippet>9</a></span><span class="kw">use </span>std::fs::File;
 <a href=#10 id=10 data-nosnippet>10</a>
-<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span><span class="kw">super</span>::bytes::{Cursor, read_at_most};
+<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span><span class="kw">super</span>::bytes::{Cursor, duration_ms, read_at_most};
 <a href=#12 id=12 data-nosnippet>12</a><span class="kw">use super</span>::{RawTags, TagError};
 <a href=#13 id=13 data-nosnippet>13</a>
 <a href=#14 id=14 data-nosnippet>14</a><span class="doccomment">/// Head window large enough to hold the identification header and the comment
@@ -71,7 +71,7 @@
 <a href=#71 id=71 data-nosnippet>71</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(granule) = last_granule(<span class="kw-2">&amp;</span>tail, serial) {
 <a href=#72 id=72 data-nosnippet>72</a>            <span class="kw">let </span>samples = granule.saturating_sub(tags.pre_skip());
 <a href=#73 id=73 data-nosnippet>73</a>            <span class="kw">if </span>rate &gt; <span class="number">0 </span>{
-<a href=#74 id=74 data-nosnippet>74</a>                tags.properties.duration_ms = <span class="prelude-val">Some</span>(samples * <span class="number">1000 </span>/ rate <span class="kw">as </span>u64);
+<a href=#74 id=74 data-nosnippet>74</a>                tags.properties.duration_ms = duration_ms(samples, rate);
 <a href=#75 id=75 data-nosnippet>75</a>            }
 <a href=#76 id=76 data-nosnippet>76</a>        }
 <a href=#77 id=77 data-nosnippet>77</a>    }

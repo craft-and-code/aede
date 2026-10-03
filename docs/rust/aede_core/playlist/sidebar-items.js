@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Style"],"fn":["already_says","file_name","render"]};
+window.SIDEBAR_ITEMS = {"enum":["Style"],"fn":["already_says","file_name","render","try_render","write_atomic"]};

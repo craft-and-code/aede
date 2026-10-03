@@ -2,6 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 <url><loc>https://craft-and-code.github.io/aede/</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/en/</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/fr/cli/accounts.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/manual/install.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/manual/first-steps.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/manual/catalog.html</loc></url>
@@ -65,6 +66,10 @@
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/cli/export.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/cli/help.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/cli/options.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/fr/server/subsonic.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/fr/server/playback.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/fr/server/remote.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/fr/server/accounts.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/server/start.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/server/http.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/server/catalog.html</loc></url>
@@ -104,6 +109,7 @@
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/server/reference/api.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/server/reference/operating.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/fr/index.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/en/cli/accounts.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/manual/install.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/manual/first-steps.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/manual/catalog.html</loc></url>
@@ -167,6 +173,10 @@
 <url><loc>https://craft-and-code.github.io/aede/docs/en/cli/export.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/cli/help.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/cli/options.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/en/server/subsonic.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/en/server/playback.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/en/server/remote.html</loc></url>
+<url><loc>https://craft-and-code.github.io/aede/docs/en/server/accounts.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/server/start.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/server/http.html</loc></url>
 <url><loc>https://craft-and-code.github.io/aede/docs/en/server/catalog.html</loc></url>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["relink_destination","relink_notes","validate_notes_options","waiting_notes","waiting_references"],"struct":["WaitingReference"]};

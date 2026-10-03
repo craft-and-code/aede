@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Extras","ItemKind","Wrote"],"fn":["copy_one","inside_a_watched_root","partial_path","plan"],"mod":["names","transcode"],"struct":["Failed","Item","Plan","Recipe","Renamed"]};
+window.SIDEBAR_ITEMS = {"enum":["Extras","ItemKind","Wrote"],"fn":["copy_one","copy_one_checked","files_match","inside_a_watched_root","partial_path","plan","validate_destination","validate_filesystem_names","validate_new_publication","validate_source"],"mod":["names","transcode"],"struct":["Failed","Item","Plan","Recipe","Renamed","TemporaryOutput"]};

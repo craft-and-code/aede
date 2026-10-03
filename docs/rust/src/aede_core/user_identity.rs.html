@@ -1,0 +1,423 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/aede-core/src/user_identity.rs`."><title>user_identity.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-84e720fa.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="aede_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.89.0 (29483883e 2025-08-04)" data-channel="1.89.0" data-search-js="search-92309212.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-fd3af306.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">aede_core/</div>user_identity.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Evidence-backed relocation and compatibility with old album references.
+<a href=#2 id=2 data-nosnippet>2</a>
+<a href=#3 id=3 data-nosnippet>3</a></span><span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span><span class="kw">crate</span>::json::Json;
+<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span><span class="kw">crate</span>::model::AudioFile;
+<a href=#6 id=6 data-nosnippet>6</a>
+<a href=#7 id=7 data-nosnippet>7</a><span class="doccomment">/// Last observed identity evidence for a file named by personal data.
+<a href=#8 id=8 data-nosnippet>8</a>///
+<a href=#9 id=9 data-nosnippet>9</a>/// A basename alone never proves a move. Size, stream characteristics and
+<a href=#10 id=10 data-nosnippet>10</a>/// identifying tags must agree, as must an acoustic fingerprint when one was
+<a href=#11 id=11 data-nosnippet>11</a>/// available. This is a conservative relocation heuristic, not a byte checksum.
+<a href=#12 id=12 data-nosnippet>12</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq)]
+<a href=#13 id=13 data-nosnippet>13</a></span><span class="kw">pub struct </span>TrackIdentity {
+<a href=#14 id=14 data-nosnippet>14</a>    <span class="doccomment">/// Path at which the evidence was observed.
+<a href=#15 id=15 data-nosnippet>15</a>    </span><span class="kw">pub </span>path: String,
+<a href=#16 id=16 data-nosnippet>16</a>    <span class="doccomment">/// File size in bytes.
+<a href=#17 id=17 data-nosnippet>17</a>    </span><span class="kw">pub </span>size: u64,
+<a href=#18 id=18 data-nosnippet>18</a>    <span class="doccomment">/// Codec declared by the stream.
+<a href=#19 id=19 data-nosnippet>19</a>    </span><span class="kw">pub </span>codec: String,
+<a href=#20 id=20 data-nosnippet>20</a>    <span class="doccomment">/// Duration measured from the stream.
+<a href=#21 id=21 data-nosnippet>21</a>    </span><span class="kw">pub </span>duration_ms: <span class="prelude-ty">Option</span>&lt;u64&gt;,
+<a href=#22 id=22 data-nosnippet>22</a>    <span class="doccomment">/// Sampling frequency in hertz.
+<a href=#23 id=23 data-nosnippet>23</a>    </span><span class="kw">pub </span>sample_rate: <span class="prelude-ty">Option</span>&lt;u32&gt;,
+<a href=#24 id=24 data-nosnippet>24</a>    <span class="doccomment">/// Stream precision when meaningful.
+<a href=#25 id=25 data-nosnippet>25</a>    </span><span class="kw">pub </span>bit_depth: <span class="prelude-ty">Option</span>&lt;u16&gt;,
+<a href=#26 id=26 data-nosnippet>26</a>    <span class="doccomment">/// Number of channels.
+<a href=#27 id=27 data-nosnippet>27</a>    </span><span class="kw">pub </span>channels: <span class="prelude-ty">Option</span>&lt;u16&gt;,
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="doccomment">/// Identifying tags, without notes, lyrics or other large text fields.
+<a href=#29 id=29 data-nosnippet>29</a>    </span><span class="kw">pub </span>metadata: BTreeMap&lt;String, Vec&lt;String&gt;&gt;,
+<a href=#30 id=30 data-nosnippet>30</a>    <span class="doccomment">/// Acoustic fingerprint, when already known without reading the file.
+<a href=#31 id=31 data-nosnippet>31</a>    </span><span class="kw">pub </span>fingerprint: <span class="prelude-ty">Option</span>&lt;String&gt;,
+<a href=#32 id=32 data-nosnippet>32</a>}
+<a href=#33 id=33 data-nosnippet>33</a>
+<a href=#34 id=34 data-nosnippet>34</a><span class="kw">impl </span>TrackIdentity {
+<a href=#35 id=35 data-nosnippet>35</a>    <span class="kw">fn </span>of(file: <span class="kw-2">&amp;</span>AudioFile) -&gt; <span class="self">Self </span>{
+<a href=#36 id=36 data-nosnippet>36</a>        <span class="kw">let </span>metadata = [
+<a href=#37 id=37 data-nosnippet>37</a>            <span class="string">"title"</span>,
+<a href=#38 id=38 data-nosnippet>38</a>            <span class="string">"artist"</span>,
+<a href=#39 id=39 data-nosnippet>39</a>            <span class="string">"albumartist"</span>,
+<a href=#40 id=40 data-nosnippet>40</a>            <span class="string">"album"</span>,
+<a href=#41 id=41 data-nosnippet>41</a>            <span class="string">"tracknumber"</span>,
+<a href=#42 id=42 data-nosnippet>42</a>            <span class="string">"discnumber"</span>,
+<a href=#43 id=43 data-nosnippet>43</a>            <span class="string">"musicbrainz_recordingid"</span>,
+<a href=#44 id=44 data-nosnippet>44</a>            <span class="string">"musicbrainz_albumid"</span>,
+<a href=#45 id=45 data-nosnippet>45</a>            <span class="string">"isrc"</span>,
+<a href=#46 id=46 data-nosnippet>46</a>        ]
+<a href=#47 id=47 data-nosnippet>47</a>        .into_iter()
+<a href=#48 id=48 data-nosnippet>48</a>        .filter_map(|key| {
+<a href=#49 id=49 data-nosnippet>49</a>            file.tags
+<a href=#50 id=50 data-nosnippet>50</a>                .get(key)
+<a href=#51 id=51 data-nosnippet>51</a>                .map(|values| (key.into(), values.clone()))
+<a href=#52 id=52 data-nosnippet>52</a>        })
+<a href=#53 id=53 data-nosnippet>53</a>        .collect();
+<a href=#54 id=54 data-nosnippet>54</a>        <span class="self">Self </span>{
+<a href=#55 id=55 data-nosnippet>55</a>            path: file.path.clone(),
+<a href=#56 id=56 data-nosnippet>56</a>            size: file.size,
+<a href=#57 id=57 data-nosnippet>57</a>            codec: file.properties.codec.clone(),
+<a href=#58 id=58 data-nosnippet>58</a>            duration_ms: file.properties.duration_ms,
+<a href=#59 id=59 data-nosnippet>59</a>            sample_rate: file.properties.sample_rate,
+<a href=#60 id=60 data-nosnippet>60</a>            bit_depth: file.properties.bit_depth,
+<a href=#61 id=61 data-nosnippet>61</a>            channels: file.properties.channels,
+<a href=#62 id=62 data-nosnippet>62</a>            metadata,
+<a href=#63 id=63 data-nosnippet>63</a>            fingerprint: file.fingerprint.as_ref().map(|fp| fp.data.clone()),
+<a href=#64 id=64 data-nosnippet>64</a>        }
+<a href=#65 id=65 data-nosnippet>65</a>    }
+<a href=#66 id=66 data-nosnippet>66</a>
+<a href=#67 id=67 data-nosnippet>67</a>    <span class="kw">fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, file: <span class="kw-2">&amp;</span>AudioFile) -&gt; bool {
+<a href=#68 id=68 data-nosnippet>68</a>        <span class="kw">let </span>current = <span class="self">Self</span>::of(file);
+<a href=#69 id=69 data-nosnippet>69</a>        <span class="self">self</span>.size == current.size
+<a href=#70 id=70 data-nosnippet>70</a>            &amp;&amp; <span class="self">self</span>.codec == current.codec
+<a href=#71 id=71 data-nosnippet>71</a>            &amp;&amp; <span class="self">self</span>.duration_ms == current.duration_ms
+<a href=#72 id=72 data-nosnippet>72</a>            &amp;&amp; <span class="self">self</span>.sample_rate == current.sample_rate
+<a href=#73 id=73 data-nosnippet>73</a>            &amp;&amp; <span class="self">self</span>.bit_depth == current.bit_depth
+<a href=#74 id=74 data-nosnippet>74</a>            &amp;&amp; <span class="self">self</span>.channels == current.channels
+<a href=#75 id=75 data-nosnippet>75</a>            &amp;&amp; <span class="self">self</span>.metadata == current.metadata
+<a href=#76 id=76 data-nosnippet>76</a>            &amp;&amp; <span class="self">self
+<a href=#77 id=77 data-nosnippet>77</a>                </span>.fingerprint
+<a href=#78 id=78 data-nosnippet>78</a>                .as_ref()
+<a href=#79 id=79 data-nosnippet>79</a>                .is_none_or(|fp| current.fingerprint.as_ref() == <span class="prelude-val">Some</span>(fp))
+<a href=#80 id=80 data-nosnippet>80</a>    }
+<a href=#81 id=81 data-nosnippet>81</a>
+<a href=#82 id=82 data-nosnippet>82</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>to_json(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Json {
+<a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">let </span><span class="kw-2">mut </span>row = Json::obj();
+<a href=#84 id=84 data-nosnippet>84</a>        row.set(<span class="string">"path"</span>, <span class="self">self</span>.path.as_str().into());
+<a href=#85 id=85 data-nosnippet>85</a>        row.set(<span class="string">"size"</span>, <span class="self">self</span>.size.into());
+<a href=#86 id=86 data-nosnippet>86</a>        row.set(<span class="string">"codec"</span>, <span class="self">self</span>.codec.as_str().into());
+<a href=#87 id=87 data-nosnippet>87</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(value) = <span class="self">self</span>.duration_ms {
+<a href=#88 id=88 data-nosnippet>88</a>            row.set(<span class="string">"duration_ms"</span>, value.into());
+<a href=#89 id=89 data-nosnippet>89</a>        }
+<a href=#90 id=90 data-nosnippet>90</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(value) = <span class="self">self</span>.sample_rate {
+<a href=#91 id=91 data-nosnippet>91</a>            row.set(<span class="string">"sample_rate"</span>, value.into());
+<a href=#92 id=92 data-nosnippet>92</a>        }
+<a href=#93 id=93 data-nosnippet>93</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(value) = <span class="self">self</span>.bit_depth {
+<a href=#94 id=94 data-nosnippet>94</a>            row.set(<span class="string">"bit_depth"</span>, u32::from(value).into());
+<a href=#95 id=95 data-nosnippet>95</a>        }
+<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(value) = <span class="self">self</span>.channels {
+<a href=#97 id=97 data-nosnippet>97</a>            row.set(<span class="string">"channels"</span>, u32::from(value).into());
+<a href=#98 id=98 data-nosnippet>98</a>        }
+<a href=#99 id=99 data-nosnippet>99</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(value) = <span class="kw-2">&amp;</span><span class="self">self</span>.fingerprint {
+<a href=#100 id=100 data-nosnippet>100</a>            row.set(<span class="string">"fingerprint"</span>, value.as_str().into());
+<a href=#101 id=101 data-nosnippet>101</a>        }
+<a href=#102 id=102 data-nosnippet>102</a>        <span class="kw">let </span><span class="kw-2">mut </span>metadata = Json::obj();
+<a href=#103 id=103 data-nosnippet>103</a>        <span class="kw">for </span>(key, values) <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.metadata {
+<a href=#104 id=104 data-nosnippet>104</a>            metadata.set(
+<a href=#105 id=105 data-nosnippet>105</a>                key,
+<a href=#106 id=106 data-nosnippet>106</a>                Json::Arr(values.iter().map(|value| value.as_str().into()).collect()),
+<a href=#107 id=107 data-nosnippet>107</a>            );
+<a href=#108 id=108 data-nosnippet>108</a>        }
+<a href=#109 id=109 data-nosnippet>109</a>        row.set(<span class="string">"metadata"</span>, metadata);
+<a href=#110 id=110 data-nosnippet>110</a>        row
+<a href=#111 id=111 data-nosnippet>111</a>    }
+<a href=#112 id=112 data-nosnippet>112</a>
+<a href=#113 id=113 data-nosnippet>113</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>from_json(row: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>&gt; {
+<a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">let </span>Json::Obj(fields) = row.get(<span class="string">"metadata"</span>)<span class="question-mark">? </span><span class="kw">else </span>{
+<a href=#115 id=115 data-nosnippet>115</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#116 id=116 data-nosnippet>116</a>        };
+<a href=#117 id=117 data-nosnippet>117</a>        <span class="kw">let </span>metadata = fields
+<a href=#118 id=118 data-nosnippet>118</a>            .iter()
+<a href=#119 id=119 data-nosnippet>119</a>            .map(|(key, values)| {
+<a href=#120 id=120 data-nosnippet>120</a>                <span class="prelude-val">Some</span>((
+<a href=#121 id=121 data-nosnippet>121</a>                    key.clone(),
+<a href=#122 id=122 data-nosnippet>122</a>                    values
+<a href=#123 id=123 data-nosnippet>123</a>                        .as_arr()<span class="question-mark">?
+<a href=#124 id=124 data-nosnippet>124</a>                        </span>.iter()
+<a href=#125 id=125 data-nosnippet>125</a>                        .map(Json::as_string)
+<a href=#126 id=126 data-nosnippet>126</a>                        .collect::&lt;<span class="prelude-ty">Option</span>&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;&gt;()<span class="question-mark">?</span>,
+<a href=#127 id=127 data-nosnippet>127</a>                ))
+<a href=#128 id=128 data-nosnippet>128</a>            })
+<a href=#129 id=129 data-nosnippet>129</a>            .collect::&lt;<span class="prelude-ty">Option</span>&lt;BTreeMap&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;&gt;&gt;()<span class="question-mark">?</span>;
+<a href=#130 id=130 data-nosnippet>130</a>        <span class="prelude-val">Some</span>(<span class="self">Self </span>{
+<a href=#131 id=131 data-nosnippet>131</a>            path: row.field_str(<span class="string">"path"</span>)<span class="question-mark">?</span>,
+<a href=#132 id=132 data-nosnippet>132</a>            size: row.field_u64(<span class="string">"size"</span>)<span class="question-mark">?</span>,
+<a href=#133 id=133 data-nosnippet>133</a>            codec: row.field_str(<span class="string">"codec"</span>)<span class="question-mark">?</span>,
+<a href=#134 id=134 data-nosnippet>134</a>            duration_ms: row.field_u64(<span class="string">"duration_ms"</span>),
+<a href=#135 id=135 data-nosnippet>135</a>            sample_rate: row.field_u32(<span class="string">"sample_rate"</span>),
+<a href=#136 id=136 data-nosnippet>136</a>            bit_depth: row.field_u32(<span class="string">"bit_depth"</span>).and_then(|n| n.try_into().ok()),
+<a href=#137 id=137 data-nosnippet>137</a>            channels: row.field_u32(<span class="string">"channels"</span>).and_then(|n| n.try_into().ok()),
+<a href=#138 id=138 data-nosnippet>138</a>            metadata,
+<a href=#139 id=139 data-nosnippet>139</a>            fingerprint: row.field_str(<span class="string">"fingerprint"</span>),
+<a href=#140 id=140 data-nosnippet>140</a>        })
+<a href=#141 id=141 data-nosnippet>141</a>    }
+<a href=#142 id=142 data-nosnippet>142</a>}
+<a href=#143 id=143 data-nosnippet>143</a>
+<a href=#144 id=144 data-nosnippet>144</a><span class="doccomment">/// Counts personal records attached, waiting, or relocated during reconciliation.
+<a href=#145 id=145 data-nosnippet>145</a></span><span class="attr">#[derive(Debug, Clone, Copy, Default, PartialEq)]
+<a href=#146 id=146 data-nosnippet>146</a></span><span class="kw">pub struct </span>Attachment {
+<a href=#147 id=147 data-nosnippet>147</a>    <span class="doccomment">/// Records whose target is in the catalog.
+<a href=#148 id=148 data-nosnippet>148</a>    </span><span class="kw">pub </span>attached: usize,
+<a href=#149 id=149 data-nosnippet>149</a>    <span class="doccomment">/// Records whose target is absent and retained unchanged.
+<a href=#150 id=150 data-nosnippet>150</a>    </span><span class="kw">pub </span>waiting: usize,
+<a href=#151 id=151 data-nosnippet>151</a>    <span class="doccomment">/// Records whose reference was migrated or whose file moved.
+<a href=#152 id=152 data-nosnippet>152</a>    </span><span class="kw">pub </span>moved: usize,
+<a href=#153 id=153 data-nosnippet>153</a>}
+<a href=#154 id=154 data-nosnippet>154</a>
+<a href=#155 id=155 data-nosnippet>155</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>resolve_release(reference: <span class="kw-2">&amp;</span>EntityRef, catalog: <span class="kw-2">&amp;</span>Catalog) -&gt; <span class="prelude-ty">Option</span>&lt;Id&gt; {
+<a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(release) = catalog.releases.iter().find(|release| {
+<a href=#157 id=157 data-nosnippet>157</a>        EntityRef::of(catalog, EntityKind::Release, release.id).as_ref() == <span class="prelude-val">Some</span>(reference)
+<a href=#158 id=158 data-nosnippet>158</a>    }) {
+<a href=#159 id=159 data-nosnippet>159</a>        <span class="kw">return </span><span class="prelude-val">Some</span>(release.id);
+<a href=#160 id=160 data-nosnippet>160</a>    }
+<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">let </span>(prefix, folder) = reference.key.rsplit_once(RELEASE_KEY_SEPARATOR)<span class="question-mark">?</span>;
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">let </span>legacy_parent = text::disc_folder(text::file_name(folder)).map(|<span class="kw">_</span>| text::folder(folder));
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">let </span><span class="kw-2">mut </span>matches = catalog.releases.iter().filter(|release| {
+<a href=#164 id=164 data-nosnippet>164</a>        EntityRef::of(catalog, EntityKind::Release, release.id).is_some_and(|current| {
+<a href=#165 id=165 data-nosnippet>165</a>            <span class="kw">let </span><span class="prelude-val">Some</span>((current_prefix, current_folder)) =
+<a href=#166 id=166 data-nosnippet>166</a>                current.key.rsplit_once(RELEASE_KEY_SEPARATOR)
+<a href=#167 id=167 data-nosnippet>167</a>            <span class="kw">else </span>{
+<a href=#168 id=168 data-nosnippet>168</a>                <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#169 id=169 data-nosnippet>169</a>            };
+<a href=#170 id=170 data-nosnippet>170</a>            current_prefix == prefix
+<a href=#171 id=171 data-nosnippet>171</a>                &amp;&amp; (current_folder == folder || legacy_parent == <span class="prelude-val">Some</span>(current_folder))
+<a href=#172 id=172 data-nosnippet>172</a>        })
+<a href=#173 id=173 data-nosnippet>173</a>    });
+<a href=#174 id=174 data-nosnippet>174</a>    <span class="kw">let </span>found = matches.next()<span class="question-mark">?</span>;
+<a href=#175 id=175 data-nosnippet>175</a>    matches.next().is_none().then_some(found.id)
+<a href=#176 id=176 data-nosnippet>176</a>}
+<a href=#177 id=177 data-nosnippet>177</a>
+<a href=#178 id=178 data-nosnippet>178</a><span class="doccomment">/// Resolution for a reconciliation pass, including legacy recording aliases.
+<a href=#179 id=179 data-nosnippet>179</a>/// Building once keeps a referenced library from being walked for every record.
+<a href=#180 id=180 data-nosnippet>180</a></span><span class="kw">struct </span>ReferenceIndex {
+<a href=#181 id=181 data-nosnippet>181</a>    current: BTreeMap&lt;EntityRef, (Id, usize)&gt;,
+<a href=#182 id=182 data-nosnippet>182</a>}
+<a href=#183 id=183 data-nosnippet>183</a>
+<a href=#184 id=184 data-nosnippet>184</a><span class="kw">impl </span>ReferenceIndex {
+<a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">fn </span>new(catalog: <span class="kw-2">&amp;</span>Catalog, kinds: BTreeSet&lt;EntityKind&gt;) -&gt; <span class="self">Self </span>{
+<a href=#186 id=186 data-nosnippet>186</a>        <span class="kw">let </span><span class="kw-2">mut </span>current: BTreeMap&lt;EntityRef, (Id, usize)&gt; = BTreeMap::new();
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="kw">for </span>kind <span class="kw">in </span>kinds {
+<a href=#188 id=188 data-nosnippet>188</a>            <span class="kw">let </span>ids: Vec&lt;<span class="kw">_</span>&gt; = <span class="kw">match </span>kind {
+<a href=#189 id=189 data-nosnippet>189</a>                EntityKind::Track =&gt; catalog.tracks.iter().map(|row| row.id).collect(),
+<a href=#190 id=190 data-nosnippet>190</a>                EntityKind::Release =&gt; catalog.releases.iter().map(|row| row.id).collect(),
+<a href=#191 id=191 data-nosnippet>191</a>                EntityKind::Artist =&gt; catalog.artists.iter().map(|row| row.id).collect(),
+<a href=#192 id=192 data-nosnippet>192</a>                EntityKind::Recording =&gt; catalog.recordings.iter().map(|row| row.id).collect(),
+<a href=#193 id=193 data-nosnippet>193</a>                EntityKind::Work =&gt; catalog.works.iter().map(|row| row.id).collect(),
+<a href=#194 id=194 data-nosnippet>194</a>                EntityKind::ReleaseGroup =&gt; {
+<a href=#195 id=195 data-nosnippet>195</a>                    catalog.release_groups.iter().map(|row| row.id).collect()
+<a href=#196 id=196 data-nosnippet>196</a>                }
+<a href=#197 id=197 data-nosnippet>197</a>                EntityKind::Label =&gt; catalog.labels.iter().map(|row| row.id).collect(),
+<a href=#198 id=198 data-nosnippet>198</a>                EntityKind::Genre =&gt; catalog.genres.iter().map(|row| row.id).collect(),
+<a href=#199 id=199 data-nosnippet>199</a>            };
+<a href=#200 id=200 data-nosnippet>200</a>            <span class="kw">for </span>id <span class="kw">in </span>ids {
+<a href=#201 id=201 data-nosnippet>201</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(reference) = EntityRef::of(catalog, kind, id) {
+<a href=#202 id=202 data-nosnippet>202</a>                    current
+<a href=#203 id=203 data-nosnippet>203</a>                        .entry(reference)
+<a href=#204 id=204 data-nosnippet>204</a>                        .and_modify(|value| value.<span class="number">1 </span>+= <span class="number">1</span>)
+<a href=#205 id=205 data-nosnippet>205</a>                        .or_insert((id, <span class="number">1</span>));
+<a href=#206 id=206 data-nosnippet>206</a>                }
+<a href=#207 id=207 data-nosnippet>207</a>            }
+<a href=#208 id=208 data-nosnippet>208</a>            <span class="kw">if </span>kind == EntityKind::Recording {
+<a href=#209 id=209 data-nosnippet>209</a>                <span class="kw">for </span>recording <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.recordings {
+<a href=#210 id=210 data-nosnippet>210</a>                    <span class="kw">for </span>track <span class="kw">in </span><span class="kw-2">&amp;</span>recording.track_ids {
+<a href=#211 id=211 data-nosnippet>211</a>                        <span class="kw">if let </span><span class="prelude-val">Some</span>(file) = catalog
+<a href=#212 id=212 data-nosnippet>212</a>                            .track(<span class="kw-2">*</span>track)
+<a href=#213 id=213 data-nosnippet>213</a>                            .and_then(|track| catalog.file(track.file_id))
+<a href=#214 id=214 data-nosnippet>214</a>                        {
+<a href=#215 id=215 data-nosnippet>215</a>                            current
+<a href=#216 id=216 data-nosnippet>216</a>                                .entry(EntityRef::new(kind, <span class="macro">format!</span>(<span class="string">"local:{}"</span>, file.path)))
+<a href=#217 id=217 data-nosnippet>217</a>                                .or_insert((recording.id, <span class="number">1</span>));
+<a href=#218 id=218 data-nosnippet>218</a>                        }
+<a href=#219 id=219 data-nosnippet>219</a>                    }
+<a href=#220 id=220 data-nosnippet>220</a>                }
+<a href=#221 id=221 data-nosnippet>221</a>            }
+<a href=#222 id=222 data-nosnippet>222</a>        }
+<a href=#223 id=223 data-nosnippet>223</a>        <span class="self">Self </span>{ current }
+<a href=#224 id=224 data-nosnippet>224</a>    }
+<a href=#225 id=225 data-nosnippet>225</a>
+<a href=#226 id=226 data-nosnippet>226</a>    <span class="kw">fn </span>resolve(<span class="kw-2">&amp;</span><span class="self">self</span>, target: <span class="kw-2">&amp;</span>EntityRef) -&gt; <span class="prelude-ty">Option</span>&lt;Id&gt; {
+<a href=#227 id=227 data-nosnippet>227</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>((id, <span class="kw">_</span>)) = <span class="self">self</span>.current.get(target) {
+<a href=#228 id=228 data-nosnippet>228</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(<span class="kw-2">*</span>id);
+<a href=#229 id=229 data-nosnippet>229</a>        }
+<a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">if </span>target.kind != EntityKind::Release {
+<a href=#231 id=231 data-nosnippet>231</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#232 id=232 data-nosnippet>232</a>        }
+<a href=#233 id=233 data-nosnippet>233</a>        <span class="kw">let </span>(prefix, folder) = target.key.rsplit_once(RELEASE_KEY_SEPARATOR)<span class="question-mark">?</span>;
+<a href=#234 id=234 data-nosnippet>234</a>        text::disc_folder(text::file_name(folder))<span class="question-mark">?</span>;
+<a href=#235 id=235 data-nosnippet>235</a>        <span class="kw">let </span>parent = EntityRef::new(
+<a href=#236 id=236 data-nosnippet>236</a>            EntityKind::Release,
+<a href=#237 id=237 data-nosnippet>237</a>            <span class="macro">format!</span>(<span class="string">"{prefix}{RELEASE_KEY_SEPARATOR}{}"</span>, text::folder(folder)),
+<a href=#238 id=238 data-nosnippet>238</a>        );
+<a href=#239 id=239 data-nosnippet>239</a>        <span class="self">self</span>.current
+<a href=#240 id=240 data-nosnippet>240</a>            .get(<span class="kw-2">&amp;</span>parent)
+<a href=#241 id=241 data-nosnippet>241</a>            .and_then(|(id, count)| (<span class="kw-2">*</span>count == <span class="number">1</span>).then_some(<span class="kw-2">*</span>id))
+<a href=#242 id=242 data-nosnippet>242</a>    }
+<a href=#243 id=243 data-nosnippet>243</a>}
+<a href=#244 id=244 data-nosnippet>244</a>
+<a href=#245 id=245 data-nosnippet>245</a><span class="doccomment">/// Reconciles personal references without guessing from a filename alone.
+<a href=#246 id=246 data-nosnippet>246</a>///
+<a href=#247 id=247 data-nosnippet>247</a>/// Existing references capture optional file evidence. Missing tracks move only
+<a href=#248 id=248 data-nosnippet>248</a>/// to one matching basename, size, metadata and stream identity, with no personal
+<a href=#249 id=249 data-nosnippet>249</a>/// data already at the destination for that owner. Legacy references lacking
+<a href=#250 id=250 data-nosnippet>250</a>/// evidence remain waiting. Album references using a former disc folder migrate
+<a href=#251 id=251 data-nosnippet>251</a>/// to the release's canonical folder only when their resolution is unambiguous.
+<a href=#252 id=252 data-nosnippet>252</a>/// No annotation, play or counter is deleted.
+<a href=#253 id=253 data-nosnippet>253</a></span><span class="kw">pub fn </span>reconcile(data: <span class="kw-2">&amp;mut </span>UserData, catalog: <span class="kw-2">&amp;</span>Catalog) -&gt; Attachment {
+<a href=#254 id=254 data-nosnippet>254</a>    <span class="kw">let </span><span class="kw-2">mut </span>report = Attachment::default();
+<a href=#255 id=255 data-nosnippet>255</a>    <span class="kw">let </span><span class="kw-2">mut </span>files_by_name: BTreeMap&lt;<span class="kw-2">&amp;</span>str, Vec&lt;<span class="kw-2">&amp;</span>AudioFile&gt;&gt; = BTreeMap::new();
+<a href=#256 id=256 data-nosnippet>256</a>    <span class="kw">for </span>file <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.files {
+<a href=#257 id=257 data-nosnippet>257</a>        files_by_name
+<a href=#258 id=258 data-nosnippet>258</a>            .entry(file.file_name())
+<a href=#259 id=259 data-nosnippet>259</a>            .or_default()
+<a href=#260 id=260 data-nosnippet>260</a>            .push(file);
+<a href=#261 id=261 data-nosnippet>261</a>    }
+<a href=#262 id=262 data-nosnippet>262</a>    <span class="kw">let </span>identities: BTreeMap&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt; = data
+<a href=#263 id=263 data-nosnippet>263</a>        .track_identities
+<a href=#264 id=264 data-nosnippet>264</a>        .iter()
+<a href=#265 id=265 data-nosnippet>265</a>        .map(|identity| (identity.path.as_str(), identity))
+<a href=#266 id=266 data-nosnippet>266</a>        .collect();
+<a href=#267 id=267 data-nosnippet>267</a>    <span class="kw">let </span>existing: BTreeSet&lt;<span class="kw">_</span>&gt; = data
+<a href=#268 id=268 data-nosnippet>268</a>        .annotations
+<a href=#269 id=269 data-nosnippet>269</a>        .iter()
+<a href=#270 id=270 data-nosnippet>270</a>        .map(|a| (a.owner.clone(), a.target.clone()))
+<a href=#271 id=271 data-nosnippet>271</a>        .chain(
+<a href=#272 id=272 data-nosnippet>272</a>            data.plays
+<a href=#273 id=273 data-nosnippet>273</a>                .iter()
+<a href=#274 id=274 data-nosnippet>274</a>                .map(|p| (p.owner.clone(), p.track.clone())),
+<a href=#275 id=275 data-nosnippet>275</a>        )
+<a href=#276 id=276 data-nosnippet>276</a>        .chain(
+<a href=#277 id=277 data-nosnippet>277</a>            data.counts
+<a href=#278 id=278 data-nosnippet>278</a>                .iter()
+<a href=#279 id=279 data-nosnippet>279</a>                .map(|c| (c.owner.clone(), c.track.clone())),
+<a href=#280 id=280 data-nosnippet>280</a>        )
+<a href=#281 id=281 data-nosnippet>281</a>        .chain(
+<a href=#282 id=282 data-nosnippet>282</a>            data.scrobbles
+<a href=#283 id=283 data-nosnippet>283</a>                .iter()
+<a href=#284 id=284 data-nosnippet>284</a>                .map(|p| (p.owner.clone(), p.track.clone())),
+<a href=#285 id=285 data-nosnippet>285</a>        )
+<a href=#286 id=286 data-nosnippet>286</a>        .chain(data.playlists.iter().flat_map(|p| {
+<a href=#287 id=287 data-nosnippet>287</a>            p.tracks
+<a href=#288 id=288 data-nosnippet>288</a>                .iter()
+<a href=#289 id=289 data-nosnippet>289</a>                .map(|track| (p.owner.clone(), track.clone()))
+<a href=#290 id=290 data-nosnippet>290</a>        }))
+<a href=#291 id=291 data-nosnippet>291</a>        .chain(data.relation_annotations.iter().flat_map(|a| {
+<a href=#292 id=292 data-nosnippet>292</a>            [
+<a href=#293 id=293 data-nosnippet>293</a>                (a.owner.clone(), a.relation.source.clone()),
+<a href=#294 id=294 data-nosnippet>294</a>                (a.owner.clone(), a.relation.target.clone()),
+<a href=#295 id=295 data-nosnippet>295</a>            ]
+<a href=#296 id=296 data-nosnippet>296</a>        }))
+<a href=#297 id=297 data-nosnippet>297</a>        .collect();
+<a href=#298 id=298 data-nosnippet>298</a>    <span class="kw">let </span>references = ReferenceIndex::new(
+<a href=#299 id=299 data-nosnippet>299</a>        catalog,
+<a href=#300 id=300 data-nosnippet>300</a>        existing.iter().map(|(<span class="kw">_</span>, target)| target.kind).collect(),
+<a href=#301 id=301 data-nosnippet>301</a>    );
+<a href=#302 id=302 data-nosnippet>302</a>    <span class="kw">let </span>undone: BTreeSet&lt;<span class="kw">_</span>&gt; = data
+<a href=#303 id=303 data-nosnippet>303</a>        .relinks
+<a href=#304 id=304 data-nosnippet>304</a>        .iter()
+<a href=#305 id=305 data-nosnippet>305</a>        .filter(|event| event.undone_at.is_some())
+<a href=#306 id=306 data-nosnippet>306</a>        .map(|event| (<span class="kw-2">&amp;</span>event.owner, <span class="kw-2">&amp;</span>event.from))
+<a href=#307 id=307 data-nosnippet>307</a>        .collect();
+<a href=#308 id=308 data-nosnippet>308</a>    <span class="kw">let </span><span class="kw-2">mut </span>moves = BTreeMap::new();
+<a href=#309 id=309 data-nosnippet>309</a>    <span class="kw">for </span>(owner, target) <span class="kw">in </span><span class="kw-2">&amp;</span>existing {
+<a href=#310 id=310 data-nosnippet>310</a>        <span class="kw">let </span>next = <span class="kw">if let </span><span class="prelude-val">Some</span>(id) = references.resolve(target) {
+<a href=#311 id=311 data-nosnippet>311</a>            EntityRef::of(catalog, target.kind, id)
+<a href=#312 id=312 data-nosnippet>312</a>        } <span class="kw">else if </span>target.kind == EntityKind::Track {
+<a href=#313 id=313 data-nosnippet>313</a>            <span class="kw">if </span>undone.contains(<span class="kw-2">&amp;</span>(owner, target)) {
+<a href=#314 id=314 data-nosnippet>314</a>                <span class="kw">continue</span>;
+<a href=#315 id=315 data-nosnippet>315</a>            }
+<a href=#316 id=316 data-nosnippet>316</a>            identities.get(target.key.as_str()).and_then(|identity| {
+<a href=#317 id=317 data-nosnippet>317</a>                <span class="kw">let </span><span class="kw-2">mut </span>matches = files_by_name
+<a href=#318 id=318 data-nosnippet>318</a>                    .get(text::file_name(<span class="kw-2">&amp;</span>target.key))<span class="question-mark">?
+<a href=#319 id=319 data-nosnippet>319</a>                    </span>.iter()
+<a href=#320 id=320 data-nosnippet>320</a>                    .filter(|file| identity.matches(file));
+<a href=#321 id=321 data-nosnippet>321</a>                <span class="kw">let </span>candidate = matches.next()<span class="question-mark">?</span>;
+<a href=#322 id=322 data-nosnippet>322</a>                matches
+<a href=#323 id=323 data-nosnippet>323</a>                    .next()
+<a href=#324 id=324 data-nosnippet>324</a>                    .is_none()
+<a href=#325 id=325 data-nosnippet>325</a>                    .then(|| EntityRef::new(EntityKind::Track, <span class="kw-2">&amp;</span>candidate.path))
+<a href=#326 id=326 data-nosnippet>326</a>            })
+<a href=#327 id=327 data-nosnippet>327</a>        } <span class="kw">else </span>{
+<a href=#328 id=328 data-nosnippet>328</a>            <span class="prelude-val">None
+<a href=#329 id=329 data-nosnippet>329</a>        </span>};
+<a href=#330 id=330 data-nosnippet>330</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(next) = next
+<a href=#331 id=331 data-nosnippet>331</a>            &amp;&amp; next != <span class="kw-2">*</span>target
+<a href=#332 id=332 data-nosnippet>332</a>            &amp;&amp; !existing.contains(<span class="kw-2">&amp;</span>(owner.clone(), next.clone()))
+<a href=#333 id=333 data-nosnippet>333</a>        {
+<a href=#334 id=334 data-nosnippet>334</a>            moves.insert((owner.clone(), target.clone()), next);
+<a href=#335 id=335 data-nosnippet>335</a>        }
+<a href=#336 id=336 data-nosnippet>336</a>    }
+<a href=#337 id=337 data-nosnippet>337</a>    <span class="comment">// Two missing references converging on one file are just as ambiguous as
+<a href=#338 id=338 data-nosnippet>338</a>    // two candidate files. Do not manufacture duplicate owner/target records.
+<a href=#339 id=339 data-nosnippet>339</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>destinations = BTreeMap::new();
+<a href=#340 id=340 data-nosnippet>340</a>    <span class="kw">for </span>((owner, <span class="kw">_</span>), to) <span class="kw">in </span><span class="kw-2">&amp;</span>moves {
+<a href=#341 id=341 data-nosnippet>341</a>        <span class="kw-2">*</span>destinations
+<a href=#342 id=342 data-nosnippet>342</a>            .entry((owner.clone(), to.clone()))
+<a href=#343 id=343 data-nosnippet>343</a>            .or_insert(<span class="number">0usize</span>) += <span class="number">1</span>;
+<a href=#344 id=344 data-nosnippet>344</a>    }
+<a href=#345 id=345 data-nosnippet>345</a>    moves.retain(|(owner, <span class="kw">_</span>), to| destinations.get(<span class="kw-2">&amp;</span>(owner.clone(), to.clone())) == <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="number">1</span>));
+<a href=#346 id=346 data-nosnippet>346</a>    <span class="kw">for </span>(owner, target) <span class="kw">in </span>data
+<a href=#347 id=347 data-nosnippet>347</a>        .annotations
+<a href=#348 id=348 data-nosnippet>348</a>        .iter_mut()
+<a href=#349 id=349 data-nosnippet>349</a>        .map(|a| (<span class="kw-2">&amp;</span>a.owner, <span class="kw-2">&amp;mut </span>a.target))
+<a href=#350 id=350 data-nosnippet>350</a>        .chain(data.plays.iter_mut().map(|p| (<span class="kw-2">&amp;</span>p.owner, <span class="kw-2">&amp;mut </span>p.track)))
+<a href=#351 id=351 data-nosnippet>351</a>        .chain(data.counts.iter_mut().map(|c| (<span class="kw-2">&amp;</span>c.owner, <span class="kw-2">&amp;mut </span>c.track)))
+<a href=#352 id=352 data-nosnippet>352</a>        .chain(data.scrobbles.iter_mut().map(|p| (<span class="kw-2">&amp;</span>p.owner, <span class="kw-2">&amp;mut </span>p.track)))
+<a href=#353 id=353 data-nosnippet>353</a>        .chain(
+<a href=#354 id=354 data-nosnippet>354</a>            data.playlists
+<a href=#355 id=355 data-nosnippet>355</a>                .iter_mut()
+<a href=#356 id=356 data-nosnippet>356</a>                .flat_map(|p| p.tracks.iter_mut().map(|track| (<span class="kw-2">&amp;</span>p.owner, track))),
+<a href=#357 id=357 data-nosnippet>357</a>        )
+<a href=#358 id=358 data-nosnippet>358</a>    {
+<a href=#359 id=359 data-nosnippet>359</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(next) = moves.get(<span class="kw-2">&amp;</span>(owner.clone(), target.clone())) {
+<a href=#360 id=360 data-nosnippet>360</a>            <span class="kw-2">*</span>target = next.clone();
+<a href=#361 id=361 data-nosnippet>361</a>            report.moved += <span class="number">1</span>;
+<a href=#362 id=362 data-nosnippet>362</a>        }
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">if </span>references.resolve(target).is_some() {
+<a href=#364 id=364 data-nosnippet>364</a>            report.attached += <span class="number">1</span>;
+<a href=#365 id=365 data-nosnippet>365</a>        } <span class="kw">else </span>{
+<a href=#366 id=366 data-nosnippet>366</a>            report.waiting += <span class="number">1</span>;
+<a href=#367 id=367 data-nosnippet>367</a>        }
+<a href=#368 id=368 data-nosnippet>368</a>    }
+<a href=#369 id=369 data-nosnippet>369</a>    <span class="kw">for </span>annotation <span class="kw">in </span><span class="kw-2">&amp;mut </span>data.relation_annotations {
+<a href=#370 id=370 data-nosnippet>370</a>        <span class="kw">for </span>endpoint <span class="kw">in </span>[
+<a href=#371 id=371 data-nosnippet>371</a>            <span class="kw-2">&amp;mut </span>annotation.relation.source,
+<a href=#372 id=372 data-nosnippet>372</a>            <span class="kw-2">&amp;mut </span>annotation.relation.target,
+<a href=#373 id=373 data-nosnippet>373</a>        ] {
+<a href=#374 id=374 data-nosnippet>374</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(next) = moves.get(<span class="kw-2">&amp;</span>(annotation.owner.clone(), endpoint.clone())) {
+<a href=#375 id=375 data-nosnippet>375</a>                <span class="kw-2">*</span>endpoint = next.clone();
+<a href=#376 id=376 data-nosnippet>376</a>            }
+<a href=#377 id=377 data-nosnippet>377</a>        }
+<a href=#378 id=378 data-nosnippet>378</a>    }
+<a href=#379 id=379 data-nosnippet>379</a>    <span class="kw">let </span>paths: BTreeSet&lt;<span class="kw">_</span>&gt; = data
+<a href=#380 id=380 data-nosnippet>380</a>        .annotations
+<a href=#381 id=381 data-nosnippet>381</a>        .iter()
+<a href=#382 id=382 data-nosnippet>382</a>        .map(|a| <span class="kw-2">&amp;</span>a.target)
+<a href=#383 id=383 data-nosnippet>383</a>        .chain(data.plays.iter().map(|p| <span class="kw-2">&amp;</span>p.track))
+<a href=#384 id=384 data-nosnippet>384</a>        .chain(data.counts.iter().map(|c| <span class="kw-2">&amp;</span>c.track))
+<a href=#385 id=385 data-nosnippet>385</a>        .chain(data.scrobbles.iter().map(|p| <span class="kw-2">&amp;</span>p.track))
+<a href=#386 id=386 data-nosnippet>386</a>        .chain(data.playlists.iter().flat_map(|p| <span class="kw-2">&amp;</span>p.tracks))
+<a href=#387 id=387 data-nosnippet>387</a>        .chain(
+<a href=#388 id=388 data-nosnippet>388</a>            data.relation_annotations
+<a href=#389 id=389 data-nosnippet>389</a>                .iter()
+<a href=#390 id=390 data-nosnippet>390</a>                .flat_map(|a| [<span class="kw-2">&amp;</span>a.relation.source, <span class="kw-2">&amp;</span>a.relation.target]),
+<a href=#391 id=391 data-nosnippet>391</a>        )
+<a href=#392 id=392 data-nosnippet>392</a>        .filter(|target| target.kind == EntityKind::Track)
+<a href=#393 id=393 data-nosnippet>393</a>        .map(|target| target.key.as_str())
+<a href=#394 id=394 data-nosnippet>394</a>        .collect();
+<a href=#395 id=395 data-nosnippet>395</a>    <span class="kw">let </span><span class="kw-2">mut </span>identities: BTreeMap&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt; = std::mem::take(<span class="kw-2">&amp;mut </span>data.track_identities)
+<a href=#396 id=396 data-nosnippet>396</a>        .into_iter()
+<a href=#397 id=397 data-nosnippet>397</a>        .map(|identity| (identity.path.clone(), identity))
+<a href=#398 id=398 data-nosnippet>398</a>        .collect();
+<a href=#399 id=399 data-nosnippet>399</a>    <span class="kw">for </span>file <span class="kw">in </span>catalog
+<a href=#400 id=400 data-nosnippet>400</a>        .files
+<a href=#401 id=401 data-nosnippet>401</a>        .iter()
+<a href=#402 id=402 data-nosnippet>402</a>        .filter(|file| paths.contains(file.path.as_str()))
+<a href=#403 id=403 data-nosnippet>403</a>    {
+<a href=#404 id=404 data-nosnippet>404</a>        identities.insert(file.path.clone(), TrackIdentity::of(file));
+<a href=#405 id=405 data-nosnippet>405</a>    }
+<a href=#406 id=406 data-nosnippet>406</a>    <span class="kw">let </span>relink_paths: BTreeSet&lt;<span class="kw">_</span>&gt; = data
+<a href=#407 id=407 data-nosnippet>407</a>        .relinks
+<a href=#408 id=408 data-nosnippet>408</a>        .iter()
+<a href=#409 id=409 data-nosnippet>409</a>        .filter(|event| event.from.kind == EntityKind::Track)
+<a href=#410 id=410 data-nosnippet>410</a>        .flat_map(|event| [<span class="kw-2">&amp;</span>event.from.key, <span class="kw-2">&amp;</span>event.to.key])
+<a href=#411 id=411 data-nosnippet>411</a>        .collect();
+<a href=#412 id=412 data-nosnippet>412</a>    data.track_identities = identities
+<a href=#413 id=413 data-nosnippet>413</a>        .into_values()
+<a href=#414 id=414 data-nosnippet>414</a>        .filter(|identity| {
+<a href=#415 id=415 data-nosnippet>415</a>            paths.contains(identity.path.as_str()) || relink_paths.contains(<span class="kw-2">&amp;</span>identity.path)
+<a href=#416 id=416 data-nosnippet>416</a>        })
+<a href=#417 id=417 data-nosnippet>417</a>        .collect();
+<a href=#418 id=418 data-nosnippet>418</a>    report
+<a href=#419 id=419 data-nosnippet>419</a>}
+<a href=#420 id=420 data-nosnippet>420</a>
+<a href=#421 id=421 data-nosnippet>421</a><span class="attr">#[cfg(test)]
+<a href=#422 id=422 data-nosnippet>422</a>#[path = <span class="string">"user_identity_tests.rs"</span>]
+<a href=#423 id=423 data-nosnippet>423</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

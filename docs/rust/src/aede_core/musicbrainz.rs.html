@@ -101,772 +101,804 @@
 <a href=#101 id=101 data-nosnippet>101</a>    <span class="doccomment">/// The search came back with nothing at all.
 <a href=#102 id=102 data-nosnippet>102</a>    </span>Nothing,
 <a href=#103 id=103 data-nosnippet>103</a>    <span class="doccomment">/// Several answers are equally good, and choosing between them would be
-<a href=#104 id=104 data-nosnippet>104</a>    /// arbitrary. The names are carried so the report can show them.
-<a href=#105 id=105 data-nosnippet>105</a>    </span>Ambiguous(Vec&lt;String&gt;),
-<a href=#106 id=106 data-nosnippet>106</a>    <span class="doccomment">/// The best answer is not close enough to the name asked about.
-<a href=#107 id=107 data-nosnippet>107</a>    </span>TooWeak {
-<a href=#108 id=108 data-nosnippet>108</a>        <span class="doccomment">/// The best candidate's name, so the reader can see what was rejected.
-<a href=#109 id=109 data-nosnippet>109</a>        </span>best: String,
-<a href=#110 id=110 data-nosnippet>110</a>        <span class="doccomment">/// Its search score.
-<a href=#111 id=111 data-nosnippet>111</a>        </span>score: u8,
-<a href=#112 id=112 data-nosnippet>112</a>    },
-<a href=#113 id=113 data-nosnippet>113</a>}
-<a href=#114 id=114 data-nosnippet>114</a>
-<a href=#115 id=115 data-nosnippet>115</a><span class="doccomment">/// Below this, an answer is not worth attaching to anything.
-<a href=#116 id=116 data-nosnippet>116</a>///
-<a href=#117 id=117 data-nosnippet>117</a>/// A floor rather than a preference: MusicBrainz answers *something* for
-<a href=#118 id=118 data-nosnippet>118</a>/// almost any query, and an unfiltered "best" result is how a library ends up
-<a href=#119 id=119 data-nosnippet>119</a>/// with a Beatles record filed under a bar band of the same initials.
-<a href=#120 id=120 data-nosnippet>120</a></span><span class="kw">const </span>FLOOR: u8 = <span class="number">70</span>;
-<a href=#121 id=121 data-nosnippet>121</a>
-<a href=#122 id=122 data-nosnippet>122</a><span class="doccomment">/// Picks the answer that describes the thing asked about, or says why none does.
-<a href=#123 id=123 data-nosnippet>123</a>///
-<a href=#124 id=124 data-nosnippet>124</a>/// Two rules, both taken from behaviour this codebase already has:
-<a href=#125 id=125 data-nosnippet>125</a>///
-<a href=#126 id=126 data-nosnippet>126</a>/// - **An exact name match wins, and only widens when nothing matches
-<a href=#127 id=127 data-nosnippet>127</a>///   exactly** — the rule `Catalog::find_releases` follows. The comparison is
-<a href=#128 id=128 data-nosnippet>128</a>///   [`text::normalize`], the same function that decides two spellings are one
-<a href=#129 id=129 data-nosnippet>129</a>///   name everywhere else.
-<a href=#130 id=130 data-nosnippet>130</a>/// - **Several equally good answers are refused, not arbitrated.** Returning
-<a href=#131 id=131 data-nosnippet>131</a>///   the first of them is an arbitrary answer given without saying so, which
-<a href=#132 id=132 data-nosnippet>132</a>///   is the fault `find_releases` and `moved_to` were both fixed for.
-<a href=#133 id=133 data-nosnippet>133</a>///
-<a href=#134 id=134 data-nosnippet>134</a>/// The confidence returned is [`Confidence::Identified`] only when the caller
-<a href=#135 id=135 data-nosnippet>135</a>/// asked by identifier; a search can never produce more than
-<a href=#136 id=136 data-nosnippet>136</a>/// [`Confidence::Matched`], however sure it looks.
-<a href=#137 id=137 data-nosnippet>137</a></span><span class="kw">pub fn </span>best_match&lt;F: Clone&gt;(
-<a href=#138 id=138 data-nosnippet>138</a>    candidates: <span class="kw-2">&amp;</span>[Candidate&lt;F&gt;],
-<a href=#139 id=139 data-nosnippet>139</a>    wanted: <span class="kw-2">&amp;</span>str,
-<a href=#140 id=140 data-nosnippet>140</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(Candidate&lt;F&gt;, Confidence), NoMatch&gt; {
-<a href=#141 id=141 data-nosnippet>141</a>    <span class="kw">if </span>candidates.is_empty() {
-<a href=#142 id=142 data-nosnippet>142</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::Nothing);
-<a href=#143 id=143 data-nosnippet>143</a>    }
-<a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">let </span>wanted = text::normalize(wanted);
-<a href=#145 id=145 data-nosnippet>145</a>
-<a href=#146 id=146 data-nosnippet>146</a>    <span class="kw">let </span>exact: Vec&lt;<span class="kw-2">&amp;</span>Candidate&lt;F&gt;&gt; = candidates
-<a href=#147 id=147 data-nosnippet>147</a>        .iter()
-<a href=#148 id=148 data-nosnippet>148</a>        .filter(|c| text::normalize(<span class="kw-2">&amp;</span>c.name) == wanted)
-<a href=#149 id=149 data-nosnippet>149</a>        .collect();
-<a href=#150 id=150 data-nosnippet>150</a>
-<a href=#151 id=151 data-nosnippet>151</a>    <span class="kw">let </span>pool: Vec&lt;<span class="kw-2">&amp;</span>Candidate&lt;F&gt;&gt; = <span class="kw">match </span>exact.is_empty() {
-<a href=#152 id=152 data-nosnippet>152</a>        <span class="bool-val">false </span>=&gt; exact,
-<a href=#153 id=153 data-nosnippet>153</a>        <span class="bool-val">true </span>=&gt; candidates.iter().collect(),
-<a href=#154 id=154 data-nosnippet>154</a>    };
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">let </span>best = pool
-<a href=#157 id=157 data-nosnippet>157</a>        .iter()
-<a href=#158 id=158 data-nosnippet>158</a>        .max_by_key(|c| c.score)
-<a href=#159 id=159 data-nosnippet>159</a>        .expect(<span class="string">"a non-empty pool"</span>);
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">if </span>best.score &lt; FLOOR {
-<a href=#161 id=161 data-nosnippet>161</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::TooWeak {
-<a href=#162 id=162 data-nosnippet>162</a>            best: best.name.clone(),
-<a href=#163 id=163 data-nosnippet>163</a>            score: best.score,
-<a href=#164 id=164 data-nosnippet>164</a>        });
-<a href=#165 id=165 data-nosnippet>165</a>    }
-<a href=#166 id=166 data-nosnippet>166</a>
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="comment">// Two answers of the same quality are two answers. Names that normalise to
-<a href=#168 id=168 data-nosnippet>168</a>    // the same thing are not a tie — a reissue and its original often share a
-<a href=#169 id=169 data-nosnippet>169</a>    // title, and both being "right" is not the same as the program having to
-<a href=#170 id=170 data-nosnippet>170</a>    // choose.
-<a href=#171 id=171 data-nosnippet>171</a>    </span><span class="kw">let </span>tied: Vec&lt;&amp;&amp;Candidate&lt;F&gt;&gt; = pool
-<a href=#172 id=172 data-nosnippet>172</a>        .iter()
-<a href=#173 id=173 data-nosnippet>173</a>        .filter(|c| {
-<a href=#174 id=174 data-nosnippet>174</a>            c.score == best.score &amp;&amp; text::normalize(<span class="kw-2">&amp;</span>c.name) != text::normalize(<span class="kw-2">&amp;</span>best.name)
-<a href=#175 id=175 data-nosnippet>175</a>        })
-<a href=#176 id=176 data-nosnippet>176</a>        .collect();
-<a href=#177 id=177 data-nosnippet>177</a>    <span class="kw">if </span>!tied.is_empty() {
-<a href=#178 id=178 data-nosnippet>178</a>        <span class="kw">let </span><span class="kw-2">mut </span>names: Vec&lt;String&gt; = std::iter::once(best.name.clone())
-<a href=#179 id=179 data-nosnippet>179</a>            .chain(tied.iter().map(|c| c.name.clone()))
-<a href=#180 id=180 data-nosnippet>180</a>            .collect();
-<a href=#181 id=181 data-nosnippet>181</a>        names.sort();
-<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::Ambiguous(names));
-<a href=#183 id=183 data-nosnippet>183</a>    }
-<a href=#184 id=184 data-nosnippet>184</a>
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="comment">// The score MusicBrainz gives is about its index, not about us. A name
-<a href=#186 id=186 data-nosnippet>186</a>    // that matches exactly deserves more than one that merely ranked well, and
-<a href=#187 id=187 data-nosnippet>187</a>    // neither is ever a certainty.
-<a href=#188 id=188 data-nosnippet>188</a>    </span><span class="kw">let </span>confidence = <span class="kw">match </span>text::normalize(<span class="kw-2">&amp;</span>best.name) == wanted {
-<a href=#189 id=189 data-nosnippet>189</a>        <span class="bool-val">true </span>=&gt; Confidence::matched(best.score.min(<span class="number">95</span>)),
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="bool-val">false </span>=&gt; Confidence::matched(best.score.saturating_sub(<span class="number">25</span>)),
-<a href=#191 id=191 data-nosnippet>191</a>    };
-<a href=#192 id=192 data-nosnippet>192</a>    <span class="prelude-val">Ok</span>(((<span class="kw-2">*</span>best).clone(), confidence))
-<a href=#193 id=193 data-nosnippet>193</a>}
-<a href=#194 id=194 data-nosnippet>194</a>
-<a href=#195 id=195 data-nosnippet>195</a><span class="doccomment">/// Escapes the characters Lucene reads as syntax.
-<a href=#196 id=196 data-nosnippet>196</a>///
-<a href=#197 id=197 data-nosnippet>197</a>/// The search server parses the query, so a name carrying `/`, `:`, `(` or `-`
-<a href=#198 id=198 data-nosnippet>198</a>/// is not a name to it but an expression — and an expression that does not
-<a href=#199 id=199 data-nosnippet>199</a>/// parse is not a polite "nothing found": the request fails. MusicBrainz
-<a href=#200 id=200 data-nosnippet>200</a>/// documents this and gives the same example, `ac/dc` sent as `ac\/dc`, and
-<a href=#201 id=201 data-nosnippet>201</a>/// the escaping happens **before** URL-encoding, never instead of it.
-<a href=#202 id=202 data-nosnippet>202</a>///
-<a href=#203 id=203 data-nosnippet>203</a>/// This is what a whole-library run trips over on its first awkward name,
-<a href=#204 id=204 data-nosnippet>204</a>/// while a run naming one well-behaved artist works perfectly — which is
-<a href=#205 id=205 data-nosnippet>205</a>/// exactly how it was found.
-<a href=#206 id=206 data-nosnippet>206</a></span><span class="kw">pub fn </span>escape_query(name: <span class="kw-2">&amp;</span>str) -&gt; String {
-<a href=#207 id=207 data-nosnippet>207</a>    <span class="kw">const </span>SPECIAL: [char; <span class="number">22</span>] = [
-<a href=#208 id=208 data-nosnippet>208</a>        <span class="string">'\\'</span>, <span class="string">'+'</span>, <span class="string">'-'</span>, <span class="string">'&amp;'</span>, <span class="string">'|'</span>, <span class="string">'!'</span>, <span class="string">'('</span>, <span class="string">')'</span>, <span class="string">'{'</span>, <span class="string">'}'</span>, <span class="string">'['</span>, <span class="string">']'</span>, <span class="string">'^'</span>, <span class="string">'"'</span>, <span class="string">'~'</span>, <span class="string">'*'</span>, <span class="string">'?'</span>, <span class="string">':'</span>,
-<a href=#209 id=209 data-nosnippet>209</a>        <span class="string">'/'</span>, <span class="string">'&lt;'</span>, <span class="string">'&gt;'</span>, <span class="string">'='</span>,
-<a href=#210 id=210 data-nosnippet>210</a>    ];
-<a href=#211 id=211 data-nosnippet>211</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::with_capacity(name.len() + <span class="number">8</span>);
-<a href=#212 id=212 data-nosnippet>212</a>    <span class="kw">for </span>c <span class="kw">in </span>name.chars() {
-<a href=#213 id=213 data-nosnippet>213</a>        <span class="kw">if </span>SPECIAL.contains(<span class="kw-2">&amp;</span>c) {
-<a href=#214 id=214 data-nosnippet>214</a>            out.push(<span class="string">'\\'</span>);
-<a href=#215 id=215 data-nosnippet>215</a>        }
-<a href=#216 id=216 data-nosnippet>216</a>        out.push(c);
-<a href=#217 id=217 data-nosnippet>217</a>    }
-<a href=#218 id=218 data-nosnippet>218</a>    out
-<a href=#219 id=219 data-nosnippet>219</a>}
-<a href=#220 id=220 data-nosnippet>220</a>
-<a href=#221 id=221 data-nosnippet>221</a><span class="comment">// --------------------------------------------------------------------------
-<a href=#222 id=222 data-nosnippet>222</a>// Reading the answers
-<a href=#223 id=223 data-nosnippet>223</a>// --------------------------------------------------------------------------
-<a href=#224 id=224 data-nosnippet>224</a>
-<a href=#225 id=225 data-nosnippet>225</a></span><span class="doccomment">/// A string field, absent rather than empty.
-<a href=#226 id=226 data-nosnippet>226</a></span><span class="kw">fn </span>field(value: <span class="kw-2">&amp;</span>Json, key: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#227 id=227 data-nosnippet>227</a>    value
-<a href=#228 id=228 data-nosnippet>228</a>        .field_str(key)
-<a href=#229 id=229 data-nosnippet>229</a>        .map(|s| s.trim().to_string())
-<a href=#230 id=230 data-nosnippet>230</a>        .filter(|s| !s.is_empty())
-<a href=#231 id=231 data-nosnippet>231</a>}
-<a href=#232 id=232 data-nosnippet>232</a>
-<a href=#233 id=233 data-nosnippet>233</a><span class="doccomment">/// The search score, which MusicBrainz gives as a number 0–100.
-<a href=#234 id=234 data-nosnippet>234</a></span><span class="kw">fn </span>score_of(value: <span class="kw-2">&amp;</span>Json) -&gt; u8 {
-<a href=#235 id=235 data-nosnippet>235</a>    value
-<a href=#236 id=236 data-nosnippet>236</a>        .field_u32(<span class="string">"score"</span>)
-<a href=#237 id=237 data-nosnippet>237</a>        .unwrap_or(<span class="number">0</span>)
-<a href=#238 id=238 data-nosnippet>238</a>        .min(<span class="number">100</span>)
-<a href=#239 id=239 data-nosnippet>239</a>        .try_into()
-<a href=#240 id=240 data-nosnippet>240</a>        .unwrap_or(<span class="number">100</span>)
-<a href=#241 id=241 data-nosnippet>241</a>}
-<a href=#242 id=242 data-nosnippet>242</a>
-<a href=#243 id=243 data-nosnippet>243</a><span class="doccomment">/// Artists, as `/ws/2/artist/?query=…&amp;fmt=json` returns them.
-<a href=#244 id=244 data-nosnippet>244</a>///
-<a href=#245 id=245 data-nosnippet>245</a>/// An entry with no identifier is skipped: without it a later fetch could not
-<a href=#246 id=246 data-nosnippet>246</a>/// tell an update from a second opinion, which is the one thing the identifier
-<a href=#247 id=247 data-nosnippet>247</a>/// is stored for.
-<a href=#248 id=248 data-nosnippet>248</a>/// The entity, read the same way whether it came from a search or a lookup.
-<a href=#249 id=249 data-nosnippet>249</a>///
-<a href=#250 id=250 data-nosnippet>250</a>/// One extractor rather than two: the two answers carry the same artist, and
-<a href=#251 id=251 data-nosnippet>251</a>/// reading it in two places is how one of them quietly stops keeping a field.
-<a href=#252 id=252 data-nosnippet>252</a></span><span class="kw">fn </span>artist_facts(row: <span class="kw-2">&amp;</span>Json) -&gt; ArtistFacts {
-<a href=#253 id=253 data-nosnippet>253</a>    <span class="kw">let </span>life = row.get(<span class="string">"life-span"</span>);
-<a href=#254 id=254 data-nosnippet>254</a>    ArtistFacts {
-<a href=#255 id=255 data-nosnippet>255</a>        <span class="comment">// `country` is a code, `area.name` is the name a reader wants. Both
-<a href=#256 id=256 data-nosnippet>256</a>        // are kept: the name is what a listing shows, the code is what
-<a href=#257 id=257 data-nosnippet>257</a>        // somebody types. Preferring one and discarding the other threw away
-<a href=#258 id=258 data-nosnippet>258</a>        // a fact the source had stated — and it was the short one, which is
-<a href=#259 id=259 data-nosnippet>259</a>        // the half a reader reaches for.
-<a href=#260 id=260 data-nosnippet>260</a>        </span>area: row
-<a href=#261 id=261 data-nosnippet>261</a>            .get(<span class="string">"area"</span>)
-<a href=#262 id=262 data-nosnippet>262</a>            .and_then(|a| field(a, <span class="string">"name"</span>))
-<a href=#263 id=263 data-nosnippet>263</a>            .or_else(|| field(row, <span class="string">"country"</span>)),
-<a href=#264 id=264 data-nosnippet>264</a>        country_code: field(row, <span class="string">"country"</span>),
-<a href=#265 id=265 data-nosnippet>265</a>        began: life.and_then(|l| field(l, <span class="string">"begin"</span>)),
-<a href=#266 id=266 data-nosnippet>266</a>        <span class="comment">// An artist that has not ended has no end date, and a `life-span` may
-<a href=#267 id=267 data-nosnippet>267</a>        // carry `ended: false` with no `end`.
-<a href=#268 id=268 data-nosnippet>268</a>        </span>ended: life.and_then(|l| field(l, <span class="string">"end"</span>)),
-<a href=#269 id=269 data-nosnippet>269</a>        <span class="comment">// `ended: false` is an answer — "still going" — and it is the one a
-<a href=#270 id=270 data-nosnippet>270</a>        // reader looking at a band wants most.
-<a href=#271 id=271 data-nosnippet>271</a>        </span>active: life
-<a href=#272 id=272 data-nosnippet>272</a>            .and_then(|l| l.field_optional_bool(<span class="string">"ended"</span>))
-<a href=#273 id=273 data-nosnippet>273</a>            .map(|e| !e),
-<a href=#274 id=274 data-nosnippet>274</a>        kind: field(row, <span class="string">"type"</span>),
-<a href=#275 id=275 data-nosnippet>275</a>        disambiguation: field(row, <span class="string">"disambiguation"</span>),
-<a href=#276 id=276 data-nosnippet>276</a>        <span class="comment">// `genres` and `tags` have the same shape; genres are the curated
-<a href=#277 id=277 data-nosnippet>277</a>        // half, so they come first and tags fill in only when there are none.
-<a href=#278 id=278 data-nosnippet>278</a>        </span>genres: voted(row, <span class="string">"genres"</span>)
-<a href=#279 id=279 data-nosnippet>279</a>            .or_else(|| voted(row, <span class="string">"tags"</span>))
-<a href=#280 id=280 data-nosnippet>280</a>            .unwrap_or_default(),
-<a href=#281 id=281 data-nosnippet>281</a>        aliases: row
-<a href=#282 id=282 data-nosnippet>282</a>            .get(<span class="string">"aliases"</span>)
-<a href=#283 id=283 data-nosnippet>283</a>            .and_then(Json::as_arr)
-<a href=#284 id=284 data-nosnippet>284</a>            .map(|a| a.iter().filter_map(|x| field(x, <span class="string">"name"</span>)).collect())
-<a href=#285 id=285 data-nosnippet>285</a>            .unwrap_or_default(),
-<a href=#286 id=286 data-nosnippet>286</a>        wikidata: linked(row, <span class="string">"wikidata"</span>),
-<a href=#287 id=287 data-nosnippet>287</a>        discogs: linked(row, <span class="string">"discogs"</span>),
-<a href=#288 id=288 data-nosnippet>288</a>        <span class="comment">// MusicBrainz spells this relationship "official homepage".
-<a href=#289 id=289 data-nosnippet>289</a>        </span>homepage: linked(row, <span class="string">"official homepage"</span>),
-<a href=#290 id=290 data-nosnippet>290</a>        <span class="comment">// Filled by its own pass, never by this one: a discography is a
-<a href=#291 id=291 data-nosnippet>291</a>        // browse over release groups, not a field of an artist lookup, and
-<a href=#292 id=292 data-nosnippet>292</a>        // reading it here would quietly empty it on every ordinary fetch.
-<a href=#293 id=293 data-nosnippet>293</a>        </span>discography: Vec::new(),
-<a href=#294 id=294 data-nosnippet>294</a>        members: memberships(row),
-<a href=#295 id=295 data-nosnippet>295</a>        <span class="comment">// MusicBrainz holds no prose about an artist: an annotation there is
-<a href=#296 id=296 data-nosnippet>296</a>        // an editorial note about the data, not a description of the
-<a href=#297 id=297 data-nosnippet>297</a>        // musician. The summary comes from Wikipedia, reached through the
-<a href=#298 id=298 data-nosnippet>298</a>        // `wikidata` link above, and carries its own licence with it.
-<a href=#299 id=299 data-nosnippet>299</a>        </span>summary: <span class="prelude-val">None</span>,
-<a href=#300 id=300 data-nosnippet>300</a>        <span class="comment">// Likewise filled by its own pass: MusicBrainz holds no picture of an
-<a href=#301 id=301 data-nosnippet>301</a>        // artist either, and `fetch --portraits` reaches one the same way
-<a href=#302 id=302 data-nosnippet>302</a>        // Wikipedia is reached, through the `wikidata` link above.
-<a href=#303 id=303 data-nosnippet>303</a>        </span>portrait: <span class="prelude-val">None</span>,
-<a href=#304 id=304 data-nosnippet>304</a>        <span class="comment">// Same story again: `fetch --logos` is the only pass that fills this.
-<a href=#305 id=305 data-nosnippet>305</a>        </span>logo: <span class="prelude-val">None</span>,
-<a href=#306 id=306 data-nosnippet>306</a>    }
-<a href=#307 id=307 data-nosnippet>307</a>}
-<a href=#308 id=308 data-nosnippet>308</a>
-<a href=#309 id=309 data-nosnippet>309</a><span class="doccomment">/// Band memberships, from the `artist-rels` a lookup was asked for.
-<a href=#310 id=310 data-nosnippet>310</a>///
-<a href=#311 id=311 data-nosnippet>311</a>/// # The direction, measured rather than assumed
-<a href=#312 id=312 data-nosnippet>312</a>///
-<a href=#313 id=313 data-nosnippet>313</a>/// MusicBrainz states **one** relation between two artists and returns it on
-<a href=#314 id=314 data-nosnippet>314</a>/// both, distinguished by `direction`. Reading that field wrongly does not lose
-<a href=#315 id=315 data-nosnippet>315</a>/// data, it inverts it — Black Sabbath would appear in the list of Ozzy
-<a href=#316 id=316 data-nosnippet>316</a>/// Osbourne's members — so it was checked against live answers for a person and
-<a href=#317 id=317 data-nosnippet>317</a>/// for a band rather than reasoned about.
-<a href=#318 id=318 data-nosnippet>318</a>///
-<a href=#319 id=319 data-nosnippet>319</a>/// Both answers carry `"direction": "backward"`, and that settles it: these
-<a href=#320 id=320 data-nosnippet>320</a>/// relationships are defined **from the musician towards the group**, so a
-<a href=#321 id=321 data-nosnippet>321</a>/// backward one is being read *from the group's end* and the artist it names is
-<a href=#322 id=322 data-nosnippet>322</a>/// the player. The first version of this function had it the other way round,
-<a href=#323 id=323 data-nosnippet>323</a>/// on the reasonable-sounding assumption that a person's own record would read
-<a href=#324 id=324 data-nosnippet>324</a>/// forward. It does not.
-<a href=#325 id=325 data-nosnippet>325</a>///
-<a href=#326 id=326 data-nosnippet>326</a>/// # Which relationships count
-<a href=#327 id=327 data-nosnippet>327</a>///
-<a href=#328 id=328 data-nosnippet>328</a>/// `member of band` is the obvious one and it is not enough. Ozzy Osbourne's
-<a href=#329 id=329 data-nosnippet>329</a>/// own record holds no members at all — a solo artist is not a band — and every
-<a href=#330 id=330 data-nosnippet>330</a>/// musician who played on his records is there as an
-<a href=#331 id=331 data-nosnippet>331</a>/// `instrumental supporting musician`: Randy Rhoads on guitar, Bob Daisley on
-<a href=#332 id=332 data-nosnippet>332</a>/// bass. A line-up that showed nothing for him while MusicBrainz plainly holds
-<a href=#333 id=333 data-nosnippet>333</a>/// his band would be a worse answer than no feature.
-<a href=#334 id=334 data-nosnippet>334</a>///
-<a href=#335 id=335 data-nosnippet>335</a>/// The two are kept apart rather than merged, because a founding member and a
-<a href=#336 id=336 data-nosnippet>336</a>/// guitarist hired for one tour are both on the record and only one of them was
-<a href=#337 id=337 data-nosnippet>337</a>/// in the band. [`Membership::kind`] carries the source's own phrase.
+<a href=#104 id=104 data-nosnippet>104</a>    /// arbitrary. Names are carried for display, with identifiers when names
+<a href=#105 id=105 data-nosnippet>105</a>    /// alone cannot distinguish the candidates.
+<a href=#106 id=106 data-nosnippet>106</a>    </span>Ambiguous(Vec&lt;String&gt;),
+<a href=#107 id=107 data-nosnippet>107</a>    <span class="doccomment">/// The best answer is not close enough to the name asked about.
+<a href=#108 id=108 data-nosnippet>108</a>    </span>TooWeak {
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="doccomment">/// The best candidate's name, so the reader can see what was rejected.
+<a href=#110 id=110 data-nosnippet>110</a>        </span>best: String,
+<a href=#111 id=111 data-nosnippet>111</a>        <span class="doccomment">/// Its search score.
+<a href=#112 id=112 data-nosnippet>112</a>        </span>score: u8,
+<a href=#113 id=113 data-nosnippet>113</a>    },
+<a href=#114 id=114 data-nosnippet>114</a>}
+<a href=#115 id=115 data-nosnippet>115</a>
+<a href=#116 id=116 data-nosnippet>116</a><span class="doccomment">/// Below this, an answer is not worth attaching to anything.
+<a href=#117 id=117 data-nosnippet>117</a>///
+<a href=#118 id=118 data-nosnippet>118</a>/// A floor rather than a preference: MusicBrainz answers *something* for
+<a href=#119 id=119 data-nosnippet>119</a>/// almost any query, and an unfiltered "best" result is how a library ends up
+<a href=#120 id=120 data-nosnippet>120</a>/// with a Beatles record filed under a bar band of the same initials.
+<a href=#121 id=121 data-nosnippet>121</a></span><span class="kw">const </span>FLOOR: u8 = <span class="number">70</span>;
+<a href=#122 id=122 data-nosnippet>122</a>
+<a href=#123 id=123 data-nosnippet>123</a><span class="doccomment">/// Picks the answer that describes the thing asked about, or says why none does.
+<a href=#124 id=124 data-nosnippet>124</a>///
+<a href=#125 id=125 data-nosnippet>125</a>/// Two rules, both taken from behaviour this codebase already has:
+<a href=#126 id=126 data-nosnippet>126</a>///
+<a href=#127 id=127 data-nosnippet>127</a>/// - **An exact name match wins, and only widens when nothing matches
+<a href=#128 id=128 data-nosnippet>128</a>///   exactly** — the rule `Catalog::find_releases` follows. The comparison is
+<a href=#129 id=129 data-nosnippet>129</a>///   [`text::normalize`], the same function that decides two spellings are one
+<a href=#130 id=130 data-nosnippet>130</a>///   name everywhere else.
+<a href=#131 id=131 data-nosnippet>131</a>/// - **Several equally good answers are refused, not arbitrated.** Returning
+<a href=#132 id=132 data-nosnippet>132</a>///   the first of them is an arbitrary answer given without saying so, which
+<a href=#133 id=133 data-nosnippet>133</a>///   is the fault `find_releases` and `moved_to` were both fixed for.
+<a href=#134 id=134 data-nosnippet>134</a>///
+<a href=#135 id=135 data-nosnippet>135</a>/// A name is not an identity: equally ranked candidates with different MBIDs
+<a href=#136 id=136 data-nosnippet>136</a>/// remain ambiguous even when their names normalize alike. Repeated spellings
+<a href=#137 id=137 data-nosnippet>137</a>/// of the same MBID are one candidate.
+<a href=#138 id=138 data-nosnippet>138</a>///
+<a href=#139 id=139 data-nosnippet>139</a>/// This search helper always returns [`Confidence::Matched`], however sure
+<a href=#140 id=140 data-nosnippet>140</a>/// the answer looks. Identifier lookups are handled separately.
+<a href=#141 id=141 data-nosnippet>141</a></span><span class="kw">pub fn </span>best_match&lt;F: Clone&gt;(
+<a href=#142 id=142 data-nosnippet>142</a>    candidates: <span class="kw-2">&amp;</span>[Candidate&lt;F&gt;],
+<a href=#143 id=143 data-nosnippet>143</a>    wanted: <span class="kw-2">&amp;</span>str,
+<a href=#144 id=144 data-nosnippet>144</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(Candidate&lt;F&gt;, Confidence), NoMatch&gt; {
+<a href=#145 id=145 data-nosnippet>145</a>    <span class="kw">if </span>candidates.is_empty() {
+<a href=#146 id=146 data-nosnippet>146</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::Nothing);
+<a href=#147 id=147 data-nosnippet>147</a>    }
+<a href=#148 id=148 data-nosnippet>148</a>    <span class="kw">let </span>wanted = text::normalize(wanted);
+<a href=#149 id=149 data-nosnippet>149</a>
+<a href=#150 id=150 data-nosnippet>150</a>    <span class="kw">let </span>exact: Vec&lt;<span class="kw-2">&amp;</span>Candidate&lt;F&gt;&gt; = candidates
+<a href=#151 id=151 data-nosnippet>151</a>        .iter()
+<a href=#152 id=152 data-nosnippet>152</a>        .filter(|c| text::normalize(<span class="kw-2">&amp;</span>c.name) == wanted)
+<a href=#153 id=153 data-nosnippet>153</a>        .collect();
+<a href=#154 id=154 data-nosnippet>154</a>
+<a href=#155 id=155 data-nosnippet>155</a>    <span class="kw">let </span>pool: Vec&lt;<span class="kw-2">&amp;</span>Candidate&lt;F&gt;&gt; = <span class="kw">match </span>exact.is_empty() {
+<a href=#156 id=156 data-nosnippet>156</a>        <span class="bool-val">false </span>=&gt; exact,
+<a href=#157 id=157 data-nosnippet>157</a>        <span class="bool-val">true </span>=&gt; candidates.iter().collect(),
+<a href=#158 id=158 data-nosnippet>158</a>    };
+<a href=#159 id=159 data-nosnippet>159</a>
+<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(best) = pool.iter().max_by_key(|c| c.score) <span class="kw">else </span>{
+<a href=#161 id=161 data-nosnippet>161</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::Nothing);
+<a href=#162 id=162 data-nosnippet>162</a>    };
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">if </span>best.score &lt; FLOOR {
+<a href=#164 id=164 data-nosnippet>164</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::TooWeak {
+<a href=#165 id=165 data-nosnippet>165</a>            best: best.name.clone(),
+<a href=#166 id=166 data-nosnippet>166</a>            score: best.score,
+<a href=#167 id=167 data-nosnippet>167</a>        });
+<a href=#168 id=168 data-nosnippet>168</a>    }
+<a href=#169 id=169 data-nosnippet>169</a>
+<a href=#170 id=170 data-nosnippet>170</a>    <span class="comment">// An equal name cannot disambiguate two distinct people or release
+<a href=#171 id=171 data-nosnippet>171</a>    // groups. Only another spelling of the same identity is not a tie.
+<a href=#172 id=172 data-nosnippet>172</a>    </span><span class="kw">let </span>tied: Vec&lt;&amp;&amp;Candidate&lt;F&gt;&gt; = pool
+<a href=#173 id=173 data-nosnippet>173</a>        .iter()
+<a href=#174 id=174 data-nosnippet>174</a>        .filter(|c| c.score == best.score &amp;&amp; c.mbid != best.mbid)
+<a href=#175 id=175 data-nosnippet>175</a>        .collect();
+<a href=#176 id=176 data-nosnippet>176</a>    <span class="kw">if </span>!tied.is_empty() {
+<a href=#177 id=177 data-nosnippet>177</a>        <span class="kw">let </span>ambiguous: Vec&lt;<span class="kw-2">&amp;</span>Candidate&lt;F&gt;&gt; = std::iter::once(<span class="kw-2">*</span>best)
+<a href=#178 id=178 data-nosnippet>178</a>            .chain(tied.iter().map(|candidate| <span class="kw-2">**</span>candidate))
+<a href=#179 id=179 data-nosnippet>179</a>            .collect();
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">let </span><span class="kw-2">mut </span>identities_by_name = std::collections::BTreeMap::new();
+<a href=#181 id=181 data-nosnippet>181</a>        <span class="kw">for </span>candidate <span class="kw">in </span><span class="kw-2">&amp;</span>ambiguous {
+<a href=#182 id=182 data-nosnippet>182</a>            identities_by_name
+<a href=#183 id=183 data-nosnippet>183</a>                .entry(text::normalize(<span class="kw-2">&amp;</span>candidate.name))
+<a href=#184 id=184 data-nosnippet>184</a>                .or_insert_with(std::collections::BTreeSet::new)
+<a href=#185 id=185 data-nosnippet>185</a>                .insert(candidate.mbid.as_str());
+<a href=#186 id=186 data-nosnippet>186</a>        }
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="kw">let </span><span class="kw-2">mut </span>names: Vec&lt;String&gt; = ambiguous
+<a href=#188 id=188 data-nosnippet>188</a>            .iter()
+<a href=#189 id=189 data-nosnippet>189</a>            .map(|candidate| {
+<a href=#190 id=190 data-nosnippet>190</a>                <span class="kw">if </span>identities_by_name
+<a href=#191 id=191 data-nosnippet>191</a>                    .get(<span class="kw-2">&amp;</span>text::normalize(<span class="kw-2">&amp;</span>candidate.name))
+<a href=#192 id=192 data-nosnippet>192</a>                    .is_some_and(|identities| identities.len() &gt; <span class="number">1</span>)
+<a href=#193 id=193 data-nosnippet>193</a>                {
+<a href=#194 id=194 data-nosnippet>194</a>                    <span class="macro">format!</span>(<span class="string">"{} ({})"</span>, candidate.name, candidate.mbid)
+<a href=#195 id=195 data-nosnippet>195</a>                } <span class="kw">else </span>{
+<a href=#196 id=196 data-nosnippet>196</a>                    candidate.name.clone()
+<a href=#197 id=197 data-nosnippet>197</a>                }
+<a href=#198 id=198 data-nosnippet>198</a>            })
+<a href=#199 id=199 data-nosnippet>199</a>            .collect();
+<a href=#200 id=200 data-nosnippet>200</a>        names.sort();
+<a href=#201 id=201 data-nosnippet>201</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(NoMatch::Ambiguous(names));
+<a href=#202 id=202 data-nosnippet>202</a>    }
+<a href=#203 id=203 data-nosnippet>203</a>
+<a href=#204 id=204 data-nosnippet>204</a>    <span class="comment">// The score MusicBrainz gives is about its index, not about us. A name
+<a href=#205 id=205 data-nosnippet>205</a>    // that matches exactly deserves more than one that merely ranked well, and
+<a href=#206 id=206 data-nosnippet>206</a>    // neither is ever a certainty.
+<a href=#207 id=207 data-nosnippet>207</a>    </span><span class="kw">let </span>confidence = <span class="kw">match </span>text::normalize(<span class="kw-2">&amp;</span>best.name) == wanted {
+<a href=#208 id=208 data-nosnippet>208</a>        <span class="bool-val">true </span>=&gt; Confidence::matched(best.score.min(<span class="number">95</span>)),
+<a href=#209 id=209 data-nosnippet>209</a>        <span class="bool-val">false </span>=&gt; Confidence::matched(best.score.saturating_sub(<span class="number">25</span>)),
+<a href=#210 id=210 data-nosnippet>210</a>    };
+<a href=#211 id=211 data-nosnippet>211</a>    <span class="prelude-val">Ok</span>(((<span class="kw-2">*</span>best).clone(), confidence))
+<a href=#212 id=212 data-nosnippet>212</a>}
+<a href=#213 id=213 data-nosnippet>213</a>
+<a href=#214 id=214 data-nosnippet>214</a><span class="doccomment">/// Escapes the characters Lucene reads as syntax.
+<a href=#215 id=215 data-nosnippet>215</a>///
+<a href=#216 id=216 data-nosnippet>216</a>/// The search server parses the query, so a name carrying `/`, `:`, `(` or `-`
+<a href=#217 id=217 data-nosnippet>217</a>/// is not a name to it but an expression — and an expression that does not
+<a href=#218 id=218 data-nosnippet>218</a>/// parse is not a polite "nothing found": the request fails. MusicBrainz
+<a href=#219 id=219 data-nosnippet>219</a>/// documents this and gives the same example, `ac/dc` sent as `ac\/dc`, and
+<a href=#220 id=220 data-nosnippet>220</a>/// the escaping happens **before** URL-encoding, never instead of it.
+<a href=#221 id=221 data-nosnippet>221</a>///
+<a href=#222 id=222 data-nosnippet>222</a>/// This is what a whole-library run trips over on its first awkward name,
+<a href=#223 id=223 data-nosnippet>223</a>/// while a run naming one well-behaved artist works perfectly — which is
+<a href=#224 id=224 data-nosnippet>224</a>/// exactly how it was found.
+<a href=#225 id=225 data-nosnippet>225</a></span><span class="kw">pub fn </span>escape_query(name: <span class="kw-2">&amp;</span>str) -&gt; String {
+<a href=#226 id=226 data-nosnippet>226</a>    <span class="kw">const </span>SPECIAL: [char; <span class="number">22</span>] = [
+<a href=#227 id=227 data-nosnippet>227</a>        <span class="string">'\\'</span>, <span class="string">'+'</span>, <span class="string">'-'</span>, <span class="string">'&amp;'</span>, <span class="string">'|'</span>, <span class="string">'!'</span>, <span class="string">'('</span>, <span class="string">')'</span>, <span class="string">'{'</span>, <span class="string">'}'</span>, <span class="string">'['</span>, <span class="string">']'</span>, <span class="string">'^'</span>, <span class="string">'"'</span>, <span class="string">'~'</span>, <span class="string">'*'</span>, <span class="string">'?'</span>, <span class="string">':'</span>,
+<a href=#228 id=228 data-nosnippet>228</a>        <span class="string">'/'</span>, <span class="string">'&lt;'</span>, <span class="string">'&gt;'</span>, <span class="string">'='</span>,
+<a href=#229 id=229 data-nosnippet>229</a>    ];
+<a href=#230 id=230 data-nosnippet>230</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::with_capacity(name.len() + <span class="number">8</span>);
+<a href=#231 id=231 data-nosnippet>231</a>    <span class="kw">for </span>c <span class="kw">in </span>name.chars() {
+<a href=#232 id=232 data-nosnippet>232</a>        <span class="kw">if </span>SPECIAL.contains(<span class="kw-2">&amp;</span>c) {
+<a href=#233 id=233 data-nosnippet>233</a>            out.push(<span class="string">'\\'</span>);
+<a href=#234 id=234 data-nosnippet>234</a>        }
+<a href=#235 id=235 data-nosnippet>235</a>        out.push(c);
+<a href=#236 id=236 data-nosnippet>236</a>    }
+<a href=#237 id=237 data-nosnippet>237</a>    out
+<a href=#238 id=238 data-nosnippet>238</a>}
+<a href=#239 id=239 data-nosnippet>239</a>
+<a href=#240 id=240 data-nosnippet>240</a><span class="comment">// --------------------------------------------------------------------------
+<a href=#241 id=241 data-nosnippet>241</a>// Reading the answers
+<a href=#242 id=242 data-nosnippet>242</a>// --------------------------------------------------------------------------
+<a href=#243 id=243 data-nosnippet>243</a>
+<a href=#244 id=244 data-nosnippet>244</a></span><span class="doccomment">/// A string field, absent rather than empty.
+<a href=#245 id=245 data-nosnippet>245</a></span><span class="kw">fn </span>field(value: <span class="kw-2">&amp;</span>Json, key: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#246 id=246 data-nosnippet>246</a>    value
+<a href=#247 id=247 data-nosnippet>247</a>        .field_str(key)
+<a href=#248 id=248 data-nosnippet>248</a>        .map(|s| s.trim().to_string())
+<a href=#249 id=249 data-nosnippet>249</a>        .filter(|s| !s.is_empty())
+<a href=#250 id=250 data-nosnippet>250</a>}
+<a href=#251 id=251 data-nosnippet>251</a>
+<a href=#252 id=252 data-nosnippet>252</a><span class="doccomment">/// The search score, which MusicBrainz gives as a number 0–100.
+<a href=#253 id=253 data-nosnippet>253</a></span><span class="kw">fn </span>score_of(value: <span class="kw-2">&amp;</span>Json) -&gt; u8 {
+<a href=#254 id=254 data-nosnippet>254</a>    value
+<a href=#255 id=255 data-nosnippet>255</a>        .field_u32(<span class="string">"score"</span>)
+<a href=#256 id=256 data-nosnippet>256</a>        .unwrap_or(<span class="number">0</span>)
+<a href=#257 id=257 data-nosnippet>257</a>        .min(<span class="number">100</span>)
+<a href=#258 id=258 data-nosnippet>258</a>        .try_into()
+<a href=#259 id=259 data-nosnippet>259</a>        .unwrap_or(<span class="number">100</span>)
+<a href=#260 id=260 data-nosnippet>260</a>}
+<a href=#261 id=261 data-nosnippet>261</a>
+<a href=#262 id=262 data-nosnippet>262</a><span class="doccomment">/// Artists, as `/ws/2/artist/?query=…&amp;fmt=json` returns them.
+<a href=#263 id=263 data-nosnippet>263</a>///
+<a href=#264 id=264 data-nosnippet>264</a>/// An entry with no identifier is skipped: without it a later fetch could not
+<a href=#265 id=265 data-nosnippet>265</a>/// tell an update from a second opinion, which is the one thing the identifier
+<a href=#266 id=266 data-nosnippet>266</a>/// is stored for.
+<a href=#267 id=267 data-nosnippet>267</a>/// The entity, read the same way whether it came from a search or a lookup.
+<a href=#268 id=268 data-nosnippet>268</a>///
+<a href=#269 id=269 data-nosnippet>269</a>/// One extractor rather than two: the two answers carry the same artist, and
+<a href=#270 id=270 data-nosnippet>270</a>/// reading it in two places is how one of them quietly stops keeping a field.
+<a href=#271 id=271 data-nosnippet>271</a></span><span class="kw">fn </span>artist_facts(row: <span class="kw-2">&amp;</span>Json) -&gt; ArtistFacts {
+<a href=#272 id=272 data-nosnippet>272</a>    <span class="kw">let </span>life = row.get(<span class="string">"life-span"</span>);
+<a href=#273 id=273 data-nosnippet>273</a>    ArtistFacts {
+<a href=#274 id=274 data-nosnippet>274</a>        <span class="comment">// `country` is a code, `area.name` is the name a reader wants. Both
+<a href=#275 id=275 data-nosnippet>275</a>        // are kept: the name is what a listing shows, the code is what
+<a href=#276 id=276 data-nosnippet>276</a>        // somebody types. Preferring one and discarding the other threw away
+<a href=#277 id=277 data-nosnippet>277</a>        // a fact the source had stated — and it was the short one, which is
+<a href=#278 id=278 data-nosnippet>278</a>        // the half a reader reaches for.
+<a href=#279 id=279 data-nosnippet>279</a>        </span>area: row
+<a href=#280 id=280 data-nosnippet>280</a>            .get(<span class="string">"area"</span>)
+<a href=#281 id=281 data-nosnippet>281</a>            .and_then(|a| field(a, <span class="string">"name"</span>))
+<a href=#282 id=282 data-nosnippet>282</a>            .or_else(|| field(row, <span class="string">"country"</span>)),
+<a href=#283 id=283 data-nosnippet>283</a>        country_code: field(row, <span class="string">"country"</span>),
+<a href=#284 id=284 data-nosnippet>284</a>        began: life.and_then(|l| field(l, <span class="string">"begin"</span>)),
+<a href=#285 id=285 data-nosnippet>285</a>        <span class="comment">// An artist that has not ended has no end date, and a `life-span` may
+<a href=#286 id=286 data-nosnippet>286</a>        // carry `ended: false` with no `end`.
+<a href=#287 id=287 data-nosnippet>287</a>        </span>ended: life.and_then(|l| field(l, <span class="string">"end"</span>)),
+<a href=#288 id=288 data-nosnippet>288</a>        <span class="comment">// `ended: false` is an answer — "still going" — and it is the one a
+<a href=#289 id=289 data-nosnippet>289</a>        // reader looking at a band wants most.
+<a href=#290 id=290 data-nosnippet>290</a>        </span>active: life
+<a href=#291 id=291 data-nosnippet>291</a>            .and_then(|l| l.field_optional_bool(<span class="string">"ended"</span>))
+<a href=#292 id=292 data-nosnippet>292</a>            .map(|e| !e),
+<a href=#293 id=293 data-nosnippet>293</a>        kind: field(row, <span class="string">"type"</span>),
+<a href=#294 id=294 data-nosnippet>294</a>        disambiguation: field(row, <span class="string">"disambiguation"</span>),
+<a href=#295 id=295 data-nosnippet>295</a>        <span class="comment">// `genres` and `tags` have the same shape; genres are the curated
+<a href=#296 id=296 data-nosnippet>296</a>        // half, so they come first and tags fill in only when there are none.
+<a href=#297 id=297 data-nosnippet>297</a>        </span>genres: voted(row, <span class="string">"genres"</span>)
+<a href=#298 id=298 data-nosnippet>298</a>            .or_else(|| voted(row, <span class="string">"tags"</span>))
+<a href=#299 id=299 data-nosnippet>299</a>            .unwrap_or_default(),
+<a href=#300 id=300 data-nosnippet>300</a>        aliases: row
+<a href=#301 id=301 data-nosnippet>301</a>            .get(<span class="string">"aliases"</span>)
+<a href=#302 id=302 data-nosnippet>302</a>            .and_then(Json::as_arr)
+<a href=#303 id=303 data-nosnippet>303</a>            .map(|a| a.iter().filter_map(|x| field(x, <span class="string">"name"</span>)).collect())
+<a href=#304 id=304 data-nosnippet>304</a>            .unwrap_or_default(),
+<a href=#305 id=305 data-nosnippet>305</a>        wikidata: linked(row, <span class="string">"wikidata"</span>),
+<a href=#306 id=306 data-nosnippet>306</a>        discogs: linked(row, <span class="string">"discogs"</span>),
+<a href=#307 id=307 data-nosnippet>307</a>        <span class="comment">// MusicBrainz spells this relationship "official homepage".
+<a href=#308 id=308 data-nosnippet>308</a>        </span>homepage: linked(row, <span class="string">"official homepage"</span>),
+<a href=#309 id=309 data-nosnippet>309</a>        <span class="comment">// Filled by its own pass, never by this one: a discography is a
+<a href=#310 id=310 data-nosnippet>310</a>        // browse over release groups, not a field of an artist lookup, and
+<a href=#311 id=311 data-nosnippet>311</a>        // reading it here would quietly empty it on every ordinary fetch.
+<a href=#312 id=312 data-nosnippet>312</a>        </span>discography: Vec::new(),
+<a href=#313 id=313 data-nosnippet>313</a>        discography_fetched_at: <span class="prelude-val">None</span>,
+<a href=#314 id=314 data-nosnippet>314</a>        members: memberships(row),
+<a href=#315 id=315 data-nosnippet>315</a>        <span class="comment">// MusicBrainz holds no prose about an artist: an annotation there is
+<a href=#316 id=316 data-nosnippet>316</a>        // an editorial note about the data, not a description of the
+<a href=#317 id=317 data-nosnippet>317</a>        // musician. The summary comes from Wikipedia, reached through the
+<a href=#318 id=318 data-nosnippet>318</a>        // `wikidata` link above, and carries its own licence with it.
+<a href=#319 id=319 data-nosnippet>319</a>        </span>summary: <span class="prelude-val">None</span>,
+<a href=#320 id=320 data-nosnippet>320</a>        <span class="comment">// Likewise filled by its own pass: MusicBrainz holds no picture of an
+<a href=#321 id=321 data-nosnippet>321</a>        // artist either, and `fetch --portraits` reaches one the same way
+<a href=#322 id=322 data-nosnippet>322</a>        // Wikipedia is reached, through the `wikidata` link above.
+<a href=#323 id=323 data-nosnippet>323</a>        </span>portrait: <span class="prelude-val">None</span>,
+<a href=#324 id=324 data-nosnippet>324</a>        <span class="comment">// Same story again: `fetch --logos` is the only pass that fills this.
+<a href=#325 id=325 data-nosnippet>325</a>        </span>logo: <span class="prelude-val">None</span>,
+<a href=#326 id=326 data-nosnippet>326</a>    }
+<a href=#327 id=327 data-nosnippet>327</a>}
+<a href=#328 id=328 data-nosnippet>328</a>
+<a href=#329 id=329 data-nosnippet>329</a><span class="doccomment">/// Band memberships, from the `artist-rels` a lookup was asked for.
+<a href=#330 id=330 data-nosnippet>330</a>///
+<a href=#331 id=331 data-nosnippet>331</a>/// # The direction, measured rather than assumed
+<a href=#332 id=332 data-nosnippet>332</a>///
+<a href=#333 id=333 data-nosnippet>333</a>/// MusicBrainz states **one** relation between two artists and returns it on
+<a href=#334 id=334 data-nosnippet>334</a>/// both, distinguished by `direction`. Reading that field wrongly does not lose
+<a href=#335 id=335 data-nosnippet>335</a>/// data, it inverts it — Black Sabbath would appear in the list of Ozzy
+<a href=#336 id=336 data-nosnippet>336</a>/// Osbourne's members — so it was checked against live answers for a person and
+<a href=#337 id=337 data-nosnippet>337</a>/// for a band rather than reasoned about.
 <a href=#338 id=338 data-nosnippet>338</a>///
-<a href=#339 id=339 data-nosnippet>339</a>/// **The list is what has been seen in a real answer**, and nothing else: a
-<a href=#340 id=340 data-nosnippet>340</a>/// relationship type nobody has checked is a guess with a `const` around it.
-<a href=#341 id=341 data-nosnippet>341</a></span><span class="kw">fn </span>memberships(row: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Membership&gt; {
-<a href=#342 id=342 data-nosnippet>342</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(relations) = row.get(<span class="string">"relations"</span>).and_then(Json::as_arr) <span class="kw">else </span>{
-<a href=#343 id=343 data-nosnippet>343</a>        <span class="kw">return </span>Vec::new();
-<a href=#344 id=344 data-nosnippet>344</a>    };
-<a href=#345 id=345 data-nosnippet>345</a>    relations
-<a href=#346 id=346 data-nosnippet>346</a>        .iter()
-<a href=#347 id=347 data-nosnippet>347</a>        .filter(|r| {
-<a href=#348 id=348 data-nosnippet>348</a>            r.field_str(<span class="string">"type"</span>)
-<a href=#349 id=349 data-nosnippet>349</a>                .is_some_and(|t| MEMBER_RELATIONS.contains(<span class="kw-2">&amp;</span>t.as_str()))
-<a href=#350 id=350 data-nosnippet>350</a>        })
-<a href=#351 id=351 data-nosnippet>351</a>        .filter_map(|r| {
-<a href=#352 id=352 data-nosnippet>352</a>            <span class="kw">let </span>artist = r.get(<span class="string">"artist"</span>)<span class="question-mark">?</span>;
-<a href=#353 id=353 data-nosnippet>353</a>            <span class="prelude-val">Some</span>(Membership {
-<a href=#354 id=354 data-nosnippet>354</a>                relation_id: field(r, <span class="string">"id"</span>),
-<a href=#355 id=355 data-nosnippet>355</a>                role_id: field(r, <span class="string">"type-id"</span>),
-<a href=#356 id=356 data-nosnippet>356</a>                direction: field(r, <span class="string">"direction"</span>),
-<a href=#357 id=357 data-nosnippet>357</a>                <span class="comment">// No identifier, no membership: a name alone cannot be
-<a href=#358 id=358 data-nosnippet>358</a>                // followed to the artist it names, and the whole value of this
-<a href=#359 id=359 data-nosnippet>359</a>                // list is that each row leads somewhere.
-<a href=#360 id=360 data-nosnippet>360</a>                </span>mbid: field(artist, <span class="string">"id"</span>)<span class="question-mark">?</span>,
-<a href=#361 id=361 data-nosnippet>361</a>                name: field(artist, <span class="string">"name"</span>).unwrap_or_default(),
-<a href=#362 id=362 data-nosnippet>362</a>                credited_as: field(r, <span class="string">"target-credit"</span>).filter(|value| !value.is_empty()),
-<a href=#363 id=363 data-nosnippet>363</a>                kind: field(r, <span class="string">"type"</span>).unwrap_or_default(),
-<a href=#364 id=364 data-nosnippet>364</a>                side: <span class="kw">match </span>r.field_str(<span class="string">"direction"</span>).as_deref() {
-<a href=#365 id=365 data-nosnippet>365</a>                    <span class="prelude-val">Some</span>(<span class="string">"backward"</span>) =&gt; Side::Player,
-<a href=#366 id=366 data-nosnippet>366</a>                    <span class="kw">_ </span>=&gt; Side::Group,
-<a href=#367 id=367 data-nosnippet>367</a>                },
-<a href=#368 id=368 data-nosnippet>368</a>                attributes: r
-<a href=#369 id=369 data-nosnippet>369</a>                    .get(<span class="string">"attributes"</span>)
-<a href=#370 id=370 data-nosnippet>370</a>                    .and_then(Json::as_arr)
-<a href=#371 id=371 data-nosnippet>371</a>                    .map(|a| a.iter().filter_map(Json::as_string).collect())
-<a href=#372 id=372 data-nosnippet>372</a>                    .unwrap_or_default(),
-<a href=#373 id=373 data-nosnippet>373</a>                <span class="comment">// `begin` may be a year, `1979-11`, or a full date, and every
-<a href=#374 id=374 data-nosnippet>374</a>                // one of those is answered by taking the first four characters
-<a href=#375 id=375 data-nosnippet>375</a>                // where a year is wanted.
-<a href=#376 id=376 data-nosnippet>376</a>                </span>began: field(r, <span class="string">"begin"</span>),
-<a href=#377 id=377 data-nosnippet>377</a>                ended: field(r, <span class="string">"end"</span>),
-<a href=#378 id=378 data-nosnippet>378</a>                <span class="comment">// `ended: false` is an answer — "still in the band" — and it is
-<a href=#379 id=379 data-nosnippet>379</a>                // the one a reader looking at a line-up wants most. It arrives
-<a href=#380 id=380 data-nosnippet>380</a>                // beside `"end": null`, so the two must be read separately.
-<a href=#381 id=381 data-nosnippet>381</a>                </span>over: r.field_optional_bool(<span class="string">"ended"</span>),
-<a href=#382 id=382 data-nosnippet>382</a>            })
-<a href=#383 id=383 data-nosnippet>383</a>        })
-<a href=#384 id=384 data-nosnippet>384</a>        .collect()
-<a href=#385 id=385 data-nosnippet>385</a>}
-<a href=#386 id=386 data-nosnippet>386</a>
-<a href=#387 id=387 data-nosnippet>387</a><span class="doccomment">/// The relationships this reads, spelt as MusicBrainz spells them.
-<a href=#388 id=388 data-nosnippet>388</a>///
-<a href=#389 id=389 data-nosnippet>389</a>/// One place, because the strings are the whole filter: a typo here empties
-<a href=#390 id=390 data-nosnippet>390</a>/// every line-up in the program and nothing else goes wrong. Each was seen in
-<a href=#391 id=391 data-nosnippet>391</a>/// a live answer — `member of band` on Judas Priest, `instrumental supporting
-<a href=#392 id=392 data-nosnippet>392</a>/// musician` on Ozzy Osbourne — and a type nobody has checked does not belong
-<a href=#393 id=393 data-nosnippet>393</a>/// on this list, however plausible its name.
-<a href=#394 id=394 data-nosnippet>394</a></span><span class="kw">const </span>MEMBER_RELATIONS: [<span class="kw-2">&amp;</span>str; <span class="number">2</span>] = [<span class="string">"member of band"</span>, <span class="string">"instrumental supporting musician"</span>];
-<a href=#395 id=395 data-nosnippet>395</a>
-<a href=#396 id=396 data-nosnippet>396</a><span class="doccomment">/// Names from a `genres` or `tags` list, most agreed first.
-<a href=#397 id=397 data-nosnippet>397</a>///
-<a href=#398 id=398 data-nosnippet>398</a>/// `None` when the list is absent — which is not the same as an artist nobody
-<a href=#399 id=399 data-nosnippet>399</a>/// tagged, and only the first of those means "we did not ask for it".
-<a href=#400 id=400 data-nosnippet>400</a></span><span class="kw">fn </span>voted(row: <span class="kw-2">&amp;</span>Json, key: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;Vec&lt;String&gt;&gt; {
-<a href=#401 id=401 data-nosnippet>401</a>    <span class="kw">let </span>rows = row.get(key)<span class="question-mark">?</span>.as_arr()<span class="question-mark">?</span>;
-<a href=#402 id=402 data-nosnippet>402</a>    <span class="kw">let </span><span class="kw-2">mut </span>scored: Vec&lt;(u32, String)&gt; = rows
-<a href=#403 id=403 data-nosnippet>403</a>        .iter()
-<a href=#404 id=404 data-nosnippet>404</a>        .filter_map(|t| <span class="prelude-val">Some</span>((t.field_u32(<span class="string">"count"</span>).unwrap_or(<span class="number">0</span>), field(t, <span class="string">"name"</span>)<span class="question-mark">?</span>)))
-<a href=#405 id=405 data-nosnippet>405</a>        .collect();
-<a href=#406 id=406 data-nosnippet>406</a>    <span class="comment">// Most agreed first, then alphabetically so two runs give the same order.
-<a href=#407 id=407 data-nosnippet>407</a>    </span>scored.sort_by(|a, b| b.<span class="number">0</span>.cmp(<span class="kw-2">&amp;</span>a.<span class="number">0</span>).then_with(|| a.<span class="number">1</span>.cmp(<span class="kw-2">&amp;</span>b.<span class="number">1</span>)));
-<a href=#408 id=408 data-nosnippet>408</a>    <span class="prelude-val">Some</span>(scored.into_iter().map(|(<span class="kw">_</span>, name)| name).collect())
-<a href=#409 id=409 data-nosnippet>409</a>}
-<a href=#410 id=410 data-nosnippet>410</a>
-<a href=#411 id=411 data-nosnippet>411</a><span class="doccomment">/// The URL behind a relationship of the given type.
-<a href=#412 id=412 data-nosnippet>412</a>///
-<a href=#413 id=413 data-nosnippet>413</a>/// `relations[].url.resource` is the shape a URL relationship takes, and the
-<a href=#414 id=414 data-nosnippet>414</a>/// one spelling here I could not confirm against a live answer — so it is
-<a href=#415 id=415 data-nosnippet>415</a>/// written to come back empty rather than to break, and the tests below pin
-<a href=#416 id=416 data-nosnippet>416</a>/// what it expects.
-<a href=#417 id=417 data-nosnippet>417</a></span><span class="kw">fn </span>linked(row: <span class="kw-2">&amp;</span>Json, relation: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#418 id=418 data-nosnippet>418</a>    row.get(<span class="string">"relations"</span>)<span class="question-mark">?</span>.as_arr()<span class="question-mark">?</span>.iter().find_map(|r| {
-<a href=#419 id=419 data-nosnippet>419</a>        (r.field_str(<span class="string">"type"</span>).as_deref() == <span class="prelude-val">Some</span>(relation))
-<a href=#420 id=420 data-nosnippet>420</a>            .then(|| r.get(<span class="string">"url"</span>).and_then(|u| field(u, <span class="string">"resource"</span>)))
-<a href=#421 id=421 data-nosnippet>421</a>            .flatten()
-<a href=#422 id=422 data-nosnippet>422</a>    })
-<a href=#423 id=423 data-nosnippet>423</a>}
-<a href=#424 id=424 data-nosnippet>424</a>
-<a href=#425 id=425 data-nosnippet>425</a><span class="doccomment">/// One artist, as `/ws/2/artist/{mbid}?fmt=json` returns it.
-<a href=#426 id=426 data-nosnippet>426</a>///
-<a href=#427 id=427 data-nosnippet>427</a>/// A **lookup**, not a search, and the difference is the whole reason this
-<a href=#428 id=428 data-nosnippet>428</a>/// exists beside [`artists`]. A search answers with an abbreviated entry and a
-<a href=#429 id=429 data-nosnippet>429</a>/// relevance score, because it has to guess which artist was meant. A lookup
-<a href=#430 id=430 data-nosnippet>430</a>/// is asked about one identifier and answers with the entity itself —
-<a href=#431 id=431 data-nosnippet>431</a>/// `life-span.ended` and `disambiguation` among the fields a search result
-<a href=#432 id=432 data-nosnippet>432</a>/// leaves out.
-<a href=#433 id=433 data-nosnippet>433</a>///
-<a href=#434 id=434 data-nosnippet>434</a>/// Which matters because a library tagged with Picard already carries those
-<a href=#435 id=435 data-nosnippet>435</a>/// identifiers. Searching by name for an artist whose MBID sits in the tags is
-<a href=#436 id=436 data-nosnippet>436</a>/// asking a question that has already been answered, and accepting a guess in
-<a href=#437 id=437 data-nosnippet>437</a>/// place of a certainty.
-<a href=#438 id=438 data-nosnippet>438</a></span><span class="kw">pub fn </span>artist(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;ArtistFacts&gt;&gt; {
-<a href=#439 id=439 data-nosnippet>439</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#440 id=440 data-nosnippet>440</a>    <span class="prelude-val">Some</span>(Candidate {
-<a href=#441 id=441 data-nosnippet>441</a>        mbid,
-<a href=#442 id=442 data-nosnippet>442</a>        name: field(response, <span class="string">"name"</span>).unwrap_or_default(),
-<a href=#443 id=443 data-nosnippet>443</a>        <span class="comment">// Nothing was ranked: the service was asked about this one thing.
-<a href=#444 id=444 data-nosnippet>444</a>        </span>score: <span class="number">100</span>,
-<a href=#445 id=445 data-nosnippet>445</a>        facts: artist_facts(response),
-<a href=#446 id=446 data-nosnippet>446</a>    })
-<a href=#447 id=447 data-nosnippet>447</a>}
-<a href=#448 id=448 data-nosnippet>448</a>
-<a href=#449 id=449 data-nosnippet>449</a><span class="doccomment">/// One recording, as a lookup with [`RECORDING_INCLUDES`] returns it.
-<a href=#450 id=450 data-nosnippet>450</a>///
-<a href=#451 id=451 data-nosnippet>451</a>/// A lookup is evidence about the identifier we asked for, never a title
-<a href=#452 id=452 data-nosnippet>452</a>/// match. Its recording credits, work relationships and work credits remain
-<a href=#453 id=453 data-nosnippet>453</a>/// source facts: reconciliation decides later whether and how they join the
-<a href=#454 id=454 data-nosnippet>454</a>/// local canonical graph.
-<a href=#455 id=455 data-nosnippet>455</a></span><span class="kw">pub fn </span>recording(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;TrackFacts&gt;&gt; {
-<a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">let </span>credits = relationship_credits(response);
-<a href=#458 id=458 data-nosnippet>458</a>    <span class="kw">let </span>works = response
-<a href=#459 id=459 data-nosnippet>459</a>        .get(<span class="string">"relations"</span>)
-<a href=#460 id=460 data-nosnippet>460</a>        .and_then(Json::as_arr)
-<a href=#461 id=461 data-nosnippet>461</a>        .map(|relations| {
-<a href=#462 id=462 data-nosnippet>462</a>            relations
-<a href=#463 id=463 data-nosnippet>463</a>                .iter()
-<a href=#464 id=464 data-nosnippet>464</a>                .filter(|relation| relation.field_str(<span class="string">"target-type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"work"</span>))
-<a href=#465 id=465 data-nosnippet>465</a>                .filter_map(|relation| {
-<a href=#466 id=466 data-nosnippet>466</a>                    <span class="kw">let </span>work = relation.get(<span class="string">"work"</span>)<span class="question-mark">?</span>;
-<a href=#467 id=467 data-nosnippet>467</a>                    <span class="prelude-val">Some</span>(WorkLink {
-<a href=#468 id=468 data-nosnippet>468</a>                        mbid: field(work, <span class="string">"id"</span>)<span class="question-mark">?</span>,
-<a href=#469 id=469 data-nosnippet>469</a>                        title: field(work, <span class="string">"title"</span>).unwrap_or_default(),
-<a href=#470 id=470 data-nosnippet>470</a>                        relation_id: field(relation, <span class="string">"id"</span>),
-<a href=#471 id=471 data-nosnippet>471</a>                        relation_type: field(relation, <span class="string">"type"</span>),
-<a href=#472 id=472 data-nosnippet>472</a>                        relation_type_id: field(relation, <span class="string">"type-id"</span>),
-<a href=#473 id=473 data-nosnippet>473</a>                        direction: field(relation, <span class="string">"direction"</span>),
-<a href=#474 id=474 data-nosnippet>474</a>                        attributes: relationship_attributes(relation),
-<a href=#475 id=475 data-nosnippet>475</a>                        credits: relationship_credits(work),
-<a href=#476 id=476 data-nosnippet>476</a>                        parents: work_parent_links(work),
-<a href=#477 id=477 data-nosnippet>477</a>                    })
-<a href=#478 id=478 data-nosnippet>478</a>                })
-<a href=#479 id=479 data-nosnippet>479</a>                .collect()
-<a href=#480 id=480 data-nosnippet>480</a>        })
-<a href=#481 id=481 data-nosnippet>481</a>        .unwrap_or_default();
-<a href=#482 id=482 data-nosnippet>482</a>    <span class="prelude-val">Some</span>(Candidate {
-<a href=#483 id=483 data-nosnippet>483</a>        mbid: mbid.clone(),
-<a href=#484 id=484 data-nosnippet>484</a>        name: field(response, <span class="string">"title"</span>).unwrap_or_default(),
-<a href=#485 id=485 data-nosnippet>485</a>        score: <span class="number">100</span>,
-<a href=#486 id=486 data-nosnippet>486</a>        facts: TrackFacts {
-<a href=#487 id=487 data-nosnippet>487</a>            recording: <span class="prelude-val">Some</span>(mbid),
-<a href=#488 id=488 data-nosnippet>488</a>            title: field(response, <span class="string">"title"</span>),
-<a href=#489 id=489 data-nosnippet>489</a>            works,
-<a href=#490 id=490 data-nosnippet>490</a>            credits,
-<a href=#491 id=491 data-nosnippet>491</a>            relationships_complete: <span class="bool-val">true</span>,
-<a href=#492 id=492 data-nosnippet>492</a>            ..Default::default()
-<a href=#493 id=493 data-nosnippet>493</a>        },
-<a href=#494 id=494 data-nosnippet>494</a>    })
-<a href=#495 id=495 data-nosnippet>495</a>}
-<a href=#496 id=496 data-nosnippet>496</a>
-<a href=#497 id=497 data-nosnippet>497</a><span class="doccomment">/// A child work may have several containing works. Only the backward
-<a href=#498 id=498 data-nosnippet>498</a>/// MusicBrainz "parts" relationship says the queried work is a part; a
-<a href=#499 id=499 data-nosnippet>499</a>/// forward relationship names one of its children, and a derivative is not a
-<a href=#500 id=500 data-nosnippet>500</a>/// container at all.
-<a href=#501 id=501 data-nosnippet>501</a></span><span class="kw">fn </span>work_parent_links(work: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;<span class="kw">crate</span>::sources::WorkParentLink&gt; {
-<a href=#502 id=502 data-nosnippet>502</a>    <span class="kw">const </span>PARTS_TYPE_ID: <span class="kw-2">&amp;</span>str = <span class="string">"ca8d3642-ce5f-49f8-91f2-125d72524e6a"</span>;
-<a href=#503 id=503 data-nosnippet>503</a>    work.get(<span class="string">"relations"</span>)
-<a href=#504 id=504 data-nosnippet>504</a>        .and_then(Json::as_arr)
-<a href=#505 id=505 data-nosnippet>505</a>        .into_iter()
-<a href=#506 id=506 data-nosnippet>506</a>        .flatten()
-<a href=#507 id=507 data-nosnippet>507</a>        .filter(|relation| relation.field_str(<span class="string">"target-type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"work"</span>))
-<a href=#508 id=508 data-nosnippet>508</a>        .filter(|relation| relation.field_str(<span class="string">"direction"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"backward"</span>))
-<a href=#509 id=509 data-nosnippet>509</a>        .filter(|relation| <span class="kw">match </span>relation.field_str(<span class="string">"type-id"</span>) {
-<a href=#510 id=510 data-nosnippet>510</a>            <span class="prelude-val">Some</span>(id) =&gt; id == PARTS_TYPE_ID,
-<a href=#511 id=511 data-nosnippet>511</a>            <span class="prelude-val">None </span>=&gt; relation.field_str(<span class="string">"type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"parts"</span>),
-<a href=#512 id=512 data-nosnippet>512</a>        })
-<a href=#513 id=513 data-nosnippet>513</a>        .filter_map(|relation| {
-<a href=#514 id=514 data-nosnippet>514</a>            <span class="kw">let </span>parent = relation.get(<span class="string">"work"</span>)<span class="question-mark">?</span>;
-<a href=#515 id=515 data-nosnippet>515</a>            <span class="prelude-val">Some</span>(<span class="kw">crate</span>::sources::WorkParentLink {
-<a href=#516 id=516 data-nosnippet>516</a>                mbid: field(parent, <span class="string">"id"</span>)<span class="question-mark">?</span>,
-<a href=#517 id=517 data-nosnippet>517</a>                title: field(parent, <span class="string">"title"</span>).unwrap_or_default(),
-<a href=#518 id=518 data-nosnippet>518</a>                relation_id: field(relation, <span class="string">"id"</span>),
-<a href=#519 id=519 data-nosnippet>519</a>                relation_type_id: field(relation, <span class="string">"type-id"</span>),
-<a href=#520 id=520 data-nosnippet>520</a>                direction: field(relation, <span class="string">"direction"</span>),
-<a href=#521 id=521 data-nosnippet>521</a>                attributes: relationship_attributes(relation),
-<a href=#522 id=522 data-nosnippet>522</a>                order: relation.field_u32(<span class="string">"ordering-key"</span>),
-<a href=#523 id=523 data-nosnippet>523</a>            })
-<a href=#524 id=524 data-nosnippet>524</a>        })
-<a href=#525 id=525 data-nosnippet>525</a>        .collect()
-<a href=#526 id=526 data-nosnippet>526</a>}
-<a href=#527 id=527 data-nosnippet>527</a>
-<a href=#528 id=528 data-nosnippet>528</a><span class="doccomment">/// Artist relationships carried by one recording or work response.
-<a href=#529 id=529 data-nosnippet>529</a></span><span class="kw">fn </span>relationship_credits(entity: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;CreditLink&gt; {
-<a href=#530 id=530 data-nosnippet>530</a>    entity
-<a href=#531 id=531 data-nosnippet>531</a>        .get(<span class="string">"relations"</span>)
-<a href=#532 id=532 data-nosnippet>532</a>        .and_then(Json::as_arr)
-<a href=#533 id=533 data-nosnippet>533</a>        .map(|relations| {
-<a href=#534 id=534 data-nosnippet>534</a>            relations
-<a href=#535 id=535 data-nosnippet>535</a>                .iter()
-<a href=#536 id=536 data-nosnippet>536</a>                .filter(|relation| relation.field_str(<span class="string">"target-type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"artist"</span>))
-<a href=#537 id=537 data-nosnippet>537</a>                .filter_map(|relation| {
-<a href=#538 id=538 data-nosnippet>538</a>                    <span class="kw">let </span>artist = relation.get(<span class="string">"artist"</span>)<span class="question-mark">?</span>;
-<a href=#539 id=539 data-nosnippet>539</a>                    <span class="kw">let </span>credited_as = field(relation, <span class="string">"target-credit"</span>).filter(|s| !s.is_empty());
-<a href=#540 id=540 data-nosnippet>540</a>                    <span class="prelude-val">Some</span>(CreditLink {
-<a href=#541 id=541 data-nosnippet>541</a>                        relation_id: field(relation, <span class="string">"id"</span>),
-<a href=#542 id=542 data-nosnippet>542</a>                        role_id: field(relation, <span class="string">"type-id"</span>),
-<a href=#543 id=543 data-nosnippet>543</a>                        role: field(relation, <span class="string">"type"</span>)<span class="question-mark">?</span>,
-<a href=#544 id=544 data-nosnippet>544</a>                        direction: field(relation, <span class="string">"direction"</span>),
-<a href=#545 id=545 data-nosnippet>545</a>                        artist_mbid: field(artist, <span class="string">"id"</span>)<span class="question-mark">?</span>,
-<a href=#546 id=546 data-nosnippet>546</a>                        artist_name: field(artist, <span class="string">"name"</span>).unwrap_or_default(),
-<a href=#547 id=547 data-nosnippet>547</a>                        credited_as,
-<a href=#548 id=548 data-nosnippet>548</a>                        attributes: relationship_attributes(relation),
-<a href=#549 id=549 data-nosnippet>549</a>                        began: field(relation, <span class="string">"begin"</span>),
-<a href=#550 id=550 data-nosnippet>550</a>                        ended: field(relation, <span class="string">"end"</span>),
-<a href=#551 id=551 data-nosnippet>551</a>                        over: relation.field_optional_bool(<span class="string">"ended"</span>),
-<a href=#552 id=552 data-nosnippet>552</a>                        order: relation.field_u32(<span class="string">"ordering-key"</span>),
-<a href=#553 id=553 data-nosnippet>553</a>                    })
-<a href=#554 id=554 data-nosnippet>554</a>                })
-<a href=#555 id=555 data-nosnippet>555</a>                .collect()
-<a href=#556 id=556 data-nosnippet>556</a>        })
-<a href=#557 id=557 data-nosnippet>557</a>        .unwrap_or_default()
-<a href=#558 id=558 data-nosnippet>558</a>}
-<a href=#559 id=559 data-nosnippet>559</a>
-<a href=#560 id=560 data-nosnippet>560</a><span class="doccomment">/// Attributes of one relationship, retaining values and credited spellings.
-<a href=#561 id=561 data-nosnippet>561</a></span><span class="kw">fn </span>relationship_attributes(relation: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;CreditAttribute&gt; {
-<a href=#562 id=562 data-nosnippet>562</a>    relation
-<a href=#563 id=563 data-nosnippet>563</a>        .get(<span class="string">"attributes"</span>)
-<a href=#564 id=564 data-nosnippet>564</a>        .and_then(Json::as_arr)
-<a href=#565 id=565 data-nosnippet>565</a>        .map(|attributes| {
-<a href=#566 id=566 data-nosnippet>566</a>            attributes
-<a href=#567 id=567 data-nosnippet>567</a>                .iter()
-<a href=#568 id=568 data-nosnippet>568</a>                .filter_map(Json::as_string)
-<a href=#569 id=569 data-nosnippet>569</a>                .map(|name| CreditAttribute {
-<a href=#570 id=570 data-nosnippet>570</a>                    id: relation
-<a href=#571 id=571 data-nosnippet>571</a>                        .get(<span class="string">"attribute-ids"</span>)
-<a href=#572 id=572 data-nosnippet>572</a>                        .and_then(|ids| ids.get(<span class="kw-2">&amp;</span>name))
-<a href=#573 id=573 data-nosnippet>573</a>                        .and_then(Json::as_string),
-<a href=#574 id=574 data-nosnippet>574</a>                    value: relation
-<a href=#575 id=575 data-nosnippet>575</a>                        .get(<span class="string">"attribute-values"</span>)
-<a href=#576 id=576 data-nosnippet>576</a>                        .and_then(|values| values.get(<span class="kw-2">&amp;</span>name))
-<a href=#577 id=577 data-nosnippet>577</a>                        .and_then(Json::as_string),
-<a href=#578 id=578 data-nosnippet>578</a>                    credited_as: relation
-<a href=#579 id=579 data-nosnippet>579</a>                        .get(<span class="string">"attribute-credits"</span>)
-<a href=#580 id=580 data-nosnippet>580</a>                        .and_then(|credits| credits.get(<span class="kw-2">&amp;</span>name))
-<a href=#581 id=581 data-nosnippet>581</a>                        .and_then(Json::as_string)
-<a href=#582 id=582 data-nosnippet>582</a>                        .filter(|value| !value.is_empty()),
-<a href=#583 id=583 data-nosnippet>583</a>                    name,
-<a href=#584 id=584 data-nosnippet>584</a>                })
-<a href=#585 id=585 data-nosnippet>585</a>                .collect()
-<a href=#586 id=586 data-nosnippet>586</a>        })
-<a href=#587 id=587 data-nosnippet>587</a>        .unwrap_or_default()
-<a href=#588 id=588 data-nosnippet>588</a>}
-<a href=#589 id=589 data-nosnippet>589</a>
-<a href=#590 id=590 data-nosnippet>590</a><span class="doccomment">/// Artists, as `/ws/2/artist/?query=…&amp;fmt=json` returns them.
-<a href=#591 id=591 data-nosnippet>591</a>///
-<a href=#592 id=592 data-nosnippet>592</a>/// A **search**: the answers are ranked guesses at what was meant, and each
-<a href=#593 id=593 data-nosnippet>593</a>/// entry is abbreviated. Prefer [`artist`] whenever an identifier is known.
-<a href=#594 id=594 data-nosnippet>594</a>///
-<a href=#595 id=595 data-nosnippet>595</a>/// An entry with no identifier is skipped: without it a later fetch could not
-<a href=#596 id=596 data-nosnippet>596</a>/// tell an update from a second opinion, which is the one thing the identifier
-<a href=#597 id=597 data-nosnippet>597</a>/// is stored for.
-<a href=#598 id=598 data-nosnippet>598</a></span><span class="kw">pub fn </span>artists(response: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Candidate&lt;ArtistFacts&gt;&gt; {
-<a href=#599 id=599 data-nosnippet>599</a>    <span class="kw">let </span>rows = response
-<a href=#600 id=600 data-nosnippet>600</a>        .get(<span class="string">"artists"</span>)
-<a href=#601 id=601 data-nosnippet>601</a>        .and_then(Json::as_arr)
-<a href=#602 id=602 data-nosnippet>602</a>        .unwrap_or(<span class="kw-2">&amp;</span>[]);
-<a href=#603 id=603 data-nosnippet>603</a>    rows.iter()
-<a href=#604 id=604 data-nosnippet>604</a>        .filter_map(|row| {
-<a href=#605 id=605 data-nosnippet>605</a>            <span class="kw">let </span>mbid = field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#606 id=606 data-nosnippet>606</a>            <span class="prelude-val">Some</span>(Candidate {
-<a href=#607 id=607 data-nosnippet>607</a>                mbid,
-<a href=#608 id=608 data-nosnippet>608</a>                name: field(row, <span class="string">"name"</span>).unwrap_or_default(),
-<a href=#609 id=609 data-nosnippet>609</a>                score: score_of(row),
-<a href=#610 id=610 data-nosnippet>610</a>                facts: artist_facts(row),
-<a href=#611 id=611 data-nosnippet>611</a>            })
-<a href=#612 id=612 data-nosnippet>612</a>        })
-<a href=#613 id=613 data-nosnippet>613</a>        .collect()
-<a href=#614 id=614 data-nosnippet>614</a>}
-<a href=#615 id=615 data-nosnippet>615</a>
-<a href=#616 id=616 data-nosnippet>616</a><span class="doccomment">/// Release groups, as `/ws/2/release-group/?query=…&amp;fmt=json` returns them.
-<a href=#617 id=617 data-nosnippet>617</a>///
-<a href=#618 id=618 data-nosnippet>618</a>/// Groups rather than releases, deliberately: a release group is *the album*,
-<a href=#619 id=619 data-nosnippet>619</a>/// and every remaster and reissue of it is a release inside that group. Asking
-<a href=#620 id=620 data-nosnippet>620</a>/// about releases would answer with one edition among twenty and call it the
-<a href=#621 id=621 data-nosnippet>621</a>/// album's date.
-<a href=#622 id=622 data-nosnippet>622</a></span><span class="kw">pub fn </span>release_groups(response: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Candidate&lt;ReleaseFacts&gt;&gt; {
-<a href=#623 id=623 data-nosnippet>623</a>    <span class="kw">let </span>rows = response
-<a href=#624 id=624 data-nosnippet>624</a>        .get(<span class="string">"release-groups"</span>)
-<a href=#625 id=625 data-nosnippet>625</a>        .and_then(Json::as_arr)
-<a href=#626 id=626 data-nosnippet>626</a>        .unwrap_or(<span class="kw-2">&amp;</span>[]);
-<a href=#627 id=627 data-nosnippet>627</a>    rows.iter()
-<a href=#628 id=628 data-nosnippet>628</a>        .filter_map(|row| {
-<a href=#629 id=629 data-nosnippet>629</a>            <span class="kw">let </span>mbid = field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#630 id=630 data-nosnippet>630</a>            <span class="prelude-val">Some</span>(Candidate {
-<a href=#631 id=631 data-nosnippet>631</a>                mbid,
-<a href=#632 id=632 data-nosnippet>632</a>                name: field(row, <span class="string">"title"</span>).unwrap_or_default(),
-<a href=#633 id=633 data-nosnippet>633</a>                score: score_of(row),
-<a href=#634 id=634 data-nosnippet>634</a>                facts: release_facts(row),
-<a href=#635 id=635 data-nosnippet>635</a>            })
-<a href=#636 id=636 data-nosnippet>636</a>        })
-<a href=#637 id=637 data-nosnippet>637</a>        .collect()
-<a href=#638 id=638 data-nosnippet>638</a>}
-<a href=#639 id=639 data-nosnippet>639</a>
-<a href=#640 id=640 data-nosnippet>640</a><span class="doccomment">/// The album, read the same way wherever the group came from.
-<a href=#641 id=641 data-nosnippet>641</a>///
-<a href=#642 id=642 data-nosnippet>642</a>/// One extractor for the search result, the group lookup and the group folded
-<a href=#643 id=643 data-nosnippet>643</a>/// into a release lookup — for the reason [`artist_facts`] is one function:
-<a href=#644 id=644 data-nosnippet>644</a>/// reading the same entity in three places is how two of them quietly stop
-<a href=#645 id=645 data-nosnippet>645</a>/// keeping a field.
-<a href=#646 id=646 data-nosnippet>646</a>///
-<a href=#647 id=647 data-nosnippet>647</a>/// The label is deliberately **not** read here. A group has none; a release
-<a href=#648 id=648 data-nosnippet>648</a>/// does. Filling it from whichever edition answered first would attribute one
-<a href=#649 id=649 data-nosnippet>649</a>/// pressing's label to the album itself.
-<a href=#650 id=650 data-nosnippet>650</a></span><span class="kw">fn </span>release_facts(group: <span class="kw-2">&amp;</span>Json) -&gt; ReleaseFacts {
-<a href=#651 id=651 data-nosnippet>651</a>    ReleaseFacts {
-<a href=#652 id=652 data-nosnippet>652</a>        primary_type: field(group, <span class="string">"primary-type"</span>),
-<a href=#653 id=653 data-nosnippet>653</a>        secondary_types: group
-<a href=#654 id=654 data-nosnippet>654</a>            .get(<span class="string">"secondary-types"</span>)
-<a href=#655 id=655 data-nosnippet>655</a>            .and_then(Json::as_arr)
-<a href=#656 id=656 data-nosnippet>656</a>            .map(|a| a.iter().filter_map(Json::as_string).collect())
-<a href=#657 id=657 data-nosnippet>657</a>            .unwrap_or_default(),
-<a href=#658 id=658 data-nosnippet>658</a>        first_released: field(group, <span class="string">"first-release-date"</span>),
-<a href=#659 id=659 data-nosnippet>659</a>        label: <span class="prelude-val">None</span>,
-<a href=#660 id=660 data-nosnippet>660</a>        label_mbid: <span class="prelude-val">None</span>,
-<a href=#661 id=661 data-nosnippet>661</a>        <span class="comment">// MusicBrainz holds no artwork: the images live at the Cover Art
-<a href=#662 id=662 data-nosnippet>662</a>        // Archive, which is a different service with its own answer — see
-<a href=#663 id=663 data-nosnippet>663</a>        // [`crate::coverart`].
-<a href=#664 id=664 data-nosnippet>664</a>        </span>cover_art: <span class="prelude-val">None</span>,
-<a href=#665 id=665 data-nosnippet>665</a>        edition_mbid: <span class="prelude-val">None</span>,
-<a href=#666 id=666 data-nosnippet>666</a>        credits: Vec::new(),
-<a href=#667 id=667 data-nosnippet>667</a>        relationships_complete: <span class="bool-val">false</span>,
-<a href=#668 id=668 data-nosnippet>668</a>    }
-<a href=#669 id=669 data-nosnippet>669</a>}
-<a href=#670 id=670 data-nosnippet>670</a>
-<a href=#671 id=671 data-nosnippet>671</a><span class="doccomment">/// One release group, as a lookup answers: `/ws/2/release-group/&lt;mbid&gt;`.
-<a href=#672 id=672 data-nosnippet>672</a>///
-<a href=#673 id=673 data-nosnippet>673</a>/// The counterpart of [`artist`]: an answer about the identifier that was
-<a href=#674 id=674 data-nosnippet>674</a>/// asked for is a certainty, where a search result is a guess with a score.
-<a href=#675 id=675 data-nosnippet>675</a>/// Used when the tags carry `MUSICBRAINZ_RELEASEGROUPID` but no edition.
-<a href=#676 id=676 data-nosnippet>676</a></span><span class="kw">pub fn </span>release_group(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;ReleaseFacts&gt;&gt; {
-<a href=#677 id=677 data-nosnippet>677</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#678 id=678 data-nosnippet>678</a>    <span class="prelude-val">Some</span>(Candidate {
-<a href=#679 id=679 data-nosnippet>679</a>        mbid,
-<a href=#680 id=680 data-nosnippet>680</a>        name: field(response, <span class="string">"title"</span>).unwrap_or_default(),
-<a href=#681 id=681 data-nosnippet>681</a>        score: <span class="number">100</span>,
-<a href=#682 id=682 data-nosnippet>682</a>        facts: release_facts(response),
-<a href=#683 id=683 data-nosnippet>683</a>    })
-<a href=#684 id=684 data-nosnippet>684</a>}
-<a href=#685 id=685 data-nosnippet>685</a>
-<a href=#686 id=686 data-nosnippet>686</a><span class="doccomment">/// One release, as a lookup with [`RELEASE_INCLUDES`] answers.
-<a href=#687 id=687 data-nosnippet>687</a>///
-<a href=#688 id=688 data-nosnippet>688</a>/// The richest answer this program can get about an album, and the cheapest:
-<a href=#689 id=689 data-nosnippet>689</a>/// the edition supplies the label, the folded release group supplies the type
-<a href=#690 id=690 data-nosnippet>690</a>/// and the date the album first appeared — which is the fact a reissue's `DATE`
-<a href=#691 id=691 data-nosnippet>691</a>/// tag most often contradicts.
+<a href=#339 id=339 data-nosnippet>339</a>/// Both answers carry `"direction": "backward"`, and that settles it: these
+<a href=#340 id=340 data-nosnippet>340</a>/// relationships are defined **from the musician towards the group**, so a
+<a href=#341 id=341 data-nosnippet>341</a>/// backward one is being read *from the group's end* and the artist it names is
+<a href=#342 id=342 data-nosnippet>342</a>/// the player. The first version of this function had it the other way round,
+<a href=#343 id=343 data-nosnippet>343</a>/// on the reasonable-sounding assumption that a person's own record would read
+<a href=#344 id=344 data-nosnippet>344</a>/// forward. It does not.
+<a href=#345 id=345 data-nosnippet>345</a>///
+<a href=#346 id=346 data-nosnippet>346</a>/// # Which relationships count
+<a href=#347 id=347 data-nosnippet>347</a>///
+<a href=#348 id=348 data-nosnippet>348</a>/// `member of band` is the obvious one and it is not enough. Ozzy Osbourne's
+<a href=#349 id=349 data-nosnippet>349</a>/// own record holds no members at all — a solo artist is not a band — and every
+<a href=#350 id=350 data-nosnippet>350</a>/// musician who played on his records is there as an
+<a href=#351 id=351 data-nosnippet>351</a>/// `instrumental supporting musician`: Randy Rhoads on guitar, Bob Daisley on
+<a href=#352 id=352 data-nosnippet>352</a>/// bass. A line-up that showed nothing for him while MusicBrainz plainly holds
+<a href=#353 id=353 data-nosnippet>353</a>/// his band would be a worse answer than no feature.
+<a href=#354 id=354 data-nosnippet>354</a>///
+<a href=#355 id=355 data-nosnippet>355</a>/// The two are kept apart rather than merged, because a founding member and a
+<a href=#356 id=356 data-nosnippet>356</a>/// guitarist hired for one tour are both on the record and only one of them was
+<a href=#357 id=357 data-nosnippet>357</a>/// in the band. [`Membership::kind`] carries the source's own phrase.
+<a href=#358 id=358 data-nosnippet>358</a>///
+<a href=#359 id=359 data-nosnippet>359</a>/// **The list is what has been seen in a real answer**, and nothing else: a
+<a href=#360 id=360 data-nosnippet>360</a>/// relationship type nobody has checked is a guess with a `const` around it.
+<a href=#361 id=361 data-nosnippet>361</a></span><span class="kw">fn </span>memberships(row: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Membership&gt; {
+<a href=#362 id=362 data-nosnippet>362</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(relations) = row.get(<span class="string">"relations"</span>).and_then(Json::as_arr) <span class="kw">else </span>{
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">return </span>Vec::new();
+<a href=#364 id=364 data-nosnippet>364</a>    };
+<a href=#365 id=365 data-nosnippet>365</a>    relations
+<a href=#366 id=366 data-nosnippet>366</a>        .iter()
+<a href=#367 id=367 data-nosnippet>367</a>        .filter(|r| {
+<a href=#368 id=368 data-nosnippet>368</a>            r.field_str(<span class="string">"type"</span>)
+<a href=#369 id=369 data-nosnippet>369</a>                .is_some_and(|t| MEMBER_RELATIONS.contains(<span class="kw-2">&amp;</span>t.as_str()))
+<a href=#370 id=370 data-nosnippet>370</a>        })
+<a href=#371 id=371 data-nosnippet>371</a>        .filter_map(|r| {
+<a href=#372 id=372 data-nosnippet>372</a>            <span class="kw">let </span>artist = r.get(<span class="string">"artist"</span>)<span class="question-mark">?</span>;
+<a href=#373 id=373 data-nosnippet>373</a>            <span class="prelude-val">Some</span>(Membership {
+<a href=#374 id=374 data-nosnippet>374</a>                relation_id: field(r, <span class="string">"id"</span>),
+<a href=#375 id=375 data-nosnippet>375</a>                role_id: field(r, <span class="string">"type-id"</span>),
+<a href=#376 id=376 data-nosnippet>376</a>                direction: field(r, <span class="string">"direction"</span>),
+<a href=#377 id=377 data-nosnippet>377</a>                <span class="comment">// No identifier, no membership: a name alone cannot be
+<a href=#378 id=378 data-nosnippet>378</a>                // followed to the artist it names, and the whole value of this
+<a href=#379 id=379 data-nosnippet>379</a>                // list is that each row leads somewhere.
+<a href=#380 id=380 data-nosnippet>380</a>                </span>mbid: field(artist, <span class="string">"id"</span>)<span class="question-mark">?</span>,
+<a href=#381 id=381 data-nosnippet>381</a>                name: field(artist, <span class="string">"name"</span>).unwrap_or_default(),
+<a href=#382 id=382 data-nosnippet>382</a>                credited_as: field(r, <span class="string">"target-credit"</span>).filter(|value| !value.is_empty()),
+<a href=#383 id=383 data-nosnippet>383</a>                kind: field(r, <span class="string">"type"</span>).unwrap_or_default(),
+<a href=#384 id=384 data-nosnippet>384</a>                side: <span class="kw">match </span>r.field_str(<span class="string">"direction"</span>).as_deref() {
+<a href=#385 id=385 data-nosnippet>385</a>                    <span class="prelude-val">Some</span>(<span class="string">"backward"</span>) =&gt; Side::Player,
+<a href=#386 id=386 data-nosnippet>386</a>                    <span class="kw">_ </span>=&gt; Side::Group,
+<a href=#387 id=387 data-nosnippet>387</a>                },
+<a href=#388 id=388 data-nosnippet>388</a>                attributes: r
+<a href=#389 id=389 data-nosnippet>389</a>                    .get(<span class="string">"attributes"</span>)
+<a href=#390 id=390 data-nosnippet>390</a>                    .and_then(Json::as_arr)
+<a href=#391 id=391 data-nosnippet>391</a>                    .map(|a| a.iter().filter_map(Json::as_string).collect())
+<a href=#392 id=392 data-nosnippet>392</a>                    .unwrap_or_default(),
+<a href=#393 id=393 data-nosnippet>393</a>                <span class="comment">// `begin` may be a year, `1979-11`, or a full date, and every
+<a href=#394 id=394 data-nosnippet>394</a>                // one of those is answered by taking the first four characters
+<a href=#395 id=395 data-nosnippet>395</a>                // where a year is wanted.
+<a href=#396 id=396 data-nosnippet>396</a>                </span>began: field(r, <span class="string">"begin"</span>),
+<a href=#397 id=397 data-nosnippet>397</a>                ended: field(r, <span class="string">"end"</span>),
+<a href=#398 id=398 data-nosnippet>398</a>                <span class="comment">// `ended: false` is an answer — "still in the band" — and it is
+<a href=#399 id=399 data-nosnippet>399</a>                // the one a reader looking at a line-up wants most. It arrives
+<a href=#400 id=400 data-nosnippet>400</a>                // beside `"end": null`, so the two must be read separately.
+<a href=#401 id=401 data-nosnippet>401</a>                </span>over: r.field_optional_bool(<span class="string">"ended"</span>),
+<a href=#402 id=402 data-nosnippet>402</a>            })
+<a href=#403 id=403 data-nosnippet>403</a>        })
+<a href=#404 id=404 data-nosnippet>404</a>        .collect()
+<a href=#405 id=405 data-nosnippet>405</a>}
+<a href=#406 id=406 data-nosnippet>406</a>
+<a href=#407 id=407 data-nosnippet>407</a><span class="doccomment">/// The relationships this reads, spelt as MusicBrainz spells them.
+<a href=#408 id=408 data-nosnippet>408</a>///
+<a href=#409 id=409 data-nosnippet>409</a>/// One place, because the strings are the whole filter: a typo here empties
+<a href=#410 id=410 data-nosnippet>410</a>/// every line-up in the program and nothing else goes wrong. Each was seen in
+<a href=#411 id=411 data-nosnippet>411</a>/// a live answer — `member of band` on Judas Priest, `instrumental supporting
+<a href=#412 id=412 data-nosnippet>412</a>/// musician` on Ozzy Osbourne — and a type nobody has checked does not belong
+<a href=#413 id=413 data-nosnippet>413</a>/// on this list, however plausible its name.
+<a href=#414 id=414 data-nosnippet>414</a></span><span class="kw">const </span>MEMBER_RELATIONS: [<span class="kw-2">&amp;</span>str; <span class="number">2</span>] = [<span class="string">"member of band"</span>, <span class="string">"instrumental supporting musician"</span>];
+<a href=#415 id=415 data-nosnippet>415</a>
+<a href=#416 id=416 data-nosnippet>416</a><span class="doccomment">/// Names from a `genres` or `tags` list, most agreed first.
+<a href=#417 id=417 data-nosnippet>417</a>///
+<a href=#418 id=418 data-nosnippet>418</a>/// `None` when the list is absent — which is not the same as an artist nobody
+<a href=#419 id=419 data-nosnippet>419</a>/// tagged, and only the first of those means "we did not ask for it".
+<a href=#420 id=420 data-nosnippet>420</a></span><span class="kw">fn </span>voted(row: <span class="kw-2">&amp;</span>Json, key: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;Vec&lt;String&gt;&gt; {
+<a href=#421 id=421 data-nosnippet>421</a>    <span class="kw">let </span>rows = row.get(key)<span class="question-mark">?</span>.as_arr()<span class="question-mark">?</span>;
+<a href=#422 id=422 data-nosnippet>422</a>    <span class="kw">let </span><span class="kw-2">mut </span>scored: Vec&lt;(u32, String)&gt; = rows
+<a href=#423 id=423 data-nosnippet>423</a>        .iter()
+<a href=#424 id=424 data-nosnippet>424</a>        .filter_map(|t| <span class="prelude-val">Some</span>((t.field_u32(<span class="string">"count"</span>).unwrap_or(<span class="number">0</span>), field(t, <span class="string">"name"</span>)<span class="question-mark">?</span>)))
+<a href=#425 id=425 data-nosnippet>425</a>        .collect();
+<a href=#426 id=426 data-nosnippet>426</a>    <span class="comment">// Most agreed first, then alphabetically so two runs give the same order.
+<a href=#427 id=427 data-nosnippet>427</a>    </span>scored.sort_by(|a, b| b.<span class="number">0</span>.cmp(<span class="kw-2">&amp;</span>a.<span class="number">0</span>).then_with(|| a.<span class="number">1</span>.cmp(<span class="kw-2">&amp;</span>b.<span class="number">1</span>)));
+<a href=#428 id=428 data-nosnippet>428</a>    <span class="prelude-val">Some</span>(scored.into_iter().map(|(<span class="kw">_</span>, name)| name).collect())
+<a href=#429 id=429 data-nosnippet>429</a>}
+<a href=#430 id=430 data-nosnippet>430</a>
+<a href=#431 id=431 data-nosnippet>431</a><span class="doccomment">/// The URL behind a relationship of the given type.
+<a href=#432 id=432 data-nosnippet>432</a>///
+<a href=#433 id=433 data-nosnippet>433</a>/// `relations[].url.resource` is the shape a URL relationship takes, and the
+<a href=#434 id=434 data-nosnippet>434</a>/// one spelling here I could not confirm against a live answer — so it is
+<a href=#435 id=435 data-nosnippet>435</a>/// written to come back empty rather than to break, and the tests below pin
+<a href=#436 id=436 data-nosnippet>436</a>/// what it expects.
+<a href=#437 id=437 data-nosnippet>437</a></span><span class="kw">fn </span>linked(row: <span class="kw-2">&amp;</span>Json, relation: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#438 id=438 data-nosnippet>438</a>    row.get(<span class="string">"relations"</span>)<span class="question-mark">?</span>.as_arr()<span class="question-mark">?</span>.iter().find_map(|r| {
+<a href=#439 id=439 data-nosnippet>439</a>        (r.field_str(<span class="string">"type"</span>).as_deref() == <span class="prelude-val">Some</span>(relation))
+<a href=#440 id=440 data-nosnippet>440</a>            .then(|| r.get(<span class="string">"url"</span>).and_then(|u| field(u, <span class="string">"resource"</span>)))
+<a href=#441 id=441 data-nosnippet>441</a>            .flatten()
+<a href=#442 id=442 data-nosnippet>442</a>    })
+<a href=#443 id=443 data-nosnippet>443</a>}
+<a href=#444 id=444 data-nosnippet>444</a>
+<a href=#445 id=445 data-nosnippet>445</a><span class="doccomment">/// One artist, as `/ws/2/artist/{mbid}?fmt=json` returns it.
+<a href=#446 id=446 data-nosnippet>446</a>///
+<a href=#447 id=447 data-nosnippet>447</a>/// A **lookup**, not a search, and the difference is the whole reason this
+<a href=#448 id=448 data-nosnippet>448</a>/// exists beside [`artists`]. A search answers with an abbreviated entry and a
+<a href=#449 id=449 data-nosnippet>449</a>/// relevance score, because it has to guess which artist was meant. A lookup
+<a href=#450 id=450 data-nosnippet>450</a>/// is asked about one identifier and answers with the entity itself —
+<a href=#451 id=451 data-nosnippet>451</a>/// `life-span.ended` and `disambiguation` among the fields a search result
+<a href=#452 id=452 data-nosnippet>452</a>/// leaves out.
+<a href=#453 id=453 data-nosnippet>453</a>///
+<a href=#454 id=454 data-nosnippet>454</a>/// Which matters because a library tagged with Picard already carries those
+<a href=#455 id=455 data-nosnippet>455</a>/// identifiers. Searching by name for an artist whose MBID sits in the tags is
+<a href=#456 id=456 data-nosnippet>456</a>/// asking a question that has already been answered, and accepting a guess in
+<a href=#457 id=457 data-nosnippet>457</a>/// place of a certainty.
+<a href=#458 id=458 data-nosnippet>458</a></span><span class="kw">pub fn </span>artist(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;ArtistFacts&gt;&gt; {
+<a href=#459 id=459 data-nosnippet>459</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#460 id=460 data-nosnippet>460</a>    <span class="prelude-val">Some</span>(Candidate {
+<a href=#461 id=461 data-nosnippet>461</a>        mbid,
+<a href=#462 id=462 data-nosnippet>462</a>        name: field(response, <span class="string">"name"</span>).unwrap_or_default(),
+<a href=#463 id=463 data-nosnippet>463</a>        <span class="comment">// Nothing was ranked: the service was asked about this one thing.
+<a href=#464 id=464 data-nosnippet>464</a>        </span>score: <span class="number">100</span>,
+<a href=#465 id=465 data-nosnippet>465</a>        facts: artist_facts(response),
+<a href=#466 id=466 data-nosnippet>466</a>    })
+<a href=#467 id=467 data-nosnippet>467</a>}
+<a href=#468 id=468 data-nosnippet>468</a>
+<a href=#469 id=469 data-nosnippet>469</a><span class="doccomment">/// One recording, as a lookup with [`RECORDING_INCLUDES`] returns it.
+<a href=#470 id=470 data-nosnippet>470</a>///
+<a href=#471 id=471 data-nosnippet>471</a>/// A lookup is evidence about the identifier we asked for, never a title
+<a href=#472 id=472 data-nosnippet>472</a>/// match. Its recording credits, work relationships and work credits remain
+<a href=#473 id=473 data-nosnippet>473</a>/// source facts: reconciliation decides later whether and how they join the
+<a href=#474 id=474 data-nosnippet>474</a>/// local canonical graph.
+<a href=#475 id=475 data-nosnippet>475</a></span><span class="kw">pub fn </span>recording(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;TrackFacts&gt;&gt; {
+<a href=#476 id=476 data-nosnippet>476</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#477 id=477 data-nosnippet>477</a>    <span class="kw">let </span>credits = relationship_credits(response);
+<a href=#478 id=478 data-nosnippet>478</a>    <span class="kw">let </span>works = response
+<a href=#479 id=479 data-nosnippet>479</a>        .get(<span class="string">"relations"</span>)
+<a href=#480 id=480 data-nosnippet>480</a>        .and_then(Json::as_arr)
+<a href=#481 id=481 data-nosnippet>481</a>        .map(|relations| {
+<a href=#482 id=482 data-nosnippet>482</a>            relations
+<a href=#483 id=483 data-nosnippet>483</a>                .iter()
+<a href=#484 id=484 data-nosnippet>484</a>                .filter(|relation| relation.field_str(<span class="string">"target-type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"work"</span>))
+<a href=#485 id=485 data-nosnippet>485</a>                .filter_map(|relation| {
+<a href=#486 id=486 data-nosnippet>486</a>                    <span class="kw">let </span>work = relation.get(<span class="string">"work"</span>)<span class="question-mark">?</span>;
+<a href=#487 id=487 data-nosnippet>487</a>                    <span class="prelude-val">Some</span>(WorkLink {
+<a href=#488 id=488 data-nosnippet>488</a>                        mbid: field(work, <span class="string">"id"</span>)<span class="question-mark">?</span>,
+<a href=#489 id=489 data-nosnippet>489</a>                        title: field(work, <span class="string">"title"</span>).unwrap_or_default(),
+<a href=#490 id=490 data-nosnippet>490</a>                        relation_id: field(relation, <span class="string">"id"</span>),
+<a href=#491 id=491 data-nosnippet>491</a>                        relation_type: field(relation, <span class="string">"type"</span>),
+<a href=#492 id=492 data-nosnippet>492</a>                        relation_type_id: field(relation, <span class="string">"type-id"</span>),
+<a href=#493 id=493 data-nosnippet>493</a>                        direction: field(relation, <span class="string">"direction"</span>),
+<a href=#494 id=494 data-nosnippet>494</a>                        attributes: relationship_attributes(relation),
+<a href=#495 id=495 data-nosnippet>495</a>                        credits: relationship_credits(work),
+<a href=#496 id=496 data-nosnippet>496</a>                        parents: work_parent_links(work),
+<a href=#497 id=497 data-nosnippet>497</a>                    })
+<a href=#498 id=498 data-nosnippet>498</a>                })
+<a href=#499 id=499 data-nosnippet>499</a>                .collect()
+<a href=#500 id=500 data-nosnippet>500</a>        })
+<a href=#501 id=501 data-nosnippet>501</a>        .unwrap_or_default();
+<a href=#502 id=502 data-nosnippet>502</a>    <span class="prelude-val">Some</span>(Candidate {
+<a href=#503 id=503 data-nosnippet>503</a>        mbid: mbid.clone(),
+<a href=#504 id=504 data-nosnippet>504</a>        name: field(response, <span class="string">"title"</span>).unwrap_or_default(),
+<a href=#505 id=505 data-nosnippet>505</a>        score: <span class="number">100</span>,
+<a href=#506 id=506 data-nosnippet>506</a>        facts: TrackFacts {
+<a href=#507 id=507 data-nosnippet>507</a>            recording: <span class="prelude-val">Some</span>(mbid),
+<a href=#508 id=508 data-nosnippet>508</a>            title: field(response, <span class="string">"title"</span>),
+<a href=#509 id=509 data-nosnippet>509</a>            works,
+<a href=#510 id=510 data-nosnippet>510</a>            credits,
+<a href=#511 id=511 data-nosnippet>511</a>            relationships_complete: <span class="bool-val">true</span>,
+<a href=#512 id=512 data-nosnippet>512</a>            ..Default::default()
+<a href=#513 id=513 data-nosnippet>513</a>        },
+<a href=#514 id=514 data-nosnippet>514</a>    })
+<a href=#515 id=515 data-nosnippet>515</a>}
+<a href=#516 id=516 data-nosnippet>516</a>
+<a href=#517 id=517 data-nosnippet>517</a><span class="doccomment">/// A child work may have several containing works. Only the backward
+<a href=#518 id=518 data-nosnippet>518</a>/// MusicBrainz "parts" relationship says the queried work is a part; a
+<a href=#519 id=519 data-nosnippet>519</a>/// forward relationship names one of its children, and a derivative is not a
+<a href=#520 id=520 data-nosnippet>520</a>/// container at all.
+<a href=#521 id=521 data-nosnippet>521</a></span><span class="kw">fn </span>work_parent_links(work: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;<span class="kw">crate</span>::sources::WorkParentLink&gt; {
+<a href=#522 id=522 data-nosnippet>522</a>    <span class="kw">const </span>PARTS_TYPE_ID: <span class="kw-2">&amp;</span>str = <span class="string">"ca8d3642-ce5f-49f8-91f2-125d72524e6a"</span>;
+<a href=#523 id=523 data-nosnippet>523</a>    work.get(<span class="string">"relations"</span>)
+<a href=#524 id=524 data-nosnippet>524</a>        .and_then(Json::as_arr)
+<a href=#525 id=525 data-nosnippet>525</a>        .into_iter()
+<a href=#526 id=526 data-nosnippet>526</a>        .flatten()
+<a href=#527 id=527 data-nosnippet>527</a>        .filter(|relation| relation.field_str(<span class="string">"target-type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"work"</span>))
+<a href=#528 id=528 data-nosnippet>528</a>        .filter(|relation| relation.field_str(<span class="string">"direction"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"backward"</span>))
+<a href=#529 id=529 data-nosnippet>529</a>        .filter(|relation| <span class="kw">match </span>relation.field_str(<span class="string">"type-id"</span>) {
+<a href=#530 id=530 data-nosnippet>530</a>            <span class="prelude-val">Some</span>(id) =&gt; id == PARTS_TYPE_ID,
+<a href=#531 id=531 data-nosnippet>531</a>            <span class="prelude-val">None </span>=&gt; relation.field_str(<span class="string">"type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"parts"</span>),
+<a href=#532 id=532 data-nosnippet>532</a>        })
+<a href=#533 id=533 data-nosnippet>533</a>        .filter_map(|relation| {
+<a href=#534 id=534 data-nosnippet>534</a>            <span class="kw">let </span>parent = relation.get(<span class="string">"work"</span>)<span class="question-mark">?</span>;
+<a href=#535 id=535 data-nosnippet>535</a>            <span class="prelude-val">Some</span>(<span class="kw">crate</span>::sources::WorkParentLink {
+<a href=#536 id=536 data-nosnippet>536</a>                mbid: field(parent, <span class="string">"id"</span>)<span class="question-mark">?</span>,
+<a href=#537 id=537 data-nosnippet>537</a>                title: field(parent, <span class="string">"title"</span>).unwrap_or_default(),
+<a href=#538 id=538 data-nosnippet>538</a>                relation_id: field(relation, <span class="string">"id"</span>),
+<a href=#539 id=539 data-nosnippet>539</a>                relation_type_id: field(relation, <span class="string">"type-id"</span>),
+<a href=#540 id=540 data-nosnippet>540</a>                direction: field(relation, <span class="string">"direction"</span>),
+<a href=#541 id=541 data-nosnippet>541</a>                attributes: relationship_attributes(relation),
+<a href=#542 id=542 data-nosnippet>542</a>                order: relation.field_u32(<span class="string">"ordering-key"</span>),
+<a href=#543 id=543 data-nosnippet>543</a>            })
+<a href=#544 id=544 data-nosnippet>544</a>        })
+<a href=#545 id=545 data-nosnippet>545</a>        .collect()
+<a href=#546 id=546 data-nosnippet>546</a>}
+<a href=#547 id=547 data-nosnippet>547</a>
+<a href=#548 id=548 data-nosnippet>548</a><span class="doccomment">/// Artist relationships carried by one recording or work response.
+<a href=#549 id=549 data-nosnippet>549</a></span><span class="kw">fn </span>relationship_credits(entity: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;CreditLink&gt; {
+<a href=#550 id=550 data-nosnippet>550</a>    entity
+<a href=#551 id=551 data-nosnippet>551</a>        .get(<span class="string">"relations"</span>)
+<a href=#552 id=552 data-nosnippet>552</a>        .and_then(Json::as_arr)
+<a href=#553 id=553 data-nosnippet>553</a>        .map(|relations| {
+<a href=#554 id=554 data-nosnippet>554</a>            relations
+<a href=#555 id=555 data-nosnippet>555</a>                .iter()
+<a href=#556 id=556 data-nosnippet>556</a>                .filter(|relation| relation.field_str(<span class="string">"target-type"</span>).as_deref() == <span class="prelude-val">Some</span>(<span class="string">"artist"</span>))
+<a href=#557 id=557 data-nosnippet>557</a>                .filter_map(|relation| {
+<a href=#558 id=558 data-nosnippet>558</a>                    <span class="kw">let </span>artist = relation.get(<span class="string">"artist"</span>)<span class="question-mark">?</span>;
+<a href=#559 id=559 data-nosnippet>559</a>                    <span class="kw">let </span>credited_as = field(relation, <span class="string">"target-credit"</span>).filter(|s| !s.is_empty());
+<a href=#560 id=560 data-nosnippet>560</a>                    <span class="prelude-val">Some</span>(CreditLink {
+<a href=#561 id=561 data-nosnippet>561</a>                        relation_id: field(relation, <span class="string">"id"</span>),
+<a href=#562 id=562 data-nosnippet>562</a>                        role_id: field(relation, <span class="string">"type-id"</span>),
+<a href=#563 id=563 data-nosnippet>563</a>                        role: field(relation, <span class="string">"type"</span>)<span class="question-mark">?</span>,
+<a href=#564 id=564 data-nosnippet>564</a>                        direction: field(relation, <span class="string">"direction"</span>),
+<a href=#565 id=565 data-nosnippet>565</a>                        artist_mbid: field(artist, <span class="string">"id"</span>)<span class="question-mark">?</span>,
+<a href=#566 id=566 data-nosnippet>566</a>                        artist_name: field(artist, <span class="string">"name"</span>).unwrap_or_default(),
+<a href=#567 id=567 data-nosnippet>567</a>                        credited_as,
+<a href=#568 id=568 data-nosnippet>568</a>                        attributes: relationship_attributes(relation),
+<a href=#569 id=569 data-nosnippet>569</a>                        began: field(relation, <span class="string">"begin"</span>),
+<a href=#570 id=570 data-nosnippet>570</a>                        ended: field(relation, <span class="string">"end"</span>),
+<a href=#571 id=571 data-nosnippet>571</a>                        over: relation.field_optional_bool(<span class="string">"ended"</span>),
+<a href=#572 id=572 data-nosnippet>572</a>                        order: relation.field_u32(<span class="string">"ordering-key"</span>),
+<a href=#573 id=573 data-nosnippet>573</a>                    })
+<a href=#574 id=574 data-nosnippet>574</a>                })
+<a href=#575 id=575 data-nosnippet>575</a>                .collect()
+<a href=#576 id=576 data-nosnippet>576</a>        })
+<a href=#577 id=577 data-nosnippet>577</a>        .unwrap_or_default()
+<a href=#578 id=578 data-nosnippet>578</a>}
+<a href=#579 id=579 data-nosnippet>579</a>
+<a href=#580 id=580 data-nosnippet>580</a><span class="doccomment">/// Attributes of one relationship, retaining values and credited spellings.
+<a href=#581 id=581 data-nosnippet>581</a></span><span class="kw">fn </span>relationship_attributes(relation: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;CreditAttribute&gt; {
+<a href=#582 id=582 data-nosnippet>582</a>    relation
+<a href=#583 id=583 data-nosnippet>583</a>        .get(<span class="string">"attributes"</span>)
+<a href=#584 id=584 data-nosnippet>584</a>        .and_then(Json::as_arr)
+<a href=#585 id=585 data-nosnippet>585</a>        .map(|attributes| {
+<a href=#586 id=586 data-nosnippet>586</a>            attributes
+<a href=#587 id=587 data-nosnippet>587</a>                .iter()
+<a href=#588 id=588 data-nosnippet>588</a>                .filter_map(Json::as_string)
+<a href=#589 id=589 data-nosnippet>589</a>                .map(|name| CreditAttribute {
+<a href=#590 id=590 data-nosnippet>590</a>                    id: relation
+<a href=#591 id=591 data-nosnippet>591</a>                        .get(<span class="string">"attribute-ids"</span>)
+<a href=#592 id=592 data-nosnippet>592</a>                        .and_then(|ids| ids.get(<span class="kw-2">&amp;</span>name))
+<a href=#593 id=593 data-nosnippet>593</a>                        .and_then(Json::as_string),
+<a href=#594 id=594 data-nosnippet>594</a>                    value: relation
+<a href=#595 id=595 data-nosnippet>595</a>                        .get(<span class="string">"attribute-values"</span>)
+<a href=#596 id=596 data-nosnippet>596</a>                        .and_then(|values| values.get(<span class="kw-2">&amp;</span>name))
+<a href=#597 id=597 data-nosnippet>597</a>                        .and_then(Json::as_string),
+<a href=#598 id=598 data-nosnippet>598</a>                    credited_as: relation
+<a href=#599 id=599 data-nosnippet>599</a>                        .get(<span class="string">"attribute-credits"</span>)
+<a href=#600 id=600 data-nosnippet>600</a>                        .and_then(|credits| credits.get(<span class="kw-2">&amp;</span>name))
+<a href=#601 id=601 data-nosnippet>601</a>                        .and_then(Json::as_string)
+<a href=#602 id=602 data-nosnippet>602</a>                        .filter(|value| !value.is_empty()),
+<a href=#603 id=603 data-nosnippet>603</a>                    name,
+<a href=#604 id=604 data-nosnippet>604</a>                })
+<a href=#605 id=605 data-nosnippet>605</a>                .collect()
+<a href=#606 id=606 data-nosnippet>606</a>        })
+<a href=#607 id=607 data-nosnippet>607</a>        .unwrap_or_default()
+<a href=#608 id=608 data-nosnippet>608</a>}
+<a href=#609 id=609 data-nosnippet>609</a>
+<a href=#610 id=610 data-nosnippet>610</a><span class="doccomment">/// Artists, as `/ws/2/artist/?query=…&amp;fmt=json` returns them.
+<a href=#611 id=611 data-nosnippet>611</a>///
+<a href=#612 id=612 data-nosnippet>612</a>/// A **search**: the answers are ranked guesses at what was meant, and each
+<a href=#613 id=613 data-nosnippet>613</a>/// entry is abbreviated. Prefer [`artist`] whenever an identifier is known.
+<a href=#614 id=614 data-nosnippet>614</a>///
+<a href=#615 id=615 data-nosnippet>615</a>/// An entry with no identifier is skipped: without it a later fetch could not
+<a href=#616 id=616 data-nosnippet>616</a>/// tell an update from a second opinion, which is the one thing the identifier
+<a href=#617 id=617 data-nosnippet>617</a>/// is stored for.
+<a href=#618 id=618 data-nosnippet>618</a></span><span class="kw">pub fn </span>artists(response: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Candidate&lt;ArtistFacts&gt;&gt; {
+<a href=#619 id=619 data-nosnippet>619</a>    <span class="kw">let </span>rows = response
+<a href=#620 id=620 data-nosnippet>620</a>        .get(<span class="string">"artists"</span>)
+<a href=#621 id=621 data-nosnippet>621</a>        .and_then(Json::as_arr)
+<a href=#622 id=622 data-nosnippet>622</a>        .unwrap_or(<span class="kw-2">&amp;</span>[]);
+<a href=#623 id=623 data-nosnippet>623</a>    rows.iter()
+<a href=#624 id=624 data-nosnippet>624</a>        .filter_map(|row| {
+<a href=#625 id=625 data-nosnippet>625</a>            <span class="kw">let </span>mbid = field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#626 id=626 data-nosnippet>626</a>            <span class="prelude-val">Some</span>(Candidate {
+<a href=#627 id=627 data-nosnippet>627</a>                mbid,
+<a href=#628 id=628 data-nosnippet>628</a>                name: field(row, <span class="string">"name"</span>).unwrap_or_default(),
+<a href=#629 id=629 data-nosnippet>629</a>                score: score_of(row),
+<a href=#630 id=630 data-nosnippet>630</a>                facts: artist_facts(row),
+<a href=#631 id=631 data-nosnippet>631</a>            })
+<a href=#632 id=632 data-nosnippet>632</a>        })
+<a href=#633 id=633 data-nosnippet>633</a>        .collect()
+<a href=#634 id=634 data-nosnippet>634</a>}
+<a href=#635 id=635 data-nosnippet>635</a>
+<a href=#636 id=636 data-nosnippet>636</a><span class="doccomment">/// Release groups, as `/ws/2/release-group/?query=…&amp;fmt=json` returns them.
+<a href=#637 id=637 data-nosnippet>637</a>///
+<a href=#638 id=638 data-nosnippet>638</a>/// Groups rather than releases, deliberately: a release group is *the album*,
+<a href=#639 id=639 data-nosnippet>639</a>/// and every remaster and reissue of it is a release inside that group. Asking
+<a href=#640 id=640 data-nosnippet>640</a>/// about releases would answer with one edition among twenty and call it the
+<a href=#641 id=641 data-nosnippet>641</a>/// album's date.
+<a href=#642 id=642 data-nosnippet>642</a></span><span class="kw">pub fn </span>release_groups(response: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Candidate&lt;ReleaseFacts&gt;&gt; {
+<a href=#643 id=643 data-nosnippet>643</a>    <span class="kw">let </span>rows = response
+<a href=#644 id=644 data-nosnippet>644</a>        .get(<span class="string">"release-groups"</span>)
+<a href=#645 id=645 data-nosnippet>645</a>        .and_then(Json::as_arr)
+<a href=#646 id=646 data-nosnippet>646</a>        .unwrap_or(<span class="kw-2">&amp;</span>[]);
+<a href=#647 id=647 data-nosnippet>647</a>    rows.iter()
+<a href=#648 id=648 data-nosnippet>648</a>        .filter_map(|row| {
+<a href=#649 id=649 data-nosnippet>649</a>            <span class="kw">let </span>mbid = field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#650 id=650 data-nosnippet>650</a>            <span class="prelude-val">Some</span>(Candidate {
+<a href=#651 id=651 data-nosnippet>651</a>                mbid,
+<a href=#652 id=652 data-nosnippet>652</a>                name: field(row, <span class="string">"title"</span>).unwrap_or_default(),
+<a href=#653 id=653 data-nosnippet>653</a>                score: score_of(row),
+<a href=#654 id=654 data-nosnippet>654</a>                facts: release_facts(row),
+<a href=#655 id=655 data-nosnippet>655</a>            })
+<a href=#656 id=656 data-nosnippet>656</a>        })
+<a href=#657 id=657 data-nosnippet>657</a>        .collect()
+<a href=#658 id=658 data-nosnippet>658</a>}
+<a href=#659 id=659 data-nosnippet>659</a>
+<a href=#660 id=660 data-nosnippet>660</a><span class="doccomment">/// The album, read the same way wherever the group came from.
+<a href=#661 id=661 data-nosnippet>661</a>///
+<a href=#662 id=662 data-nosnippet>662</a>/// One extractor for the search result, the group lookup and the group folded
+<a href=#663 id=663 data-nosnippet>663</a>/// into a release lookup — for the reason [`artist_facts`] is one function:
+<a href=#664 id=664 data-nosnippet>664</a>/// reading the same entity in three places is how two of them quietly stop
+<a href=#665 id=665 data-nosnippet>665</a>/// keeping a field.
+<a href=#666 id=666 data-nosnippet>666</a>///
+<a href=#667 id=667 data-nosnippet>667</a>/// The label is deliberately **not** read here. A group has none; a release
+<a href=#668 id=668 data-nosnippet>668</a>/// does. Filling it from whichever edition answered first would attribute one
+<a href=#669 id=669 data-nosnippet>669</a>/// pressing's label to the album itself.
+<a href=#670 id=670 data-nosnippet>670</a></span><span class="kw">fn </span>release_facts(group: <span class="kw-2">&amp;</span>Json) -&gt; ReleaseFacts {
+<a href=#671 id=671 data-nosnippet>671</a>    ReleaseFacts {
+<a href=#672 id=672 data-nosnippet>672</a>        primary_type: field(group, <span class="string">"primary-type"</span>),
+<a href=#673 id=673 data-nosnippet>673</a>        secondary_types: group
+<a href=#674 id=674 data-nosnippet>674</a>            .get(<span class="string">"secondary-types"</span>)
+<a href=#675 id=675 data-nosnippet>675</a>            .and_then(Json::as_arr)
+<a href=#676 id=676 data-nosnippet>676</a>            .map(|a| a.iter().filter_map(Json::as_string).collect())
+<a href=#677 id=677 data-nosnippet>677</a>            .unwrap_or_default(),
+<a href=#678 id=678 data-nosnippet>678</a>        first_released: field(group, <span class="string">"first-release-date"</span>),
+<a href=#679 id=679 data-nosnippet>679</a>        label: <span class="prelude-val">None</span>,
+<a href=#680 id=680 data-nosnippet>680</a>        label_mbid: <span class="prelude-val">None</span>,
+<a href=#681 id=681 data-nosnippet>681</a>        <span class="comment">// MusicBrainz holds no artwork: the images live at the Cover Art
+<a href=#682 id=682 data-nosnippet>682</a>        // Archive, which is a different service with its own answer — see
+<a href=#683 id=683 data-nosnippet>683</a>        // [`crate::coverart`].
+<a href=#684 id=684 data-nosnippet>684</a>        </span>cover_art: <span class="prelude-val">None</span>,
+<a href=#685 id=685 data-nosnippet>685</a>        edition_mbid: <span class="prelude-val">None</span>,
+<a href=#686 id=686 data-nosnippet>686</a>        credits: Vec::new(),
+<a href=#687 id=687 data-nosnippet>687</a>        relationships_complete: <span class="bool-val">false</span>,
+<a href=#688 id=688 data-nosnippet>688</a>    }
+<a href=#689 id=689 data-nosnippet>689</a>}
+<a href=#690 id=690 data-nosnippet>690</a>
+<a href=#691 id=691 data-nosnippet>691</a><span class="doccomment">/// One release group, as a lookup answers: `/ws/2/release-group/&lt;mbid&gt;`.
 <a href=#692 id=692 data-nosnippet>692</a>///
-<a href=#693 id=693 data-nosnippet>693</a>/// The identifier kept is the **release group's**, not the edition's. Two
-<a href=#694 id=694 data-nosnippet>694</a>/// pressings of one album are one album, and keying the record on the edition
-<a href=#695 id=695 data-nosnippet>695</a>/// would file a second copy of the same answer the day the user replaces their
-<a href=#696 id=696 data-nosnippet>696</a>/// CD rip with a vinyl one. The edition is what was asked; the album is what
-<a href=#697 id=697 data-nosnippet>697</a>/// was learnt.
-<a href=#698 id=698 data-nosnippet>698</a></span><span class="kw">pub fn </span>release(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;ReleaseFacts&gt;&gt; {
-<a href=#699 id=699 data-nosnippet>699</a>    <span class="kw">let </span>group = response.get(<span class="string">"release-group"</span>);
-<a href=#700 id=700 data-nosnippet>700</a>    <span class="kw">let </span><span class="kw-2">mut </span>facts = group.map(release_facts).unwrap_or_default();
-<a href=#701 id=701 data-nosnippet>701</a>    facts.edition_mbid = field(response, <span class="string">"id"</span>);
-<a href=#702 id=702 data-nosnippet>702</a>    facts.credits = relationship_credits(response);
-<a href=#703 id=703 data-nosnippet>703</a>    facts.relationships_complete = <span class="bool-val">true</span>;
-<a href=#704 id=704 data-nosnippet>704</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(label) = label_of_release(response) {
-<a href=#705 id=705 data-nosnippet>705</a>        facts.label = <span class="prelude-val">Some</span>(label.name);
-<a href=#706 id=706 data-nosnippet>706</a>        facts.label_mbid = label.mbid;
-<a href=#707 id=707 data-nosnippet>707</a>    }
-<a href=#708 id=708 data-nosnippet>708</a>    <span class="comment">// Falling back to the edition's own identifier: an answer with no group is
-<a href=#709 id=709 data-nosnippet>709</a>    // not one this program has seen, but storing it under the edition is
-<a href=#710 id=710 data-nosnippet>710</a>    // better than dropping a lookup that succeeded.
-<a href=#711 id=711 data-nosnippet>711</a>    </span><span class="kw">let </span>mbid = group
-<a href=#712 id=712 data-nosnippet>712</a>        .and_then(|g| field(g, <span class="string">"id"</span>))
-<a href=#713 id=713 data-nosnippet>713</a>        .or_else(|| field(response, <span class="string">"id"</span>))<span class="question-mark">?</span>;
-<a href=#714 id=714 data-nosnippet>714</a>    <span class="prelude-val">Some</span>(Candidate {
-<a href=#715 id=715 data-nosnippet>715</a>        mbid,
-<a href=#716 id=716 data-nosnippet>716</a>        name: group
-<a href=#717 id=717 data-nosnippet>717</a>            .and_then(|g| field(g, <span class="string">"title"</span>))
-<a href=#718 id=718 data-nosnippet>718</a>            .or_else(|| field(response, <span class="string">"title"</span>))
-<a href=#719 id=719 data-nosnippet>719</a>            .unwrap_or_default(),
-<a href=#720 id=720 data-nosnippet>720</a>        score: <span class="number">100</span>,
-<a href=#721 id=721 data-nosnippet>721</a>        facts,
-<a href=#722 id=722 data-nosnippet>722</a>    })
-<a href=#723 id=723 data-nosnippet>723</a>}
-<a href=#724 id=724 data-nosnippet>724</a>
-<a href=#725 id=725 data-nosnippet>725</a><span class="doccomment">/// How many release groups one browse request may return.
-<a href=#726 id=726 data-nosnippet>726</a>///
-<a href=#727 id=727 data-nosnippet>727</a>/// The service's own ceiling. A prolific artist has more than this, so the
-<a href=#728 id=728 data-nosnippet>728</a>/// caller pages — which is the one place in this program where a single entity
-<a href=#729 id=729 data-nosnippet>729</a>/// can cost more than one request, and the reason [`discography`] hands back
-<a href=#730 id=730 data-nosnippet>730</a>/// the total alongside the page.
-<a href=#731 id=731 data-nosnippet>731</a></span><span class="kw">pub const </span>BROWSE_LIMIT: usize = <span class="number">100</span>;
-<a href=#732 id=732 data-nosnippet>732</a>
-<a href=#733 id=733 data-nosnippet>733</a><span class="doccomment">/// Where to ask for everything credited to an artist.
-<a href=#734 id=734 data-nosnippet>734</a>///
-<a href=#735 id=735 data-nosnippet>735</a>/// A **browse**, not a search: browse answers "what does this identifier have",
-<a href=#736 id=736 data-nosnippet>736</a>/// which is a question with one right answer, where a search answers "what
-<a href=#737 id=737 data-nosnippet>737</a>/// resembles these words". Nothing here is scored or matched, because nothing
-<a href=#738 id=738 data-nosnippet>738</a>/// here is guessed.
-<a href=#739 id=739 data-nosnippet>739</a>///
-<a href=#740 id=740 data-nosnippet>740</a>/// `type=album` narrows what travels. It is a saving and not the filter that
-<a href=#741 id=741 data-nosnippet>741</a>/// matters — [`crate::sources::KnownRelease::is_studio_album`] decides what a
-<a href=#742 id=742 data-nosnippet>742</a>/// reader is shown, so a parameter the service ignores costs bandwidth and
-<a href=#743 id=743 data-nosnippet>743</a>/// never correctness.
-<a href=#744 id=744 data-nosnippet>744</a></span><span class="kw">pub fn </span>discography_url(artist_mbid: <span class="kw-2">&amp;</span>str, offset: usize) -&gt; String {
-<a href=#745 id=745 data-nosnippet>745</a>    <span class="macro">format!</span>(
-<a href=#746 id=746 data-nosnippet>746</a>        <span class="string">"{WEB_SERVICE}/release-group?artist={artist_mbid}&amp;type=album\
-<a href=#747 id=747 data-nosnippet>747</a>         &amp;fmt=json&amp;limit={BROWSE_LIMIT}&amp;offset={offset}"
-<a href=#748 id=748 data-nosnippet>748</a>    </span>)
-<a href=#749 id=749 data-nosnippet>749</a>}
-<a href=#750 id=750 data-nosnippet>750</a>
-<a href=#751 id=751 data-nosnippet>751</a><span class="doccomment">/// One page of an artist's discography, and how many there are in all.
-<a href=#752 id=752 data-nosnippet>752</a>///
-<a href=#753 id=753 data-nosnippet>753</a>/// The total comes back as `release-group-count` and is what tells the caller
-<a href=#754 id=754 data-nosnippet>754</a>/// whether to ask for another page. Absent, it is taken to be what arrived:
-<a href=#755 id=755 data-nosnippet>755</a>/// stopping is the safe reading, since paging forever on a field that was never
-<a href=#756 id=756 data-nosnippet>756</a>/// there would be a request per second with no end.
-<a href=#757 id=757 data-nosnippet>757</a></span><span class="kw">pub fn </span>discography(response: <span class="kw-2">&amp;</span>Json) -&gt; (Vec&lt;<span class="kw">crate</span>::sources::KnownRelease&gt;, usize) {
-<a href=#758 id=758 data-nosnippet>758</a>    <span class="kw">use </span><span class="kw">crate</span>::sources::KnownRelease;
-<a href=#759 id=759 data-nosnippet>759</a>    <span class="kw">let </span>rows = response
-<a href=#760 id=760 data-nosnippet>760</a>        .get(<span class="string">"release-groups"</span>)
-<a href=#761 id=761 data-nosnippet>761</a>        .and_then(Json::as_arr)
-<a href=#762 id=762 data-nosnippet>762</a>        .unwrap_or(<span class="kw-2">&amp;</span>[]);
-<a href=#763 id=763 data-nosnippet>763</a>    <span class="kw">let </span>page: Vec&lt;KnownRelease&gt; = rows
-<a href=#764 id=764 data-nosnippet>764</a>        .iter()
-<a href=#765 id=765 data-nosnippet>765</a>        .filter_map(|row| {
-<a href=#766 id=766 data-nosnippet>766</a>            <span class="comment">// No identifier, no row: the only way to tell "you own this one"
-<a href=#767 id=767 data-nosnippet>767</a>            // from "you are missing it" without an identifier is the title, and
-<a href=#768 id=768 data-nosnippet>768</a>            // two records share a title often enough that a wish list built on
-<a href=#769 id=769 data-nosnippet>769</a>            // titles alone is wrong.
-<a href=#770 id=770 data-nosnippet>770</a>            </span><span class="prelude-val">Some</span>(KnownRelease {
-<a href=#771 id=771 data-nosnippet>771</a>                mbid: field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>,
-<a href=#772 id=772 data-nosnippet>772</a>                title: field(row, <span class="string">"title"</span>).unwrap_or_default(),
-<a href=#773 id=773 data-nosnippet>773</a>                first_released: field(row, <span class="string">"first-release-date"</span>),
-<a href=#774 id=774 data-nosnippet>774</a>                primary_type: field(row, <span class="string">"primary-type"</span>),
-<a href=#775 id=775 data-nosnippet>775</a>                secondary_types: row
-<a href=#776 id=776 data-nosnippet>776</a>                    .get(<span class="string">"secondary-types"</span>)
-<a href=#777 id=777 data-nosnippet>777</a>                    .and_then(Json::as_arr)
-<a href=#778 id=778 data-nosnippet>778</a>                    .map(|a| a.iter().filter_map(Json::as_string).collect())
-<a href=#779 id=779 data-nosnippet>779</a>                    .unwrap_or_default(),
-<a href=#780 id=780 data-nosnippet>780</a>            })
-<a href=#781 id=781 data-nosnippet>781</a>        })
-<a href=#782 id=782 data-nosnippet>782</a>        .collect();
-<a href=#783 id=783 data-nosnippet>783</a>    <span class="kw">let </span>total = response
-<a href=#784 id=784 data-nosnippet>784</a>        .field_u32(<span class="string">"release-group-count"</span>)
-<a href=#785 id=785 data-nosnippet>785</a>        .map(|n| n <span class="kw">as </span>usize)
-<a href=#786 id=786 data-nosnippet>786</a>        .unwrap_or(page.len());
-<a href=#787 id=787 data-nosnippet>787</a>    (page, total)
-<a href=#788 id=788 data-nosnippet>788</a>}
-<a href=#789 id=789 data-nosnippet>789</a>
-<a href=#790 id=790 data-nosnippet>790</a><span class="doccomment">/// A label credited on a release: its name and, when the same entry carried
-<a href=#791 id=791 data-nosnippet>791</a>/// one, its MusicBrainz identifier.
-<a href=#792 id=792 data-nosnippet>792</a></span><span class="kw">pub struct </span>LabelOfRelease {
-<a href=#793 id=793 data-nosnippet>793</a>    <span class="doccomment">/// The name, as the release lookup spells it.
-<a href=#794 id=794 data-nosnippet>794</a>    </span><span class="kw">pub </span>name: String,
-<a href=#795 id=795 data-nosnippet>795</a>    <span class="doccomment">/// The label's own MusicBrainz identifier, when the same entry named
-<a href=#796 id=796 data-nosnippet>796</a>    /// one.
-<a href=#797 id=797 data-nosnippet>797</a>    </span><span class="kw">pub </span>mbid: <span class="prelude-ty">Option</span>&lt;String&gt;,
-<a href=#798 id=798 data-nosnippet>798</a>}
-<a href=#799 id=799 data-nosnippet>799</a>
-<a href=#800 id=800 data-nosnippet>800</a><span class="doccomment">/// The label of a release, as a release lookup returns it.
-<a href=#801 id=801 data-nosnippet>801</a>///
-<a href=#802 id=802 data-nosnippet>802</a>/// Separate from [`release_groups`] because it comes from a different request,
-<a href=#803 id=803 data-nosnippet>803</a>/// and because it describes an edition rather than the album.
-<a href=#804 id=804 data-nosnippet>804</a>///
-<a href=#805 id=805 data-nosnippet>805</a>/// The name and the identifier are read from **the same** `label-info` entry
-<a href=#806 id=806 data-nosnippet>806</a>/// — the first one that names a label — never a name from one row and an
-<a href=#807 id=807 data-nosnippet>807</a>/// identifier from another: a release crediting several labels would
-<a href=#808 id=808 data-nosnippet>808</a>/// otherwise risk pairing the name of one with the address of a different
-<a href=#809 id=809 data-nosnippet>809</a>/// one. No tag carries a label's MusicBrainz identifier the way
-<a href=#810 id=810 data-nosnippet>810</a>/// `MUSICBRAINZ_ARTISTID` does an artist's, so this is the only place one is
-<a href=#811 id=811 data-nosnippet>811</a>/// ever read from.
-<a href=#812 id=812 data-nosnippet>812</a></span><span class="kw">pub fn </span>label_of_release(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;LabelOfRelease&gt; {
-<a href=#813 id=813 data-nosnippet>813</a>    response
-<a href=#814 id=814 data-nosnippet>814</a>        .get(<span class="string">"label-info"</span>)
-<a href=#815 id=815 data-nosnippet>815</a>        .and_then(Json::as_arr)<span class="question-mark">?
-<a href=#816 id=816 data-nosnippet>816</a>        </span>.iter()
-<a href=#817 id=817 data-nosnippet>817</a>        .find_map(|info| {
-<a href=#818 id=818 data-nosnippet>818</a>            <span class="kw">let </span>label = info.get(<span class="string">"label"</span>)<span class="question-mark">?</span>;
-<a href=#819 id=819 data-nosnippet>819</a>            <span class="kw">let </span>name = field(label, <span class="string">"name"</span>)<span class="question-mark">?</span>;
-<a href=#820 id=820 data-nosnippet>820</a>            <span class="prelude-val">Some</span>(LabelOfRelease {
-<a href=#821 id=821 data-nosnippet>821</a>                name,
-<a href=#822 id=822 data-nosnippet>822</a>                mbid: field(label, <span class="string">"id"</span>),
-<a href=#823 id=823 data-nosnippet>823</a>            })
-<a href=#824 id=824 data-nosnippet>824</a>        })
-<a href=#825 id=825 data-nosnippet>825</a>}
-<a href=#826 id=826 data-nosnippet>826</a>
-<a href=#827 id=827 data-nosnippet>827</a><span class="doccomment">/// One label, as `/ws/2/label/{mbid}?fmt=json` returns it.
-<a href=#828 id=828 data-nosnippet>828</a>///
-<a href=#829 id=829 data-nosnippet>829</a>/// A **lookup**, asked only once an identifier is already known — see
-<a href=#830 id=830 data-nosnippet>830</a>/// `crate::sources::ReleaseFacts::label_mbid` and the `fetch --labels`
-<a href=#831 id=831 data-nosnippet>831</a>/// module doc for where that comes from: a release this catalog looked up
-<a href=#832 id=832 data-nosnippet>832</a>/// sometimes already names its label's own identifier, and a lookup then
-<a href=#833 id=833 data-nosnippet>833</a>/// turns that into a certainty instead of guessing by name all over again.
-<a href=#834 id=834 data-nosnippet>834</a>/// No tag ever carries it directly, so unlike [`artist`] this is never asked
-<a href=#835 id=835 data-nosnippet>835</a>/// with a value read out of the files.
-<a href=#836 id=836 data-nosnippet>836</a></span><span class="kw">pub fn </span>label(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;LabelFacts&gt;&gt; {
-<a href=#837 id=837 data-nosnippet>837</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#838 id=838 data-nosnippet>838</a>    <span class="prelude-val">Some</span>(Candidate {
-<a href=#839 id=839 data-nosnippet>839</a>        mbid,
-<a href=#840 id=840 data-nosnippet>840</a>        name: field(response, <span class="string">"name"</span>).unwrap_or_default(),
-<a href=#841 id=841 data-nosnippet>841</a>        <span class="comment">// Nothing was ranked: the service was asked about this one thing.
-<a href=#842 id=842 data-nosnippet>842</a>        </span>score: <span class="number">100</span>,
-<a href=#843 id=843 data-nosnippet>843</a>        facts: LabelFacts {
-<a href=#844 id=844 data-nosnippet>844</a>            wikidata: linked(response, <span class="string">"wikidata"</span>),
-<a href=#845 id=845 data-nosnippet>845</a>            discogs: linked(response, <span class="string">"discogs"</span>),
-<a href=#846 id=846 data-nosnippet>846</a>            ..Default::default()
-<a href=#847 id=847 data-nosnippet>847</a>        },
-<a href=#848 id=848 data-nosnippet>848</a>    })
-<a href=#849 id=849 data-nosnippet>849</a>}
-<a href=#850 id=850 data-nosnippet>850</a>
-<a href=#851 id=851 data-nosnippet>851</a><span class="doccomment">/// Labels, as `/ws/2/label/?query=…&amp;fmt=json` returns them.
-<a href=#852 id=852 data-nosnippet>852</a>///
-<a href=#853 id=853 data-nosnippet>853</a>/// A **search**: ranked guesses, asked when no identifier is known for this
-<a href=#854 id=854 data-nosnippet>854</a>/// label yet. Prefer [`label`] whenever one is.
-<a href=#855 id=855 data-nosnippet>855</a></span><span class="kw">pub fn </span>labels(response: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Candidate&lt;LabelFacts&gt;&gt; {
-<a href=#856 id=856 data-nosnippet>856</a>    <span class="kw">let </span>rows = response.get(<span class="string">"labels"</span>).and_then(Json::as_arr).unwrap_or(<span class="kw-2">&amp;</span>[]);
-<a href=#857 id=857 data-nosnippet>857</a>    rows.iter()
-<a href=#858 id=858 data-nosnippet>858</a>        .filter_map(|row| {
-<a href=#859 id=859 data-nosnippet>859</a>            <span class="kw">let </span>mbid = field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>;
-<a href=#860 id=860 data-nosnippet>860</a>            <span class="prelude-val">Some</span>(Candidate {
-<a href=#861 id=861 data-nosnippet>861</a>                mbid,
-<a href=#862 id=862 data-nosnippet>862</a>                name: field(row, <span class="string">"name"</span>).unwrap_or_default(),
-<a href=#863 id=863 data-nosnippet>863</a>                score: score_of(row),
-<a href=#864 id=864 data-nosnippet>864</a>                facts: LabelFacts::default(),
-<a href=#865 id=865 data-nosnippet>865</a>            })
-<a href=#866 id=866 data-nosnippet>866</a>        })
-<a href=#867 id=867 data-nosnippet>867</a>        .collect()
-<a href=#868 id=868 data-nosnippet>868</a>}
-<a href=#869 id=869 data-nosnippet>869</a>
-<a href=#870 id=870 data-nosnippet>870</a><span class="attr">#[cfg(test)]
-<a href=#871 id=871 data-nosnippet>871</a>#[path = <span class="string">"musicbrainz_tests.rs"</span>]
-<a href=#872 id=872 data-nosnippet>872</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#693 id=693 data-nosnippet>693</a>/// The counterpart of [`artist`]: an answer about the identifier that was
+<a href=#694 id=694 data-nosnippet>694</a>/// asked for is a certainty, where a search result is a guess with a score.
+<a href=#695 id=695 data-nosnippet>695</a>/// Used when the tags carry `MUSICBRAINZ_RELEASEGROUPID` but no edition.
+<a href=#696 id=696 data-nosnippet>696</a></span><span class="kw">pub fn </span>release_group(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;ReleaseFacts&gt;&gt; {
+<a href=#697 id=697 data-nosnippet>697</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#698 id=698 data-nosnippet>698</a>    <span class="prelude-val">Some</span>(Candidate {
+<a href=#699 id=699 data-nosnippet>699</a>        mbid,
+<a href=#700 id=700 data-nosnippet>700</a>        name: field(response, <span class="string">"title"</span>).unwrap_or_default(),
+<a href=#701 id=701 data-nosnippet>701</a>        score: <span class="number">100</span>,
+<a href=#702 id=702 data-nosnippet>702</a>        facts: release_facts(response),
+<a href=#703 id=703 data-nosnippet>703</a>    })
+<a href=#704 id=704 data-nosnippet>704</a>}
+<a href=#705 id=705 data-nosnippet>705</a>
+<a href=#706 id=706 data-nosnippet>706</a><span class="doccomment">/// One release, as a lookup with [`RELEASE_INCLUDES`] answers.
+<a href=#707 id=707 data-nosnippet>707</a>///
+<a href=#708 id=708 data-nosnippet>708</a>/// The richest answer this program can get about an album, and the cheapest:
+<a href=#709 id=709 data-nosnippet>709</a>/// the edition supplies the label, the folded release group supplies the type
+<a href=#710 id=710 data-nosnippet>710</a>/// and the date the album first appeared — which is the fact a reissue's `DATE`
+<a href=#711 id=711 data-nosnippet>711</a>/// tag most often contradicts.
+<a href=#712 id=712 data-nosnippet>712</a>///
+<a href=#713 id=713 data-nosnippet>713</a>/// The identifier kept is the **release group's**, not the edition's. Two
+<a href=#714 id=714 data-nosnippet>714</a>/// pressings of one album are one album, and keying the record on the edition
+<a href=#715 id=715 data-nosnippet>715</a>/// would file a second copy of the same answer the day the user replaces their
+<a href=#716 id=716 data-nosnippet>716</a>/// CD rip with a vinyl one. The edition is what was asked; the album is what
+<a href=#717 id=717 data-nosnippet>717</a>/// was learnt.
+<a href=#718 id=718 data-nosnippet>718</a></span><span class="kw">pub fn </span>release(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;ReleaseFacts&gt;&gt; {
+<a href=#719 id=719 data-nosnippet>719</a>    <span class="kw">let </span>group = response.get(<span class="string">"release-group"</span>);
+<a href=#720 id=720 data-nosnippet>720</a>    <span class="kw">let </span><span class="kw-2">mut </span>facts = group.map(release_facts).unwrap_or_default();
+<a href=#721 id=721 data-nosnippet>721</a>    facts.edition_mbid = field(response, <span class="string">"id"</span>);
+<a href=#722 id=722 data-nosnippet>722</a>    facts.credits = relationship_credits(response);
+<a href=#723 id=723 data-nosnippet>723</a>    facts.relationships_complete = <span class="bool-val">true</span>;
+<a href=#724 id=724 data-nosnippet>724</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(label) = label_of_release(response) {
+<a href=#725 id=725 data-nosnippet>725</a>        facts.label = <span class="prelude-val">Some</span>(label.name);
+<a href=#726 id=726 data-nosnippet>726</a>        facts.label_mbid = label.mbid;
+<a href=#727 id=727 data-nosnippet>727</a>    }
+<a href=#728 id=728 data-nosnippet>728</a>    <span class="comment">// Falling back to the edition's own identifier: an answer with no group is
+<a href=#729 id=729 data-nosnippet>729</a>    // not one this program has seen, but storing it under the edition is
+<a href=#730 id=730 data-nosnippet>730</a>    // better than dropping a lookup that succeeded.
+<a href=#731 id=731 data-nosnippet>731</a>    </span><span class="kw">let </span>mbid = group
+<a href=#732 id=732 data-nosnippet>732</a>        .and_then(|g| field(g, <span class="string">"id"</span>))
+<a href=#733 id=733 data-nosnippet>733</a>        .or_else(|| field(response, <span class="string">"id"</span>))<span class="question-mark">?</span>;
+<a href=#734 id=734 data-nosnippet>734</a>    <span class="prelude-val">Some</span>(Candidate {
+<a href=#735 id=735 data-nosnippet>735</a>        mbid,
+<a href=#736 id=736 data-nosnippet>736</a>        name: group
+<a href=#737 id=737 data-nosnippet>737</a>            .and_then(|g| field(g, <span class="string">"title"</span>))
+<a href=#738 id=738 data-nosnippet>738</a>            .or_else(|| field(response, <span class="string">"title"</span>))
+<a href=#739 id=739 data-nosnippet>739</a>            .unwrap_or_default(),
+<a href=#740 id=740 data-nosnippet>740</a>        score: <span class="number">100</span>,
+<a href=#741 id=741 data-nosnippet>741</a>        facts,
+<a href=#742 id=742 data-nosnippet>742</a>    })
+<a href=#743 id=743 data-nosnippet>743</a>}
+<a href=#744 id=744 data-nosnippet>744</a>
+<a href=#745 id=745 data-nosnippet>745</a><span class="doccomment">/// How many release groups one browse request may return.
+<a href=#746 id=746 data-nosnippet>746</a>///
+<a href=#747 id=747 data-nosnippet>747</a>/// The service's own ceiling. A prolific artist has more than this, so the
+<a href=#748 id=748 data-nosnippet>748</a>/// caller pages — which is the one place in this program where a single entity
+<a href=#749 id=749 data-nosnippet>749</a>/// can cost more than one request, and the reason [`discography`] hands back
+<a href=#750 id=750 data-nosnippet>750</a>/// the total alongside the page.
+<a href=#751 id=751 data-nosnippet>751</a></span><span class="kw">pub const </span>BROWSE_LIMIT: usize = <span class="number">100</span>;
+<a href=#752 id=752 data-nosnippet>752</a>
+<a href=#753 id=753 data-nosnippet>753</a><span class="doccomment">/// Where to ask for everything credited to an artist.
+<a href=#754 id=754 data-nosnippet>754</a>///
+<a href=#755 id=755 data-nosnippet>755</a>/// A **browse**, not a search: browse answers "what does this identifier have",
+<a href=#756 id=756 data-nosnippet>756</a>/// which is a question with one right answer, where a search answers "what
+<a href=#757 id=757 data-nosnippet>757</a>/// resembles these words". Nothing here is scored or matched, because nothing
+<a href=#758 id=758 data-nosnippet>758</a>/// here is guessed.
+<a href=#759 id=759 data-nosnippet>759</a>///
+<a href=#760 id=760 data-nosnippet>760</a>/// `type=album` narrows what travels. It is a saving and not the filter that
+<a href=#761 id=761 data-nosnippet>761</a>/// matters — [`crate::sources::KnownRelease::is_studio_album`] decides what a
+<a href=#762 id=762 data-nosnippet>762</a>/// reader is shown, so a parameter the service ignores costs bandwidth and
+<a href=#763 id=763 data-nosnippet>763</a>/// never correctness.
+<a href=#764 id=764 data-nosnippet>764</a></span><span class="kw">pub fn </span>discography_url(artist_mbid: <span class="kw-2">&amp;</span>str, offset: usize) -&gt; String {
+<a href=#765 id=765 data-nosnippet>765</a>    <span class="macro">format!</span>(
+<a href=#766 id=766 data-nosnippet>766</a>        <span class="string">"{WEB_SERVICE}/release-group?artist={artist_mbid}&amp;type=album\
+<a href=#767 id=767 data-nosnippet>767</a>         &amp;fmt=json&amp;limit={BROWSE_LIMIT}&amp;offset={offset}"
+<a href=#768 id=768 data-nosnippet>768</a>    </span>)
+<a href=#769 id=769 data-nosnippet>769</a>}
+<a href=#770 id=770 data-nosnippet>770</a>
+<a href=#771 id=771 data-nosnippet>771</a><span class="doccomment">/// One page of an artist's discography, and how many there are in all.
+<a href=#772 id=772 data-nosnippet>772</a>///
+<a href=#773 id=773 data-nosnippet>773</a>/// The total comes back as `release-group-count` and is what tells the caller
+<a href=#774 id=774 data-nosnippet>774</a>/// whether to ask for another page. Absent, it is taken to be what arrived:
+<a href=#775 id=775 data-nosnippet>775</a>/// stopping is the safe reading, since paging forever on a field that was never
+<a href=#776 id=776 data-nosnippet>776</a>/// there would be a request per second with no end.
+<a href=#777 id=777 data-nosnippet>777</a></span><span class="kw">pub fn </span>discography(response: <span class="kw-2">&amp;</span>Json) -&gt; (Vec&lt;<span class="kw">crate</span>::sources::KnownRelease&gt;, usize) {
+<a href=#778 id=778 data-nosnippet>778</a>    <span class="kw">use </span><span class="kw">crate</span>::sources::KnownRelease;
+<a href=#779 id=779 data-nosnippet>779</a>    <span class="kw">let </span>rows = response
+<a href=#780 id=780 data-nosnippet>780</a>        .get(<span class="string">"release-groups"</span>)
+<a href=#781 id=781 data-nosnippet>781</a>        .and_then(Json::as_arr)
+<a href=#782 id=782 data-nosnippet>782</a>        .unwrap_or(<span class="kw-2">&amp;</span>[]);
+<a href=#783 id=783 data-nosnippet>783</a>    <span class="kw">let </span>page: Vec&lt;KnownRelease&gt; = rows
+<a href=#784 id=784 data-nosnippet>784</a>        .iter()
+<a href=#785 id=785 data-nosnippet>785</a>        .filter_map(|row| {
+<a href=#786 id=786 data-nosnippet>786</a>            <span class="comment">// No identifier, no row: the only way to tell "you own this one"
+<a href=#787 id=787 data-nosnippet>787</a>            // from "you are missing it" without an identifier is the title, and
+<a href=#788 id=788 data-nosnippet>788</a>            // two records share a title often enough that a wish list built on
+<a href=#789 id=789 data-nosnippet>789</a>            // titles alone is wrong.
+<a href=#790 id=790 data-nosnippet>790</a>            </span><span class="prelude-val">Some</span>(KnownRelease {
+<a href=#791 id=791 data-nosnippet>791</a>                mbid: field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>,
+<a href=#792 id=792 data-nosnippet>792</a>                title: field(row, <span class="string">"title"</span>).unwrap_or_default(),
+<a href=#793 id=793 data-nosnippet>793</a>                first_released: field(row, <span class="string">"first-release-date"</span>),
+<a href=#794 id=794 data-nosnippet>794</a>                primary_type: field(row, <span class="string">"primary-type"</span>),
+<a href=#795 id=795 data-nosnippet>795</a>                secondary_types: row
+<a href=#796 id=796 data-nosnippet>796</a>                    .get(<span class="string">"secondary-types"</span>)
+<a href=#797 id=797 data-nosnippet>797</a>                    .and_then(Json::as_arr)
+<a href=#798 id=798 data-nosnippet>798</a>                    .map(|a| a.iter().filter_map(Json::as_string).collect())
+<a href=#799 id=799 data-nosnippet>799</a>                    .unwrap_or_default(),
+<a href=#800 id=800 data-nosnippet>800</a>            })
+<a href=#801 id=801 data-nosnippet>801</a>        })
+<a href=#802 id=802 data-nosnippet>802</a>        .collect();
+<a href=#803 id=803 data-nosnippet>803</a>    <span class="kw">let </span>total = response
+<a href=#804 id=804 data-nosnippet>804</a>        .field_u32(<span class="string">"release-group-count"</span>)
+<a href=#805 id=805 data-nosnippet>805</a>        .map(|n| n <span class="kw">as </span>usize)
+<a href=#806 id=806 data-nosnippet>806</a>        .unwrap_or(page.len());
+<a href=#807 id=807 data-nosnippet>807</a>    (page, total)
+<a href=#808 id=808 data-nosnippet>808</a>}
+<a href=#809 id=809 data-nosnippet>809</a>
+<a href=#810 id=810 data-nosnippet>810</a><span class="doccomment">/// Read a complete browse page without confusing missing data with an empty
+<a href=#811 id=811 data-nosnippet>811</a>/// discography. Network callers must reject `None` and keep their prior answer.
+<a href=#812 id=812 data-nosnippet>812</a>///
+<a href=#813 id=813 data-nosnippet>813</a>/// Unlike [`discography`], this requires an array, an integral total, and an
+<a href=#814 id=814 data-nosnippet>814</a>/// identifier on every row. Skipping a malformed row would make the caller's
+<a href=#815 id=815 data-nosnippet>815</a>/// pagination offset and completeness conclusion unreliable.
+<a href=#816 id=816 data-nosnippet>816</a></span><span class="kw">pub fn </span>discography_page(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;(Vec&lt;<span class="kw">crate</span>::sources::KnownRelease&gt;, usize)&gt; {
+<a href=#817 id=817 data-nosnippet>817</a>    <span class="kw">let </span>rows = response.get(<span class="string">"release-groups"</span>)<span class="question-mark">?</span>.as_arr()<span class="question-mark">?</span>;
+<a href=#818 id=818 data-nosnippet>818</a>    <span class="kw">let </span>total = response.field_u32(<span class="string">"release-group-count"</span>)<span class="question-mark">? </span><span class="kw">as </span>usize;
+<a href=#819 id=819 data-nosnippet>819</a>    <span class="kw">let </span>(page, <span class="kw">_</span>) = discography(response);
+<a href=#820 id=820 data-nosnippet>820</a>    (page.len() == rows.len()).then_some((page, total))
+<a href=#821 id=821 data-nosnippet>821</a>}
+<a href=#822 id=822 data-nosnippet>822</a>
+<a href=#823 id=823 data-nosnippet>823</a><span class="doccomment">/// A label credited on a release: its name and, when the same entry carried
+<a href=#824 id=824 data-nosnippet>824</a>/// one, its MusicBrainz identifier.
+<a href=#825 id=825 data-nosnippet>825</a></span><span class="kw">pub struct </span>LabelOfRelease {
+<a href=#826 id=826 data-nosnippet>826</a>    <span class="doccomment">/// The name, as the release lookup spells it.
+<a href=#827 id=827 data-nosnippet>827</a>    </span><span class="kw">pub </span>name: String,
+<a href=#828 id=828 data-nosnippet>828</a>    <span class="doccomment">/// The label's own MusicBrainz identifier, when the same entry named
+<a href=#829 id=829 data-nosnippet>829</a>    /// one.
+<a href=#830 id=830 data-nosnippet>830</a>    </span><span class="kw">pub </span>mbid: <span class="prelude-ty">Option</span>&lt;String&gt;,
+<a href=#831 id=831 data-nosnippet>831</a>}
+<a href=#832 id=832 data-nosnippet>832</a>
+<a href=#833 id=833 data-nosnippet>833</a><span class="doccomment">/// The label of a release, as a release lookup returns it.
+<a href=#834 id=834 data-nosnippet>834</a>///
+<a href=#835 id=835 data-nosnippet>835</a>/// Separate from [`release_groups`] because it comes from a different request,
+<a href=#836 id=836 data-nosnippet>836</a>/// and because it describes an edition rather than the album.
+<a href=#837 id=837 data-nosnippet>837</a>///
+<a href=#838 id=838 data-nosnippet>838</a>/// The name and the identifier are read from **the same** `label-info` entry
+<a href=#839 id=839 data-nosnippet>839</a>/// — the first one that names a label — never a name from one row and an
+<a href=#840 id=840 data-nosnippet>840</a>/// identifier from another: a release crediting several labels would
+<a href=#841 id=841 data-nosnippet>841</a>/// otherwise risk pairing the name of one with the address of a different
+<a href=#842 id=842 data-nosnippet>842</a>/// one. This supplies edition evidence independently of any explicit label
+<a href=#843 id=843 data-nosnippet>843</a>/// identifier already carried by local tags.
+<a href=#844 id=844 data-nosnippet>844</a></span><span class="kw">pub fn </span>label_of_release(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;LabelOfRelease&gt; {
+<a href=#845 id=845 data-nosnippet>845</a>    response
+<a href=#846 id=846 data-nosnippet>846</a>        .get(<span class="string">"label-info"</span>)
+<a href=#847 id=847 data-nosnippet>847</a>        .and_then(Json::as_arr)<span class="question-mark">?
+<a href=#848 id=848 data-nosnippet>848</a>        </span>.iter()
+<a href=#849 id=849 data-nosnippet>849</a>        .find_map(|info| {
+<a href=#850 id=850 data-nosnippet>850</a>            <span class="kw">let </span>label = info.get(<span class="string">"label"</span>)<span class="question-mark">?</span>;
+<a href=#851 id=851 data-nosnippet>851</a>            <span class="kw">let </span>name = field(label, <span class="string">"name"</span>)<span class="question-mark">?</span>;
+<a href=#852 id=852 data-nosnippet>852</a>            <span class="prelude-val">Some</span>(LabelOfRelease {
+<a href=#853 id=853 data-nosnippet>853</a>                name,
+<a href=#854 id=854 data-nosnippet>854</a>                mbid: field(label, <span class="string">"id"</span>),
+<a href=#855 id=855 data-nosnippet>855</a>            })
+<a href=#856 id=856 data-nosnippet>856</a>        })
+<a href=#857 id=857 data-nosnippet>857</a>}
+<a href=#858 id=858 data-nosnippet>858</a>
+<a href=#859 id=859 data-nosnippet>859</a><span class="doccomment">/// One label, as `/ws/2/label/{mbid}?fmt=json` returns it.
+<a href=#860 id=860 data-nosnippet>860</a>///
+<a href=#861 id=861 data-nosnippet>861</a>/// A **lookup**, asked only once an identifier is already known — see
+<a href=#862 id=862 data-nosnippet>862</a>/// `crate::sources::ReleaseFacts::label_mbid` and the `fetch --labels`
+<a href=#863 id=863 data-nosnippet>863</a>/// module doc for where that comes from: a release this catalog looked up
+<a href=#864 id=864 data-nosnippet>864</a>/// sometimes already names its label's own identifier, and a lookup then
+<a href=#865 id=865 data-nosnippet>865</a>/// turns that into a certainty instead of guessing by name all over again.
+<a href=#866 id=866 data-nosnippet>866</a>/// No tag ever carries it directly, so unlike [`artist`] this is never asked
+<a href=#867 id=867 data-nosnippet>867</a>/// with a value read out of the files.
+<a href=#868 id=868 data-nosnippet>868</a></span><span class="kw">pub fn </span>label(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Candidate&lt;LabelFacts&gt;&gt; {
+<a href=#869 id=869 data-nosnippet>869</a>    <span class="kw">let </span>mbid = field(response, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#870 id=870 data-nosnippet>870</a>    <span class="prelude-val">Some</span>(Candidate {
+<a href=#871 id=871 data-nosnippet>871</a>        mbid,
+<a href=#872 id=872 data-nosnippet>872</a>        name: field(response, <span class="string">"name"</span>).unwrap_or_default(),
+<a href=#873 id=873 data-nosnippet>873</a>        <span class="comment">// Nothing was ranked: the service was asked about this one thing.
+<a href=#874 id=874 data-nosnippet>874</a>        </span>score: <span class="number">100</span>,
+<a href=#875 id=875 data-nosnippet>875</a>        facts: LabelFacts {
+<a href=#876 id=876 data-nosnippet>876</a>            wikidata: linked(response, <span class="string">"wikidata"</span>),
+<a href=#877 id=877 data-nosnippet>877</a>            discogs: linked(response, <span class="string">"discogs"</span>),
+<a href=#878 id=878 data-nosnippet>878</a>            ..Default::default()
+<a href=#879 id=879 data-nosnippet>879</a>        },
+<a href=#880 id=880 data-nosnippet>880</a>    })
+<a href=#881 id=881 data-nosnippet>881</a>}
+<a href=#882 id=882 data-nosnippet>882</a>
+<a href=#883 id=883 data-nosnippet>883</a><span class="doccomment">/// Labels, as `/ws/2/label/?query=…&amp;fmt=json` returns them.
+<a href=#884 id=884 data-nosnippet>884</a>///
+<a href=#885 id=885 data-nosnippet>885</a>/// A **search**: ranked guesses, asked when no identifier is known for this
+<a href=#886 id=886 data-nosnippet>886</a>/// label yet. Prefer [`label`] whenever one is.
+<a href=#887 id=887 data-nosnippet>887</a></span><span class="kw">pub fn </span>labels(response: <span class="kw-2">&amp;</span>Json) -&gt; Vec&lt;Candidate&lt;LabelFacts&gt;&gt; {
+<a href=#888 id=888 data-nosnippet>888</a>    <span class="kw">let </span>rows = response.get(<span class="string">"labels"</span>).and_then(Json::as_arr).unwrap_or(<span class="kw-2">&amp;</span>[]);
+<a href=#889 id=889 data-nosnippet>889</a>    rows.iter()
+<a href=#890 id=890 data-nosnippet>890</a>        .filter_map(|row| {
+<a href=#891 id=891 data-nosnippet>891</a>            <span class="kw">let </span>mbid = field(row, <span class="string">"id"</span>)<span class="question-mark">?</span>;
+<a href=#892 id=892 data-nosnippet>892</a>            <span class="prelude-val">Some</span>(Candidate {
+<a href=#893 id=893 data-nosnippet>893</a>                mbid,
+<a href=#894 id=894 data-nosnippet>894</a>                name: field(row, <span class="string">"name"</span>).unwrap_or_default(),
+<a href=#895 id=895 data-nosnippet>895</a>                score: score_of(row),
+<a href=#896 id=896 data-nosnippet>896</a>                facts: LabelFacts::default(),
+<a href=#897 id=897 data-nosnippet>897</a>            })
+<a href=#898 id=898 data-nosnippet>898</a>        })
+<a href=#899 id=899 data-nosnippet>899</a>        .collect()
+<a href=#900 id=900 data-nosnippet>900</a>}
+<a href=#901 id=901 data-nosnippet>901</a>
+<a href=#902 id=902 data-nosnippet>902</a><span class="attr">#[cfg(test)]
+<a href=#903 id=903 data-nosnippet>903</a>#[path = <span class="string">"musicbrainz_tests.rs"</span>]
+<a href=#904 id=904 data-nosnippet>904</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

@@ -142,148 +142,150 @@
 <a href=#142 id=142 data-nosnippet>142</a>
 <a href=#143 id=143 data-nosnippet>143</a>        <span class="kw">let </span>answer = <span class="kw">match </span>ask_with_backoff(transport, <span class="kw-2">&amp;</span>target.url(), backoff) {
 <a href=#144 id=144 data-nosnippet>144</a>            <span class="prelude-val">Ok</span>(answer) =&gt; answer,
-<a href=#145 id=145 data-nosnippet>145</a>            <span class="prelude-val">Err</span>(other) <span class="kw">if </span>defer(<span class="kw-2">&amp;mut </span>pending, target, retried, <span class="kw-2">&amp;</span>other) =&gt; {
-<a href=#146 id=146 data-nosnippet>146</a>                <span class="kw">continue</span>;
-<a href=#147 id=147 data-nosnippet>147</a>            }
-<a href=#148 id=148 data-nosnippet>148</a>            <span class="prelude-val">Err</span>(other) =&gt; {
-<a href=#149 id=149 data-nosnippet>149</a>                failed += <span class="number">1</span>;
-<a href=#150 id=150 data-nosnippet>150</a>                done += <span class="number">1</span>;
-<a href=#151 id=151 data-nosnippet>151</a>                <span class="macro">eprintln!</span>(<span class="string">"\r  {} {}: {other}"</span>, ui::red(<span class="string">"×"</span>), target.name);
-<a href=#152 id=152 data-nosnippet>152</a>                <span class="kw">continue</span>;
-<a href=#153 id=153 data-nosnippet>153</a>            }
-<a href=#154 id=154 data-nosnippet>154</a>        };
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a>        <span class="kw">match </span>target.read(<span class="kw-2">&amp;</span>answer) {
-<a href=#157 id=157 data-nosnippet>157</a>            <span class="prelude-val">Ok</span>((<span class="kw-2">mut </span>candidate, confidence)) =&gt; {
-<a href=#158 id=158 data-nosnippet>158</a>                <span class="comment">// Search results omit URL relationships. Read the matched
-<a href=#159 id=159 data-nosnippet>159</a>                // label by identifier before filing it, so this pass can
-<a href=#160 id=160 data-nosnippet>160</a>                // supply the Wikidata link needed for a summary immediately.
-<a href=#161 id=161 data-nosnippet>161</a>                </span><span class="kw">if </span>target.known_mbid.is_none() {
-<a href=#162 id=162 data-nosnippet>162</a>                    <span class="kw">let </span>url = <span class="macro">format!</span>(
-<a href=#163 id=163 data-nosnippet>163</a>                        <span class="string">"{}/label/{}?fmt=json&amp;inc={}"</span>,
-<a href=#164 id=164 data-nosnippet>164</a>                        musicbrainz::WEB_SERVICE,
-<a href=#165 id=165 data-nosnippet>165</a>                        candidate.mbid,
-<a href=#166 id=166 data-nosnippet>166</a>                        musicbrainz::LABEL_INCLUDES
-<a href=#167 id=167 data-nosnippet>167</a>                    );
-<a href=#168 id=168 data-nosnippet>168</a>                    <span class="kw">let </span>detail = <span class="kw">match </span>ask_with_backoff(transport, <span class="kw-2">&amp;</span>url, backoff) {
-<a href=#169 id=169 data-nosnippet>169</a>                        <span class="prelude-val">Ok</span>(detail) =&gt; detail,
-<a href=#170 id=170 data-nosnippet>170</a>                        <span class="prelude-val">Err</span>(why) =&gt; {
-<a href=#171 id=171 data-nosnippet>171</a>                            failed += <span class="number">1</span>;
-<a href=#172 id=172 data-nosnippet>172</a>                            <span class="macro">eprintln!</span>(<span class="string">"\r  {} {}: {why}"</span>, ui::red(<span class="string">"×"</span>), target.name);
-<a href=#173 id=173 data-nosnippet>173</a>                            done += <span class="number">1</span>;
-<a href=#174 id=174 data-nosnippet>174</a>                            <span class="kw">continue</span>;
-<a href=#175 id=175 data-nosnippet>175</a>                        }
-<a href=#176 id=176 data-nosnippet>176</a>                    };
-<a href=#177 id=177 data-nosnippet>177</a>                    <span class="kw">match </span>musicbrainz::label(<span class="kw-2">&amp;</span>detail) {
-<a href=#178 id=178 data-nosnippet>178</a>                        <span class="prelude-val">Some</span>(found) <span class="kw">if </span>found.mbid == candidate.mbid =&gt; {
-<a href=#179 id=179 data-nosnippet>179</a>                            candidate.facts = found.facts;
-<a href=#180 id=180 data-nosnippet>180</a>                        }
-<a href=#181 id=181 data-nosnippet>181</a>                        <span class="kw">_ </span>=&gt; {
-<a href=#182 id=182 data-nosnippet>182</a>                            failed += <span class="number">1</span>;
-<a href=#183 id=183 data-nosnippet>183</a>                            <span class="macro">eprintln!</span>(
-<a href=#184 id=184 data-nosnippet>184</a>                                <span class="string">"\r  {} {}: label lookup did not confirm the search result"</span>,
-<a href=#185 id=185 data-nosnippet>185</a>                                ui::red(<span class="string">"×"</span>),
-<a href=#186 id=186 data-nosnippet>186</a>                                target.name
-<a href=#187 id=187 data-nosnippet>187</a>                            );
-<a href=#188 id=188 data-nosnippet>188</a>                            done += <span class="number">1</span>;
-<a href=#189 id=189 data-nosnippet>189</a>                            <span class="kw">continue</span>;
-<a href=#190 id=190 data-nosnippet>190</a>                        }
-<a href=#191 id=191 data-nosnippet>191</a>                    }
-<a href=#192 id=192 data-nosnippet>192</a>                }
-<a href=#193 id=193 data-nosnippet>193</a>                held.set(SourceRecord {
-<a href=#194 id=194 data-nosnippet>194</a>                    key: target.entity.key.clone(),
-<a href=#195 id=195 data-nosnippet>195</a>                    source: sources::MUSICBRAINZ.to_string(),
-<a href=#196 id=196 data-nosnippet>196</a>                    source_id: <span class="prelude-val">Some</span>(candidate.mbid),
-<a href=#197 id=197 data-nosnippet>197</a>                    fetched_at: clock::now_seconds(),
-<a href=#198 id=198 data-nosnippet>198</a>                    confidence,
-<a href=#199 id=199 data-nosnippet>199</a>                    facts: Facts::Label(candidate.facts),
-<a href=#200 id=200 data-nosnippet>200</a>                });
-<a href=#201 id=201 data-nosnippet>201</a>                stored += <span class="number">1</span>;
-<a href=#202 id=202 data-nosnippet>202</a>                sources::save(held, path)<span class="question-mark">?</span>;
-<a href=#203 id=203 data-nosnippet>203</a>            }
-<a href=#204 id=204 data-nosnippet>204</a>            <span class="prelude-val">Err</span>(why) =&gt; {
-<a href=#205 id=205 data-nosnippet>205</a>                refused += <span class="number">1</span>;
-<a href=#206 id=206 data-nosnippet>206</a>                <span class="macro">eprintln!</span>(
-<a href=#207 id=207 data-nosnippet>207</a>                    <span class="string">"\r  {} {}: {}"</span>,
-<a href=#208 id=208 data-nosnippet>208</a>                    ui::yellow(<span class="string">"?"</span>),
-<a href=#209 id=209 data-nosnippet>209</a>                    target.name,
-<a href=#210 id=210 data-nosnippet>210</a>                    <span class="kw">super</span>::fetch::refusal(<span class="kw-2">&amp;</span>why)
-<a href=#211 id=211 data-nosnippet>211</a>                );
-<a href=#212 id=212 data-nosnippet>212</a>            }
-<a href=#213 id=213 data-nosnippet>213</a>        }
-<a href=#214 id=214 data-nosnippet>214</a>        done += <span class="number">1</span>;
-<a href=#215 id=215 data-nosnippet>215</a>    }
-<a href=#216 id=216 data-nosnippet>216</a>    <span class="macro">println!</span>();
-<a href=#217 id=217 data-nosnippet>217</a>
-<a href=#218 id=218 data-nosnippet>218</a>    <span class="macro">println!</span>(
-<a href=#219 id=219 data-nosnippet>219</a>        <span class="string">"{} {stored} stored, {refused} left alone, {failed} failed"</span>,
-<a href=#220 id=220 data-nosnippet>220</a>        ui::green(<span class="string">"→"</span>)
-<a href=#221 id=221 data-nosnippet>221</a>    );
-<a href=#222 id=222 data-nosnippet>222</a>    <span class="prelude-val">Ok</span>(())
-<a href=#223 id=223 data-nosnippet>223</a>}
-<a href=#224 id=224 data-nosnippet>224</a>
-<a href=#225 id=225 data-nosnippet>225</a><span class="doccomment">/// How many labels this pass would ask about, if it ran now.
-<a href=#226 id=226 data-nosnippet>226</a></span><span class="kw">pub fn </span>waiting(catalog: <span class="kw-2">&amp;</span>Catalog, held: <span class="kw-2">&amp;</span>sources::Sources) -&gt; usize {
-<a href=#227 id=227 data-nosnippet>227</a>    targets(catalog, held, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::EVERYTHING, <span class="bool-val">false</span>).len()
-<a href=#228 id=228 data-nosnippet>228</a>}
-<a href=#229 id=229 data-nosnippet>229</a>
-<a href=#230 id=230 data-nosnippet>230</a><span class="doccomment">/// Labels worth asking about: named, in scope, and without a MusicBrainz
-<a href=#231 id=231 data-nosnippet>231</a>/// identifier of their own already on record.
-<a href=#232 id=232 data-nosnippet>232</a></span><span class="kw">fn </span>targets(
-<a href=#233 id=233 data-nosnippet>233</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
-<a href=#234 id=234 data-nosnippet>234</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
-<a href=#235 id=235 data-nosnippet>235</a>    wanted: <span class="kw-2">&amp;</span>[String],
-<a href=#236 id=236 data-nosnippet>236</a>    scope: <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::Scope,
-<a href=#237 id=237 data-nosnippet>237</a>    again: bool,
-<a href=#238 id=238 data-nosnippet>238</a>) -&gt; Vec&lt;Target&gt; {
-<a href=#239 id=239 data-nosnippet>239</a>    <span class="kw">let </span><span class="kw-2">mut </span>targets = Vec::new();
-<a href=#240 id=240 data-nosnippet>240</a>    <span class="kw">for </span>label <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.labels {
-<a href=#241 id=241 data-nosnippet>241</a>        <span class="kw">if </span>label.name.trim().is_empty() {
-<a href=#242 id=242 data-nosnippet>242</a>            <span class="kw">continue</span>;
-<a href=#243 id=243 data-nosnippet>243</a>        }
-<a href=#244 id=244 data-nosnippet>244</a>        <span class="kw">if </span>!<span class="kw">super</span>::fetch::reaches(wanted, <span class="kw-2">&amp;</span>[label.name.as_str()]) {
-<a href=#245 id=245 data-nosnippet>245</a>            <span class="kw">continue</span>;
-<a href=#246 id=246 data-nosnippet>246</a>        }
-<a href=#247 id=247 data-nosnippet>247</a>        <span class="kw">if </span>!scope.has_label(<span class="kw-2">&amp;</span>label.key) {
-<a href=#248 id=248 data-nosnippet>248</a>            <span class="kw">continue</span>;
-<a href=#249 id=249 data-nosnippet>249</a>        }
-<a href=#250 id=250 data-nosnippet>250</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(entity) = EntityRef::of(catalog, EntityKind::Label, label.id) <span class="kw">else </span>{
-<a href=#251 id=251 data-nosnippet>251</a>            <span class="kw">continue</span>;
-<a href=#252 id=252 data-nosnippet>252</a>        };
-<a href=#253 id=253 data-nosnippet>253</a>        <span class="kw">if </span>!again &amp;&amp; held.get(<span class="kw-2">&amp;</span>entity, sources::MUSICBRAINZ).is_some() {
-<a href=#254 id=254 data-nosnippet>254</a>            <span class="kw">continue</span>;
-<a href=#255 id=255 data-nosnippet>255</a>        }
-<a href=#256 id=256 data-nosnippet>256</a>        targets.push(Target {
-<a href=#257 id=257 data-nosnippet>257</a>            entity,
-<a href=#258 id=258 data-nosnippet>258</a>            name: label.name.clone(),
-<a href=#259 id=259 data-nosnippet>259</a>            known_mbid: label.mbid.clone().or_else(|| known_mbid(held, <span class="kw-2">&amp;</span>label.key)),
-<a href=#260 id=260 data-nosnippet>260</a>        });
-<a href=#261 id=261 data-nosnippet>261</a>    }
-<a href=#262 id=262 data-nosnippet>262</a>    targets
-<a href=#263 id=263 data-nosnippet>263</a>}
-<a href=#264 id=264 data-nosnippet>264</a>
-<a href=#265 id=265 data-nosnippet>265</a><span class="doccomment">/// A label's own identifier, when a release lookup already named it.
-<a href=#266 id=266 data-nosnippet>266</a>///
-<a href=#267 id=267 data-nosnippet>267</a>/// Every release this catalog has looked up that named *this* label — by its
-<a href=#268 id=268 data-nosnippet>268</a>/// normalized name, [`text::normalize`], the same comparison the whole
-<a href=#269 id=269 data-nosnippet>269</a>/// program uses to decide two spellings are one thing — is searched for the
-<a href=#270 id=270 data-nosnippet>270</a>/// first one that also carried an identifier. Passive capture (see the module
-<a href=#271 id=271 data-nosnippet>271</a>/// doc) may have found it on any of them; which release does not matter, only
-<a href=#272 id=272 data-nosnippet>272</a>/// that one did.
-<a href=#273 id=273 data-nosnippet>273</a></span><span class="kw">fn </span>known_mbid(held: <span class="kw-2">&amp;</span>sources::Sources, key: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#274 id=274 data-nosnippet>274</a>    held.records.iter().find_map(|record| {
-<a href=#275 id=275 data-nosnippet>275</a>        <span class="kw">if </span>record.source != sources::MUSICBRAINZ {
-<a href=#276 id=276 data-nosnippet>276</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#277 id=277 data-nosnippet>277</a>        }
-<a href=#278 id=278 data-nosnippet>278</a>        <span class="kw">let </span>Facts::Release(facts) = <span class="kw-2">&amp;</span>record.facts <span class="kw">else </span>{
-<a href=#279 id=279 data-nosnippet>279</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#280 id=280 data-nosnippet>280</a>        };
-<a href=#281 id=281 data-nosnippet>281</a>        <span class="kw">let </span>name = facts.label.as_deref()<span class="question-mark">?</span>;
-<a href=#282 id=282 data-nosnippet>282</a>        <span class="kw">let </span>mbid = facts.label_mbid.as_deref()<span class="question-mark">?</span>;
-<a href=#283 id=283 data-nosnippet>283</a>        (text::normalize(name) == key).then(|| mbid.to_string())
-<a href=#284 id=284 data-nosnippet>284</a>    })
-<a href=#285 id=285 data-nosnippet>285</a>}
-<a href=#286 id=286 data-nosnippet>286</a>
-<a href=#287 id=287 data-nosnippet>287</a><span class="attr">#[cfg(test)]
-<a href=#288 id=288 data-nosnippet>288</a>#[path = <span class="string">"labels_tests.rs"</span>]
-<a href=#289 id=289 data-nosnippet>289</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#145 id=145 data-nosnippet>145</a>            <span class="prelude-val">Err</span>(other) <span class="kw">if </span>other.must_stop() =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(other.into()),
+<a href=#146 id=146 data-nosnippet>146</a>            <span class="prelude-val">Err</span>(other) <span class="kw">if </span>defer(<span class="kw-2">&amp;mut </span>pending, target, retried, <span class="kw-2">&amp;</span>other) =&gt; {
+<a href=#147 id=147 data-nosnippet>147</a>                <span class="kw">continue</span>;
+<a href=#148 id=148 data-nosnippet>148</a>            }
+<a href=#149 id=149 data-nosnippet>149</a>            <span class="prelude-val">Err</span>(other) =&gt; {
+<a href=#150 id=150 data-nosnippet>150</a>                failed += <span class="number">1</span>;
+<a href=#151 id=151 data-nosnippet>151</a>                done += <span class="number">1</span>;
+<a href=#152 id=152 data-nosnippet>152</a>                <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.name, <span class="kw-2">&amp;</span>other);
+<a href=#153 id=153 data-nosnippet>153</a>                <span class="kw">continue</span>;
+<a href=#154 id=154 data-nosnippet>154</a>            }
+<a href=#155 id=155 data-nosnippet>155</a>        };
+<a href=#156 id=156 data-nosnippet>156</a>
+<a href=#157 id=157 data-nosnippet>157</a>        <span class="kw">match </span>target.read(<span class="kw-2">&amp;</span>answer) {
+<a href=#158 id=158 data-nosnippet>158</a>            <span class="prelude-val">Ok</span>((<span class="kw-2">mut </span>candidate, confidence)) =&gt; {
+<a href=#159 id=159 data-nosnippet>159</a>                <span class="comment">// Search results omit URL relationships. Read the matched
+<a href=#160 id=160 data-nosnippet>160</a>                // label by identifier before filing it, so this pass can
+<a href=#161 id=161 data-nosnippet>161</a>                // supply the Wikidata link needed for a summary immediately.
+<a href=#162 id=162 data-nosnippet>162</a>                </span><span class="kw">if </span>target.known_mbid.is_none() {
+<a href=#163 id=163 data-nosnippet>163</a>                    <span class="kw">let </span>url = <span class="macro">format!</span>(
+<a href=#164 id=164 data-nosnippet>164</a>                        <span class="string">"{}/label/{}?fmt=json&amp;inc={}"</span>,
+<a href=#165 id=165 data-nosnippet>165</a>                        musicbrainz::WEB_SERVICE,
+<a href=#166 id=166 data-nosnippet>166</a>                        candidate.mbid,
+<a href=#167 id=167 data-nosnippet>167</a>                        musicbrainz::LABEL_INCLUDES
+<a href=#168 id=168 data-nosnippet>168</a>                    );
+<a href=#169 id=169 data-nosnippet>169</a>                    <span class="kw">let </span>detail = <span class="kw">match </span>ask_with_backoff(transport, <span class="kw-2">&amp;</span>url, backoff) {
+<a href=#170 id=170 data-nosnippet>170</a>                        <span class="prelude-val">Ok</span>(detail) =&gt; detail,
+<a href=#171 id=171 data-nosnippet>171</a>                        <span class="prelude-val">Err</span>(why) <span class="kw">if </span>why.must_stop() =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(why.into()),
+<a href=#172 id=172 data-nosnippet>172</a>                        <span class="prelude-val">Err</span>(why) =&gt; {
+<a href=#173 id=173 data-nosnippet>173</a>                            failed += <span class="number">1</span>;
+<a href=#174 id=174 data-nosnippet>174</a>                            <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.name, <span class="kw-2">&amp;</span>why);
+<a href=#175 id=175 data-nosnippet>175</a>                            done += <span class="number">1</span>;
+<a href=#176 id=176 data-nosnippet>176</a>                            <span class="kw">continue</span>;
+<a href=#177 id=177 data-nosnippet>177</a>                        }
+<a href=#178 id=178 data-nosnippet>178</a>                    };
+<a href=#179 id=179 data-nosnippet>179</a>                    <span class="kw">match </span>musicbrainz::label(<span class="kw-2">&amp;</span>detail) {
+<a href=#180 id=180 data-nosnippet>180</a>                        <span class="prelude-val">Some</span>(found) <span class="kw">if </span>found.mbid == candidate.mbid =&gt; {
+<a href=#181 id=181 data-nosnippet>181</a>                            candidate.facts = found.facts;
+<a href=#182 id=182 data-nosnippet>182</a>                        }
+<a href=#183 id=183 data-nosnippet>183</a>                        <span class="kw">_ </span>=&gt; {
+<a href=#184 id=184 data-nosnippet>184</a>                            failed += <span class="number">1</span>;
+<a href=#185 id=185 data-nosnippet>185</a>                            <span class="macro">eprintln!</span>(
+<a href=#186 id=186 data-nosnippet>186</a>                                <span class="string">"\r  {} {}: label lookup did not confirm the search result"</span>,
+<a href=#187 id=187 data-nosnippet>187</a>                                ui::red(<span class="string">"×"</span>),
+<a href=#188 id=188 data-nosnippet>188</a>                                ui::literal(<span class="kw-2">&amp;</span>target.name)
+<a href=#189 id=189 data-nosnippet>189</a>                            );
+<a href=#190 id=190 data-nosnippet>190</a>                            done += <span class="number">1</span>;
+<a href=#191 id=191 data-nosnippet>191</a>                            <span class="kw">continue</span>;
+<a href=#192 id=192 data-nosnippet>192</a>                        }
+<a href=#193 id=193 data-nosnippet>193</a>                    }
+<a href=#194 id=194 data-nosnippet>194</a>                }
+<a href=#195 id=195 data-nosnippet>195</a>                held.set(SourceRecord {
+<a href=#196 id=196 data-nosnippet>196</a>                    key: target.entity.key.clone(),
+<a href=#197 id=197 data-nosnippet>197</a>                    source: sources::MUSICBRAINZ.to_string(),
+<a href=#198 id=198 data-nosnippet>198</a>                    source_id: <span class="prelude-val">Some</span>(candidate.mbid),
+<a href=#199 id=199 data-nosnippet>199</a>                    fetched_at: clock::now_seconds(),
+<a href=#200 id=200 data-nosnippet>200</a>                    confidence,
+<a href=#201 id=201 data-nosnippet>201</a>                    facts: Facts::Label(candidate.facts),
+<a href=#202 id=202 data-nosnippet>202</a>                });
+<a href=#203 id=203 data-nosnippet>203</a>                stored += <span class="number">1</span>;
+<a href=#204 id=204 data-nosnippet>204</a>                sources::save(held, path)<span class="question-mark">?</span>;
+<a href=#205 id=205 data-nosnippet>205</a>            }
+<a href=#206 id=206 data-nosnippet>206</a>            <span class="prelude-val">Err</span>(why) =&gt; {
+<a href=#207 id=207 data-nosnippet>207</a>                refused += <span class="number">1</span>;
+<a href=#208 id=208 data-nosnippet>208</a>                <span class="macro">eprintln!</span>(
+<a href=#209 id=209 data-nosnippet>209</a>                    <span class="string">"\r  {} {}: {}"</span>,
+<a href=#210 id=210 data-nosnippet>210</a>                    ui::yellow(<span class="string">"?"</span>),
+<a href=#211 id=211 data-nosnippet>211</a>                    ui::literal(<span class="kw-2">&amp;</span>target.name),
+<a href=#212 id=212 data-nosnippet>212</a>                    ui::literal(<span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::refusal(<span class="kw-2">&amp;</span>why))
+<a href=#213 id=213 data-nosnippet>213</a>                );
+<a href=#214 id=214 data-nosnippet>214</a>            }
+<a href=#215 id=215 data-nosnippet>215</a>        }
+<a href=#216 id=216 data-nosnippet>216</a>        done += <span class="number">1</span>;
+<a href=#217 id=217 data-nosnippet>217</a>    }
+<a href=#218 id=218 data-nosnippet>218</a>    <span class="macro">println!</span>();
+<a href=#219 id=219 data-nosnippet>219</a>
+<a href=#220 id=220 data-nosnippet>220</a>    <span class="macro">println!</span>(
+<a href=#221 id=221 data-nosnippet>221</a>        <span class="string">"{} {stored} stored, {refused} left alone, {failed} failed"</span>,
+<a href=#222 id=222 data-nosnippet>222</a>        ui::green(<span class="string">"→"</span>)
+<a href=#223 id=223 data-nosnippet>223</a>    );
+<a href=#224 id=224 data-nosnippet>224</a>    <span class="prelude-val">Ok</span>(())
+<a href=#225 id=225 data-nosnippet>225</a>}
+<a href=#226 id=226 data-nosnippet>226</a>
+<a href=#227 id=227 data-nosnippet>227</a><span class="doccomment">/// How many labels this pass would ask about, if it ran now.
+<a href=#228 id=228 data-nosnippet>228</a></span><span class="kw">pub fn </span>waiting(catalog: <span class="kw-2">&amp;</span>Catalog, held: <span class="kw-2">&amp;</span>sources::Sources) -&gt; usize {
+<a href=#229 id=229 data-nosnippet>229</a>    targets(catalog, held, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::EVERYTHING, <span class="bool-val">false</span>).len()
+<a href=#230 id=230 data-nosnippet>230</a>}
+<a href=#231 id=231 data-nosnippet>231</a>
+<a href=#232 id=232 data-nosnippet>232</a><span class="doccomment">/// Labels worth asking about: named, in scope, and without a MusicBrainz
+<a href=#233 id=233 data-nosnippet>233</a>/// identifier of their own already on record.
+<a href=#234 id=234 data-nosnippet>234</a></span><span class="kw">fn </span>targets(
+<a href=#235 id=235 data-nosnippet>235</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
+<a href=#236 id=236 data-nosnippet>236</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
+<a href=#237 id=237 data-nosnippet>237</a>    wanted: <span class="kw-2">&amp;</span>[String],
+<a href=#238 id=238 data-nosnippet>238</a>    scope: <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::Scope,
+<a href=#239 id=239 data-nosnippet>239</a>    again: bool,
+<a href=#240 id=240 data-nosnippet>240</a>) -&gt; Vec&lt;Target&gt; {
+<a href=#241 id=241 data-nosnippet>241</a>    <span class="kw">let </span><span class="kw-2">mut </span>targets = Vec::new();
+<a href=#242 id=242 data-nosnippet>242</a>    <span class="kw">for </span>label <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.labels {
+<a href=#243 id=243 data-nosnippet>243</a>        <span class="kw">if </span>label.name.trim().is_empty() {
+<a href=#244 id=244 data-nosnippet>244</a>            <span class="kw">continue</span>;
+<a href=#245 id=245 data-nosnippet>245</a>        }
+<a href=#246 id=246 data-nosnippet>246</a>        <span class="kw">if </span>!<span class="kw">super</span>::fetch::reaches(wanted, <span class="kw-2">&amp;</span>[label.name.as_str()]) {
+<a href=#247 id=247 data-nosnippet>247</a>            <span class="kw">continue</span>;
+<a href=#248 id=248 data-nosnippet>248</a>        }
+<a href=#249 id=249 data-nosnippet>249</a>        <span class="kw">if </span>!scope.has_label(<span class="kw-2">&amp;</span>label.key) {
+<a href=#250 id=250 data-nosnippet>250</a>            <span class="kw">continue</span>;
+<a href=#251 id=251 data-nosnippet>251</a>        }
+<a href=#252 id=252 data-nosnippet>252</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(entity) = EntityRef::of(catalog, EntityKind::Label, label.id) <span class="kw">else </span>{
+<a href=#253 id=253 data-nosnippet>253</a>            <span class="kw">continue</span>;
+<a href=#254 id=254 data-nosnippet>254</a>        };
+<a href=#255 id=255 data-nosnippet>255</a>        <span class="kw">if </span>!again &amp;&amp; held.get(<span class="kw-2">&amp;</span>entity, sources::MUSICBRAINZ).is_some() {
+<a href=#256 id=256 data-nosnippet>256</a>            <span class="kw">continue</span>;
+<a href=#257 id=257 data-nosnippet>257</a>        }
+<a href=#258 id=258 data-nosnippet>258</a>        targets.push(Target {
+<a href=#259 id=259 data-nosnippet>259</a>            entity,
+<a href=#260 id=260 data-nosnippet>260</a>            name: label.name.clone(),
+<a href=#261 id=261 data-nosnippet>261</a>            known_mbid: label.mbid.clone().or_else(|| known_mbid(held, <span class="kw-2">&amp;</span>label.key)),
+<a href=#262 id=262 data-nosnippet>262</a>        });
+<a href=#263 id=263 data-nosnippet>263</a>    }
+<a href=#264 id=264 data-nosnippet>264</a>    targets
+<a href=#265 id=265 data-nosnippet>265</a>}
+<a href=#266 id=266 data-nosnippet>266</a>
+<a href=#267 id=267 data-nosnippet>267</a><span class="doccomment">/// A label's own identifier, when a release lookup already named it.
+<a href=#268 id=268 data-nosnippet>268</a>///
+<a href=#269 id=269 data-nosnippet>269</a>/// Every release this catalog has looked up that named *this* label — by its
+<a href=#270 id=270 data-nosnippet>270</a>/// normalized name, [`text::normalize`], the same comparison the whole
+<a href=#271 id=271 data-nosnippet>271</a>/// program uses to decide two spellings are one thing — is searched for the
+<a href=#272 id=272 data-nosnippet>272</a>/// first one that also carried an identifier. Passive capture (see the module
+<a href=#273 id=273 data-nosnippet>273</a>/// doc) may have found it on any of them; which release does not matter, only
+<a href=#274 id=274 data-nosnippet>274</a>/// that one did.
+<a href=#275 id=275 data-nosnippet>275</a></span><span class="kw">fn </span>known_mbid(held: <span class="kw-2">&amp;</span>sources::Sources, key: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#276 id=276 data-nosnippet>276</a>    held.records.iter().find_map(|record| {
+<a href=#277 id=277 data-nosnippet>277</a>        <span class="kw">if </span>record.source != sources::MUSICBRAINZ {
+<a href=#278 id=278 data-nosnippet>278</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#279 id=279 data-nosnippet>279</a>        }
+<a href=#280 id=280 data-nosnippet>280</a>        <span class="kw">let </span>Facts::Release(facts) = <span class="kw-2">&amp;</span>record.facts <span class="kw">else </span>{
+<a href=#281 id=281 data-nosnippet>281</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#282 id=282 data-nosnippet>282</a>        };
+<a href=#283 id=283 data-nosnippet>283</a>        <span class="kw">let </span>name = facts.label.as_deref()<span class="question-mark">?</span>;
+<a href=#284 id=284 data-nosnippet>284</a>        <span class="kw">let </span>mbid = facts.label_mbid.as_deref()<span class="question-mark">?</span>;
+<a href=#285 id=285 data-nosnippet>285</a>        (text::normalize(name) == key).then(|| mbid.to_string())
+<a href=#286 id=286 data-nosnippet>286</a>    })
+<a href=#287 id=287 data-nosnippet>287</a>}
+<a href=#288 id=288 data-nosnippet>288</a>
+<a href=#289 id=289 data-nosnippet>289</a><span class="attr">#[cfg(test)]
+<a href=#290 id=290 data-nosnippet>290</a>#[path = <span class="string">"labels_tests.rs"</span>]
+<a href=#291 id=291 data-nosnippet>291</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

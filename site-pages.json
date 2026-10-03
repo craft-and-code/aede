@@ -1,6 +1,18 @@
 {
   "pages": [
     {
+      "slug": "cli/accounts",
+      "section": "cli",
+      "command": "accounts",
+      "source": {
+        "en": "docs/cli/accounts.md",
+        "fr": "docs/fr/cli/accounts.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
       "slug": "manual/install",
       "section": "manual",
       "command": null,
@@ -751,6 +763,54 @@
       "source": {
         "en": "docs/cli/options.md",
         "fr": "docs/fr/cli/options.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/subsonic",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/subsonic.md",
+        "fr": "docs/fr/server/subsonic.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/playback",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/playback.md",
+        "fr": "docs/fr/server/playback.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/remote",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/remote.md",
+        "fr": "docs/fr/server/remote.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/accounts",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/accounts.md",
+        "fr": "docs/fr/server/accounts.md"
       },
       "explainer": null,
       "noindex": false,

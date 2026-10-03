@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["album_json","album_recordings","counts","file_for_recording","show_album","show_credits"],"struct":["Counts"]};
+window.SIDEBAR_ITEMS = {"fn":["album_json","album_recordings","counts","edition_counts","file_for_recording","show_album","show_credits","summary_json"],"struct":["Counts","EditionCounts"]};

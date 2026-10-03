@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["CancelOutcome","JobRequest"],"fn":["cancel_task","delegate_command","serve"],"struct":["FetchRequest","JobOutput","ScanRequest"]};
+window.SIDEBAR_ITEMS = {"enum":["CancelOutcome","JobRequest"],"fn":["cancel_task","delegate_command","serve","serve_with_options"],"struct":["FetchRequest","JobOutput","ScanRequest","ServerOptions","TlsOptions"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["fingerprint","first","identified","length","listed","skipped","survey"],"struct":["Survey","Target"]};
+window.SIDEBAR_ITEMS = {"fn":["fingerprint","first","length","listed","skipped","survey"],"struct":["Survey","Target"]};

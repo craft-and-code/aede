@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["country_buckets","print_buckets","print_roles","show_stats","stats_to_json","where_it_lives"]};
+window.SIDEBAR_ITEMS = {"fn":["country_buckets","page","print_buckets","print_roles","role_counts","show_stats","stats_to_json","where_it_lives"]};

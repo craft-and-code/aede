@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["mtime_nanoseconds","mtime_seconds","now_nanoseconds","now_seconds"]};
+window.SIDEBAR_ITEMS = {"fn":["mtime_nanoseconds","mtime_seconds","mtime_subseconds","now_nanoseconds","now_seconds"]};

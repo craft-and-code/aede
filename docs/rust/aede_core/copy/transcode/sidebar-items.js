@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Quality","Target"],"fn":["convert","estimated_size","find_ffmpeg","missing_ffmpeg","verify"]};
+window.SIDEBAR_ITEMS = {"enum":["Quality","Target"],"fn":["convert","estimated_size","find_ffmpeg","missing_ffmpeg","validate_conversion","verify"]};

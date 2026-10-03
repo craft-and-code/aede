@@ -52,43 +52,42 @@
 <a href=#52 id=52 data-nosnippet>52</a>        <span class="kw">if </span>n == <span class="number">0 </span>{
 <a href=#53 id=53 data-nosnippet>53</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(<span class="number">0</span>);
 <a href=#54 id=54 data-nosnippet>54</a>        }
-<a href=#55 id=55 data-nosnippet>55</a>        <span class="kw">let </span>sign = <span class="number">1u64 </span>&lt;&lt; (n - <span class="number">1</span>);
-<a href=#56 id=56 data-nosnippet>56</a>        <span class="prelude-val">Some</span>(<span class="kw">if </span>raw &amp; sign != <span class="number">0 </span>{
-<a href=#57 id=57 data-nosnippet>57</a>            (raw <span class="kw">as </span>i64) - (<span class="number">1i64 </span>&lt;&lt; n)
-<a href=#58 id=58 data-nosnippet>58</a>        } <span class="kw">else </span>{
-<a href=#59 id=59 data-nosnippet>59</a>            raw <span class="kw">as </span>i64
-<a href=#60 id=60 data-nosnippet>60</a>        })
-<a href=#61 id=61 data-nosnippet>61</a>    }
-<a href=#62 id=62 data-nosnippet>62</a>
-<a href=#63 id=63 data-nosnippet>63</a>    <span class="doccomment">/// Counts zero bits up to the next one bit, and consumes that one bit.
-<a href=#64 id=64 data-nosnippet>64</a>    ///
-<a href=#65 id=65 data-nosnippet>65</a>    /// This is the unary part of a Rice code. The cap keeps a corrupt stream
-<a href=#66 id=66 data-nosnippet>66</a>    /// from turning into an unbounded loop.
-<a href=#67 id=67 data-nosnippet>67</a>    </span><span class="kw">pub fn </span>unary(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;u32&gt; {
-<a href=#68 id=68 data-nosnippet>68</a>        <span class="kw">let </span><span class="kw-2">mut </span>zeros = <span class="number">0u32</span>;
-<a href=#69 id=69 data-nosnippet>69</a>        <span class="kw">loop </span>{
-<a href=#70 id=70 data-nosnippet>70</a>            <span class="kw">match </span><span class="self">self</span>.bits(<span class="number">1</span>)<span class="question-mark">? </span>{
-<a href=#71 id=71 data-nosnippet>71</a>                <span class="number">1 </span>=&gt; <span class="kw">return </span><span class="prelude-val">Some</span>(zeros),
-<a href=#72 id=72 data-nosnippet>72</a>                <span class="kw">_ </span>=&gt; {
-<a href=#73 id=73 data-nosnippet>73</a>                    zeros += <span class="number">1</span>;
-<a href=#74 id=74 data-nosnippet>74</a>                    <span class="kw">if </span>zeros &gt; <span class="number">1_000_000 </span>{
-<a href=#75 id=75 data-nosnippet>75</a>                        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#76 id=76 data-nosnippet>76</a>                    }
-<a href=#77 id=77 data-nosnippet>77</a>                }
-<a href=#78 id=78 data-nosnippet>78</a>            }
-<a href=#79 id=79 data-nosnippet>79</a>        }
-<a href=#80 id=80 data-nosnippet>80</a>    }
-<a href=#81 id=81 data-nosnippet>81</a>
-<a href=#82 id=82 data-nosnippet>82</a>    <span class="doccomment">/// Skips `n` bits, failing if the stream is shorter than that.
-<a href=#83 id=83 data-nosnippet>83</a>    </span><span class="kw">pub fn </span>skip(<span class="kw-2">&amp;mut </span><span class="self">self</span>, n: usize) -&gt; <span class="prelude-ty">Option</span>&lt;()&gt; {
-<a href=#84 id=84 data-nosnippet>84</a>        <span class="kw">if </span><span class="self">self</span>.pos + n &gt; <span class="self">self</span>.data.len() * <span class="number">8 </span>{
-<a href=#85 id=85 data-nosnippet>85</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#86 id=86 data-nosnippet>86</a>        }
-<a href=#87 id=87 data-nosnippet>87</a>        <span class="self">self</span>.pos += n;
-<a href=#88 id=88 data-nosnippet>88</a>        <span class="prelude-val">Some</span>(())
-<a href=#89 id=89 data-nosnippet>89</a>    }
-<a href=#90 id=90 data-nosnippet>90</a>}
-<a href=#91 id=91 data-nosnippet>91</a>
-<a href=#92 id=92 data-nosnippet>92</a><span class="attr">#[cfg(test)]
-<a href=#93 id=93 data-nosnippet>93</a>#[path = <span class="string">"bits_tests.rs"</span>]
-<a href=#94 id=94 data-nosnippet>94</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#55 id=55 data-nosnippet>55</a>        <span class="comment">// Sign-extend without constructing 2^n as a signed integer: that
+<a href=#56 id=56 data-nosnippet>56</a>        // subtraction would overflow for 63-bit fields and shift by 64.
+<a href=#57 id=57 data-nosnippet>57</a>        </span><span class="kw">let </span>shift = <span class="number">64 </span>- n;
+<a href=#58 id=58 data-nosnippet>58</a>        <span class="prelude-val">Some</span>(((raw &lt;&lt; shift) <span class="kw">as </span>i64) &gt;&gt; shift)
+<a href=#59 id=59 data-nosnippet>59</a>    }
+<a href=#60 id=60 data-nosnippet>60</a>
+<a href=#61 id=61 data-nosnippet>61</a>    <span class="doccomment">/// Counts zero bits up to the next one bit, and consumes that one bit.
+<a href=#62 id=62 data-nosnippet>62</a>    ///
+<a href=#63 id=63 data-nosnippet>63</a>    /// This is the unary part of a Rice code. The cap keeps a corrupt stream
+<a href=#64 id=64 data-nosnippet>64</a>    /// from turning into an unbounded loop.
+<a href=#65 id=65 data-nosnippet>65</a>    </span><span class="kw">pub fn </span>unary(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;u32&gt; {
+<a href=#66 id=66 data-nosnippet>66</a>        <span class="kw">let </span><span class="kw-2">mut </span>zeros = <span class="number">0u32</span>;
+<a href=#67 id=67 data-nosnippet>67</a>        <span class="kw">loop </span>{
+<a href=#68 id=68 data-nosnippet>68</a>            <span class="kw">match </span><span class="self">self</span>.bits(<span class="number">1</span>)<span class="question-mark">? </span>{
+<a href=#69 id=69 data-nosnippet>69</a>                <span class="number">1 </span>=&gt; <span class="kw">return </span><span class="prelude-val">Some</span>(zeros),
+<a href=#70 id=70 data-nosnippet>70</a>                <span class="kw">_ </span>=&gt; {
+<a href=#71 id=71 data-nosnippet>71</a>                    zeros += <span class="number">1</span>;
+<a href=#72 id=72 data-nosnippet>72</a>                    <span class="kw">if </span>zeros &gt; <span class="number">1_000_000 </span>{
+<a href=#73 id=73 data-nosnippet>73</a>                        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#74 id=74 data-nosnippet>74</a>                    }
+<a href=#75 id=75 data-nosnippet>75</a>                }
+<a href=#76 id=76 data-nosnippet>76</a>            }
+<a href=#77 id=77 data-nosnippet>77</a>        }
+<a href=#78 id=78 data-nosnippet>78</a>    }
+<a href=#79 id=79 data-nosnippet>79</a>
+<a href=#80 id=80 data-nosnippet>80</a>    <span class="doccomment">/// Skips `n` bits, failing if the stream is shorter than that.
+<a href=#81 id=81 data-nosnippet>81</a>    </span><span class="kw">pub fn </span>skip(<span class="kw-2">&amp;mut </span><span class="self">self</span>, n: usize) -&gt; <span class="prelude-ty">Option</span>&lt;()&gt; {
+<a href=#82 id=82 data-nosnippet>82</a>        <span class="kw">let </span>end = <span class="self">self</span>.pos.checked_add(n)<span class="question-mark">?</span>;
+<a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">if </span>end &gt; <span class="self">self</span>.data.len() * <span class="number">8 </span>{
+<a href=#84 id=84 data-nosnippet>84</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#85 id=85 data-nosnippet>85</a>        }
+<a href=#86 id=86 data-nosnippet>86</a>        <span class="self">self</span>.pos = end;
+<a href=#87 id=87 data-nosnippet>87</a>        <span class="prelude-val">Some</span>(())
+<a href=#88 id=88 data-nosnippet>88</a>    }
+<a href=#89 id=89 data-nosnippet>89</a>}
+<a href=#90 id=90 data-nosnippet>90</a>
+<a href=#91 id=91 data-nosnippet>91</a><span class="attr">#[cfg(test)]
+<a href=#92 id=92 data-nosnippet>92</a>#[path = <span class="string">"bits_tests.rs"</span>]
+<a href=#93 id=93 data-nosnippet>93</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

@@ -102,49 +102,53 @@
 <a href=#102 id=102 data-nosnippet>102</a>        });
 <a href=#103 id=103 data-nosnippet>103</a>        <span class="kw">if </span>!name.is_empty() {
 <a href=#104 id=104 data-nosnippet>104</a>            builder.names.insert(name.to_string());
-<a href=#105 id=105 data-nosnippet>105</a>            <span class="kw">if </span>builder.name.is_empty() || link.fetched_at &gt; builder.fetched_at {
-<a href=#106 id=106 data-nosnippet>106</a>                builder.name = name.to_string();
-<a href=#107 id=107 data-nosnippet>107</a>                builder.fetched_at = link.fetched_at;
-<a href=#108 id=108 data-nosnippet>108</a>            }
-<a href=#109 id=109 data-nosnippet>109</a>        }
-<a href=#110 id=110 data-nosnippet>110</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(credited_as) = link.credit.credited_as.as_deref()
-<a href=#111 id=111 data-nosnippet>111</a>            &amp;&amp; !credited_as.trim().is_empty()
-<a href=#112 id=112 data-nosnippet>112</a>        {
-<a href=#113 id=113 data-nosnippet>113</a>            builder.names.insert(credited_as.trim().to_string());
-<a href=#114 id=114 data-nosnippet>114</a>        }
-<a href=#115 id=115 data-nosnippet>115</a>        builder.release_ids.insert(link.release_id);
-<a href=#116 id=116 data-nosnippet>116</a>    }
-<a href=#117 id=117 data-nosnippet>117</a>    grouped
-<a href=#118 id=118 data-nosnippet>118</a>        .into_iter()
-<a href=#119 id=119 data-nosnippet>119</a>        .map(|(mbid, builder)| SourcedContributor {
-<a href=#120 id=120 data-nosnippet>120</a>            name: <span class="kw">if </span>builder.name.is_empty() {
-<a href=#121 id=121 data-nosnippet>121</a>                mbid.clone()
-<a href=#122 id=122 data-nosnippet>122</a>            } <span class="kw">else </span>{
-<a href=#123 id=123 data-nosnippet>123</a>                builder.name
-<a href=#124 id=124 data-nosnippet>124</a>            },
-<a href=#125 id=125 data-nosnippet>125</a>            mbid,
-<a href=#126 id=126 data-nosnippet>126</a>            names: builder.names.into_iter().collect(),
-<a href=#127 id=127 data-nosnippet>127</a>            recording_ids: builder.recording_ids.into_iter().collect(),
-<a href=#128 id=128 data-nosnippet>128</a>            release_ids: builder.release_ids.into_iter().collect(),
-<a href=#129 id=129 data-nosnippet>129</a>            work_mbids: builder.work_mbids.into_iter().collect(),
-<a href=#130 id=130 data-nosnippet>130</a>        })
-<a href=#131 id=131 data-nosnippet>131</a>        .collect()
-<a href=#132 id=132 data-nosnippet>132</a>}
-<a href=#133 id=133 data-nosnippet>133</a>
-<a href=#134 id=134 data-nosnippet>134</a><span class="doccomment">/// Match a sourced contributor by exact MusicBrainz identity or by spelling.
-<a href=#135 id=135 data-nosnippet>135</a></span><span class="kw">pub fn </span>matches_name(contributor: <span class="kw-2">&amp;</span>SourcedContributor, query: <span class="kw-2">&amp;</span>str, exact: bool) -&gt; bool {
-<a href=#136 id=136 data-nosnippet>136</a>    <span class="kw">let </span>wanted = text::normalize(query);
-<a href=#137 id=137 data-nosnippet>137</a>    !wanted.is_empty()
-<a href=#138 id=138 data-nosnippet>138</a>        &amp;&amp; contributor.names.iter().any(|name| {
-<a href=#139 id=139 data-nosnippet>139</a>            <span class="kw">let </span>key = text::normalize(name);
-<a href=#140 id=140 data-nosnippet>140</a>            <span class="kw">if </span>exact {
-<a href=#141 id=141 data-nosnippet>141</a>                key == wanted
-<a href=#142 id=142 data-nosnippet>142</a>            } <span class="kw">else </span>{
-<a href=#143 id=143 data-nosnippet>143</a>                key.contains(<span class="kw-2">&amp;</span>wanted)
-<a href=#144 id=144 data-nosnippet>144</a>            }
-<a href=#145 id=145 data-nosnippet>145</a>        })
-<a href=#146 id=146 data-nosnippet>146</a>}
-<a href=#147 id=147 data-nosnippet>147</a>
-<a href=#148 id=148 data-nosnippet>148</a><span class="attr">#[cfg(test)]
-<a href=#149 id=149 data-nosnippet>149</a>#[path = <span class="string">"contributors_tests.rs"</span>]
-<a href=#150 id=150 data-nosnippet>150</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#105 id=105 data-nosnippet>105</a>            <span class="kw">if </span>builder.name.is_empty()
+<a href=#106 id=106 data-nosnippet>106</a>                || link.fetched_at &gt; builder.fetched_at
+<a href=#107 id=107 data-nosnippet>107</a>                || (link.fetched_at == builder.fetched_at &amp;&amp; name &lt; builder.name.as_str())
+<a href=#108 id=108 data-nosnippet>108</a>            {
+<a href=#109 id=109 data-nosnippet>109</a>                builder.name = name.to_string();
+<a href=#110 id=110 data-nosnippet>110</a>                builder.fetched_at = link.fetched_at;
+<a href=#111 id=111 data-nosnippet>111</a>            }
+<a href=#112 id=112 data-nosnippet>112</a>        }
+<a href=#113 id=113 data-nosnippet>113</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(credited_as) = link.credit.credited_as.as_deref()
+<a href=#114 id=114 data-nosnippet>114</a>            &amp;&amp; !credited_as.trim().is_empty()
+<a href=#115 id=115 data-nosnippet>115</a>        {
+<a href=#116 id=116 data-nosnippet>116</a>            builder.names.insert(credited_as.trim().to_string());
+<a href=#117 id=117 data-nosnippet>117</a>        }
+<a href=#118 id=118 data-nosnippet>118</a>        builder.release_ids.insert(link.release_id);
+<a href=#119 id=119 data-nosnippet>119</a>    }
+<a href=#120 id=120 data-nosnippet>120</a>    grouped
+<a href=#121 id=121 data-nosnippet>121</a>        .into_iter()
+<a href=#122 id=122 data-nosnippet>122</a>        .map(|(mbid, builder)| SourcedContributor {
+<a href=#123 id=123 data-nosnippet>123</a>            name: <span class="kw">if </span>builder.name.is_empty() {
+<a href=#124 id=124 data-nosnippet>124</a>                mbid.clone()
+<a href=#125 id=125 data-nosnippet>125</a>            } <span class="kw">else </span>{
+<a href=#126 id=126 data-nosnippet>126</a>                builder.name
+<a href=#127 id=127 data-nosnippet>127</a>            },
+<a href=#128 id=128 data-nosnippet>128</a>            mbid,
+<a href=#129 id=129 data-nosnippet>129</a>            names: builder.names.into_iter().collect(),
+<a href=#130 id=130 data-nosnippet>130</a>            recording_ids: builder.recording_ids.into_iter().collect(),
+<a href=#131 id=131 data-nosnippet>131</a>            release_ids: builder.release_ids.into_iter().collect(),
+<a href=#132 id=132 data-nosnippet>132</a>            work_mbids: builder.work_mbids.into_iter().collect(),
+<a href=#133 id=133 data-nosnippet>133</a>        })
+<a href=#134 id=134 data-nosnippet>134</a>        .collect()
+<a href=#135 id=135 data-nosnippet>135</a>}
+<a href=#136 id=136 data-nosnippet>136</a>
+<a href=#137 id=137 data-nosnippet>137</a><span class="doccomment">/// Match a sourced contributor by canonical or credited-as spelling.
+<a href=#138 id=138 data-nosnippet>138</a>/// Callers that select by MusicBrainz identity compare [`SourcedContributor::mbid`] directly.
+<a href=#139 id=139 data-nosnippet>139</a></span><span class="kw">pub fn </span>matches_name(contributor: <span class="kw-2">&amp;</span>SourcedContributor, query: <span class="kw-2">&amp;</span>str, exact: bool) -&gt; bool {
+<a href=#140 id=140 data-nosnippet>140</a>    <span class="kw">let </span>wanted = text::normalize(query);
+<a href=#141 id=141 data-nosnippet>141</a>    !wanted.is_empty()
+<a href=#142 id=142 data-nosnippet>142</a>        &amp;&amp; contributor.names.iter().any(|name| {
+<a href=#143 id=143 data-nosnippet>143</a>            <span class="kw">let </span>key = text::normalize(name);
+<a href=#144 id=144 data-nosnippet>144</a>            <span class="kw">if </span>exact {
+<a href=#145 id=145 data-nosnippet>145</a>                key == wanted
+<a href=#146 id=146 data-nosnippet>146</a>            } <span class="kw">else </span>{
+<a href=#147 id=147 data-nosnippet>147</a>                key.contains(<span class="kw-2">&amp;</span>wanted)
+<a href=#148 id=148 data-nosnippet>148</a>            }
+<a href=#149 id=149 data-nosnippet>149</a>        })
+<a href=#150 id=150 data-nosnippet>150</a>}
+<a href=#151 id=151 data-nosnippet>151</a>
+<a href=#152 id=152 data-nosnippet>152</a><span class="attr">#[cfg(test)]
+<a href=#153 id=153 data-nosnippet>153</a>#[path = <span class="string">"contributors_tests.rs"</span>]
+<a href=#154 id=154 data-nosnippet>154</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

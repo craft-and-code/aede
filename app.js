@@ -59,11 +59,11 @@
   function animateServer(){
     serverAnimations.forEach(a=>a.cancel());serverAnimations=[];
     if(reduce.matches||!settings.motion)return;
-    const style=getComputedStyle(serverVisual),accent=style.getPropertyValue('--ae-accent').trim(),muted=style.getPropertyValue('--ae-muted').trim(),background=style.getPropertyValue('--ae-bg').trim(),centerAccent=getComputedStyle(root.querySelector('.ae-server-center')).getPropertyValue('--ae-accent').trim();
+    const style=getComputedStyle(serverVisual),accent=style.getPropertyValue('--ae-accent').trim(),muted=style.getPropertyValue('--ae-muted').trim(),background=style.getPropertyValue('--ae-bg').trim(),signal=style.getPropertyValue('--ae-server-signal').trim();
     const timing={duration:2500,iterations:Infinity,easing:'linear'};
-    const packet=(el,distance,delay)=>serverAnimations.push(el.animate([{opacity:0,transform:'translate(-50%,0)'},{opacity:1,offset:.06},{opacity:1,transform:'translate(-50%,'+distance+'px)',offset:.30},{opacity:0,transform:'translate(-50%,'+distance+'px)',offset:.36},{opacity:0,transform:'translate(-50%,'+distance+'px)'}],{...timing,delay}));
+    const packet=(el,distance,delay)=>serverAnimations.push(el.animate([{opacity:0,transform:'translateY(0)'},{opacity:1,offset:.06},{opacity:1,transform:'translateY('+distance+'px)',offset:.30},{opacity:0,transform:'translateY('+distance+'px)',offset:.36},{opacity:0,transform:'translateY('+distance+'px)'}],{...timing,delay}));
     packet(root.querySelector('.ae-packet-source'),30,0);
-    serverAnimations.push(root.querySelector('.ae-server-center').animate([{borderColor:'#303236'},{borderColor:centerAccent,offset:.15},{borderColor:'#303236',offset:.55},{borderColor:'#303236'}],{...timing,delay:500}));
+    serverAnimations.push(root.querySelector('.ae-server-center').animate([{borderColor:'#303236',outlineColor:'transparent'},{borderColor:signal,outlineColor:signal,offset:.08},{borderColor:signal,outlineColor:signal,offset:.30},{borderColor:'#303236',outlineColor:'transparent',offset:.42},{borderColor:'#303236',outlineColor:'transparent'}],{...timing,delay:550}));
     packet(root.querySelector('.ae-packet-client'),24,850);
     serverVisual.querySelectorAll('.ae-server-steps>span').forEach((el,i)=>serverAnimations.push(el.animate([{color:muted,backgroundColor:'transparent'},{color:background,backgroundColor:accent,offset:.08},{color:background,backgroundColor:accent,offset:.30},{color:muted,backgroundColor:'transparent',offset:.42},{color:muted,backgroundColor:'transparent'}],{...timing,delay:i*550})));
   }

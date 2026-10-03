@@ -4,7 +4,7 @@
 <a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>aede_core::{doctor, query, sources, stats};
 <a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>std::collections::BTreeMap;
 <a href=#6 id=6 data-nosnippet>6</a>
-<a href=#7 id=7 data-nosnippet>7</a><span class="kw">const </span>MAX_TEXT_BYTES: usize = <span class="number">2048</span>;
+<a href=#7 id=7 data-nosnippet>7</a><span class="kw">const </span>MAX_TEXT_BYTES: usize = MAX_SEARCH_TEXT_BYTES;
 <a href=#8 id=8 data-nosnippet>8</a><span class="kw">const </span>MAX_QUERY_PARTS: usize = <span class="number">64</span>;
 <a href=#9 id=9 data-nosnippet>9</a><span class="kw">const </span>ISSUE_FILE_PREVIEW: usize = <span class="number">20</span>;
 <a href=#10 id=10 data-nosnippet>10</a>
@@ -731,224 +731,240 @@
 <a href=#731 id=731 data-nosnippet>731</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
 <a href=#732 id=732 data-nosnippet>732</a>    parsed: <span class="kw-2">&amp;</span>query::Query,
 <a href=#733 id=733 data-nosnippet>733</a>    sort: query::Sort,
-<a href=#734 id=734 data-nosnippet>734</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;TrackItem&gt;, ApiError&gt; {
-<a href=#735 id=735 data-nosnippet>735</a>    <span class="kw">let </span>empty_private_data = aede_core::user::UserData::default();
-<a href=#736 id=736 data-nosnippet>736</a>    <span class="kw">let </span>context = query::Context::new(catalog, <span class="kw-2">&amp;</span>empty_private_data, <span class="string">""</span>).with_sources(held);
-<a href=#737 id=737 data-nosnippet>737</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>((field, value)) = query::unknown_values(parsed, <span class="kw-2">&amp;</span>context).first() {
-<a href=#738 id=738 data-nosnippet>738</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="macro">format!</span>(<span class="string">"no {field} matches {value:?}"</span>)));
-<a href=#739 id=739 data-nosnippet>739</a>    }
-<a href=#740 id=740 data-nosnippet>740</a>    <span class="kw">let </span><span class="kw-2">mut </span>tracks = query::run(parsed, <span class="kw-2">&amp;</span>context);
-<a href=#741 id=741 data-nosnippet>741</a>    query::sort(<span class="kw-2">&amp;mut </span>tracks, sort, <span class="kw-2">&amp;</span>context);
-<a href=#742 id=742 data-nosnippet>742</a>    <span class="prelude-val">Ok</span>(tracks
-<a href=#743 id=743 data-nosnippet>743</a>        .into_iter()
-<a href=#744 id=744 data-nosnippet>744</a>        .filter_map(|id| {
-<a href=#745 id=745 data-nosnippet>745</a>            catalog.track(id).map(|track| TrackItem {
-<a href=#746 id=746 data-nosnippet>746</a>                reference: reference(catalog, EntityKind::Track, id).unwrap_or_default(),
-<a href=#747 id=747 data-nosnippet>747</a>                title: track.title.clone(),
-<a href=#748 id=748 data-nosnippet>748</a>                release: track
-<a href=#749 id=749 data-nosnippet>749</a>                    .release_id
-<a href=#750 id=750 data-nosnippet>750</a>                    .and_then(|id| reference(catalog, EntityKind::Release, id)),
-<a href=#751 id=751 data-nosnippet>751</a>                recording: reference(catalog, EntityKind::Recording, track.recording_id),
-<a href=#752 id=752 data-nosnippet>752</a>                duration_ms: track.duration_ms,
-<a href=#753 id=753 data-nosnippet>753</a>            })
-<a href=#754 id=754 data-nosnippet>754</a>        })
-<a href=#755 id=755 data-nosnippet>755</a>        .collect())
-<a href=#756 id=756 data-nosnippet>756</a>}
-<a href=#757 id=757 data-nosnippet>757</a>
-<a href=#758 id=758 data-nosnippet>758</a><span class="kw">async fn </span>run_query(
-<a href=#759 id=759 data-nosnippet>759</a>    State(state): State&lt;ApiState&gt;,
-<a href=#760 id=760 data-nosnippet>760</a>    input: <span class="prelude-ty">Result</span>&lt;Query&lt;Parameters&gt;, QueryRejection&gt;,
-<a href=#761 id=761 data-nosnippet>761</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;Page&lt;TrackItem&gt;&gt;, ApiError&gt; {
-<a href=#762 id=762 data-nosnippet>762</a>    <span class="kw">let </span>(params, window) = parameters(input, <span class="kw-2">&amp;</span>[<span class="string">"q"</span>, <span class="string">"sort"</span>])<span class="question-mark">?</span>;
-<a href=#763 id=763 data-nosnippet>763</a>    <span class="kw">let </span>parsed = public_query(required_text(<span class="kw-2">&amp;</span>params)<span class="question-mark">?</span>)<span class="question-mark">?</span>;
-<a href=#764 id=764 data-nosnippet>764</a>    <span class="kw">let </span>sort = query::Sort::parse(params.sort.as_deref().unwrap_or(<span class="string">"catalog"</span>))
-<a href=#765 id=765 data-nosnippet>765</a>        .map_err(|failure| invalid_query(failure.to_string()))<span class="question-mark">?</span>;
-<a href=#766 id=766 data-nosnippet>766</a>    <span class="kw">if </span><span class="macro">matches!</span>(sort.key, query::SortKey::Rating | query::SortKey::Played) {
-<a href=#767 id=767 data-nosnippet>767</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"personal sort fields are not exposed"</span>));
-<a href=#768 id=768 data-nosnippet>768</a>    }
-<a href=#769 id=769 data-nosnippet>769</a>    inspect(state, <span class="kw">move </span>|state| {
-<a href=#770 id=770 data-nosnippet>770</a>        <span class="kw">let </span>guard = state.catalog.blocking_read();
-<a href=#771 id=771 data-nosnippet>771</a>        <span class="kw">let </span>catalog = guard.as_ref().ok_or_else(unavailable)<span class="question-mark">?</span>;
-<a href=#772 id=772 data-nosnippet>772</a>        <span class="kw">let </span>items = query_items(catalog, <span class="kw-2">&amp;</span>held_sources(<span class="kw-2">&amp;</span>state.data_dir)<span class="question-mark">?</span>, <span class="kw-2">&amp;</span>parsed, sort)<span class="question-mark">?</span>;
-<a href=#773 id=773 data-nosnippet>773</a>        <span class="prelude-val">Ok</span>(window.page(items, catalog.scanned_at))
-<a href=#774 id=774 data-nosnippet>774</a>    })
-<a href=#775 id=775 data-nosnippet>775</a>    .<span class="kw">await
-<a href=#776 id=776 data-nosnippet>776</a></span>}
-<a href=#777 id=777 data-nosnippet>777</a>
-<a href=#778 id=778 data-nosnippet>778</a><span class="attr">#[derive(Serialize)]
-<a href=#779 id=779 data-nosnippet>779</a></span><span class="kw">struct </span>CountryItem {
-<a href=#780 id=780 data-nosnippet>780</a>    name: String,
-<a href=#781 id=781 data-nosnippet>781</a>    iso_code: <span class="prelude-ty">Option</span>&lt;String&gt;,
-<a href=#782 id=782 data-nosnippet>782</a>    derived_initials: <span class="prelude-ty">Option</span>&lt;String&gt;,
-<a href=#783 id=783 data-nosnippet>783</a>    artists: usize,
-<a href=#784 id=784 data-nosnippet>784</a>    tracks: usize,
-<a href=#785 id=785 data-nosnippet>785</a>    duration_ms: u64,
-<a href=#786 id=786 data-nosnippet>786</a>    bytes: u64,
-<a href=#787 id=787 data-nosnippet>787</a>}
-<a href=#788 id=788 data-nosnippet>788</a>
-<a href=#789 id=789 data-nosnippet>789</a><span class="attr">#[derive(Serialize)]
-<a href=#790 id=790 data-nosnippet>790</a></span><span class="kw">struct </span>CountryCoverage {
-<a href=#791 id=791 data-nosnippet>791</a>    artists_total: usize,
-<a href=#792 id=792 data-nosnippet>792</a>    artists_asked: usize,
-<a href=#793 id=793 data-nosnippet>793</a>    artists_with_area: usize,
-<a href=#794 id=794 data-nosnippet>794</a>    artists_without_area: usize,
-<a href=#795 id=795 data-nosnippet>795</a>    places_without_iso_code: usize,
-<a href=#796 id=796 data-nosnippet>796</a>}
-<a href=#797 id=797 data-nosnippet>797</a>
-<a href=#798 id=798 data-nosnippet>798</a><span class="attr">#[derive(Serialize)]
-<a href=#799 id=799 data-nosnippet>799</a></span><span class="kw">struct </span>Countries {
-<a href=#800 id=800 data-nosnippet>800</a>    <span class="attr">#[serde(flatten)]
-<a href=#801 id=801 data-nosnippet>801</a>    </span>page: Page&lt;CountryItem&gt;,
-<a href=#802 id=802 data-nosnippet>802</a>    source: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#803 id=803 data-nosnippet>803</a>    matched_by: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str&gt;,
-<a href=#804 id=804 data-nosnippet>804</a>    coverage: CountryCoverage,
-<a href=#805 id=805 data-nosnippet>805</a>}
-<a href=#806 id=806 data-nosnippet>806</a>
-<a href=#807 id=807 data-nosnippet>807</a><span class="kw">fn </span>country_rows(
-<a href=#808 id=808 data-nosnippet>808</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
-<a href=#809 id=809 data-nosnippet>809</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
-<a href=#810 id=810 data-nosnippet>810</a>    wanted: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;,
-<a href=#811 id=811 data-nosnippet>811</a>    window: Window,
-<a href=#812 id=812 data-nosnippet>812</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Countries, ApiError&gt; {
-<a href=#813 id=813 data-nosnippet>813</a>    <span class="kw">let </span><span class="kw-2">mut </span>places = aede_core::places::countries(catalog, held);
-<a href=#814 id=814 data-nosnippet>814</a>    <span class="kw">let </span>known = places.iter().map(|place| place.artists.len()).sum();
-<a href=#815 id=815 data-nosnippet>815</a>    <span class="kw">let </span>coverage = CountryCoverage {
-<a href=#816 id=816 data-nosnippet>816</a>        artists_total: catalog.artists.len(),
-<a href=#817 id=817 data-nosnippet>817</a>        artists_asked: aede_core::places::asked_about(catalog, held),
-<a href=#818 id=818 data-nosnippet>818</a>        artists_with_area: known,
-<a href=#819 id=819 data-nosnippet>819</a>        artists_without_area: catalog.artists.len().saturating_sub(known),
-<a href=#820 id=820 data-nosnippet>820</a>        places_without_iso_code: aede_core::places::without_code(<span class="kw-2">&amp;</span>places),
-<a href=#821 id=821 data-nosnippet>821</a>    };
-<a href=#822 id=822 data-nosnippet>822</a>    <span class="kw">let </span>matched_by = <span class="kw">if let </span><span class="prelude-val">Some</span>(wanted) = wanted {
-<a href=#823 id=823 data-nosnippet>823</a>        <span class="kw">let </span>(found, matched) = aede_core::places::find(<span class="kw-2">&amp;</span>places, wanted);
-<a href=#824 id=824 data-nosnippet>824</a>        <span class="kw">if </span>found.is_empty() {
-<a href=#825 id=825 data-nosnippet>825</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"no known country or area matches q"</span>));
-<a href=#826 id=826 data-nosnippet>826</a>        }
-<a href=#827 id=827 data-nosnippet>827</a>        places = found;
-<a href=#828 id=828 data-nosnippet>828</a>        <span class="prelude-val">Some</span>(<span class="kw">match </span>matched {
-<a href=#829 id=829 data-nosnippet>829</a>            aede_core::model::TitleMatch::Exact =&gt; <span class="string">"exact"</span>,
-<a href=#830 id=830 data-nosnippet>830</a>            aede_core::model::TitleMatch::Partial =&gt; <span class="string">"partial"</span>,
-<a href=#831 id=831 data-nosnippet>831</a>        })
-<a href=#832 id=832 data-nosnippet>832</a>    } <span class="kw">else </span>{
-<a href=#833 id=833 data-nosnippet>833</a>        <span class="prelude-val">None
-<a href=#834 id=834 data-nosnippet>834</a>    </span>};
-<a href=#835 id=835 data-nosnippet>835</a>    <span class="kw">let </span>items = places
-<a href=#836 id=836 data-nosnippet>836</a>        .into_iter()
-<a href=#837 id=837 data-nosnippet>837</a>        .map(|place| {
-<a href=#838 id=838 data-nosnippet>838</a>            <span class="kw">let </span>tracks: std::collections::BTreeSet&lt;<span class="kw">_</span>&gt; = place
-<a href=#839 id=839 data-nosnippet>839</a>                .artists
-<a href=#840 id=840 data-nosnippet>840</a>                .iter()
-<a href=#841 id=841 data-nosnippet>841</a>                .flat_map(|<span class="kw-2">&amp;</span>id| catalog.tracks_of_artist(id))
-<a href=#842 id=842 data-nosnippet>842</a>                .collect();
-<a href=#843 id=843 data-nosnippet>843</a>            <span class="kw">let </span>totals = root_item(catalog, <span class="string">"country"</span>, <span class="prelude-val">None</span>, tracks.into_iter());
-<a href=#844 id=844 data-nosnippet>844</a>            CountryItem {
-<a href=#845 id=845 data-nosnippet>845</a>                name: place.name,
-<a href=#846 id=846 data-nosnippet>846</a>                iso_code: place.code,
-<a href=#847 id=847 data-nosnippet>847</a>                derived_initials: place.initials,
-<a href=#848 id=848 data-nosnippet>848</a>                artists: place.artists.len(),
-<a href=#849 id=849 data-nosnippet>849</a>                tracks: totals.tracks,
-<a href=#850 id=850 data-nosnippet>850</a>                duration_ms: totals.duration_ms,
-<a href=#851 id=851 data-nosnippet>851</a>                bytes: totals.bytes,
-<a href=#852 id=852 data-nosnippet>852</a>            }
-<a href=#853 id=853 data-nosnippet>853</a>        })
-<a href=#854 id=854 data-nosnippet>854</a>        .collect();
-<a href=#855 id=855 data-nosnippet>855</a>    <span class="prelude-val">Ok</span>(Countries {
-<a href=#856 id=856 data-nosnippet>856</a>        page: window.page(items, catalog.scanned_at),
-<a href=#857 id=857 data-nosnippet>857</a>        source: sources::MUSICBRAINZ,
-<a href=#858 id=858 data-nosnippet>858</a>        matched_by,
-<a href=#859 id=859 data-nosnippet>859</a>        coverage,
-<a href=#860 id=860 data-nosnippet>860</a>    })
-<a href=#861 id=861 data-nosnippet>861</a>}
-<a href=#862 id=862 data-nosnippet>862</a>
-<a href=#863 id=863 data-nosnippet>863</a><span class="kw">async fn </span>countries(
-<a href=#864 id=864 data-nosnippet>864</a>    State(state): State&lt;ApiState&gt;,
-<a href=#865 id=865 data-nosnippet>865</a>    input: <span class="prelude-ty">Result</span>&lt;Query&lt;Parameters&gt;, QueryRejection&gt;,
-<a href=#866 id=866 data-nosnippet>866</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;Countries&gt;, ApiError&gt; {
-<a href=#867 id=867 data-nosnippet>867</a>    <span class="kw">let </span>(params, window) = parameters(input, <span class="kw-2">&amp;</span>[<span class="string">"q"</span>])<span class="question-mark">?</span>;
-<a href=#868 id=868 data-nosnippet>868</a>    <span class="kw">let </span>wanted = params
-<a href=#869 id=869 data-nosnippet>869</a>        .q
-<a href=#870 id=870 data-nosnippet>870</a>        .as_ref()
-<a href=#871 id=871 data-nosnippet>871</a>        .map(|<span class="kw">_</span>| required_text(<span class="kw-2">&amp;</span>params).map(str::to_string))
-<a href=#872 id=872 data-nosnippet>872</a>        .transpose()<span class="question-mark">?</span>;
-<a href=#873 id=873 data-nosnippet>873</a>    inspect(state, <span class="kw">move </span>|state| {
-<a href=#874 id=874 data-nosnippet>874</a>        <span class="kw">let </span>guard = state.catalog.blocking_read();
-<a href=#875 id=875 data-nosnippet>875</a>        <span class="kw">let </span>catalog = guard.as_ref().ok_or_else(unavailable)<span class="question-mark">?</span>;
-<a href=#876 id=876 data-nosnippet>876</a>        country_rows(
-<a href=#877 id=877 data-nosnippet>877</a>            catalog,
-<a href=#878 id=878 data-nosnippet>878</a>            <span class="kw-2">&amp;</span>held_sources(<span class="kw-2">&amp;</span>state.data_dir)<span class="question-mark">?</span>,
-<a href=#879 id=879 data-nosnippet>879</a>            wanted.as_deref(),
-<a href=#880 id=880 data-nosnippet>880</a>            window,
-<a href=#881 id=881 data-nosnippet>881</a>        )
-<a href=#882 id=882 data-nosnippet>882</a>    })
-<a href=#883 id=883 data-nosnippet>883</a>    .<span class="kw">await
-<a href=#884 id=884 data-nosnippet>884</a></span>}
-<a href=#885 id=885 data-nosnippet>885</a>
-<a href=#886 id=886 data-nosnippet>886</a><span class="attr">#[derive(Serialize)]
-<a href=#887 id=887 data-nosnippet>887</a></span><span class="kw">struct </span>YearItem {
-<a href=#888 id=888 data-nosnippet>888</a>    year: u32,
-<a href=#889 id=889 data-nosnippet>889</a>    albums: usize,
-<a href=#890 id=890 data-nosnippet>890</a>    tracks: usize,
-<a href=#891 id=891 data-nosnippet>891</a>    duration_ms: u64,
-<a href=#892 id=892 data-nosnippet>892</a>    bytes: u64,
-<a href=#893 id=893 data-nosnippet>893</a>}
-<a href=#894 id=894 data-nosnippet>894</a>
-<a href=#895 id=895 data-nosnippet>895</a><span class="attr">#[derive(Serialize)]
-<a href=#896 id=896 data-nosnippet>896</a></span><span class="kw">struct </span>Years {
-<a href=#897 id=897 data-nosnippet>897</a>    <span class="attr">#[serde(flatten)]
-<a href=#898 id=898 data-nosnippet>898</a>    </span>page: Page&lt;YearItem&gt;,
-<a href=#899 id=899 data-nosnippet>899</a>    albums_total: usize,
-<a href=#900 id=900 data-nosnippet>900</a>    albums_without_year: usize,
-<a href=#901 id=901 data-nosnippet>901</a>    tracks_without_dated_album: usize,
-<a href=#902 id=902 data-nosnippet>902</a>}
-<a href=#903 id=903 data-nosnippet>903</a>
-<a href=#904 id=904 data-nosnippet>904</a><span class="kw">fn </span>year_rows(catalog: <span class="kw-2">&amp;</span>Catalog, window: Window) -&gt; Years {
-<a href=#905 id=905 data-nosnippet>905</a>    <span class="kw">let </span><span class="kw-2">mut </span>groups: BTreeMap&lt;u32, (usize, Vec&lt;Id&gt;)&gt; = BTreeMap::new();
-<a href=#906 id=906 data-nosnippet>906</a>    <span class="kw">let </span><span class="kw-2">mut </span>dated_tracks = std::collections::BTreeSet::new();
-<a href=#907 id=907 data-nosnippet>907</a>    <span class="kw">let </span><span class="kw-2">mut </span>albums_without_year = <span class="number">0</span>;
-<a href=#908 id=908 data-nosnippet>908</a>    <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
-<a href=#909 id=909 data-nosnippet>909</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(year) = release.year <span class="kw">else </span>{
-<a href=#910 id=910 data-nosnippet>910</a>            albums_without_year += <span class="number">1</span>;
-<a href=#911 id=911 data-nosnippet>911</a>            <span class="kw">continue</span>;
-<a href=#912 id=912 data-nosnippet>912</a>        };
-<a href=#913 id=913 data-nosnippet>913</a>        <span class="kw">let </span>group = groups.entry(year).or_default();
-<a href=#914 id=914 data-nosnippet>914</a>        group.<span class="number">0 </span>+= <span class="number">1</span>;
-<a href=#915 id=915 data-nosnippet>915</a>        group.<span class="number">1</span>.extend(release.track_ids.iter().copied());
-<a href=#916 id=916 data-nosnippet>916</a>        dated_tracks.extend(release.track_ids.iter().copied());
-<a href=#917 id=917 data-nosnippet>917</a>    }
-<a href=#918 id=918 data-nosnippet>918</a>    <span class="kw">let </span>items = groups
-<a href=#919 id=919 data-nosnippet>919</a>        .into_iter()
-<a href=#920 id=920 data-nosnippet>920</a>        .map(|(year, (albums, tracks))| {
-<a href=#921 id=921 data-nosnippet>921</a>            <span class="kw">let </span>totals = root_item(catalog, <span class="string">"year"</span>, <span class="prelude-val">None</span>, tracks.into_iter());
-<a href=#922 id=922 data-nosnippet>922</a>            YearItem {
-<a href=#923 id=923 data-nosnippet>923</a>                year,
-<a href=#924 id=924 data-nosnippet>924</a>                albums,
-<a href=#925 id=925 data-nosnippet>925</a>                tracks: totals.tracks,
-<a href=#926 id=926 data-nosnippet>926</a>                duration_ms: totals.duration_ms,
-<a href=#927 id=927 data-nosnippet>927</a>                bytes: totals.bytes,
-<a href=#928 id=928 data-nosnippet>928</a>            }
-<a href=#929 id=929 data-nosnippet>929</a>        })
-<a href=#930 id=930 data-nosnippet>930</a>        .collect();
-<a href=#931 id=931 data-nosnippet>931</a>    Years {
-<a href=#932 id=932 data-nosnippet>932</a>        page: window.page(items, catalog.scanned_at),
-<a href=#933 id=933 data-nosnippet>933</a>        albums_total: catalog.releases.len(),
-<a href=#934 id=934 data-nosnippet>934</a>        albums_without_year,
-<a href=#935 id=935 data-nosnippet>935</a>        tracks_without_dated_album: catalog.tracks.len().saturating_sub(dated_tracks.len()),
-<a href=#936 id=936 data-nosnippet>936</a>    }
-<a href=#937 id=937 data-nosnippet>937</a>}
-<a href=#938 id=938 data-nosnippet>938</a>
-<a href=#939 id=939 data-nosnippet>939</a><span class="kw">async fn </span>years(
-<a href=#940 id=940 data-nosnippet>940</a>    State(state): State&lt;ApiState&gt;,
-<a href=#941 id=941 data-nosnippet>941</a>    input: <span class="prelude-ty">Result</span>&lt;Query&lt;Parameters&gt;, QueryRejection&gt;,
-<a href=#942 id=942 data-nosnippet>942</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;Years&gt;, ApiError&gt; {
-<a href=#943 id=943 data-nosnippet>943</a>    <span class="kw">let </span>(<span class="kw">_</span>, window) = parameters(input, <span class="kw-2">&amp;</span>[])<span class="question-mark">?</span>;
-<a href=#944 id=944 data-nosnippet>944</a>    inspect(state, <span class="kw">move </span>|state| {
-<a href=#945 id=945 data-nosnippet>945</a>        <span class="kw">let </span>guard = state.catalog.blocking_read();
-<a href=#946 id=946 data-nosnippet>946</a>        <span class="kw">let </span>catalog = guard.as_ref().ok_or_else(unavailable)<span class="question-mark">?</span>;
-<a href=#947 id=947 data-nosnippet>947</a>        <span class="prelude-val">Ok</span>(year_rows(catalog, window))
-<a href=#948 id=948 data-nosnippet>948</a>    })
-<a href=#949 id=949 data-nosnippet>949</a>    .<span class="kw">await
-<a href=#950 id=950 data-nosnippet>950</a></span>}
-<a href=#951 id=951 data-nosnippet>951</a>
-<a href=#952 id=952 data-nosnippet>952</a><span class="attr">#[cfg(test)]
-<a href=#953 id=953 data-nosnippet>953</a>#[path = <span class="string">"inspection_tests.rs"</span>]
-<a href=#954 id=954 data-nosnippet>954</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#734 id=734 data-nosnippet>734</a>    window: Window,
+<a href=#735 id=735 data-nosnippet>735</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Page&lt;TrackItem&gt;, ApiError&gt; {
+<a href=#736 id=736 data-nosnippet>736</a>    <span class="kw">let </span>empty_private_data = aede_core::user::UserData::default();
+<a href=#737 id=737 data-nosnippet>737</a>    <span class="kw">let </span>context = query::Context::new(catalog, <span class="kw-2">&amp;</span>empty_private_data, <span class="string">""</span>).with_sources(held);
+<a href=#738 id=738 data-nosnippet>738</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>((field, value)) = query::unknown_values(parsed, <span class="kw-2">&amp;</span>context).first() {
+<a href=#739 id=739 data-nosnippet>739</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="macro">format!</span>(<span class="string">"no {field} matches {value:?}"</span>)));
+<a href=#740 id=740 data-nosnippet>740</a>    }
+<a href=#741 id=741 data-nosnippet>741</a>    <span class="kw">let </span><span class="kw-2">mut </span>tracks = query::run(parsed, <span class="kw-2">&amp;</span>context);
+<a href=#742 id=742 data-nosnippet>742</a>    query::sort(<span class="kw-2">&amp;mut </span>tracks, sort, <span class="kw-2">&amp;</span>context);
+<a href=#743 id=743 data-nosnippet>743</a>    <span class="kw">let </span>total = tracks.len();
+<a href=#744 id=744 data-nosnippet>744</a>    <span class="kw">let </span>items = tracks
+<a href=#745 id=745 data-nosnippet>745</a>        .into_iter()
+<a href=#746 id=746 data-nosnippet>746</a>        .skip(window.offset)
+<a href=#747 id=747 data-nosnippet>747</a>        .take(window.limit)
+<a href=#748 id=748 data-nosnippet>748</a>        .filter_map(|id| {
+<a href=#749 id=749 data-nosnippet>749</a>            catalog.track(id).map(|track| TrackItem {
+<a href=#750 id=750 data-nosnippet>750</a>                reference: reference(catalog, EntityKind::Track, id).unwrap_or_default(),
+<a href=#751 id=751 data-nosnippet>751</a>                title: track.title.clone(),
+<a href=#752 id=752 data-nosnippet>752</a>                release: track
+<a href=#753 id=753 data-nosnippet>753</a>                    .release_id
+<a href=#754 id=754 data-nosnippet>754</a>                    .and_then(|id| reference(catalog, EntityKind::Release, id)),
+<a href=#755 id=755 data-nosnippet>755</a>                recording: reference(catalog, EntityKind::Recording, track.recording_id),
+<a href=#756 id=756 data-nosnippet>756</a>                duration_ms: track.duration_ms,
+<a href=#757 id=757 data-nosnippet>757</a>            })
+<a href=#758 id=758 data-nosnippet>758</a>        })
+<a href=#759 id=759 data-nosnippet>759</a>        .collect();
+<a href=#760 id=760 data-nosnippet>760</a>    <span class="prelude-val">Ok</span>(Page::new(
+<a href=#761 id=761 data-nosnippet>761</a>        items,
+<a href=#762 id=762 data-nosnippet>762</a>        total,
+<a href=#763 id=763 data-nosnippet>763</a>        window.offset,
+<a href=#764 id=764 data-nosnippet>764</a>        window.limit,
+<a href=#765 id=765 data-nosnippet>765</a>        catalog.scanned_at,
+<a href=#766 id=766 data-nosnippet>766</a>    ))
+<a href=#767 id=767 data-nosnippet>767</a>}
+<a href=#768 id=768 data-nosnippet>768</a>
+<a href=#769 id=769 data-nosnippet>769</a><span class="kw">async fn </span>run_query(
+<a href=#770 id=770 data-nosnippet>770</a>    State(state): State&lt;ApiState&gt;,
+<a href=#771 id=771 data-nosnippet>771</a>    input: <span class="prelude-ty">Result</span>&lt;Query&lt;Parameters&gt;, QueryRejection&gt;,
+<a href=#772 id=772 data-nosnippet>772</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;Page&lt;TrackItem&gt;&gt;, ApiError&gt; {
+<a href=#773 id=773 data-nosnippet>773</a>    <span class="kw">let </span>(params, window) = parameters(input, <span class="kw-2">&amp;</span>[<span class="string">"q"</span>, <span class="string">"sort"</span>])<span class="question-mark">?</span>;
+<a href=#774 id=774 data-nosnippet>774</a>    <span class="kw">let </span>parsed = public_query(required_text(<span class="kw-2">&amp;</span>params)<span class="question-mark">?</span>)<span class="question-mark">?</span>;
+<a href=#775 id=775 data-nosnippet>775</a>    <span class="kw">let </span>sort = query::Sort::parse(params.sort.as_deref().unwrap_or(<span class="string">"catalog"</span>))
+<a href=#776 id=776 data-nosnippet>776</a>        .map_err(|failure| invalid_query(failure.to_string()))<span class="question-mark">?</span>;
+<a href=#777 id=777 data-nosnippet>777</a>    <span class="kw">if </span><span class="macro">matches!</span>(sort.key, query::SortKey::Rating | query::SortKey::Played) {
+<a href=#778 id=778 data-nosnippet>778</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"personal sort fields are not exposed"</span>));
+<a href=#779 id=779 data-nosnippet>779</a>    }
+<a href=#780 id=780 data-nosnippet>780</a>    inspect(state, <span class="kw">move </span>|state| {
+<a href=#781 id=781 data-nosnippet>781</a>        <span class="kw">let </span>guard = state.catalog.blocking_read();
+<a href=#782 id=782 data-nosnippet>782</a>        <span class="kw">let </span>catalog = guard.as_ref().ok_or_else(unavailable)<span class="question-mark">?</span>;
+<a href=#783 id=783 data-nosnippet>783</a>        query_items(
+<a href=#784 id=784 data-nosnippet>784</a>            catalog,
+<a href=#785 id=785 data-nosnippet>785</a>            <span class="kw-2">&amp;</span>held_sources(<span class="kw-2">&amp;</span>state.data_dir)<span class="question-mark">?</span>,
+<a href=#786 id=786 data-nosnippet>786</a>            <span class="kw-2">&amp;</span>parsed,
+<a href=#787 id=787 data-nosnippet>787</a>            sort,
+<a href=#788 id=788 data-nosnippet>788</a>            window,
+<a href=#789 id=789 data-nosnippet>789</a>        )
+<a href=#790 id=790 data-nosnippet>790</a>    })
+<a href=#791 id=791 data-nosnippet>791</a>    .<span class="kw">await
+<a href=#792 id=792 data-nosnippet>792</a></span>}
+<a href=#793 id=793 data-nosnippet>793</a>
+<a href=#794 id=794 data-nosnippet>794</a><span class="attr">#[derive(Serialize)]
+<a href=#795 id=795 data-nosnippet>795</a></span><span class="kw">struct </span>CountryItem {
+<a href=#796 id=796 data-nosnippet>796</a>    name: String,
+<a href=#797 id=797 data-nosnippet>797</a>    iso_code: <span class="prelude-ty">Option</span>&lt;String&gt;,
+<a href=#798 id=798 data-nosnippet>798</a>    derived_initials: <span class="prelude-ty">Option</span>&lt;String&gt;,
+<a href=#799 id=799 data-nosnippet>799</a>    artists: usize,
+<a href=#800 id=800 data-nosnippet>800</a>    tracks: usize,
+<a href=#801 id=801 data-nosnippet>801</a>    duration_ms: u64,
+<a href=#802 id=802 data-nosnippet>802</a>    bytes: u64,
+<a href=#803 id=803 data-nosnippet>803</a>}
+<a href=#804 id=804 data-nosnippet>804</a>
+<a href=#805 id=805 data-nosnippet>805</a><span class="attr">#[derive(Serialize)]
+<a href=#806 id=806 data-nosnippet>806</a></span><span class="kw">struct </span>CountryCoverage {
+<a href=#807 id=807 data-nosnippet>807</a>    artists_total: usize,
+<a href=#808 id=808 data-nosnippet>808</a>    artists_asked: usize,
+<a href=#809 id=809 data-nosnippet>809</a>    artists_with_area: usize,
+<a href=#810 id=810 data-nosnippet>810</a>    artists_without_area: usize,
+<a href=#811 id=811 data-nosnippet>811</a>    places_without_iso_code: usize,
+<a href=#812 id=812 data-nosnippet>812</a>}
+<a href=#813 id=813 data-nosnippet>813</a>
+<a href=#814 id=814 data-nosnippet>814</a><span class="attr">#[derive(Serialize)]
+<a href=#815 id=815 data-nosnippet>815</a></span><span class="kw">struct </span>Countries {
+<a href=#816 id=816 data-nosnippet>816</a>    <span class="attr">#[serde(flatten)]
+<a href=#817 id=817 data-nosnippet>817</a>    </span>page: Page&lt;CountryItem&gt;,
+<a href=#818 id=818 data-nosnippet>818</a>    source: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#819 id=819 data-nosnippet>819</a>    matched_by: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str&gt;,
+<a href=#820 id=820 data-nosnippet>820</a>    coverage: CountryCoverage,
+<a href=#821 id=821 data-nosnippet>821</a>}
+<a href=#822 id=822 data-nosnippet>822</a>
+<a href=#823 id=823 data-nosnippet>823</a><span class="kw">fn </span>country_rows(
+<a href=#824 id=824 data-nosnippet>824</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
+<a href=#825 id=825 data-nosnippet>825</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
+<a href=#826 id=826 data-nosnippet>826</a>    wanted: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;,
+<a href=#827 id=827 data-nosnippet>827</a>    window: Window,
+<a href=#828 id=828 data-nosnippet>828</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Countries, ApiError&gt; {
+<a href=#829 id=829 data-nosnippet>829</a>    <span class="kw">let </span><span class="kw-2">mut </span>places = aede_core::places::countries(catalog, held);
+<a href=#830 id=830 data-nosnippet>830</a>    <span class="kw">let </span>known = places.iter().map(|place| place.artists.len()).sum();
+<a href=#831 id=831 data-nosnippet>831</a>    <span class="kw">let </span>coverage = CountryCoverage {
+<a href=#832 id=832 data-nosnippet>832</a>        artists_total: catalog.artists.len(),
+<a href=#833 id=833 data-nosnippet>833</a>        artists_asked: aede_core::places::asked_about(catalog, held),
+<a href=#834 id=834 data-nosnippet>834</a>        artists_with_area: known,
+<a href=#835 id=835 data-nosnippet>835</a>        artists_without_area: catalog.artists.len().saturating_sub(known),
+<a href=#836 id=836 data-nosnippet>836</a>        places_without_iso_code: aede_core::places::without_code(<span class="kw-2">&amp;</span>places),
+<a href=#837 id=837 data-nosnippet>837</a>    };
+<a href=#838 id=838 data-nosnippet>838</a>    <span class="kw">let </span>matched_by = <span class="kw">if let </span><span class="prelude-val">Some</span>(wanted) = wanted {
+<a href=#839 id=839 data-nosnippet>839</a>        <span class="kw">let </span>(found, matched) = aede_core::places::find(<span class="kw-2">&amp;</span>places, wanted);
+<a href=#840 id=840 data-nosnippet>840</a>        <span class="kw">if </span>found.is_empty() {
+<a href=#841 id=841 data-nosnippet>841</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"no known country or area matches q"</span>));
+<a href=#842 id=842 data-nosnippet>842</a>        }
+<a href=#843 id=843 data-nosnippet>843</a>        places = found;
+<a href=#844 id=844 data-nosnippet>844</a>        <span class="prelude-val">Some</span>(<span class="kw">match </span>matched {
+<a href=#845 id=845 data-nosnippet>845</a>            aede_core::model::TitleMatch::Exact =&gt; <span class="string">"exact"</span>,
+<a href=#846 id=846 data-nosnippet>846</a>            aede_core::model::TitleMatch::Partial =&gt; <span class="string">"partial"</span>,
+<a href=#847 id=847 data-nosnippet>847</a>        })
+<a href=#848 id=848 data-nosnippet>848</a>    } <span class="kw">else </span>{
+<a href=#849 id=849 data-nosnippet>849</a>        <span class="prelude-val">None
+<a href=#850 id=850 data-nosnippet>850</a>    </span>};
+<a href=#851 id=851 data-nosnippet>851</a>    <span class="kw">let </span>items = places
+<a href=#852 id=852 data-nosnippet>852</a>        .into_iter()
+<a href=#853 id=853 data-nosnippet>853</a>        .map(|place| {
+<a href=#854 id=854 data-nosnippet>854</a>            <span class="kw">let </span>tracks: std::collections::BTreeSet&lt;<span class="kw">_</span>&gt; = place
+<a href=#855 id=855 data-nosnippet>855</a>                .artists
+<a href=#856 id=856 data-nosnippet>856</a>                .iter()
+<a href=#857 id=857 data-nosnippet>857</a>                .flat_map(|<span class="kw-2">&amp;</span>id| catalog.tracks_of_artist(id))
+<a href=#858 id=858 data-nosnippet>858</a>                .collect();
+<a href=#859 id=859 data-nosnippet>859</a>            <span class="kw">let </span>totals = root_item(catalog, <span class="string">"country"</span>, <span class="prelude-val">None</span>, tracks.into_iter());
+<a href=#860 id=860 data-nosnippet>860</a>            CountryItem {
+<a href=#861 id=861 data-nosnippet>861</a>                name: place.name,
+<a href=#862 id=862 data-nosnippet>862</a>                iso_code: place.code,
+<a href=#863 id=863 data-nosnippet>863</a>                derived_initials: place.initials,
+<a href=#864 id=864 data-nosnippet>864</a>                artists: place.artists.len(),
+<a href=#865 id=865 data-nosnippet>865</a>                tracks: totals.tracks,
+<a href=#866 id=866 data-nosnippet>866</a>                duration_ms: totals.duration_ms,
+<a href=#867 id=867 data-nosnippet>867</a>                bytes: totals.bytes,
+<a href=#868 id=868 data-nosnippet>868</a>            }
+<a href=#869 id=869 data-nosnippet>869</a>        })
+<a href=#870 id=870 data-nosnippet>870</a>        .collect();
+<a href=#871 id=871 data-nosnippet>871</a>    <span class="prelude-val">Ok</span>(Countries {
+<a href=#872 id=872 data-nosnippet>872</a>        page: window.page(items, catalog.scanned_at),
+<a href=#873 id=873 data-nosnippet>873</a>        source: sources::MUSICBRAINZ,
+<a href=#874 id=874 data-nosnippet>874</a>        matched_by,
+<a href=#875 id=875 data-nosnippet>875</a>        coverage,
+<a href=#876 id=876 data-nosnippet>876</a>    })
+<a href=#877 id=877 data-nosnippet>877</a>}
+<a href=#878 id=878 data-nosnippet>878</a>
+<a href=#879 id=879 data-nosnippet>879</a><span class="kw">async fn </span>countries(
+<a href=#880 id=880 data-nosnippet>880</a>    State(state): State&lt;ApiState&gt;,
+<a href=#881 id=881 data-nosnippet>881</a>    input: <span class="prelude-ty">Result</span>&lt;Query&lt;Parameters&gt;, QueryRejection&gt;,
+<a href=#882 id=882 data-nosnippet>882</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;Countries&gt;, ApiError&gt; {
+<a href=#883 id=883 data-nosnippet>883</a>    <span class="kw">let </span>(params, window) = parameters(input, <span class="kw-2">&amp;</span>[<span class="string">"q"</span>])<span class="question-mark">?</span>;
+<a href=#884 id=884 data-nosnippet>884</a>    <span class="kw">let </span>wanted = params
+<a href=#885 id=885 data-nosnippet>885</a>        .q
+<a href=#886 id=886 data-nosnippet>886</a>        .as_ref()
+<a href=#887 id=887 data-nosnippet>887</a>        .map(|<span class="kw">_</span>| required_text(<span class="kw-2">&amp;</span>params).map(str::to_string))
+<a href=#888 id=888 data-nosnippet>888</a>        .transpose()<span class="question-mark">?</span>;
+<a href=#889 id=889 data-nosnippet>889</a>    inspect(state, <span class="kw">move </span>|state| {
+<a href=#890 id=890 data-nosnippet>890</a>        <span class="kw">let </span>guard = state.catalog.blocking_read();
+<a href=#891 id=891 data-nosnippet>891</a>        <span class="kw">let </span>catalog = guard.as_ref().ok_or_else(unavailable)<span class="question-mark">?</span>;
+<a href=#892 id=892 data-nosnippet>892</a>        country_rows(
+<a href=#893 id=893 data-nosnippet>893</a>            catalog,
+<a href=#894 id=894 data-nosnippet>894</a>            <span class="kw-2">&amp;</span>held_sources(<span class="kw-2">&amp;</span>state.data_dir)<span class="question-mark">?</span>,
+<a href=#895 id=895 data-nosnippet>895</a>            wanted.as_deref(),
+<a href=#896 id=896 data-nosnippet>896</a>            window,
+<a href=#897 id=897 data-nosnippet>897</a>        )
+<a href=#898 id=898 data-nosnippet>898</a>    })
+<a href=#899 id=899 data-nosnippet>899</a>    .<span class="kw">await
+<a href=#900 id=900 data-nosnippet>900</a></span>}
+<a href=#901 id=901 data-nosnippet>901</a>
+<a href=#902 id=902 data-nosnippet>902</a><span class="attr">#[derive(Serialize)]
+<a href=#903 id=903 data-nosnippet>903</a></span><span class="kw">struct </span>YearItem {
+<a href=#904 id=904 data-nosnippet>904</a>    year: u32,
+<a href=#905 id=905 data-nosnippet>905</a>    albums: usize,
+<a href=#906 id=906 data-nosnippet>906</a>    tracks: usize,
+<a href=#907 id=907 data-nosnippet>907</a>    duration_ms: u64,
+<a href=#908 id=908 data-nosnippet>908</a>    bytes: u64,
+<a href=#909 id=909 data-nosnippet>909</a>}
+<a href=#910 id=910 data-nosnippet>910</a>
+<a href=#911 id=911 data-nosnippet>911</a><span class="attr">#[derive(Serialize)]
+<a href=#912 id=912 data-nosnippet>912</a></span><span class="kw">struct </span>Years {
+<a href=#913 id=913 data-nosnippet>913</a>    <span class="attr">#[serde(flatten)]
+<a href=#914 id=914 data-nosnippet>914</a>    </span>page: Page&lt;YearItem&gt;,
+<a href=#915 id=915 data-nosnippet>915</a>    albums_total: usize,
+<a href=#916 id=916 data-nosnippet>916</a>    albums_without_year: usize,
+<a href=#917 id=917 data-nosnippet>917</a>    tracks_without_dated_album: usize,
+<a href=#918 id=918 data-nosnippet>918</a>}
+<a href=#919 id=919 data-nosnippet>919</a>
+<a href=#920 id=920 data-nosnippet>920</a><span class="kw">fn </span>year_rows(catalog: <span class="kw-2">&amp;</span>Catalog, window: Window) -&gt; Years {
+<a href=#921 id=921 data-nosnippet>921</a>    <span class="kw">let </span><span class="kw-2">mut </span>groups: BTreeMap&lt;u32, (usize, Vec&lt;Id&gt;)&gt; = BTreeMap::new();
+<a href=#922 id=922 data-nosnippet>922</a>    <span class="kw">let </span><span class="kw-2">mut </span>dated_tracks = std::collections::BTreeSet::new();
+<a href=#923 id=923 data-nosnippet>923</a>    <span class="kw">let </span><span class="kw-2">mut </span>albums_without_year = <span class="number">0</span>;
+<a href=#924 id=924 data-nosnippet>924</a>    <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
+<a href=#925 id=925 data-nosnippet>925</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(year) = release.year <span class="kw">else </span>{
+<a href=#926 id=926 data-nosnippet>926</a>            albums_without_year += <span class="number">1</span>;
+<a href=#927 id=927 data-nosnippet>927</a>            <span class="kw">continue</span>;
+<a href=#928 id=928 data-nosnippet>928</a>        };
+<a href=#929 id=929 data-nosnippet>929</a>        <span class="kw">let </span>group = groups.entry(year).or_default();
+<a href=#930 id=930 data-nosnippet>930</a>        group.<span class="number">0 </span>+= <span class="number">1</span>;
+<a href=#931 id=931 data-nosnippet>931</a>        group.<span class="number">1</span>.extend(release.track_ids.iter().copied());
+<a href=#932 id=932 data-nosnippet>932</a>        dated_tracks.extend(release.track_ids.iter().copied());
+<a href=#933 id=933 data-nosnippet>933</a>    }
+<a href=#934 id=934 data-nosnippet>934</a>    <span class="kw">let </span>items = groups
+<a href=#935 id=935 data-nosnippet>935</a>        .into_iter()
+<a href=#936 id=936 data-nosnippet>936</a>        .map(|(year, (albums, tracks))| {
+<a href=#937 id=937 data-nosnippet>937</a>            <span class="kw">let </span>totals = root_item(catalog, <span class="string">"year"</span>, <span class="prelude-val">None</span>, tracks.into_iter());
+<a href=#938 id=938 data-nosnippet>938</a>            YearItem {
+<a href=#939 id=939 data-nosnippet>939</a>                year,
+<a href=#940 id=940 data-nosnippet>940</a>                albums,
+<a href=#941 id=941 data-nosnippet>941</a>                tracks: totals.tracks,
+<a href=#942 id=942 data-nosnippet>942</a>                duration_ms: totals.duration_ms,
+<a href=#943 id=943 data-nosnippet>943</a>                bytes: totals.bytes,
+<a href=#944 id=944 data-nosnippet>944</a>            }
+<a href=#945 id=945 data-nosnippet>945</a>        })
+<a href=#946 id=946 data-nosnippet>946</a>        .collect();
+<a href=#947 id=947 data-nosnippet>947</a>    Years {
+<a href=#948 id=948 data-nosnippet>948</a>        page: window.page(items, catalog.scanned_at),
+<a href=#949 id=949 data-nosnippet>949</a>        albums_total: catalog.releases.len(),
+<a href=#950 id=950 data-nosnippet>950</a>        albums_without_year,
+<a href=#951 id=951 data-nosnippet>951</a>        tracks_without_dated_album: catalog.tracks.len().saturating_sub(dated_tracks.len()),
+<a href=#952 id=952 data-nosnippet>952</a>    }
+<a href=#953 id=953 data-nosnippet>953</a>}
+<a href=#954 id=954 data-nosnippet>954</a>
+<a href=#955 id=955 data-nosnippet>955</a><span class="kw">async fn </span>years(
+<a href=#956 id=956 data-nosnippet>956</a>    State(state): State&lt;ApiState&gt;,
+<a href=#957 id=957 data-nosnippet>957</a>    input: <span class="prelude-ty">Result</span>&lt;Query&lt;Parameters&gt;, QueryRejection&gt;,
+<a href=#958 id=958 data-nosnippet>958</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;Years&gt;, ApiError&gt; {
+<a href=#959 id=959 data-nosnippet>959</a>    <span class="kw">let </span>(<span class="kw">_</span>, window) = parameters(input, <span class="kw-2">&amp;</span>[])<span class="question-mark">?</span>;
+<a href=#960 id=960 data-nosnippet>960</a>    inspect(state, <span class="kw">move </span>|state| {
+<a href=#961 id=961 data-nosnippet>961</a>        <span class="kw">let </span>guard = state.catalog.blocking_read();
+<a href=#962 id=962 data-nosnippet>962</a>        <span class="kw">let </span>catalog = guard.as_ref().ok_or_else(unavailable)<span class="question-mark">?</span>;
+<a href=#963 id=963 data-nosnippet>963</a>        <span class="prelude-val">Ok</span>(year_rows(catalog, window))
+<a href=#964 id=964 data-nosnippet>964</a>    })
+<a href=#965 id=965 data-nosnippet>965</a>    .<span class="kw">await
+<a href=#966 id=966 data-nosnippet>966</a></span>}
+<a href=#967 id=967 data-nosnippet>967</a>
+<a href=#968 id=968 data-nosnippet>968</a><span class="attr">#[cfg(test)]
+<a href=#969 id=969 data-nosnippet>969</a>#[path = <span class="string">"inspection_tests.rs"</span>]
+<a href=#970 id=970 data-nosnippet>970</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

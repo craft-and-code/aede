@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_SIZE"],"fn":["download","download_others","has_embedded_art","reasons","run","skipped","store","survey","targets","waiting"],"struct":["Survey","Target"]};
+window.SIDEBAR_ITEMS = {"constant":["ARTWORK_SOURCE","DEFAULT_SIZE"],"fn":["download","download_others","has_embedded_art","reasons","run","skipped","store","store_artwork","survey","targets","waiting"],"struct":["Survey","Target"]};
