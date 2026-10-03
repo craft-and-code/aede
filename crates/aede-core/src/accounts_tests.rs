@@ -40,6 +40,24 @@ fn creation_and_renaming_preserve_distinct_owners_and_refuse_duplicates() {
 }
 
 #[test]
+fn auditor_role_round_trips_with_its_read_only_spelling() {
+    let mut data = accounts();
+    data.create("auditor", PASSWORD, Role::Auditor, 20).unwrap();
+
+    assert_eq!(Role::Auditor.as_str(), "auditor");
+    assert_eq!(Role::parse("auditor"), Some(Role::Auditor));
+    assert_eq!(Role::parse("AUDITOR"), None);
+    assert_eq!(
+        from_json(&to_json(&data))
+            .unwrap()
+            .find("auditor")
+            .unwrap()
+            .role,
+        Role::Auditor
+    );
+}
+
+#[test]
 fn disabling_and_demoting_the_last_administrator_leave_the_store_unchanged() {
     let mut data = accounts();
     let before = data.clone();
@@ -67,7 +85,7 @@ fn password_and_role_changes_and_restoration_revoke_old_session_generations() {
     assert!(data.session_account(&owner, &epoch, revision).is_none());
     assert!(data.authenticate("alice", PASSWORD).is_none());
     let revision = data.find("alice").unwrap().revision();
-    data.set_role("alice", Role::Administrator, 22).unwrap();
+    data.set_role("alice", Role::Auditor, 22).unwrap();
     assert!(data.session_account(&owner, &epoch, revision).is_none());
     let revision = data.find("alice").unwrap().revision();
     data.revoke_all().unwrap();

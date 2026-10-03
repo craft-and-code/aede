@@ -7,16 +7,16 @@ Accounts share the music catalog and keep favourites, ratings, notes, history an
 ```text
 aede accounts [list]
 aede accounts init <name> --password-stdin
-aede accounts create <name> <admin|user> --password-stdin
+aede accounts create <name> <admin|user|auditor> --password-stdin
 aede accounts password <name> --password-stdin
-aede accounts role <name> <admin|user>
+aede accounts role <name> <admin|user|auditor>
 aede accounts rename <name> <new-name>
 aede accounts enable <name>
 aede accounts disable <name>
 aede accounts revoke <name>
 ```
 
-`init` creates the first administrator once. `create` requires an explicit role. At least one administrator must remain enabled. `password` resets a password; `revoke` invalidates sessions without changing it. Changes to a login, role, password or enabled state revoke its sessions. There is no account deletion or public registration; disabling preserves ownership for a later return.
+`init` creates the first administrator once. `create` requires an explicit role. `admin` manages accounts and installation work; `user` can change only their own personal data; `auditor` can read the shared catalog and their own personal API views only. An auditor cannot change their password through the API, edit personal data, manage accounts or run jobs. At least one administrator must remain enabled. `password` resets a password; `revoke` invalidates sessions without changing it. Changes to a login, role, password or enabled state revoke its sessions. There is no account deletion or public registration; disabling preserves ownership for a later return.
 
 Login names use 1–64 ASCII letters, digits, dots, underscores or hyphens and compare case-insensitively. At least one letter or digit is required. Passwords need at least 15 Unicode characters and at most 1024 UTF-8 bytes, without NUL. The stdin interface accepts one line and removes a final LF or CRLF; embedded line breaks are refused.
 

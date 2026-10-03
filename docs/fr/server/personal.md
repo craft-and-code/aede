@@ -1,6 +1,6 @@
 # Annotations, historique et collections personnels
 
-Ces routes administratives exigent [l’authentification d’administration](administration.md) et visent `local`. Les [sessions de comptes](accounts.md) emploient les mêmes opérations sous `/api/me/v1`, liées à leur propriétaire authentifié. Aucune requête ne choisit un autre propriétaire. Catalogue sur disque et `user.json` sont lus sous verrou pour valider et publier dans une même version complète.
+Ces routes administratives exigent [l’authentification d’administration](administration.md) et visent `local`. Les [sessions de comptes](accounts.md) emploient les mêmes opérations sous `/api/me/v1`, liées à leur propriétaire authentifié. Aucune requête ne choisit un autre propriétaire. Une session `auditor` peut employer seulement les formes `GET` et `HEAD` ; toute opération personnelle `PUT`, `POST` ou `DELETE` renvoie `403 forbidden`. Catalogue sur disque et `user.json` sont lus sous verrou pour valider et publier dans une même version complète.
 
 ## GET /api/admin/v1/annotation
 

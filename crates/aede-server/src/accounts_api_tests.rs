@@ -86,6 +86,106 @@ fn login_protects_catalog_and_keeps_personal_data_separate() {
 }
 
 #[test]
+fn auditor_can_read_only_its_own_personal_views() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let auditor = login(address, "auditor");
+        let catalog = fixture.0.catalog.read().await;
+        let reference = EntityRef::of(catalog.as_ref().unwrap(), EntityKind::Track, 0)
+            .unwrap()
+            .to_token();
+        drop(catalog);
+        let annotation = format!(
+            "/api/me/v1/annotation?ref={}",
+            crate::test_support::encoded(&reference)
+        );
+
+        assert_eq!(http(address, "GET", "/api/v1/albums", Some(&auditor), "").0, 200);
+        assert_eq!(http(address, "GET", &annotation, Some(&auditor), "").0, 200);
+        assert_eq!(http(address, "HEAD", &annotation, Some(&auditor), "").0, 200);
+        assert_eq!(
+            http(address, "GET", "/api/me/v1/history", Some(&auditor), "").0,
+            200
+        );
+        assert_eq!(
+            http(address, "GET", "/api/me/v1/collections", Some(&auditor), "").0,
+            200
+        );
+
+        assert_eq!(
+            http(
+                address,
+                "PUT",
+                &annotation,
+                Some(&auditor),
+                r#"{"loved":true}"#,
+            )
+            .0,
+            403
+        );
+        let history = format!(
+            r#"{{"track":"{reference}","ms_played":10,"completed":true}}"#
+        );
+        assert_eq!(
+            http(
+                address,
+                "POST",
+                "/api/me/v1/history",
+                Some(&auditor),
+                &history,
+            )
+            .0,
+            403
+        );
+        assert_eq!(
+            http(
+                address,
+                "PUT",
+                "/api/me/v1/collection?name=read-only",
+                Some(&auditor),
+                r#"{"expression":"loved"}"#,
+            )
+            .0,
+            403
+        );
+        assert_eq!(
+            http(
+                address,
+                "DELETE",
+                "/api/me/v1/collection?name=read-only",
+                Some(&auditor),
+                "",
+            )
+            .0,
+            403
+        );
+        assert_eq!(
+            http(
+                address,
+                "PUT",
+                "/api/auth/v1/password",
+                Some(&auditor),
+                &format!(
+                    r#"{{"current_password":"{PASSWORD}","new_password":"another long passphrase"}}"#
+                ),
+            )
+            .0,
+            403
+        );
+        assert_eq!(
+            http(address, "GET", "/api/admin/v1/accounts", Some(&auditor), "").0,
+            403
+        );
+        assert_eq!(
+            http(address, "POST", "/api/admin/v1/scan", Some(&auditor), "").0,
+            403
+        );
+        server.abort();
+    });
+}
+
+#[test]
 fn administration_preserves_owners_and_revokes_changed_sessions() {
     test_runtime().block_on(async {
         let fixture = Fixture::new();
@@ -128,7 +228,7 @@ fn administration_preserves_owners_and_revokes_changed_sessions() {
                 "POST",
                 "/api/admin/v1/accounts",
                 Some(&operator),
-                &format!(r#"{{"username":"new-user","password":"{PASSWORD}","role":"user"}}"#)
+                &format!(r#"{{"username":"new-user","password":"{PASSWORD}","role":"auditor"}}"#)
             )
             .0,
             201

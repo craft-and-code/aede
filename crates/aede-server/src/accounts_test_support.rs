@@ -36,6 +36,9 @@ impl Fixture {
         let mut accounts = Accounts::bootstrap("operator", PASSWORD, 10).unwrap();
         accounts.create("alice", PASSWORD, Role::User, 10).unwrap();
         accounts.create("bob", PASSWORD, Role::User, 10).unwrap();
+        accounts
+            .create("auditor", PASSWORD, Role::Auditor, 10)
+            .unwrap();
         accounts::save(&accounts, &accounts::accounts_path(&state.data_dir)).unwrap();
         Self(state)
     }

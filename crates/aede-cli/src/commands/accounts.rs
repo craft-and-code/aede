@@ -7,7 +7,7 @@ use aede_core::json::Json;
 
 use super::{Args, Res, ui};
 
-const USAGE: &str = "aede accounts [list | init <name> | create <name> <admin|user> | password <name> | role <name> <admin|user> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name>] [--password-stdin] [--json]";
+const USAGE: &str = "aede accounts [list | init <name> | create <name> <admin|user|auditor> | password <name> | role <name> <admin|user|auditor> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name>] [--password-stdin] [--json]";
 
 fn password(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
     if !args.has("password-stdin") || std::io::stdin().is_terminal() {
@@ -69,13 +69,13 @@ pub fn accounts(args: &Args) -> Res {
             "create" => held.create(
                 words[1],
                 &password(args)?,
-                Role::parse(words[2]).ok_or("role must be admin or user")?,
+                Role::parse(words[2]).ok_or("role must be admin, user or auditor")?,
                 now,
             )?,
             "password" => held.set_password(words[1], &password(args)?, now)?,
             "role" => held.set_role(
                 words[1],
-                Role::parse(words[2]).ok_or("role must be admin or user")?,
+                Role::parse(words[2]).ok_or("role must be admin, user or auditor")?,
                 now,
             )?,
             "rename" => held.rename(words[1], words[2], now)?,

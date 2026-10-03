@@ -111,6 +111,25 @@ fn account_edits_keep_owner_and_last_administrator_and_revoke_credentials() {
             .status
             .success()
     );
+    assert!(
+        fixture
+            .run(
+                &[
+                    "accounts",
+                    "create",
+                    "auditor",
+                    "auditor",
+                    "--password-stdin",
+                ],
+                Some(PASSWORD),
+            )
+            .status
+            .success()
+    );
+    assert_eq!(
+        fixture.accounts().find("auditor").unwrap().role,
+        aede_core::accounts::Role::Auditor
+    );
     let owner = fixture.accounts().find("alice").unwrap().id.clone();
     let revision = fixture.accounts().find("alice").unwrap().revision();
     for arguments in [

@@ -177,6 +177,7 @@ async fn change_password(
 ) -> Result<StatusCode, ApiError> {
     personal::no_query(&request)?;
     let captured = auth::request_principal(&request)?;
+    auth::require_mutation(&captured)?;
     let input: PasswordChange = personal::json_body(request).await?;
     if input.current_password.len() > accounts::MAX_PASSWORD_BYTES {
         return Err(refused("password exceeds 1024 UTF-8 bytes"));
@@ -331,7 +332,8 @@ async fn create_account(
 ) -> Result<(StatusCode, Json<AccountView>), ApiError> {
     let captured = admin_capture(&state, &request)?;
     let input: CreateAccount = personal::json_body(request).await?;
-    let role = Role::parse(&input.role).ok_or_else(|| refused("role must be admin or user"))?;
+    let role =
+        Role::parse(&input.role).ok_or_else(|| refused("role must be admin, user or auditor"))?;
     password_update(state, captured, move |data| {
         data.create(
             &input.username,
@@ -393,7 +395,7 @@ async fn update_account(
         if let Some(role) = patch.role {
             data.set_role(
                 &current_name,
-                Role::parse(&role).ok_or_else(|| refused("role must be admin or user"))?,
+                Role::parse(&role).ok_or_else(|| refused("role must be admin, user or auditor"))?,
                 now,
             )
             .map_err(refused)?;

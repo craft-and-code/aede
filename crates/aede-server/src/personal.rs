@@ -99,6 +99,15 @@ impl PersonalOwner {
             None => Ok(()),
         }
     }
+
+    /// Administrative-token routes have no account role; session routes must
+    /// refuse the explicit read-only role before parsing or changing a body.
+    fn require_mutation(&self) -> Result<(), ApiError> {
+        match &self.principal {
+            Some(principal) => auth::require_mutation(principal),
+            None => Ok(()),
+        }
+    }
 }
 
 #[derive(Default, Deserialize)]
@@ -455,6 +464,7 @@ async fn update_annotation(
     request: Request,
 ) -> Result<Json<AnnotationResponse>, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
     let patch: AnnotationPatch = json_body(request).await?;
     patch.validate()?;
     let reference = reference(parsed_query(input)?)?;
@@ -586,6 +596,7 @@ async fn record_history(
     request: Request,
 ) -> Result<(StatusCode, Json<PlayView>), ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
     no_query(&request)?;
     let input: PlayRequest = json_body(request).await?;
     let now = clock::now_seconds();
@@ -676,6 +687,7 @@ async fn save_collection(
     request: Request,
 ) -> Result<Json<CollectionView>, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
     let query = parsed_query(input)?;
     if query.name.trim().is_empty() || query.name.len() > 256 {
         return Err(invalid_query("name must contain 1 to 256 bytes"));
@@ -728,6 +740,7 @@ async fn delete_collection(
     request: Request,
 ) -> Result<StatusCode, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
     if query.name.trim().is_empty() {

@@ -31,7 +31,7 @@ Les lectures n’ont pas de corps. Les routes de tâches refusent les paramètre
 
 ## Erreurs et permissions
 
-`401 unauthorized` signale un Bearer absent/incorrect/répété, ou une Origin avec le jeton historique. Un compte `user` reçoit `403 forbidden`. Sans comptes ni jeton, l’administration répond `404 not_found`. Les tâches utilisent les permissions du compte système serveur : dossiers scan/fetch sont des chemins de cet hôte et exigent un administrateur de confiance.
+`401 unauthorized` signale un Bearer absent/incorrect/répété, ou une Origin avec le jeton historique. Un compte `user` ou `auditor` reçoit `403 forbidden`. Sans comptes ni jeton, l’administration répond `404 not_found`. Les tâches utilisent les permissions du compte système serveur : dossiers scan/fetch sont des chemins de cet hôte et exigent un administrateur de confiance.
 
 Le serveur ne change ni audio ni tags. Images/paroles et résultats d’analyse sont des fichiers dérivés pouvant demander des droits d’écriture. Les clés des services viennent de l’environnement serveur, jamais de HTTP. Les routes personnelles administratives gardent `local` ; `/api/me/v1` utilise le propriétaire de la session. Aucune requête ne peut choisir un autre propriétaire.
 

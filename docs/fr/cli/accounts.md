@@ -7,16 +7,16 @@ Les comptes partagent le catalogue musical et conservent favoris, notes, étoile
 ```text
 aede accounts [list]
 aede accounts init <name> --password-stdin
-aede accounts create <name> <admin|user> --password-stdin
+aede accounts create <name> <admin|user|auditor> --password-stdin
 aede accounts password <name> --password-stdin
-aede accounts role <name> <admin|user>
+aede accounts role <name> <admin|user|auditor>
 aede accounts rename <name> <new-name>
 aede accounts enable <name>
 aede accounts disable <name>
 aede accounts revoke <name>
 ```
 
-`init` crée une seule fois le premier administrateur. `create` exige un rôle explicite. Au moins un administrateur doit rester actif. `password` réinitialise un mot de passe ; `revoke` invalide les sessions sans le modifier. Changer le nom, le rôle, le mot de passe ou l’état actif révoque les sessions concernées. Il n’existe ni suppression de compte ni inscription publique ; désactiver conserve la propriété des données pour un retour ultérieur.
+`init` crée une seule fois le premier administrateur. `create` exige un rôle explicite. Un `admin` gère comptes et tâches de l’installation ; un `user` peut modifier uniquement ses données personnelles ; un `auditor` peut seulement lire le catalogue partagé et ses vues personnelles d’API. Un auditeur ne peut pas modifier son mot de passe par l’API, ses données personnelles, les comptes ni les tâches. Au moins un administrateur doit rester actif. `password` réinitialise un mot de passe ; `revoke` invalide les sessions sans le modifier. Changer le nom, le rôle, le mot de passe ou l’état actif révoque les sessions concernées. Il n’existe ni suppression de compte ni inscription publique ; désactiver conserve la propriété des données pour un retour ultérieur.
 
 Les identifiants acceptent 1–64 lettres ASCII, chiffres, points, tirets ou tirets bas, sans distinction de casse. Une lettre ou un chiffre est obligatoire. Un mot de passe contient au moins 15 caractères Unicode et au plus 1024 octets UTF-8, sans NUL. L’entrée accepte une ligne et retire un LF ou CRLF final ; les sauts de ligne internes sont refusés.
 

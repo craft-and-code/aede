@@ -183,7 +183,9 @@ M0 prepared ownership; the server now enforces it through [account sessions](../
 The first administrator inherits `local`; other accounts receive stable random IDs.
 CLI personal commands remain scoped to `local` as the trusted OS owner. The
 library is shared and annotations private; installation mutations require
-administrator privileges. Compatibility authentication stays outside the model.
+administrator privileges. A user may change only their own annotations, while
+an auditor can only read their own personal views. Compatibility authentication
+stays outside the model.
 
 ## Storage choices remain independent of accounts
 

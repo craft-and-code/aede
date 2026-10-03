@@ -18,7 +18,7 @@ pub(crate) struct CommandPage {
 pub(crate) fn command_page(command: &str) -> CommandPage {
     match command {
         "accounts" => CommandPage {
-            usage: "aede accounts [list | init <name> | create <name> <admin|user> | password <name> | role <name> <admin|user> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name>] [--password-stdin] [--json]",
+            usage: "aede accounts [list | init <name> | create <name> <admin|user|auditor> | password <name> | role <name> <admin|user|auditor> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name>] [--password-stdin] [--json]",
             summary: "Manage local accounts without exposing passwords; the first administrator retains existing personal data.",
         },
         "scan" => CommandPage {

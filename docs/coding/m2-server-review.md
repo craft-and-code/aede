@@ -23,7 +23,7 @@ These changes harden the current local service. They do not implement accounts, 
 
 ## CLI-shaped route extension
 
-The later [account foundation](../design/accounts.md) implements local account isolation, administrator/user roles, Argon2id credentials, bounded bearer sessions, expiry/revocation and WebSocket termination. The first administrator retains `local`; personal API operations derive the owner from authentication and recheck it under the writer lock. Version-3 backups include private credentials and rotate the epoch on restore. Account commands stay in the trusted OS-owner CLI and are never delegated. The earlier findings and verification numbers below describe their original review snapshot.
+The later [account foundation](../design/accounts.md) implements local account isolation, administrator/user/auditor roles, Argon2id credentials, bounded bearer sessions, expiry/revocation and WebSocket termination. The first administrator retains `local`; personal API operations derive the owner from authentication and recheck it under the writer lock. Version-3 backups include private credentials and rotate the epoch on restore. Account commands stay in the trusted OS-owner CLI and are never delegated. The earlier findings and verification numbers below describe their original review snapshot.
 
 The listener remains loopback-only. Encrypted remote transport, target-NAS cost/connection budgets, browser login transport and audio delivery remain outstanding; the local account foundation does not establish supported remote deployment. See the [current route reference](../server/accounts.md).
 

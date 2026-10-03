@@ -1,6 +1,6 @@
 # Personal annotations, history and collections
 
-These administrative routes require [administrative authentication](administration.md) and address `local`. [Account sessions](accounts.md) use the same operations at `/api/me/v1` for their own authenticated owner. Requests cannot select another owner. Operations read the current disk catalog and `user.json` under the shared lock, so selection and atomic updates use one completed catalog version.
+These administrative routes require [administrative authentication](administration.md) and address `local`. [Account sessions](accounts.md) use the same operations at `/api/me/v1` for their own authenticated owner. Requests cannot select another owner. An `auditor` session may use the `GET` and `HEAD` forms only; every `PUT`, `POST` or `DELETE` personal operation returns `403 forbidden`. Operations read the current disk catalog and `user.json` under the shared lock, so selection and atomic updates use one completed catalog version.
 
 ## GET /api/admin/v1/annotation
 

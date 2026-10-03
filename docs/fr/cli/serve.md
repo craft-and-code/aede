@@ -6,7 +6,7 @@ Le serveur propose un catalogue JSON et des notifications WebSocket de catalogue
 
 Sur Unix, les CLI qui écrivent dans les données du même compte délèguent au serveur via sa socket privée. Fermer cette CLI n’arrête pas le travail accepté ; scan/fetch affichent un identifiant utilisable par cancel. Ctrl-C ou SIGTERM sur le serveur bloque le nouveau travail et attend les tâches acceptées. AEDE_ADMIN_TOKEN, secret ASCII d’au moins 32 caractères défini avant démarrage, active une administration authentifiée distincte ; la CLI locale normale n’en a pas besoin. Lire le guide serveur avant de configurer écritures HTTP ou services.
 
-Un compte administrateur autorise aussi les tâches de l’installation. Les [sessions](../server/accounts.md) utilisent un en-tête Bearer pour le catalogue et `/api/me/v1` pour les données personnelles. La CLI de comptes prend directement le verrou partagé, sans délégation.
+Un compte administrateur autorise aussi les tâches de l’installation. Un `user` peut modifier seulement ses données personnelles ; un `auditor` peut lire seulement le catalogue et ses vues `/api/me/v1` en `GET`/`HEAD`. Les [sessions](../server/accounts.md) utilisent un en-tête Bearer pour le catalogue et `/api/me/v1` pour les données personnelles. La CLI de comptes prend directement le verrou partagé, sans délégation.
 
 ## Syntaxe et arguments
 

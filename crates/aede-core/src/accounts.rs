@@ -38,6 +38,8 @@ pub enum Role {
     Administrator,
     /// May browse the shared catalog and manage their own personal data.
     User,
+    /// May browse the shared catalog and read their own personal data only.
+    Auditor,
 }
 
 impl Role {
@@ -46,6 +48,7 @@ impl Role {
         match self {
             Self::Administrator => "admin",
             Self::User => "user",
+            Self::Auditor => "auditor",
         }
     }
 
@@ -54,6 +57,7 @@ impl Role {
         match value {
             "admin" => Some(Self::Administrator),
             "user" => Some(Self::User),
+            "auditor" => Some(Self::Auditor),
             _ => None,
         }
     }

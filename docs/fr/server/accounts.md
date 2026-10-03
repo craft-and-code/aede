@@ -2,6 +2,8 @@
 
 Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes, les lectures du catalogue restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Une fois les comptes configurés, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou le jeton administratif. Identifiants absents, illisibles ou exposés : l’accès reste fermé. Le serveur écoute toujours uniquement en local ; les comptes ne fournissent pas d’accès distant chiffré.
 
+Un `admin` gère les comptes et les tâches de l’installation. Un `user` lit et modifie uniquement ses propres données personnelles. Un `auditor` lit le catalogue partagé et emploie seulement `GET` ou `HEAD` sur ses propres données `/api/me/v1` ; toute modification personnelle, changement de mot de passe, administration ou tâche renvoie `403 forbidden`. Un auditeur peut toujours se connecter, consulter sa session et se déconnecter.
+
 ## Connexion et gestion d’une session
 
 | Méthode et chemin | Corps | Résultat |
@@ -9,7 +11,7 @@ Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de com
 | `POST /api/auth/v1/session` | `{"username":"alice","password":"…"}` | 200 `{token,token_type:"Bearer",expires_at,account}` |
 | `GET /api/auth/v1/session` | Aucun | 200 métadonnées du compte |
 | `DELETE /api/auth/v1/session` | Aucun | 204 ; révoquer cette session |
-| `PUT /api/auth/v1/password` | `{"current_password":"…","new_password":"…"}` | 204 ; révoquer toutes les sessions de ce compte |
+| `PUT /api/auth/v1/password` | `{"current_password":"…","new_password":"…"}` | 204 ; révoquer toutes les sessions de ce compte (`auditor` : 403) |
 
 `expires_at` est l’expiration absolue en secondes Unix. Envoyer exactement un en-tête `Authorization: Bearer <token>` ensuite. Ni paramètre d’URL, cookie ou jeton administratif pour `/api/auth/v1` et `/api/me/v1`. Ne jamais placer de secret dans une URL, argument, journal ou stockage local du navigateur. Un fichier JSON protégé peut fournir le corps de connexion avec `curl --data-binary @/private/path/login.json` ; protéger aussi la sortie contenant le jeton. Cette API vise les clients locaux explicites ; aucune page de connexion ni session par cookie actuellement.
 
@@ -19,25 +21,25 @@ Deux travailleurs bornés vérifient les mots de passe. Limites : cinq tentative
 
 ## Ses annotations, historiques et collections
 
-Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/api/admin/v1`. Sélecteurs, corps, pagination et réponses restent identiques. Le serveur déduit le propriétaire depuis la session ; aucune requête ne peut le choisir. Cela inclut compteurs d’écoute et contenu des collections. Deux travailleurs partagés avec l’inspection bornent les opérations ; contention : `503 personal_busy` ou `409 store_busy`. Chaque opération utilise catalogue et données personnelles actuels sous le verrou, puis revérifie la session avant lecture ou modification.
+Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/api/admin/v1`. Sélecteurs, corps, pagination et réponses restent identiques. Le serveur déduit le propriétaire depuis la session ; aucune requête ne peut le choisir. Cela inclut compteurs d’écoute et contenu des collections. Un `user` ou un `admin` peut employer toutes les méthodes listées pour ce propriétaire. Un `auditor` peut employer seulement `GET` et `HEAD` ; les modifications renvoient `403 forbidden`. Deux travailleurs partagés avec l’inspection bornent les opérations ; contention : `503 personal_busy` ou `409 store_busy`. Chaque opération utilise catalogue et données personnelles actuels sous le verrou, puis revérifie la session avant lecture ou modification.
 
 | Route | Méthodes |
 | --- | --- |
-| `/api/me/v1/annotation` | GET/PUT par `ref` |
-| `/api/me/v1/history` | GET événements paginés ; POST une écoute |
-| `/api/me/v1/collection` | GET/PUT/DELETE par `name` |
-| `/api/me/v1/collections` | GET collections paginées |
+| `/api/me/v1/annotation` | GET/HEAD/PUT par `ref` |
+| `/api/me/v1/history` | GET/HEAD événements paginés ; POST une écoute |
+| `/api/me/v1/collection` | GET/HEAD/PUT/DELETE par `name` |
+| `/api/me/v1/collections` | GET/HEAD collections paginées |
 
 Les routes transitoires `/api/admin/v1/{annotation,history,collection,collections}` continuent à viser `local`, même pour un administrateur ayant un autre propriétaire. Le premier administrateur récupère `local`. La CLI reste une interface de confiance du propriétaire système et conserve sa portée locale.
 
 ## Administration des comptes
 
-Les administrateurs peuvent lancer les [tâches de l’installation](jobs.md) et gérer les comptes ; un `user` reçoit `403 forbidden` sur l’administration. Un administrateur actif doit toujours rester. Employer une session administrateur ou le jeton administratif historique facultatif :
+Les administrateurs peuvent lancer les [tâches de l’installation](jobs.md) et gérer les comptes ; un `user` ou un `auditor` reçoit `403 forbidden` sur l’administration. Un administrateur actif doit toujours rester. Employer une session administrateur ou le jeton administratif historique facultatif :
 
 | Méthode et chemin | Corps | Résultat |
 | --- | --- | --- |
 | `GET /api/admin/v1/accounts` | Aucun | 200 tableau de métadonnées |
-| `POST /api/admin/v1/accounts` | `{username,password,role}` ; rôle `admin` ou `user` | 201 métadonnées du nouveau compte |
+| `POST /api/admin/v1/accounts` | `{username,password,role}` ; rôle `admin`, `user` ou `auditor` | 201 métadonnées du nouveau compte |
 | `GET /api/admin/v1/accounts/{username}` | Aucun | 200 métadonnées |
 | `PATCH /api/admin/v1/accounts/{username}` | Au moins un champ parmi `username,role,enabled,password` | 200 métadonnées modifiées ; sessions concernées révoquées |
 | `DELETE /api/admin/v1/accounts/{username}/sessions` | Aucun | 204 ; révoquer toutes les sessions de ce compte |

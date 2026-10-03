@@ -228,6 +228,18 @@ pub(super) fn request_principal(request: &Request) -> Result<Principal, ApiError
         .ok_or_else(unauthorized)
 }
 
+/// Refuse a state-changing operation for the explicit read-only account role.
+pub(super) fn require_mutation(principal: &Principal) -> Result<(), ApiError> {
+    if principal.role == Role::Auditor {
+        return Err(error(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "an auditor account has read-only access",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn start_session(
     state: &ApiState,
     accounts: &Accounts,
