@@ -353,7 +353,7 @@ fn the_front_page_names_every_page_of_the_manual() {
     );
 }
 
-/// Every source file, of both crates.
+/// Every authored Rust source below a crate's source directory.
 fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -370,6 +370,57 @@ fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
             false => {}
         }
     }
+}
+
+fn orphan_test_files(sources: &[(PathBuf, String)]) -> Vec<PathBuf> {
+    // Sibling #[path] declarations are relative to their containing file,
+    // including files in nested module directories. A shared basename in a
+    // different crate or module must never make an orphan appear registered.
+    let declared: BTreeSet<PathBuf> = sources
+        .iter()
+        .filter(|(path, _)| !path.to_string_lossy().ends_with("_tests.rs"))
+        .flat_map(|(source, text)| {
+            text.lines().filter_map(move |line| {
+                let attribute = line.trim().strip_prefix("#[path")?.trim_start();
+                let attribute = attribute.strip_prefix('=')?.trim_start();
+                let (target, closing) = attribute.strip_prefix('"')?.split_once('"')?;
+                (closing.trim() == "]")
+                    .then(|| resolved(&source.parent().expect("a source directory").join(target)))
+            })
+        })
+        .collect();
+    let mut orphans: Vec<_> = sources
+        .iter()
+        .filter(|(path, _)| path.to_string_lossy().ends_with("_tests.rs"))
+        .filter(|(path, _)| !declared.contains(&resolved(path)))
+        .map(|(path, _)| resolved(path))
+        .collect();
+    orphans.sort();
+    orphans
+}
+
+fn check_split_test_detection() {
+    let orphan = PathBuf::from("crates/aede-accounts/src/lib_tests.rs");
+    let sources = [
+        (
+            PathBuf::from("crates/aede-dsp/src/lib.rs"),
+            "#[path = \"lib_tests.rs\"]\nmod tests;".to_string(),
+        ),
+        (
+            PathBuf::from("crates/aede-dsp/src/lib_tests.rs"),
+            String::new(),
+        ),
+        (
+            PathBuf::from("crates/example/src/nested/mod.rs"),
+            "#[path = \"keys_tests.rs\"]\nmod tests;".to_string(),
+        ),
+        (
+            PathBuf::from("crates/example/src/nested/keys_tests.rs"),
+            String::new(),
+        ),
+        (orphan.clone(), String::new()),
+    ];
+    assert_eq!(orphan_test_files(&sources), [resolved(&orphan)]);
 }
 
 #[test]
@@ -390,32 +441,39 @@ fn every_split_out_test_file_is_declared_by_the_module_it_tests() {
     //
     // Nothing but this test can notice when it is missing, because a missing
     // `mod` is not an error anywhere in Rust.
+    check_split_test_detection();
     // The crates' `src/` only. This very file quotes the convention a few
     // lines above, and a check that reads its own example proves nothing.
     let root = root();
     let mut sources = Vec::new();
-    rust_files(&root.join("crates/aede-core/src"), &mut sources);
-    rust_files(&root.join("crates/aede-server/src"), &mut sources);
-    rust_files(&root.join("crates/aede-cli/src"), &mut sources);
+    for entry in std::fs::read_dir(root.join("crates")).expect("workspace crate directories") {
+        let directory = entry.expect("a crate directory entry").path();
+        if directory.join("Cargo.toml").is_file() {
+            rust_files(&directory.join("src"), &mut sources);
+        }
+    }
     assert!(
         sources.len() > 40,
         "the crates hold {} source files: the walk stopped working",
         sources.len()
     );
 
-    let declared: String = sources
-        .iter()
-        .filter(|p| !p.to_string_lossy().ends_with("_tests.rs"))
-        .filter_map(|p| std::fs::read_to_string(p).ok())
+    let contents: Vec<_> = sources
+        .into_iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(&path).expect("a readable Rust source");
+            (path, text)
+        })
         .collect();
-
-    let mut orphans: Vec<String> = sources
-        .iter()
-        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
-        .filter(|name| name.ends_with("_tests.rs"))
-        .filter(|name| !declared.contains(&format!("#[path = \"{name}\"]")))
+    let orphans: Vec<_> = orphan_test_files(&contents)
+        .into_iter()
+        .map(|path| {
+            path.strip_prefix(&root)
+                .unwrap_or(&path)
+                .display()
+                .to_string()
+        })
         .collect();
-    orphans.sort();
     assert!(
         orphans.is_empty(),
         "test files no module declares, so nothing compiles or runs them:\n  {}",

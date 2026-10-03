@@ -17,13 +17,13 @@ fn issued_keys_round_trip_without_persisting_or_debugging_the_secret() {
     assert_eq!(key.label, " Living room ");
     assert_eq!(key.created_at, 20);
     let (account, authenticated) = data.authenticate_api_key(&token).unwrap();
-    assert_eq!(account.id, crate::user::LOCAL_USER);
+    assert_eq!(account.id, LOCAL_OWNER);
     assert_eq!(authenticated.id, key.id);
     assert!(data.authenticate_api_key(PASSWORD).is_none());
     assert!(data.authenticate("operator", &token).is_none());
 
     let document = super::super::to_json(&data);
-    let text = document.to_string_compact();
+    let text = document.to_string();
     assert!(!text.contains(secret) && !text.contains(&token));
     let debug = format!("{data:?}");
     assert!(!debug.contains("argon2") && !debug.contains(secret));
@@ -135,7 +135,7 @@ fn malformed_key_records_are_refused_as_a_whole_credential_store() {
     let mut data = accounts();
     data.create_api_key("operator", "phone", 20).unwrap();
     let base = super::super::to_json(&data);
-    let row = base.get("api_keys").unwrap().as_arr().unwrap()[0].clone();
+    let row = base.get("api_keys").unwrap().as_array().unwrap()[0].clone();
     for (field, value) in [
         ("id", "bad".into()),
         ("label", "\u{2003}".into()),
@@ -143,7 +143,7 @@ fn malformed_key_records_are_refused_as_a_whole_credential_store() {
         ("owner", "missing-owner".into()),
         ("revision", 0_u64.into()),
         ("revision", 2_u64.into()),
-        ("created_at", 1.5.into()),
+        ("created_at", serde_json::json!(1.5)),
         (
             "secret_hash",
             DUMMY_HASH.replace("m=19456", "m=4294967295").into(),
@@ -151,21 +151,21 @@ fn malformed_key_records_are_refused_as_a_whole_credential_store() {
         ("secret_hash", "not a verifier".into()),
     ] {
         let mut changed = row.clone();
-        changed.set(field, value);
+        changed[field] = value;
         let mut document = base.clone();
-        document.set("api_keys", Json::Arr(vec![changed]));
+        document["api_keys"] = Json::Array(vec![changed]);
         assert!(super::super::from_json(&document).is_err(), "{field}");
     }
     let mut duplicate = base.clone();
-    duplicate.set("api_keys", Json::Arr(vec![row.clone(), row]));
+    duplicate["api_keys"] = Json::Array(vec![row.clone(), row]);
     assert!(super::super::from_json(&duplicate).is_err());
     for value in [Json::Null, "not an array".into()] {
         let mut document = base.clone();
-        document.set("api_keys", value);
+        document["api_keys"] = value;
         assert!(super::super::from_json(&document).is_err());
     }
     let mut missing = base.clone();
-    missing.set("api_keys", Json::Arr(Vec::new()));
+    missing["api_keys"] = Json::Array(Vec::new());
     assert!(
         super::super::from_json(&missing)
             .unwrap()
@@ -202,16 +202,16 @@ fn key_counts_are_bounded_during_creation_and_store_parsing() {
     let mut data = accounts();
     data.create_api_key("operator", "phone", 20).unwrap();
     let base = super::super::to_json(&data);
-    let original_key = base.get("api_keys").unwrap().as_arr().unwrap()[0].clone();
-    let original_account = base.get("account").unwrap().as_arr().unwrap()[0].clone();
+    let original_key = base.get("api_keys").unwrap().as_array().unwrap()[0].clone();
+    let original_account = base.get("account").unwrap().as_array().unwrap()[0].clone();
     let mut rows = Vec::new();
     for index in 0..MAX_API_KEYS_PER_ACCOUNT {
         let mut key = original_key.clone();
-        key.set("id", format!("{index:064x}").into());
+        key["id"] = format!("{index:064x}").into();
         rows.push(key);
     }
     let mut document = base.clone();
-    document.set("api_keys", Json::Arr(rows.clone()));
+    document["api_keys"] = Json::Array(rows.clone());
     let mut full_account = super::super::from_json(&document).unwrap();
     let before = full_account.clone();
     assert!(
@@ -221,9 +221,9 @@ fn key_counts_are_bounded_during_creation_and_store_parsing() {
     );
     assert_eq!(full_account, before);
     let mut excess = original_key.clone();
-    excess.set("id", format!("{:064x}", MAX_API_KEYS_PER_ACCOUNT).into());
+    excess["id"] = format!("{:064x}", MAX_API_KEYS_PER_ACCOUNT).into();
     rows.push(excess);
-    document.set("api_keys", Json::Arr(rows));
+    document["api_keys"] = Json::Array(rows);
     assert!(super::super::from_json(&document).is_err());
 
     let mut accounts = vec![original_account.clone()];
@@ -234,23 +234,23 @@ fn key_counts_are_bounded_during_creation_and_store_parsing() {
         } else {
             let owner = format!("account-{owner_index:064x}");
             let mut account = original_account.clone();
-            account.set("id", owner.clone().into());
-            account.set("username", format!("user{owner_index}").into());
-            account.set("role", "user".into());
+            account["id"] = owner.clone().into();
+            account["username"] = format!("user{owner_index}").into();
+            account["role"] = "user".into();
             accounts.push(account);
             owner
         };
         for key_index in 0..MAX_API_KEYS_PER_ACCOUNT {
             let mut key = original_key.clone();
-            key.set("id", format!("{:064x}", keys.len()).into());
-            key.set("owner", owner.clone().into());
-            key.set("label", format!("client{key_index}").into());
+            key["id"] = format!("{:064x}", keys.len()).into();
+            key["owner"] = owner.clone().into();
+            key["label"] = format!("client{key_index}").into();
             keys.push(key);
         }
     }
     document = base;
-    document.set("account", Json::Arr(accounts));
-    document.set("api_keys", Json::Arr(keys.clone()));
+    document["account"] = Json::Array(accounts);
+    document["api_keys"] = Json::Array(keys.clone());
     let mut full_installation = super::super::from_json(&document).unwrap();
     assert!(
         full_installation
@@ -262,6 +262,6 @@ fn key_counts_are_bounded_during_creation_and_store_parsing() {
         super::super::from_json(&document).unwrap()
     );
     keys.push(original_key);
-    document.set("api_keys", Json::Arr(keys));
+    document["api_keys"] = Json::Array(keys);
     assert!(super::super::from_json(&document).is_err());
 }

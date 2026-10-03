@@ -2,7 +2,9 @@
 
 ```
 crates/
+  aede-accounts/    identities, roles, credentials and client keys; no catalog or file persistence
   aede-core/        library, no terminal I/O
+    src/accounts.rs  protected file adapter over aede-accounts
     src/tags/         one parser per format -> RawTags
       foreign.rs        the formats handed to lofty
     src/audit/        what a file contains, as opposed to what it claims
@@ -25,6 +27,7 @@ crates/
     src/json.rs       minimal JSON reader and writer
     src/clock.rs      the one unit of time the catalog stores
     schema.sql        a relational mirror of the model, kept as documentation
+  aede-dsp/         reusable processing of decoded audio samples
   aede-server/      local HTTP/JSON/WebSocket API over aede-core
     src/lib.rs        module wiring and public entry points
     src/routing.rs    route registration
@@ -107,7 +110,7 @@ tools/check.sh        # formatting, lint, tests, documentation, release build
 cargo doc --no-deps --open   # the API documentation
 ```
 
-Every public item of `aede-core` is documented: the crate sets `#![warn(missing_docs)]`, so a gap is a warning and `tools/check.sh` fails on it. The check also builds the documentation with `RUSTDOCFLAGS="-D warnings"`, which makes a **broken link** an error too — nothing else reads doc comments, so moving an item between modules would otherwise leave dead references behind in silence.
+Every public item of `aede-core` and `aede-accounts` is documented: both crates set `#![warn(missing_docs)]`, so a gap is a warning and `tools/check.sh` fails on it. The check also builds the documentation with `RUSTDOCFLAGS="-D warnings"`, which makes a **broken link** an error too — nothing else reads doc comments, so moving an item between modules would otherwise leave dead references behind in silence.
 
 Formatting is `rustfmt` (`rustfmt.toml`); Prettier only covers Markdown, JSON, YAML, HTML and CSS (`.prettierrc`). The project targets **zero clippy warnings**.
 
@@ -142,7 +145,9 @@ Two facts settle the shape of it when the time comes. `rusqlite` is not Rust: it
 
 ## Dependencies
 
-`aede-core` uses `lofty` for tag formats whose parsers are not worth writing twice and `ureq` behind its `fetch` feature. `aede-server` owns the HTTP/JSON/WebSocket dependencies (`axum`, `tokio`, `serde`, and `serde_json`); `aede-cli` calls it to serve the catalog. `aede-dsp` is a separate, dependency-free crate for decoded sample processing. `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
+`aede-core` uses `lofty` for tag formats whose parsers are not worth writing twice and `ureq` behind its `fetch` feature. [`aede-accounts`](../../crates/aede-accounts/README.md) owns account, role, password and API-key rules, using the already approved Argon2 and `serde_json` dependencies. It does not depend on `aede-core`: the core's account adapter retains protected filesystem access, atomic publication and backup integration, and bridges its existing JSON representation without changing persisted formats. The legacy personal owner is defined once by the account crate and reexported by the core.
+
+`aede-server` owns the HTTP/JSON/WebSocket dependencies (`axum`, `tokio`, `serde`, and `serde_json`) and process-local bearer sessions; `aede-cli` calls it to serve the catalog. `aede-dsp` is a separate crate for decoded sample processing, independent of the catalog and user interface. `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
 
 Where an optional program can do the job instead of a crate, the program wins: **ffmpeg is driven as an external process** (`core/ffmpeg.rs`, `find()` and `missing(what)`), never linked. Operations that need it report its absence; local metadata browsing and image publication remain independent of it.
 

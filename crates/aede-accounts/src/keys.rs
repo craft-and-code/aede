@@ -172,17 +172,17 @@ fn valid_label(label: &str) -> bool {
 }
 
 pub(super) fn to_json(keys: &[ApiKey]) -> Json {
-    Json::Arr(
+    Json::Array(
         keys.iter()
             .map(|key| {
-                let mut row = Json::obj();
-                row.set("id", key.id.clone().into());
-                row.set("label", key.label.clone().into());
-                row.set("created_at", key.created_at.into());
-                row.set("owner", key.owner.clone().into());
-                row.set("revision", key.revision.into());
-                row.set("secret_hash", key.secret_hash.clone().into());
-                row
+                serde_json::json!({
+                    "id": key.id,
+                    "label": key.label,
+                    "created_at": key.created_at,
+                    "owner": key.owner,
+                    "revision": key.revision,
+                    "secret_hash": key.secret_hash,
+                })
             })
             .collect(),
     )
@@ -191,13 +191,13 @@ pub(super) fn to_json(keys: &[ApiKey]) -> Json {
 pub(super) fn from_json(
     value: Option<&Json>,
     accounts: &[Account],
-) -> Result<Vec<ApiKey>, StoreError> {
+) -> Result<Vec<ApiKey>, InvalidStore> {
     let Some(value) = value else {
         return Ok(Vec::new());
     };
-    let invalid = || StoreError::AccountsInvalid("malformed or excessive API key records");
+    let invalid = || InvalidStore::new("malformed or excessive API key records");
     let rows = value
-        .as_arr()
+        .as_array()
         .filter(|rows| rows.len() <= MAX_API_KEYS)
         .ok_or_else(invalid)?;
     let mut keys = Vec::with_capacity(rows.len());
@@ -207,7 +207,7 @@ pub(super) fn from_json(
         let string = |field| row.get(field).and_then(Json::as_str).ok_or_else(invalid);
         let number = |field| {
             row.get(field)
-                .and_then(Json::as_u64)
+                .and_then(json_u64)
                 .filter(|value| *value <= MAX_REVISION)
                 .ok_or_else(invalid)
         };

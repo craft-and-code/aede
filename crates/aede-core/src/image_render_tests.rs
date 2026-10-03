@@ -80,12 +80,106 @@ fn thumbnails_keep_aspect_ratio_alpha_edges_and_sixteen_bit_samples() {
         &vec![42; 3840 * 2160 * 3],
     );
     for (size, height) in [(256, 144), (2048, 1152)] {
-        let result = render(&original, Some(size)).unwrap();
+        let result = pictures::render_with_frozen_clock(&original, Some(size)).unwrap();
         let (info, pixels) = pictures::decode(&result.bytes);
         assert_eq!((info.width, info.height), (size, height));
         assert!(pixels.iter().all(|value| *value == 42));
     }
-    assert_eq!(render(&original, None).unwrap().bytes, original);
+    assert_eq!(
+        pictures::render_with_frozen_clock(&original, None)
+            .unwrap()
+            .bytes,
+        original
+    );
+}
+
+#[test]
+fn expired_deadlines_stop_pixel_work_and_completed_image_results() {
+    use std::cell::Cell;
+    use std::time::Duration;
+
+    let elapsed = Cell::new(Duration::ZERO);
+    let clock = || {
+        let now = elapsed.get();
+        elapsed.set(now + Duration::from_secs(3));
+        now
+    };
+    let budget = TimeBudget::new(&clock, TIME_BUDGET);
+    let pixels = Pixels {
+        bytes: vec![42; 3 * 3 * 3],
+        width: 3,
+        height: 3,
+        color: png::ColorType::Rgb,
+        depth: png::BitDepth::Eight,
+    };
+    assert!(
+        resize(&pixels, 2, 3, &budget)
+            .unwrap_err()
+            .contains("time budget")
+    );
+
+    let elapsed = Cell::new(TIME_BUDGET - Duration::from_nanos(1));
+    let clock = || elapsed.get();
+    let budget = TimeBudget::new(&clock, TIME_BUDGET);
+    // The same final guard covers untouched JPEG/PNG originals and encoded PNG
+    // thumbnails; it must refuse a result exactly at the deadline.
+    let thumbnail = pictures::encode(1, 1, png::ColorType::Rgb, png::BitDepth::Eight, &[42; 3]);
+    for (bytes, format) in [
+        (originals::JPEG, "jpg"),
+        (originals::PNG, "png"),
+        (thumbnail.as_slice(), "png"),
+    ] {
+        elapsed.set(TIME_BUDGET - Duration::from_nanos(1));
+        let result = finish(bytes.to_vec(), format, &budget).unwrap();
+        assert_eq!(result.bytes, bytes);
+        assert_eq!(result.format, format);
+        elapsed.set(TIME_BUDGET);
+        assert!(
+            finish(bytes.to_vec(), format, &budget)
+                .unwrap_err()
+                .contains("time budget")
+        );
+    }
+    for bytes in [originals::JPEG, originals::PNG] {
+        for size in [None, Some(2048), Some(1)] {
+            assert!(
+                render_with_budget(bytes, size, &budget)
+                    .unwrap_err()
+                    .contains("time budget")
+            );
+        }
+    }
+
+    for (bytes, size) in [
+        (originals::JPEG, None),
+        (originals::PNG, None),
+        (originals::PNG, Some(2048)),
+    ] {
+        // Derive the validation boundary rather than relying on codec-specific
+        // read counts. The next check expires while returning an original.
+        let checks = Cell::new(0);
+        let clock = || {
+            checks.set(checks.get() + 1);
+            Duration::ZERO
+        };
+        let budget = TimeBudget::new(&clock, TIME_BUDGET);
+        super::super::validate_with_deadline(bytes, image_kind(bytes).unwrap(), &budget).unwrap();
+        let validation_checks = checks.replace(0);
+        let clock = || {
+            checks.set(checks.get() + 1);
+            if checks.get() <= validation_checks {
+                Duration::ZERO
+            } else {
+                TIME_BUDGET
+            }
+        };
+        let budget = TimeBudget::new(&clock, TIME_BUDGET);
+        assert!(
+            render_with_budget(bytes, size, &budget)
+                .unwrap_err()
+                .contains("time budget")
+        );
+    }
 }
 
 #[test]

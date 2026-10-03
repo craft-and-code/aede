@@ -1,5 +1,15 @@
 # Accounts and sessions
 
+## Implementation boundaries
+
+[`aede-accounts`](../../crates/aede-accounts/README.md) owns stable account identities, roles, password and API-key verification, credential generations, and validation of the independently versioned credential document. It has no catalog, filesystem or HTTP dependency. Its JSON documents contain private verifiers and belong only in protected persistence or backups, never in public account responses.
+
+`aede-core::accounts` retains the storage adapter: native paths, bounded reads, private-file and opened-descriptor checks, atomic writes, and conversion to the existing catalog JSON representation. It reexports the account types for existing callers. Favourites, playlists and listening history remain in the core's personal store; the legacy `local` owner, account format 1 and backup format 3 are preserved.
+
+`aede-server` owns bearer-session lifetimes, authentication admission, authorization of HTTP operations, and revocation checks during requests and media transfers. Clients configure and present these operations through the documented API.
+
+## Behaviour
+
 Accounts share one catalog. Favourites, ratings, notes, listening history, counts and collections remain scoped by the authenticated account's stable owner ID. A request cannot select another owner. The operating-system owner remains trusted: the CLI can manage accounts without an HTTP session, and existing CLI personal commands continue to use `local`.
 
 The first account is an administrator whose owner ID is `local`, preserving existing personal data without rewriting `user.json`. Other accounts receive generated immutable IDs. Login names can change without changing ownership. Disabling an account keeps its personal data and prevents authentication. At least one administrator must remain enabled. There is no public registration or email-based recovery; the local operator can reset credentials.

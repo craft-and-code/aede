@@ -28,7 +28,8 @@ symphonia = { version = "0.5.5", features = ["all"] }
 # Validate artwork before publishing it, without an external helper or SIMD.
 png = "=0.18.1"
 zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"] }
-# Password hashing and the existing OS-backed RNG for local account credentials.
-argon2 = { version = "=0.5.3", features = ["std", "zeroize"] }
+# Account domain and adapters to the existing JSON store representation.
+aede-accounts = { path = "../aede-accounts" }
+serde_json = { workspace = true }
 
 [dev-dependencies]

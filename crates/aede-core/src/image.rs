@@ -34,24 +34,47 @@ pub(crate) fn validate(bytes: &[u8], format: &str) -> Result<(), String> {
 }
 
 fn validate_with_budget(bytes: &[u8], format: &str, budget: Duration) -> Result<(), String> {
+    let started = Instant::now();
+    let elapsed = || started.elapsed();
+    validate_with_deadline(bytes, format, &TimeBudget::new(&elapsed, budget))
+}
+
+fn validate_with_deadline(
+    bytes: &[u8],
+    format: &str,
+    budget: &TimeBudget<'_>,
+) -> Result<(), String> {
     if bytes.len() > MAX_BYTES {
         return Err("image exceeds the 32 MiB download limit".into());
     }
-    let started = Instant::now();
-    check_time(started, budget)?;
+    budget.check()?;
     match format {
-        "jpg" => validate_jpeg(bytes, started, budget)?,
-        "png" => validate_png(bytes, started, budget)?,
+        "jpg" => validate_jpeg(bytes, budget)?,
+        "png" => validate_png(bytes, budget)?,
         _ => return Err("unsupported image format".into()),
     }
-    check_time(started, budget)
+    budget.check()
 }
 
-fn check_time(started: Instant, budget: Duration) -> Result<(), String> {
-    if started.elapsed() >= budget {
-        Err("image validation exceeded its time budget".into())
-    } else {
-        Ok(())
+/// One cooperative deadline for validation, decoding and response rendering.
+/// Production uses Instant; an injected clock keeps pixel tests independent of
+/// CPU scheduling while exercising the same deadline checks deterministically.
+struct TimeBudget<'a> {
+    elapsed: &'a dyn Fn() -> Duration,
+    limit: Duration,
+}
+
+impl<'a> TimeBudget<'a> {
+    fn new(elapsed: &'a dyn Fn() -> Duration, limit: Duration) -> Self {
+        Self { elapsed, limit }
+    }
+
+    fn check(&self) -> Result<(), String> {
+        if (self.elapsed)() >= self.limit {
+            Err("image validation exceeded its time budget".into())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -68,10 +91,10 @@ fn dimensions(width: usize, height: usize) -> Result<(), String> {
     }
 }
 
-fn png_container(bytes: &[u8], started: Instant, budget: Duration) -> Result<(), String> {
+fn png_container(bytes: &[u8], budget: &TimeBudget<'_>) -> Result<(), String> {
     let mut at = 8;
     for part in 0..MAX_PARTS {
-        check_time(started, budget)?;
+        budget.check()?;
         let header = bytes.get(at..at + 8).ok_or("truncated PNG chunk")?;
         let length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
         let end = at
@@ -104,13 +127,12 @@ fn png_container(bytes: &[u8], started: Instant, budget: Duration) -> Result<(),
     Err("PNG exceeds the chunk-count limit".into())
 }
 
-fn validate_png(bytes: &[u8], started: Instant, budget: Duration) -> Result<(), String> {
-    png_container(bytes, started, budget)?;
+fn validate_png(bytes: &[u8], budget: &TimeBudget<'_>) -> Result<(), String> {
+    png_container(bytes, budget)?;
     let mut options = png::DecodeOptions::default();
     options.set_ignore_checksums(false);
     options.set_skip_ancillary_crc_failures(false);
-    let mut decoder =
-        png::Decoder::new_with_options(TimedCursor::new(bytes, started, budget), options);
+    let mut decoder = png::Decoder::new_with_options(TimedCursor::new(bytes, budget), options);
     decoder.set_limits(png::Limits {
         bytes: 16 * 1024 * 1024,
     });
@@ -160,7 +182,7 @@ fn validate_png(bytes: &[u8], started: Instant, budget: Duration) -> Result<(), 
         let row_bytes = (width * depth).div_ceil(8);
         let mask = (1u16 << depth) - 1;
         for row in indices.chunks_exact(row_bytes) {
-            check_time(started, budget)?;
+            budget.check()?;
             for pixel in 0..width {
                 let bit = pixel * depth;
                 let index = (u16::from(row[bit / 8]) >> (8 - depth - bit % 8)) & mask;
@@ -175,20 +197,20 @@ fn validate_png(bytes: &[u8], started: Instant, budget: Duration) -> Result<(), 
             .map_err(|e| format!("invalid PNG: {e}"))?
             .is_some()
         {
-            check_time(started, budget)?;
+            budget.check()?;
         }
     }
     reader.finish().map_err(|e| format!("invalid PNG: {e}"))
 }
 
-fn jpeg_container(bytes: &[u8], started: Instant, budget: Duration) -> Result<(), String> {
+fn jpeg_container(bytes: &[u8], budget: &TimeBudget<'_>) -> Result<(), String> {
     if !bytes.starts_with(&[0xff, 0xd8]) {
         return Err("missing JPEG start".into());
     }
     let mut at = 2;
     let mut scans = 0;
     for _ in 0..MAX_PARTS {
-        check_time(started, budget)?;
+        budget.check()?;
         if bytes.get(at) != Some(&0xff) {
             return Err("invalid JPEG marker".into());
         }
@@ -247,7 +269,7 @@ fn jpeg_container(bytes: &[u8], started: Instant, budget: Duration) -> Result<()
             // This only locates entropy boundaries; the codec validates Huffman
             // data and reconstructs pixels. FF00 is stuffing, FFD0..D7 restart.
             loop {
-                check_time(started, budget)?;
+                budget.check()?;
                 let offset = bytes
                     .get(at..)
                     .and_then(|b| b.iter().position(|b| *b == 0xff))
@@ -268,9 +290,9 @@ fn jpeg_container(bytes: &[u8], started: Instant, budget: Duration) -> Result<()
     Err("JPEG exceeds the marker-count limit".into())
 }
 
-fn validate_jpeg(bytes: &[u8], started: Instant, budget: Duration) -> Result<(), String> {
+fn validate_jpeg(bytes: &[u8], budget: &TimeBudget<'_>) -> Result<(), String> {
     use zune_jpeg::zune_core::options::DecoderOptions;
-    jpeg_container(bytes, started, budget)?;
+    jpeg_container(bytes, budget)?;
     let options = DecoderOptions::default()
         .set_strict_mode(true)
         .set_use_unsafe(false)
@@ -278,7 +300,7 @@ fn validate_jpeg(bytes: &[u8], started: Instant, budget: Duration) -> Result<(),
         .set_max_height(MAX_AXIS)
         .jpeg_set_max_scans(MAX_SCANS);
     let mut decoder =
-        zune_jpeg::JpegDecoder::new_with_options(TimedCursor::new(bytes, started, budget), options);
+        zune_jpeg::JpegDecoder::new_with_options(TimedCursor::new(bytes, budget), options);
     decoder
         .decode_headers()
         .map_err(|e| format!("invalid JPEG: {e}"))?;
@@ -296,34 +318,33 @@ fn validate_jpeg(bytes: &[u8], started: Instant, budget: Duration) -> Result<(),
         .map_err(|e| format!("invalid JPEG: {e}"))
 }
 
-struct TimedCursor<'a> {
-    cursor: Cursor<&'a [u8]>,
-    started: Instant,
-    budget: Duration,
+struct TimedCursor<'bytes, 'budget> {
+    cursor: Cursor<&'bytes [u8]>,
+    budget: &'budget TimeBudget<'budget>,
 }
 
-impl<'a> TimedCursor<'a> {
-    fn new(bytes: &'a [u8], started: Instant, budget: Duration) -> Self {
+impl<'bytes, 'budget> TimedCursor<'bytes, 'budget> {
+    fn new(bytes: &'bytes [u8], budget: &'budget TimeBudget<'budget>) -> Self {
         Self {
             cursor: Cursor::new(bytes),
-            started,
             budget,
         }
     }
     fn check(&self) -> io::Result<()> {
-        check_time(self.started, self.budget)
+        self.budget
+            .check()
             .map_err(|e| io::Error::new(io::ErrorKind::TimedOut, e))
     }
 }
 
-impl Read for TimedCursor<'_> {
+impl Read for TimedCursor<'_, '_> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.check()?;
         self.cursor.read(buffer)
     }
 }
 
-impl BufRead for TimedCursor<'_> {
+impl BufRead for TimedCursor<'_, '_> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         self.check()?;
         self.cursor.fill_buf()
@@ -333,7 +354,7 @@ impl BufRead for TimedCursor<'_> {
     }
 }
 
-impl Seek for TimedCursor<'_> {
+impl Seek for TimedCursor<'_, '_> {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
         self.check()?;
         self.cursor.seek(position)

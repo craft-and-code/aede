@@ -39,13 +39,15 @@ These are fundamental properties of Aède:
 ### Workspace
 
 - `crates/aede-core` — domain model, catalog, storage and library logic.
+- `crates/aede-accounts` — account identities, credential policy, roles and client keys.
+- `crates/aede-dsp` — decoded audio sample processing, independent of the catalog.
 - `crates/aede-server` — local HTTP/JSON/WebSocket API over the core.
 - `crates/aede-cli` — command-line interface and user-facing behaviour.
 - `docs/` — architecture, design decisions, milestone plans and behavioural documentation.
 - `tools/` — development and verification scripts.
 - `site/` — project website.
 
-Keep domain logic in `aede-core`. Keep HTTP transport in `aede-server`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
+Keep catalog domain logic and protected file persistence in `aede-core`. Keep account and credential rules in `aede-accounts`, without a dependency on the catalog or HTTP. Keep HTTP transport and process-local sessions in `aede-server`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
 
 ### Domain model
 

@@ -55,7 +55,7 @@ pub const USER_FILE: &str = "user.json";
 pub type UserRef = String;
 
 /// The owner of a library nobody has named yet.
-pub const LOCAL_USER: &str = "local";
+pub const LOCAL_USER: &str = aede_accounts::LOCAL_OWNER;
 
 /// What separates the three parts of a release key.
 pub const RELEASE_KEY_SEPARATOR: char = '|';

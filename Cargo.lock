@@ -9,6 +9,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aede-accounts"
+version = "0.4.0"
+dependencies = [
+ "argon2",
+ "serde_json",
+]
+
+[[package]]
 name = "aede-cli"
 version = "0.4.0"
 dependencies = [
@@ -24,12 +32,13 @@ dependencies = [
 name = "aede-core"
 version = "0.4.0"
 dependencies = [
+ "aede-accounts",
  "aede-dsp",
- "argon2",
  "flaccompagnon-core",
  "lofty",
  "md-5",
  "png",
+ "serde_json",
  "symphonia",
  "ureq",
  "zune-jpeg",

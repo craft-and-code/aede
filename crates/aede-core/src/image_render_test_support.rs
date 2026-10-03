@@ -1,5 +1,16 @@
 //! Small encoded/decoded pictures for response-rendering assertions.
 
+/// Pixel correctness must not depend on how much CPU time a busy runner grants
+/// a large debug-build resize. Deadline enforcement has its own controlled clock.
+pub(super) fn render_with_frozen_clock(
+    bytes: &[u8],
+    size: Option<u32>,
+) -> Result<crate::coverart::RenderedImage, String> {
+    let elapsed = || std::time::Duration::ZERO;
+    let budget = super::super::TimeBudget::new(&elapsed, super::super::TIME_BUDGET);
+    super::super::render_with_budget(bytes, size, &budget)
+}
+
 pub(super) fn encode(
     width: u32,
     height: u32,

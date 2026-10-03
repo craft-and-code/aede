@@ -1,6 +1,6 @@
 //! Response-only thumbnails; downloaded and stored originals stay untouched.
 
-use super::{MAX_OUTPUT, TIME_BUDGET, TimedCursor, check_time};
+use super::{MAX_OUTPUT, TIME_BUDGET, TimeBudget, TimedCursor};
 use crate::coverart::{RenderedImage, image_kind};
 use std::time::Instant;
 
@@ -13,37 +13,39 @@ struct Pixels {
 }
 
 pub(crate) fn render(bytes: &[u8], size: Option<u32>) -> Result<RenderedImage, String> {
+    let started = Instant::now();
+    let elapsed = || started.elapsed();
+    render_with_budget(bytes, size, &TimeBudget::new(&elapsed, TIME_BUDGET))
+}
+
+fn render_with_budget(
+    bytes: &[u8],
+    size: Option<u32>,
+    budget: &TimeBudget<'_>,
+) -> Result<RenderedImage, String> {
     if size.is_some_and(|size| !(1..=2048).contains(&size)) {
         return Err("thumbnail size must be between 1 and 2048 pixels".into());
     }
     let format = image_kind(bytes).ok_or("image is not a JPEG or PNG")?;
-    let started = Instant::now();
     // Keep the proven complete-container, palette and checksum checks before
     // response rendering. EXPAND alone can conceal malformed palette indices.
-    super::validate(bytes, format)?;
-    check_time(started, TIME_BUDGET)?;
+    super::validate_with_deadline(bytes, format, budget)?;
     let Some(size) = size else {
-        return Ok(RenderedImage {
-            bytes: bytes.to_vec(),
-            format,
-        });
+        return finish(bytes.to_vec(), format, budget);
     };
-    let (width, height) = dimensions(bytes, format, started)?;
+    let (width, height) = dimensions(bytes, format, budget)?;
     if width <= size as usize && height <= size as usize {
-        return Ok(RenderedImage {
-            bytes: bytes.to_vec(),
-            format,
-        });
+        return finish(bytes.to_vec(), format, budget);
     }
     let pixels = match format {
-        "png" => decode_png(bytes, started)?,
-        "jpg" => decode_jpeg(bytes, started)?,
+        "png" => decode_png(bytes, budget)?,
+        "jpg" => decode_jpeg(bytes, budget)?,
         _ => return Err("unsupported image format".into()),
     };
     let longest = width.max(height);
     let target_width = (width * size as usize / longest).max(1);
     let target_height = (height * size as usize / longest).max(1);
-    let resized = resize(&pixels, target_width, target_height, started)?;
+    let resized = resize(&pixels, target_width, target_height, budget)?;
     let mut output = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut output, target_width as u32, target_height as u32);
@@ -59,17 +61,26 @@ pub(crate) fn render(bytes: &[u8], size: Option<u32>) -> Result<RenderedImage, S
             .finish()
             .map_err(|e| format!("cannot finish thumbnail: {e}"))?;
     }
-    check_time(started, TIME_BUDGET)?;
-    if output.len() > super::MAX_BYTES {
-        return Err("thumbnail exceeds the 32 MiB image limit".into());
-    }
-    Ok(RenderedImage {
-        bytes: output,
-        format: "png",
-    })
+    finish(output, "png", budget)
 }
 
-fn dimensions(bytes: &[u8], format: &str, started: Instant) -> Result<(usize, usize), String> {
+fn finish(
+    bytes: Vec<u8>,
+    format: &'static str,
+    budget: &TimeBudget<'_>,
+) -> Result<RenderedImage, String> {
+    budget.check()?;
+    if bytes.len() > super::MAX_BYTES {
+        return Err("thumbnail exceeds the 32 MiB image limit".into());
+    }
+    Ok(RenderedImage { bytes, format })
+}
+
+fn dimensions(
+    bytes: &[u8],
+    format: &str,
+    budget: &TimeBudget<'_>,
+) -> Result<(usize, usize), String> {
     match format {
         "png" => {
             let header = bytes.get(16..24).ok_or("missing PNG dimensions")?;
@@ -78,7 +89,7 @@ fn dimensions(bytes: &[u8], format: &str, started: Instant) -> Result<(usize, us
             Ok((width, height))
         }
         "jpg" => {
-            let mut decoder = jpeg_decoder(bytes, started);
+            let mut decoder = jpeg_decoder(bytes, budget);
             decoder
                 .decode_headers()
                 .map_err(|e| format!("invalid JPEG: {e}"))?;
@@ -102,12 +113,11 @@ fn buffer(size: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn decode_png(bytes: &[u8], started: Instant) -> Result<Pixels, String> {
+fn decode_png(bytes: &[u8], budget: &TimeBudget<'_>) -> Result<Pixels, String> {
     let mut options = png::DecodeOptions::default();
     options.set_ignore_checksums(false);
     options.set_skip_ancillary_crc_failures(false);
-    let mut decoder =
-        png::Decoder::new_with_options(TimedCursor::new(bytes, started, TIME_BUDGET), options);
+    let mut decoder = png::Decoder::new_with_options(TimedCursor::new(bytes, budget), options);
     decoder.set_limits(png::Limits {
         bytes: 16 * 1024 * 1024,
     });
@@ -128,7 +138,7 @@ fn decode_png(bytes: &[u8], started: Instant) -> Result<Pixels, String> {
         .map_err(|e| format!("invalid PNG: {e}"))?;
     pixels.truncate(info.buffer_size());
     reader.finish().map_err(|e| format!("invalid PNG: {e}"))?;
-    check_time(started, TIME_BUDGET)?;
+    budget.check()?;
     Ok(Pixels {
         bytes: pixels,
         width: info.width as usize,
@@ -138,7 +148,10 @@ fn decode_png(bytes: &[u8], started: Instant) -> Result<Pixels, String> {
     })
 }
 
-fn jpeg_decoder(bytes: &[u8], started: Instant) -> zune_jpeg::JpegDecoder<TimedCursor<'_>> {
+fn jpeg_decoder<'bytes, 'budget>(
+    bytes: &'bytes [u8],
+    budget: &'budget TimeBudget<'budget>,
+) -> zune_jpeg::JpegDecoder<TimedCursor<'bytes, 'budget>> {
     use zune_jpeg::zune_core::{colorspace::ColorSpace, options::DecoderOptions};
     let options = DecoderOptions::default()
         .set_strict_mode(true)
@@ -147,11 +160,11 @@ fn jpeg_decoder(bytes: &[u8], started: Instant) -> zune_jpeg::JpegDecoder<TimedC
         .set_max_height(super::MAX_AXIS)
         .jpeg_set_max_scans(super::MAX_SCANS)
         .jpeg_set_out_colorspace(ColorSpace::RGB);
-    zune_jpeg::JpegDecoder::new_with_options(TimedCursor::new(bytes, started, TIME_BUDGET), options)
+    zune_jpeg::JpegDecoder::new_with_options(TimedCursor::new(bytes, budget), options)
 }
 
-fn decode_jpeg(bytes: &[u8], started: Instant) -> Result<Pixels, String> {
-    let mut decoder = jpeg_decoder(bytes, started);
+fn decode_jpeg(bytes: &[u8], budget: &TimeBudget<'_>) -> Result<Pixels, String> {
+    let mut decoder = jpeg_decoder(bytes, budget);
     decoder
         .decode_headers()
         .map_err(|e| format!("invalid JPEG: {e}"))?;
@@ -164,7 +177,7 @@ fn decode_jpeg(bytes: &[u8], started: Instant) -> Result<Pixels, String> {
     decoder
         .decode_into(&mut pixels)
         .map_err(|e| format!("invalid JPEG: {e}"))?;
-    check_time(started, TIME_BUDGET)?;
+    budget.check()?;
     Ok(Pixels {
         bytes: pixels,
         width,
@@ -178,7 +191,7 @@ fn resize(
     source: &Pixels,
     width: usize,
     height: usize,
-    started: Instant,
+    budget: &TimeBudget<'_>,
 ) -> Result<Vec<u8>, String> {
     let channels = source.color.samples();
     let sample_bytes = match source.depth {
@@ -197,7 +210,7 @@ fn resize(
         png::ColorType::Rgba | png::ColorType::GrayscaleAlpha
     );
     for y in 0..height {
-        check_time(started, TIME_BUDGET)?;
+        budget.check()?;
         let (y0, y1, fy) = axis(y, height, source.height);
         for x in 0..width {
             let (x0, x1, fx) = axis(x, width, source.width);

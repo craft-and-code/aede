@@ -1,6 +1,6 @@
 # Compatible Aède : spécification pour les clients
 
-Cette spécification s'adresse aux développeurs qui créent ou adaptent un lecteur, par exemple Ples. Elle précise ce qu'un client peut annoncer comme **Compatible Aède** avec les interfaces disponibles aujourd'hui. C'est un cahier des charges d'intégration, pas un programme de certification ni la promesse que toutes les fonctions de la CLI possèdent un équivalent HTTP.
+Cette spécification s'adresse aux développeurs qui créent ou adaptent un lecteur. Elle précise ce qu'un client peut annoncer comme **Compatible Aède** avec les interfaces disponibles aujourd'hui. C'est un cahier des charges d'intégration, pas un programme de certification ni la promesse que toutes les fonctions de la CLI possèdent un équivalent HTTP.
 
 **DOIT** (**MUST**) désigne une exigence du profil annoncé. **DEVRAIT** (**SHOULD**) désigne une recommandation ; documentez toute exception volontaire. **PEUT** (**MAY**) désigne une possibilité facultative. Les exigences portent sur le comportement, y compris les erreurs, sans imposer de langage, d'interface graphique ou de bibliothèque audio. Les références liées restent la source de vérité pour les champs, les limites et les codes d'erreur.
 
@@ -16,7 +16,7 @@ Un client PEUT combiner les profils, par exemple Lecteur natif v1 avec vues de p
 
 La documentation du client doit préciser sa version, la version d'Aède testée, la version du profil/API, les plateformes et appareils testés, les fonctions facultatives et les limites connues. Distinguez les vérifications automatiques du protocole d'une lecture réellement testée sur un appareil. L'API native v1 n'a pas de route de négociation des fonctions : `GET /api/v1/status` donne `api_version`, pas une liste de possibilités du client. Une fonction facultative indisponible doit rester indisponible dans l'interface.
 
-Pour une intégration hypothétique de Ples, l'annonce pourrait être : « Ples version X prend en charge Aède Lecteur natif v1 avec Aède version Y sur macOS, ainsi que les pochettes et playlists statiques privées de l'adaptateur. Le déplacement temporel natif et la persistance de file serveur sont indisponibles. Les vérifications de protocole passent ; la lecture a été testée sur la sortie Z. » C'est un exemple à remplir avec les résultats réels, pas une affirmation que Ples implémente déjà ces interfaces.
+Pour une intégration hypothétique, l'annonce pourrait être : « Lecteur exemple version X prend en charge Aède Lecteur natif v1 avec Aède version Y sur macOS, ainsi que les pochettes et playlists statiques privées de l'adaptateur. Le déplacement temporel natif et la persistance de file serveur sont indisponibles. Les vérifications de protocole passent ; la lecture a été testée sur la sortie Z. » Complétez cet exemple avec les résultats réels mesurés pour le client.
 
 ## Exigences communes
 

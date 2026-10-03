@@ -1,0 +1,15 @@
+[package]
+name = "aede-accounts"
+description = "Aede account identities, protected credentials and revocable client keys."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Existing approved credential hashing, with its OS-backed secure RNG.
+argon2 = { version = "=0.5.3", features = ["std", "zeroize"] }
+# The workspace's existing JSON value representation; no filesystem parser here.
+serde_json = { workspace = true }
+

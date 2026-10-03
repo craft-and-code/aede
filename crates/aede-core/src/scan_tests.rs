@@ -165,7 +165,7 @@ fn followed_directory_aliases_choose_a_stable_catalog_path() {
     assert_eq!(catalog.files.len(), 1);
     assert_eq!(
         Path::new(&catalog.files[0].path),
-        sandbox.0.join("a-alias/01.flac")
+        sandbox.0.join("a-alias").join("01.flac")
     );
 }
 
@@ -339,7 +339,14 @@ fn missing_files_in_accessible_folders_are_removed() {
     .unwrap();
     assert!(second.files.is_empty());
     assert_eq!(report.removed, 1);
-    assert_eq!(report.removed_paths, [track.to_string_lossy().into_owned()]);
+    assert_eq!(
+        report
+            .removed_paths
+            .iter()
+            .map(Path::new)
+            .collect::<Vec<_>>(),
+        [track.as_path()]
+    );
     assert!(report.failures.is_empty());
 }
 
@@ -439,5 +446,6 @@ fn cover_choice_is_deterministic_when_preference_ranks_tie() {
         |_| {},
     )
     .unwrap();
-    assert_eq!(catalog.releases[0].cover_path.as_deref(), expected.to_str());
+    let actual = catalog.releases[0].cover_path.as_deref().map(Path::new);
+    assert_eq!(actual, Some(expected.as_path()));
 }

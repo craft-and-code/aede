@@ -3,142 +3,51 @@ use super::*;
 use super::test_support::*;
 
 #[test]
-fn bootstrap_preserves_local_ownership_and_passwords_are_salted_and_private() {
-    let first = accounts();
-    let second = accounts();
-    assert_eq!(first.all()[0].id, crate::user::LOCAL_USER);
-    assert_eq!(first.all()[0].username, "operator");
-    assert_ne!(
-        first.records[0].password_hash,
-        second.records[0].password_hash
-    );
-    assert!(first.authenticate("OPERATOR", PASSWORD).is_some());
-    for (name, password) in [
-        ("operator", "incorrect"),
-        ("missing", PASSWORD),
-        ("../escape", PASSWORD),
-    ] {
-        assert!(first.authenticate(name, password).is_none());
-    }
-    assert!(!format!("{first:?}").contains("argon2"));
-    assert!(!to_json(&first).to_string_compact().contains(PASSWORD));
-}
-
-#[test]
-fn creation_and_renaming_preserve_distinct_owners_and_refuse_duplicates() {
+fn historical_credential_documents_keep_numeric_spelling_limits_and_private_key_records() {
     let mut data = accounts();
-    data.create("Alice", PASSWORD, Role::User, 20).unwrap();
-    let id = data.find("alice").unwrap().id.clone();
-    assert_ne!(id, "local");
-    assert!(data.create("ALICE", PASSWORD, Role::User, 21).is_err());
-    assert!(data.rename("alice", "operator", 21).is_err());
-    data.rename("alice", "listener", 22).unwrap();
-    assert_eq!(data.find("listener").unwrap().id, id);
-    assert!(data.find("alice").is_none());
-}
+    let (key, token) = data.create_api_key("operator", "desktop", 20).unwrap();
+    let document = to_json(&data);
+    let historical = document
+        .to_string_compact()
+        .replace("\"format_version\":1", "\"format_version\":1.0")
+        .replace("\"revision\":1", "\"revision\":1e0")
+        .replace("\"created_at\":10", "\"created_at\":-0")
+        .replace("\"updated_at\":10", "\"updated_at\":9.007199254740991e15")
+        .replace("\"created_at\":20", "\"created_at\":2e1");
+    let loaded = from_json(&json::parse(&historical).unwrap()).unwrap();
+    let account = loaded.authenticate("operator", PASSWORD).unwrap();
+    assert_eq!(account.id, LOCAL_OWNER);
+    assert_eq!(account.created_at, 0);
+    assert_eq!(account.updated_at, (1 << 53) - 1);
+    assert_eq!(account.revision(), 1);
+    assert_eq!(loaded.authenticate_api_key(&token).unwrap().1.id, key.id);
+    assert_eq!(loaded.api_keys("operator").unwrap()[0].created_at, 20);
+    let rewritten = to_json(&loaded);
+    assert_eq!(from_json(&rewritten).unwrap(), loaded);
+    assert!(!rewritten.to_string_compact().contains(&token));
+    assert!(rewritten.get("api_keys").is_some());
+    assert!(to_json(&accounts()).get("api_keys").is_none());
 
-#[test]
-fn auditor_role_round_trips_with_its_read_only_spelling() {
-    let mut data = accounts();
-    data.create("auditor", PASSWORD, Role::Auditor, 20).unwrap();
-
-    assert_eq!(Role::Auditor.as_str(), "auditor");
-    assert_eq!(Role::parse("auditor"), Some(Role::Auditor));
-    assert_eq!(Role::parse("AUDITOR"), None);
-    assert_eq!(
-        from_json(&to_json(&data))
-            .unwrap()
-            .find("auditor")
-            .unwrap()
-            .role,
-        Role::Auditor
-    );
-}
-
-#[test]
-fn disabling_and_demoting_the_last_administrator_leave_the_store_unchanged() {
-    let mut data = accounts();
-    let before = data.clone();
-    assert!(data.set_enabled("operator", false, 20).is_err());
-    assert!(data.set_role("operator", Role::User, 20).is_err());
-    assert_eq!(data, before);
-    data.create("second", PASSWORD, Role::Administrator, 20)
-        .unwrap();
-    data.set_enabled("operator", false, 21).unwrap();
-    assert!(data.authenticate("operator", PASSWORD).is_none());
-    assert!(data.authenticate("second", PASSWORD).is_some());
-    assert!(data.set_enabled("second", false, 22).is_err());
-}
-
-#[test]
-fn password_and_role_changes_and_restoration_revoke_old_session_generations() {
-    let mut data = accounts();
-    data.create("alice", PASSWORD, Role::User, 20).unwrap();
-    let owner = data.find("alice").unwrap().id.clone();
-    let epoch = data.epoch().to_string();
-    let revision = data.find("alice").unwrap().revision();
-    assert!(data.session_account(&owner, &epoch, revision).is_some());
-    data.set_password("alice", "a different long passphrase", 21)
-        .unwrap();
-    assert!(data.session_account(&owner, &epoch, revision).is_none());
-    assert!(data.authenticate("alice", PASSWORD).is_none());
-    let revision = data.find("alice").unwrap().revision();
-    data.set_role("alice", Role::Auditor, 22).unwrap();
-    assert!(data.session_account(&owner, &epoch, revision).is_none());
-    let revision = data.find("alice").unwrap().revision();
-    data.revoke_all().unwrap();
-    assert!(data.session_account(&owner, &epoch, revision).is_none());
-    assert!(
-        data.authenticate("alice", "a different long passphrase")
-            .is_some()
-    );
-}
-
-#[test]
-fn malformed_or_hostile_rows_never_become_a_partial_or_weaker_account_store() {
-    let base = to_json(&accounts());
-    let mut variants = Vec::new();
-    for (key, value) in [
-        ("id", "unexpected-owner".into()),
-        ("username", "../escape".into()),
-        ("role", "user".into()),
-        ("enabled", false.into()),
-        ("revision", 1.5.into()),
-        (
-            "password_hash",
-            DUMMY_HASH.replace("m=19456", "m=4294967295").into(),
-        ),
-        ("password_hash", DUMMY_HASH.replace("m=19456", "m=8").into()),
-    ] {
-        let mut changed = base.clone();
+    for revision in [0.0, 1.5, (1_u64 << 53) as f64, f64::INFINITY] {
+        let mut changed = document.clone();
         let mut row = changed.get("account").unwrap().as_arr().unwrap()[0].clone();
-        row.set(key, value);
+        row.set("revision", Json::Num(revision));
         changed.set("account", Json::Arr(vec![row]));
-        variants.push(changed);
+        assert!(matches!(
+            from_json(&changed),
+            Err(StoreError::AccountsInvalid(
+                "malformed account store or unsupported version"
+            ))
+        ));
     }
-    let mut duplicate = base.clone();
-    let row = duplicate.get("account").unwrap().as_arr().unwrap()[0].clone();
-    duplicate.set("account", Json::Arr(vec![row.clone(), row]));
-    variants.push(duplicate);
-    for value in variants {
-        assert!(from_json(&value).is_err(), "{value:?}");
-    }
-    assert_eq!(from_json(&base).unwrap().all().len(), 1);
-}
-
-#[test]
-fn invalid_names_passwords_and_revisions_do_not_change_accounts() {
-    let mut data = accounts();
-    let before = data.clone();
-    for name in ["", "a b", "a/b", "é", "---"] {
-        assert!(data.create(name, PASSWORD, Role::User, 20).is_err());
-    }
-    for password in ["short".to_string(), "x".repeat(MAX_PASSWORD_BYTES + 1)] {
-        assert!(data.set_password("operator", &password, 20).is_err());
-    }
-    assert_eq!(data, before);
-    data.records[0].revision = MAX_REVISION;
-    assert!(data.revoke("operator", 21).is_err());
+    let mut invalid_key = document;
+    invalid_key.set("api_keys", Json::Null);
+    assert!(matches!(
+        from_json(&invalid_key),
+        Err(StoreError::AccountsInvalid(
+            "malformed or excessive API key records"
+        ))
+    ));
 }
 
 #[test]
