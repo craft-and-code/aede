@@ -149,11 +149,19 @@ fn local_http_shutdown_waits_for_an_accepted_synchronous_scan() {
             .unwrap();
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
-                if matches!(
-                    activity.recv().await.unwrap(),
-                    CatalogEvent::TaskStarted { task_kind: "scan", .. }
-                ) {
-                    break;
+                tokio::select! {
+                    event = activity.recv() => {
+                        match event.unwrap() {
+                            CatalogEvent::TaskStarted { task_kind: "scan", .. } => break,
+                            CatalogEvent::CatalogChanged { .. } => {
+                                panic!("the watcher reloaded the already loaded fixture before scan acceptance");
+                            }
+                            _ => {},
+                        }
+                    }
+                    response = support::response_headers(&mut client) => {
+                        panic!("scan returned before acceptance: {}", String::from_utf8_lossy(&response));
+                    }
                 }
             }
         })

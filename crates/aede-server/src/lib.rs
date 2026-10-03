@@ -91,6 +91,7 @@ mod routing;
 mod runtime;
 mod security;
 mod state;
+mod subsonic;
 mod tls;
 
 pub use jobs::{FetchRequest, JobOutput, JobRequest, ScanRequest};

@@ -369,6 +369,7 @@ fn handle_command(
             process.env_remove(name);
         }
     }
+    let _scan_guard = (kind == "scan").then(|| state.scan_activity.start());
     let mut child = match process.spawn() {
         Ok(child) => child,
         Err(error) => {

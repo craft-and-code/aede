@@ -18,12 +18,22 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE account (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'auditor')),
     enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
     password_hash TEXT NOT NULL,
     revision INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+);
+
+-- Optional persistent client keys; public identifiers never authenticate alone.
+CREATE TABLE account_api_key (
+    id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL REFERENCES account (id),
+    label TEXT NOT NULL,
+    secret_hash TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
@@ -420,7 +430,8 @@ CREATE TABLE user_track_identity_tag (
 
 -- This journal is an audit trail, never a list of operations replayed on import.
 -- The flat before-snapshot contains only this owner's annotations, recent plays,
--- all-time counts and relation annotations at the source reference. Undo checks
+-- all-time counts, client scrobbles, ordered playlist entries and relation
+-- annotations at the source reference. Undo checks
 -- that destination records still equal the moved snapshot and refuses newer
 -- edits/listens or source conflicts. An undone track decision also suppresses
 -- later heuristic relocation back to the same destination.
@@ -436,3 +447,37 @@ CREATE TABLE user_relink (
 );
 
 CREATE INDEX user_relink_owner_idx ON user_relink (owner, id);
+
+-- Optional ordered static playlists in user.json format 2. References have no
+-- catalog foreign key: unavailable music remains selected until an explicit
+-- edit or reattachment. A track may occur at several positions.
+CREATE TABLE user_playlist (
+    owner TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    comment TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (owner, id)
+) WITHOUT ROWID;
+
+CREATE TABLE user_playlist_entry (
+    owner TEXT NOT NULL,
+    playlist_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    track_reference TEXT NOT NULL,
+    PRIMARY KEY (owner, playlist_id, position),
+    FOREIGN KEY (owner, playlist_id) REFERENCES user_playlist (owner, id)
+) WITHOUT ROWID;
+
+-- Client-declared listening reports carry a timestamp, but no measured played
+-- duration or completion verdict. Keep them apart from acknowledged PCM plays.
+-- Equal timestamps remain separate events. All-time counts survive retention.
+CREATE TABLE user_scrobble (
+    id INTEGER PRIMARY KEY,
+    owner TEXT NOT NULL,
+    track_reference TEXT NOT NULL,
+    at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX user_scrobble_owner_idx ON user_scrobble (owner, at_ms);

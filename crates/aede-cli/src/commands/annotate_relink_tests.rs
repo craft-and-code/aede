@@ -108,6 +108,40 @@ fn waiting_lists_history_only_and_relationship_references_for_one_owner() {
 }
 
 #[test]
+fn waiting_includes_private_playlist_and_client_listen_references() {
+    let store = NotesStore::new();
+    let catalog = store::load(&store::catalog_path(&store.path))
+        .unwrap()
+        .unwrap();
+    let mut data = UserData::default();
+    data.playlists.push(user::Playlist {
+        id: format!("playlist-{}", "a".repeat(64)),
+        owner: LOCAL_USER.into(),
+        name: "Waiting".into(),
+        comment: None,
+        tracks: vec![store.from.clone(), store.from.clone()],
+        created_at: 1,
+        updated_at: 1,
+    });
+    data.scrobbles.push(user::Scrobble {
+        owner: LOCAL_USER.into(),
+        track: store.from.clone(),
+        at_ms: 1000,
+    });
+    data.scrobbles.push(user::Scrobble {
+        owner: "other".into(),
+        track: EntityRef::new(EntityKind::Track, "/private/missing.flac"),
+        at_ms: 1000,
+    });
+    let rows = waiting_references(&catalog, &data, LOCAL_USER, None);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].reference, store.from);
+    assert_eq!(rows[0].playlists, 1);
+    assert_eq!(rows[0].scrobbles, 1);
+    assert!(waiting_references(&catalog, &data, LOCAL_USER, Some("tag")).is_empty());
+}
+
+#[test]
 fn relink_destination_accepts_a_unique_name_or_an_exact_reference() {
     let store = NotesStore::new();
     let mut catalog = store::load(&store::catalog_path(&store.path))

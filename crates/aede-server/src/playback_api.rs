@@ -156,17 +156,20 @@ impl Start {
 }
 
 #[derive(Clone)]
-struct TrackSource {
-    reference: EntityRef,
-    path: PathBuf,
-    file: AudioFile,
-    mtime_subseconds: u32,
+pub(super) struct TrackSource {
+    pub(super) reference: EntityRef,
+    pub(super) path: PathBuf,
+    pub(super) file: AudioFile,
+    pub(super) mtime_subseconds: u32,
 }
 
-fn source_from_catalog(
+pub(super) fn source_from_catalog(
     catalog: &Catalog,
     requested: &EntityRef,
 ) -> Result<TrackSource, StreamFailure> {
+    if requested.kind != EntityKind::Track {
+        return Err(StreamFailure::TRACK_NOT_FOUND);
+    }
     let track_id = requested
         .resolve(catalog)
         .ok_or(StreamFailure::TRACK_NOT_FOUND)?;
@@ -219,7 +222,7 @@ async fn current_source(
 /// pathname-based decoder immune to every operating-system race, but it
 /// refuses links and special files, never accepts a caller-supplied path, and
 /// detects a replacement before it can become an acknowledged listen.
-fn validate_source(source: &TrackSource) -> Result<(), StreamFailure> {
+pub(super) fn validate_source(source: &TrackSource) -> Result<(), StreamFailure> {
     let metadata = fs::symlink_metadata(&source.path).map_err(|failure| {
         if failure.kind() == ErrorKind::NotFound {
             StreamFailure::SOURCE_UNAVAILABLE
@@ -257,7 +260,7 @@ fn settings(normalization_catalog: Catalog, data_dir: PathBuf, start: &Start) ->
 }
 
 #[derive(Clone, Copy, Debug)]
-struct StreamFailure {
+pub(super) struct StreamFailure {
     code: &'static str,
     message: &'static str,
 }

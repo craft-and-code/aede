@@ -67,3 +67,20 @@ Lorsque les deux jeux de données concernent la même entité :
 Importer une seconde fois la même sauvegarde ne change plus les données : les mêmes éléments ne créent pas de doublons.
 
 Les événements d’écoute sont fusionnés selon leur contenu complet et leur multiplicité : plusieurs écoutes dans la même seconde sont conservées, sans multiplication lors d’un nouvel import identique. Des journaux de rattachement indépendants gardent leurs snapshots distincts même si leurs numéros locaux coïncident. Les tables présentes doivent être des tableaux JSON ; une forme invalide est refusée plutôt que transformée en données vides. L’affichage humain échappe les caractères de contrôle du terminal, tandis que le stockage et les exports JSON/CSV gardent les valeurs originales.
+
+L’[adaptateur Subsonic/OpenSubsonic](server/subsonic.md) conserve aussi ici les playlists privées ordonnées et les scrobbles déclarés par les clients. L’ordre et les pistes répétées d’une playlist sont préservés ; ces playlists sont distinctes des collections intelligentes et des fichiers M3U exportés. Chaque playlist garde son propriétaire et son identifiant stable ; à l’import, la version complète la plus récente est conservée. À date égale, la version déjà présente est gardée et comptée dans le bilan. Les scrobbles gardent leur date en millisecondes Unix, sans inventer de durée écoutée ni de fin de lecture, et se fusionnent selon contenu et multiplicité. Ces deux tables sont facultatives dans le format personnel 2 : les anciens fichiers restent lisibles. Exports personnels complets et sauvegardes les incluent.
+
+## Retrouver les références en attente
+
+Un scan conserve les données personnelles dont la cible a disparu. Le rattachement automatique exige un candidat unique correspondant aux preuves d’identité déjà capturées ; un nom de fichier seul ne suffit pas. Les anciennes références sans preuves restent en attente.
+
+```sh
+aede notes --waiting --json
+aede notes --relink "track:/ancien/01.flac" --to "track:/nouveau/01.flac" --dry-run
+aede notes --relink "track:/ancien/01.flac" --to "track:/nouveau/01.flac"
+aede notes --relinks
+aede notes --undo-relink 1 --dry-run
+aede notes --undo-relink 1
+```
+
+Copiez la référence source affichée par `--waiting`. Pour `--to`, utilisez une référence exacte ou un nom unique précédé de son type, par exemple `track:So What` ou `album:Legion`. Le déplacement exige une source en attente et une cible actuelle de même type ; les conflits sont refusés. Notes, écoutes, compteurs, extrémités de relations, entrées de playlists et scrobbles sont déplacés uniquement pour le propriétaire choisi. Les bilans comptent les playlists concernées, même si une piste y figure plusieurs fois, et les scrobbles séparément des événements `Play` portant une durée. L’annulation préserve le texte et l’ordre des playlists ; elle refuse si les données concernées ont été modifiées ou si un nouveau conflit existe. Preuves d’identité et décisions de rattachement font partie des exports et sauvegardes.

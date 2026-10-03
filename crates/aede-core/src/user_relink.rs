@@ -35,6 +35,10 @@ pub struct RelinkSummary {
     pub counts: usize,
     /// Relationship annotations with an affected endpoint.
     pub relations: usize,
+    /// Static playlists containing at least one affected entry.
+    pub playlists: usize,
+    /// Client-declared listens without duration/completion evidence.
+    pub scrobbles: usize,
 }
 
 fn snapshot(data: &UserData, owner: &str, target: &EntityRef) -> UserData {
@@ -57,6 +61,18 @@ fn snapshot(data: &UserData, owner: &str, target: &EntityRef) -> UserData {
             .filter(|c| c.owner == owner && c.track == *target)
             .cloned()
             .collect(),
+        playlists: data
+            .playlists
+            .iter()
+            .filter(|p| p.owner == owner && p.tracks.contains(target))
+            .cloned()
+            .collect(),
+        scrobbles: data
+            .scrobbles
+            .iter()
+            .filter(|p| p.owner == owner && p.track == *target)
+            .cloned()
+            .collect(),
         relation_annotations: data
             .relation_annotations
             .iter()
@@ -75,6 +91,8 @@ fn summary(data: &UserData) -> RelinkSummary {
         plays: data.plays.len(),
         counts: data.counts.len(),
         relations: data.relation_annotations.len(),
+        playlists: data.playlists.len(),
+        scrobbles: data.scrobbles.len(),
     }
 }
 
@@ -105,6 +123,18 @@ fn rewrite(data: &mut UserData, owner: &str, from: &EntityRef, to: &EntityRef) {
                 .iter_mut()
                 .filter(|a| a.owner == owner)
                 .flat_map(|a| [&mut a.relation.source, &mut a.relation.target]),
+        )
+        .chain(
+            data.scrobbles
+                .iter_mut()
+                .filter(|p| p.owner == owner)
+                .map(|p| &mut p.track),
+        )
+        .chain(
+            data.playlists
+                .iter_mut()
+                .filter(|p| p.owner == owner)
+                .flat_map(|p| &mut p.tracks),
         )
     {
         if target == from {
@@ -164,6 +194,18 @@ impl UserData {
                     .iter()
                     .filter(|a| a.owner == owner)
                     .flat_map(|a| [&a.relation.source, &a.relation.target]),
+            )
+            .chain(
+                self.scrobbles
+                    .iter()
+                    .filter(|p| p.owner == owner)
+                    .map(|p| &p.track),
+            )
+            .chain(
+                self.playlists
+                    .iter()
+                    .filter(|p| p.owner == owner)
+                    .flat_map(|p| &p.tracks),
             )
             .any(|reference| {
                 reference.kind == to.kind && reference.resolve(catalog) == destination_id
@@ -240,6 +282,8 @@ impl UserData {
             || current.plays != expected.plays
             || current.counts != expected.counts
             || current.relation_annotations != expected.relation_annotations
+            || current.playlists != expected.playlists
+            || current.scrobbles != expected.scrobbles
         {
             return Err(
                 "the reattached records have changed; undo would discard newer personal data"
@@ -319,6 +363,8 @@ impl Relink {
             || selected.plays != event.before.plays
             || selected.counts != event.before.counts
             || selected.relation_annotations != event.before.relation_annotations
+            || selected.playlists != event.before.playlists
+            || selected.scrobbles != event.before.scrobbles
         {
             return None;
         }

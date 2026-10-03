@@ -322,10 +322,9 @@ fn mutates_store(command: &str) -> bool {
 
 fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
     if command == "accounts" {
-        return args
-            .positionals
-            .first()
-            .is_some_and(|operation| operation != "list");
+        return args.positionals.first().is_some_and(|operation| {
+            operation != "list" && !(operation == "keys" && args.positionals.len() == 2)
+        });
     }
     if matches!(
         command,

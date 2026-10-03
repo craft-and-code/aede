@@ -27,9 +27,14 @@ use crate::text;
 
 #[path = "user_identity.rs"]
 mod identity;
+#[path = "user_playlists.rs"]
+mod playlists;
 #[path = "user_relink.rs"]
 mod relink;
 pub use identity::{Attachment, TrackIdentity, reconcile};
+pub use playlists::{
+    PLAYLIST_LIMIT, PLAYLIST_OWNER_LIMIT, PLAYLIST_TRACK_LIMIT, Playlist, Scrobble,
+};
 pub use relink::{Relink, RelinkSummary};
 
 /// Version of the user file on disk, independent of the catalog's.
@@ -340,7 +345,7 @@ pub struct PlayCount {
     pub owner: UserRef,
     /// Which track.
     pub track: EntityRef,
-    /// How many times it was played, all-time.
+    /// All-time native listens and client-declared scrobbles combined.
     pub count: u32,
     /// When it was last played.
     pub last_played: u64,
@@ -450,6 +455,10 @@ pub struct UserData {
     pub counts: Vec<PlayCount>,
     /// Saved queries, by name.
     pub collections: Vec<Collection>,
+    /// Private, ordered static playlists, including repeated/missing tracks.
+    pub playlists: Vec<Playlist>,
+    /// Client-declared listens with unknown duration/completion, oldest first.
+    pub scrobbles: Vec<Scrobble>,
     /// Records taken off the `missing` report — see [`SetAside`].
     pub set_aside: Vec<SetAside>,
     /// Spellings the owner says are one artist — see [`SameArtist`].
@@ -596,6 +605,12 @@ impl UserData {
                 .iter()
                 .filter(|p| p.owner == owner && &p.track == track)
                 .map(|p| p.at)
+                .chain(
+                    self.scrobbles
+                        .iter()
+                        .filter(|p| p.owner == owner && &p.track == track)
+                        .map(|p| p.at_ms / 1000),
+                )
                 .max()
                 .unwrap_or(0);
         }
@@ -605,13 +620,16 @@ impl UserData {
 
     /// Forgets everything an owner ever played.
     ///
-    /// Both structures, for the reason above. Returns how many plays and how
-    /// many counters went, because "your history is cleared" is a claim nobody
+    /// Native events, declared scrobbles and counters are cleared together.
+    /// Returns how many events/declarations and how many counters went,
+    /// because "your history is cleared" is a claim nobody
     /// can check and a number is.
     pub fn forget_history(&mut self, owner: &str) -> (usize, usize) {
-        let plays = self.plays.iter().filter(|p| p.owner == owner).count();
+        let plays = self.plays.iter().filter(|p| p.owner == owner).count()
+            + self.scrobbles.iter().filter(|p| p.owner == owner).count();
         let counts = self.counts.iter().filter(|c| c.owner == owner).count();
         self.plays.retain(|p| p.owner != owner);
+        self.scrobbles.retain(|p| p.owner != owner);
         self.counts.retain(|c| c.owner != owner);
         (plays, counts)
     }
@@ -721,6 +739,7 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// An exclusive temporary output prevents an existing temporary symlink from
 /// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
+    playlists::validate(data)?;
     crate::atomic_file::write(path, to_json(data).to_string_pretty().as_bytes())?;
     Ok(())
 }
@@ -857,6 +876,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         })
         .collect();
     root.set("collections", Json::Arr(collections));
+    playlists::write_tables(data, &mut root);
 
     let set_aside: Vec<Json> = data
         .set_aside
@@ -903,13 +923,15 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
 
 /// Reads the document back.
 ///
-/// A row whose target cannot be parsed is **skipped rather than fatal**: one
+/// A legacy row whose target cannot be parsed is **skipped rather than fatal**: one
 /// corrupted line must not cost the user every note they ever wrote, which is
 /// the opposite of the catalog's rule, where a broken row means the graph does
 /// not hold together and refusing is the safe answer. Here there is no graph —
 /// only statements, each standing alone.
 /// Missing optional tables remain compatible with old stores. A present table
 /// of the wrong JSON type is refused before a later write can empty it.
+/// New static-playlist and scrobble rows are strictly validated: malformed or
+/// oversized rows fail the load, preserving the original file for recovery.
 pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::StoreError> {
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
@@ -928,6 +950,8 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         ("plays", "user plays must be an array"),
         ("counts", "user counts must be an array"),
         ("collections", "user collections must be an array"),
+        ("playlists", "user playlists must be an array"),
+        ("scrobbles", "user scrobbles must be an array"),
         ("set_aside", "user set-aside decisions must be an array"),
         ("same_artist", "user artist decisions must be an array"),
         ("track_identities", "user track identities must be an array"),
@@ -941,6 +965,8 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         }
     }
     let mut data = UserData {
+        playlists: playlists::read_playlists(value)?,
+        scrobbles: playlists::read_scrobbles(value)?,
         track_identities: value
             .get("track_identities")
             .and_then(crate::json::Json::as_arr)
@@ -1139,7 +1165,7 @@ pub struct Merge {
     pub updated: usize,
     /// Records left alone because what is here is newer.
     pub kept: usize,
-    /// Listening events that were not already in the log.
+    /// Native listening events or client declarations newly added to their logs.
     pub plays: usize,
     /// Saved queries taken in.
     pub collections: usize,
@@ -1162,6 +1188,7 @@ pub struct Merge {
 /// importing it never replays reattachment or undo commands.
 pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
     let mut report = Merge::default();
+    playlists::merge(into, incoming.playlists, incoming.scrobbles, &mut report);
 
     // These are evidence and an audit trail, not commands to replay. Preserve
     // local evidence on conflict; imported history never moves current data.
@@ -1185,6 +1212,8 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
                 && known.before.plays == event.before.plays
                 && known.before.counts == event.before.counts
                 && known.before.relation_annotations == event.before.relation_annotations
+                && known.before.playlists == event.before.playlists
+                && known.before.scrobbles == event.before.scrobbles
         });
         if known {
             continue;

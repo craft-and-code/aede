@@ -1114,7 +1114,8 @@ pub fn history(args: &Args) -> Res {
     if args.has("remove") {
         let mut data = read(args, &catalog)?;
         let (plays, counts) = (
-            data.plays.iter().filter(|p| p.owner == owner).count(),
+            data.plays.iter().filter(|p| p.owner == owner).count()
+                + data.scrobbles.iter().filter(|p| p.owner == owner).count(),
             data.counts.iter().filter(|c| c.owner == owner).count(),
         );
         if plays == 0 && counts == 0 {

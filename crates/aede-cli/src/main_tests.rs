@@ -8,6 +8,25 @@
 use super::*;
 
 #[test]
+fn key_listing_does_not_lock_but_key_changes_hold_the_writer_lock() {
+    for (arguments, needs_lock) in [
+        (vec!["accounts"], false),
+        (vec!["accounts", "list"], false),
+        (vec!["accounts", "keys", "alice"], false),
+        (vec!["accounts", "keys", "alice", "create", "phone"], true),
+        (vec!["accounts", "keys", "alice", "revoke", "id"], true),
+        (vec!["accounts", "password", "alice"], true),
+    ] {
+        let args = args::Args::parse(arguments.iter().map(|word| (*word).to_string()));
+        assert_eq!(
+            mutates_store_with_args("accounts", &args),
+            needs_lock,
+            "{arguments:?}"
+        );
+    }
+}
+
+#[test]
 fn scan_previews_and_note_reads_do_not_take_a_writer_lock() {
     for arguments in [
         vec!["sources"],

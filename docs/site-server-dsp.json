@@ -1,5 +1,12 @@
 [
   {
+    "slug": "server/subsonic",
+    "section": "server",
+    "title": { "en": "Subsonic and OpenSubsonic", "fr": "Subsonic et OpenSubsonic" },
+    "description": { "en": "Connect API-key clients to catalog browsing and original audio, with explicit compatibility limits.", "fr": "Connecter des clients à clés API au catalogue et à l’audio original, avec les limites de compatibilité." },
+    "source": { "en": "docs/server/subsonic.md", "fr": "docs/fr/server/subsonic.md" }
+  },
+  {
     "slug": "server/playback",
     "section": "server",
     "title": { "en": "Authenticated audio playback", "fr": "Lecture audio authentifiée" },

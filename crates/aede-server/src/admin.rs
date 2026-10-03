@@ -31,6 +31,7 @@ pub(super) async fn admin_scan(
     let admin = admin.clone();
     let task_id = state.next_task_id.fetch_add(1, Ordering::Relaxed);
     let events = state.events.clone();
+    let scan_activity = state.scan_activity.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         let _guard = StoreLock::try_acquire(&admin.data_dir).map_err(|error| {
             if error.kind() == std::io::ErrorKind::WouldBlock {
@@ -39,6 +40,7 @@ pub(super) async fn admin_scan(
                 error_message(StatusCode::INTERNAL_SERVER_ERROR, "store_error", error)
             }
         })?;
+        let scan_guard = scan_activity.start();
         let _ = events.send(CatalogEvent::TaskStarted {
             task_id,
             task_kind: "scan",
@@ -81,7 +83,7 @@ pub(super) async fn admin_scan(
             Ok((catalog, stamp(&path)))
         })();
         match outcome {
-            Ok((catalog, saved_stamp)) => Ok((_guard, catalog, saved_stamp)),
+            Ok((catalog, saved_stamp)) => Ok((_guard, scan_guard, catalog, saved_stamp)),
             Err(error) => {
                 let _ = events.send(CatalogEvent::TaskFailed {
                     task_id,
@@ -107,7 +109,7 @@ pub(super) async fn admin_scan(
             join_error.to_string(),
         )
     })?;
-    let (_store_guard, catalog, saved_stamp) = outcome?;
+    let (_store_guard, _scan_guard, catalog, saved_stamp) = outcome?;
     // Keep other writers out until the just-saved snapshot is published. A
     // second writer must not turn a successful scan into a spurious reload error.
     let _reload = state.reload_gate.lock().await;
@@ -129,3 +131,7 @@ pub(super) async fn admin_scan(
         files,
     }))
 }
+
+#[cfg(test)]
+#[path = "admin_tests.rs"]
+mod tests;

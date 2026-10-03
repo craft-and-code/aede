@@ -459,8 +459,13 @@ fn every_registered_http_route_is_listed_in_the_server_readme() {
                 .expect("literal route");
             let (path, _) = literal.split_once('"').expect("route closing quote");
             routes.insert(
-                path.replace(":id", "{id}")
-                    .replace(":username", "{username}"),
+                path.split('/')
+                    .map(|part| {
+                        part.strip_prefix(':')
+                            .map_or_else(|| part.to_string(), |name| format!("{{{name}}}"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("/"),
             );
         }
     }

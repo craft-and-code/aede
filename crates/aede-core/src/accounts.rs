@@ -4,6 +4,8 @@
 //! Other owners are generated independently of their changeable login names.
 //! Callers hold the data-directory writer lock for read/modify/save operations.
 //! Sessions belong to the server and are never persisted in this store.
+//! Optional persistent client keys retain only salted secret verifiers and
+//! are independently revocable; account-generation changes purge them.
 
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -15,6 +17,9 @@ use argon2::{Algorithm, Argon2, Params, Version};
 
 use crate::json::{self, Json};
 use crate::store::StoreError;
+
+mod keys;
+pub use keys::{ApiKey, MAX_API_KEY_LABEL_BYTES, MAX_API_KEYS, MAX_API_KEYS_PER_ACCOUNT};
 
 /// Account-store format, independent of the catalog and personal stores.
 pub const FORMAT_VERSION: u32 = 1;
@@ -106,6 +111,7 @@ impl Account {
 pub struct Accounts {
     epoch: String,
     records: Vec<Account>,
+    api_keys: Vec<ApiKey>,
 }
 
 impl Accounts {
@@ -123,6 +129,7 @@ impl Accounts {
                 revision: 1,
                 password_hash: hash_password(password)?,
             }],
+            api_keys: Vec::new(),
         })
     }
 
@@ -222,7 +229,7 @@ impl Accounts {
         self.edit(username, now, |account| account.username = replacement)
     }
 
-    /// Replace a salted password verifier and invalidate this account's sessions.
+    /// Replace a salted password verifier and invalidate this account's sessions and API keys.
     pub fn set_password(&mut self, username: &str, password: &str, now: u64) -> Result<(), String> {
         if self.find(username).is_none() {
             return Err("no account has this login name".into());
@@ -231,7 +238,7 @@ impl Accounts {
         self.edit(username, now, |account| account.password_hash = hash)
     }
 
-    /// Revoke one account's sessions without changing its password or opinions.
+    /// Revoke one account's sessions and API keys without changing its password or opinions.
     pub fn revoke(&mut self, username: &str, now: u64) -> Result<(), String> {
         let account = self
             .records
@@ -240,12 +247,15 @@ impl Accounts {
             .ok_or("no account has this login name")?;
         account.revision = next_revision(account.revision)?;
         account.updated_at = now;
+        let owner = account.id.clone();
+        self.purge_api_keys(&owner);
         Ok(())
     }
 
-    /// Invalidate all sessions, including sessions from before a backup restore.
+    /// Invalidate all sessions and API keys, including credentials from before a backup restore.
     pub fn revoke_all(&mut self) -> Result<(), String> {
         self.epoch = random_token()?;
+        self.api_keys.clear();
         Ok(())
     }
 
@@ -274,7 +284,9 @@ impl Accounts {
         }
         candidate.revision = next_revision(candidate.revision)?;
         candidate.updated_at = now;
+        let owner = candidate.id.clone();
         self.records[index] = candidate;
+        self.purge_api_keys(&owner);
         Ok(())
     }
 }
@@ -473,6 +485,9 @@ pub fn to_json(accounts: &Accounts) -> Json {
                 .collect(),
         ),
     );
+    if !accounts.api_keys.is_empty() {
+        root.set("api_keys", keys::to_json(&accounts.api_keys));
+    }
     root
 }
 
@@ -481,6 +496,26 @@ fn valid_token(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn valid_hash(hash: &str) -> bool {
+    if hash.len() > 256 {
+        return false;
+    }
+    let Ok(parsed) = PasswordHash::new(hash) else {
+        return false;
+    };
+    let Ok(params) = Params::try_from(&parsed) else {
+        return false;
+    };
+    parsed.algorithm.as_str() == "argon2id"
+        && parsed.version == Some(19)
+        && params.m_cost() == MEMORY_KIB
+        && params.t_cost() == 2
+        && params.p_cost() == 1
+        && parsed.hash.is_some_and(|hash| hash.len() == 32)
+        && parsed.salt.is_some_and(|salt| salt.len() == 22)
+        && parsed.params.iter().count() == 3
 }
 
 /// Refuse malformed, duplicate or administrator-less credentials as one whole store.
@@ -523,18 +558,7 @@ pub fn from_json(root: &Json) -> Result<Accounts, StoreError> {
             return Err(invalid());
         }
         let hash = string("password_hash")?;
-        let parsed = PasswordHash::new(hash).map_err(|_| invalid())?;
-        let params = Params::try_from(&parsed).map_err(|_| invalid())?;
-        if hash.len() > 256
-            || parsed.algorithm.as_str() != "argon2id"
-            || parsed.version != Some(19)
-            || params.m_cost() != MEMORY_KIB
-            || params.t_cost() != 2
-            || params.p_cost() != 1
-            || parsed.hash.is_none_or(|hash| hash.len() != 32)
-            || parsed.salt.is_none_or(|salt| salt.len() != 22)
-            || parsed.params.iter().count() != 3
-        {
+        if !valid_hash(hash) {
             return Err(invalid());
         }
         let revision = number("revision")?;
@@ -561,12 +585,18 @@ pub fn from_json(root: &Json) -> Result<Accounts, StoreError> {
     {
         return Err(invalid());
     }
+    let api_keys = keys::from_json(root.get("api_keys"), &records)?;
     Ok(Accounts {
         epoch: epoch.into(),
         records,
+        api_keys,
     })
 }
 
 #[cfg(test)]
 #[path = "accounts_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "accounts_test_support.rs"]
+pub(super) mod test_support;

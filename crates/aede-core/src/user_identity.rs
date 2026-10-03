@@ -278,6 +278,16 @@ pub fn reconcile(data: &mut UserData, catalog: &Catalog) -> Attachment {
                 .iter()
                 .map(|c| (c.owner.clone(), c.track.clone())),
         )
+        .chain(
+            data.scrobbles
+                .iter()
+                .map(|p| (p.owner.clone(), p.track.clone())),
+        )
+        .chain(data.playlists.iter().flat_map(|p| {
+            p.tracks
+                .iter()
+                .map(|track| (p.owner.clone(), track.clone()))
+        }))
         .chain(data.relation_annotations.iter().flat_map(|a| {
             [
                 (a.owner.clone(), a.relation.source.clone()),
@@ -339,6 +349,12 @@ pub fn reconcile(data: &mut UserData, catalog: &Catalog) -> Attachment {
         .map(|a| (&a.owner, &mut a.target))
         .chain(data.plays.iter_mut().map(|p| (&p.owner, &mut p.track)))
         .chain(data.counts.iter_mut().map(|c| (&c.owner, &mut c.track)))
+        .chain(data.scrobbles.iter_mut().map(|p| (&p.owner, &mut p.track)))
+        .chain(
+            data.playlists
+                .iter_mut()
+                .flat_map(|p| p.tracks.iter_mut().map(|track| (&p.owner, track))),
+        )
     {
         if let Some(next) = moves.get(&(owner.clone(), target.clone())) {
             *target = next.clone();
@@ -366,6 +382,8 @@ pub fn reconcile(data: &mut UserData, catalog: &Catalog) -> Attachment {
         .map(|a| &a.target)
         .chain(data.plays.iter().map(|p| &p.track))
         .chain(data.counts.iter().map(|c| &c.track))
+        .chain(data.scrobbles.iter().map(|p| &p.track))
+        .chain(data.playlists.iter().flat_map(|p| &p.tracks))
         .chain(
             data.relation_annotations
                 .iter()

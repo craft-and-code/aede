@@ -1,8 +1,6 @@
 use super::*;
 
-#[path = "accounts_test_support.rs"]
-mod support;
-use support::*;
+use super::test_support::*;
 
 #[test]
 fn bootstrap_preserves_local_ownership_and_passwords_are_salted_and_private() {

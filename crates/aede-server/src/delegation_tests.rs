@@ -109,7 +109,9 @@ fn command_test_state() -> ApiState {
         shutdown,
         admin: None,
         auth: Arc::new(crate::auth::AuthState::default()),
+        subsonic: Arc::new(crate::subsonic::authentication::Authentication::default()),
         next_task_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        scan_activity: crate::state::ScanActivity::default(),
         tasks: Arc::new(TaskRegistry::default()),
         connection_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS)),
         remote_request_slots: Arc::new(tokio::sync::Semaphore::new(MAX_REMOTE_REQUESTS)),
@@ -404,6 +406,7 @@ fn shutdown_finishes_accepted_work_after_its_client_disconnects() {
         let mut state = command_test_state();
         state.data_dir = data.clone();
         let shutdown = state.shutdown.clone();
+        let scan_activity = state.scan_activity.clone();
         let mut commands = tokio::spawn(accept_commands(listener, state, Arc::new(|_, _| true)));
         let mut client = UnixStream::connect(&path).unwrap();
         client
@@ -412,6 +415,7 @@ fn shutdown_finishes_accepted_work_after_its_client_disconnects() {
         send_request(&mut client, &test_request("scan", None)).unwrap();
         let _task = read_task(&mut client);
         wait_for_saved_work(&data).await;
+        let active_during_work = scan_activity.is_running();
         shutdown.send(()).unwrap();
         let waited = tokio::time::timeout(Duration::from_millis(100), &mut commands).await;
         drop(client);
@@ -424,6 +428,14 @@ fn shutdown_finishes_accepted_work_after_its_client_disconnects() {
         std::fs::remove_dir_all(data).unwrap();
         std::fs::remove_file(path).unwrap();
         assert!(waited.is_err(), "shutdown must wait for accepted work");
+        assert!(
+            active_during_work,
+            "the delegated scan must report active work"
+        );
+        assert!(
+            !scan_activity.is_running(),
+            "the completed worker must clear scan activity"
+        );
         assert!(
             completed,
             "client disconnection must not cancel the operation"

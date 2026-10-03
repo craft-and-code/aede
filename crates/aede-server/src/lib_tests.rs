@@ -365,6 +365,7 @@ fn an_administrative_scan_keeps_its_writer_lock_until_snapshot_publication() {
             }),
         });
         let catalog = state.catalog.clone();
+        let scan_activity = state.scan_activity.clone();
         let blocked_publication = catalog.write().await;
         let mut events = state.events.subscribe();
         let (address, server) = start_server(state).await;
@@ -395,6 +396,7 @@ fn an_administrative_scan_keeps_its_writer_lock_until_snapshot_publication() {
         })
         .await
         .unwrap();
+        let active_before_publication = scan_activity.is_running();
         drop(blocked_publication);
         release.send(()).unwrap();
         let response = response.await.unwrap();
@@ -408,6 +410,14 @@ fn an_administrative_scan_keeps_its_writer_lock_until_snapshot_publication() {
             "a competing writer acquired the store before the saved scan snapshot was published"
         );
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(
+            active_before_publication,
+            "scan activity must cover publication of the saved snapshot"
+        );
+        assert!(
+            !scan_activity.is_running(),
+            "published scan must clear activity"
+        );
         assert!(matches!(
             events.try_recv().unwrap(),
             CatalogEvent::TaskStarted { .. }

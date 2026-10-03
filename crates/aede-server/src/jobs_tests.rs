@@ -34,6 +34,52 @@ fn runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
+#[test]
+fn cancelled_scan_waiter_keeps_activity_until_the_actual_worker_stops() {
+    runtime().block_on(async {
+        let (started, received) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let released = std::sync::Mutex::new(released);
+        let state = state(move |_, _| {
+            started.send(()).unwrap();
+            released
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap();
+            Ok(JobOutput::default())
+        });
+        let cancellation = state.jobs.insert(1, "scan").unwrap();
+        let waiter = tokio::spawn(run_job(
+            state.clone(),
+            1,
+            JobRequest::Scan(ScanRequest::default()),
+            cancellation,
+            state.admin.as_ref().unwrap().job.clone(),
+        ));
+        tokio::task::spawn_blocking(move || received.recv_timeout(Duration::from_secs(3)).unwrap())
+            .await
+            .unwrap();
+        let active_before_abort = state.scan_activity.is_running();
+        waiter.abort();
+        let _ = waiter.await;
+        let active_after_abort = state.scan_activity.is_running();
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while state.scan_activity.is_running() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(active_before_abort);
+        assert!(
+            active_after_abort,
+            "aborting the waiter cannot stop the blocking scan worker"
+        );
+    });
+}
+
 async fn accepted_id(response: Response) -> u64 {
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let bytes = to_bytes(response.into_body(), MAX_BODY).await.unwrap();

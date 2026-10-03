@@ -7,7 +7,10 @@ use aede_core::json::Json;
 
 use super::{Args, Res, ui};
 
-const USAGE: &str = "aede accounts [list | init <name> | create <name> <admin|user|auditor> | password <name> | role <name> <admin|user|auditor> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name>] [--password-stdin] [--json]";
+#[path = "accounts_keys.rs"]
+mod keys;
+
+const USAGE: &str = "aede accounts [list | init <name> | create <name> <admin|user|auditor> | password <name> | role <name> <admin|user|auditor> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name> | keys <name> [create <label> | revoke <id>]] [--password-stdin] [--json]";
 
 fn password(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
     if !args.has("password-stdin") || std::io::stdin().is_terminal() {
@@ -37,6 +40,9 @@ pub fn accounts(args: &Args) -> Res {
     let needs_password = matches!(operation, "init" | "create" | "password");
     if args.value("password-stdin").is_some() || args.has("password-stdin") && !needs_password {
         return Err("--password-stdin is a flag for init, create and password only".into());
+    }
+    if operation == "keys" {
+        return keys::run(args, &words);
     }
     let count = match operation {
         "list" => {
@@ -124,7 +130,7 @@ pub fn accounts(args: &Args) -> Res {
         }
         print!("{}", table.render());
         if operation != "list" {
-            println!("Account update saved; affected sessions are revoked.");
+            println!("Account update saved; affected sessions and API keys are revoked.");
         }
     } else {
         println!(

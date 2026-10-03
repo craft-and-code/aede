@@ -211,6 +211,13 @@ fn invalid_arguments_and_passwords_never_publish_credentials() {
 fn account_backup_restores_owners_and_passwords_with_a_fresh_session_epoch() {
     let fixture = Fixture::new();
     fixture.init();
+    let issued = fixture.run(
+        &["accounts", "keys", "operator", "create", "phone", "--json"],
+        None,
+    );
+    assert!(issued.status.success());
+    let issued = aede_core::json::parse(&String::from_utf8(issued.stdout).unwrap()).unwrap();
+    let token = issued.get("token").unwrap().as_str().unwrap().to_owned();
     let original = fixture.accounts();
     let archive = fixture.0.join("archive.json");
     assert!(
@@ -239,6 +246,8 @@ fn account_backup_restores_owners_and_passwords_with_a_fresh_session_epoch() {
     assert_eq!(restored.all(), original.all());
     assert_ne!(restored.epoch(), original.epoch());
     assert!(restored.authenticate("operator", PASSWORD).is_some());
+    assert!(restored.api_keys("operator").unwrap().is_empty());
+    assert!(restored.authenticate_api_key(&token).is_none());
     assert!(
         !fixture
             .run(
@@ -256,9 +265,167 @@ fn account_backup_restores_owners_and_passwords_with_a_fresh_session_epoch() {
 }
 
 #[test]
+fn api_keys_are_shown_once_listed_without_secrets_and_revoked_independently() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let issue = |label: &str| {
+        let result = fixture.run(
+            &["accounts", "keys", "operator", "create", label, "--json"],
+            None,
+        );
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        aede_core::json::parse(&String::from_utf8(result.stdout).unwrap()).unwrap()
+    };
+    let first = issue("Living room");
+    let first_token = first.get("token").unwrap().as_str().unwrap();
+    let first_id = first.get("id").unwrap().as_str().unwrap();
+    assert_eq!(first.get("label").unwrap().as_str(), Some("Living room"));
+    assert!(first.get("created_at").unwrap().as_u64().is_some());
+    let second = issue("Phone");
+    let second_token = second.get("token").unwrap().as_str().unwrap();
+    assert!(
+        fixture
+            .accounts()
+            .authenticate_api_key(first_token)
+            .is_some()
+    );
+    assert!(
+        fixture
+            .accounts()
+            .authenticate_api_key(second_token)
+            .is_some()
+    );
+    let listed = fixture.run(&["accounts", "keys", "OPERATOR", "--json"], None);
+    assert!(listed.status.success());
+    let text = String::from_utf8(listed.stdout).unwrap();
+    let rows = aede_core::json::parse(&text).unwrap();
+    assert_eq!(rows.as_arr().unwrap().len(), 2);
+    assert_eq!(
+        rows.as_arr().unwrap()[0].get("id").unwrap().as_str(),
+        Some(first_id)
+    );
+    assert_eq!(
+        rows.as_arr().unwrap()[0].get("label").unwrap().as_str(),
+        Some("Living room")
+    );
+    assert!(text.contains("Living room"));
+    for private in [
+        first_token,
+        second_token,
+        "token",
+        "owner",
+        "revision",
+        "hash",
+        "argon2",
+    ] {
+        assert!(!text.contains(private), "{private}");
+    }
+    let stored = std::fs::read_to_string(accounts::accounts_path(&fixture.0)).unwrap();
+    assert!(!stored.contains(first_token.split_once('.').unwrap().1));
+    assert!(!stored.contains(second_token.split_once('.').unwrap().1));
+    let revoked = fixture.run(
+        &["accounts", "keys", "operator", "revoke", first_id, "--json"],
+        None,
+    );
+    assert!(revoked.status.success());
+    let listed = aede_core::json::parse(&String::from_utf8(revoked.stdout).unwrap()).unwrap();
+    assert_eq!(listed.as_arr().unwrap().len(), 1);
+    assert!(
+        fixture
+            .accounts()
+            .authenticate_api_key(first_token)
+            .is_none()
+    );
+    assert!(
+        fixture
+            .accounts()
+            .authenticate_api_key(second_token)
+            .is_some()
+    );
+    assert!(
+        fixture
+            .run(&["accounts", "revoke", "operator"], None)
+            .status
+            .success()
+    );
+    assert!(fixture.accounts().api_keys("operator").unwrap().is_empty());
+}
+
+#[test]
+fn key_reads_remain_available_under_a_writer_lock_and_invalid_commands_show_no_secret() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let before = std::fs::read(accounts::accounts_path(&fixture.0)).unwrap();
+    for arguments in [
+        vec!["accounts", "keys"],
+        vec!["accounts", "keys", "operator", "list"],
+        vec!["accounts", "keys", "operator", "create"],
+        vec!["accounts", "keys", "operator", "create", " "],
+        vec!["accounts", "keys", "operator", "create", "phone", "extra"],
+        vec!["accounts", "keys", "operator", "revoke"],
+        vec!["accounts", "keys", "operator", "revoke", "unknown"],
+        vec!["accounts", "keys", "operator", "unknown", "phone"],
+        vec!["accounts", "keys", "operator", "--password-stdin"],
+    ] {
+        let result = fixture.run(&arguments, None);
+        assert!(!result.status.success(), "{arguments:?}");
+        assert!(
+            result.stdout.is_empty(),
+            "no token on refusal: {arguments:?}"
+        );
+    }
+    assert_eq!(
+        std::fs::read(accounts::accounts_path(&fixture.0)).unwrap(),
+        before
+    );
+    let held = aede_core::store_lock::StoreLock::acquire(&fixture.0).unwrap();
+    assert!(
+        fixture
+            .run(&["accounts", "keys", "operator", "--json"], None)
+            .status
+            .success()
+    );
+    let mut blocked = Command::new(env!("CARGO_BIN_EXE_aede"))
+        .args(["accounts", "keys", "operator", "create", "phone", "--json"])
+        .env("AEDE_HOME", &fixture.0)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(blocked.try_wait().unwrap().is_none());
+    assert_eq!(
+        std::fs::read(accounts::accounts_path(&fixture.0)).unwrap(),
+        before
+    );
+    drop(held);
+    let published = blocked.wait_with_output().unwrap();
+    assert!(
+        published.status.success(),
+        "{}",
+        String::from_utf8_lossy(&published.stderr)
+    );
+    let published = aede_core::json::parse(&String::from_utf8(published.stdout).unwrap()).unwrap();
+    let token = published.get("token").unwrap().as_str().unwrap();
+    assert!(fixture.accounts().authenticate_api_key(token).is_some());
+}
+
+#[test]
 fn legacy_restore_and_reset_preserve_existing_accounts() {
     let fixture = Fixture::new();
     fixture.init();
+    assert!(
+        fixture
+            .run(&["accounts", "keys", "operator", "create", "phone"], None)
+            .status
+            .success()
+    );
     let before = std::fs::read(accounts::accounts_path(&fixture.0)).unwrap();
     let archive = fixture.0.join("legacy.json");
     let value =

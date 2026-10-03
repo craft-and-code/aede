@@ -191,6 +191,29 @@ pub fn image_kind(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// A validated original or a derived PNG thumbnail kept only in memory.
+///
+/// Rendering never changes the source bytes or writes a file. Thumbnails keep
+/// the aspect ratio, never enlarge the original and retain PNG sample depth.
+#[derive(Debug)]
+pub struct RenderedImage {
+    /// Original JPEG/PNG bytes, or a losslessly encoded PNG thumbnail.
+    pub bytes: Vec<u8>,
+    /// Validated container, either `jpg` or `png`.
+    pub format: &'static str,
+}
+
+/// Validate an image and optionally produce a thumbnail for a client response.
+///
+/// `size` bounds the longest axis, from 1 through 2048 pixels. An image already
+/// within that bound is returned byte-for-byte. A larger image is resampled in
+/// memory and encoded as PNG; the original remains untouched. The same input,
+/// decoded-memory, dimension and cooperative time limits as [`write_image`]
+/// apply. This is response rendering, not an artwork download/conversion pass.
+pub fn render_image(bytes: &[u8], size: Option<u32>) -> Result<RenderedImage, String> {
+    crate::image::render(bytes, size)
+}
+
 /// What a picture is of, for the few kinds worth telling apart.
 ///
 /// The archive and the tag formats both classify their images, and the

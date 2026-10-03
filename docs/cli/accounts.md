@@ -1,4 +1,4 @@
-# accounts — Manage local accounts and revoke sessions
+# accounts — Manage accounts, sessions and client keys
 
 Accounts share the music catalog and keep favourites, ratings, notes, history and collections private to their stable owner. The first administrator retains the existing `local` owner's data. Renaming or disabling a login keeps its personal data. The CLI remains trusted as the operating-system owner; its existing personal commands still address `local`.
 
@@ -14,9 +14,14 @@ aede accounts rename <name> <new-name>
 aede accounts enable <name>
 aede accounts disable <name>
 aede accounts revoke <name>
+aede accounts keys <name>
+aede accounts keys <name> create <label>
+aede accounts keys <name> revoke <key-id>
 ```
 
-`init` creates the first administrator once. `create` requires an explicit role. `admin` manages accounts and installation work; `user` can change only their own personal data; `auditor` can read the shared catalog and their own personal API views only. An auditor cannot change their password through the API, edit personal data, manage accounts or run jobs. At least one administrator must remain enabled. `password` resets a password; `revoke` invalidates sessions without changing it. Changes to a login, role, password or enabled state revoke its sessions. There is no account deletion or public registration; disabling preserves ownership for a later return.
+`init` creates the first administrator once. `create` requires an explicit role. `admin` manages accounts and installation work; `user` can change only their own personal data; `auditor` can read the shared catalog and their own personal API views only. An auditor cannot change their password through the API, edit personal data, manage accounts or run jobs. At least one administrator must remain enabled. `password` resets a password; `revoke` invalidates sessions and API keys without changing it. Changes to a login, role, password or enabled state revoke its sessions and keys. There is no account deletion or public registration; disabling preserves ownership for a later return.
+
+`keys` lists a named account's persistent OpenSubsonic keys. `keys … create <label>` saves a new key and shows its full secret once; `keys … revoke <key-id>` removes only that key. Labels need non-whitespace text within 128 UTF-8 bytes. Maximum: eight keys per account, 512 total. `--json` returns metadata arrays for listing/revocation, or one metadata object plus `token` for creation. Keep that creation output private. Listing needs no writer lock; create/revoke use it. These keys survive restart, have no automatic expiry, and are removed by account changes, account-wide revocation and restore. See [client setup and supported methods](../server/subsonic.md).
 
 Login names use 1–64 ASCII letters, digits, dots, underscores or hyphens and compare case-insensitively. At least one letter or digit is required. Passwords need at least 15 Unicode characters and at most 1024 UTF-8 bytes, without NUL. The stdin interface accepts one line and removes a final LF or CRLF; embedded line breaks are refused.
 
@@ -25,7 +30,7 @@ Login names use 1–64 ASCII letters, digits, dots, underscores or hyphens and c
 | Option | Meaning |
 | --- | --- |
 | `--password-stdin` | Read the password from redirected input for `init`, `create` or `password`. Interactive terminal input is refused. Passwords are never positional arguments. |
-| `--json` | Output an array of account metadata, including after an update. It contains no password, hash or session token. |
+| `--json` | Account operations output metadata arrays without passwords/verifiers/session tokens. Key operations use the shapes above; creation includes the one-time key secret. |
 
 The shared [options reference](options.md) explains `--data`, colors and help. Listing needs no catalog or writer lock. Mutations use the data-directory lock directly, including when the server runs; account commands are never forwarded through command delegation.
 

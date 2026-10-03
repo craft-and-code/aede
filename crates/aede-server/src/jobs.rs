@@ -531,8 +531,8 @@ async fn run_job(
     run: Arc<JobCallback>,
 ) {
     let kind = request.kind();
-    let outcome = if state.jobs.running(task_id).is_err() {
-        Err("cannot start administrative task".into())
+    let (outcome, _scan_guard) = if state.jobs.running(task_id).is_err() {
+        (Err("cannot start administrative task".into()), None)
     } else {
         let _ = state.events.send(CatalogEvent::TaskStarted {
             task_id,
@@ -548,17 +548,21 @@ async fn run_job(
             done: 0,
             total: 0,
         });
+        let scan_activity = state.scan_activity.clone();
         tokio::task::spawn_blocking(move || {
-            if cancellation.load(Ordering::Acquire) {
-                return Ok(JobOutput {
+            let scan_guard = (kind == "scan").then(|| scan_activity.start());
+            let outcome = if cancellation.load(Ordering::Acquire) {
+                Ok(JobOutput {
                     exit_code: 130,
                     ..Default::default()
-                });
-            }
-            run(request, cancellation)
+                })
+            } else {
+                run(request, cancellation)
+            };
+            (outcome, scan_guard)
         })
         .await
-        .unwrap_or_else(|_| Err("administrative command worker failed".into()))
+        .unwrap_or_else(|_| (Err("administrative command worker failed".into()), None))
     };
     // The command has stopped, but its changed catalog is not visible until
     // the server has refreshed the snapshot it publishes to readers.

@@ -9,6 +9,8 @@ struct WaitingReference {
     plays: usize,
     counts: usize,
     relations: usize,
+    playlists: usize,
+    scrobbles: usize,
 }
 
 fn waiting_references(
@@ -48,6 +50,18 @@ fn waiting_references(
                 .filter(|count| count.owner == owner && label.is_none())
                 .map(|count| &count.track),
         )
+        .chain(
+            data.playlists
+                .iter()
+                .filter(|playlist| playlist.owner == owner && label.is_none())
+                .flat_map(|playlist| &playlist.tracks),
+        )
+        .chain(
+            data.scrobbles
+                .iter()
+                .filter(|report| report.owner == owner && label.is_none())
+                .map(|report| &report.track),
+        )
         .filter(|reference| reference.resolve(catalog).is_none())
         .cloned()
         .collect();
@@ -77,6 +91,16 @@ fn waiting_references(
                             || annotation.relation.target == reference)
                 })
                 .count(),
+            playlists: data
+                .playlists
+                .iter()
+                .filter(|playlist| playlist.owner == owner && playlist.tracks.contains(&reference))
+                .count(),
+            scrobbles: data
+                .scrobbles
+                .iter()
+                .filter(|report| report.owner == owner && report.track == reference)
+                .count(),
             reference: reference.clone(),
         };
         rows.insert(reference, row);
@@ -104,6 +128,8 @@ pub(super) fn waiting_notes(args: &Args, catalog: &Catalog, data: &UserData) -> 
                 value.set("plays", row.plays.into());
                 value.set("counts", row.counts.into());
                 value.set("relations", row.relations.into());
+                value.set("playlists", row.playlists.into());
+                value.set("scrobbles", row.scrobbles.into());
                 value
             })
             .collect();
@@ -123,6 +149,8 @@ pub(super) fn waiting_notes(args: &Args, catalog: &Catalog, data: &UserData) -> 
                 row.plays.to_string(),
                 row.counts.to_string(),
                 row.relations.to_string(),
+                row.playlists.to_string(),
+                row.scrobbles.to_string(),
             ]
         })
         .collect::<Vec<_>>();
@@ -136,6 +164,8 @@ pub(super) fn waiting_notes(args: &Args, catalog: &Catalog, data: &UserData) -> 
                 "plays",
                 "counts",
                 "relations",
+                "playlists",
+                "scrobbles",
             ],
             &table_rows,
             args,
@@ -156,6 +186,8 @@ pub(super) fn waiting_notes(args: &Args, catalog: &Catalog, data: &UserData) -> 
         "Listens",
         "Counters",
         "Relations",
+        "Playlists",
+        "Client listens",
     ]);
     for row in &selected {
         table.push(vec![
@@ -165,6 +197,8 @@ pub(super) fn waiting_notes(args: &Args, catalog: &Catalog, data: &UserData) -> 
             row.plays.to_string(),
             row.counts.to_string(),
             row.relations.to_string(),
+            row.playlists.to_string(),
+            row.scrobbles.to_string(),
         ]);
     }
     print!("{}", table.render());
@@ -333,6 +367,8 @@ pub(super) fn relink_notes(args: &Args, catalog: &Catalog, data: &mut UserData) 
         row.set("plays", summary.plays.into());
         row.set("counts", summary.counts.into());
         row.set("relations", summary.relations.into());
+        row.set("playlists", summary.playlists.into());
+        row.set("scrobbles", summary.scrobbles.into());
         return super::super::export::emit(args, &row.to_string_pretty());
     }
     if args.has("csv") {
@@ -346,6 +382,8 @@ pub(super) fn relink_notes(args: &Args, catalog: &Catalog, data: &mut UserData) 
                 "plays",
                 "counts",
                 "relations",
+                "playlists",
+                "scrobbles",
             ],
             &[vec![
                 id.map(|id| id.to_string()).unwrap_or_default(),
@@ -356,12 +394,14 @@ pub(super) fn relink_notes(args: &Args, catalog: &Catalog, data: &mut UserData) 
                 summary.plays.to_string(),
                 summary.counts.to_string(),
                 summary.relations.to_string(),
+                summary.playlists.to_string(),
+                summary.scrobbles.to_string(),
             ]],
             args,
         );
     }
     println!(
-        "{} {} → {}: {} annotations, {} listens, {} counters, {} relation notes{}",
+        "{} {} → {}: {} annotations, {} listens, {} counters, {} relation notes, {} playlists, {} client listens{}",
         if dry_run {
             "Would reattach"
         } else {
@@ -373,6 +413,8 @@ pub(super) fn relink_notes(args: &Args, catalog: &Catalog, data: &mut UserData) 
         summary.plays,
         summary.counts,
         summary.relations,
+        summary.playlists,
+        summary.scrobbles,
         id.map(|id| format!(" (reattachment {id})"))
             .unwrap_or_default()
     );

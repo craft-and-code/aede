@@ -16,6 +16,10 @@ const MAX_PARTS: usize = 16_384;
 const MAX_SCANS: usize = 64;
 const TIME_BUDGET: Duration = Duration::from_secs(5);
 
+#[path = "image_render.rs"]
+mod rendering;
+pub(crate) use rendering::render;
+
 /// Validates all image rows before any filesystem mutation.
 ///
 /// PNG checks include every chunk CRC, IDAT Adler-32 and the final IEND.
@@ -335,6 +339,10 @@ impl Seek for TimedCursor<'_> {
         self.cursor.seek(position)
     }
 }
+
+#[cfg(test)]
+#[path = "image_test_support.rs"]
+mod test_support;
 
 #[cfg(test)]
 #[path = "image_tests.rs"]

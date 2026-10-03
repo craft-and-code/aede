@@ -97,3 +97,21 @@ fn a_list_is_read_out_the_way_it_is_said() {
         "\"a\", \"b\" and \"c\""
     );
 }
+
+#[test]
+fn forgetting_history_includes_client_reports_without_counters_and_keeps_other_owners() {
+    let store = super::test_support::NotesStore::new();
+    let mut data = UserData::default();
+    for owner in [LOCAL_USER, "other"] {
+        data.scrobbles.push(user::Scrobble {
+            owner: owner.into(),
+            track: store.to.clone(),
+            at_ms: 1000,
+        });
+    }
+    user::save(&data, &user::user_path(&store.path)).unwrap();
+    history(&store.args(&["--remove".into(), "--yes".into()])).unwrap();
+    let remaining = store.data();
+    assert_eq!(remaining.scrobbles.len(), 1);
+    assert_eq!(remaining.scrobbles[0].owner, "other");
+}

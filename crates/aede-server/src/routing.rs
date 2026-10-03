@@ -33,6 +33,7 @@ fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
         })
         .merge(personal::account_routes())
         .merge(playback_api::routes())
+        .merge(subsonic::routes())
         .merge(catalog_commands::routes())
         .merge(inspection::routes());
     if admin_enabled {

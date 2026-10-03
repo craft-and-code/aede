@@ -1,8 +1,6 @@
 use super::*;
 
-#[path = "image_test_support.rs"]
-mod test_support;
-use test_support::*;
+use super::test_support::*;
 
 #[test]
 fn a_png_palette_cannot_end_with_an_incomplete_rgb_entry() {

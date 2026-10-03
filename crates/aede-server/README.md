@@ -2,6 +2,8 @@
 
 This crate implements the HTTP/JSON/WebSocket interface and optional direct HTTPS. The CLI supplies the scan/fetch execution callbacks; catalog and PCM/DSP logic stay in the shared core. See the [versioned API contract](../../docs/api.md) for compatibility, error envelopes, field definitions and the security boundary, and the [operating guide](../../docs/operating.md) for deployment.
 
+The [Subsonic/OpenSubsonic adapter](../../docs/server/subsonic.md) adds GET/form-POST `/rest/{method}` and `/rest/{method}.view`, using persistent revocable API keys, XML/JSON envelopes, ID3 browsing/search, original audio with byte ranges, verified sidecar artwork and private favourites/ratings/static playlists. Client-declared scrobbles increment private counts without inventing played duration/completion; now-playing reports are temporary and owner-scoped. Native PCM and the graph keep their own contracts. A key may use `apiKey` or the legacy username/password fields, with the complete client key in the password field. The guide gives a macOS Supersonic setup using **Use legacy authentication**, original audio and **Title (A-Z)**, plus supported routes and honest remaining limits. Client source inspection is complete; physical-client interoperability still needs validation.
+
 ## Start and read albums
 
 ```sh
@@ -215,7 +217,7 @@ Every personal read and write obtains the same data-directory lock as the CLI an
 
 ## Deliberately not exposed yet
 
-Static playlist creation/export, relation annotations, source-review decisions, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution are not implemented. Aède's existing `playlist` CLI command generates an M3U from a current selection; it is not a persistent playlist model, so the API does not misrepresent a smart collection as one. Their CLI availability does not imply an HTTP route. Lyrics/prose delivery and binary artwork need separate contracts; native audio uses the documented PCM WebSocket. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
+The native HTTP routes leave static-playlist creation/export, relation annotations, source-review decisions, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution to other interfaces. The [Subsonic adapter](../../docs/server/subsonic.md) exposes private persistent static playlists and verified sidecar artwork under its compatibility contract. Aède's `playlist` CLI command generates an M3U from a current selection, while native collection routes retain query collections. CLI availability does not imply an HTTP route. Native lyrics/prose/artwork delivery still needs a defined contract; native audio uses the documented PCM WebSocket. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
 
 ## Code layout
 
@@ -230,6 +232,7 @@ Static playlist creation/export, relation annotations, source-review decisions, 
 - `playback_api.rs`: authenticated PCM transport and client acknowledgements.
 - `admin.rs`, `jobs.rs`, `personal.rs`: compatibility scan, asynchronous HTTP work and owner-scoped personal data.
 - `delegation.rs`: the Unix-only local CLI channel, separate from HTTP tasks.
+- `subsonic/`: compatibility parsing/envelopes, API-key checks, ID3/private-data projection, bounded original audio/artwork and temporary owner-scoped now-playing reports.
 - `*_tests.rs`, `test_support.rs`: isolated tests and shared test-only fixtures.
 
 The CLI adapter in `aede-cli/src/commands/server_jobs.rs` maps typed requests to existing commands without a shell. No new storage format or database is required.

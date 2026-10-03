@@ -25,6 +25,11 @@ pub(super) async fn start_http(
     tokio::sync::oneshot::Sender<()>,
     tokio::task::JoinHandle<Result<(), std::io::Error>>,
 ) {
+    let catalog_path = store::catalog_path(&state.data_dir);
+    // Match normal startup: the fixture's snapshot was already loaded and
+    // saved. An unknown stamp would make the watcher take the writer lock for
+    // an unnecessary reload and race with the first synchronous scan.
+    *state.loaded_stamp.write().await = runtime::stamp(&catalog_path);
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
@@ -36,7 +41,7 @@ pub(super) async fn start_http(
     let server = tokio::spawn(async move {
         runtime::run_http(
             listener,
-            store::catalog_path(&state.data_dir),
+            catalog_path,
             state,
             #[cfg(unix)]
             command_listener,

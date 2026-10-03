@@ -323,6 +323,12 @@ pub(super) fn session_token(principal: &Principal) -> &str {
 }
 
 async fn check_request(state: &ApiState, request: &mut Request) -> Result<(), ApiError> {
+    // The adapter has its own protocol authentication/error envelope. Public
+    // extension discovery must also work without a readable account store.
+    // Host/Origin and transport admission are enforced by outer middleware.
+    if request.uri().path().starts_with("/rest/") {
+        return Ok(());
+    }
     let accounts = current_accounts(state).await?;
     let path = request.uri().path().to_owned();
     let admin_token = state.admin.as_ref().is_some_and(|admin| {
