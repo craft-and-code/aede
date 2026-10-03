@@ -256,6 +256,97 @@ fn an_answer_holding_nothing_is_not_the_absence_of_an_answer() {
 }
 
 #[test]
+fn a_completed_empty_discography_survives_storage() {
+    let json = crate::json::parse(&format!(
+        r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+            {{"entity":"artist:miles davis","source":"musicbrainz","source_id":"561d854a",
+             "confidence":"identified","fetched_at":1,
+             "facts":{{"discography":[],"discography_fetched_at":17}}}}
+        ]}}"#
+    ))
+    .unwrap();
+    let held = from_json(&json).unwrap();
+    assert!(
+        !held.records[0].facts.is_empty(),
+        "an empty completed answer is knowledge, not an unasked source"
+    );
+    let encoded = to_json(&held);
+    let written = encoded
+        .get("records")
+        .and_then(crate::json::Json::as_arr)
+        .unwrap()[0]
+        .get("facts")
+        .unwrap();
+    assert_eq!(
+        written
+            .get("discography_fetched_at")
+            .and_then(crate::json::Json::as_u64),
+        Some(17)
+    );
+    assert_eq!(from_json(&encoded).unwrap(), held);
+}
+
+#[test]
+fn malformed_discography_markers_do_not_create_an_empty_completed_answer() {
+    for facts in [
+        r#"{"discography":[],"discography_fetched_at":false}"#,
+        r#"{"discography":[],"discography_fetched_at":-1}"#,
+        r#"{"discography":[],"discography_fetched_at":1.5}"#,
+        r#"{"discography":[],"discography_fetched_at":18446744073709551615}"#,
+        r#"{"discography":[],"discography_fetched_at":"17"}"#,
+        r#"{"discography_fetched_at":17}"#,
+        r#"{"discography":null,"discography_fetched_at":17}"#,
+        r#"{"discography":[null],"discography_fetched_at":17}"#,
+        r#"{"discography":[{}],"discography_fetched_at":17}"#,
+    ] {
+        let json = crate::json::parse(&format!(
+            r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+                {{"entity":"artist:miles davis","source":"musicbrainz",
+                 "confidence":"identified","fetched_at":1,"facts":{facts}}}
+            ]}}"#
+        ))
+        .unwrap();
+        let held = from_json(&json).unwrap();
+        assert!(
+            held.records[0].facts.is_empty(),
+            "malformed facts must not become a completed empty answer: {facts}"
+        );
+    }
+}
+
+#[test]
+fn an_unreadable_discography_does_not_cache_its_readable_subset() {
+    for marker in ["", r#", "discography_fetched_at":17"#] {
+        for unreadable in [r#"{}"#, r#"{"mbid":""}"#, r#"{"mbid":" "}"#] {
+            let json = crate::json::parse(&format!(
+                r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+                    {{"entity":"artist:miles davis","source":"musicbrainz","source_id":"561d854a",
+                     "confidence":"identified","fetched_at":1,
+                     "facts":{{"area":"United States","discography":[
+                        {{"mbid":"group-1","title":"Valid"}},{unreadable}
+                     ]{marker}}}}}
+                ]}}"#
+            ))
+            .unwrap();
+            let held = from_json(&json).unwrap();
+            let Facts::Artist(artist) = &held.records[0].facts else {
+                panic!("artist facts");
+            };
+            assert!(
+                !artist.discography_is_cached(),
+                "an invalid row must not leave a partial list cached through legacy fallback: {unreadable} {marker}"
+            );
+            assert!(artist.discography.is_empty());
+            assert_eq!(
+                artist.area.as_deref(),
+                Some("United States"),
+                "unrelated facts remain available"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_round_trip_keeps_every_field() {
     let mut sources = Sources::default();
     sources.set(SourceRecord {
@@ -285,6 +376,7 @@ fn a_round_trip_keeps_every_field() {
             wikidata: Some("https://www.wikidata.org/wiki/Q93341".to_string()),
             discogs: None,
             homepage: None,
+            discography_fetched_at: Some(1_700_000_455),
             discography: vec![KnownRelease {
                 mbid: "c9fdb94c".to_string(),
                 title: "Kind of Blue".to_string(),
@@ -621,6 +713,79 @@ fn edition_credit_and_one_credit_exclusion_survive_round_trip() {
     );
     assert_eq!(restored.credit_exclusions[0].relation, reference);
     assert!(restored.clone().restore_credit(&reference));
+}
+
+#[test]
+fn fetched_edition_credits_need_identification_but_manual_credits_use_the_local_key() {
+    let mut catalog = crate::model::tests::example_catalog();
+    catalog.releases[0].mbid = None;
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    let mut held = Sources::default();
+    let mut claim = SourceRecord {
+        key: entity.key,
+        source: MUSICBRAINZ.into(),
+        source_id: Some("group-id".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Release(ReleaseFacts {
+            credits: vec![CreditLink {
+                relation_id: None,
+                role_id: None,
+                role: "producer".into(),
+                direction: None,
+                artist_mbid: "artist-id".into(),
+                artist_name: "A Producer".into(),
+                credited_as: None,
+                attributes: vec![],
+                began: None,
+                ended: None,
+                over: None,
+                order: None,
+            }],
+            relationships_complete: true,
+            ..Default::default()
+        }),
+    };
+    let mut manual = claim.clone();
+    manual.source = "manual".into();
+    manual.source_id = None;
+    held.set(claim.clone());
+    assert!(held.edition_credit_links(&catalog).is_empty());
+    let Facts::Release(facts) = &mut claim.facts else {
+        panic!("release");
+    };
+    facts.edition_mbid = Some("edition-id".into());
+    held.set(claim);
+    assert!(held.edition_credit_links(&catalog).is_empty());
+    catalog.releases[0].mbid = Some("another-edition".into());
+    assert!(held.edition_credit_links(&catalog).is_empty());
+    catalog.releases[0].mbid = Some("edition-id".into());
+    assert_eq!(held.edition_credit_links(&catalog).len(), 1);
+
+    let manual = Sources {
+        records: vec![manual],
+        ..Default::default()
+    };
+    let restored = from_json(&to_json(&manual)).unwrap();
+    catalog.releases[0].mbid = None;
+    let links = restored.edition_credit_links(&catalog);
+    assert_eq!(
+        links.len(),
+        1,
+        "an explicit local correction needs no external identity"
+    );
+    assert_eq!(links[0].source, "manual");
+    assert!(links[0].trusted);
+    assert!(
+        restored.credit_links(&catalog).is_empty(),
+        "edition scope cannot become recording scope"
+    );
+    catalog.releases[0].mbid = Some("later-edition-id".into());
+    assert_eq!(
+        restored.edition_credit_links(&catalog).len(),
+        1,
+        "a newly added tag does not erase the local correction"
+    );
 }
 
 #[test]
@@ -1119,7 +1284,33 @@ fn a_known_release_without_an_identifier_is_not_read_back() {
     let Facts::Artist(artist) = &back.records[0].facts else {
         panic!("an artist row");
     };
-    assert_eq!(artist.discography.len(), 1, "the nameless row was dropped");
+    assert!(
+        artist.discography.is_empty(),
+        "an incomplete list is not retained as a completed legacy browse"
+    );
+    assert!(!artist.discography_is_cached());
+
+    // Removing the unreadable row makes the list usable again, without losing
+    // the secondary types that say whether the surviving album is a live one.
+    let valid = format!(
+        r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[
+             {{"entity":"artist:miles davis","source":"musicbrainz",
+               "confidence":"identified","fetched_at":1,
+               "facts":{{"discography":[
+                  {{"mbid":"c9fdb94c","title":"Kind of Blue",
+                    "primary_type":"Album","secondary_types":["Live"]}}
+               ]}}}}
+           ]}}"#
+    );
+    let back = from_json(&crate::json::parse(&valid).unwrap()).unwrap();
+    let Facts::Artist(artist) = &back.records[0].facts else {
+        panic!("an artist row");
+    };
+    assert_eq!(artist.discography.len(), 1);
+    assert!(
+        artist.discography_is_cached(),
+        "valid legacy lists stay reusable"
+    );
     assert_eq!(artist.discography[0].mbid, "c9fdb94c");
     assert_eq!(artist.discography[0].secondary_types, vec!["Live"]);
     assert!(
@@ -1188,6 +1379,58 @@ fn a_row_this_build_cannot_read_is_skipped_and_the_rest_survives() {
     let back = from_json(&crate::json::parse(&text).expect("valid JSON")).expect("a layer");
     assert_eq!(back.records.len(), 1, "the readable row survived alone");
     assert_eq!(back.records[0].key, "miles davis");
+}
+
+#[test]
+fn unreadable_confidence_never_promotes_a_claim_to_identified() {
+    let catalog = crate::model::Catalog::default();
+    let mut original = Sources::default();
+    original.set(record(
+        "someone",
+        MUSICBRAINZ,
+        Facts::Artist(ArtistFacts::default()),
+    ));
+    for malformed in [
+        Json::Null,
+        Json::Str("identifier-ish".into()),
+        Json::from(99u32),
+    ] {
+        let mut encoded = to_json(&original);
+        let mut rows = encoded.get("records").unwrap().as_arr().unwrap().to_vec();
+        rows[0].set("confidence", malformed);
+        encoded.set("records", Json::Arr(rows));
+        let decoded = from_json(&encoded).expect("the evidence remains readable");
+        assert_eq!(decoded.records.len(), 1);
+        assert!(!decoded.is_trusted(&catalog, &decoded.records[0]));
+        assert_eq!(decoded.records[0].confidence, Confidence::matched(0));
+    }
+}
+
+#[test]
+fn malformed_source_tables_are_refused_before_they_can_be_saved_as_empty() {
+    for table in ["records", "reviews", "credit_exclusions"] {
+        let mut encoded = to_json(&Sources::default());
+        encoded.set(table, Json::obj());
+        assert!(from_json(&encoded).is_err(), "invalid table {table}");
+    }
+    let mut missing = Json::obj();
+    missing.set("format_version", SOURCES_FORMAT_VERSION.into());
+    assert!(from_json(&missing).is_err(), "records are required");
+}
+
+#[test]
+fn duplicate_source_snapshots_are_refused_instead_of_picking_the_first() {
+    let mut original = Sources::default();
+    original.set(record(
+        "someone",
+        MUSICBRAINZ,
+        Facts::Artist(ArtistFacts::default()),
+    ));
+    let mut encoded = to_json(&original);
+    let mut rows = encoded.get("records").unwrap().as_arr().unwrap().to_vec();
+    rows.push(rows[0].clone());
+    encoded.set("records", Json::Arr(rows));
+    assert!(from_json(&encoded).is_err());
 }
 
 /// One membership, with only the fields a test cares about.

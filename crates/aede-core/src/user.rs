@@ -62,7 +62,8 @@ pub const RELEASE_KEY_SEPARATOR: char = '|';
 /// The key is what the thing calls itself rather than where it currently sits:
 /// a path for a track, the release key for an album, the normalized name for
 /// name-based entities. Recordings, works and release groups use an explicit
-/// MusicBrainz identifier when the catalog has one.
+/// MusicBrainz identifier when the catalog has one. Source-only artists and
+/// canonical credit exclusions may also use `mbid:<identifier>`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EntityRef {
     /// Which kind of thing is named.
@@ -154,6 +155,15 @@ impl EntityRef {
                 .artists
                 .iter()
                 .find(|a| a.key == self.key)
+                .or_else(|| {
+                    let mbid = self.key.strip_prefix("mbid:")?;
+                    let mut matched = catalog
+                        .artists
+                        .iter()
+                        .filter(|artist| artist.mbid.as_deref() == Some(mbid));
+                    let artist = matched.next()?;
+                    matched.next().is_none().then_some(artist)
+                })
                 .map(|a| a.id),
             EntityKind::Recording => catalog
                 .recordings

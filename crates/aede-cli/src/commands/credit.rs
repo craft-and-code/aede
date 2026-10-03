@@ -53,13 +53,13 @@ pub fn credit(args: &Args) -> Res {
             );
         }
         if excluding.is_some() {
-            held.exclude_credit(edge.reference, clock::now_seconds());
+            held.exclude_credit_in(&catalog, edge.reference, clock::now_seconds());
             sources::save(&held, &path)?;
             println!(
                 "{} credit excluded from navigation and search; source evidence kept",
                 ui::green("→")
             );
-        } else if held.restore_credit(&edge.reference) {
+        } else if held.restore_credit_in(&catalog, &edge.reference) {
             sources::save(&held, &path)?;
             println!("{} credit restored", ui::green("→"));
         } else {

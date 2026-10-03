@@ -54,6 +54,7 @@ fn a_name_search_is_confirmed_by_lookup_and_keeps_the_wikidata_link() {
         key: None,
         portrait_key: None,
         langs: vec!["en".to_string()],
+        size_requested: false,
     };
     run(&catalog, &mut transport, &[], &mut held, &path, &asked).expect("label pass");
     let _ = std::fs::remove_file(&path);

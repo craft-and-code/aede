@@ -4,10 +4,10 @@
 //! request at all — a property the compiler enforces rather than a promise a
 //! README makes.
 //!
-//! It does three things and refuses to do more: it waits its turn, it names
-//! itself, and it hands back parsed JSON. Everything about *what* to ask and
-//! *what to do with the answer* lives in [`crate::musicbrainz`], which has no
-//! socket and is therefore testable.
+//! It throttles requests, identifies the application, and returns bounded JSON
+//! or image bytes. Endpoint construction and response interpretation live in
+//! service modules such as [`crate::musicbrainz`], which have no socket and can
+//! be tested without contacting a service.
 //!
 //! **Waiting its turn is not politeness, it is the contract.** MusicBrainz
 //! allows one request per second per address and answers `503` to everything
@@ -23,8 +23,7 @@ const TIMEOUT: Duration = Duration::from_secs(25);
 
 /// The largest body this client will read into memory.
 ///
-/// Cover art is the only thing here that is not a small JSON document, and the
-/// original upload of one is a few megabytes at most. A ceiling turns a wrong
+/// Cover art may be much larger than the JSON metadata. A ceiling turns a wrong
 /// address — a redirect gone astray, a service handing back something else
 /// entirely — into a refusal rather than a machine filling its memory.
 const MAX_BODY: u64 = 32 * 1024 * 1024;
@@ -32,8 +31,9 @@ const MAX_BODY: u64 = 32 * 1024 * 1024;
 /// What can go wrong, kept apart because the answers differ.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// The service asked us to slow down. Not a failure of the request: a
-    /// statement about the rate, and the only sane response is to stop.
+    /// HTTP 503: the service is busy or limiting requests. Callers may apply
+    /// bounded backoff and must stop if it persists. HTTP 429 stays a separate
+    /// [`Error::Status`] so it cannot enter that retry path blindly.
     RateLimited,
     /// The service answered, with something other than success.
     Status(u16),
@@ -41,6 +41,8 @@ pub enum Error {
     Network(String),
     /// Something came back, and it was not the JSON that was asked for.
     NotJson(String),
+    /// The response exceeded the explicit in-memory body limit, in bytes.
+    BodyTooLarge(u64),
 }
 
 impl std::fmt::Display for Error {
@@ -48,12 +50,16 @@ impl std::fmt::Display for Error {
         match self {
             Error::RateLimited => write!(
                 f,
-                "the service is refusing requests because too many were sent \
-                 (one per second is the limit); nothing was lost, try later"
+                "the service is busy or limiting requests; nothing was lost, try later"
             ),
             Error::Status(code) => write!(f, "the service answered {code}"),
             Error::Network(detail) => write!(f, "could not reach the service: {detail}"),
             Error::NotJson(detail) => write!(f, "the answer was not readable: {detail}"),
+            Error::BodyTooLarge(limit) => write!(
+                f,
+                "the answer exceeded the {} MiB download limit, so it was not kept",
+                limit / (1024 * 1024)
+            ),
         }
     }
 }
@@ -98,19 +104,17 @@ impl Client {
     ///
     /// Blocks for as long as the rate requires before sending. That is the
     /// whole point: a caller that could forget to wait is a caller that will.
+    /// Bodies over 32 MiB and JSON that is not UTF-8 are refused.
     pub fn get_json(&mut self, url: &str) -> Result<Json, Error> {
         self.wait_turn();
-        let text = self
+        let mut response = self
             .agent
             .get(url)
             .header("User-Agent", &self.user_agent)
             .header("Accept", "application/json")
             .call()
-            .map_err(from_ureq)?
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| Error::Network(e.to_string()))?;
-        crate::json::parse(&text).map_err(|e| Error::NotJson(e.to_string()))
+            .map_err(from_ureq)?;
+        read_json_body(response.body_mut())
     }
 
     /// Fetches a URL and hands back the body as it came.
@@ -118,30 +122,18 @@ impl Client {
     /// The one thing this client downloads that is not an answer to a question:
     /// an image. It waits its turn like everything else.
     ///
-    /// The size ceiling is the client library's own — it refuses an oversized
-    /// body rather than reading it — and the ceiling below is a second line
-    /// behind it, checked on what actually arrived. Two guards rather than one
-    /// because the first belongs to a dependency whose defaults may change, and
-    /// the failure it prevents is a machine filling its memory from a wrong
-    /// address.
+    /// At most 32 MiB are accepted. The response reader has an explicit limit
+    /// rather than relying on a dependency default; one extra byte detects
+    /// oversized bodies even when the server omits their length.
     pub fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Error> {
         self.wait_turn();
-        let bytes = self
+        let mut response = self
             .agent
             .get(url)
             .header("User-Agent", &self.user_agent)
             .call()
-            .map_err(from_ureq)?
-            .body_mut()
-            .read_to_vec()
-            .map_err(|e| Error::Network(e.to_string()))?;
-        if bytes.len() as u64 > MAX_BODY {
-            return Err(Error::Network(format!(
-                "the answer was larger than {} MB, so it was not kept",
-                MAX_BODY / (1024 * 1024)
-            )));
-        }
-        Ok(bytes)
+            .map_err(from_ureq)?;
+        read_bytes_body(response.body_mut())
     }
 
     /// Sleeps until the next request is allowed.
@@ -155,7 +147,7 @@ impl Client {
         self.last = Some(Instant::now());
     }
 
-    /// How long the next [`Client::get_json`] would wait before sending.
+    /// The minimum delay between the starts of two requests on this client.
     ///
     /// Exposed so a command can tell the user that asking about six hundred
     /// artists will take ten minutes *before* it starts, rather than leaving
@@ -165,7 +157,38 @@ impl Client {
     }
 }
 
-/// Translates the client library's errors into this module's four cases.
+fn read_json_body(body: &mut ureq::Body) -> Result<Json, Error> {
+    // Reading bytes avoids a lossy text conversion changing an external claim.
+    let text =
+        String::from_utf8(read_bytes_body(body)?).map_err(|e| Error::NotJson(e.to_string()))?;
+    crate::json::parse(&text).map_err(|e| Error::NotJson(e.to_string()))
+}
+
+fn read_bytes_body(body: &mut ureq::Body) -> Result<Vec<u8>, Error> {
+    let reader = body.with_config().limit(MAX_BODY + 1).reader();
+    read_limited(reader, MAX_BODY)
+}
+
+fn read_limited(reader: impl std::io::Read, limit: u64) -> Result<Vec<u8>, Error> {
+    // ureq's body limit applies before decompression. Bound the decoded bytes
+    // too, before allocating them, so a small compressed answer cannot expand
+    // past the same memory budget.
+    use std::io::Read;
+    let mut reader = reader.take(limit + 1);
+    let mut bytes = Vec::new();
+    reader
+        .read_to_end(&mut bytes)
+        .map_err(|e| match ureq::Error::from(e) {
+            ureq::Error::BodyExceedsLimit(_) => Error::BodyTooLarge(limit),
+            other => Error::Network(other.to_string()),
+        })?;
+    if bytes.len() as u64 > limit {
+        return Err(Error::BodyTooLarge(limit));
+    }
+    Ok(bytes)
+}
+
+/// Preserves HTTP status meaning while hiding the dependency's error types.
 fn from_ureq(error: ureq::Error) -> Error {
     match error {
         // 503 is what MusicBrainz answers when the rate is exceeded, and it

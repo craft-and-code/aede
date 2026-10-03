@@ -53,6 +53,12 @@ Name the one you mean:
 	Ozzy Tribute (9 tracks, 1 album) · musicbrainz 4f1c2a90-…
 ```
 
+### Matching an external answer
+
+MusicBrainz name searches remain proposals. An exact normalized name takes precedence over a broader result, but a search never produces identifier-level confidence. An equally ranked pair of different MBIDs is ambiguous even when both candidates have the same name; that explanation includes the identifiers so the reader can distinguish the homonyms. Repeated spellings of the same MBID do not create a second identity.
+
+The chosen answer is stored beside the tags, with its match score and provenance. `aede review` can accept, reject or undo the selected claim. A later answer for a different source identifier cannot inherit the previous claim's decision or discography. The trust and relationship-scope rules are documented in [the attributed layer](attribution.md#relationships-and-decisions).
+
 ## Who is not a person at all
 
 Before two spellings can be one artist, the shelf has to stop inventing artists
@@ -313,6 +319,8 @@ from a title is a guess, and this project records where a fact came from
 (read from a tag, inferred by a rule, fetched from MusicBrainz) rather than
 flattening the three into one field that looks equally certain.
 
+Fetched edition credits require the source's explicit edition ID to match the local release ID. Their scope remains the edition even when its recordings occur on other releases. Neither a title match, a release-group identifier, nor two missing edition identifiers establish that relationship. A manual credit added to a precise local release key can instead use that explicit local scope without an MBID; it remains an edition correction and never becomes a recording credit.
+
 ## What is missing from the shelf
 
 The completeness report — the thing worth building:
@@ -372,6 +380,4 @@ rather than a common parent, which the disc-folder rule does not recognise —
 arrives as two releases, and each would otherwise report the other as missing
 while it sits right there.
 
-What still waits for MusicBrainz is the _other_ completeness question — which
-albums are missing from an artist's discography — because nothing in your files
-can know what was released.
+The _other_ completeness question — which albums are missing from an artist's discography — uses the fetched MusicBrainz release groups through `fetch --discography` and `missing`. Nothing in the files alone can answer what was released. Only an exact or explicitly accepted artist identity supplies that report. A malformed or incomplete browse page leaves the earlier discography in place and remains a failed request, rather than replacing it with an apparent empty or complete answer. A successful complete browse records an optional `discography_fetched_at` timestamp, including for an empty result. Normal runs reuse that answer after reloading; `--full` requests it again. Old non-empty lists remain cached, while old empty lists without this evidence need one successful browse. Refreshing artist facts keeps the completion timestamp only for the same MusicBrainz identity.

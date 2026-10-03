@@ -1,16 +1,46 @@
 //! Tests for [`super`], split out of `acoustid.rs`.
 //!
 //! The fixture below follows the shape published on
-//! <https://acoustid.org/webservice>, read rather than assumed — the service
-//! is unreachable from where this was written, and a fixture agreeing with
-//! whoever wrote it proves nothing about a live answer. That limitation is
-//! stated here rather than discovered later.
+//! <https://acoustid.org/webservice>. These offline fixtures cover parser
+//! behavior independently of the optional manual check with an application key.
 
 use super::*;
 use crate::json::parse;
 
 fn json(text: &str) -> Json {
     parse(text).expect("the fixture is valid JSON")
+}
+
+#[test]
+fn an_unknown_status_or_malformed_result_table_is_not_a_successful_lookup() {
+    for text in [
+        r#"{"status":"pending","results":[]}"#,
+        r#"{"status":"ok"}"#,
+        r#"{"status":"ok","results":{}}"#,
+        r#"{"status":"ok","results":[null]}"#,
+        r#"{"status":"ok","results":[{"id":"track","score":-0.1}]}"#,
+        r#"{"status":"ok","results":[{"id":"track","score":1.1}]}"#,
+        r#"{"status":"ok","results":[{"id":"track"}]}"#,
+        r#"{"status":"ok","results":[{"score":0.9}]}"#,
+    ] {
+        assert!(refused(&json(text)).is_some(), "{text}");
+    }
+    let error_with_results =
+        json(r#"{"status":"error","results":[{"score":1,"recordings":[{"id":"wrong"}]}]}"#);
+    assert_eq!(best(&error_with_results), None);
+}
+
+#[test]
+fn a_score_outside_the_services_range_is_not_an_identification() {
+    for score in ["-0.1", "1.1", "null", "\"0.9\""] {
+        let response = json(&format!(
+            r#"{{"status":"ok","results":[{{"id":"track","score":{score},"recordings":[{{"id":"wrong"}}]}}]}}"#
+        ));
+        assert_eq!(best(&response), None, "score: {score}");
+    }
+    let missing =
+        json(r#"{"status":"ok","results":[{"id":"track","recordings":[{"id":"wrong"}]}]}"#);
+    assert_eq!(best(&missing), None);
 }
 
 /// Two results, the better one second, each with a recording.

@@ -97,6 +97,10 @@ pub struct GraphEdge {
 }
 
 /// Projects local and sourced relationships into one attributed graph view.
+///
+/// Repeated observations of the same relationship contribute to its weight.
+/// Its display snapshot prefers trusted evidence, then the latest fetch; the
+/// original source claims remain available in [`Sources`].
 pub fn edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
     let mut edges = local_edges(catalog);
     edges.extend(work_edges(catalog, sources));
@@ -104,14 +108,29 @@ pub fn edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
     edges.extend(credit_edges(catalog, sources));
     edges.extend(edition_credit_edges(catalog, sources));
     edges.extend(membership_edges(catalog, sources));
-    edges.sort_by(|left, right| {
-        left.reference
-            .cmp(&right.reference)
-            .then_with(|| left.source_name.cmp(&right.source_name))
-            .then_with(|| left.target_name.cmp(&right.target_name))
-    });
-    edges.dedup_by(|left, right| left.reference == right.reference);
-    edges
+    let mut by_reference: BTreeMap<RelationRef, GraphEdge> = BTreeMap::new();
+    for edge in edges {
+        match by_reference.entry(edge.reference.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(edge);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let previous = entry.get_mut();
+                let weight = previous.weight.saturating_add(edge.weight);
+                let priority = (edge.trusted, edge.fetched_at);
+                let previous_priority = (previous.trusted, previous.fetched_at);
+                if priority > previous_priority
+                    || (priority == previous_priority
+                        && (&edge.source_name, &edge.target_name)
+                            < (&previous.source_name, &previous.target_name))
+                {
+                    *previous = edge;
+                }
+                previous.weight = weight;
+            }
+        }
+    }
+    by_reference.into_values().collect()
 }
 
 fn local_edges(catalog: &Catalog) -> Vec<GraphEdge> {
@@ -197,8 +216,7 @@ fn work_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
 }
 
 fn work_parent_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
-    let mut by_reference: BTreeMap<RelationRef, GraphEdge> = BTreeMap::new();
-    for edge in sources
+    sources
         .work_parent_links(catalog)
         .into_iter()
         .map(|link| GraphEdge {
@@ -226,22 +244,7 @@ fn work_parent_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
             over: None,
             order: link.parent.order,
         })
-    {
-        match by_reference.entry(edge.reference.clone()) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(edge);
-            }
-            std::collections::btree_map::Entry::Occupied(mut entry) => {
-                let previous = entry.get_mut();
-                let weight = previous.weight.saturating_add(1);
-                if edge.trusted && !previous.trusted {
-                    *previous = edge;
-                }
-                previous.weight = weight;
-            }
-        }
-    }
-    by_reference.into_values().collect()
+        .collect()
 }
 
 fn credit_edges(catalog: &Catalog, sources: &Sources) -> Vec<GraphEdge> {
@@ -430,6 +433,42 @@ pub(crate) fn edition_credit_reference(
     })
 }
 
+pub(crate) fn same_credit_relation(
+    catalog: &Catalog,
+    held: &RelationRef,
+    current: &RelationRef,
+) -> bool {
+    let same_endpoint = |left: &EntityRef, right: &EntityRef| {
+        left == right
+            || (left.kind == right.kind
+                && left
+                    .resolve(catalog)
+                    .is_some_and(|id| right.resolve(catalog) == Some(id)))
+    };
+    held.kind == current.kind
+        && held.provenance == current.provenance
+        && held.source_id == current.source_id
+        && same_endpoint(&held.source, &current.source)
+        && same_endpoint(&held.target, &current.target)
+}
+
+pub(crate) fn canonical_credit_relation(
+    catalog: &Catalog,
+    mut relation: RelationRef,
+) -> RelationRef {
+    if relation.source.kind == EntityKind::Artist
+        && let Some(mbid) = relation
+            .source
+            .resolve(catalog)
+            .and_then(|id| catalog.artist(id))
+            .and_then(|artist| artist.mbid.as_deref())
+            .filter(|mbid| !mbid.trim().is_empty())
+    {
+        relation.source = EntityRef::new(EntityKind::Artist, format!("mbid:{mbid}"));
+    }
+    relation
+}
+
 fn artist_endpoint(catalog: &Catalog, mbid: &str, name: &str) -> (EntityRef, String) {
     if mbid.is_empty() {
         if let Some(artist) = catalog
@@ -483,3 +522,7 @@ pub fn select(edges: &[GraphEdge], selector: &str) -> Result<GraphEdge, String> 
     }
     Ok(edge.clone())
 }
+
+#[cfg(test)]
+#[path = "graph_tests.rs"]
+mod tests;

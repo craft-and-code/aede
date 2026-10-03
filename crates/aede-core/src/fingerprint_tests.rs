@@ -8,6 +8,47 @@
 
 use super::*;
 
+#[path = "fingerprint_test_support.rs"]
+mod test_support;
+use test_support::AudioFolder;
+
+#[test]
+fn malformed_fractional_durations_cannot_identify_a_recording() {
+    for duration in [
+        "183.NaN",
+        "183.4.5",
+        "183.",
+        "183.-4",
+        "+183",
+        "NaN",
+        "inf",
+        "4294967296",
+    ] {
+        let output = format!("DURATION={duration}\nFINGERPRINT=AQAA\n");
+        assert!(read_fpcalc(&output).is_err(), "duration: {duration}");
+    }
+}
+
+#[test]
+fn fingerprinting_requires_a_local_regular_file_before_running_a_helper() {
+    let folder = AudioFolder::new();
+    for by in [By::Ffmpeg, By::Fpcalc] {
+        for path in [
+            std::path::Path::new("file:///aede-missing.flac"),
+            folder.path(),
+        ] {
+            let error = of(by, path, 30).expect_err("not a local regular file");
+            assert!(error.contains("local regular file"), "{by:?}: {error}");
+        }
+        #[cfg(unix)]
+        {
+            let error =
+                of(by, std::path::Path::new("/dev/null"), 30).expect_err("not a regular file");
+            assert!(error.contains("local regular file"), "{by:?}: {error}");
+        }
+    }
+}
+
 #[test]
 fn ffmpeg_output_is_the_fingerprint_and_the_caller_supplies_the_length() {
     let found = read_ffmpeg("  AQAA3UmUaEkSZSoAAAAA\n", 183).expect("a fingerprint");
@@ -82,8 +123,8 @@ fn a_real_file_fingerprints_the_same_way_twice() {
         eprintln!("skipped: no ffmpeg to make the fixture with");
         return;
     };
-    let dir = std::env::temp_dir().join("aede_fingerprint");
-    std::fs::create_dir_all(&dir).expect("a folder");
+    let folder = AudioFolder::new();
+    let dir = folder.path();
     let path = dir.join("tone.flac");
     let made = std::process::Command::new(ffmpeg)
         .args(["-hide_banner", "-loglevel", "error", "-y"])
@@ -132,6 +173,4 @@ fn a_real_file_fingerprints_the_same_way_twice() {
         }
         false => eprintln!("skipped: this machine does not have both programs"),
     }
-
-    let _ = std::fs::remove_dir_all(&dir);
 }

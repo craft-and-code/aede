@@ -2,9 +2,9 @@
 
 extract écrit à côté de la musique les images déjà intégrées aux tags pris en charge. Il reste local, sans Cover Art Archive ni Fanart.tv. Le lancer avant fetch --covers si les fichiers contiennent une bonne pochette.
 
-Par défaut, il extrait la pochette sélectionnée. --images conserve aussi dos/livrets/disques intégrés dans artwork/. --dry-run affiche le travail sans écrire. Les images locales existantes ne sont pas remplacées.
+Par défaut, il extrait la pochette sélectionnée. --images conserve aussi dos/livrets/disques intégrés dans artwork/. --dry-run affiche le travail sans écrire ni créer le verrou d’écriture. Les images locales existantes ne sont pas remplacées. L’extraction regroupe une fois le catalogue par dossier et lit le premier fichier contenant des images dans chacun, en gardant l’ordre du catalogue : elle ne reparcourt pas toutes les pistes pour trouver cette source.
 
-Il exige les droits d’écriture à côté de l’album mais lit seulement l’audio. Sans image intégrée, aucune image n’est produite ; une pochette peut ensuite être téléchargée. Rescanner pour actualiser le choix d’image du catalogue. artwork est un alias exact.
+Il exige les droits d’écriture à côté de l’album mais lit seulement l’audio. Publier une nouvelle image exige un système de fichiers acceptant les liens physiques ; un système incompatible refuse la publication plutôt que risquer un remplacement. Les pixels JPEG et PNG statiques sont décodés avant publication, avec la même validation que [fetch](fetch.md) : fin du conteneur, 32 Mio en entrée, 8192 pixels par axe et 16 millions de pixels. Les images non décodables et les PNG animés sont refusés avant toute création de fichier. Aucun outil externe n’est nécessaire. Sans image intégrée, aucune image n’est produite ; une pochette peut ensuite être téléchargée. Rescanner pour actualiser le choix d’image du catalogue. artwork est un alias exact.
 
 Alias : `aede artwork`. Options et comportement identiques.
 

@@ -119,6 +119,20 @@ fn the_length_offered_is_whole_seconds_of_what_the_header_said() {
 }
 
 #[test]
+fn a_duration_outside_the_lookup_range_is_not_wrapped() {
+    let catalog = library(&[
+        ("", "", u64::from(u32::MAX) * 1000),
+        ("", "", (u64::from(u32::MAX) + 2) * 1000),
+        ("", "", u64::MAX),
+        ("", "", 999),
+    ]);
+    let found = survey(&catalog, &[], &[], true);
+    assert_eq!(found.targets.len(), 1);
+    assert_eq!(found.targets[0].seconds, u32::MAX);
+    assert_eq!(found.no_length, 3);
+}
+
+#[test]
 fn a_folder_narrows_it_and_a_name_reaches_a_path() {
     // A file this command is about often has no tags at all, so a name mostly
     // means "this folder" — and the path is one of the things a name is

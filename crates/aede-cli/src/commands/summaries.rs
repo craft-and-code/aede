@@ -49,9 +49,10 @@ pub fn run(
     held: &mut sources::Sources,
     path: &std::path::Path,
     asked: &super::fetch::Asked,
+    catalog: Option<&aede_core::model::Catalog>,
 ) -> Res {
     let (wanted, again) = (asked.names, asked.again);
-    let targets = targets(held, wanted, asked.scope, again);
+    let targets = targets(held, wanted, asked.scope, again, catalog);
     println!("{}", ui::section("Summaries"));
     if targets.is_empty() {
         // A name that reached nothing is its own answer, and not the general
@@ -64,7 +65,7 @@ pub fn run(
                 ui::dim(&super::fetch::nothing_named(
                     wanted,
                     asked.scope,
-                    self::targets(held, wanted, asked.scope, true).len()
+                    self::targets(held, wanted, asked.scope, true, catalog).len()
                 ))
             );
             return Ok(());
@@ -115,13 +116,14 @@ pub fn run(
         let entity_doc =
             match ask_with_backoff(transport, &wikipedia::entity_data_url(&target.id), backoff) {
                 Ok(doc) => doc,
+                Err(why) if why.must_stop() => return Err(why.into()),
                 Err(why) if defer(&mut pending, target, retried, &why) => {
                     continue;
                 }
                 Err(why) => {
                     failed += 1;
                     done += 1;
-                    eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                    super::fetch::report_failed(&target.name, &why);
                     continue;
                 }
             };
@@ -138,13 +140,14 @@ pub fn run(
         let summary_doc =
             match ask_with_backoff(transport, &wikipedia::summary_url(&article), backoff) {
                 Ok(doc) => doc,
+                Err(why) if why.must_stop() => return Err(why.into()),
                 Err(why) if defer(&mut pending, target, retried, &why) => {
                     continue;
                 }
                 Err(why) => {
                     failed += 1;
                     done += 1;
-                    eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                    super::fetch::report_failed(&target.name, &why);
                     continue;
                 }
             };
@@ -216,8 +219,8 @@ fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::
 /// `fetch` prints this to offer the second pass at the moment it becomes
 /// possible, and an offer that counted differently from the run it offers is
 /// worse than no offer at all.
-pub fn waiting(held: &sources::Sources) -> usize {
-    targets(held, &[], &super::fetch::EVERYTHING, false).len()
+pub fn waiting(held: &sources::Sources, catalog: Option<&aede_core::model::Catalog>) -> usize {
+    targets(held, &[], &super::fetch::EVERYTHING, false, catalog).len()
 }
 
 /// Who to ask about: artists and labels MusicBrainz gave a Wikidata link for.
@@ -231,10 +234,13 @@ fn targets(
     wanted: &[String],
     scope: &super::fetch::Scope,
     again: bool,
+    catalog: Option<&aede_core::model::Catalog>,
 ) -> Vec<Target> {
     let mut targets = Vec::new();
+    let empty = aede_core::model::Catalog::default();
+    let catalog = catalog.unwrap_or(&empty);
     for record in &held.records {
-        if record.source != sources::MUSICBRAINZ {
+        if record.source != sources::MUSICBRAINZ || !held.is_trusted(catalog, record) {
             continue;
         }
         // The key is the artist's normalised name, and it is the only name

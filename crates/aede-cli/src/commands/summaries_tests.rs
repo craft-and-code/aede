@@ -21,6 +21,7 @@ fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
         key: None,
         portrait_key: None,
         langs: vec!["en".to_string()],
+        size_requested: false,
     }
 }
 /// A transport that answers from canned text, and remembers what was asked.
@@ -103,6 +104,72 @@ fn entity() -> EntityRef {
     }
 }
 
+#[test]
+fn a_summary_does_not_turn_a_pending_or_rejected_match_into_an_identity() {
+    let dir = sandbox("reviewed_identity");
+    let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
+    layer.records[0].confidence = Confidence::Matched(80);
+    let mut transport = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(false),
+        None,
+    )
+    .unwrap();
+    assert!(
+        transport.asked.is_empty(),
+        "unreviewed identity must not determine which biography is fetched"
+    );
+    let catalog = aede_core::model::Catalog::default();
+    let id = layer.review_items(&catalog)[0].id.clone();
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    transport
+        .answers
+        .push(Err(super::super::fetch::Refusal::Failed(
+            "temporary refusal".into(),
+        )));
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(false),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        transport.asked.len(),
+        1,
+        "an explicit acceptance permits the linked entity"
+    );
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Rejected, 3)
+        .unwrap();
+    transport.asked.clear();
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(true),
+        None,
+    )
+    .unwrap();
+    assert!(transport.asked.is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 fn stored(sources: &Sources) -> Option<Prose> {
     match &sources.get(&entity(), wikipedia::SOURCE)?.facts {
         Facts::Artist(a) => a.summary.clone(),
@@ -137,6 +204,7 @@ fn a_label_summary_is_fetched_and_saved_with_its_credit() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the pass ran");
     let back = sources::load(&path).expect("readable").expect("a layer");
@@ -173,6 +241,7 @@ fn the_two_requests_go_through_wikidata_and_land_on_the_article() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the pass ran");
 
@@ -212,6 +281,7 @@ fn what_was_stored_is_on_disk_before_the_pass_ends() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the pass ran");
 
@@ -238,6 +308,7 @@ fn an_artist_with_no_wikidata_link_is_not_asked_about() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the pass ran");
     assert!(
@@ -264,6 +335,7 @@ fn an_entity_with_no_article_is_recorded_as_asked_and_empty() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the pass ran");
 
@@ -295,6 +367,7 @@ fn a_second_run_costs_nothing_unless_it_is_asked_to_do_it_again() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the first pass");
 
@@ -302,7 +375,16 @@ fn a_second_run_costs_nothing_unless_it_is_asked_to_do_it_again() {
         answers: Vec::new(),
         asked: Vec::new(),
     };
-    run(&mut second, &[], &langs, &mut layer, &path, &asked(false)).expect("the second pass");
+    run(
+        &mut second,
+        &[],
+        &langs,
+        &mut layer,
+        &path,
+        &asked(false),
+        None,
+    )
+    .expect("the second pass");
     assert!(
         second.asked.is_empty(),
         "already answered, so not asked again"
@@ -312,7 +394,16 @@ fn a_second_run_costs_nothing_unless_it_is_asked_to_do_it_again() {
         answers: vec![Ok(ENTITY.to_string()), Ok(SUMMARY.to_string())],
         asked: Vec::new(),
     };
-    run(&mut third, &[], &langs, &mut layer, &path, &asked(true)).expect("the third pass");
+    run(
+        &mut third,
+        &[],
+        &langs,
+        &mut layer,
+        &path,
+        &asked(true),
+        None,
+    )
+    .expect("the third pass");
     assert_eq!(third.asked.len(), 2, "--full asks again");
 }
 
@@ -334,6 +425,7 @@ fn a_failure_on_one_artist_does_not_end_the_pass() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("a failed lookup is reported, not fatal");
     assert_eq!(
@@ -351,9 +443,9 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
     let dir = sandbox("waiting");
     let path = sources::sources_path(&dir);
 
-    assert_eq!(waiting(&held(None)), 0, "no link, nothing to offer");
+    assert_eq!(waiting(&held(None), None), 0, "no link, nothing to offer");
     let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
-    assert_eq!(waiting(&layer), 1);
+    assert_eq!(waiting(&layer, None), 1);
 
     let mut transport = Canned {
         answers: vec![Ok(ENTITY.to_string()), Ok(SUMMARY.to_string())],
@@ -366,10 +458,11 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
         &mut layer,
         &path,
         &asked(false),
+        None,
     )
     .expect("the pass ran");
     assert_eq!(
-        waiting(&layer),
+        waiting(&layer, None),
         0,
         "once it has been read, the offer stops being made"
     );

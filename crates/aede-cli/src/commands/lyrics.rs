@@ -187,8 +187,8 @@ pub fn run(
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         match ask_with_backoff(transport, &target.url, backoff) {
-            Ok(answer) => match lrclib::read(&answer) {
-                Found::Words(words) => match write_beside(&target.sidecar, &words.text) {
+            Ok(answer) => match lrclib::read_checked(&answer) {
+                Ok(Found::Words(words)) => match write_beside(&target.sidecar, &words.text) {
                     Ok(()) => {
                         written += 1;
                         if words.synced {
@@ -197,11 +197,15 @@ pub fn run(
                     }
                     Err(why) => {
                         failed += 1;
-                        eprintln!("\r  {} {}: {why}", ui::red("×"), target.title);
+                        super::fetch::report_failed(&target.title, &why);
                     }
                 },
-                Found::Instrumental => instrumental += 1,
-                Found::Nothing => none += 1,
+                Ok(Found::Instrumental) => instrumental += 1,
+                Ok(Found::Nothing) => none += 1,
+                Err(why) => {
+                    failed += 1;
+                    super::fetch::report_failed(&target.title, &why);
+                }
             },
             // A track the service does not know is the ordinary case, not a
             // failure: it answers 404, and a library of any size holds plenty
@@ -218,16 +222,15 @@ pub fn run(
                 )
                 .into());
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(other) if defer(&mut pending, target, retried, &other) => {
                 continue;
             }
             Err(other) => {
                 failed += 1;
-                eprintln!(
-                    "\r  {} {} — {}: {other}",
-                    ui::red("×"),
-                    target.artist,
-                    target.title
+                super::fetch::report_failed(
+                    &format!("{} — {}", target.artist, target.title),
+                    &other,
                 );
             }
         }
@@ -351,7 +354,8 @@ fn survey(
             skipped.tagged += 1;
             continue;
         }
-        if file.lyrics_path.is_some() {
+        let sidecar = aede_core::lyrics::sidecar_of(std::path::Path::new(&file.path));
+        if file.lyrics_path.is_some() || std::fs::symlink_metadata(&sidecar).is_ok() {
             skipped.sidecar += 1;
             continue;
         }
@@ -371,12 +375,16 @@ fn survey(
             skipped.unaskable += 1;
             continue;
         };
+        if duration < 1000 {
+            skipped.unaskable += 1;
+            continue;
+        }
         targets.push(Target {
             // Seconds, which is what the service matches on.
             url: lrclib::get_url(&artist, &track.title, &album, duration / 1000),
             title: track.title.clone(),
             artist,
-            sidecar: aede_core::lyrics::sidecar_of(std::path::Path::new(&file.path)),
+            sidecar,
         });
     }
     (targets, skipped)

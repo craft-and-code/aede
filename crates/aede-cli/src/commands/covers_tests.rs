@@ -47,8 +47,8 @@ impl Ask for Canned {
     }
 }
 
-/// The smallest thing `image_kind` will accept as a JPEG.
-const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+/// A real JPEG shared with the core image-validation tests.
+const JPEG: &[u8] = include_bytes!("../../../aede-core/tests/fixtures/images/baseline.jpg");
 
 const INDEX: &str = r#"{"images":[{"front":true,"approved":true,
     "image":"https://coverartarchive.org/x/1.jpg",
@@ -121,6 +121,7 @@ fn asked(size: Size, images: bool, dry_run: bool) -> crate::commands::fetch::Ask
         key: None,
         portrait_key: None,
         langs: vec!["en".to_string()],
+        size_requested: false,
     }
 }
 
@@ -167,6 +168,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         &[],
         &crate::commands::fetch::EVERYTHING,
         false,
+        false,
     );
     assert_eq!((inside.embedded, inside.beside), (1, 0));
     assert!(inside.targets.is_empty());
@@ -176,6 +178,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         &Sources::default(),
         &[],
         &crate::commands::fetch::EVERYTHING,
+        false,
         false,
     );
     assert_eq!((alongside.embedded, alongside.beside), (0, 1));
@@ -209,6 +212,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         &[],
         &crate::commands::fetch::EVERYTHING,
         false,
+        false,
     );
     assert_eq!(nameless.unidentified, 1);
     assert_eq!(
@@ -234,6 +238,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
         &[],
         &crate::commands::fetch::EVERYTHING,
         false,
+        false,
     );
     assert_eq!(again.asked, 1);
     assert!(again.targets.is_empty());
@@ -257,6 +262,7 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
         &[],
         &crate::commands::fetch::EVERYTHING,
         false,
+        false,
     );
     let lines = reasons(&inside);
     assert_eq!(lines.len(), 1, "{lines:?}");
@@ -274,6 +280,7 @@ fn an_album_whose_artwork_is_inside_its_files_is_told_where_to_go() {
         &Sources::default(),
         &[],
         &crate::commands::fetch::EVERYTHING,
+        false,
         false,
     );
     both.embedded = 2;
@@ -307,6 +314,7 @@ fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
         &layer,
         &[],
         &crate::commands::fetch::EVERYTHING,
+        false,
         false,
     );
     assert_eq!(survey.asked, 0, "not a finished question");
@@ -357,6 +365,7 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
         &layer,
         &[],
         &crate::commands::fetch::EVERYTHING,
+        false,
         false,
     );
     assert_eq!((survey.asked, survey.targets.len()), (1, 0));
@@ -600,11 +609,279 @@ const INDEX_ALL: &str = r#"{"images":[
      "thumbnails":{"1200":"https://x/4-1200.jpg"}}]}"#;
 
 #[test]
+fn a_full_cover_run_rechecks_a_previous_negative_answer() {
+    let dir = sandbox("full_negative");
+    let catalog = library(&dir, false, None);
+    let mut layer = Sources::default();
+    let target = targets(&catalog, &layer).remove(0);
+    store(&mut layer, &target, None);
+    let mut transport = Canned::new(vec![Ok(INDEX.to_string())], vec![Ok(JPEG.to_vec())]);
+    let mut options = asked(Size::Thumbnail(1200), false, false);
+    options.again = true;
+    run(
+        &catalog,
+        &mut transport,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &options,
+    )
+    .unwrap();
+    assert_eq!(
+        transport.asked.len(),
+        2,
+        "--full must ask again after a previous miss"
+    );
+    assert!(cover_in(&dir).is_file());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_full_cover_answer_that_fails_download_does_not_keep_an_old_negative_cache() {
+    let dir = sandbox("full_retry");
+    let catalog = library(&dir, false, None);
+    let mut layer = Sources::default();
+    let target = targets(&catalog, &layer).remove(0);
+    store(&mut layer, &target, None);
+    let mut options = asked(Size::Thumbnail(1200), false, false);
+    options.again = true;
+    let mut first = Canned::new(
+        vec![Ok(INDEX.into())],
+        vec![Err(Refusal::Failed("transfer failed".into()))],
+    );
+    run(
+        &catalog,
+        &mut first,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &options,
+    )
+    .unwrap();
+    assert!(!cover_in(&dir).exists());
+    let mut layer = sources::load(&sources::sources_path(&dir))
+        .unwrap()
+        .unwrap();
+    let mut retry = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+    run(
+        &catalog,
+        &mut retry,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(Size::Thumbnail(1200), false, false),
+    )
+    .unwrap();
+    assert!(
+        cover_in(&dir).is_file(),
+        "the prior miss must not prevent retry of an image now known to exist"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_explicit_cover_size_does_not_reuse_a_previously_saved_width() {
+    let dir = sandbox("requested_size");
+    let catalog = library(&dir, false, None);
+    let mut layer = Sources::default();
+    let target = targets(&catalog, &layer).remove(0);
+    store(
+        &mut layer,
+        &target,
+        Some("https://coverartarchive.org/x/old-1200.jpg".into()),
+    );
+    let mut options = asked(Size::Thumbnail(500), false, false);
+    options.size_requested = true;
+    let mut transport = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+    run(
+        &catalog,
+        &mut transport,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &options,
+    )
+    .unwrap();
+    assert_eq!(
+        transport.asked,
+        vec![
+            "https://coverartarchive.org/release/59211ea4",
+            "https://coverartarchive.org/x/1-500.jpg"
+        ]
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn http_429_stops_cover_fetching_without_marking_the_album_done() {
+    let dir = sandbox("429");
+    let catalog = library(&dir, false, None);
+    let mut layer = Sources::default();
+    let mut transport = Canned::new(vec![Err(Refusal::TooManyRequests)], Vec::new());
+    run(
+        &catalog,
+        &mut transport,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(Size::Thumbnail(1200), true, false),
+    )
+    .expect_err("429 stops the pass");
+    assert_eq!(transport.asked.len(), 1);
+    assert!(layer.records.is_empty());
+    assert!(!cover_in(&dir).exists());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_malformed_cover_index_is_retried_instead_of_saved_as_a_miss() {
+    let dir = sandbox("malformed_index");
+    let catalog = library(&dir, false, None);
+    let mut layer = Sources::default();
+    let mut first = Canned::new(vec![Ok("{}".into())], Vec::new());
+    run(
+        &catalog,
+        &mut first,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(Size::Thumbnail(1200), false, false),
+    )
+    .unwrap();
+    assert!(
+        layer.records.is_empty(),
+        "a malformed response is not evidence that the archive has no cover"
+    );
+    let mut retry = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+    run(
+        &catalog,
+        &mut retry,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(Size::Thumbnail(1200), false, false),
+    )
+    .unwrap();
+    assert!(cover_in(&dir).is_file());
+    assert_eq!(retry.asked.len(), 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_cover_does_not_follow_an_unreviewed_release_group_match() {
+    let dir = sandbox("cover_identity");
+    let mut catalog = library(&dir, false, None);
+    catalog.releases[0].mbid = None;
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    let mut layer = Sources::default();
+    layer.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some("proposed-group".into()),
+        fetched_at: 1,
+        confidence: Confidence::Matched(95),
+        facts: Facts::Release(Default::default()),
+    });
+    assert!(targets(&catalog, &layer).is_empty());
+    let id = layer.review_items(&catalog)[0].id.clone();
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    assert_eq!(targets(&catalog, &layer).len(), 1);
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Rejected, 3)
+        .unwrap();
+    assert!(targets(&catalog, &layer).is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_local_release_group_identifier_needs_no_prior_musicbrainz_fetch() {
+    let dir = sandbox("local_group");
+    let mut catalog = library(&dir, false, None);
+    catalog.releases[0].mbid = None;
+    catalog.releases[0].release_group_mbid = Some("local-group".into());
+    let selected = targets(&catalog, &Sources::default());
+    assert_eq!(selected.len(), 1);
+    assert_eq!(
+        selected[0].url,
+        "https://coverartarchive.org/release-group/local-group"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_partial_artwork_download_resumes_only_its_missing_images() {
+    let dir = sandbox("resume_images");
+    let catalog = library(&dir, false, Some("cover.jpg"));
+    std::fs::write(cover_in(&dir), b"chosen cover").unwrap();
+    let mut layer = Sources::default();
+    let path = sources::sources_path(&dir);
+    let mut first = Canned::new(
+        vec![Ok(INDEX_ALL.to_string())],
+        vec![
+            Ok(JPEG.to_vec()),
+            Err(Refusal::Failed("image transfer failed".into())),
+        ],
+    );
+    run(
+        &catalog,
+        &mut first,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), true, false),
+    )
+    .unwrap();
+    let into = dir.join("music/Miles Davis/Kind of Blue/artwork");
+    assert!(into.join("back.jpg").is_file());
+    assert!(!into.join("booklet-01.jpg").exists());
+
+    let mut retry = Canned::new(
+        vec![Ok(INDEX_ALL.to_string())],
+        vec![Ok(JPEG.to_vec()), Ok(JPEG.to_vec())],
+    );
+    run(
+        &catalog,
+        &mut retry,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), true, false),
+    )
+    .unwrap();
+    assert!(
+        into.join("booklet-01.jpg").is_file(),
+        "an existing artwork folder does not prove the transfer finished"
+    );
+    assert!(into.join("booklet-02.jpg").is_file());
+    assert!(
+        !retry.asked.iter().any(|url| url == "https://x/2-1200.jpg"),
+        "the existing back cover is not downloaded again"
+    );
+    assert_eq!(std::fs::read(cover_in(&dir)).unwrap(), b"chosen cover");
+    let mut completed = Canned::new(Vec::new(), Vec::new());
+    run(
+        &catalog,
+        &mut completed,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), true, false),
+    )
+    .unwrap();
+    assert!(
+        completed.asked.is_empty(),
+        "finished artwork stays finished"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     // The cover is one question and the booklet is another, and `--images`
-    // asks the second of an album finished for the first. What stops it being
-    // asked for ever after is the `artwork/` folder itself — the same way
-    // `cover.jpg` is what stops the ordinary pass.
+    // asks the second of an album finished for the first. Only a completed
+    // attributed answer proves that the extras pass succeeded.
     let dir = sandbox("images_scope");
     let catalog = library(&dir, false, Some("cover.jpg"));
 
@@ -613,6 +890,7 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
         &Sources::default(),
         &[],
         &crate::commands::fetch::EVERYTHING,
+        false,
         false,
     );
     assert!(plain.targets.is_empty());
@@ -624,6 +902,7 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
         &[],
         &crate::commands::fetch::EVERYTHING,
         true,
+        false,
     );
     assert_eq!(wider.targets.len(), 1);
     assert!(
@@ -632,14 +911,33 @@ fn with_images_an_album_that_has_a_cover_is_asked_about_once() {
     );
 
     std::fs::create_dir_all(dir.join("music/Miles Davis/Kind of Blue/artwork")).expect("a folder");
-    let done = survey(
+    let incomplete = survey(
         &catalog,
         &Sources::default(),
         &[],
         &crate::commands::fetch::EVERYTHING,
         true,
+        false,
     );
-    assert!(done.targets.is_empty(), "the folder is the record");
+    assert_eq!(
+        incomplete.targets.len(),
+        1,
+        "an existing folder can hold only a partial download"
+    );
+    let mut layer = Sources::default();
+    store_artwork(&mut layer, &incomplete.targets[0]);
+    let done = survey(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        true,
+        false,
+    );
+    assert!(
+        done.targets.is_empty(),
+        "a completed extras answer is reused"
+    );
     assert_eq!(done.beside, 1);
 }
 
@@ -674,6 +972,7 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
             &layer,
             &[],
             &crate::commands::fetch::EVERYTHING,
+            false,
             false
         )
         .targets[0]
@@ -685,6 +984,7 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
         &[],
         &crate::commands::fetch::EVERYTHING,
         true,
+        false,
     );
     assert!(!wider.targets[0].known, "the index has to be asked again");
     assert!(
@@ -755,7 +1055,8 @@ fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
             &layer,
             &[],
             &crate::commands::fetch::EVERYTHING,
-            true
+            true,
+            false
         )
         .targets
         .is_empty(),

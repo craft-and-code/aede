@@ -7,6 +7,45 @@
 use super::*;
 use crate::json::parse;
 
+#[path = "coverart_test_support.rs"]
+mod test_support;
+use test_support::{ImageFolder, JPEG, PNG};
+
+#[test]
+fn truncated_images_are_refused_before_any_folder_or_file_is_created() {
+    let temporary = ImageFolder::new();
+    let folder = temporary.path().join("not-created");
+    for bytes in [&JPEG[..JPEG.len() - 2], &PNG[..PNG.len() - 12]] {
+        assert!(write_image(&folder, Kind::Front, (0, 1), bytes).is_err());
+        assert!(!folder.exists(), "an invalid download leaves no output");
+    }
+}
+
+#[test]
+fn corrupt_image_data_cannot_replace_a_picture_that_is_already_on_disk() {
+    let temporary = ImageFolder::new();
+    let existing = temporary.path().join("cover.png");
+    std::fs::write(&existing, PNG).expect("an existing picture");
+    let mut corrupt = PNG.to_vec();
+    corrupt[45] ^= 1;
+    assert!(write_image(temporary.path(), Kind::Front, (0, 1), &corrupt).is_err());
+    assert_eq!(std::fs::read(existing).expect("still present"), PNG);
+}
+
+#[test]
+fn a_malformed_index_is_not_a_verified_absence_of_artwork() {
+    for body in [
+        r#"{}"#,
+        r#"{"images":{}}"#,
+        r#"{"images":[{}]}"#,
+        r#"{"images":[null]}"#,
+    ] {
+        assert!(validate_index(&json(body)).is_err(), "{body}");
+    }
+    assert!(validate_index(&json(INDEX)).is_ok());
+    assert!(validate_index(&json(r#"{"images":[]}"#)).is_ok());
+}
+
 /// An index as `coverartarchive.org/release-group/<mbid>` answers.
 ///
 /// Abbreviated: the real document repeats the same keys per image, and a
@@ -29,6 +68,32 @@ const INDEX: &str = r#"{
 
 fn json(text: &str) -> crate::json::Json {
     parse(text).expect("the fixture is valid JSON")
+}
+
+#[test]
+fn a_front_tag_after_another_type_still_places_the_image_beside_the_music() {
+    let doc = json(
+        r#"{"images":[{"front":false,"types":["Booklet","Front"],"image":"https://x/front.jpg"}]}"#,
+    );
+    assert_eq!(images(&doc, Size::Original)[0].0, Kind::Front);
+    assert_eq!(
+        front(&doc, Size::Original).expect("front").url,
+        "https://x/front.jpg"
+    );
+}
+
+#[test]
+fn a_front_without_a_download_address_does_not_hide_the_other_covers() {
+    let doc = json(
+        r#"{"images":[
+          {"front":true,"approved":true,"image":""},
+          {"front":true,"approved":false,"image":"https://x/front.jpg"}
+        ]}"#,
+    );
+    assert_eq!(
+        front(&doc, Size::Original).expect("usable front").url,
+        "https://x/front.jpg"
+    );
 }
 
 #[test]
@@ -261,22 +326,20 @@ fn what_is_not_the_cover_goes_one_level_down() {
 
 #[test]
 fn the_other_images_are_written_into_a_folder_that_did_not_exist() {
-    let dir = std::env::temp_dir().join("aede_coverart_extras");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a folder");
-    let into = extras_in(&dir);
-    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+    let dir = ImageFolder::new();
+    let into = extras_in(dir.path());
+    let jpeg = JPEG;
 
     // The subfolder is made on the way, because it will not be there the
     // first time and the caller should not have to know that.
-    let first = write_image(&into, Kind::Booklet, (0, 2), &jpeg).expect("written");
+    let first = write_image(&into, Kind::Booklet, (0, 2), jpeg).expect("written");
     assert_eq!(first, Written::New(into.join("booklet-01.jpg")));
     assert!(into.is_dir());
 
     // A second run says the file is already there — which is not a failure,
     // and must not be counted as one: running twice over a library would
     // otherwise report every folder as an error for having worked.
-    let again = write_image(&into, Kind::Booklet, (0, 2), &jpeg).expect("not an error");
+    let again = write_image(&into, Kind::Booklet, (0, 2), jpeg).expect("not an error");
     assert_eq!(again, Written::Already(into.join("booklet-01.jpg")));
     assert_eq!(
         std::fs::read(into.join("booklet-01.jpg")).expect("read"),
@@ -286,51 +349,59 @@ fn the_other_images_are_written_into_a_folder_that_did_not_exist() {
     // And the sniff guard is the same one, in the same place.
     assert!(write_image(&into, Kind::Back, (0, 1), b"<!DOCTYPE html>").is_err());
     assert!(!into.join("back.jpg").exists());
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn exists_beside_finds_either_extension_write_image_can_produce() {
-    let dir = std::env::temp_dir().join("aede_coverart_exists_beside");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a folder");
-    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
-    let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    let folder = ImageFolder::new();
+    let dir = folder.path();
+    let jpeg = JPEG;
+    let png = PNG;
 
     // Nothing written yet: not there under either name.
-    assert!(!exists_beside(&dir, Kind::Banner));
+    assert!(!exists_beside(dir, Kind::Banner));
 
-    write_image(&dir, Kind::Banner, (0, 1), &jpeg).expect("written");
-    assert!(exists_beside(&dir, Kind::Banner));
+    write_image(dir, Kind::Banner, (0, 1), jpeg).expect("written");
+    assert!(exists_beside(dir, Kind::Banner));
 
     // A different kind at the same stem's neighbour does not count.
-    assert!(!exists_beside(&dir, Kind::Logo));
-    write_image(&dir, Kind::Logo, (0, 1), &png).expect("written");
-    assert!(exists_beside(&dir, Kind::Logo));
+    assert!(!exists_beside(dir, Kind::Logo));
+    write_image(dir, Kind::Logo, (0, 1), png).expect("written");
+    assert!(exists_beside(dir, Kind::Logo));
+}
 
-    let _ = std::fs::remove_dir_all(&dir);
+#[test]
+fn existing_numbered_images_are_found_under_either_supported_extension() {
+    let folder = ImageFolder::new();
+    let dir = folder.path();
+    let jpeg = JPEG;
+    let png = PNG;
+    write_image(dir, Kind::Booklet, (0, 2), jpeg).expect("first page");
+    assert!(exists_image(dir, Kind::Booklet, (0, 2)));
+    assert!(!exists_image(dir, Kind::Booklet, (1, 2)));
+    assert!(!exists_image(dir, Kind::Booklet, (0, 1)));
+    write_image(dir, Kind::Booklet, (1, 2), png).expect("second page");
+    assert!(exists_image(dir, Kind::Booklet, (1, 2)));
 }
 
 #[test]
 fn nothing_but_an_image_reaches_a_music_folder() {
-    let dir = std::env::temp_dir().join("aede_coverart_write");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a folder");
+    let folder = ImageFolder::new();
+    let dir = folder.path();
 
     // Not an image: refused, and the folder is left as it was.
-    assert!(write_beside(&dir, b"<!DOCTYPE html>Not Found").is_err());
+    assert!(write_beside(dir, b"<!DOCTYPE html>Not Found").is_err());
     assert!(!dir.join("cover.jpg").exists());
     assert!(!dir.join("cover.png").exists());
 
     // An image: written, under the name that says what it is.
-    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
-    let path = write_beside(&dir, &jpeg).expect("written");
+    let jpeg = JPEG;
+    let path = write_beside(dir, jpeg).expect("written");
     assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("cover.jpg"));
     assert_eq!(std::fs::read(&path).expect("readable"), jpeg);
 
     // And never twice. There is no flag anywhere that makes this overwrite.
-    assert!(write_beside(&dir, &jpeg).is_err());
-    let _ = std::fs::remove_dir_all(&dir);
+    assert!(write_beside(dir, jpeg).is_err());
 }
 
 #[test]
@@ -340,39 +411,34 @@ fn a_folder_never_ends_up_with_two_covers() {
     // is about to write — and both rank as the album's cover, so which one a
     // player shows is anybody's guess. It was the 1200 px download over the
     // full-size picture that had been inside the files all along.
-    let dir = std::env::temp_dir().join("aede_coverart_two");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a folder");
+    let folder = ImageFolder::new();
+    let dir = folder.path();
 
-    let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
-    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
-    write_beside(&dir, &png).expect("the first one is written");
+    let png = PNG;
+    let jpeg = JPEG;
+    write_beside(dir, png).expect("the first one is written");
 
-    let refused = write_beside(&dir, &jpeg).expect_err("and the second is not");
+    let refused = write_beside(dir, jpeg).expect_err("and the second is not");
     assert!(refused.contains("already the cover"), "{refused}");
     assert!(!dir.join("cover.jpg").exists());
 
     // Any name the scanner would take as a cover counts, not only `cover.*`:
     // the question asked is the scanner's own.
-    let other = std::env::temp_dir().join("aede_coverart_two_folder");
-    let _ = std::fs::remove_dir_all(&other);
-    std::fs::create_dir_all(&other).expect("a folder");
+    let other_folder = ImageFolder::new();
+    let other = other_folder.path();
     std::fs::write(other.join("folder.jpg"), jpeg).expect("written");
-    assert!(write_beside(&other, &png).is_err());
+    assert!(write_beside(other, png).is_err());
     assert!(!other.join("cover.png").exists());
 
     // The images that are not the cover are untouched by this: they live in
     // their own folder, where the first one written must not block the rest.
-    let into = extras_in(&dir);
+    let into = extras_in(dir);
     assert!(matches!(
-        write_image(&into, Kind::Back, (0, 1), &jpeg),
+        write_image(&into, Kind::Back, (0, 1), jpeg),
         Ok(Written::New(_))
     ));
     assert!(matches!(
-        write_image(&into, Kind::Booklet, (0, 1), &jpeg),
+        write_image(&into, Kind::Booklet, (0, 1), jpeg),
         Ok(Written::New(_))
     ));
-
-    let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&other);
 }

@@ -1,9 +1,11 @@
-//! Coverage of externally sourced recording and work credits.
+//! Coverage of externally sourced recording, work and edition credits.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use aede_core::credit_coverage::{self, CreditStatus, RecordingCreditCoverage};
+use aede_core::credit_coverage::{
+    self, CreditStatus, EditionCreditCoverage, RecordingCreditCoverage,
+};
 use aede_core::json::Json;
 use aede_core::model::{Catalog, Id, Release};
 
@@ -47,6 +49,40 @@ impl Counts {
     }
 }
 
+#[derive(Default)]
+struct EditionCounts {
+    lookup: Counts,
+    with_manual_credits: usize,
+}
+
+impl EditionCounts {
+    fn json(&self) -> Json {
+        let mut result = self.lookup.json();
+        result.set(
+            "identified",
+            ((self.lookup.total() - self.lookup.unidentified) as u64).into(),
+        );
+        result.set(
+            "queried",
+            ((self.lookup.credited + self.lookup.empty) as u64).into(),
+        );
+        result.set(
+            "with_manual_credits",
+            (self.with_manual_credits as u64).into(),
+        );
+        result
+    }
+}
+
+fn edition_counts(rows: &[EditionCreditCoverage]) -> EditionCounts {
+    let mut result = EditionCounts::default();
+    for row in rows {
+        result.lookup.add(row.status);
+        result.with_manual_credits += usize::from(row.manual_credits > 0);
+    }
+    result
+}
+
 fn album_recordings<'a>(
     catalog: &Catalog,
     release: &Release,
@@ -84,11 +120,12 @@ fn file_for_recording<'a>(
         .map(|file| file.path.as_str())
 }
 
-/// Summarize the whole catalog, or inspect recordings in matching albums.
+/// Summarize the whole catalog, or inspect separate scopes in matching albums.
 pub fn show_credits(args: &Args) -> Res {
     let catalog = load(args)?;
     let sources = sources_held(args)?;
     let coverage = credit_coverage::recordings(&catalog, &sources);
+    let editions = credit_coverage::editions(&catalog, &sources);
     let query = args.positionals.join(" ");
     if !query.is_empty() {
         let wanted = aede_core::text::normalize(&query);
@@ -112,7 +149,13 @@ pub fn show_credits(args: &Args) -> Res {
                 Json::Arr(
                     albums
                         .iter()
-                        .map(|album| album_json(&catalog, album, &coverage, Some(window)))
+                        .map(|album| album_json(
+                            &catalog,
+                            album,
+                            &coverage,
+                            &editions,
+                            Some(window)
+                        ))
                         .collect()
                 )
                 .to_string_pretty()
@@ -120,31 +163,21 @@ pub fn show_credits(args: &Args) -> Res {
             return Ok(());
         }
         for album in albums {
-            show_album(&catalog, album, &coverage, window);
+            show_album(&catalog, album, &coverage, &editions, window);
         }
         return Ok(());
     }
 
-    let overall = counts(coverage.iter().map(|row| row.status));
     let window = args.window(25)?;
     if args.has("json") {
-        let mut result = Json::obj();
-        result.set("recordings", overall.json());
-        result.set(
-            "albums",
-            Json::Arr(
-                catalog
-                    .releases
-                    .iter()
-                    .skip(window.offset)
-                    .take(window.limit)
-                    .map(|release| album_json(&catalog, release, &coverage, None))
-                    .collect(),
-            ),
+        println!(
+            "{}",
+            summary_json(&catalog, &coverage, &editions, window).to_string_pretty()
         );
-        println!("{}", result.to_string_pretty());
         return Ok(());
     }
+    let overall = counts(coverage.iter().map(|row| row.status));
+    let overall_editions = edition_counts(&editions);
     println!("{}", ui::section("MusicBrainz credit coverage"));
     println!(
         "  {} recordings · {} credited · {} queried empty · {} waiting · {} untrusted · {} without ID",
@@ -155,6 +188,18 @@ pub fn show_credits(args: &Args) -> Res {
         overall.untrusted,
         overall.unidentified
     );
+    println!(
+        "  {} editions · {} identified · {} queried · {} credited · {} queried empty · {} waiting · {} untrusted · {} without ID · {} with manual credits",
+        overall_editions.lookup.total(),
+        overall_editions.lookup.total() - overall_editions.lookup.unidentified,
+        overall_editions.lookup.credited + overall_editions.lookup.empty,
+        overall_editions.lookup.credited,
+        overall_editions.lookup.empty,
+        overall_editions.lookup.waiting,
+        overall_editions.lookup.untrusted,
+        overall_editions.lookup.unidentified,
+        overall_editions.with_manual_credits,
+    );
     let mut table = Table::new(&[
         "Album",
         "Total",
@@ -163,13 +208,16 @@ pub fn show_credits(args: &Args) -> Res {
         "Waiting",
         "Untrusted",
         "No ID",
+        "Edition",
+        "Manual",
     ])
     .align(1, Align::Right)
     .align(2, Align::Right)
     .align(3, Align::Right)
     .align(4, Align::Right)
     .align(5, Align::Right)
-    .align(6, Align::Right);
+    .align(6, Align::Right)
+    .align(8, Align::Right);
     for release in catalog
         .releases
         .iter()
@@ -181,6 +229,7 @@ pub fn show_credits(args: &Args) -> Res {
                 .iter()
                 .map(|row| row.status),
         );
+        let edition = editions.get(release.id as usize);
         table.push(vec![
             release.title.clone(),
             tally.total().to_string(),
@@ -189,6 +238,8 @@ pub fn show_credits(args: &Args) -> Res {
             tally.waiting.to_string(),
             tally.untrusted.to_string(),
             tally.unidentified.to_string(),
+            edition.map_or("—", |row| row.status.as_str()).to_string(),
+            edition.map_or(0, |row| row.manual_credits).to_string(),
         ]);
     }
     print!("{}", table.render());
@@ -204,10 +255,12 @@ fn show_album(
     catalog: &Catalog,
     release: &Release,
     coverage: &[RecordingCreditCoverage],
+    editions: &[EditionCreditCoverage],
     window: Window,
 ) {
     let rows = album_recordings(catalog, release, coverage);
     let tally = counts(rows.iter().map(|row| row.status));
+    let edition = editions.get(release.id as usize);
     println!("{}", ui::section(&release.title));
     println!("  {}", ui::dim(&release.folder));
     println!(
@@ -219,6 +272,14 @@ fn show_album(
         tally.untrusted,
         tally.unidentified
     );
+    if let Some(edition) = edition {
+        println!(
+            "  Edition: {} · {} source credits · {} manual credits",
+            edition.status.as_str(),
+            edition.edition_credits,
+            edition.manual_credits,
+        );
+    }
     let mut table = Table::new(&["Recording", "Status", "Direct", "Work", "File"])
         .align(2, Align::Right)
         .align(3, Align::Right)
@@ -242,16 +303,16 @@ fn show_album(
     }
     print!("{}", table.render());
     announce_window(window, rows.len(), "recording");
-    if tally.waiting > 0 {
+    if tally.waiting > 0 || edition.is_some_and(|row| row.status == CreditStatus::Waiting) {
         println!(
             "  {}",
             ui::dim(&format!(
-                "Fetch waiting recordings: aede fetch --credits {}",
+                "Fetch waiting recording or edition credits: aede fetch --credits {}",
                 shell_arg(&release.folder)
             ))
         );
     }
-    if tally.untrusted > 0 {
+    if tally.untrusted > 0 || edition.is_some_and(|row| row.status == CreditStatus::Untrusted) {
         println!(
             "  {}",
             ui::dim("Inspect pending or rejected source identities: aede review --all")
@@ -263,12 +324,21 @@ fn show_album(
             ui::dim("Recordings without a MusicBrainz ID cannot be fetched by --credits")
         );
     }
+    if edition.is_some_and(|row| row.status == CreditStatus::Unidentified) {
+        println!(
+            "  {}",
+            ui::dim(
+                "An edition without a MusicBrainz ID cannot be fetched by --credits; manual corrections remain separate"
+            )
+        );
+    }
 }
 
 fn album_json(
     catalog: &Catalog,
     release: &Release,
     coverage: &[RecordingCreditCoverage],
+    editions: &[EditionCreditCoverage],
     detail_window: Option<Window>,
 ) -> Json {
     let rows = album_recordings(catalog, release, coverage);
@@ -278,6 +348,13 @@ fn album_json(
     result.set("folder", release.folder.clone().into());
     result.set("musicbrainz_id", release.mbid.clone().into());
     result.set("coverage", tally.json());
+    if let Some(edition) = editions.get(release.id as usize) {
+        let mut object = Json::obj();
+        object.set("status", edition.status.as_str().into());
+        object.set("edition_credits", (edition.edition_credits as u64).into());
+        object.set("manual_credits", (edition.manual_credits as u64).into());
+        result.set("edition", object);
+    }
     if let Some(window) = detail_window {
         result.set(
             "recordings",
@@ -305,6 +382,33 @@ fn album_json(
             ),
         );
     }
+    result
+}
+
+fn summary_json(
+    catalog: &Catalog,
+    coverage: &[RecordingCreditCoverage],
+    editions: &[EditionCreditCoverage],
+    window: Window,
+) -> Json {
+    let mut result = Json::obj();
+    result.set(
+        "recordings",
+        counts(coverage.iter().map(|row| row.status)).json(),
+    );
+    result.set("editions", edition_counts(editions).json());
+    result.set(
+        "albums",
+        Json::Arr(
+            catalog
+                .releases
+                .iter()
+                .skip(window.offset)
+                .take(window.limit)
+                .map(|release| album_json(catalog, release, coverage, editions, None))
+                .collect(),
+        ),
+    );
     result
 }
 

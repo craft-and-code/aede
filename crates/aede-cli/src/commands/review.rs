@@ -99,6 +99,7 @@ pub fn review(args: &Args) -> Res {
         return Ok(());
     }
 
+    let window = args.window(DEFAULT_LIMIT)?;
     let only_source = args.value("source");
     let wanted = aede_core::text::normalize(&args.positionals.join(" "));
     let all_items = held.review_items(&catalog);
@@ -141,12 +142,11 @@ pub fn review(args: &Args) -> Res {
                     args.positionals.join(" ")
                 ),
             };
-            println!("  {}", ui::green(&message));
+            println!("  {}", ui::green(&ui::literal(&message)));
         }
         return Ok(());
     }
 
-    let window = args.window(DEFAULT_LIMIT)?;
     if args.has("interactive") {
         let items = selected
             .iter()
@@ -369,7 +369,7 @@ fn render_card(
         output,
         "│  {} · {}",
         ui::cyan(&item.entity.kind.as_str().replace('_', " ").to_uppercase()),
-        ui::bold(&name)
+        ui::bold(&ui::literal(&name))
     )?;
     writeln!(output, "├─ {}", ui::bold("Why Aède is asking"))?;
     card_field(output, "Reason", &reason(item))?;
@@ -396,7 +396,7 @@ fn render_card(
     }
 
     writeln!(output, "├─ {}", ui::bold("If accepted"))?;
-    for line in ui::wrap(&impact(record), 68) {
+    for line in ui::wrap(&ui::literal(&impact(record)), 68) {
         writeln!(output, "│  {line}")?;
     }
     writeln!(
@@ -407,12 +407,13 @@ fn render_card(
 }
 
 fn card_field(output: &mut impl Write, label: &str, value: &str) -> std::io::Result<()> {
+    let value = ui::literal(value);
     if matches!(label, "File" | "Folder") {
         // Paths are deliberately not wrapped or truncated: the point of this
         // row is to let the user identify the exact local file on disk.
         return writeln!(output, "│  {label:<11} {value}");
     }
-    let mut lines = ui::wrap(value, 53).into_iter();
+    let mut lines = ui::wrap(&value, 53).into_iter();
     let first = lines.next().unwrap_or_default();
     writeln!(output, "│  {label:<11} {first}")?;
     for line in lines {
@@ -752,8 +753,8 @@ fn print_decision(action: &str, item: &ReviewItem, path: &std::path::Path) {
         "{} {} {} from {}: {effect}",
         ui::green("→"),
         item.entity.kind.as_str(),
-        item.entity.key,
-        item.source
+        ui::literal(&item.entity.key),
+        ui::literal(&item.source)
     );
-    println!("  {}", ui::dim(&path.display().to_string()));
+    println!("  {}", ui::dim(&ui::literal(&path.display().to_string())));
 }

@@ -29,6 +29,7 @@
 //! either this artist's images or none.
 
 use crate::json::Json;
+use crate::url::encode_component;
 
 /// The name records from this service carry in `sources.json`.
 pub const SOURCE: &str = "fanarttv";
@@ -100,12 +101,20 @@ pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 
 /// Where to ask about one artist.
 pub fn lookup_url(mbid: &str, key: &str) -> String {
-    format!("{WEB_SERVICE}/{mbid}?api_key={key}")
+    format!(
+        "{WEB_SERVICE}/{}?api_key={}",
+        encode_component(mbid),
+        encode_component(key)
+    )
 }
 
 /// Where to ask about one record label, by its MusicBrainz label identifier.
 pub fn label_lookup_url(mbid: &str, key: &str) -> String {
-    format!("{WEB_SERVICE}/labels/{mbid}?api_key={key}")
+    format!(
+        "{WEB_SERVICE}/labels/{}?api_key={}",
+        encode_component(mbid),
+        encode_component(key)
+    )
 }
 
 /// Refuses a response whose identity does not match the artist requested.
@@ -149,12 +158,12 @@ struct Thumb {
 
 /// The most liked image under `field`, or `None` when it is empty or absent.
 ///
-/// Sorted by `likes`, which is the only signal the service gives about which
+/// Ranked by `likes`, which is the only signal the service gives about which
 /// of several submissions is the one people chose — the same role a score
 /// plays for a search result, and unlike a search result these are not scored
 /// against the question at all, only against each other.
 fn best(response: &Json, field: &str) -> Option<Thumb> {
-    let mut found: Vec<Thumb> = response
+    response
         .get(field)
         .and_then(Json::as_arr)
         .unwrap_or(&[])
@@ -167,9 +176,7 @@ fn best(response: &Json, field: &str) -> Option<Thumb> {
                 .unwrap_or(0);
             Some(Thumb { url, likes })
         })
-        .collect();
-    found.sort_by(|a, b| b.likes.cmp(&a.likes).then_with(|| a.url.cmp(&b.url)));
-    found.into_iter().next()
+        .min_by(|a, b| b.likes.cmp(&a.likes).then_with(|| a.url.cmp(&b.url)))
 }
 
 /// The most liked portrait the service holds for this artist, or `None`.
@@ -243,7 +250,7 @@ pub fn album_artwork(response: &Json, release_group: &str) -> Option<AlbumArtwor
         .find(|album| album.field_str("release_group_id").as_deref() == Some(release_group))?;
     let cover = best(album, "albumcover").map(|thumb| thumb.url);
 
-    let mut discs: Vec<(String, Thumb)> = Vec::new();
+    let mut discs = std::collections::BTreeMap::<String, Thumb>::new();
     for row in album.get("cdart").and_then(Json::as_arr).unwrap_or(&[]) {
         let Some(url) = row.field_str("url").filter(|url| !url.is_empty()) else {
             continue;
@@ -254,17 +261,20 @@ pub fn album_artwork(response: &Json, release_group: &str) -> Option<AlbumArtwor
             .and_then(|likes| likes.parse::<u32>().ok())
             .unwrap_or(0);
         let candidate = Thumb { url, likes };
-        match discs.iter_mut().find(|(number, _)| number == &disc) {
-            Some((_, current))
+        match discs.get_mut(&disc) {
+            Some(current)
                 if candidate.likes > current.likes
                     || (candidate.likes == current.likes && candidate.url < current.url) =>
             {
                 *current = candidate;
             }
             Some(_) => {}
-            None => discs.push((disc, candidate)),
+            None => {
+                discs.insert(disc, candidate);
+            }
         }
     }
+    let mut discs: Vec<_> = discs.into_iter().collect();
     discs.sort_by(|(a, _), (b, _)| {
         a.parse::<u32>()
             .unwrap_or(u32::MAX)

@@ -34,6 +34,7 @@
 //! job, and this is not one.
 
 use crate::json::Json;
+use crate::url::encode_component;
 
 /// The name records from this service carry in `sources.json`.
 pub const SOURCE: &str = "acoustid";
@@ -69,11 +70,11 @@ pub fn key() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// The wait between two requests.
+/// The minimum recommended wait between two AcoustID requests.
 ///
-/// The service asks for no more than three per second. Aède sends one every
-/// 350 ms — under the limit with room for a clock that rounds the wrong way,
-/// the same margin [`crate::musicbrainz::REQUEST_INTERVAL`] leaves.
+/// The service asks for no more than three per second. A 350 ms interval stays
+/// under that limit; the CLI currently uses the slower shared MusicBrainz
+/// throttle so a combined fetch remains safe for every service it reaches.
 pub const REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_millis(350);
 
 /// What the answer must contain to be worth parsing.
@@ -93,23 +94,9 @@ const META: &str = "recordings+releasegroups";
 pub fn lookup_url(key: &str, fingerprint: &str, seconds: u32) -> String {
     format!(
         "{WEB_SERVICE}?client={}&meta={META}&duration={seconds}&fingerprint={}",
-        escape(key),
-        escape(fingerprint)
+        encode_component(key),
+        encode_component(fingerprint)
     )
-}
-
-/// Percent-encodes what a query string cannot carry literally.
-fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
 }
 
 /// What the service says one file is.
@@ -142,10 +129,20 @@ pub struct Heard {
 /// Ties are broken by the recording identifier so that two runs over an
 /// unchanged file answer the same thing — a match that changes between runs
 /// cannot be compared with the one stored last time.
+/// Malformed statuses and absent, non-finite or out-of-range scores cannot
+/// identify a recording. No service failure is returned as a match.
 pub fn best(response: &Json) -> Option<Heard> {
-    let mut found: Vec<Heard> = Vec::new();
+    if response.get("status").and_then(Json::as_str) != Some("ok") {
+        return None;
+    }
+    let mut found: Option<Heard> = None;
     for result in response.get("results").and_then(Json::as_arr)? {
-        let score = result.field_f64("score").unwrap_or(0.0);
+        let Some(score) = result
+            .field_f64("score")
+            .filter(|score| score.is_finite() && (0.0..=1.0).contains(score))
+        else {
+            continue;
+        };
         let Some(recordings) = result.get("recordings").and_then(Json::as_arr) else {
             continue;
         };
@@ -153,14 +150,23 @@ pub fn best(response: &Json) -> Option<Heard> {
             let Some(id) = recording.field_str("id").filter(|id| !id.is_empty()) else {
                 continue;
             };
-            found.push(Heard {
+            if found.as_ref().is_some_and(|current| {
+                current.score > score || (current.score == score && current.recording <= id)
+            }) {
+                continue;
+            }
+            found = Some(Heard {
                 recording: id,
                 score,
                 title: recording.field_str("title").filter(|t| !t.is_empty()),
                 artists: recording
                     .get("artists")
                     .and_then(Json::as_arr)
-                    .map(|list| list.iter().filter_map(|a| a.field_str("name")).collect())
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|a| a.field_str("name").filter(|name| !name.is_empty()))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 album: recording
                     .get("releasegroups")
@@ -170,13 +176,7 @@ pub fn best(response: &Json) -> Option<Heard> {
             });
         }
     }
-    found.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.recording.cmp(&b.recording))
-    });
-    found.into_iter().next()
+    found
 }
 
 /// `true` when the service reported a failure rather than an empty answer.
@@ -185,15 +185,37 @@ pub fn best(response: &Json) -> Option<Heard> {
 /// a bad key answers `200 OK` with `"status": "error"`, which a client
 /// reading only the HTTP code would file as "this file is unknown" for every
 /// file in the library.
+/// Only `ok` with a result array is a successful lookup; an empty array is a
+/// genuine miss, while a missing or malformed array is a failed answer.
 pub fn refused(response: &Json) -> Option<String> {
     match response.field_str("status").as_deref() {
-        Some("error") | None => Some(
+        Some("ok") => {
+            let Some(results) = response.get("results").and_then(Json::as_arr) else {
+                return Some("the service returned no valid results array".to_string());
+            };
+            if results.iter().any(|result| {
+                result
+                    .get("id")
+                    .and_then(Json::as_str)
+                    .is_none_or(|id| id.trim().is_empty())
+                    || result
+                        .field_f64("score")
+                        .is_none_or(|score| !score.is_finite() || !(0.0..=1.0).contains(&score))
+            }) {
+                Some(
+                    "the service returned a result without a valid track identifier or score"
+                        .to_string(),
+                )
+            } else {
+                None
+            }
+        }
+        _ => Some(
             response
                 .get("error")
                 .and_then(|e| e.field_str("message"))
                 .unwrap_or_else(|| "the service did not say it was ok".to_string()),
         ),
-        _ => None,
     }
 }
 

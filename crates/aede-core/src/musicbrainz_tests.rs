@@ -370,6 +370,23 @@ fn a_page_with_no_total_is_taken_to_be_the_whole_answer() {
 }
 
 #[test]
+fn discography_pages_distinguish_a_complete_empty_answer_from_unreadable_data() {
+    let empty = parse(r#"{"release-groups":[],"release-group-count":0}"#);
+    assert_eq!(discography_page(&empty), Some((vec![], 0)));
+    for malformed in [
+        r#"{}"#,
+        r#"{"release-groups":{},"release-group-count":0}"#,
+        r#"{"release-groups":[]}"#,
+        r#"{"release-groups":[],"release-group-count":-1}"#,
+        r#"{"release-groups":[],"release-group-count":1.5}"#,
+        r#"{"release-groups":[{"title":"No identity"}],"release-group-count":1}"#,
+        r#"{"release-groups":[{"id":" "}],"release-group-count":1}"#,
+    ] {
+        assert_eq!(discography_page(&parse(malformed)), None, "{malformed}");
+    }
+}
+
+#[test]
 fn a_browse_asks_by_identifier_and_never_by_name() {
     let url = discography_url("561d854a", 0);
     assert!(url.contains("/release-group?artist=561d854a"), "{url}");
@@ -565,6 +582,22 @@ fn two_equally_good_answers_are_refused_rather_than_arbitrated() {
 }
 
 #[test]
+fn equally_ranked_namesakes_with_different_identifiers_are_ambiguous() {
+    let mut other = candidate("Nirvana", 100);
+    other.mbid = "another-nirvana".into();
+    let found = [candidate("Nirvana", 100), other];
+    for candidates in [found.to_vec(), found.into_iter().rev().collect()] {
+        let Err(NoMatch::Ambiguous(names)) = best_match(&candidates, "Nirvana") else {
+            panic!("namesakes remain ambiguous");
+        };
+        assert_eq!(
+            names,
+            vec!["Nirvana (another-nirvana)", "Nirvana (id-Nirvana)"]
+        );
+    }
+}
+
+#[test]
 fn a_weak_best_answer_is_no_answer() {
     // MusicBrainz answers something for almost any query. Without a floor,
     // a misspelt folder name attaches a stranger's discography.
@@ -584,12 +617,10 @@ fn a_weak_best_answer_is_no_answer() {
 
 #[test]
 fn two_spellings_of_one_name_are_not_an_ambiguity() {
-    // A reissue and its original share a title, and two answers that
-    // normalise to the same name are not the program having to choose.
-    let found = [
-        candidate("The Beatles", 100),
-        candidate("Beatles, The", 100),
-    ];
+    let first = candidate("The Beatles", 100);
+    let mut spelling = candidate("Beatles, The", 100);
+    spelling.mbid = first.mbid.clone();
+    let found = [first, spelling];
     let (best, _) = best_match(&found, "The Beatles").expect("a match");
     assert!(best.name.contains("Beatles"));
 }

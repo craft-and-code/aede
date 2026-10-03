@@ -101,7 +101,8 @@ pub enum NoMatch {
     /// The search came back with nothing at all.
     Nothing,
     /// Several answers are equally good, and choosing between them would be
-    /// arbitrary. The names are carried so the report can show them.
+    /// arbitrary. Names are carried for display, with identifiers when names
+    /// alone cannot distinguish the candidates.
     Ambiguous(Vec<String>),
     /// The best answer is not close enough to the name asked about.
     TooWeak {
@@ -131,9 +132,12 @@ const FLOOR: u8 = 70;
 ///   the first of them is an arbitrary answer given without saying so, which
 ///   is the fault `find_releases` and `moved_to` were both fixed for.
 ///
-/// The confidence returned is [`Confidence::Identified`] only when the caller
-/// asked by identifier; a search can never produce more than
-/// [`Confidence::Matched`], however sure it looks.
+/// A name is not an identity: equally ranked candidates with different MBIDs
+/// remain ambiguous even when their names normalize alike. Repeated spellings
+/// of the same MBID are one candidate.
+///
+/// This search helper always returns [`Confidence::Matched`], however sure
+/// the answer looks. Identifier lookups are handled separately.
 pub fn best_match<F: Clone>(
     candidates: &[Candidate<F>],
     wanted: &str,
@@ -153,10 +157,9 @@ pub fn best_match<F: Clone>(
         true => candidates.iter().collect(),
     };
 
-    let best = pool
-        .iter()
-        .max_by_key(|c| c.score)
-        .expect("a non-empty pool");
+    let Some(best) = pool.iter().max_by_key(|c| c.score) else {
+        return Err(NoMatch::Nothing);
+    };
     if best.score < FLOOR {
         return Err(NoMatch::TooWeak {
             best: best.name.clone(),
@@ -164,19 +167,35 @@ pub fn best_match<F: Clone>(
         });
     }
 
-    // Two answers of the same quality are two answers. Names that normalise to
-    // the same thing are not a tie — a reissue and its original often share a
-    // title, and both being "right" is not the same as the program having to
-    // choose.
+    // An equal name cannot disambiguate two distinct people or release
+    // groups. Only another spelling of the same identity is not a tie.
     let tied: Vec<&&Candidate<F>> = pool
         .iter()
-        .filter(|c| {
-            c.score == best.score && text::normalize(&c.name) != text::normalize(&best.name)
-        })
+        .filter(|c| c.score == best.score && c.mbid != best.mbid)
         .collect();
     if !tied.is_empty() {
-        let mut names: Vec<String> = std::iter::once(best.name.clone())
-            .chain(tied.iter().map(|c| c.name.clone()))
+        let ambiguous: Vec<&Candidate<F>> = std::iter::once(*best)
+            .chain(tied.iter().map(|candidate| **candidate))
+            .collect();
+        let mut identities_by_name = std::collections::BTreeMap::new();
+        for candidate in &ambiguous {
+            identities_by_name
+                .entry(text::normalize(&candidate.name))
+                .or_insert_with(std::collections::BTreeSet::new)
+                .insert(candidate.mbid.as_str());
+        }
+        let mut names: Vec<String> = ambiguous
+            .iter()
+            .map(|candidate| {
+                if identities_by_name
+                    .get(&text::normalize(&candidate.name))
+                    .is_some_and(|identities| identities.len() > 1)
+                {
+                    format!("{} ({})", candidate.name, candidate.mbid)
+                } else {
+                    candidate.name.clone()
+                }
+            })
             .collect();
         names.sort();
         return Err(NoMatch::Ambiguous(names));
@@ -291,6 +310,7 @@ fn artist_facts(row: &Json) -> ArtistFacts {
         // browse over release groups, not a field of an artist lookup, and
         // reading it here would quietly empty it on every ordinary fetch.
         discography: Vec::new(),
+        discography_fetched_at: None,
         members: memberships(row),
         // MusicBrainz holds no prose about an artist: an annotation there is
         // an editorial note about the data, not a description of the
@@ -787,6 +807,19 @@ pub fn discography(response: &Json) -> (Vec<crate::sources::KnownRelease>, usize
     (page, total)
 }
 
+/// Read a complete browse page without confusing missing data with an empty
+/// discography. Network callers must reject `None` and keep their prior answer.
+///
+/// Unlike [`discography`], this requires an array, an integral total, and an
+/// identifier on every row. Skipping a malformed row would make the caller's
+/// pagination offset and completeness conclusion unreliable.
+pub fn discography_page(response: &Json) -> Option<(Vec<crate::sources::KnownRelease>, usize)> {
+    let rows = response.get("release-groups")?.as_arr()?;
+    let total = response.field_u32("release-group-count")? as usize;
+    let (page, _) = discography(response);
+    (page.len() == rows.len()).then_some((page, total))
+}
+
 /// A label credited on a release: its name and, when the same entry carried
 /// one, its MusicBrainz identifier.
 pub struct LabelOfRelease {
@@ -806,9 +839,8 @@ pub struct LabelOfRelease {
 /// — the first one that names a label — never a name from one row and an
 /// identifier from another: a release crediting several labels would
 /// otherwise risk pairing the name of one with the address of a different
-/// one. No tag carries a label's MusicBrainz identifier the way
-/// `MUSICBRAINZ_ARTISTID` does an artist's, so this is the only place one is
-/// ever read from.
+/// one. This supplies edition evidence independently of any explicit label
+/// identifier already carried by local tags.
 pub fn label_of_release(response: &Json) -> Option<LabelOfRelease> {
     response
         .get("label-info")

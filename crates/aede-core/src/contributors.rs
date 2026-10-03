@@ -102,7 +102,10 @@ pub fn sourced(catalog: &Catalog, sources: &Sources) -> Vec<SourcedContributor> 
         });
         if !name.is_empty() {
             builder.names.insert(name.to_string());
-            if builder.name.is_empty() || link.fetched_at > builder.fetched_at {
+            if builder.name.is_empty()
+                || link.fetched_at > builder.fetched_at
+                || (link.fetched_at == builder.fetched_at && name < builder.name.as_str())
+            {
                 builder.name = name.to_string();
                 builder.fetched_at = link.fetched_at;
             }
@@ -131,7 +134,8 @@ pub fn sourced(catalog: &Catalog, sources: &Sources) -> Vec<SourcedContributor> 
         .collect()
 }
 
-/// Match a sourced contributor by exact MusicBrainz identity or by spelling.
+/// Match a sourced contributor by canonical or credited-as spelling.
+/// Callers that select by MusicBrainz identity compare [`SourcedContributor::mbid`] directly.
 pub fn matches_name(contributor: &SourcedContributor, query: &str, exact: bool) -> bool {
     let wanted = text::normalize(query);
     !wanted.is_empty()

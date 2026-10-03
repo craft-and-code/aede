@@ -30,6 +30,8 @@ MusicBrainz allows **one request per second**; scanning a large library therefor
 
 Its search server sometimes returns a temporary `503` code, even when respecting the rate limit. The program waits — three attempts, with increasing delays — and stops only if the rejections persist.
 
+HTTP `429` stops the pass immediately rather than entering the `503` retry sequence. Answers are limited to 32 MiB both before and after decompression, and invalid UTF-8 JSON is refused instead of silently changing source text. Completed work remains stored; an invalid response is a failure, not a cached absence.
+
 A second run queries nothing it already possesses. `--full` **allows re-querying**, which is also required after an update that reads a field not previously stored:
 
 ```sh
@@ -107,6 +109,8 @@ entity/source/identifier tuple for navigation and queries. A different
 candidate returned by a later fetch needs its own decision. Rejection is not
 deletion, and every choice can be undone.
 
+Secondary summaries, discography and artwork follow only exact identities or claims explicitly accepted in review. Pending and rejected candidates cannot become certain through another pass, and discography enrichment preserves the original match score. Equally ranked homonyms with different MusicBrainz IDs are refused even when their names match exactly; the explanation includes their IDs. Imports refuse malformed source tables and duplicate keys. An unreadable confidence value stays visible as `matched 0%` for review instead of becoming identified.
+
 ## Manual Corrections
 
 Retrieved values are not the final word. Records are indexed by **(entity, source)**, which means anything you classify under your own source won't be overwritten by MusicBrainz: a subsequent `aede fetch --full` will add its line next to yours without touching it.
@@ -178,6 +182,8 @@ aede review                     # ambiguous identities needing a decision
 
 **The last line indicates the source address of the response**, one per source. This identifier is essential for any manual verification — opening the page, running the request with `curl`, or fixing data at the source.
 
+`sources --export` retains review decisions and credit exclusions even when their cached records have gone. `sources --forget` also removes those retained decisions, with an optional `--source` filter. Choose a single list/export/import/template/forget operation; `--source` is meaningful only for list, forget, and template. Human-readable prose, review cards and paths display terminal controls literally; saved source documents and machine exports keep their original values.
+
 The ID is included in the URL and can be copied separately. An album address points to its **release group**, which defines the album as a whole rather than a specific pressing.
 
 Three distinct states are differentiated: a value confirmed by your tags, a value in contradiction, and a value missing from your tags.
@@ -222,13 +228,17 @@ a parent identity on their own. An already completed recording lookup is not
 automatically re-requested just for this addition: use
 `aede fetch --credits --full <album folder>` to refresh a chosen edition.
 
-To see which recordings still need the recording/work lookup, run `aede credits`, then
+To see which recordings and editions still need a credit lookup, run `aede credits`, then
 `aede credits "<album>"`. This read-only report distinguishes an unanswered
-recording (`waiting`) from a completed answer with no credits (`empty`) and
-from credits attached to untrusted source evidence (`untrusted`). Its album
-detail suggests the folder-scoped fetch command for waiting recordings;
-records without a local MusicBrainz recording ID must be identified first.
-This report does not yet count edition-credit lookups.
+lookup (`waiting`) from a completed answer with no credits (`empty`) and
+from credits attached to untrusted source evidence (`untrusted`). Canonical
+recordings and local editions are counted separately: a recording shared by
+several editions does not establish their edition credits. Each edition needs
+a completed trusted answer for its exact local release ID. Manual edition
+credits are reported separately without claiming a MusicBrainz lookup. The
+album detail suggests a folder-scoped fetch command for either waiting scope;
+records without the required local MusicBrainz identity must be identified first.
+Existing recording JSON fields remain available alongside the added edition coverage.
 `aede fetch --credits --dry-run` shows pending requests for both scopes.
 
 Once trusted credits are present, a contributor who is absent from local tags
@@ -304,6 +314,8 @@ aede fetch --summaries --full   # ask again about what is already held
 
 This is a **second pass on** `fetch` **data**, not a new Wikipedia name search. The program reads an artist's or label's `wikidata` link, queries Wikidata to get the corresponding article, then retrieves the first paragraph from Wikipedia (two queries per entity). `fetch --labels` now asks MusicBrainz for each label's Wikidata link. A label fetched by an older Aède version can be refreshed with `aede fetch --labels --full <name>` before `aede fetch --summaries <name>`. When MusicBrainz has no Wikidata link, or Wikidata has no article in the requested languages, that pass has no Wikipedia biography to show.
 
+Only standard Wikipedia article summaries become biographies; disambiguation and non-article responses are left alone. Wikidata links must point to Wikidata itself. For portraits, usable preferred P18 statements take precedence over normal ones; deprecated or missing-value statements do not hide a later usable image.
+
 For a label with no Wikipedia biography, opening its page checks the Discogs link on its MusicBrainz record:
 
 ```sh
@@ -370,7 +382,7 @@ aede fetch --covers --dry-run       # say which albums, ask nothing
 
 **Run** `aede extract` **first**. `--covers` only downloads if no image is present (neither embedded nor in the folder). There is no `--replace` flag to prevent accidental overwrites.
 
-Downloaded images are saved as `cover.jpg` alongside audio tracks. Audio files are never altered. Only valid files (JPEG/PNG) are saved to avoid corruption from HTML error pages.
+Downloaded images are saved as `cover.jpg` or `cover.png` alongside audio tracks. Audio files are never altered. JPEG and static PNG pixels are decoded before publication, with complete container endings required. Incomplete containers, undecodable pixel streams and animated PNG are refused. Images are limited to 32 MiB, 8192 pixels per axis and 16 million pixels; no external image tool is required. PNG checks include chunk CRCs and the compressed stream checksum. JPEG has no integrity checksum: a modified stream that remains decodable cannot be certified as its original. `--full` re-queries the archive without replacing local images. Extra-image completion is recorded only when the whole answer succeeds: an existing `artwork/` directory alone is insufficient, and retries skip images already saved.
 
 ## Fanart.tv Artwork
 
@@ -411,7 +423,7 @@ aede fetch --logos              # artist and identified-label logos only
 aede fetch --logos --banners    # the same artist response also yields a banner
 ```
 
-Each family has its own completion record. If backgrounds are excluded today, a later `aede fetch --fanart --no-portrait` can still fetch them without repeating image families already completed. `--full` deliberately asks again. Existing JPEG and PNG files are never overwritten, and downloaded bytes are checked as images before anything is written.
+Each family has its own completion record. If backgrounds are excluded today, a later `aede fetch --fanart --no-portrait` can still fetch them without repeating image families already completed. `--full` deliberately asks again. Existing JPEG and PNG files are never overwritten. The same bounded full-image validation used for Cover Art Archive runs before publication, including artist assets, label logos, album covers and cdART. Animated PNG is refused. Validation failure does not create an output or mark that transfer as completed.
 
 ## Missing from the Shelf
 

@@ -34,6 +34,8 @@ MusicBrainz autorise **une requête par seconde**. Une grande bibliothèque pren
 
 Le serveur de recherche peut parfois répondre avec un code temporaire `503`, même si la limite de fréquence est respectée. Le programme attend et tente à nouveau, jusqu’à trois essais avec des délais croissants. Il ne s’arrête que si les refus persistent.
 
+Une réponse HTTP `429` arrête immédiatement la passe, sans suivre les nouvelles tentatives réservées au `503`. Les réponses sont limitées à 32 Mio avant et après décompression ; un JSON dont l’UTF-8 est invalide est refusé plutôt que de modifier silencieusement le texte de la source. Le travail terminé reste mémorisé ; une réponse invalide est un échec, pas une absence mise en cache.
+
 Une deuxième exécution ne redemande pas ce qui est déjà conservé. `--full` **autorise une nouvelle interrogation** ; cette option est également nécessaire après une mise à jour qui lit un champ auparavant non enregistré :
 
 ```sh
@@ -105,6 +107,8 @@ La vue interactive présente l’identité locale et la proposition de la source
 
 Accepter ne transforme jamais `matched 92%` en `identified` : la confiance d’origine reste visible. L’acceptation enregistre seulement votre accord sur cette combinaison précise d’entité, de source et d’identifiant, pour la navigation et les requêtes. Un autre candidat proposé par une récupération ultérieure nécessite sa propre décision. Refuser ne supprime pas l’information ; tous les choix peuvent être annulés.
 
+Les résumés, discographies et images secondaires ne suivent que des identités exactes ou des propositions explicitement acceptées dans review. Une proposition en attente ou refusée ne devient pas certaine par une autre passe ; l’enrichissement de sa discographie conserve le score d’origine. Des homonymes de même rang et d’identifiants MusicBrainz différents sont refusés même si leurs noms sont identiques ; l’explication donne leurs identifiants. L’import refuse les tables de sources malformées et les clés dupliquées. Une confiance illisible reste visible comme `matched 0%`, à examiner, au lieu de devenir une identification certaine.
+
 <div id="manual-corrections" data-legacy-anchor></div>
 
 ## Corrections manuelles
@@ -174,6 +178,8 @@ aede review                     # ambiguous identities needing a decision
 
 **La dernière ligne indique l’adresse de la source ayant fourni la réponse**, avec une adresse par source. Cet identifiant est indispensable pour une vérification manuelle : ouvrir la page, exécuter la requête avec `curl` ou corriger les données à la source.
 
+`sources --export` conserve les décisions de revue et les exclusions de crédits même si leurs preuves en cache ont disparu. `sources --forget` retire aussi ces décisions conservées, avec un filtre `--source` facultatif. Choisir une seule opération list/export/import/template/forget ; `--source` sert uniquement avec list, forget et template. Les textes, cartes de revue et chemins affichés rendent les caractères de contrôle du terminal littéralement ; les documents mémorisés et les exports machine gardent les valeurs d’origine.
+
 L’identifiant figure dans l’URL et peut être copié séparément. L’adresse d’un album pointe vers son **groupe de sorties**, qui représente l’album dans son ensemble plutôt qu’un pressage précis.
 
 Trois situations sont distinguées : une valeur confirmée par vos tags, une valeur contradictoire et une valeur absente de vos tags.
@@ -205,7 +211,7 @@ aede fetch --fanart         # every supported Fanart.tv image family
 
 Si une œuvre liée contient une relation MusicBrainz explicite indiquant qu’elle fait partie d’une autre œuvre, l’identifiant et le titre du parent, le qualificatif de mouvement ou d’acte et l’ordre sont conservés, avec la même source et les mêmes limites de confiance. `aede work <parent ID>` et `query work:<parent ID>` permettent alors d’atteindre les mouvements présents localement. Les tags locaux d’œuvre, de regroupement et de mouvement restent distincts et sont affichés séparément ; ils n’établissent pas seuls l’identité d’un parent. Une interrogation d’enregistrement déjà terminée n’est pas automatiquement répétée pour cet ajout : utilisez `aede fetch --credits --full <album folder>` pour actualiser une édition choisie.
 
-Pour voir quels enregistrements attendent encore la récupération des crédits d’enregistrement et d’œuvre, lancez `aede credits`, puis `aede credits "<album>"`. Ce rapport en lecture seule distingue un enregistrement sans réponse (`waiting`), une réponse terminée sans crédit (`empty`) et des crédits attachés à une source non approuvée (`untrusted`). Le détail de l’album suggère la commande de récupération limitée au dossier pour les enregistrements en attente. Ceux qui n’ont pas d’identifiant MusicBrainz d’enregistrement local doivent d’abord être identifiés. Ce rapport ne compte pas encore les interrogations des crédits d’édition. `aede fetch --credits --dry-run` présente les requêtes en attente pour les deux périmètres.
+Pour voir quels enregistrements et éditions attendent encore la récupération des crédits, lancez `aede credits`, puis `aede credits "<album>"`. Ce rapport en lecture seule distingue une interrogation sans réponse (`waiting`), une réponse terminée sans crédit (`empty`) et des crédits attachés à une source non approuvée (`untrusted`). Les enregistrements canoniques et les éditions locales sont comptés séparément : un enregistrement partagé par plusieurs éditions ne prouve pas leurs crédits d’édition. Chaque édition exige une réponse terminée et approuvée pour son identifiant exact de sortie locale. Les crédits manuels sont présentés séparément, sans prétendre que MusicBrainz a été interrogé. Le détail de l’album suggère une commande limitée au dossier pour chacun des périmètres en attente ; les éléments sans identité MusicBrainz locale adaptée doivent d’abord être identifiés. Les champs JSON d’enregistrement restent disponibles à côté de la nouvelle couverture d’édition. `aede fetch --credits --dry-run` présente les requêtes en attente pour les deux périmètres.
 
 Une fois les crédits approuvés disponibles, un contributeur absent des tags locaux peut être ouvert avec `aede artist <MusicBrainz artist ID>`. La fiche indique explicitement son origine externe : elle navigue vers les enregistrements et albums présents localement et vers les œuvres portant des crédits créatifs, sans créer artificiellement un artiste dans le catalogue. `aede search <name>` inclut ces contributeurs dans une section distincte ; les homonymes restent différenciés par leur identifiant. Une proposition de source en attente ou refusée ne crée pas cette identité navigable.
 
@@ -277,6 +283,8 @@ aede fetch --summaries --full   # ask again about what is already held
 ```
 
 Il s’agit d’une **deuxième passe sur les données de** `fetch`, pas d’une nouvelle recherche de nom sur Wikipédia. Le programme lit le lien `wikidata` d’un artiste ou d’un label, interroge Wikidata pour trouver l’article correspondant, puis récupère le premier paragraphe sur Wikipédia, soit deux requêtes par entité. `fetch --labels` demande désormais à MusicBrainz le lien Wikidata de chaque label. Un label récupéré avec une ancienne version d’Aède peut être actualisé avec `aede fetch --labels --full <name>` avant de lancer `aede fetch --summaries <name>`. Si MusicBrainz ne fournit pas de lien Wikidata, ou si Wikidata ne propose aucun article dans les langues demandées, cette passe ne peut afficher aucune biographie Wikipédia.
+
+Seuls les résumés d’articles Wikipédia ordinaires deviennent des biographies ; les pages d’homonymie et les autres types de réponse sont laissés de côté. Le lien Wikidata doit viser Wikidata lui-même. Pour les portraits, une valeur P18 préférée et exploitable passe avant les valeurs normales ; une valeur obsolète ou absente ne masque pas une image exploitable suivante.
 
 Pour un label sans biographie Wikipédia, ouvrir sa page consulte le lien Discogs conservé dans son enregistrement MusicBrainz :
 
@@ -352,7 +360,7 @@ aede fetch --covers --dry-run       # say which albums, ask nothing
 
 **Exécutez d’abord** `aede extract`. `--covers` télécharge uniquement si aucune image n’est présente, ni intégrée aux fichiers ni dans le dossier. Il n’existe pas d’option `--replace`, afin d’éviter les écrasements accidentels.
 
-Les images téléchargées sont enregistrées dans `cover.jpg`, à côté des pistes audio. Les fichiers audio ne sont jamais modifiés. Seuls des fichiers d’image valides, JPEG ou PNG, sont enregistrés : une page HTML signalant une erreur ne devient pas une fausse image corrompue.
+Les images téléchargées sont enregistrées dans `cover.jpg` ou `cover.png`, à côté des pistes audio. Les fichiers audio ne sont jamais modifiés. Les pixels JPEG et PNG statiques sont décodés avant publication, avec vérification de la fin du conteneur. Les conteneurs incomplets, les flux de pixels non décodables et les PNG animés sont refusés. Les images sont limitées à 32 Mio, 8192 pixels par axe et 16 millions de pixels ; aucun outil externe n’est nécessaire. PNG vérifie les CRC des blocs et la somme de contrôle du flux compressé. JPEG n’a pas de somme de contrôle d’intégrité : un flux modifié qui reste décodable ne peut pas être certifié comme identique à son original. `--full` interroge à nouveau l’archive sans remplacer les images locales. Les images annexes sont considérées comme terminées seulement lorsque toute la réponse réussit : un dossier `artwork/` existant ne suffit pas, et les nouvelles tentatives sautent les images déjà enregistrées.
 
 <div id="fanarttv-artwork" data-legacy-anchor></div>
 
@@ -395,7 +403,7 @@ aede fetch --logos              # artist and identified-label logos only
 aede fetch --logos --banners    # the same artist response also yields a banner
 ```
 
-Chaque famille possède son propre enregistrement de fin de traitement. Si vous excluez les fonds aujourd’hui, un futur `aede fetch --fanart --no-portrait` pourra les récupérer sans redemander les familles d’images déjà terminées. `--full` demande volontairement une nouvelle récupération. Les fichiers JPEG et PNG existants ne sont jamais écrasés. Les octets téléchargés sont vérifiés comme images avant toute écriture.
+Chaque famille possède son propre enregistrement de fin de traitement. Si vous excluez les fonds aujourd’hui, un futur `aede fetch --fanart --no-portrait` pourra les récupérer sans redemander les familles d’images déjà terminées. `--full` demande volontairement une nouvelle récupération. Les fichiers JPEG et PNG existants ne sont jamais écrasés. La même validation complète et bornée que pour Cover Art Archive est appliquée avant publication, y compris aux images d’artiste, logos de label, pochettes d’album et cdART. Les PNG animés sont refusés. Un échec de validation ne crée aucun fichier de sortie et ne marque pas le transfert comme terminé.
 
 <div id="missing-from-the-shelf" data-legacy-anchor></div>
 

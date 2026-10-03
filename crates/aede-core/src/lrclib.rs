@@ -1,9 +1,9 @@
 //! Asking LRCLIB for the words, and reading what it answers.
 //!
 //! No socket here, exactly as in [`crate::musicbrainz`]: this builds addresses
-//! and reads answers, and everything that waits its turn lives in
-//! [`crate::http`]. That is what makes the whole of it testable against canned
-//! text.
+//! and reads answers. Waiting between requests belongs to the optional HTTP
+//! client, available with the `fetch` feature. This module can therefore be
+//! tested against canned text without network access.
 //!
 //! # Why this service and not another
 //!
@@ -28,6 +28,7 @@
 //! requires is never the wrong mistake.
 
 use crate::json::Json;
+use crate::url::encode_component;
 
 /// Where the service lives.
 pub const WEB_SERVICE: &str = "https://lrclib.net/api";
@@ -81,33 +82,14 @@ pub struct Words {
 pub fn get_url(artist: &str, title: &str, album: &str, duration_secs: u64) -> String {
     let mut url = format!(
         "{WEB_SERVICE}/get?artist_name={}&track_name={}",
-        encode(artist),
-        encode(title)
+        encode_component(artist),
+        encode_component(title)
     );
     if !album.trim().is_empty() {
-        url.push_str(&format!("&album_name={}", encode(album)));
+        url.push_str(&format!("&album_name={}", encode_component(album)));
     }
     url.push_str(&format!("&duration={duration_secs}"));
     url
-}
-
-/// Percent-encodes a query value.
-///
-/// Local to this module rather than shared with the MusicBrainz client: that
-/// one escapes a *search query* first, in a syntax with its own reserved
-/// characters, and folding the two would mean one caller quietly getting the
-/// other's rules.
-fn encode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.as_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*byte as char)
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
 }
 
 /// Reads what the service answered.
@@ -118,8 +100,10 @@ fn encode(value: &str) -> String {
 /// timings dropped. Taking the plain form when a timed one exists would throw
 /// away something that cannot be recovered.
 ///
-/// An answer whose text is empty is [`Found::Nothing`], whatever else it says:
-/// a record with no words in it is not an answer about the words.
+/// A non-instrumental answer whose text is empty is [`Found::Nothing`]: a
+/// record with no words in it is not an answer about the words. Use
+/// [`read_checked`] at the network boundary to distinguish that from a
+/// malformed success body.
 pub fn read(value: &Json) -> Found {
     // Asked before the text, because it is an answer *about* the absence of
     // text and would otherwise be read as a service that failed to have any.
@@ -140,6 +124,24 @@ pub fn read(value: &Json) -> Found {
         }),
         (None, None) => Found::Nothing,
     }
+}
+
+/// Reads a service response, refusing missing or wrongly typed answer fields.
+///
+/// A successful LRCLIB body carries a boolean `instrumental` and both lyric
+/// fields, each either a string or null. An empty but correctly typed answer
+/// is [`Found::Nothing`]; an error object is refused rather than counted as an
+/// ordinary miss. HTTP 404 must be handled by the caller before this parser.
+pub fn read_checked(value: &Json) -> Result<Found, String> {
+    if value.field_optional_bool("instrumental").is_none() {
+        return Err("LRCLIB returned no valid instrumental flag".to_string());
+    }
+    for field in ["plainLyrics", "syncedLyrics"] {
+        if !matches!(value.get(field), Some(Json::Str(_) | Json::Null)) {
+            return Err(format!("LRCLIB returned no valid {field} field"));
+        }
+    }
+    Ok(read(value))
 }
 
 #[cfg(test)]

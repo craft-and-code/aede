@@ -1,14 +1,27 @@
 //! Tests for [`super`], split out of `fanarttv.rs`.
 //!
 //! The fixture follows the shape published on
-//! <https://fanart.tv/api-docs/api-v3>, read rather than assumed — the same
-//! limitation [`crate::acoustid_tests`] states about its own fixture.
+//! <https://fanart.tv/api-docs/api-v3>. These offline fixtures cover ranking,
+//! identity and query construction independently of a live application key.
 
 use super::*;
 use crate::json::parse;
 
 fn json(text: &str) -> Json {
     parse(text).expect("the fixture is valid JSON")
+}
+
+#[test]
+fn identifiers_and_keys_cannot_add_query_or_path_components() {
+    let expected = "artist%2Fid%3Fother%3D1?api_key=key%26secret%3Dvalue%23fragment";
+    assert_eq!(
+        lookup_url("artist/id?other=1", "key&secret=value#fragment"),
+        format!("{WEB_SERVICE}/{expected}")
+    );
+    assert_eq!(
+        label_lookup_url("artist/id?other=1", "key&secret=value#fragment"),
+        format!("{WEB_SERVICE}/labels/{expected}")
+    );
 }
 
 /// Two thumbs, the more liked one first in the answer — the sort must not be

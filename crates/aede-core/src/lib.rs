@@ -36,6 +36,7 @@ pub mod fingerprint;
 pub mod graph;
 #[cfg(feature = "fetch")]
 pub mod http;
+mod image;
 pub mod model;
 pub mod musicbrainz;
 pub mod places;
@@ -48,5 +49,6 @@ pub mod spectrum;
 pub mod stats;
 pub mod store;
 pub mod store_lock;
+mod url;
 pub mod user;
 pub mod wikipedia;

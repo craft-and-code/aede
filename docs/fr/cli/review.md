@@ -6,6 +6,10 @@ La liste normale montre les cas en attente. --all inclut les décisions résolue
 
 Aucun tag n’est réécrit. Confiance de source et décision personnelle restent séparées : accepter ne crée pas un identifiant lu dans l’audio. Les décisions restent dans sources.json et passent par rules export/import. Les identifiants invalides, ambigus ou absents sont refusés. doctor aide à trouver les cas à traiter.
 
+Les cartes et messages de décision affichent noms, faits, chemins et adresses importés littéralement, sans exécuter de caractères de contrôle du terminal. La pagination est vérifiée même si aucune proposition n’attend une décision.
+
+Lire la liste ne prend aucun verrou d’écriture. La revue interactive et les décisions directes conservent ce verrou pendant l’enregistrement des choix.
+
 ## Syntaxe et arguments
 
 ```text

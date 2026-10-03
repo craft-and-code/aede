@@ -43,7 +43,7 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "credits" => CommandPage {
             usage: "aede credits [album title|MusicBrainz ID|folder] [--json]",
-            summary: "Measure MusicBrainz recording/work credit coverage and locate gaps.",
+            summary: "Measure MusicBrainz recording, work and edition credit coverage.",
         },
         "credit" => CommandPage {
             usage: "aede credit --add recording:<ID>|work:<ID>|release:<ID> --artist=<name> --role=<role> [--artist-id=<MBID>] [--instrument=<name>] | aede credit --exclude=<credit ID> | --undo=<credit ID>",
@@ -315,8 +315,8 @@ pub fn print_index() {
                        sources. --summaries, --lyrics, --covers, --fanart and
                        the other passes can be combined. Run `aede help fetch`
                        for the complete guide and examples
-  credits [album]      Credit coverage by album; with an album, show each
-                       recording and how to fetch what is still waiting
+  credits [album]      Recording/work and edition coverage by album, with
+                       manual corrections separate from completed lookups
   credit               Add a manual recording, work or edition credit, or
                        exclude/restore one sourced credit by exact ID
   sources              What other sources say, beside your tags and never on

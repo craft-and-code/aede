@@ -83,6 +83,34 @@ pub fn release_index_url(release: &str) -> String {
     format!("{WEB_SERVICE}/release/{release}")
 }
 
+/// Refuses a malformed index before a caller records it as having no artwork.
+///
+/// An empty `images` array is a valid absence. Missing or wrongly typed arrays,
+/// and image entries with no original or supported thumbnail address, are
+/// failed responses and must remain eligible for a later fetch.
+pub fn validate_index(response: &Json) -> Result<(), String> {
+    let rows = response
+        .get("images")
+        .and_then(Json::as_arr)
+        .ok_or_else(|| "the Cover Art Archive returned no valid images array".to_string())?;
+    for row in rows {
+        let has_original = row
+            .get("image")
+            .and_then(Json::as_str)
+            .is_some_and(|url| !url.trim().is_empty());
+        let has_thumbnail = ["250", "500", "1200"].iter().any(|width| {
+            row.get("thumbnails")
+                .and_then(|thumbs| thumbs.get(width))
+                .and_then(Json::as_str)
+                .is_some_and(|url| !url.trim().is_empty())
+        });
+        if !has_original && !has_thumbnail {
+            return Err("the Cover Art Archive returned an image without an address".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// The front image of a record, at the size asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Front {
@@ -108,49 +136,48 @@ pub struct Front {
 /// the answer. The archive generates them for everything it holds today, but a
 /// caller that got nothing back because a width was missing would look exactly
 /// like a record with no artwork, which is a different thing entirely.
+/// Entries without a usable address are skipped before approval is compared.
 pub fn front(response: &Json, size: Size) -> Option<Front> {
     let images = response.get("images")?.as_arr()?;
-    let is_front = |image: &&Json| -> bool {
-        image.field_bool("front")
-            || image
-                .get("types")
-                .and_then(Json::as_arr)
-                .is_some_and(|types| {
-                    types
-                        .iter()
-                        .filter_map(Json::as_str)
-                        .any(|t| t.eq_ignore_ascii_case("front"))
-                })
-    };
-    let fronts: Vec<&Json> = images.iter().filter(is_front).collect();
-    let chosen = fronts
-        .iter()
-        .find(|image| image.field_bool("approved"))
-        .or_else(|| fronts.first())?;
-
-    let original = chosen.field_str("image");
-    if let Size::Thumbnail(px) = size
-        && let Some(url) = chosen
-            .get("thumbnails")
-            .and_then(|t| t.field_str(&px.to_string()))
-        && !url.is_empty()
-    {
-        return Some(Front { url, size });
+    let mut fallback = None;
+    for image in images.iter().filter(|image| is_front(image)) {
+        let Some(found) = at_size(image, size) else {
+            continue;
+        };
+        if image.field_bool("approved") {
+            return Some(found);
+        }
+        if fallback.is_none() {
+            fallback = Some(found);
+        }
     }
-    Some(Front {
-        url: original.filter(|u| !u.is_empty())?,
-        size: Size::Original,
-    })
+    fallback
 }
 
-/// What image format these bytes are, if this program should write them.
+fn is_front(image: &Json) -> bool {
+    image.field_bool("front")
+        || image
+            .get("types")
+            .and_then(Json::as_arr)
+            .is_some_and(|types| {
+                types
+                    .iter()
+                    .filter_map(Json::as_str)
+                    .any(|t| t.eq_ignore_ascii_case("front"))
+            })
+}
+
+/// Which supported format signature these bytes carry.
 ///
 /// **Sniffed, never taken from the address.** A download that went wrong — a
-/// redirect to a login page, an error document, a truncated transfer — arrives
+/// redirect to a login page or an error document — arrives
 /// as bytes like any other, and writing those into a music folder under the
 /// name `cover.jpg` is silent corruption that only surfaces months later when
 /// something tries to display it. An extension read off a URL would not catch
 /// any of it.
+///
+/// This checks the signature only. [`write_image`] also decodes the image and
+/// checks its complete container before publishing any bytes.
 ///
 /// `None` means: do not write this.
 pub fn image_kind(bytes: &[u8]) -> Option<&'static str> {
@@ -169,7 +196,7 @@ pub fn image_kind(bytes: &[u8]) -> Option<&'static str> {
 /// The archive and the tag formats both classify their images, and the
 /// classification is the only thing that makes a second image worth keeping: a
 /// folder of `image-1.jpg` … `image-9.jpg` is not more useful than none.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     /// The front of the sleeve: the album cover.
     Front,
@@ -279,21 +306,16 @@ pub fn extras_in(folder: &std::path::Path) -> std::path::PathBuf {
 /// what [`image_name`] needs, and computing it here rather than in each caller
 /// is what keeps a downloaded booklet and an extracted one named alike.
 pub fn positions(kinds: &[Kind]) -> Vec<(usize, usize)> {
-    let mut so_far: Vec<(Kind, usize)> = Vec::new();
+    let mut totals = std::collections::HashMap::<Kind, usize>::new();
+    for kind in kinds {
+        *totals.entry(*kind).or_default() += 1;
+    }
+    let mut seen = std::collections::HashMap::<Kind, usize>::new();
     let mut out = Vec::with_capacity(kinds.len());
     for kind in kinds {
-        let index = match so_far.iter_mut().find(|(k, _)| k == kind) {
-            Some((_, seen)) => {
-                *seen += 1;
-                *seen - 1
-            }
-            None => {
-                so_far.push((*kind, 1));
-                0
-            }
-        };
-        let of = kinds.iter().filter(|k| *k == kind).count();
-        out.push((index, of));
+        let index = seen.entry(*kind).or_default();
+        out.push((*index, totals.get(kind).copied().unwrap_or_default()));
+        *index += 1;
     }
     out
 }
@@ -305,8 +327,8 @@ pub fn positions(kinds: &[Kind]) -> Vec<(usize, usize)> {
 /// own files. One function rather than two, because it carries two guards that
 /// would otherwise be written twice and eventually differ:
 ///
-/// - the bytes are **sniffed**, and anything that is not a JPEG or a PNG is
-///   refused — see [`image_kind`];
+/// - the format is sniffed and the complete JPEG or static PNG is validated
+///   before publication — see [`write_image`];
 /// - the target is checked **immediately before writing**, not when the caller
 ///   chose it. A catalog is a snapshot and a disk is not, and this is the one
 ///   moment in the program where being out of date destroys something the user
@@ -358,21 +380,45 @@ pub enum Written {
 /// from what the caller asked for, so a caller checking ahead of the
 /// download cannot know which one a previous run wrote.
 pub fn exists_beside(folder: &std::path::Path, kind: Kind) -> bool {
-    folder.join(format!("{}.jpg", kind.stem())).exists()
-        || folder.join(format!("{}.png", kind.stem())).exists()
+    exists_image(folder, kind, (0, 1))
+}
+
+/// Whether this image already exists at the name [`write_image`] would use.
+///
+/// Checks JPEG and PNG because the extension follows the downloaded bytes.
+/// Numbered images retain the `(index, count)` returned by [`positions`], so
+/// a repeated pass can resume a partial booklet without downloading its saved
+/// pages again.
+pub fn exists_image(folder: &std::path::Path, kind: Kind, where_: (usize, usize)) -> bool {
+    let (index, of) = where_;
+    ["jpg", "png"]
+        .iter()
+        .any(|format| folder.join(image_name(kind, format, index, of)).exists())
 }
 
 /// Writes one image of a known kind, under the name that says what it is.
 ///
 /// The general form of [`write_beside`], carrying the same two guards — the
-/// bytes are sniffed, and nothing is ever written over. `where_` is the pair
+/// bytes are validated, and nothing is ever written over. `where_` is the pair
 /// [`positions`] gives for this image.
+///
+/// Validation decodes every pixel and checks the container's end. PNG checks
+/// every chunk CRC and IDAT Adler-32; animated PNG is refused. JPEG uses strict
+/// decoding, but has no checksum to detect every alteration that leaves a
+/// decodable stream, including some streams repaired with an early EOI marker.
+///
+/// Input is limited to 32 MiB, 8192 pixels per axis and 16 million pixels, with
+/// at most 64 JPEG scans or 16384 container parts. The decoded-output budget is
+/// 128 MiB, separate from the PNG decoder's best-effort 16 MiB internal budget;
+/// neither is a total process-memory cap. A five-second cooperative deadline
+/// is checked during reads and PNG rows and again before publication, without
+/// forcibly interrupting a codec's computation between those checks. No
+/// external image helper is required.
 ///
 /// The folder is created if it is not there, because the images that are not
 /// the cover go into a subfolder that will not exist the first time.
 ///
-/// `Err` is for the two things that are actually wrong: bytes that are not an
-/// image, and a write that failed.
+/// `Err` means an unsupported, invalid or excessive image, or a failed write.
 pub fn write_image(
     folder: &std::path::Path,
     kind: Kind,
@@ -385,6 +431,8 @@ pub fn write_image(
             bytes.len()
         ));
     };
+    crate::image::validate(bytes, format)
+        .map_err(|error| format!("{error}, so nothing was written"))?;
     let (index, of) = where_;
     if !folder.exists() {
         std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
@@ -411,7 +459,7 @@ pub fn images(response: &Json, size: Size) -> Vec<(Kind, Front)> {
     };
     let mut out: Vec<(Kind, Front)> = Vec::new();
     for row in rows {
-        let kind = match row.field_bool("front") {
+        let kind = match is_front(row) {
             true => Kind::Front,
             false => row
                 .get("types")

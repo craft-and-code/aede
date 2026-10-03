@@ -39,13 +39,10 @@
 //!
 //! `--banners` rides the very same answer: [`fanarttv::banner_url`] is read
 //! out of the response already fetched for the logo, never a second request
-//! for one artist. Unlike the logo it is tracked by disk presence alone, the
-//! choice `fetch --covers --images` makes for the pictures beside a cover —
-//! see [`aede_core::coverart::exists_beside`] — rather than through
-//! `sources.json`: a banner has no name or licence worth attributing, only
-//! bytes, and the folder already says whether one is there. An artist that
-//! already has a logo is still asked when `--banners` wants one it does not
-//! yet have.
+//! for one artist. Disk presence avoids replacing an existing banner, while a
+//! separate completion record remembers a valid answer with none available.
+//! An artist that already has a logo is still asked when `--banners` wants a
+//! banner whose family has not yet completed.
 //!
 //! # Complete Fanart.tv artwork
 //!
@@ -276,17 +273,18 @@ pub fn run(
                 extras_written += extras.written;
                 for why in extras.failed {
                     failed += 1;
-                    eprintln!("\r  {} {} (artwork): {why}", ui::red("×"), target.name);
+                    super::fetch::report_failed(&format!("{} (artwork)", target.name), &why);
                 }
                 done += 1;
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                super::fetch::report_failed(&target.name, &why);
             }
         }
     }
@@ -373,7 +371,7 @@ fn attempt(
                 Kind::Banner,
                 fanarttv::banner_url(response),
                 &mut extras,
-            );
+            )?;
         }
         if selected.background {
             fetch_extra(
@@ -383,7 +381,7 @@ fn attempt(
                 Kind::Background,
                 fanarttv::background_url(response),
                 &mut extras,
-            );
+            )?;
         }
         if selected.portrait {
             fetch_extra(
@@ -393,10 +391,10 @@ fn attempt(
                 Kind::Artist,
                 fanarttv::portrait_url(response),
                 &mut extras,
-            );
+            )?;
         }
         if selected.album_cover || selected.cdart {
-            fetch_album_artwork(transport, backoff, target, response, selected, &mut extras);
+            fetch_album_artwork(transport, backoff, target, response, selected, &mut extras)?;
         }
     }
 
@@ -404,6 +402,9 @@ fn attempt(
         return Ok((None, extras));
     }
     if let Some(url) = doc.as_ref().and_then(fanarttv::logo_url) {
+        if coverart::exists_beside(&target.destination, Kind::Logo) {
+            return Ok((Some(Outcome::Written { url, new: false }), extras));
+        }
         let bytes = ask_bytes(transport, &url, backoff)?;
         let new = write(target, Kind::Logo, &bytes)?;
         return Ok((Some(Outcome::Written { url, new }), extras));
@@ -418,19 +419,19 @@ fn fetch_extra(
     kind: Kind,
     url: Option<String>,
     report: &mut ExtraReport,
-) {
-    let Some(url) = url else { return };
+) -> Result<(), Refusal> {
+    let Some(url) = url else { return Ok(()) };
     if coverart::exists_beside(&target.destination, kind) {
-        return;
+        return Ok(());
     }
-    let result = ask_bytes(transport, &url, backoff)
-        .map_err(|why| why.to_string())
-        .and_then(|bytes| write(target, kind, &bytes).map_err(|why| why.to_string()));
+    let result = ask_bytes(transport, &url, backoff).and_then(|bytes| write(target, kind, &bytes));
     match result {
         Ok(true) => report.written += 1,
         Ok(false) => {}
-        Err(why) => report.failed.push(why),
+        Err(why) if why.must_stop() => return Err(why),
+        Err(why) => report.failed.push(why.to_string()),
     }
+    Ok(())
 }
 
 fn fetch_album_artwork(
@@ -440,7 +441,7 @@ fn fetch_album_artwork(
     response: &aede_core::json::Json,
     selected: FanartOptions,
     report: &mut ExtraReport,
-) {
+) -> Result<(), Refusal> {
     for album in &target.albums {
         let Some(artwork) = fanarttv::album_artwork(response, &album.release_group) else {
             continue;
@@ -463,19 +464,23 @@ fn fetch_album_artwork(
             );
         }
         for (kind, url, position) in images {
-            let result = ask_bytes(transport, &url, backoff)
-                .map_err(|why| why.to_string())
-                .and_then(|bytes| {
-                    coverart::write_image(&folder, kind, position, &bytes)
-                        .map(|written| matches!(written, coverart::Written::New(_)))
-                });
+            if coverart::exists_image(&folder, kind, position) {
+                continue;
+            }
+            let result = ask_bytes(transport, &url, backoff).and_then(|bytes| {
+                coverart::write_image(&folder, kind, position, &bytes)
+                    .map(|written| matches!(written, coverart::Written::New(_)))
+                    .map_err(Refusal::Failed)
+            });
             match result {
                 Ok(true) => report.written += 1,
                 Ok(false) => {}
-                Err(why) => report.failed.push(why),
+                Err(why) if why.must_stop() => return Err(why),
+                Err(why) => report.failed.push(why.to_string()),
             }
         }
     }
+    Ok(())
 }
 
 /// Writes an image into the target's folder, unless one of that kind is
@@ -483,7 +488,7 @@ fn fetch_album_artwork(
 ///
 /// The general-purpose writer this program keeps for every image it puts
 /// into somebody's library — see [`coverart::write_image`] — carrying both of
-/// its guards: the bytes are sniffed, and nothing already there is ever
+/// its guards: the bytes are validated, and nothing already there is ever
 /// overwritten. `true` means this call is the one that wrote it.
 fn write(target: &Target, kind: Kind, bytes: &[u8]) -> Result<bool, Refusal> {
     match coverart::write_image(&target.destination, kind, (0, 1), bytes) {
@@ -634,6 +639,7 @@ fn targets(
                 let album_entity = EntityRef::of(catalog, EntityKind::Release, release.id)?;
                 let release_group = release.release_group_mbid.clone().or_else(|| {
                     held.get(&album_entity, sources::MUSICBRAINZ)
+                        .filter(|record| held.is_trusted(catalog, record))
                         .and_then(|record| record.source_id.clone())
                 })?;
                 Some(AlbumTarget {
@@ -749,11 +755,12 @@ fn run_label_logos(
                 }
                 done += 1;
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => continue,
             Err(why) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                super::fetch::report_failed(&target.name, &why);
             }
         }
     }

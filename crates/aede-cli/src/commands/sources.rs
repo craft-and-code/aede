@@ -24,6 +24,33 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn sources(args: &Args) -> Res {
+    let operations: Vec<&str> = ["import", "template", "export", "forget", "list"]
+        .into_iter()
+        .filter(|option| args.has(option))
+        .collect();
+    if operations.len() > 1 {
+        return Err(
+            "choose one sources operation: --import, --template, --export, --forget, or --list"
+                .into(),
+        );
+    }
+    if args.has("source") {
+        if !args.has("list") && !args.has("forget") && !args.has("template") {
+            return Err("--source is used with --list, --forget, or --template".into());
+        }
+        if args
+            .value("source")
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err("--source expects a non-empty source name".into());
+        }
+    }
+    if args.has("output") && !args.has("export") && !args.has("template") {
+        return Err("--output is used with --export or --template".into());
+    }
+    if !args.positionals.is_empty() && !args.has("template") {
+        return Err("names select entities only with --template on sources".into());
+    }
     let dir = data_dir(args);
     let path = sources::sources_path(&dir);
 
@@ -141,10 +168,10 @@ fn list(held: &Sources, catalog: &Catalog, args: &Args) -> Res {
         println!("{}", ui::section("Sources"));
         println!(
             "  {}",
-            ui::dim(&match only {
+            ui::dim(&ui::literal(&match only {
                 Some(name) => format!("nothing was fetched from \"{name}\""),
                 None => "nothing has been fetched yet".to_string(),
-            })
+            }))
         );
         return Ok(());
     }
@@ -173,15 +200,6 @@ fn list(held: &Sources, catalog: &Catalog, args: &Args) -> Res {
     println!("{}", table.render());
     println!("  {}", ui::dim(&ui::plural(rows.len(), "record")));
     Ok(())
-}
-
-/// `identified`, or a matched score — the distinction the roadmap insists on.
-#[cfg(test)]
-fn confidence_label(confidence: Confidence) -> String {
-    match confidence {
-        Confidence::Identified => "identified".to_string(),
-        Confidence::Matched(score) => format!("matched {score}%"),
-    }
 }
 
 /// What a record says, short enough for a column.
@@ -317,7 +335,7 @@ fn import(args: &Args, path: &std::path::Path) -> Res {
     );
     // Naming the file it wrote, for the same reason `import --forget` does: a
     // command that changed a store the user cannot see should say which one.
-    println!("  {}", ui::dim(&path.display().to_string()));
+    println!("  {}", ui::dim(&ui::literal(&path.display().to_string())));
     Ok(())
 }
 
@@ -329,7 +347,7 @@ fn import(args: &Args, path: &std::path::Path) -> Res {
 /// what the user writes.
 fn export(args: &Args, path: &std::path::Path) -> Res {
     let held = sources::load(path)?.unwrap_or_default();
-    if held.records.is_empty() {
+    if held.records.is_empty() && held.reviews.is_empty() && held.credit_exclusions.is_empty() {
         // Writing an empty document and reporting success would look like the
         // export worked and the layer was empty — two different things, and
         // the second is not what has just been established.
@@ -423,7 +441,8 @@ fn template(args: &Args) -> Res {
 fn forget(args: &Args, path: &std::path::Path) -> Res {
     let mut held = sources::load_all(path)?.unwrap_or_default();
     let before = held.records.len();
-    if before == 0 {
+    let decisions_before = held.reviews.len() + held.credit_exclusions.len();
+    if before == 0 && decisions_before == 0 {
         println!("{}", ui::section("Sources"));
         println!("  {}", ui::dim("there was nothing to forget"));
         return Ok(());
@@ -432,7 +451,7 @@ fn forget(args: &Args, path: &std::path::Path) -> Res {
     let removed = match args.value("source") {
         Some(name) => {
             let gone = held.forget(name);
-            if gone == 0 {
+            if gone == 0 && decisions_before == held.reviews.len() + held.credit_exclusions.len() {
                 return Err(format!(
                     "no source named \"{name}\" — aede sources says which there are"
                 )
@@ -455,7 +474,11 @@ fn forget(args: &Args, path: &std::path::Path) -> Res {
         ui::plural(removed, "record"),
         held.records.len()
     );
-    println!("  {}", ui::dim(&path.display().to_string()));
+    let decisions_removed = decisions_before - held.reviews.len() - held.credit_exclusions.len();
+    if decisions_removed > 0 {
+        println!("  {} removed", ui::plural(decisions_removed, "decision"));
+    }
+    println!("  {}", ui::dim(&ui::literal(&path.display().to_string())));
     Ok(())
 }
 
@@ -534,7 +557,7 @@ pub fn panel_for_held(
             let lines = if record.source == aede_core::discogs::SOURCE {
                 discogs_profile_lines(&display, 72)
             } else {
-                ui::wrap(&display, 72)
+                ui::wrap(&ui::literal(&display), 72)
             };
             for line in lines {
                 if line.is_empty() {
@@ -552,7 +575,10 @@ pub fn panel_for_held(
                 );
                 println!(
                     "  {}",
-                    ui::dim(&format!("Data provided by Discogs. {} — CC0", prose.url))
+                    ui::dim(&ui::literal(&format!(
+                        "Data provided by Discogs. {} — CC0",
+                        prose.url
+                    )))
                 );
                 println!(
                     "  {}",
@@ -562,19 +588,19 @@ pub fn panel_for_held(
                 );
                 println!(
                     "  {}",
-                    ui::dim(&format!(
+                    ui::dim(&ui::literal(&format!(
                         "aede label \"{}\" checks this profile whenever the page opens",
                         record.key
-                    ))
+                    )))
                 );
             } else {
-                println!("  {}", ui::dim(&prose.credit()));
+                println!("  {}", ui::dim(&ui::literal(&prose.credit())));
                 println!(
                     "  {}",
-                    ui::dim(&format!(
+                    ui::dim(&ui::literal(&format!(
                         "aede fetch --summaries --full --lang=<code> \"{}\" asks for another",
                         record.key
-                    ))
+                    )))
                 );
             }
             println!();
@@ -632,11 +658,11 @@ pub fn panel_for_held(
             }
             println!(
                 "  {}",
-                ui::dim(&format!(
+                ui::dim(&ui::literal(&format!(
                     "{} was asked and holds nothing about this ({})",
                     record.source,
                     ui::since(record.fetched_at)
-                ))
+                )))
             );
         }
         whence(&records);
@@ -664,7 +690,7 @@ fn discogs_profile_lines(text: &str, width: usize) -> Vec<String> {
                 .trim_start()
                 .to_ascii_lowercase()
                 .starts_with("label code:");
-            ui::wrap(line, width)
+            ui::wrap(&ui::literal(line), width)
                 .into_iter()
                 .map(|line| if label_code { ui::bold(&line) } else { line })
                 .collect()
@@ -688,7 +714,10 @@ fn discogs_profile_lines(text: &str, width: usize) -> Vec<String> {
 fn whence(records: &[&SourceRecord]) {
     for record in records {
         if let Some(address) = address_of(record) {
-            println!("  {}", ui::dim(&format!("{}: {address}", record.source)));
+            println!(
+                "  {}",
+                ui::dim(&ui::literal(&format!("{}: {address}", record.source)))
+            );
         }
     }
 }

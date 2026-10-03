@@ -49,6 +49,8 @@ One record per (entity, source), so two sources describing one artist are two re
 
 Fields are added when a fetcher fills them, not in advance. A field nothing writes is a field nothing tests.
 
+Loading preserves that one-record-per-entity-and-source contract. Duplicate snapshots and malformed tables are refused before an unrelated save can pick an arbitrary answer or replace unreadable data with an empty array. Valid version 1 documents still migrate without inventing review decisions. A missing or unreadable confidence is retained as `matched` with score zero; it cannot become an identifier lookup merely because the field could not be read.
+
 ## 4. Agreement is stored, but the verdict is derived
 
 The roadmap requires that agreement be recorded: _"checked against MusicBrainz and it matches"_ and _"never checked"_ are two different states, and a layer that only kept disagreements could not tell them apart.
@@ -56,6 +58,18 @@ The roadmap requires that agreement be recorded: _"checked against MusicBrainz a
 The way to honour that is **not** to store a verdict. A stored "agrees" goes stale the moment the user re-tags the file, and then the catalog holds a claim it has stopped being able to justify. What is stored is the **answer itself, whole**; the verdict — agrees, differs, no tag to compare — is computed on read, from the value beside the tag.
 
 That is what makes "does my tag still match?" an **offline** question, answerable from the catalog the day after a re-tagging, with no second fetch to re-derive something the program had already been told. A few hundred bytes per release buys it. The precedent is again in the codebase: raw tags are kept per file for exactly this reason, so the graph can be rebuilt without touching the disk.
+
+## Relationships and decisions
+
+A source claim may participate in navigation when it is an exact attachment without a conflicting local identity, or when the user explicitly accepts that claim. Rejection removes its authority to supply links while retaining the original evidence. Acceptance does not rewrite its confidence or local tags.
+
+Scope remains a separate requirement. Recording performances, composition credits on a work, and credits on one release edition are distinct relationships. A fetched edition credit needs a non-empty source edition ID matching the local release ID; two absent IDs do not establish an edition identity, and a release-group answer cannot supply edition credits. A manual correction explicitly targeted at a local release key may omit that external ID: its scope comes from the user's selection and survives the later addition of an edition tag. When the manual record carries an edition ID, that ID must still match.
+
+`aede credits` audits both scopes offline. Canonical recordings and local editions have independent coverage, including completed empty answers. Edition coverage requires the exact release ID and a complete trusted MusicBrainz lookup; sharing recordings does not supply that answer. Manual edition corrections are reported separately and do not count as an external lookup. Excluding one relationship preserves the completion evidence: the audit describes retained answers rather than the number of graph links currently visible.
+
+An individual credit exclusion retains its artist's MusicBrainz ID when known, even if the displayed relationship uses the artist's existing local name. This keeps the decision effective when that contributor enters or leaves the local tags without changing existing local relationship selectors or notes. Older name-based exclusions remain usable and reversible when the current catalog can resolve both references to the same artist. Equal names with different MusicBrainz IDs do not establish that equivalence. A legacy name whose identity has disappeared stays stored; the program cannot invent the missing identifier.
+
+The graph view groups repeated observations of the same attributed relationship and adds their observation counts. Its displayed snapshot prefers trusted evidence, then the latest fetch, so an earlier untrusted placement cannot conceal a trusted relationship on another edition. The underlying per-entity source records and their reviews remain in `sources.json`; the graph view does not replace those records.
 
 ## What M1.0 delivers
 

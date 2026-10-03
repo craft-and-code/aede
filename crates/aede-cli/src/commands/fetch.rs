@@ -52,8 +52,11 @@ pub trait Ask {
 /// Why an answer did not arrive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
-    /// The service asked us to slow down: stop, do not retry.
+    /// A transient HTTP 503. The request wrapper retries a bounded number of
+    /// times; a refusal remaining after that budget stops the pass.
     RateLimited,
+    /// HTTP 429: stop immediately rather than applying the transient 503 retry.
+    TooManyRequests,
     /// The service answered, and the answer was that it has nothing.
     ///
     /// **Not a failure**, and kept apart from one for that reason. A library of
@@ -82,11 +85,37 @@ impl std::fmt::Display for Refusal {
                 "the service is refusing requests because too many were sent \
                  (one per second is the limit); nothing was lost, try later"
             ),
+            Refusal::TooManyRequests => write!(
+                f,
+                "the service refused further requests (HTTP 429); completed work is safe, try later"
+            ),
             Refusal::Missing => write!(f, "the service has nothing for this"),
-            Refusal::Unreachable(detail) => write!(f, "could not reach the service: {detail}"),
-            Refusal::Failed(detail) => write!(f, "{detail}"),
+            Refusal::Unreachable(detail) => {
+                write!(f, "could not reach the service: {}", ui::literal(detail))
+            }
+            Refusal::Failed(detail) => write!(f, "{}", ui::literal(detail)),
         }
     }
+}
+
+impl Refusal {
+    /// A server rejection that must end the pass after its permitted retries.
+    pub(super) fn must_stop(&self) -> bool {
+        matches!(self, Self::RateLimited | Self::TooManyRequests)
+    }
+}
+
+impl std::error::Error for Refusal {}
+
+/// Keeps service errors and entity names literal without escaping our marker.
+pub(super) fn report_failed(name: &str, why: &dyn std::fmt::Display) {
+    let prefix = if ui::is_interactive() { "\r" } else { "" };
+    eprintln!(
+        "{prefix}  {} {}: {}",
+        ui::red("×"),
+        ui::literal(name),
+        ui::literal(&why.to_string())
+    );
 }
 
 #[cfg(not(feature = "fetch"))]
@@ -109,6 +138,7 @@ struct Http(aede_core::http::Client);
 fn http_refusal(error: aede_core::http::Error) -> Refusal {
     match error {
         aede_core::http::Error::RateLimited => Refusal::RateLimited,
+        aede_core::http::Error::Status(429) => Refusal::TooManyRequests,
         aede_core::http::Error::Status(404) => Refusal::Missing,
         aede_core::http::Error::Network(detail) => Refusal::Unreachable(detail),
         other => Refusal::Failed(other.to_string()),
@@ -415,6 +445,7 @@ pub(super) fn artist_image_candidates<'a>(
         .iter()
         .filter_map(|record| {
             if record.source != sources::MUSICBRAINZ
+                || !held.is_trusted(catalog, record)
                 || !reaches(wanted, &[record.key.as_str()])
                 || !scope.has_artist(&record.key)
             {
@@ -477,6 +508,8 @@ pub(super) struct Asked<'a> {
     pub dry_run: bool,
     /// `--size`: how large an image to keep.
     pub size: aede_core::coverart::Size,
+    /// An explicit width must select from the index rather than reuse an old URL.
+    pub size_requested: bool,
     /// `--images`: keep the pictures that are not the cover.
     pub images: bool,
     /// Which parts of a Fanart.tv answer this run should keep.
@@ -554,7 +587,7 @@ pub(super) fn asked_nothing(asked: &Asked, what: &[String]) -> bool {
         return false;
     }
     for one in what {
-        println!("  {}", ui::dim(one));
+        println!("  {}", ui::dim(&ui::literal(one)));
     }
     println!("  {}", ui::dim("nothing was asked: --dry-run"));
     true
@@ -634,16 +667,17 @@ impl Pass {
         }
     }
 
-    /// Whether it needs the catalog, which decides whether one is loaded.
+    /// Whether a catalog is required for the pass to run.
     ///
     /// `--summaries` does not: its input is the wikidata link already stored,
     /// and failing on a missing catalog would be a refusal with no reason
-    /// behind it. Loading one anyway "for symmetry" would break that.
+    /// behind it. An existing catalog is still read to check whether the stored
+    /// identity is trusted, but an absent one does not prevent this pass.
     ///
     /// A **folder** overrides this, in [`run_with`] rather than here: the
     /// catalog is the only thing that can say which artists a folder holds, so
     /// `aede fetch --summaries ~/Music/Alastis` needs one even though the pass
-    /// alone does not. The pass still never reads it — it is handed the answer.
+    /// alone does not.
     fn needs_the_catalog(self) -> bool {
         self != Pass::Summaries
     }
@@ -692,7 +726,15 @@ fn second_passes(
     for pass in passes {
         match pass {
             Pass::Summaries => {
-                super::summaries::run(transport, backoff, &asked.langs, held, path, asked)?;
+                super::summaries::run(
+                    transport,
+                    backoff,
+                    &asked.langs,
+                    held,
+                    path,
+                    asked,
+                    catalog,
+                )?;
             }
             Pass::Discography => {
                 let catalog = catalog.expect("a catalog was loaded for it");
@@ -771,11 +813,19 @@ fn rich_credits(
         let Some(mbid) = recording.mbid.as_deref() else {
             continue;
         };
-        let Some(&track_id) = recording
-            .track_ids
-            .iter()
-            .find(|&&track_id| asked.scope.has_track(track_id))
-        else {
+        let Some(&track_id) = recording.track_ids.iter().find(|&&track_id| {
+            if !asked.scope.has_track(track_id) {
+                return false;
+            }
+            let artist = super::main_track_artist(catalog, track_id).unwrap_or_default();
+            let album = catalog
+                .track(track_id)
+                .and_then(|track| track.release_id)
+                .and_then(|id| catalog.release(id))
+                .map(|release| release.title.as_str())
+                .unwrap_or_default();
+            reaches(asked.names, &[&recording.title, &artist, album])
+        }) else {
             continue;
         };
         let Some(entity) = EntityRef::of(catalog, EntityKind::Track, track_id) else {
@@ -788,9 +838,6 @@ fn rich_credits(
                     matches!(&record.facts, Facts::Track(facts) if facts.relationships_complete)
                 })
         {
-            continue;
-        }
-        if !reaches(asked.names, &[recording.title.as_str()]) {
             continue;
         }
         targets.push((entity, recording.title.as_str(), mbid));
@@ -844,8 +891,9 @@ fn rich_credits(
                 None => {
                     refused += 1;
                     eprintln!(
-                        "  {} {title}: no readable MusicBrainz recording",
-                        ui::yellow("?")
+                        "  {} {}: no readable MusicBrainz recording",
+                        ui::yellow("?"),
+                        ui::literal(title)
                     );
                 }
             },
@@ -857,9 +905,10 @@ fn rich_credits(
                         .into(),
                 );
             }
+            Err(error) if error.must_stop() => return Err(error.into()),
             Err(error) => {
                 failed += 1;
-                eprintln!("\n  {} {title}: {error}", ui::red("×"));
+                report_failed(title, &error);
             }
         }
     }
@@ -968,8 +1017,9 @@ fn edition_credits(
                 _ => {
                     refused += 1;
                     eprintln!(
-                        "\n  {} {title}: no matching MusicBrainz edition",
-                        ui::yellow("?")
+                        "\n  {} {}: no matching MusicBrainz edition",
+                        ui::yellow("?"),
+                        ui::literal(title)
                     );
                 }
             },
@@ -981,9 +1031,10 @@ fn edition_credits(
                         .into(),
                 );
             }
+            Err(error) if error.must_stop() => return Err(error.into()),
             Err(error) => {
                 failed += 1;
-                eprintln!("\n  {} {title}: {error}", ui::red("×"));
+                report_failed(title, &error);
             }
         }
     }
@@ -1040,7 +1091,11 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         )
         .into());
     }
-    for (positive, negative) in [("logos", "no-logo"), ("banners", "no-banner")] {
+    for (positive, negative) in [
+        ("logos", "no-logo"),
+        ("logos", "no-label-logo"),
+        ("banners", "no-banner"),
+    ] {
         if args.has("fanart") && args.has(positive) && args.has(negative) {
             return Err(format!("--{positive} and --{negative} ask for opposite things").into());
         }
@@ -1072,7 +1127,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         || passes.iter().any(|pass| pass.needs_the_catalog())
     {
         true => Some(super::load(args)?),
-        false => None,
+        false => aede_core::store::load(&aede_core::store::catalog_path(&data_dir))?,
     };
     let scope = match &catalog {
         Some(catalog) => Scope::of(catalog, &folders)?,
@@ -1121,6 +1176,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             None => super::covers::DEFAULT_SIZE,
         },
         images: args.has("images"),
+        size_requested: args.has("size"),
         fanart: FanartOptions::from_args(args),
     };
 
@@ -1275,6 +1331,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 )
                 .into());
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(other) if defer(&mut pending, item, retried, &other) => {
                 // Not shown, not counted: the same name goes back to the end
                 // of the queue instead, on the theory that whatever kept the
@@ -1285,7 +1342,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             Err(other) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {name}: {other}", ui::red("×"));
+                report_failed(name, &other);
                 continue;
             }
         };
@@ -1308,11 +1365,14 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 // the missing-albums report silently disappear.
                 let mut facts = candidate.facts;
                 if let Some(SourceRecord {
+                    source_id: Some(previous_mbid),
                     facts: Facts::Artist(existing),
                     ..
                 }) = held.get(entity, sources::MUSICBRAINZ)
+                    && previous_mbid == &candidate.mbid
                 {
                     facts.discography = existing.discography.clone();
+                    facts.discography_fetched_at = existing.discography_fetched_at;
                 }
                 held.set(SourceRecord {
                     key: entity.key.clone(),
@@ -1329,7 +1389,12 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             }
             Err(why) => {
                 refused += 1;
-                eprintln!("\r  {} {name}: {}", ui::yellow("?"), refusal(&why));
+                eprintln!(
+                    "\r  {} {}: {}",
+                    ui::yellow("?"),
+                    ui::literal(name),
+                    ui::literal(&refusal(&why))
+                );
             }
         }
         done += 1;
@@ -1372,7 +1437,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
 }
 
 fn offer_next_steps(catalog: &Catalog, held: &sources::Sources, data_dir: &std::path::Path) {
-    offer_summaries(held);
+    offer_summaries(catalog, held);
     offer_discography(catalog, held);
     offer_covers(catalog, held);
     offer_identify(catalog, held);
@@ -1392,8 +1457,8 @@ fn offer_next_steps(catalog: &Catalog, held: &sources::Sources, data_dir: &std::
 /// The count comes from the pass's own `targets`, counted rather than derived a
 /// second time: an offer that disagreed with the run it offers would be worse
 /// than no offer.
-fn offer_summaries(held: &sources::Sources) {
-    let door = super::summaries::waiting(held);
+fn offer_summaries(catalog: &Catalog, held: &sources::Sources) {
+    let door = super::summaries::waiting(held, Some(catalog));
     if door == 0 {
         return;
     }

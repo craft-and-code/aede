@@ -134,7 +134,7 @@ aede doctor
 | `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
 | `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
-| `aede credits` | `[album]` | `--json`, `--limit`, `--offset`, `--all` | Show recording/work credit coverage by album and identify fetchable gaps. |
+| `aede credits` | `[album]` | `--json`, `--limit`, `--offset`, `--all` | Show recording/work and exact-edition credit coverage by album and identify fetchable gaps. |
 | `aede credit` | None | `--add <scope> --artist=<name> --role=<role>`, `--exclude=<ID>`, `--undo=<ID>` | Add a manual credit or exclude/restore one sourced credit without changing tags. |
 | `aede review` | None         | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
 | `aede stats`  | None         | None                                        | Displays catalog metrics, audio quality distribution, and credit roles.                     |
@@ -233,8 +233,8 @@ the local card; that card points to the separate sourced identity. Equal names
 with different IDs are never merged automatically. Untrusted claims remain
 visible evidence but do not create navigable contributors.
 
-`aede credits` is read-only and measures recording/work lookup coverage, not
-edition-credit coverage. Its global summary counts canonical recordings
+`aede credits` is read-only and measures recording/work and exact-edition lookup
+coverage separately. Its global summary counts canonical recordings
 once, even when a recording appears on several editions; each album counts its
 own distinct recordings. An album detail names a local file for each recording
 and distinguishes `waiting` (no completed MusicBrainz relationship lookup),
@@ -242,7 +242,11 @@ and distinguishes `waiting` (no completed MusicBrainz relationship lookup),
 `untrusted` (source evidence not accepted for the graph), and `unidentified`
 (no local recording MBID). The detail suggests
 a folder-scoped `aede fetch --credits` command for waiting recordings. An
-`empty` answer is not retried unless you explicitly use `--full`.
+`empty` answer is not retried unless you explicitly use `--full`. Edition counts
+refer to local releases, require a completed trusted answer for the exact release
+ID, and remain independent when recordings are shared. Manual edition credits
+are shown separately and do not complete an external lookup. Existing recording
+JSON fields remain available alongside the added edition coverage.
 
 For classical music, explicit MusicBrainz part-of-work relationships connect
 a movement to its containing work. `aede work <work ID>` shows the parent and

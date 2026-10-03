@@ -31,11 +31,11 @@
 //!
 //! # What is written, and what is refused
 //!
-//! `cover.jpg` beside the music, which is the first name the scanner looks for:
+//! `cover.jpg` or `cover.png` beside the music, which the scanner looks for:
 //! the file is registered nowhere, the next scan simply discovers it, exactly
-//! as it would one put there by hand. Bytes that are not a JPEG or a PNG are
-//! **not written** — see [`aede_core::coverart::image_kind`] for why that guard
-//! is the important one.
+//! as it would one put there by hand. JPEG and static PNG are decoded and their
+//! complete containers validated before publication — see
+//! [`aede_core::coverart::write_image`] for formats and resource limits.
 //!
 //! # `--images`: the back, the booklet, the disc
 //!
@@ -45,10 +45,9 @@
 //!
 //! It widens what is asked about, and the header says so: an album that has a
 //! cover already is skipped by the ordinary pass and is not skipped by this
-//! one, because the cover is not the question. **The existence of `artwork/`
-//! is the record that it has been done** — the same way `cover.jpg` is the
-//! record for the front. Nothing is written into a file and nothing is written
-//! into a database to remember it; the folder is the answer.
+//! one, because the cover is not the question. A separate attributed completion
+//! record is saved only after every extra image succeeded. An interrupted run
+//! can then resume the missing images without replacing the ones already saved.
 
 // Compiled in every build, for the reason `fetch` is.
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
@@ -72,6 +71,9 @@ use super::fetch::{Ask, Refusal, ask_bytes, ask_with_backoff, defer, queue};
 /// always the same, demanded on every run, is a value nobody reads before
 /// typing.
 pub const DEFAULT_SIZE: Size = Size::Thumbnail(1200);
+
+/// A completed Cover Art Archive extras pass, including a valid empty answer.
+const ARTWORK_SOURCE: &str = "coverartarchive-artwork";
 
 /// An album to ask about, and where its image would go.
 struct Target {
@@ -103,7 +105,14 @@ pub fn run(
     asked: &super::fetch::Asked,
 ) -> Res {
     let (wanted, size, images) = (asked.names, asked.size, asked.images);
-    let survey = survey(catalog, held, wanted, asked.scope, images);
+    let survey = survey(
+        catalog,
+        held,
+        wanted,
+        asked.scope,
+        images,
+        asked.again || asked.size_requested,
+    );
     let targets = &survey.targets;
     println!("{}", ui::section("Cover art"));
     if targets.is_empty() {
@@ -145,7 +154,7 @@ pub fn run(
             "  {}",
             ui::dim(&format!(
                 "--images: the back, the booklet and the rest go into {}/ in each \
-                 album's folder, and a folder that has one is not asked about again",
+                 album's folder; completed downloads are reused, partial ones resume",
                 coverart::EXTRAS
             ))
         );
@@ -174,13 +183,14 @@ pub fn run(
                     written += 1;
                     done += 1;
                 }
+                Err(why) if why.must_stop() => return Err(why.into()),
                 Err(why) if defer(&mut pending, target, retried, &why) => {
                     continue;
                 }
                 Err(why) => {
                     failed += 1;
                     done += 1;
-                    eprintln!("\r  {} {}: {why}", ui::red("×"), target.title);
+                    super::fetch::report_failed(&target.title, &why);
                 }
             }
             continue;
@@ -188,6 +198,7 @@ pub fn run(
 
         let index = match ask_with_backoff(transport, &target.url, backoff) {
             Ok(index) => index,
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
@@ -204,11 +215,14 @@ pub fn run(
                     Refusal::Missing => {
                         none += 1;
                         store(held, target, None);
+                        if images {
+                            store_artwork(held, target);
+                        }
                         sources::save(held, path)?;
                     }
                     other => {
                         failed += 1;
-                        eprintln!("\r  {} {}: {other}", ui::red("×"), target.title);
+                        super::fetch::report_failed(&target.title, &other);
                     }
                 }
                 done += 1;
@@ -216,15 +230,27 @@ pub fn run(
             }
         };
 
+        if let Err(why) = coverart::validate_index(&index) {
+            failed += 1;
+            done += 1;
+            super::fetch::report_failed(&target.title, &why);
+            continue;
+        }
+
         // The other images first, while the index is in hand: an album whose
         // front download fails still has a booklet worth keeping, and asking
         // the archive twice for the same document to avoid that would be rude.
         if images {
             match download_others(transport, backoff, &index, size, &target.folder) {
-                Ok(count) => extras += count,
+                Ok(count) => {
+                    extras += count;
+                    store_artwork(held, target);
+                    sources::save(held, path)?;
+                }
+                Err(why) if why.must_stop() => return Err(why.into()),
                 Err(why) => {
                     failed += 1;
-                    eprintln!("\r  {} {}: {why}", ui::red("×"), target.title);
+                    super::fetch::report_failed(&target.title, &why);
                 }
             }
         }
@@ -242,15 +268,26 @@ pub fn run(
             continue;
         };
 
+        // A new index has disproved an earlier miss. Keep the address even
+        // when the transfer fails, so a normal run can retry the image rather
+        // than skipping the album on the strength of that old negative answer.
+        if held.get(&target.entity, coverart::SOURCE).is_some_and(
+            |record| matches!(&record.facts, Facts::Release(facts) if facts.cover_art.is_none()),
+        ) {
+            store(held, target, Some(front.url.clone()));
+            sources::save(held, path)?;
+        }
+
         match download(transport, backoff, &front.url, &target.folder) {
             Ok(()) => {
                 written += 1;
                 store(held, target, Some(front.url));
                 sources::save(held, path)?;
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) => {
                 failed += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.title);
+                super::fetch::report_failed(&target.title, &why);
             }
         }
         done += 1;
@@ -287,7 +324,7 @@ fn download(
     folder: &str,
 ) -> Result<(), Refusal> {
     let bytes = ask_bytes(transport, url, backoff)?;
-    // Both guards — the bytes are an image, and nothing is overwritten — live
+    // Both guards — a recognised image header, and nothing overwritten — live
     // in one place, shared with `aede artwork`. Written twice they would
     // eventually differ, and the difference would only show as a corrupt file
     // in somebody's library.
@@ -299,15 +336,15 @@ fn download(
 /// Downloads every image of an index that is not the front, and says how many.
 ///
 /// Into `artwork/`, under names that say what each one is. A picture already on
-/// disk is not downloaded twice and is not counted: the folder existing is what
-/// stops a second run asking at all, and this is the guard behind that one.
+/// disk is not downloaded twice and is not counted. Only a completed family
+/// skips a later run; an interrupted family returns here for its missing files.
 fn download_others(
     transport: &mut dyn Ask,
     backoff: &[std::time::Duration],
     index: &aede_core::json::Json,
     size: Size,
     folder: &str,
-) -> Result<usize, String> {
+) -> Result<usize, Refusal> {
     let all = coverart::images(index, size);
     let rest: Vec<(coverart::Kind, coverart::Front)> = all
         .into_iter()
@@ -319,8 +356,11 @@ fn download_others(
 
     let mut written = 0;
     for ((kind, image), where_) in rest.iter().zip(places) {
-        let bytes = ask_bytes(transport, &image.url, backoff).map_err(|why| why.to_string())?;
-        match coverart::write_image(&into, *kind, where_, &bytes)? {
+        if coverart::exists_image(&into, *kind, where_) {
+            continue;
+        }
+        let bytes = ask_bytes(transport, &image.url, backoff)?;
+        match coverart::write_image(&into, *kind, where_, &bytes).map_err(Refusal::Failed)? {
             coverart::Written::New(_) => written += 1,
             coverart::Written::Already(_) => {}
         }
@@ -342,6 +382,17 @@ fn store(held: &mut sources::Sources, target: &Target, cover: Option<String>) {
             cover_art: cover,
             ..Default::default()
         }),
+    });
+}
+
+fn store_artwork(held: &mut sources::Sources, target: &Target) {
+    held.set(SourceRecord {
+        key: target.entity.key.clone(),
+        source: ARTWORK_SOURCE.to_string(),
+        source_id: None,
+        fetched_at: clock::now_seconds(),
+        confidence: sources::Confidence::Identified,
+        facts: Facts::Release(ReleaseFacts::default()),
     });
 }
 
@@ -371,14 +422,16 @@ struct Survey {
 /// `images` changes what counts as finished. Without it the question is "has
 /// this album a cover", and an album that has one is done. With it there is a
 /// second question — "has this album's other artwork been fetched" — whose
-/// answer is on the disk: an `artwork/` folder means yes. Nothing records it
-/// anywhere else, for the same reason nothing records `cover.jpg`.
+/// answer is a completed extras record.
+/// The directory alone cannot distinguish an interrupted transfer from a
+/// finished one. `again` rechecks both negative answers and completed extras.
 fn survey(
     catalog: &Catalog,
     held: &sources::Sources,
     wanted: &[String],
     scope: &super::fetch::Scope,
     images: bool,
+    again: bool,
 ) -> Survey {
     let mut out = Survey {
         targets: Vec::new(),
@@ -410,7 +463,11 @@ fn survey(
         // album can have no `cover.jpg` at all and still not want one.
         let embedded = has_embedded_art(catalog, release);
         let cover = !embedded && release.cover_path.is_none();
-        let extras = images && !coverart::extras_in(std::path::Path::new(&release.folder)).exists();
+        let Some(entity) = EntityRef::of(catalog, EntityKind::Release, release.id) else {
+            out.unidentified += 1;
+            continue;
+        };
+        let extras = images && (again || held.get(&entity, ARTWORK_SOURCE).is_none());
         if !cover && !extras {
             match embedded {
                 true => out.embedded += 1,
@@ -418,17 +475,12 @@ fn survey(
             }
             continue;
         }
-        let Some(entity) = EntityRef::of(catalog, EntityKind::Release, release.id) else {
-            out.unidentified += 1;
-            continue;
-        };
         // Asked before — but *what* the answer was decides what happens now.
         //
         // "Asked, and the archive holds nothing" is a finished question, and
         // skipping it is what stops a second run costing an hour again. That
-        // holds for `--images` too: an archive record with no front image
-        // almost never has a back one either, and `aede sources --forget` is
-        // there for the album where it does.
+        // applies to the front only. Extra images have their own completion
+        // record: a missing front says nothing about a booklet or a back.
         //
         // "Asked, and here is the image" is not finished when the image is no
         // longer in the folder. The address is still good, so the picture is
@@ -436,7 +488,7 @@ fn survey(
         // have to discover `sources --forget` to get back a file they deleted.
         // With `--images` that shortcut is no use: the stored address is the
         // front and says nothing about the rest, so the index is asked for.
-        if let Some(record) = held.get(&entity, coverart::SOURCE) {
+        if !again && let Some(record) = held.get(&entity, coverart::SOURCE) {
             let stored = match &record.facts {
                 Facts::Release(ReleaseFacts { cover_art, .. }) => cover_art.clone(),
                 _ => None,
@@ -453,11 +505,11 @@ fn survey(
                     });
                     continue;
                 }
-                (None, _) => {
+                (None, false) => {
                     out.asked += 1;
                     continue;
                 }
-                (Some(_), true) => {}
+                (_, true) => {}
             }
         }
         // The edition the shelf actually holds is a better question than the
@@ -465,10 +517,11 @@ fn survey(
         // artwork. Falling back to the album when the tags name no edition.
         let url = match release.mbid.as_deref() {
             Some(edition) => coverart::release_index_url(edition),
-            None => match held
-                .get(&entity, sources::MUSICBRAINZ)
-                .and_then(|r| r.source_id.as_deref())
-            {
+            None => match release.release_group_mbid.as_deref().or_else(|| {
+                held.get(&entity, sources::MUSICBRAINZ)
+                    .filter(|record| held.is_trusted(catalog, record))
+                    .and_then(|record| record.source_id.as_deref())
+            }) {
                 Some(group) => coverart::index_url(group),
                 None => {
                     out.unidentified += 1;
@@ -490,7 +543,7 @@ fn survey(
 
 /// The albums this pass would ask about.
 fn targets(catalog: &Catalog, held: &sources::Sources) -> Vec<Target> {
-    survey(catalog, held, &[], &super::fetch::EVERYTHING, false).targets
+    survey(catalog, held, &[], &super::fetch::EVERYTHING, false, false).targets
 }
 
 /// What was left alone and why, one line per reason that applies.

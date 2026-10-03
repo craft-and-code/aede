@@ -142,13 +142,14 @@ pub fn run(
 
         let answer = match ask_with_backoff(transport, &target.url(), backoff) {
             Ok(answer) => answer,
+            Err(other) if other.must_stop() => return Err(other.into()),
             Err(other) if defer(&mut pending, target, retried, &other) => {
                 continue;
             }
             Err(other) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {}: {other}", ui::red("×"), target.name);
+                super::fetch::report_failed(&target.name, &other);
                 continue;
             }
         };
@@ -167,9 +168,10 @@ pub fn run(
                     );
                     let detail = match ask_with_backoff(transport, &url, backoff) {
                         Ok(detail) => detail,
+                        Err(why) if why.must_stop() => return Err(why.into()),
                         Err(why) => {
                             failed += 1;
-                            eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                            super::fetch::report_failed(&target.name, &why);
                             done += 1;
                             continue;
                         }
@@ -183,7 +185,7 @@ pub fn run(
                             eprintln!(
                                 "\r  {} {}: label lookup did not confirm the search result",
                                 ui::red("×"),
-                                target.name
+                                ui::literal(&target.name)
                             );
                             done += 1;
                             continue;
@@ -206,8 +208,8 @@ pub fn run(
                 eprintln!(
                     "\r  {} {}: {}",
                     ui::yellow("?"),
-                    target.name,
-                    super::fetch::refusal(&why)
+                    ui::literal(&target.name),
+                    ui::literal(&super::fetch::refusal(&why))
                 );
             }
         }

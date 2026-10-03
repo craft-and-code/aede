@@ -52,14 +52,17 @@ affects graph navigation and search but retains the original source evidence.
 It does not remove locally tagged credits or rewrite files. Credit exclusions
 travel with `aede rules --export` and `--import`.
 
-`aede credits` audits the recording/work part of this pass without contacting
-the network. It does not yet measure edition-credit coverage. It counts
-canonical recordings, not file placements, and lists albums
+`aede credits` audits recording/work and exact-edition lookups without contacting
+the network. It counts canonical recordings, not file placements, and counts
+local editions separately even when they share recordings. It lists albums
 with separate `credited`, `empty`, `waiting`, `untrusted`, and `unidentified`
 counts. `aede credits "<album>"` expands those counts to each recording and a
 representative local filename, separates direct recording from work-level
 credit counts, and prints a folder-scoped fetch command when anything is
-waiting. `--json` provides the same statuses for scripts. A completed lookup
+waiting. Edition coverage requires a completed, trusted answer for the exact
+local release ID; manual edition credits are reported separately and do not
+complete a MusicBrainz lookup. `--json` retains the recording fields and adds
+edition coverage with the same statuses for scripts. A completed lookup
 with no credits is reported as
 `empty`, not as a request still pending; use
 `aede fetch --credits --full <folder>` only when you intend to query it again.

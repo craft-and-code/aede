@@ -319,8 +319,24 @@ fn mutates_store(command: &str) -> bool {
 }
 
 fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
-    if matches!(command, "scan" | "notes") && args.has("dry-run") {
+    if matches!(
+        command,
+        "scan" | "notes" | "fetch" | "fingerprint" | "extract"
+    ) && args.has("dry-run")
+    {
         return false;
+    }
+    match command {
+        "sources" => return args.has("import") || args.has("forget"),
+        "review" => {
+            return ["accept", "reject", "undo", "interactive"]
+                .iter()
+                .any(|action| args.has(action));
+        }
+        // Export combines two stores and needs a coherent decision snapshot.
+        "rules" => return args.has("import") || args.has("export"),
+        "fingerprint" if args.has("list") => return false,
+        _ => {}
     }
     if command == "notes" {
         return ["import", "relink", "undo-relink"]
@@ -592,7 +608,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     (
         "credits",
         &["fetch"],
-        "ask MusicBrainz for recording and work credits",
+        "ask MusicBrainz for recording, work and edition credits",
     ),
     ("recordings", &["fetch"], "legacy name for --credits"),
     ("portraits", &["fetch"], "look for a picture of the artist"),

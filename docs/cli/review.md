@@ -6,6 +6,10 @@ By default the list contains pending proposals. --all includes resolved ones as 
 
 No tags are rewritten. Trust and source confidence remain separate: accepting a proposed match records your decision, not a new identifier read from the audio. Decisions persist in sources.json and travel through rules export/import. Invalid, ambiguous or unavailable IDs are refused. doctor helps locate cases needing attention.
 
+Cards and decision messages display imported names, facts, paths and URLs literally, without executing terminal controls. List pagination is validated even when no claim needs review.
+
+Reading the list takes no writer lock. Interactive review and direct decisions keep the lock while saving choices.
+
 ## Syntax and arguments
 
 ```text

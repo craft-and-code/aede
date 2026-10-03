@@ -6,6 +6,10 @@ C’est différent de backup : historique, notes/favoris/étoiles ordinaires des
 
 --export écrit dans le terminal ou --output FICHIER. --import FICHIER fusionne un document aede-rules compatible et compte éléments ajoutés, actualisés, conservés et décisions importées. Export/import sont incompatibles ; --output sans export est refusé. Garder une sauvegarde avant d’importer des décisions à annuler ensuite individuellement.
 
+L’import respecte aussi ce périmètre : un fichier contenant des écoutes, des annotations ordinaires d’entités, des preuves de déplacement de fichiers ou des données récupérées d’une source autre que `manual` est refusé. Utiliser notes, sources ou backup pour ces documents. Les deux destinations sont vérifiées avant la première écriture : un lien symbolique ou un fichier spécial déjà présent ne provoque pas l’application d’une moitié du document. Cette vérification ne rend pas les deux remplacements transactionnels face à une coupure de courant ou à des changements simultanés du système de fichiers.
+
+Le résumé ne prend aucun verrou d’écriture. L’export le conserve pour obtenir un état cohérent des deux fichiers de décisions ; l’import le conserve pendant la fusion.
+
 ## Syntaxe et arguments
 
 ```text

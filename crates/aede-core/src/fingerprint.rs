@@ -166,13 +166,19 @@ fn has_chromaprint() -> bool {
 /// which emits no duration of its own. `fpcalc` states one and its answer
 /// wins: it measured what it actually decoded, and a header that disagrees
 /// with the stream is exactly the kind of file this whole feature exists for.
+///
+/// The path must resolve to a regular local file. It is canonicalized before
+/// invoking either helper, so relative names cannot become options or URLs.
+/// Directories, devices and other special files are refused before a helper
+/// can block reading them.
 pub fn of(by: By, path: &std::path::Path, seconds: u32) -> Result<Fingerprint, String> {
+    let path = local_file(path)?;
     match by {
         By::Ffmpeg => {
             let ffmpeg = crate::ffmpeg::find().ok_or_else(|| "ffmpeg is gone".to_string())?;
             let out = Command::new(ffmpeg)
                 .args(["-hide_banner", "-loglevel", "error", "-i"])
-                .arg(path)
+                .arg(&path)
                 .args(["-f", "chromaprint", "-fp_format", "base64"])
                 .args(["-algorithm", ALGORITHM])
                 .arg("-")
@@ -185,7 +191,7 @@ pub fn of(by: By, path: &std::path::Path, seconds: u32) -> Result<Fingerprint, S
         }
         By::Fpcalc => {
             let out = Command::new("fpcalc")
-                .arg(path)
+                .arg(&path)
                 .output()
                 .map_err(|e| format!("fpcalc could not be run: {e}"))?;
             if !out.status.success() {
@@ -194,6 +200,18 @@ pub fn of(by: By, path: &std::path::Path, seconds: u32) -> Result<Fingerprint, S
             read_fpcalc(&String::from_utf8_lossy(&out.stdout))
         }
     }
+}
+
+fn local_file(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let fail = |detail: &dyn std::fmt::Display| {
+        format!(
+            "a local regular file is required for fingerprinting: {}: {detail}",
+            path.display()
+        )
+    };
+    let resolved = std::fs::canonicalize(path).map_err(|error| fail(&error))?;
+    crate::copy::validate_source(&resolved).map_err(|error| fail(&error))?;
+    Ok(resolved)
 }
 
 /// The last thing a failed program said, for a message worth reading.
@@ -221,6 +239,8 @@ pub fn read_ffmpeg(stdout: &str, seconds: u32) -> Result<Fingerprint, String> {
 ///
 /// The duration it states is preferred over the caller's, because it is the
 /// length of what was decoded rather than the length a header claims.
+/// Decimal fractions are truncated to whole seconds; malformed fractions,
+/// signs and values outside `u32` are refused instead of accepting a prefix.
 pub fn read_fpcalc(stdout: &str) -> Result<Fingerprint, String> {
     let mut data = String::new();
     let mut seconds = 0u32;
@@ -228,20 +248,28 @@ pub fn read_fpcalc(stdout: &str) -> Result<Fingerprint, String> {
         match line.split_once('=') {
             Some(("FINGERPRINT", value)) => data = value.trim().to_string(),
             Some(("DURATION", value)) => {
-                // fpcalc prints a whole number, but a build that printed
-                // `183.4` must not silently become nothing at all.
-                seconds = value
-                    .trim()
-                    .split('.')
-                    .next()
-                    .unwrap_or_default()
-                    .parse()
-                    .unwrap_or(0);
+                seconds = parse_seconds(value.trim())?;
             }
             _ => {}
         }
     }
     usable(data, seconds)
+}
+
+fn parse_seconds(value: &str) -> Result<u32, String> {
+    let (whole, fraction) = value
+        .split_once('.')
+        .map_or((value, None), |(whole, fraction)| (whole, Some(fraction)));
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction
+            .is_some_and(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return Err("fpcalc returned an invalid duration".to_string());
+    }
+    whole
+        .parse()
+        .map_err(|_| "fpcalc returned a duration outside the supported range".to_string())
 }
 
 /// The one gate both readers pass through.

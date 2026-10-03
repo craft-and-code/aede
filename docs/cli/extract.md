@@ -2,9 +2,9 @@
 
 extract writes artwork already embedded in supported audio tags beside the music. It is local-only and does not ask Cover Art Archive or Fanart.tv. Run it before fetch --covers when your files already contain a good front cover.
 
-By default it extracts the selected front cover. --images also keeps other embedded images such as back/booklet/disc in artwork/. --dry-run lists what would be extracted without writing. Existing local images are not overwritten.
+By default it extracts the selected front cover. --images also keeps other embedded images such as back/booklet/disc in artwork/. --dry-run lists what would be extracted without writing or creating the writer lock. Existing local images are not overwritten. Extraction groups the catalog by folder once and reads the first file carrying artwork in each folder; it preserves catalog order and does not reread every track to find that source.
 
-The command needs write access to the album/sidecar directory but only reads audio. Files with no embedded artwork simply provide no image; this does not mean the album cannot receive downloaded art later. Rescan if you need the catalog’s artwork choice refreshed after extraction. artwork is an exact command alias.
+The command needs write access to the album/sidecar directory but only reads audio. New image publication requires filesystem support for hard links; an unsupported filesystem refuses publication rather than risking replacement. JPEG and static PNG pixels are decoded before publication using the same validation as [fetch](fetch.md): complete container endings, 32 MiB input, 8192 pixels per axis and 16 million pixels. Undecodable images and animated PNG are refused before creating output. No external image helper is required. Files with no embedded artwork simply provide no image; this does not mean the album cannot receive downloaded art later. Rescan if you need the catalog’s artwork choice refreshed after extraction. artwork is an exact command alias.
 
 Alias: `aede artwork`. Options and behavior are identical.
 

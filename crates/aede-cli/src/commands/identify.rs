@@ -81,7 +81,10 @@ pub fn run(
     // that environment is one variable shared by every thread.
     let key = asked.key.as_deref().ok_or_else(acoustid::no_key)?;
 
-    let total_ms = survey.targets.len() as u64 * acoustid::REQUEST_INTERVAL.as_millis() as u64;
+    // Fetch shares the MusicBrainz throttle across passes, even when this
+    // service permits requests more frequently.
+    let total_ms =
+        survey.targets.len() as u64 * aede_core::musicbrainz::REQUEST_INTERVAL.as_millis() as u64;
     println!(
         "  {}, one request each, about {}",
         ui::plural(survey.targets.len(), "file"),
@@ -116,13 +119,14 @@ pub fn run(
         let url = acoustid::lookup_url(key, &target.fingerprint.data, target.fingerprint.seconds);
         let answer = match ask_with_backoff(transport, &url, backoff) {
             Ok(answer) => answer,
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.path);
+                super::fetch::report_failed(&target.path, &why);
                 continue;
             }
         };

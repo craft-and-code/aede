@@ -4,7 +4,11 @@ fingerprint décode l’audio local pour calculer une empreinte Chromaprint. Il 
 
 Sans portée, il cible les fichiers insuffisamment identifiés par titre/artiste, plutôt que décoder toute une bibliothèque déjà taguée. Noms/dossiers sélectionnent explicitement ; --full inclut ceux identifiés/déjà calculés. --list montre les empreintes ; --dry-run prévoit sans décoder mais valide encore l’outil requis.
 
+Les entrées doivent désigner des fichiers locaux ordinaires avant le lancement de l’outil ; périphériques, tubes et adresses de protocole sont refusés. Une durée absente, inférieure à une seconde ou hors plage dans le catalogue ne produit pas de requête. L’affichage des chemins et empreintes rend les caractères de contrôle du terminal littéralement ; les valeurs mémorisées et exportées conservent leur texte d’origine. Un aperçu ne crée ni fichier de sortie ni verrou d’écriture des données.
+
 L’outil peut être fpcalc ou un ffmpeg avec Chromaprint ; une installation ffmpeg ordinaire ne contient pas forcément cet encodeur. La durée est requise pour AcoustID. Les résultats survivent aux scans inchangés et deviennent obsolètes si l’audio change. Les échecs sont signalés ; les réussites restent mémorisées. Une empreinte identifie un son, ce n’est pas une somme d’intégrité.
+
+La liste des empreintes mémorisées ne prend pas non plus de verrou d’écriture et reste disponible pendant une collecte.
 
 ## Syntaxe et arguments
 

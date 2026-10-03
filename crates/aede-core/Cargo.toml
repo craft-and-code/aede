@@ -25,5 +25,8 @@ flaccompagnon-core = { workspace = true }
 md-5 = "0.10"
 aede-dsp = { path = "../aede-dsp" }
 symphonia = { version = "0.5.5", features = ["all"] }
+# Validate artwork before publishing it, without an external helper or SIMD.
+png = "=0.18.1"
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"] }
 
 [dev-dependencies]

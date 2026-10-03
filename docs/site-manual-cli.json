@@ -209,12 +209,12 @@
     "slug": "cli/credits",
     "section": "cli",
     "title": {
-      "en": "credits — Measure MusicBrainz recording/work credit coverage and locate gaps",
-      "fr": "credits — Auditer les crédits"
+      "en": "credits — Measure recording, work and edition credit coverage",
+      "fr": "credits — Auditer les crédits d’enregistrement, d’œuvre et d’édition"
     },
     "description": {
-      "en": "Measure MusicBrainz recording/work credit coverage and locate gaps.",
-      "fr": "Auditer les crédits."
+      "en": "Locate gaps in recording, work and edition lookups; distinguish manual corrections.",
+      "fr": "Repérer les demandes manquantes par enregistrement, œuvre et édition ; distinguer les corrections manuelles."
     },
     "source": {
       "en": "docs/cli/credits.md",

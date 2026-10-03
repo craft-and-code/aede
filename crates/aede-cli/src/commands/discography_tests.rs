@@ -22,6 +22,7 @@ fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
         key: None,
         portrait_key: None,
         langs: vec!["en".to_string()],
+        size_requested: false,
     }
 }
 /// A transport that answers from canned text, and remembers what was asked.
@@ -161,6 +162,335 @@ const PAGE_ONE: &str = r#"{"release-group-count":3,"release-groups":[
 const PAGE_TWO: &str = r#"{"release-group-count":3,"release-groups":[
     {"id":"g3","title":"Live-Evil","first-release-date":"1971",
      "primary-type":"Album","secondary-types":["Live"]}]}"#;
+
+const PAGE_EMPTY: &str = r#"{"release-group-count":0,"release-groups":[]}"#;
+
+#[test]
+fn a_complete_empty_discography_is_reused_after_reload() {
+    let dir = sandbox("completed_empty");
+    let path = sources::sources_path(&dir);
+    let mut layer = held();
+    let mut first = Canned {
+        answers: vec![Ok(PAGE_EMPTY.into())],
+        asked: Vec::new(),
+    };
+    run(&shelf(), &mut first, &[], &mut layer, &path, &asked(false)).unwrap();
+    assert_eq!(first.asked.len(), 1);
+    assert!(discography_of(&layer).is_empty());
+    let mut reloaded = sources::load(&path).unwrap().unwrap();
+    let mut second = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run(
+        &shelf(),
+        &mut second,
+        &[],
+        &mut reloaded,
+        &path,
+        &asked(false),
+    )
+    .unwrap();
+    assert!(
+        second.asked.is_empty(),
+        "a complete empty answer must be reused after reopening the store"
+    );
+    assert_eq!(waiting(&shelf(), &reloaded), 0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_full_refresh_can_change_a_cached_discography_between_empty_and_populated() {
+    let dir = sandbox("empty_then_full");
+    let path = sources::sources_path(&dir);
+    let mut layer = held();
+    run(
+        &shelf(),
+        &mut Canned {
+            answers: vec![Ok(PAGE_EMPTY.into())],
+            asked: Vec::new(),
+        },
+        &[],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .unwrap();
+    assert_eq!(waiting(&shelf(), &layer), 0);
+    let mut full = Canned {
+        answers: vec![Ok(PAGE_ONE.into()), Ok(PAGE_TWO.into())],
+        asked: Vec::new(),
+    };
+    run(&shelf(), &mut full, &[], &mut layer, &path, &asked(true)).unwrap();
+    assert_eq!(
+        full.asked.len(),
+        2,
+        "--full must override the empty answer's cache"
+    );
+    assert_eq!(discography_of(&layer).len(), 3);
+    assert_eq!(waiting(&shelf(), &layer), 0);
+    let mut empty_again = Canned {
+        answers: vec![Ok(PAGE_EMPTY.into())],
+        asked: Vec::new(),
+    };
+    run(
+        &shelf(),
+        &mut empty_again,
+        &[],
+        &mut layer,
+        &path,
+        &asked(true),
+    )
+    .unwrap();
+    assert_eq!(empty_again.asked.len(), 1);
+    let reloaded = sources::load(&path).unwrap().unwrap();
+    assert!(
+        discography_of(&reloaded).is_empty(),
+        "a new complete empty answer replaces the earlier albums"
+    );
+    assert_eq!(
+        waiting(&shelf(), &reloaded),
+        0,
+        "the new empty answer stays cached"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_failed_refresh_preserves_a_complete_empty_answer() {
+    let dir = sandbox("empty_then_failure");
+    let path = sources::sources_path(&dir);
+    let mut layer = held();
+    run(
+        &shelf(),
+        &mut Canned {
+            answers: vec![Ok(PAGE_EMPTY.into())],
+            asked: Vec::new(),
+        },
+        &[],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .unwrap();
+    let before = layer.clone();
+    let before_file = std::fs::read(&path).unwrap();
+    let mut full = Canned {
+        answers: vec![
+            Ok(PAGE_ONE.into()),
+            Err(Refusal::Failed("transfer failed".into())),
+        ],
+        asked: Vec::new(),
+    };
+    run(&shelf(), &mut full, &[], &mut layer, &path, &asked(true)).unwrap();
+    assert_eq!(full.asked.len(), 2);
+    assert_eq!(
+        layer, before,
+        "a failed second page must preserve the earlier complete answer"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before_file);
+    assert_eq!(
+        waiting(&shelf(), &layer),
+        0,
+        "the previous successful empty answer stays cached"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_changed_total_cannot_mark_an_incomplete_refresh_as_complete() {
+    let dir = sandbox("changed_total");
+    let path = sources::sources_path(&dir);
+    let mut layer = held();
+    run(
+        &shelf(),
+        &mut Canned {
+            answers: vec![Ok(PAGE_EMPTY.into())],
+            asked: Vec::new(),
+        },
+        &[],
+        &mut layer,
+        &path,
+        &asked(false),
+    )
+    .unwrap();
+    let before = layer.clone();
+    let mut full = Canned {
+        answers: vec![
+            Ok(PAGE_ONE.into()),
+            Ok(r#"{"release-group-count":2,"release-groups":[]}"#.into()),
+        ],
+        asked: Vec::new(),
+    };
+    run(&shelf(), &mut full, &[], &mut layer, &path, &asked(true)).unwrap();
+    assert_eq!(full.asked.len(), 2);
+    assert_eq!(
+        layer, before,
+        "a changed total must not certify a partial list as complete"
+    );
+    assert_eq!(sources::load(&path).unwrap().unwrap(), before);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_old_empty_discography_is_requested_once() {
+    let dir = sandbox("old_empty");
+    let path = sources::sources_path(&dir);
+    let old = format!(
+        r#"{{"format_version":{},"records":[
+        {{"entity":"artist:miles davis","source":"musicbrainz","source_id":"561d854a",
+         "confidence":"identified","fetched_at":1,"facts":{{"discography":[]}}}}
+    ]}}"#,
+        sources::SOURCES_FORMAT_VERSION
+    );
+    let mut layer = sources::from_json(&aede_core::json::parse(&old).unwrap()).unwrap();
+    assert_eq!(
+        waiting(&shelf(), &layer),
+        1,
+        "a legacy empty list has not yet proved a completed browse"
+    );
+    let mut first = Canned {
+        answers: vec![Ok(PAGE_EMPTY.into())],
+        asked: Vec::new(),
+    };
+    run(&shelf(), &mut first, &[], &mut layer, &path, &asked(false)).unwrap();
+    assert_eq!(first.asked.len(), 1);
+    let reloaded = sources::load(&path).unwrap().unwrap();
+    assert_eq!(
+        waiting(&shelf(), &reloaded),
+        0,
+        "only the first successful browse is needed to upgrade the old empty list"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_old_nonempty_discography_stays_cached() {
+    let mut layer = held();
+    let Facts::Artist(facts) = &mut layer.records[0].facts else {
+        panic!("artist facts");
+    };
+    facts.discography = musicbrainz::discography(&aede_core::json::parse(PAGE_ONE).unwrap()).0;
+    let encoded = sources::to_json(&layer);
+    let reloaded = sources::from_json(&encoded).unwrap();
+    assert_eq!(
+        waiting(&shelf(), &reloaded),
+        0,
+        "the completion marker must remain optional for older nonempty answers"
+    );
+}
+
+#[test]
+fn a_first_failed_discography_attempt_is_not_cached() {
+    let dir = sandbox("first_failure");
+    let path = sources::sources_path(&dir);
+    let mut layer = held();
+    let before = layer.clone();
+    let mut full = Canned {
+        answers: vec![
+            Ok(PAGE_ONE.into()),
+            Err(Refusal::Failed("transfer failed".into())),
+        ],
+        asked: Vec::new(),
+    };
+    run(&shelf(), &mut full, &[], &mut layer, &path, &asked(false)).unwrap();
+    assert_eq!(full.asked.len(), 2);
+    assert_eq!(layer, before);
+    assert_eq!(
+        waiting(&shelf(), &layer),
+        1,
+        "an incomplete first attempt must be offered again"
+    );
+    assert!(!path.exists());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_accepted_discography_match_retains_its_original_confidence() {
+    let dir = sandbox("reviewed_identity");
+    let catalog = shelf();
+    let mut layer = held();
+    layer.records[0].confidence = Confidence::Matched(85);
+    assert!(
+        targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            false
+        )
+        .is_empty()
+    );
+    let id = layer.review_items(&catalog)[0].id.clone();
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    let mut transport = Canned {
+        answers: vec![Ok(PAGE_ONE.into()), Ok(PAGE_TWO.into())],
+        asked: Vec::new(),
+    };
+    run(
+        &catalog,
+        &mut transport,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(false),
+    )
+    .unwrap();
+    assert_eq!(transport.asked.len(), 2);
+    assert_eq!(
+        layer.records[0].confidence,
+        Confidence::Matched(85),
+        "browsing a proposed identity does not upgrade the original name match"
+    );
+    assert_eq!(discography_of(&layer).len(), 3);
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Rejected, 3)
+        .unwrap();
+    assert!(
+        targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            true
+        )
+        .is_empty()
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_failed_discography_page_preserves_the_last_complete_answer() {
+    let dir = sandbox("malformed_page");
+    let mut layer = held();
+    let (known, _) = musicbrainz::discography(&aede_core::json::parse(PAGE_ONE).unwrap());
+    let Facts::Artist(facts) = &mut layer.records[0].facts else {
+        panic!("artist")
+    };
+    facts.discography = known;
+    let before = layer.clone();
+    let mut transport = Canned {
+        answers: vec![Ok("{}".into())],
+        asked: Vec::new(),
+    };
+    run(
+        &shelf(),
+        &mut transport,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(true),
+    )
+    .unwrap();
+    assert_eq!(
+        layer, before,
+        "malformed data must not replace a known complete discography"
+    );
+    assert!(!sources::sources_path(&dir).exists());
+    let _ = std::fs::remove_dir_all(dir);
+}
 
 #[test]
 fn a_discography_longer_than_a_page_is_asked_for_in_pages() {

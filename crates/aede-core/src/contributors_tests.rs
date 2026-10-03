@@ -1,7 +1,7 @@
 use super::*;
-use crate::model::{Artist, AudioFile, Recording, Track};
+use crate::model::{Artist, AudioFile, Recording, Release, ReleaseGroup, Track};
 use crate::sources::{
-    Confidence, CreditLink, Facts, ReviewDecision, SourceRecord, TrackFacts, WorkLink,
+    Confidence, CreditLink, Facts, ReleaseFacts, ReviewDecision, SourceRecord, TrackFacts, WorkLink,
 };
 
 fn credit(mbid: &str, name: &str) -> CreditLink {
@@ -168,4 +168,60 @@ fn equal_names_with_different_ids_remain_distinct() {
     assert_eq!(people.len(), 2);
     assert_eq!(people[0].name, people[1].name);
     assert_ne!(people[0].mbid, people[1].mbid);
+}
+
+#[test]
+fn equally_recent_edition_names_are_stable_across_source_order() {
+    let mut catalog = catalog();
+    catalog.release_groups.push(ReleaseGroup {
+        id: 0,
+        mbid: "group-1".into(),
+        ..Default::default()
+    });
+    for id in 0..2 {
+        catalog.releases.push(Release {
+            id,
+            key: format!("edition-{id}"),
+            title: format!("Edition {id}"),
+            folder: format!("/music/edition-{id}"),
+            mbid: Some(format!("edition-{id}")),
+            release_group_id: Some(0),
+            ..Default::default()
+        });
+    }
+    let editions: Vec<_> = ["Zed Name", "Alpha Name"]
+        .into_iter()
+        .enumerate()
+        .map(|(id, name)| SourceRecord {
+            key: crate::user::EntityRef::of(&catalog, crate::model::EntityKind::Release, id as u32)
+                .unwrap()
+                .key,
+            source: "musicbrainz".into(),
+            source_id: Some("group-1".into()),
+            fetched_at: 2,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(ReleaseFacts {
+                edition_mbid: Some(format!("edition-{id}")),
+                credits: vec![credit("artist-1", name)],
+                relationships_complete: true,
+                ..Default::default()
+            }),
+        })
+        .collect();
+    let first = sourced(
+        &catalog,
+        &Sources {
+            records: editions.clone(),
+            ..Default::default()
+        },
+    );
+    let reversed = sourced(
+        &catalog,
+        &Sources {
+            records: editions.into_iter().rev().collect(),
+            ..Default::default()
+        },
+    );
+    assert_eq!(first, reversed);
+    assert_eq!(first[0].name, "Alpha Name");
 }

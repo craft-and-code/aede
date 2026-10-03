@@ -70,6 +70,37 @@ fn artist_images_require_a_local_album_and_a_musicbrainz_identity() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn artist_artwork_requires_an_exact_or_accepted_identity() {
+    let dir = sandbox("artwork_trust");
+    let catalog = super::super::load(&args(&dir, &[])).unwrap();
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).unwrap();
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some("proposed-artist".into()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Matched(95),
+        facts: Facts::Artist(Default::default()),
+    });
+    assert!(
+        artist_image_candidates(&catalog, &held, &[], &EVERYTHING).is_empty(),
+        "an unreviewed match is evidence, not an artwork destination"
+    );
+    let id = held.review_items(&catalog)[0].id.clone();
+    held.decide(&catalog, &id, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    assert_eq!(
+        artist_image_candidates(&catalog, &held, &[], &EVERYTHING).len(),
+        1
+    );
+    held.decide(&catalog, &id, sources::ReviewDecision::Rejected, 3)
+        .unwrap();
+    assert!(artist_image_candidates(&catalog, &held, &[], &EVERYTHING).is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// A transport that answers from canned text, and remembers what was asked.
 struct Canned {
     answers: Vec<Result<String, Refusal>>,
@@ -158,6 +189,22 @@ fn args(dir: &std::path::Path, extra: &[&str]) -> Args {
     Args::parse(raw)
 }
 
+fn accept_matches(dir: &std::path::Path) {
+    let catalog = super::super::load(&args(dir, &[])).unwrap();
+    let path = sources::sources_path(dir);
+    let mut held = sources::load(&path).unwrap().unwrap();
+    let ids = held
+        .review_items(&catalog)
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+    for id in ids {
+        held.decide(&catalog, &id, sources::ReviewDecision::Accepted, 2)
+            .unwrap();
+    }
+    sources::save(&held, &path).unwrap();
+}
+
 #[test]
 fn fanart_exclusions_select_each_image_family_independently() {
     let parsed = args(
@@ -208,6 +255,162 @@ fn fanart_exclusions_select_each_image_family_independently() {
             expected,
             "{excluded} must disable only its own family"
         );
+    }
+}
+
+#[test]
+fn a_logo_pass_cannot_also_exclude_the_label_logos_it_requests() {
+    let dir = sandbox("conflicting_label_logos");
+    let mut transport = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    let error = run_with(
+        &args(
+            &dir,
+            &["--fanart", "--logos", "--no-label-logo", "--dry-run"],
+        ),
+        &mut transport,
+        &NO_WAIT,
+    )
+    .expect_err("the same family was requested and excluded");
+    assert!(
+        error.to_string().contains("--logos and --no-label-logo"),
+        "{error}"
+    );
+    assert!(transport.asked.is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_artist_refresh_does_not_transfer_another_identitys_discography() {
+    let dir = sandbox("changed_artist_identity");
+    let catalog = super::super::load(&args(&dir, &[])).expect("a catalog");
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).expect("an artist");
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.to_string(),
+        source_id: Some("previously-matched-artist".to_string()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Matched(90),
+        facts: Facts::Artist(sources::ArtistFacts {
+            discography_fetched_at: Some(17),
+            discography: vec![sources::KnownRelease {
+                mbid: "unrelated-group".to_string(),
+                title: "An Unrelated Album".to_string(),
+                first_released: None,
+                primary_type: None,
+                secondary_types: Vec::new(),
+            }],
+            ..Default::default()
+        }),
+    });
+    sources::save(&held, &sources::sources_path(&dir)).expect("saved");
+    let mut transport = Canned {
+        answers: vec![Ok(ONE_ARTIST.to_string()), Ok(NO_ALBUM.to_string())],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--full"]), &mut transport, &NO_WAIT).expect("refresh");
+    let after = sources::load(&sources::sources_path(&dir))
+        .unwrap()
+        .unwrap();
+    let record = after.get(&entity, sources::MUSICBRAINZ).unwrap();
+    assert_eq!(record.source_id.as_deref(), Some("561d854a"));
+    let Facts::Artist(facts) = &record.facts else {
+        panic!("artist facts")
+    };
+    assert!(
+        facts.discography.is_empty(),
+        "another artist's albums must not be attributed to the new identity"
+    );
+    assert_eq!(
+        facts.discography_fetched_at, None,
+        "another identity's empty-answer cache must also be discarded"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_artist_refresh_preserves_a_complete_empty_discography_for_the_same_identity() {
+    let dir = sandbox("keep_empty_discography");
+    let catalog = super::super::load(&args(&dir, &[])).expect("a catalog");
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).expect("an artist");
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some("561d854a".into()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Identified,
+        facts: Facts::Artist(sources::ArtistFacts {
+            discography_fetched_at: Some(17),
+            ..Default::default()
+        }),
+    });
+    sources::save(&held, &sources::sources_path(&dir)).unwrap();
+    let mut transport = Canned {
+        answers: vec![Ok(ONE_ARTIST.into()), Ok(ONE_ALBUM.into())],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--full"]), &mut transport, &NO_WAIT).unwrap();
+    let after = sources::load(&sources::sources_path(&dir))
+        .unwrap()
+        .unwrap();
+    let Facts::Artist(facts) = &after.get(&entity, sources::MUSICBRAINZ).unwrap().facts else {
+        panic!("artist facts");
+    };
+    assert!(facts.discography.is_empty());
+    assert_eq!(
+        facts.discography_fetched_at,
+        Some(17),
+        "the artist lookup never re-browsed release groups"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn recording_credit_requests_honour_artist_and_album_names() {
+    for name in ["Jimi Hendrix", "Electric Ladyland"] {
+        let dir = sandbox(&text::normalize(name).replace(' ', "_"));
+        let mut tags = RawTags::default();
+        for (field, value) in [
+            ("artist", "Jimi Hendrix"),
+            ("albumartist", "Jimi Hendrix"),
+            ("album", "Electric Ladyland"),
+            ("title", "All Along the Watchtower"),
+            ("musicbrainz_recordingid", "recording-id"),
+        ] {
+            tags.insert(field, value);
+        }
+        let catalog = build(
+            vec![ScannedFile {
+                path: "/music/Hendrix/01.flac".into(),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }],
+            vec!["/music".into()],
+            1,
+            &[],
+        );
+        aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+        let mut transport = Canned {
+            answers: Vec::new(),
+            asked: Vec::new(),
+        };
+        run_with(&args(&dir, &["--credits", name]), &mut transport, &NO_WAIT).expect("pass");
+        assert_eq!(transport.asked.len(), 1, "recording request for {name}");
+        assert!(transport.asked[0].contains("/recording/recording-id?"));
+        assert!(
+            !sources::sources_path(&dir).exists(),
+            "the refused request stored no answer"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
@@ -394,6 +597,29 @@ fn an_ambiguous_answer_stores_nothing_at_all() {
 
 /// No waiting in tests: the behaviour under test is the retry, not the sleep.
 const NO_WAIT: [std::time::Duration; 3] = [std::time::Duration::ZERO; 3];
+
+#[cfg(feature = "fetch")]
+#[test]
+fn http_429_is_preserved_as_a_stop_signal() {
+    assert_eq!(
+        http_refusal(aede_core::http::Error::Status(429)),
+        Refusal::TooManyRequests
+    );
+}
+
+#[test]
+fn http_429_is_not_retried_as_a_transient_503() {
+    let mut calls = 0;
+    let answer: Result<(), Refusal> = request_with_backoff(
+        || {
+            calls += 1;
+            Err(Refusal::TooManyRequests)
+        },
+        &NO_WAIT,
+    );
+    assert_eq!(answer, Err(Refusal::TooManyRequests));
+    assert_eq!(calls, 1);
+}
 
 #[test]
 fn a_hiccup_is_waited_out_rather_than_ending_the_run() {
@@ -709,6 +935,7 @@ fn two_passes_asked_for_together_both_run() {
         asked: Vec::new(),
     };
     run_with(&args(&dir, &[]), &mut first, &NO_WAIT).expect("the ordinary fetch");
+    accept_matches(&dir);
 
     let mut both = Canned {
         answers: Vec::new(),
@@ -835,6 +1062,7 @@ fn a_name_given_to_a_second_pass_narrows_it_instead_of_being_swallowed() {
         asked: Vec::new(),
     };
     run_with(&args(&dir, &[]), &mut first, &NO_WAIT).expect("the ordinary fetch");
+    accept_matches(&dir);
 
     // A name nobody here answers to: nothing is asked at all.
     let mut nobody = Canned {

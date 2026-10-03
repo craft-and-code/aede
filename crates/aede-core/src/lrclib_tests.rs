@@ -4,6 +4,28 @@ use super::*;
 use crate::json::parse;
 
 #[test]
+fn malformed_success_bodies_are_not_reported_as_a_normal_lyrics_miss() {
+    for body in [
+        r#"{}"#,
+        r#"{"instrumental":"false","plainLyrics":null,"syncedLyrics":null}"#,
+        r#"{"instrumental":false,"plainLyrics":[],"syncedLyrics":null}"#,
+        r#"{"instrumental":false,"plainLyrics":null}"#,
+    ] {
+        assert!(read_checked(&parse(body).expect("JSON")).is_err(), "{body}");
+    }
+    let found = read_checked(&parse(CRAZY_TRAIN).expect("JSON")).expect("a valid answer");
+    assert!(
+        matches!(found, Found::Words(words) if words.synced && words.text.starts_with("[00:00.15]"))
+    );
+    let instrumental =
+        parse(r#"{"instrumental":true,"plainLyrics":null,"syncedLyrics":null}"#).expect("JSON");
+    assert_eq!(read_checked(&instrumental), Ok(Found::Instrumental));
+    let empty =
+        parse(r#"{"instrumental":false,"plainLyrics":null,"syncedLyrics":null}"#).expect("JSON");
+    assert_eq!(read_checked(&empty), Ok(Found::Nothing));
+}
+
+#[test]
 fn the_address_carries_every_criterion_encoded() {
     // This is the address that was actually sent, and answered.
     let url = get_url("Ozzy Osbourne", "Crazy Train", "Blizzard of Ozz", 296);

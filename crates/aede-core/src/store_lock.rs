@@ -10,6 +10,9 @@ use std::path::Path;
 const LOCK_FILE: &str = ".aede.lock";
 
 /// Holds the exclusive data-folder lock until dropped.
+///
+/// Drop explicitly unlocks before closing the file. Closing alone may retain
+/// the lock while a helper process briefly holds an inherited descriptor.
 pub struct StoreLock {
     _file: File,
 }
@@ -27,6 +30,15 @@ impl StoreLock {
         let file = open_lock(data_dir)?;
         file.try_lock()?;
         Ok(Self { _file: file })
+    }
+}
+
+impl Drop for StoreLock {
+    fn drop(&mut self) {
+        // File locks otherwise live until every duplicated/inherited handle
+        // closes. Drop cannot return an unlock error; closing our File remains
+        // the fallback, as with File's own destructor.
+        let _ = self._file.unlock();
     }
 }
 

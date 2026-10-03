@@ -295,6 +295,14 @@ pub struct ArtistFacts {
     /// moment the album is bought, and the catalog would hold a claim it had
     /// stopped being able to justify.
     pub discography: Vec<KnownRelease>,
+    /// When a complete discography browse succeeded, including an empty answer.
+    ///
+    /// Unix seconds, set only after every page was received and validated.
+    /// Absent on older documents and artist lookups that never browsed release
+    /// groups. A legacy nonempty list remains reusable without this optional
+    /// field; an empty list needs it to distinguish an answer from no request.
+    /// An artist lookup must preserve it only while the artist ID stays the same.
+    pub discography_fetched_at: Option<u64>,
     /// Who played in this band, or which bands this person played in — see
     /// [`Membership`].
     ///
@@ -324,6 +332,13 @@ pub struct ArtistFacts {
 }
 
 impl ArtistFacts {
+    /// Whether a completed discography answer is cached, even when it is empty.
+    ///
+    /// Nonempty legacy lists remain cached without a completion timestamp.
+    pub fn discography_is_cached(&self) -> bool {
+        self.discography_fetched_at.is_some() || !self.discography.is_empty()
+    }
+
     /// The line-up: everyone the source says played in **this** artist.
     pub fn line_up(&self) -> impl Iterator<Item = &Membership> {
         self.members.iter().filter(|m| m.side == Side::Player)
@@ -1121,9 +1136,31 @@ impl Sources {
     /// are trusted.
     pub fn is_trusted(&self, catalog: &crate::model::Catalog, record: &SourceRecord) -> bool {
         if let Some(review) = self.review_for(record) {
-            return review.decision == ReviewDecision::Accepted;
+            return trusted_with_identity(record, None, Some(review.decision));
         }
-        record.confidence.is_certain() && identity_conflict(catalog, record).is_none()
+        let local_id = if record.source == MUSICBRAINZ && record.confidence.is_certain() {
+            local_musicbrainz_id(catalog, &record.entity())
+        } else {
+            None
+        };
+        trusted_with_identity(record, local_id.as_deref(), None)
+    }
+
+    /// Trust a track claim whose canonical recording is already resolved.
+    /// Reusing that endpoint avoids searching every local path for each claim.
+    pub(crate) fn is_trusted_recording(
+        &self,
+        catalog: &crate::model::Catalog,
+        record: &SourceRecord,
+        recording_id: Id,
+    ) -> bool {
+        if let Some(review) = self.review_for(record) {
+            return trusted_with_identity(record, None, Some(review.decision));
+        }
+        let local_id = catalog
+            .recording(recording_id)
+            .and_then(|recording| recording.mbid.as_deref());
+        trusted_with_identity(record, local_id, None)
     }
 
     /// Every current claim requiring or carrying an explicit review.
@@ -1265,16 +1302,23 @@ impl Sources {
     /// Resolving this only when read keeps rescans and source updates
     /// independent. Conflicting sources are intentionally all returned.
     pub fn work_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedWorkLink> {
+        if !self
+            .records
+            .iter()
+            .any(|record| matches!(record.facts, Facts::Track(_)))
+        {
+            return Vec::new();
+        }
+        let recordings = recordings_by_path(catalog);
         self.records
             .iter()
             .filter_map(|record| {
                 let Facts::Track(facts) = &record.facts else {
                     return None;
                 };
-                let track_id = record.entity().resolve(catalog)?;
-                let recording_id = catalog.track(track_id)?.recording_id;
+                let recording_id = *recordings.get(record.key.as_str())?;
                 let review = self.review_for(record).map(|review| review.decision);
-                let trusted = self.is_trusted(catalog, record);
+                let trusted = self.is_trusted_recording(catalog, record, recording_id);
                 Some(
                     facts
                         .works
@@ -1327,18 +1371,23 @@ impl Sources {
     /// the claim into the tag-built catalog.
     pub fn credit_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedCreditLink> {
         let mut links = Vec::new();
+        if !self
+            .records
+            .iter()
+            .any(|record| matches!(record.facts, Facts::Track(_)))
+        {
+            return links;
+        }
+        let recordings = recordings_by_path(catalog);
         for record in &self.records {
             let Facts::Track(facts) = &record.facts else {
                 continue;
             };
-            let Some(track_id) = record.entity().resolve(catalog) else {
-                continue;
-            };
-            let Some(recording_id) = catalog.track(track_id).map(|track| track.recording_id) else {
+            let Some(&recording_id) = recordings.get(record.key.as_str()) else {
                 continue;
             };
             let review = self.review_for(record).map(|review| review.decision);
-            let trusted = self.is_trusted(catalog, record);
+            let trusted = self.is_trusted_recording(catalog, record, recording_id);
             for credit in &facts.credits {
                 links.push(SourcedCreditLink {
                     recording_id,
@@ -1368,19 +1417,23 @@ impl Sources {
                 }
             }
         }
+        if self.credit_exclusions.is_empty() {
+            return links;
+        }
         for link in &mut links {
             link.excluded =
                 crate::graph::credit_reference(catalog, link).is_some_and(|reference| {
-                    self.credit_exclusions
-                        .iter()
-                        .any(|decision| decision.relation == reference)
+                    self.credit_exclusions.iter().any(|decision| {
+                        crate::graph::same_credit_relation(catalog, &decision.relation, &reference)
+                    })
                 });
             link.trusted &= !link.excluded;
         }
         links
     }
 
-    /// Exact edition credits; a release-group-only answer cannot supply these.
+    /// Credits anchored to an exact fetched edition or an explicit local
+    /// manual correction. A release-group-only answer cannot supply these.
     pub fn edition_credit_links(
         &self,
         catalog: &crate::model::Catalog,
@@ -1396,7 +1449,15 @@ impl Sources {
             let Some(release) = catalog.release(release_id) else {
                 continue;
             };
-            if facts.edition_mbid.as_deref() != release.mbid.as_deref() {
+            let local_manual = record.source == "manual" && facts.edition_mbid.is_none();
+            let identified_edition = facts
+                .edition_mbid
+                .as_deref()
+                .filter(|id| !id.trim().is_empty())
+                .is_some_and(|id| Some(id) == release.mbid.as_deref());
+            // The user's explicit local scope is independent of whether its
+            // tags carry an MBID. A fetched missing ID proves no edition.
+            if !local_manual && !identified_edition {
                 continue;
             }
             let review = self.review_for(record).map(|review| review.decision);
@@ -1414,12 +1475,15 @@ impl Sources {
                 });
             }
         }
+        if self.credit_exclusions.is_empty() {
+            return links;
+        }
         for link in &mut links {
             link.excluded =
                 crate::graph::edition_credit_reference(catalog, link).is_some_and(|reference| {
-                    self.credit_exclusions
-                        .iter()
-                        .any(|decision| decision.relation == reference)
+                    self.credit_exclusions.iter().any(|decision| {
+                        crate::graph::same_credit_relation(catalog, &decision.relation, &reference)
+                    })
                 });
             link.trusted &= !link.excluded;
         }
@@ -1442,11 +1506,39 @@ impl Sources {
         }
     }
 
+    /// Exclude a current credit while retaining its artist's exact identity.
+    /// Keeping a known MBID makes the decision survive the artist entering or
+    /// leaving local tags without changing displayed relationship selectors.
+    pub fn exclude_credit_in(
+        &mut self,
+        catalog: &crate::model::Catalog,
+        relation: RelationRef,
+        at: u64,
+    ) {
+        self.exclude_credit(
+            crate::graph::canonical_credit_relation(catalog, relation),
+            at,
+        );
+    }
+
     /// Take back one exclusion and make the original claim eligible again.
     pub fn restore_credit(&mut self, relation: &RelationRef) -> bool {
         let before = self.credit_exclusions.len();
         self.credit_exclusions
             .retain(|row| &row.relation != relation);
+        self.credit_exclusions.len() < before
+    }
+
+    /// Restore a credit selected from the current catalog, including an older
+    /// exclusion whose named endpoint now has an exact MusicBrainz identity.
+    pub fn restore_credit_in(
+        &mut self,
+        catalog: &crate::model::Catalog,
+        relation: &RelationRef,
+    ) -> bool {
+        let before = self.credit_exclusions.len();
+        self.credit_exclusions
+            .retain(|row| !crate::graph::same_credit_relation(catalog, &row.relation, relation));
         self.credit_exclusions.len() < before
     }
 
@@ -1670,9 +1762,33 @@ fn local_musicbrainz_id(catalog: &crate::model::Catalog, entity: &EntityRef) -> 
     }
 }
 
+fn recordings_by_path(catalog: &crate::model::Catalog) -> BTreeMap<&str, Id> {
+    catalog
+        .tracks
+        .iter()
+        .filter_map(|track| {
+            Some((
+                catalog.file(track.file_id)?.path.as_str(),
+                track.recording_id,
+            ))
+        })
+        .collect()
+}
+
 fn identity_conflict(
     catalog: &crate::model::Catalog,
     record: &SourceRecord,
+) -> Option<(String, String)> {
+    if record.source != MUSICBRAINZ {
+        return None;
+    }
+    let local = local_musicbrainz_id(catalog, &record.entity());
+    identity_conflict_with_id(record, local.as_deref())
+}
+
+fn identity_conflict_with_id(
+    record: &SourceRecord,
+    local_id: Option<&str>,
 ) -> Option<(String, String)> {
     if record.source != MUSICBRAINZ {
         return None;
@@ -1681,9 +1797,22 @@ fn identity_conflict(
     if sourced.is_empty() {
         return None;
     }
-    let local = local_musicbrainz_id(catalog, &record.entity())?;
-    let local = local.trim();
+    let local = local_id?.trim();
     (local != sourced).then(|| (local.to_string(), sourced.to_string()))
+}
+
+/// Apply the ordinary trust rule after a caller has resolved the identity
+/// and indexed its exact review, without rescanning either table per claim.
+pub(crate) fn trusted_with_identity(
+    record: &SourceRecord,
+    local_musicbrainz_id: Option<&str>,
+    review: Option<ReviewDecision>,
+) -> bool {
+    if let Some(decision) = review {
+        return decision == ReviewDecision::Accepted;
+    }
+    record.confidence.is_certain()
+        && identity_conflict_with_id(record, local_musicbrainz_id).is_none()
 }
 
 fn review_id(record: &SourceRecord) -> String {
@@ -1967,6 +2096,19 @@ fn opt_str(value: &Option<String>) -> Json {
     }
 }
 
+// Retaining a readable subset would make an incomplete list look like a
+// completed legacy browse, whose nonempty list is reused without a timestamp.
+fn readable_discography_rows(facts: &Json) -> Option<&[Json]> {
+    let rows = facts.get("discography")?.as_arr()?;
+    rows.iter()
+        .all(|row| {
+            row.get("mbid")
+                .and_then(Json::as_str)
+                .is_some_and(|id| !id.trim().is_empty())
+        })
+        .then_some(rows)
+}
+
 fn credit_attribute_to_json(attribute: &CreditAttribute) -> Json {
     let mut row = Json::obj();
     row.set("id", opt_str(&attribute.id));
@@ -2190,6 +2332,9 @@ pub fn to_json(sources: &Sources) -> Json {
                                 .collect(),
                         ),
                     );
+                    if let Some(at) = a.discography_fetched_at {
+                        facts.set("discography_fetched_at", at.into());
+                    }
                     facts.set(
                         "members",
                         Json::Arr(
@@ -2380,6 +2525,11 @@ pub fn to_json(sources: &Sources) -> Json {
 /// Unknown versions are refused rather than read approximately. Version 1 is
 /// the one explicit migration: its record shape is unchanged and it simply
 /// predates the `reviews` array.
+///
+/// Malformed tables and duplicate entity/source snapshots are refused so a
+/// subsequent save cannot discard data or preserve an arbitrary first answer.
+/// An unreadable confidence remains evidence with a zero-score match, never
+/// an inferred exact attachment.
 pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
@@ -2392,7 +2542,17 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
         });
     }
 
+    if value.get("records").and_then(Json::as_arr).is_none() {
+        return Err(StoreError::Invalid("source records must be an array"));
+    }
+    for table in ["reviews", "credit_exclusions"] {
+        if value.get(table).is_some_and(|rows| rows.as_arr().is_none()) {
+            return Err(StoreError::Invalid("source tables must be arrays"));
+        }
+    }
+
     let mut sources = Sources::default();
+    let mut record_keys = std::collections::BTreeSet::new();
     let rows = value.get("records").and_then(Json::as_arr).unwrap_or(&[]);
     for row in rows {
         // A row naming an entity kind this build does not know, or carrying no
@@ -2426,13 +2586,10 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 wikidata: facts.and_then(|f| f.field_str("wikidata")),
                 discogs: facts.and_then(|f| f.field_str("discogs")),
                 homepage: facts.and_then(|f| f.field_str("homepage")),
-                // A row with no identifier is skipped: without it the only
-                // way to tell "you have this one" from "you are missing it"
-                // is the title, and two records share a title often enough
-                // that a wish list assembled from titles alone is wrong.
+                // An unreadable list is not a complete answer: retaining only
+                // its valid rows would skip a retry through legacy caching.
                 discography: facts
-                    .and_then(|f| f.get("discography"))
-                    .and_then(Json::as_arr)
+                    .and_then(readable_discography_rows)
                     .map(|rows| {
                         rows.iter()
                             .filter_map(|row| {
@@ -2447,6 +2604,12 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                // A timestamp alone cannot turn missing or unreadable rows
+                // into a successful empty answer. Older lists need no marker.
+                discography_fetched_at: facts
+                    .and_then(|f| f.get("discography_fetched_at"))
+                    .and_then(Json::as_u64)
+                    .filter(|_| facts.and_then(readable_discography_rows).is_some()),
                 members: facts
                     .and_then(|f| f.get("members"))
                     .and_then(Json::as_arr)
@@ -2641,12 +2804,20 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .try_into()
                     .unwrap_or(u8::MAX),
             ),
-            _ => Confidence::Identified,
+            Some("identified") => Confidence::Identified,
+            // Preserve the evidence, but a missing or unknown confidence
+            // cannot prove the exact attachment required for navigation.
+            _ => Confidence::matched(0),
         };
+
+        let source = row.field_str("source").unwrap_or_default();
+        if !record_keys.insert((entity.kind, entity.key.clone(), source.clone())) {
+            return Err(StoreError::Invalid("duplicate source records"));
+        }
 
         sources.records.push(SourceRecord {
             key: entity.key,
-            source: row.field_str("source").unwrap_or_default(),
+            source,
             source_id: row.field_str("source_id"),
             fetched_at: row.field_u64("fetched_at").unwrap_or(0),
             confidence,

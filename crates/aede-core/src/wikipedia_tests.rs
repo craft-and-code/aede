@@ -97,6 +97,9 @@ fn a_link_that_is_not_an_entity_yields_nothing_rather_than_a_bad_request() {
         "https://en.wikipedia.org/wiki/Nirvana_(band)",
         "https://www.wikidata.org/wiki/Q",
         "https://www.wikidata.org/wiki/Q11a49",
+        "https://example.org/wiki/Q11649",
+        "https://www.wikidata.org.example.org/wiki/Q11649",
+        "https://www.wikidata.org@localhost/wiki/Q11649",
         "",
     ] {
         assert_eq!(entity_id(link), None, "not an entity id: {link}");
@@ -249,14 +252,8 @@ fn the_language_of_the_answer_beats_the_language_that_was_asked() {
     assert_eq!(found.lang, "fr");
 }
 
-/// `Special:EntityData/Q11649.json`, with a `P18` claim added.
-///
-/// Written from the documented Wikibase JSON shape — `claims.P18[0].mainsnak
-/// .datavalue.value` — rather than checked against the live endpoint: unlike
-/// [`ENTITY`] and [`SUMMARY`] above, this one could not be held next to a real
-/// answer from where it was written (the service was unreachable). Stated
-/// here rather than left implied, the same way [`crate::acoustid_tests`]
-/// states it about its own fixture.
+/// `Special:EntityData/Q11649.json`, checked on 2026-10-03 and reduced to P18.
+/// Qualifiers, references and other properties do not affect this selection.
 const ENTITY_WITH_PORTRAIT: &str = r#"{
   "entities": {
     "Q11649": {
@@ -269,7 +266,7 @@ const ENTITY_WITH_PORTRAIT: &str = r#"{
               "snaktype": "value",
               "property": "P18",
               "datavalue": {
-                "value": "Nirvana in Rome 1994.jpg",
+                "value": "Nirvana around 1992.jpg",
                 "type": "string"
               },
               "datatype": "commonsMedia"
@@ -288,8 +285,92 @@ const ENTITY_WITH_PORTRAIT: &str = r#"{
 fn the_portrait_is_read_from_the_p18_claim() {
     assert_eq!(
         portrait_file(&json(ENTITY_WITH_PORTRAIT), "Q11649").as_deref(),
-        Some("Nirvana in Rome 1994.jpg")
+        Some("Nirvana around 1992.jpg")
     );
+}
+
+fn portrait_claim() -> Json {
+    json(ENTITY_WITH_PORTRAIT)
+        .get("entities")
+        .unwrap()
+        .get("Q11649")
+        .unwrap()
+        .get("claims")
+        .unwrap()
+        .get("P18")
+        .unwrap()
+        .as_arr()
+        .unwrap()[0]
+        .clone()
+}
+
+fn with_portraits(statements: Vec<Json>) -> Json {
+    let mut claims = Json::obj();
+    claims.set("P18", Json::Arr(statements));
+    let mut entity = Json::obj();
+    entity.set("claims", claims);
+    let mut entities = Json::obj();
+    entities.set("Q11649", entity);
+    let mut response = Json::obj();
+    response.set("entities", entities);
+    response
+}
+
+#[test]
+fn unusable_portrait_statements_do_not_hide_a_valid_later_image() {
+    let valid = portrait_claim();
+    let mut deprecated = valid.clone();
+    deprecated.set("rank", "deprecated".into());
+    let mut missing = valid.clone();
+    let mut snak = Json::obj();
+    snak.set("snaktype", "novalue".into());
+    missing.set("mainsnak", snak);
+    assert_eq!(
+        portrait_file(&with_portraits(vec![deprecated.clone()]), "Q11649"),
+        None
+    );
+    let response = with_portraits(vec![deprecated, missing, valid]);
+    assert_eq!(
+        portrait_file(&response, "Q11649").as_deref(),
+        Some("Nirvana around 1992.jpg")
+    );
+}
+
+#[test]
+fn a_preferred_portrait_wins_over_an_earlier_normal_statement() {
+    // Mutate the verified statement to exercise ranking independently of the
+    // current live entity's editorial choices.
+    let normal = portrait_claim();
+    let mut preferred = normal.clone();
+    preferred.set("rank", "preferred".into());
+    let mut snak = preferred.get("mainsnak").unwrap().clone();
+    let mut value = snak.get("datavalue").unwrap().clone();
+    value.set("value", "Preferred portrait.jpg".into());
+    snak.set("datavalue", value);
+    preferred.set("mainsnak", snak);
+    let response = with_portraits(vec![normal, preferred]);
+    assert_eq!(
+        portrait_file(&response, "Q11649").as_deref(),
+        Some("Preferred portrait.jpg")
+    );
+}
+
+#[test]
+fn a_disambiguation_extract_is_not_an_artist_biography() {
+    let asked = Article {
+        lang: "en".into(),
+        title: "Nirvana".into(),
+    };
+    for kind in [
+        "disambiguation",
+        "mainpage",
+        "no-extract",
+        "wikidata_preview",
+    ] {
+        let mut response = json(SUMMARY);
+        response.set("type", kind.into());
+        assert_eq!(prose(&response, &asked), None, "{kind}");
+    }
 }
 
 #[test]

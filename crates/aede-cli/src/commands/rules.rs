@@ -53,6 +53,28 @@ pub fn rules(args: &Args) -> Res {
             root.get("sources")
                 .ok_or_else(|| "rules bundle has no sources document".to_string())?,
         )?;
+        if !incoming_user.annotations.is_empty()
+            || !incoming_user.plays.is_empty()
+            || !incoming_user.counts.is_empty()
+            || !incoming_user.track_identities.is_empty()
+            || !incoming_user.relinks.is_empty()
+        {
+            return Err("a rules bundle may contain relation notes, collections, set-aside releases, and artist filing rules; use notes or backup for other personal data".into());
+        }
+        if incoming_sources
+            .records
+            .iter()
+            .any(|record| record.source != "manual")
+        {
+            return Err("a rules bundle may contain only manual source records; use sources --import for external evidence".into());
+        }
+        // Check both stores before the first write. This avoids applying half
+        // a bundle when an existing destination is a link or special file.
+        std::fs::create_dir_all(&directory)?;
+        let base = directory.canonicalize()?;
+        for name in [user::USER_FILE, sources::SOURCES_FILE] {
+            aede_core::copy::validate_destination(&base, std::path::Path::new(name))?;
+        }
 
         let report = user::merge(&mut personal, incoming_user);
         let mut source_changes = 0usize;

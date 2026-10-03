@@ -1,7 +1,7 @@
 //! Tests for the command line itself, split out of `main.rs`.
 //!
-//! These read the crate's **own source** rather than running it, which is
-//! unusual and deliberate: what they check is agreement between things the
+//! Some exercise argument-aware store locking. Others read the crate's **own
+//! source**, checking agreement between things the
 //! compiler has no reason to compare — a sentence printed to a user and the
 //! table that decides whether the command in that sentence would be accepted.
 
@@ -9,6 +9,45 @@ use super::*;
 
 #[test]
 fn scan_previews_and_note_reads_do_not_take_a_writer_lock() {
+    for arguments in [
+        vec!["sources"],
+        vec!["sources", "--list"],
+        vec!["sources", "--export"],
+        vec!["sources", "--template"],
+        vec!["review"],
+        vec!["rules"],
+        vec!["fingerprint", "--list"],
+    ] {
+        let args = args::Args::parse(arguments.iter().map(|argument| (*argument).to_string()));
+        assert!(
+            !mutates_store_with_args(arguments[0], &args),
+            "{arguments:?} is read-only"
+        );
+    }
+    for arguments in [
+        vec!["sources", "--import=source.json"],
+        vec!["sources", "--forget"],
+        vec!["review", "--accept=id"],
+        vec!["review", "--reject=id"],
+        vec!["review", "--undo=id"],
+        vec!["review", "--interactive"],
+        vec!["rules", "--import=rules.json"],
+        vec!["rules", "--export"],
+        vec!["fingerprint", "--full"],
+    ] {
+        let args = args::Args::parse(arguments.iter().map(|argument| (*argument).to_string()));
+        assert!(
+            mutates_store_with_args(arguments[0], &args),
+            "{arguments:?} needs a coherent store lock"
+        );
+    }
+    for command in ["fetch", "fingerprint", "extract"] {
+        let args = args::Args::parse(vec![command.into(), "--dry-run".into()]);
+        assert!(
+            !mutates_store_with_args(command, &args),
+            "{command} preview is read-only"
+        );
+    }
     let args = args::Args::parse(vec!["scan".into(), "--dry-run".into()]);
     assert!(!mutates_store_with_args("scan", &args));
     let args = args::Args::parse(vec!["notes".into(), "--waiting".into()]);
@@ -46,6 +85,7 @@ fn every_store_writer_and_the_backup_hold_the_data_lock() {
         "review",
         "rules",
         "relation",
+        "credit",
         "fetch",
         "missing",
         "merge",

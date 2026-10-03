@@ -2,9 +2,11 @@
 
 sources keeps a second layer of attributed claims beside local tags. The summary counts records attached to catalog objects and those still waiting. --list displays each source record, confidence and attachment. Approximate matches do not silently become local truth.
 
---export writes the stored source document; --import merges a document in the same format. --template creates blank keyed records, optionally narrowed by a positional name, for carefully authored manual data. --output is meaningful with export/template, not a normal screen summary. --source narrows operations where that source is used, such as list/forget. Summary and export currently retain all sources.
+--export writes the stored source document, including retained reviews and credit exclusions even when no fetched record remains; --import merges a document in the same format. --template creates blank keyed records, optionally narrowed by a positional name, for carefully authored manual data. Choose one operation: list, export, import, template, or forget. --output is meaningful with export/template. --source filters list/forget or names the source for template; it is refused with the summary, export, or import, which retain all sources.
 
---forget removes source records in the selected scope and is a real loss of fetched evidence; it never deletes tags or music. The command normally takes no positional name: open album/artist/track for one entity, or use --template NAME when authoring. Use review for trusting a proposal, credit for a precise credit correction, and backup for a complete recovery bundle.
+--forget removes source records and their review/exclusion decisions in the selected scope, including decisions retained without a cached record. It reports removed records and decisions separately and never deletes tags or music. The command takes no positional name except with --template NAME: open album/artist/track to inspect one entity. Use review for trusting a proposal, credit for a precise credit correction, and backup for a complete recovery bundle.
+
+The summary, list, export and template read the source/catalog snapshots without taking a data writer lock. Import and forget keep the lock while applying changes.
 
 ## Syntax and arguments
 
@@ -21,7 +23,7 @@ No positional arguments except an optional name with --template.
 | `--output FILE / -o FILE` | Write an export to FILE instead of standard output. A selection needs --csv, --json or --m3u; command-specific exports have their own rules. |
 | `--forget` | Remove stored data/decisions in this command’s scope. It does not delete audio or retag files. |
 | `--list` | List the individual stored records or decisions instead of the normal summary/operation. |
-| `--source NAME` | Filter --list/--forget, or choose the source for --template. The ordinary summary and --export currently retain all sources. |
+| `--source NAME` | Filter --list/--forget, or choose the source for --template. Refused with the summary, export, or import. |
 | `--export` | Export the command’s stored document. This is not the same as CSV/JSON presentation of a listing. |
 | `--template` | Create an empty manual-source document for catalog entities, optionally narrowed by the positional name. |
 | `--import FILE` | Merge a previously exported document from FILE; consult format-specific collision rules below. |

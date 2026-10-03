@@ -19,6 +19,10 @@
 //! It is one more request per artist — more for the prolific, who need a second
 //! page — on top of a run that already costs one per artist and one per album.
 //! Nobody needs a wish list in order to file their music.
+//!
+//! A completed browse is cached even when it finds no release groups. Its
+//! optional timestamp distinguishes that answer from an artist never browsed;
+//! `--full` asks again, and failed pages leave the earlier answer intact.
 
 // Compiled in every build, for the reason `fetch` is.
 #![cfg_attr(not(feature = "fetch"), allow(dead_code))]
@@ -75,8 +79,13 @@ pub fn run(
         println!(
             "  {}",
             ui::dim(
-                "nothing to browse: run fetch first, and note that only artists \
+                if self::targets(catalog, held, wanted, asked.scope, true).is_empty() {
+                    "nothing to browse: run fetch first, and note that only artists \
                  with an album of their own here are browsed"
+                } else {
+                    "nothing to browse: stored discographies are already complete; \
+                 --full asks again"
+                }
             )
         );
         return Ok(());
@@ -115,12 +124,13 @@ pub fn run(
                 store(held, target, known);
                 sources::save(held, path)?;
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
                 failed += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                super::fetch::report_failed(&target.name, &why);
             }
         }
         done += 1;
@@ -145,19 +155,43 @@ fn browse(
     mbid: &str,
 ) -> Result<Vec<KnownRelease>, Refusal> {
     let mut all: Vec<KnownRelease> = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut expected_total = None;
     for page in 0..MAX_PAGES {
         let url = musicbrainz::discography_url(mbid, page * musicbrainz::BROWSE_LIMIT);
         let answer = ask_with_backoff(transport, &url, backoff)?;
-        let (rows, total) = musicbrainz::discography(&answer);
+        let (rows, total) = musicbrainz::discography_page(&answer).ok_or_else(|| {
+            Refusal::Failed("MusicBrainz returned an unreadable discography page".into())
+        })?;
+        if *expected_total.get_or_insert(total) != total {
+            return Err(Refusal::Failed(
+                "MusicBrainz changed the discography total between pages; the earlier answer was kept".into(),
+            ));
+        }
         // A page that came back empty ends the walk whatever the total says:
         // asking again for the same nothing is how a miscount becomes a loop.
         let arrived = rows.len();
-        all.extend(rows);
-        if arrived == 0 || all.len() >= total {
-            break;
+        for row in rows {
+            if !seen.insert(row.mbid.clone()) {
+                return Err(Refusal::Failed(
+                    "MusicBrainz repeated an album across discography pages".into(),
+                ));
+            }
+            all.push(row);
+        }
+        if all.len() == total {
+            return Ok(all);
+        }
+        if arrived == 0 || all.len() > total {
+            return Err(Refusal::Failed(
+                "MusicBrainz returned an incomplete discography; the earlier answer was kept"
+                    .into(),
+            ));
         }
     }
-    Ok(all)
+    Err(Refusal::Failed(
+        "the discography exceeds the page limit; the earlier answer was kept".into(),
+    ))
 }
 
 /// Files the discography **into the artist's existing MusicBrainz record**.
@@ -174,14 +208,20 @@ fn store(held: &mut sources::Sources, target: &Target, known: Vec<KnownRelease>)
         }) => existing.clone(),
         _ => ArtistFacts::default(),
     };
+    let now = clock::now_seconds();
     facts.discography = known;
+    facts.discography_fetched_at = Some(now);
+    let confidence = held
+        .get(&target.entity, sources::MUSICBRAINZ)
+        .map(|record| record.confidence)
+        .unwrap_or(sources::Confidence::Identified);
     held.set(SourceRecord {
         key: target.entity.key.clone(),
         source: sources::MUSICBRAINZ.to_string(),
         source_id: Some(target.mbid.clone()),
-        fetched_at: clock::now_seconds(),
+        fetched_at: now,
         // Browsed by identifier: nothing here was matched by name.
-        confidence: sources::Confidence::Identified,
+        confidence,
         facts: Facts::Artist(facts),
     });
 }
@@ -203,7 +243,7 @@ fn targets(
 ) -> Vec<Target> {
     let mut targets = Vec::new();
     for record in &held.records {
-        if record.source != sources::MUSICBRAINZ {
+        if record.source != sources::MUSICBRAINZ || !held.is_trusted(catalog, record) {
             continue;
         }
         if !super::fetch::reaches(wanted, &[record.key.as_str()]) {
@@ -222,7 +262,7 @@ fn targets(
         let Some(mbid) = record.source_id.clone() else {
             continue;
         };
-        if !again && !artist.discography.is_empty() {
+        if !again && artist.discography_is_cached() {
             continue;
         }
         let entity = record.entity();
@@ -456,8 +496,9 @@ pub fn missing(args: &crate::args::Args) -> Res {
     let window = args.window(50)?;
 
     let browsed = held.records.iter().any(|r| {
-        held.is_trusted(&catalog, r)
-            && matches!(&r.facts, Facts::Artist(a) if !a.discography.is_empty())
+        r.source == sources::MUSICBRAINZ
+            && held.is_trusted(&catalog, r)
+            && matches!(&r.facts, Facts::Artist(a) if a.discography_is_cached())
     });
     if !browsed {
         println!("{}", ui::section("Missing"));

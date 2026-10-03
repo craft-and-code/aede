@@ -86,6 +86,7 @@ fn asked_for(names: &[String]) -> crate::commands::fetch::Asked<'_> {
         size: crate::commands::covers::DEFAULT_SIZE,
         images: false,
         fanart: Default::default(),
+        size_requested: false,
     }
 }
 
@@ -93,7 +94,8 @@ fn args() -> Args {
     Args::parse(vec!["fetch".to_string(), "--lyrics".to_string()])
 }
 
-const CRAZY: &str = r#"{"plainLyrics":"All aboard","syncedLyrics":"[00:12.00]All aboard"}"#;
+const CRAZY: &str =
+    r#"{"instrumental":false,"plainLyrics":"All aboard","syncedLyrics":"[00:12.00]All aboard"}"#;
 
 #[test]
 fn a_track_that_already_has_words_is_never_asked_about() {
@@ -163,6 +165,48 @@ fn an_answer_becomes_a_lrc_beside_its_track_and_nothing_else_is_touched() {
 }
 
 #[test]
+fn freshly_written_lyrics_are_not_requested_again_before_a_rescan() {
+    let dir = scratch("resume");
+    let catalog = shelf(&dir, vec![track(&dir, "Crazy Train", &[])]);
+    let mut first = Canned {
+        answers: vec![Ok(CRAZY.into())],
+        asked: Vec::new(),
+    };
+    run(&args(), &catalog, &mut first, &[], &asked_for(&[])).unwrap();
+    let sidecar = dir.join("Crazy Train.lrc");
+    let before = std::fs::read(&sidecar).unwrap();
+    let mut retry = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run(&args(), &catalog, &mut retry, &[], &asked_for(&[])).unwrap();
+    assert!(
+        retry.asked.is_empty(),
+        "the disk already has the successful answer"
+    );
+    assert_eq!(std::fs::read(sidecar).unwrap(), before);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn lyrics_need_a_positive_whole_second_duration_for_matching() {
+    let dir = scratch("zero_length");
+    let files = [0, 999]
+        .into_iter()
+        .map(|duration| {
+            let mut file = track(&dir, &format!("Track {duration}"), &[]);
+            file.tags.properties.duration_ms = Some(duration);
+            file
+        })
+        .collect();
+    let catalog = shelf(&dir, files);
+    let (targets, skipped) = survey(&catalog, &[], &crate::commands::fetch::EVERYTHING);
+    assert!(targets.is_empty());
+    assert_eq!(skipped.unaskable, 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_file_that_appeared_while_the_run_was_working_is_left_alone() {
     // The survey and the writing are separated by a network. A `.lrc` dropped
     // in by hand, or by a second copy of this program, must not be overwritten
@@ -211,7 +255,9 @@ fn an_instrumental_writes_no_file() {
     let catalog = shelf(&dir, vec![one]);
 
     let mut transport = Canned {
-        answers: vec![Ok(r#"{"instrumental":true,"plainLyrics":""}"#.to_string())],
+        answers: vec![Ok(
+            r#"{"instrumental":true,"plainLyrics":"","syncedLyrics":null}"#.to_string(),
+        )],
         asked: Vec::new(),
     };
     run(&args(), &catalog, &mut transport, &[], &asked_for(&[])).expect("a run");

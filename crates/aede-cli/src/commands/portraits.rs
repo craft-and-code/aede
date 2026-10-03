@@ -200,13 +200,14 @@ pub fn run(
                 }
                 done += 1;
             }
+            Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => {
                 continue;
             }
             Err(why) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.name);
+                super::fetch::report_failed(&target.name, &why);
             }
         }
     }
@@ -291,6 +292,9 @@ fn attempt(
             Err(Refusal::Missing) => None,
             Err(why) => return Err(why),
         };
+        if let Some(response) = &doc {
+            fanarttv::artist_response(response, mbid).map_err(Refusal::Failed)?;
+        }
         if let Some(url) = doc.as_ref().and_then(fanarttv::portrait_url) {
             let bytes = ask_bytes(transport, &url, backoff)?;
             let new = write(target, &bytes)?;
@@ -312,7 +316,7 @@ fn attempt(
 ///
 /// The general-purpose writer this program keeps for every image it puts
 /// into somebody's library — see [`coverart::write_image`] — carrying both of
-/// its guards: the bytes are sniffed, and nothing already there is ever
+/// its guards: the bytes are validated, and nothing already there is ever
 /// overwritten. `true` means this call is the one that wrote it.
 fn write(target: &Target, bytes: &[u8]) -> Result<bool, Refusal> {
     match coverart::write_image(&target.destination, Kind::Artist, (0, 1), bytes) {

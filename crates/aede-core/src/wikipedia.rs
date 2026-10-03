@@ -87,7 +87,17 @@ pub const FALLBACK_LANGS: [&str; 1] = ["en"];
 /// honest answer for a link that leads somewhere else — a lexeme, a property,
 /// or a URL that was never Wikidata at all.
 pub fn entity_id(url: &str) -> Option<String> {
-    let last = url.trim_end_matches('/').rsplit('/').next()?;
+    let address = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let (host, path) = address.split_once('/')?;
+    if !matches!(host, "www.wikidata.org" | "wikidata.org") {
+        return None;
+    }
+    let last = path
+        .strip_prefix("wiki/")
+        .or_else(|| path.strip_prefix("entity/"))?
+        .trim_end_matches('/');
     // An entity id is `Q` and at least one digit, all digits. Checking the
     // shape is what stops `.../wiki/Special:EntityData` or a property `P31`
     // from being sent out as a lookup that cannot succeed.
@@ -116,26 +126,48 @@ pub fn entity_data_url(id: &str) -> String {
 /// document is no ambiguity about which that is — the same reasoning, applied
 /// to a claim instead of a sitelink.
 ///
-/// `None` covers both an entity with no `P18` at all and one whose claim is
-/// there but not the ordinary "a filename" shape — a deprecated statement, a
-/// `novalue` — because a portrait fetch should not choke on either, only
-/// record that this entity had nothing usable.
+/// Preferred usable statements precede normal ones; deprecated statements,
+/// explicit non-values and blank filenames are skipped. Ties retain source
+/// order. `None` means the entity supplied no usable image statement.
 pub fn portrait_file(response: &Json, id: &str) -> Option<String> {
     let entities = response.get("entities")?;
     let entity = match entities.get(id) {
         Some(entity) => entity,
         None => only_value(entities)?,
     };
-    entity
-        .get("claims")?
-        .get("P18")?
-        .as_arr()?
-        .first()?
-        .get("mainsnak")?
-        .get("datavalue")?
-        .get("value")?
-        .as_str()
-        .map(str::to_string)
+    let statements = entity.get("claims")?.get("P18")?.as_arr()?;
+    for rank in ["preferred", "normal"] {
+        for statement in statements {
+            if statement
+                .get("rank")
+                .and_then(Json::as_str)
+                .unwrap_or("normal")
+                != rank
+            {
+                continue;
+            }
+            let Some(snak) = statement.get("mainsnak") else {
+                continue;
+            };
+            if snak
+                .get("snaktype")
+                .and_then(Json::as_str)
+                .is_some_and(|kind| kind != "value")
+            {
+                continue;
+            }
+            if let Some(filename) = snak
+                .get("datavalue")
+                .and_then(|value| value.get("value"))
+                .and_then(Json::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                return Some(filename.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Where to download a Commons file, at a given width.
@@ -244,6 +276,15 @@ fn encode_title(title: &str) -> String {
 /// gives one, and the address that was asked otherwise. It is never left out:
 /// a `Prose` cannot be built without it, which is the point of the type.
 pub fn prose(response: &Json, asked: &Article) -> Option<Prose> {
+    // Disambiguation and other non-article pages can still carry an extract;
+    // that text is not the biography reached through the entity's sitelink.
+    if response
+        .get("type")
+        .and_then(Json::as_str)
+        .is_some_and(|kind| kind != "standard")
+    {
+        return None;
+    }
     let text = response
         .field_str("extract")
         .map(|t| t.trim().to_string())

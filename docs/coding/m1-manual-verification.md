@@ -1,6 +1,17 @@
 # M1 manual verification
 
-**Status (2026-09-26):** representative offline and live-source passes complete. Optional services not exercised are recorded below.
+**Status (2026-10-03):** representative offline and live-source passes complete. The owner also confirmed the optional paths listed below in real use, closing the remaining manual-verification gaps from the September pass.
+
+## Additional real-use checks confirmed by the owner
+
+On 2026-10-03, the owner reported successful manual checks of:
+
+- AcoustID identification with an API key;
+- Fanart.tv fetching with an API key;
+- a successful lyrics download;
+- a successful cover download for an album with no existing artwork.
+
+These are owner-confirmed functional checks, separate from the disposable-copy rehearsal described below. All four previously outstanding M1 paths are now manually verified.
 
 ## Completed offline
 
@@ -23,4 +34,4 @@ The nine-track *Race of Cain* album was copied from `/Users/kcell/Desktop/tmp` i
 - The LRCLIB pass requested lyrics for one copied track and reported that the service had none; it wrote no sidecar. The cover pass correctly skipped an album with existing embedded artwork. AcoustID and Fanart.tv could not be tested because their API keys were absent. A successful lyric write and cover download were therefore not exercised.
 - An isolated backup held the catalog and 12 source records. Removing the 11 MusicBrainz records left the Wikipedia record intact; restoring the backup brought all 12 records back. After these commands, all nine copied FLAC files had the same SHA-256 digests as the originals.
 
-This representative pass found no defect in the exercised M1 paths. The untested optional paths need a separate check when a suitable no-cover album, a track with available lyrics, and the relevant API keys are available.
+The September representative pass found no defect in the exercised M1 paths. Its remaining optional checks were completed later by the owner, as recorded above.

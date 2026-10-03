@@ -202,6 +202,7 @@ pub fn run(
                 )
                 .into());
             }
+            Err(other) if other.must_stop() => return Err(other.into()),
             Err(other) if worth_deferring(&other) && !retried => {
                 pending.push_back((target, true));
                 continue;
@@ -209,7 +210,7 @@ pub fn run(
             Err(other) => {
                 failed += 1;
                 done += 1;
-                eprintln!("\r  {} {}: {other}", ui::red("×"), target.title);
+                super::fetch::report_failed(&target.title, &other);
                 continue;
             }
         };
@@ -232,8 +233,8 @@ pub fn run(
                 eprintln!(
                     "\r  {} {}: {}",
                     ui::yellow("?"),
-                    target.title,
-                    super::fetch::refusal(&why)
+                    ui::literal(&target.title),
+                    ui::literal(&super::fetch::refusal(&why))
                 );
             }
         }

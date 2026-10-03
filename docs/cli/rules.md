@@ -6,6 +6,10 @@ This is deliberately different from backup: listening history, ordinary entity n
 
 --export writes to standard output or --output FILE. --import FILE merges the supported aede-rules document and reports added, updated, kept and imported source decisions. Export/import are mutually exclusive; --output without export is refused. Keep an ordinary backup before importing decisions you may want to reverse individually.
 
+Import also enforces that scope: bundles containing listening data, ordinary entity annotations, file relocation evidence, or fetched records from a source other than `manual` are refused. Use notes, sources, or backup for those documents. Both store destinations are checked before either is written, so an existing symbolic link or special file cannot cause half the bundle to be applied. This preflight does not make the two file replacements a transaction against power loss or concurrent filesystem changes.
+
+The summary takes no writer lock. Export holds it for a consistent snapshot of both decision stores; import holds it while merging.
+
 ## Syntax and arguments
 
 ```text

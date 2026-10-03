@@ -115,6 +115,67 @@ fn entity() -> EntityRef {
 }
 
 #[test]
+fn downloaded_portraits_are_validated_and_existing_pictures_stay_unchanged() {
+    let dir = sandbox("validated_portrait");
+    let target = Target {
+        entity: entity(),
+        name: "Miles Davis".into(),
+        mbid: "mbid-1".into(),
+        wikidata_id: Some("Q11649".into()),
+        fanarttv_mbid: Some("mbid-1".into()),
+        destination: dir.join("artist"),
+    };
+    let png = include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png");
+    assert!(matches!(
+        write(&target, &png[..png.len() - 12]),
+        Err(Refusal::Failed(_))
+    ));
+    assert!(!target.destination.exists());
+    assert!(write(&target, png).expect("valid portrait"));
+    assert!(!write(&target, png).expect("already present"));
+    assert!(write(&target, &png[..png.len() - 12]).is_err());
+    assert_eq!(
+        std::fs::read(target.destination.join("artist.png")).expect("preserved"),
+        png
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_portrait_answer_for_another_artist_is_not_downloaded_or_cached() {
+    struct WrongIdentity {
+        downloads: usize,
+    }
+    impl Ask for WrongIdentity {
+        fn get_json(&mut self, _url: &str) -> Result<aede_core::json::Json, Refusal> {
+            Ok(aede_core::json::parse(r#"{"mbid":"another-artist"}"#).unwrap())
+        }
+        fn get_bytes(&mut self, _url: &str) -> Result<Vec<u8>, Refusal> {
+            self.downloads += 1;
+            Err(Refusal::Failed("unexpected download".into()))
+        }
+    }
+    let dir = sandbox("wrong_identity");
+    let catalog = one_album(&dir);
+    let layer = held(None);
+    let selected = targets(
+        &catalog,
+        &layer,
+        &[],
+        &crate::commands::fetch::EVERYTHING,
+        &dir,
+        Some("key"),
+        false,
+    );
+    let target = &selected[0];
+    let mut transport = WrongIdentity { downloads: 0 };
+    assert!(attempt(&mut transport, &[], target, Some("key")).is_err());
+    assert_eq!(transport.downloads, 0);
+    assert!(layer.get(&entity(), fanarttv::SOURCE).is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_single_shared_folder_is_the_destination() {
     let dir = sandbox("shared_folder");
     let catalog = one_album(&dir);

@@ -65,7 +65,7 @@ pub fn fingerprint(args: &Args) -> Res {
     let survey = survey(&catalog, &scope, &wanted, full);
 
     println!("{}", ui::section("Fingerprint"));
-    skipped(&survey, full);
+    skipped(&survey);
     if survey.targets.is_empty() {
         println!("  {}", ui::dim("nothing to fingerprint"));
         return Ok(());
@@ -91,7 +91,7 @@ pub fn fingerprint(args: &Args) -> Res {
     );
     if args.has("dry-run") {
         for target in &survey.targets {
-            println!("  {}", ui::dim(&target.path));
+            println!("  {}", ui::dim(&ui::literal(&target.path)));
         }
         println!("  {}", ui::dim("nothing was decoded: --dry-run"));
         return Ok(());
@@ -110,7 +110,12 @@ pub fn fingerprint(args: &Args) -> Res {
             }
             Err(why) => {
                 failed += 1;
-                eprintln!("\r  {} {}: {why}", ui::red("×"), target.path);
+                eprintln!(
+                    "\r  {} {}: {}",
+                    ui::red("×"),
+                    ui::literal(&target.path),
+                    ui::literal(&why)
+                );
             }
         }
     }
@@ -155,7 +160,7 @@ fn listed(catalog: &Catalog, scope: &[String], wanted: &[String]) -> Res {
         }
         let title = first(file, "title");
         let artist = first(file, "artist");
-        if !super::fetch::reaches(wanted, &[&title, &artist, &file.path]) {
+        if !super::fetch::reaches(wanted, &[title, artist, &file.path]) {
             continue;
         }
         let Some(print) = &file.fingerprint else {
@@ -163,9 +168,9 @@ fn listed(catalog: &Catalog, scope: &[String], wanted: &[String]) -> Res {
             continue;
         };
         held += 1;
-        println!("  {}", file.path);
+        println!("  {}", ui::literal(&file.path));
         println!("  {}", ui::dim(&format!("{} s", print.seconds)));
-        println!("  {}", print.data);
+        println!("  {}", ui::literal(&print.data));
         println!();
     }
 
@@ -218,6 +223,19 @@ fn listed(catalog: &Catalog, scope: &[String], wanted: &[String]) -> Res {
 /// and files the tags already name. Those are two different reasons to skip,
 /// and one flag lifting both is what somebody means by "do it all".
 fn survey(catalog: &Catalog, scope: &[String], wanted: &[String], full: bool) -> Survey {
+    // Index the canonical tag-derived recording identities once, rather than
+    // scanning every track again for each file or duplicating tag spellings.
+    let identified: std::collections::HashSet<Id> = catalog
+        .tracks
+        .iter()
+        .filter(|track| {
+            track
+                .mbid
+                .as_deref()
+                .is_some_and(|id| !id.trim().is_empty())
+        })
+        .map(|track| track.file_id)
+        .collect();
     let mut out = Survey {
         targets: Vec::new(),
         done: 0,
@@ -234,7 +252,7 @@ fn survey(catalog: &Catalog, scope: &[String], wanted: &[String], full: bool) ->
         // means "this folder", and the scope is the better tool.
         let title = first(file, "title");
         let artist = first(file, "artist");
-        if !super::fetch::reaches(wanted, &[&title, &artist, &file.path]) {
+        if !super::fetch::reaches(wanted, &[title, artist, &file.path]) {
             continue;
         }
         if file.fingerprint.is_some() && !full {
@@ -250,7 +268,7 @@ fn survey(catalog: &Catalog, scope: &[String], wanted: &[String], full: bool) ->
         // service, check whether the identifier you want is already in hand.
         // `--full` lifts it, because a *wrong* recording identifier is the one
         // thing nothing else in this program can catch.
-        if !full && identified(catalog, file) {
+        if !full && identified.contains(&file.id) {
             out.already_identified += 1;
             continue;
         }
@@ -277,38 +295,19 @@ fn survey(catalog: &Catalog, scope: &[String], wanted: &[String], full: bool) ->
     out
 }
 
-/// `true` when the file's tags already carry a MusicBrainz recording id.
-///
-/// Read from the track rather than from the raw tags, because the tag reader
-/// has already done the work of knowing that ID3 calls it `MUSICBRAINZ_TRACKID`
-/// and Vorbis calls it something else — a second spelling table here would be
-/// the first one's copy, right until it was not.
-fn identified(catalog: &Catalog, file: &aede_core::model::AudioFile) -> bool {
-    catalog
-        .tracks
-        .iter()
-        .filter(|track| track.file_id == file.id)
-        .any(|track| {
-            track
-                .mbid
-                .as_deref()
-                .is_some_and(|id| !id.trim().is_empty())
-        })
-}
-
 /// The file's length in whole seconds, when the catalog knows one.
 fn length(file: &aede_core::model::AudioFile) -> Option<u32> {
     let ms = file.properties.duration_ms?;
-    let seconds = (ms / 1000) as u32;
+    let seconds = u32::try_from(ms / 1000).ok()?;
     (seconds > 0).then_some(seconds)
 }
 
 /// The first value of a tag, or the empty string.
-fn first(file: &aede_core::model::AudioFile, key: &str) -> String {
+fn first<'a>(file: &'a aede_core::model::AudioFile, key: &str) -> &'a str {
     file.tags
         .get(key)
         .and_then(|values| values.first())
-        .cloned()
+        .map(String::as_str)
         .unwrap_or_default()
 }
 
@@ -321,7 +320,7 @@ fn first(file: &aede_core::model::AudioFile, key: &str) -> String {
 /// Both forms of every sentence are written out because [`ui::plural`] puts
 /// the count *in* the sentence, and a count that opens a sentence takes the
 /// verb with it.
-fn skipped(survey: &Survey, full: bool) {
+fn skipped(survey: &Survey) {
     super::print_skipped_counts(
         &[
             (
@@ -355,7 +354,6 @@ fn skipped(survey: &Survey, full: bool) {
         ],
         "file",
     );
-    let _ = full;
 }
 
 #[cfg(test)]

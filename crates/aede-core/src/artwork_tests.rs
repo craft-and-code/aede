@@ -8,14 +8,10 @@
 
 use super::*;
 
-/// A one-pixel PNG, small enough to sit in a test and real enough to be one.
-const PNG: &[u8] = &[
-    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-    0x42, 0x60, 0x82,
-];
+/// A real one-pixel PNG shared with publication-validation tests.
+const PNG: &[u8] = include_bytes!("../tests/fixtures/images/rgba.png");
+const JPEG: &[u8] = include_bytes!("../tests/fixtures/images/baseline.jpg");
+const PROGRESSIVE: &[u8] = include_bytes!("../tests/fixtures/images/progressive.jpg");
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -132,7 +128,7 @@ fn the_front_wins_over_the_back() {
     };
     // A second image, typed as the front, added after the first.
     let mut file = lofty::read_from_path(&path).expect("readable");
-    let front = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00];
+    let front = JPEG.to_vec();
     file.primary_tag_mut().expect("a tag").push_picture(
         Picture::unchecked(front.clone())
             .pic_type(PictureType::CoverFront)
@@ -202,8 +198,8 @@ fn every_picture_a_file_carries_comes_back_with_what_it_is_of() {
         panic!("FLAC must accept a picture");
     };
     let mut file = lofty::read_from_path(&path).expect("readable");
-    let back = vec![0xFF, 0xD8, 0xFF, 0xE0, b'b'];
-    let leaflet = vec![0xFF, 0xD8, 0xFF, 0xE0, b'l'];
+    let back = JPEG.to_vec();
+    let leaflet = PROGRESSIVE.to_vec();
     for (bytes, kind) in [
         (back.clone(), PictureType::CoverBack),
         (leaflet.clone(), PictureType::Leaflet),

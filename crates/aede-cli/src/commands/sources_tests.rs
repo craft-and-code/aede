@@ -318,8 +318,14 @@ fn what_a_record_says_reads_as_a_sentence_or_says_it_holds_nothing() {
 fn a_search_and_a_lookup_do_not_read_the_same() {
     // The distinction the whole layer turns on, in the one place a reader
     // sees it.
-    assert_eq!(confidence_label(Confidence::Identified), "identified");
-    assert_eq!(confidence_label(Confidence::matched(88)), "matched 88%");
+    assert_eq!(
+        super::super::source_status(Confidence::Identified, None, true),
+        "identified"
+    );
+    assert_eq!(
+        super::super::source_status(Confidence::matched(88), None, false),
+        "matched 88% · pending review"
+    );
 }
 
 #[test]

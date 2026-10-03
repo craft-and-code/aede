@@ -15,8 +15,8 @@
 //! chances to write a corrupt file, to buy speed nobody is waiting for.
 //!
 //! So one path, for every format, through a dependency this crate already
-//! carries. What it hands back is still sniffed before anything is written:
-//! see [`crate::coverart::image_kind`].
+//! carries. What it hands back is still decoded and validated before anything
+//! is written: see [`crate::coverart::write_image`].
 
 use std::path::Path;
 

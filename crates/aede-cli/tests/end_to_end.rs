@@ -8,6 +8,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "fetch_output_support/filesystem.rs"]
+mod m1_filesystem;
+
 /// One real audio file, for a test that builds a library of its own.
 ///
 /// The reference folder is shared and read-only; a test that adds and removes
@@ -308,11 +311,34 @@ fn credit_coverage_is_read_only_and_has_valid_scoped_json() {
     let root = library();
     let (out, err, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
     assert!(ok, "scan: {err}\n{out}");
+    let before = m1_filesystem::snapshot(&sandbox.dir);
+    let catalog = aede_core::store::load(&sandbox.dir.join("catalog.json"))
+        .unwrap()
+        .unwrap();
 
     let (out, err, ok) = sandbox.run(&["credits", "--json", "--limit=2"]);
     assert!(ok, "credits: {err}\n{out}");
     let json = aede_core::json::parse(&out).expect("valid summary JSON");
     assert!(json.get("recordings").is_some());
+    let editions = json.get("editions").expect("separate edition coverage");
+    assert_eq!(
+        editions
+            .get("total")
+            .and_then(aede_core::json::Json::as_u64),
+        Some(catalog.releases.len() as u64)
+    );
+    assert_eq!(
+        editions
+            .get("queried")
+            .and_then(aede_core::json::Json::as_u64),
+        Some(0)
+    );
+    assert_eq!(
+        editions
+            .get("with_manual_credits")
+            .and_then(aede_core::json::Json::as_u64),
+        Some(0)
+    );
     assert!(
         matches!(json.get("albums"), Some(aede_core::json::Json::Arr(rows)) if rows.len() == 2)
     );
@@ -321,6 +347,27 @@ fn credit_coverage_is_read_only_and_has_valid_scoped_json() {
     assert!(ok, "album credits: {err}\n{out}");
     let albums = aede_core::json::parse(&out).expect("valid album JSON");
     assert!(matches!(albums, aede_core::json::Json::Arr(ref rows) if !rows.is_empty()));
+    for album in albums.as_arr().unwrap() {
+        assert!(
+            album.get("coverage").is_some(),
+            "recording coverage remains"
+        );
+        assert!(album.get("recordings").is_some(), "recording rows remain");
+        let edition = album.get("edition").expect("edition lookup status");
+        assert!(matches!(
+            edition
+                .get("status")
+                .and_then(aede_core::json::Json::as_str),
+            Some("waiting" | "unidentified")
+        ));
+        for field in ["edition_credits", "manual_credits"] {
+            assert_eq!(
+                edition.get(field).and_then(aede_core::json::Json::as_u64),
+                Some(0),
+                "{field} is absent before an external lookup or correction"
+            );
+        }
+    }
     let (out, err, ok) = sandbox.run(&["credits", "Kind of Blue"]);
     assert!(ok, "album credits: {err}\n{out}");
     assert!(out.contains("Recording"), "{out}");
@@ -328,6 +375,11 @@ fn credit_coverage_is_read_only_and_has_valid_scoped_json() {
     let (_, err, ok) = sandbox.run(&["credits", "Unknown Album"]);
     assert!(!ok);
     assert!(err.contains("no album matches"), "{err}");
+    assert_eq!(
+        m1_filesystem::snapshot(&sandbox.dir),
+        before,
+        "coverage views must leave stores and locks unchanged"
+    );
 }
 
 #[test]

@@ -15,6 +15,33 @@ use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{ArtistFacts, Confidence, Sources};
 use aede_core::tags::RawTags;
 
+#[test]
+fn fanart_image_families_use_the_same_validation_and_preserve_existing_files() {
+    let dir = sandbox("validated_fanart_images");
+    let target = Target {
+        entity: entity(),
+        name: "Miles Davis".into(),
+        mbid: "mbid-1".into(),
+        destination: dir.join("artist"),
+        albums: Vec::new(),
+    };
+    let png = include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png");
+    for kind in [Kind::Logo, Kind::Banner, Kind::Background] {
+        assert!(matches!(
+            write(&target, kind, &png[..png.len() - 12]),
+            Err(Refusal::Failed(_))
+        ));
+        assert!(write(&target, kind, png).expect("valid Fanart image"));
+        assert!(!write(&target, kind, png).expect("already present"));
+        assert!(write(&target, kind, &png[..png.len() - 12]).is_err());
+        let path = target
+            .destination
+            .join(coverart::image_name(kind, "png", 0, 1));
+        assert_eq!(std::fs::read(path).expect("preserved"), png);
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// The test that owns this folder, for a name no other test can produce —
 /// see `covers_tests.rs` for why both halves of the name are needed.
 fn owner() -> String {

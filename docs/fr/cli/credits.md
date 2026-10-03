@@ -1,10 +1,12 @@
 # credits — Auditer les crédits
 
-credits audite hors ligne la couverture des crédits MusicBrainz d’enregistrement/œuvre. Sans sélection, les comptes sont regroupés par album ; avec titre, identifiant d’édition ou dossier, il détaille enregistrements et fichiers représentatifs. Les comptes portent sur les enregistrements canoniques, pas chaque fichier dupliqué.
+credits audite hors ligne la couverture des crédits MusicBrainz d’enregistrement/œuvre et d’édition exacte. Sans sélection, les comptes sont regroupés par album ; avec titre, identifiant d’édition ou dossier, il détaille enregistrements et fichiers représentatifs. Les comptes d’enregistrement portent sur les enregistrements canoniques, pas chaque fichier dupliqué. Les comptes d’édition portent sur les sorties locales : deux éditions partageant les mêmes enregistrements restent distinctes.
 
 credited signifie crédits utilisables ; empty, recherche terminée sans crédit ; waiting, recherche à faire ; untrusted, preuve présente non admissible ; unidentified, identité d’enregistrement insuffisante. Ces états distinguent absence de crédits et absence de recherche. Crédits d’enregistrement et d’œuvre sont séparés.
 
-L’audit ne mesure pas encore les crédits d’édition exacte. Pour waiting, copier la commande fetch ciblée affichée. --full appartient à fetch si vous voulez répéter une réponse terminée, pas à credits. --json reprend les états pour les outils ; aucune demande réseau.
+La couverture d’édition utilise les mêmes états, mais exige un identifiant MusicBrainz de sortie locale non vide et une réponse terminée, approuvée, pour cette édition exacte. Une identité de groupe de sorties ou une interrogation d’enregistrement ne termine pas celle de l’édition. Les crédits manuels d’édition sont comptés séparément : ils ne prétendent pas que MusicBrainz a été interrogé.
+
+Pour un enregistrement ou une édition en attente, copier la commande fetch ciblée affichée. --full appartient à fetch si vous voulez répéter une réponse terminée, pas à credits. --json conserve les champs d’enregistrement et ajoute la couverture d’édition pour les outils ; aucune demande réseau.
 
 ## Syntaxe et arguments
 

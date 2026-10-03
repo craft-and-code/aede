@@ -130,11 +130,11 @@ pub fn artwork(args: &Args) -> Res {
             match write_one(target) {
                 Ok(path) => {
                     written += 1;
-                    println!("  {} {path}", ui::green("→"));
+                    println!("  {} {}", ui::green("→"), ui::literal(&path));
                 }
                 Err(why) => {
                     failed += 1;
-                    eprintln!("  {} {}: {why}", ui::red("×"), target.folder);
+                    super::fetch::report_failed(&target.folder, &why);
                 }
             }
         }
@@ -145,12 +145,12 @@ pub fn artwork(args: &Args) -> Res {
             Ok(paths) => {
                 extras += paths.len();
                 for path in paths {
-                    println!("  {} {path}", ui::green("→"));
+                    println!("  {} {}", ui::green("→"), ui::literal(&path));
                 }
             }
             Err(why) => {
                 failed += 1;
-                eprintln!("  {} {}: {why}", ui::red("×"), target.folder);
+                super::fetch::report_failed(&target.folder, &why);
             }
         }
     }
@@ -237,17 +237,26 @@ fn survey(catalog: &Catalog, scope: &[String], images: bool) -> Survey {
     };
     // Folders in the order the catalog holds their files, so a run reads as a
     // walk through the library rather than in whatever order a map returns.
-    let mut seen: Vec<&str> = Vec::new();
+    let mut folders: Vec<(&str, Option<&str>)> = Vec::new();
+    let mut positions = std::collections::HashMap::new();
     for file in &catalog.files {
         if !super::in_scope(&file.path, scope) {
             continue;
         }
         let folder = text::folder(&file.path);
-        if folder.is_empty() || seen.contains(&folder) {
+        if folder.is_empty() {
             continue;
         }
-        seen.push(folder);
+        let index = *positions.entry(folder).or_insert_with(|| {
+            folders.push((folder, None));
+            folders.len() - 1
+        });
+        if file.has_embedded_art && folders[index].1.is_none() {
+            folders[index].1 = Some(&file.path);
+        }
+    }
 
+    for (folder, source) in folders {
         // The disk, not the catalog: `cover_path` answers for a release, this
         // question is about a folder, and the two differ for a double album.
         let has_image = scan::cover_in(std::path::Path::new(folder)).is_some();
@@ -255,14 +264,10 @@ fn survey(catalog: &Catalog, scope: &[String], images: bool) -> Survey {
             out.has_image += 1;
             continue;
         }
-        match catalog
-            .files
-            .iter()
-            .find(|f| f.has_embedded_art && text::folder(&f.path) == folder)
-        {
+        match source {
             Some(source) => out.targets.push(Target {
                 folder: folder.to_string(),
-                source: source.path.clone(),
+                source: source.to_string(),
                 cover: !has_image,
             }),
             None => out.nothing_inside += 1,
