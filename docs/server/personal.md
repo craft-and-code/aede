@@ -1,6 +1,6 @@
 # Personal annotations, history and collections
 
-These routes require [administrative authentication](administration.md) for reads **and** writes, refuse Origin and always address the existing `local` owner. They do not provide multiple accounts. They read the current on-disk catalog and `user.json` under the shared lock, so selection and atomic updates use the same completed catalog version.
+These administrative routes require [administrative authentication](administration.md) and address `local`. [Account sessions](accounts.md) use the same operations at `/api/me/v1` for their own authenticated owner. Requests cannot select another owner. Operations read the current disk catalog and `user.json` under the shared lock, so selection and atomic updates use one completed catalog version.
 
 ## GET /api/admin/v1/annotation
 

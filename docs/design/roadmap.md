@@ -20,6 +20,8 @@
 
 **M2.5 — other servers' languages.** Subsonic and OpenSubsonic first: eighty-odd existing clients on every platform, which is the shortest path from "no mobile client" to "thirty of them". Jellyfin afterwards, and timeboxed. Both as translations over the M2 API, never as a second core. See [Speaking other servers' languages](interoperability.md#speaking-other-servers-languages).
 
+**Local accounts and sessions are implemented before interoperability.** Stable owners preserve existing personal data, salted Argon2id protects credentials, and the CLI/API manage roles, disabling and session revocation. Catalog access becomes authenticated when accounts are configured; personal operations use the authenticated owner. Version-3 backups include accounts and restore invalidates sessions. Remote encrypted access, browser login UI and compatibility authentication remain separate work. See [Accounts](accounts.md) and the [HTTP reference](../server/accounts.md).
+
 **M3 — playback.** Local output, queue, gapless playback, loudness normalization (EBU R128). The decoder written for it also brings the FLAC MD5 check, which verifies the decoded audio rather than the container. See [Playback](playback.md#playback-m3).
 
 **M4 — the network.** Remote playback endpoints. `slimproto` gives the best effort-to-result ratio, since it opens up a fleet of existing devices without reinventing anything; UPnP/OpenHome afterwards for commercial hi-fi streamers.

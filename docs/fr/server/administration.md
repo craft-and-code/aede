@@ -1,6 +1,6 @@
 # Activer l’administration locale
 
-L’administration permet de lancer scan/fetch et de consulter/modifier favoris, étoiles, notes, historique et collections du propriétaire local. Elle est facultative et **désactivée par défaut**. Elle ne crée pas de comptes et n’autorise pas l’exposition distante du serveur.
+L’administration permet de lancer scan/fetch et de gérer les données du propriétaire local. Un [compte administrateur](accounts.md) utilise sa session ; le jeton administratif historique facultatif fonctionne aussi. Sans comptes ni jeton, l’administration est désactivée. Le serveur reste limité à l’écoute locale.
 
 ## Configurer le jeton avant le démarrage
 
@@ -12,7 +12,7 @@ export AEDE_ADMIN_TOKEN
 aede serve
 ```
 
-Saisissez le secret et appuyez sur Entrée pendant l’attente de `read`. Cet exemple suppose un terminal acceptant `read` silencieux, comme bash/zsh. Gardez cet environnement privé. Sans jeton, les routes d’administration ne sont pas enregistrées (404). Un jeton configuré invalide empêche une configuration de démarrage valide. Définir la variable seulement chez le client ne l’active pas dans un serveur déjà lancé : redémarrez avec l’environnement serveur configuré.
+Saisir le secret puis Entrée. Cet exemple suppose bash/zsh et un environnement privé. Sans comptes, l’absence de jeton rend l’administration indisponible (404) ; un jeton configuré invalide empêche le démarrage. Définir la variable seulement chez le client ne change pas le serveur actif : redémarrer avec son environnement configuré.
 
 Dans un autre terminal client local de confiance, définissez le même secret de manière protégée. Chaque requête envoie **un seul** en-tête :
 
@@ -21,7 +21,7 @@ curl 'http://127.0.0.1:8787/api/admin/v1/collections' \
   -H "Authorization: Bearer $AEDE_ADMIN_TOKEN"
 ```
 
-La valeur est substituée localement. Ne placez jamais le secret dans une URL, du JavaScript public, un dépôt, une capture de journal ou un exemple publié. Tout en-tête Origin est refusé, même celui d’une page localhost correspondante. Ces routes concernent des clients locaux/natifs, pas un formulaire de navigateur. Les vérifications Host/Origin peuvent rejeter une requête avant l’authentification.
+La valeur est substituée localement. Aucun secret dans une URL, du JavaScript public, un dépôt ou journal. Le jeton historique refuse toute Origin ; les sessions respectent la vérification d’origine locale commune. Aucune interface de connexion/cookies actuellement. Host/Origin peuvent être rejetés avant l’authentification.
 
 ## Règles du corps de requête
 
@@ -31,8 +31,8 @@ Les lectures n’ont pas de corps. Les routes de tâches refusent les paramètre
 
 ## Erreurs et permissions
 
-`401 unauthorized` signale un en-tête Bearer absent/incorrect/répété ou une Origin présente. `404 not_found` sur toutes les routes indique généralement une administration non activée au démarrage. Le jeton autorise les accès aux fichiers avec les permissions du **compte serveur** : dossiers de scan et cibles fetch sont des chemins de cet hôte. Ce n’est pas un environnement isolé pour appelant non fiable.
+`401 unauthorized` signale un Bearer absent/incorrect/répété, ou une Origin avec le jeton historique. Un compte `user` reçoit `403 forbidden`. Sans comptes ni jeton, l’administration répond `404 not_found`. Les tâches utilisent les permissions du compte système serveur : dossiers scan/fetch sont des chemins de cet hôte et exigent un administrateur de confiance.
 
-Le serveur ne change ni audio ni tags. Les images/paroles téléchargées et résultats d’analyse sont des fichiers dérivés distincts et peuvent demander des droits d’écriture dans leur destination. Les clés des services externes viennent de l’environnement serveur, jamais d’un remplacement HTTP. Les données personnelles appartiennent au seul propriétaire `local` existant ; la requête ne choisit pas d’autre utilisateur.
+Le serveur ne change ni audio ni tags. Images/paroles et résultats d’analyse sont des fichiers dérivés pouvant demander des droits d’écriture. Les clés des services viennent de l’environnement serveur, jamais de HTTP. Les routes personnelles administratives gardent `local` ; `/api/me/v1` utilise le propriétaire de la session. Aucune requête ne peut choisir un autre propriétaire.
 
 Suite : [Tâches scan/fetch et annulation](jobs.md) ou [Données personnelles](personal.md). Le [guide d’exploitation](../../operating.md) couvre les permissions de service et les sauvegardes.

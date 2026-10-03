@@ -2,9 +2,11 @@
 
 serve exposes the existing catalog on the same machine at http://127.0.0.1:8787. Scan at least one folder first: startup refuses without catalog.json. Keep the server and CLI on the same data directory. --port 0 selects a free port and prints it.
 
-The current server provides HTTP JSON catalog routes and WebSocket catalog/activity notifications. It has no playback/streaming route, listener accounts or supported remote access. Other local users can read catalog metadata and paths. A NAS/Raspberry Pi deployment still needs target validation; no published Aède container image is provided.
+The server provides JSON catalog routes and WebSocket catalog/activity notifications. [Accounts](accounts.md) protect catalog access and isolate personal data; without accounts, other local users can read catalog metadata and paths. There is no audio streaming or supported remote access. A NAS/Raspberry Pi deployment still needs target validation; no published Aède container image is provided.
 
 On Unix, same-account store-writing CLI commands delegate to the server through its private socket. Closing that CLI does not stop accepted work; scan/fetch print task IDs for cancel. Ctrl-C or SIGTERM on the server stops new work and waits for accepted work. Setting a private AEDE_ADMIN_TOKEN of at least 32 ASCII characters before startup enables separate authenticated administration; a normal local CLI command does not need it. Read the server guide before configuring HTTP writes or services.
+
+An account administrator can also authorize installation jobs. [Account sessions](../server/accounts.md) use a bearer header for catalog reads and `/api/me/v1` personal data. Account CLI commands take the shared writer lock directly rather than delegating.
 
 ## Syntax and arguments
 

@@ -15,7 +15,21 @@ Use the same `--data <folder>` or `AEDE_HOME` as the CLI that scanned your music
 
 All routes below use English names matching the CLI vocabulary: an **album** is a graph **release** and a **track** is a local placement of a **recording**. `/releases` remains available to existing clients; `/albums` offers the CLI-shaped filters. No route translates or executes an arbitrary command string.
 
-The server remains **loopback-only**. Public reads require no token, reveal local catalog metadata/paths and must not be published to the Internet. No accounts or audio playback are implemented yet; the opt-in administrative API exposes only the local owner's personal data. Reads never fetch external data or alter audio files. The shared core PCM stream can supply processed audio blocks and format metadata to a future playback route, where the audio will be transmitted to the requesting device. That route must use the same DSP normalization, metadata-peak headroom cap and final sample ceiling as CLI playback before transmitting PCM. The server will need authenticated remote access and a bounded streaming transport before exposing that route. When remote playback exists, it must update the same listening history and all-time counts as CLI playback, with completed status based on playback evidence from the client; the current history POST only records explicitly submitted events.
+The server remains **loopback-only**. Without accounts, catalog reads are anonymous and reveal local metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) require authentication for HTTP/WebSocket catalog reads and isolate personal data at `/api/me/v1`. Initialize the first administrator with `aede accounts init <name> --password-stdin`; existing `local` data stays with that account. Missing/unreadable credentials fail closed after activation. No audio playback or encrypted remote access is implemented. Reads never fetch external data or alter audio. Future audio streaming must use the shared PCM/DSP normalization, headroom and output-guard layer, a bounded transport, and client playback evidence for listening history.
+
+Account routes are additive and use the same error envelope as the catalog. The [complete account reference](../../docs/server/accounts.md) defines bodies, results, limits and expiry:
+
+| Route | Methods and scope |
+| --- | --- |
+| `/api/auth/v1/session` | POST login; GET own metadata; DELETE logout |
+| `/api/auth/v1/password` | PUT own password with current-password verification |
+| `/api/admin/v1/accounts` | GET account metadata; POST create; administrator required |
+| `/api/admin/v1/accounts/{username}` | GET metadata; PATCH name/role/status/password; administrator required |
+| `/api/admin/v1/accounts/{username}/sessions` | DELETE all sessions; administrator required |
+| `/api/me/v1/annotation` | GET/PUT own annotations by `ref` |
+| `/api/me/v1/history` | GET/POST own history and counts |
+| `/api/me/v1/collection` | GET/PUT/DELETE own collection by `name` |
+| `/api/me/v1/collections` | GET own paginated collections |
 
 ## Read routes
 
@@ -102,7 +116,7 @@ Neither accepts commands. Notifications are best effort with no replay. Asynchro
 
 ## Administrative routes
 
-Disabled unless `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters) is set **before server startup**. Every request below, including status reads and cancellation, requires one `Authorization: Bearer <token>` header and must omit `Origin`. Use a protected local secret, never a URL token. These routes do not permit remote access or provide user accounts.
+Available to an administrator account session, or the optional `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters, configured before startup). Without either, administration is disabled. Requests require one `Authorization: Bearer <token>` header. The legacy administrative token rejects every `Origin`; account sessions follow the shared local Origin check. Never use URL tokens. These routes stay local-only. The [account API reference](../../docs/server/accounts.md) lists login, password changes, account administration, limits and errors.
 
 | Method and route | Body | Result |
 | --- | --- | --- |
@@ -177,7 +191,7 @@ Accepted jobs survive client disconnection and wait for the shared writer lock. 
 
 ### Personal data: annotations, plays and smart collections
 
-These routes are the first temporary single-owner surface. They always read and write the `local` owner already used by the CLI; an HTTP request cannot choose an owner. They require the same administrative token, reject `Origin`, and remain local-only. They are deliberately separate from `/api/v1`, so no private value leaks into anonymous catalog reads. A future account/session design will replace this transitional owner binding without changing `user.json`'s owner-scoped model.
+These transitional administrative routes always address `local`, using administrator authentication. Account sessions use the identical selectors, bodies and response shapes at `/api/me/v1/{annotation,history,collection,collections}`, bound to their own stable owner. Requests cannot choose an owner. Private values remain separate from catalog responses, and `user.json` keeps its existing format. Session checks are repeated under the data lock; personal workers are bounded and shared with inspection (`503 personal_busy` when occupied).
 
 `PUT /annotation?ref=<token>` accepts one or more of the following fields. Omitting a field leaves it unchanged; an explicit `null` removes `rating`, `note`, or all `tags`. `loved` must be a boolean. Rating is 1–5. Notes must contain non-whitespace text. Tags replace the complete set, are sorted in the response, and allow at most 100 unique non-empty entries of 256 bytes. A patch which leaves no favourite, rating, note or tag removes the stored annotation rather than keeping an empty record.
 

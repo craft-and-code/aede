@@ -9,6 +9,7 @@
 //! specifications; `lofty` covers the long tail
 //! of containers that do not deserve a parser of their own.
 
+pub mod accounts;
 pub mod acoustic;
 pub mod acoustid;
 pub mod analysis;

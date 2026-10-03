@@ -1,6 +1,6 @@
 # Démarrer le serveur local
 
-Le serveur d’Aède permet à d’autres programmes de consulter votre **catalogue** musical : albums, artistes, pistes, relations et diagnostics. Il répond aux requêtes HTTP en JSON et annonce les changements par WebSocket. Il ne transmet actuellement pas de musique à un téléphone et ne propose ni comptes d’auditeurs ni lecture à distance.
+Le serveur d’Aède permet à d’autres programmes de consulter votre **catalogue** musical : albums, artistes, pistes, relations et diagnostics. Il répond en JSON et annonce les changements par WebSocket. Les [comptes et sessions](accounts.md) facultatifs protègent l’accès et isolent les données personnelles. Transmission audio et lecture distante restent à réaliser.
 
 ## Avant de démarrer
 

@@ -38,7 +38,8 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
+        let limited = self.code == "login_limited";
+        let mut response = (
             self.status,
             Json(ErrorBody {
                 error: ErrorDetail {
@@ -48,7 +49,14 @@ impl IntoResponse for ApiError {
                 },
             }),
         )
-            .into_response()
+            .into_response();
+        if limited {
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                axum::http::HeaderValue::from_static("60"),
+            );
+        }
+        response
     }
 }
 

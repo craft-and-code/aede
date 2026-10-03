@@ -84,18 +84,18 @@ html{scroll-behavior:smooth;background:#111213}body{margin:0}#aede-motion-concep
   #aede-motion-concepts #ae-command-caption{font-size:13px;color:var(--ae-muted);line-height:1.6;padding:15px 20px;margin:0}
   #aede-motion-concepts .ae-section-copy p.ae-status{color:var(--ae-accent);font-size:14px}
   #aede-motion-concepts .ae-section-copy p.ae-future{font-size:14px;color:var(--ae-muted)}
-  #aede-motion-concepts .ae-server-visual{padding:20px;text-align:center}
+  #aede-motion-concepts .ae-server-visual{--ae-server-signal:#0077b6;padding:20px;text-align:center}
   #aede-motion-concepts .ae-server-source{display:flex;gap:10px;justify-content:center;align-items:center;font-size:14px;color:var(--ae-muted)}
   #aede-motion-concepts .ae-server-source svg{width:19px;height:19px}
   #aede-motion-concepts .ae-server-wire{height:42px;width:1px;background:var(--ae-line);margin:auto;position:relative}
-  #aede-motion-concepts .ae-packet{display:block;position:absolute;left:50%;width:4px;height:12px;border-radius:3px;background:var(--ae-accent);box-shadow:0 0 12px var(--ae-accent);opacity:0;transform:translateX(-50%)}
+  #aede-motion-concepts .ae-packet{display:block;position:absolute;left:50%;width:4px;height:12px;margin-left:-2px;border-radius:3px;background:var(--ae-server-signal);opacity:0;transform:translateY(0)}
   #aede-motion-concepts .ae-packet-source{top:0}
   #aede-motion-concepts .ae-packet-client{top:0}
-  #aede-motion-concepts .ae-server-center{padding:30px 15px;background:var(--ae-panel);border:1px solid var(--ae-line);border-radius:12px;max-width:230px;margin:auto}
+  #aede-motion-concepts .ae-server-center{padding:30px 15px;background:var(--ae-panel);border:1px solid var(--ae-line);outline:1px solid transparent;outline-offset:0;border-radius:12px;max-width:230px;margin:auto}
   #aede-motion-concepts .ae-server-center small{display:block;font-size:11px;letter-spacing:1.5px;margin-top:17px;color:var(--ae-muted)}
   #aede-motion-concepts .ae-server-branches{display:grid;grid-template-columns:1fr 1fr;max-width:280px;margin:0 auto}
   #aede-motion-concepts .ae-server-branches>div{position:relative;padding-top:53px;display:flex;flex-direction:column;align-items:center}
-  #aede-motion-concepts .ae-server-branches>div:before{content:"";position:absolute;top:0;left:50%;height:36px;width:1px;background:var(--ae-line)}
+  #aede-motion-concepts .ae-server-branches>div:before{content:"";position:absolute;top:0;left:calc(50% - .5px);height:36px;width:1px;background:var(--ae-line)}
   #aede-motion-concepts .ae-server-branches>.ae-server-planned:before{background:none;border-left:1px dashed #53555a}
   #aede-motion-concepts .ae-server-cli>svg{color:var(--ae-accent)}
   #aede-motion-concepts .ae-server-branches svg{display:block;width:21px;height:21px;margin:0 auto 11px}

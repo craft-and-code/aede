@@ -151,10 +151,8 @@ catalog.
 
 ## Which is the same question as "several users"
 
-There will be accounts: the Subsonic surface has them by definition, and Aède's
-own front end will want them. That sounds like a separate, large subject. It is
-not — it is **this** subject, seen from the other side, and the boundary drawn
-above is already the answer:
+The [account model](accounts.md) preserves the owner boundary prepared here.
+Accounts share the catalog and retain personal data under their stable owner:
 
 |                                                                      | Belongs to  | Same for everyone?                  |
 | -------------------------------------------------------------------- | ----------- | ----------------------------------- |
@@ -181,22 +179,18 @@ Keeping that field now avoids having to invent ownership while migrating
 existing personal data later. It is the same approach as `Window` for paging
 and the stable `EntityRef` for annotations: define the general shape early.
 
-That is the whole of what M0 owes the subject, and it costs one field.
-The current commands use the local owner; an `owner` field is not authentication
-or an enforced account boundary. Account management and remote authorization
-are planned after M2 step 9. Subsonic's legacy authentication scheme, if supported,
-must stay inside the compatibility layer rather than reaching the model.
-The working assumption for authorization is that the **library is shared and
-only the annotations are private**: scanning, importing and resetting belong to
-whoever owns the installation, not to a listener. The catalog itself has no
-owner. Each future account-facing read and write must enforce the authenticated
-owner before private data can be exposed.
+M0 prepared ownership; the server now enforces it through [account sessions](../server/accounts.md).
+The first administrator inherits `local`; other accounts receive stable random IDs.
+CLI personal commands remain scoped to `local` as the trusted OS owner. The
+library is shared and annotations private; installation mutations require
+administrator privileges. Compatibility authentication stays outside the model.
 
 ## Storage choices remain independent of accounts
 
 M2 currently retains versioned JSON stores: `catalog.json` for the graph,
 `conclusions.json` for integrity verdicts, fingerprints and imported analyses,
-`user.json` for personal data, and `sources.json` for attributed external data.
+`user.json` for personal data, `sources.json` for attributed external data and
+private `accounts.json` for salted credentials. Sessions stay in bounded process memory.
 Current Aède writers use a shared data-directory lock to coordinate updates.
 SQLite is deferred pending the measurements and deployment budgets described
 in the [storage benchmark](../coding/m2-storage-benchmark.md).

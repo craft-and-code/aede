@@ -458,7 +458,10 @@ fn every_registered_http_route_is_listed_in_the_server_readme() {
                 .strip_prefix('"')
                 .expect("literal route");
             let (path, _) = literal.split_once('"').expect("route closing quote");
-            routes.insert(path.replace(":id", "{id}"));
+            routes.insert(
+                path.replace(":id", "{id}")
+                    .replace(":username", "{username}"),
+            );
         }
     }
     assert!(routes.len() > 20, "route discovery must cover the server");

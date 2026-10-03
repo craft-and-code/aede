@@ -107,6 +107,7 @@ pub(crate) fn sample_state() -> ApiState {
         events,
         shutdown,
         admin: None,
+        auth: Arc::new(auth::AuthState::default()),
         next_task_id: Arc::new(AtomicU64::new(1)),
         websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
         inspection_slots: Arc::new(Semaphore::new(2)),
@@ -175,13 +176,21 @@ pub(crate) struct WebSocketReader {
 }
 
 pub(crate) fn websocket(address: std::net::SocketAddr, path: &str) -> WebSocketReader {
+    websocket_with_headers(address, path, "")
+}
+
+pub(crate) fn websocket_with_headers(
+    address: std::net::SocketAddr,
+    path: &str,
+    headers: &str,
+) -> WebSocketReader {
     let mut stream = std::net::TcpStream::connect(address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
     write!(
         stream,
-        "GET {path} HTTP/1.1\r\nHost: {address}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: {address}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n{headers}\r\n"
     )
     .unwrap();
     let mut received = Vec::new();

@@ -11,6 +11,21 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
+-- Account format 1 in accounts.json; sessions are bounded process memory.
+-- The first administrator keeps owner 'local'. Other owners are independent
+-- of mutable usernames. Do not cascade-delete personal records when disabling
+-- an account or require an account for every preserved legacy owner.
+CREATE TABLE account (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    password_hash TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
 -- ---------------------------------------------------------------------------
 -- Physical files
 -- ---------------------------------------------------------------------------

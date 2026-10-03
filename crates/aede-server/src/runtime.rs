@@ -225,8 +225,8 @@ pub fn serve(
         let (command_listener, command_socket) = delegation::bind_command_socket(data_dir)?;
         let (events, _) = broadcast::channel(32);
         let (shutdown, _) = broadcast::channel(1);
-        let admin = admin_token.map(|token| Admin {
-            token,
+        let admin = Some(Admin {
+            token: admin_token.unwrap_or_default(),
             data_dir: data_dir.to_path_buf(),
             scan: Arc::new(on_scan),
             job: Arc::new(on_job),
@@ -239,6 +239,7 @@ pub fn serve(
             events,
             shutdown,
             admin,
+            auth: Arc::new(auth::AuthState::default()),
             next_task_id: Arc::new(AtomicU64::new(1)),
             websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
             inspection_slots: Arc::new(Semaphore::new(2)),
@@ -246,6 +247,8 @@ pub fn serve(
             #[cfg(unix)]
             tasks: Arc::new(delegation::TaskRegistry::default()),
         };
+        // Refuse malformed credentials before announcing a ready listener.
+        auth::load_accounts(&state).map_err(|failure| failure.message)?;
         let address = listener.local_addr()?;
         on_ready(address);
         run_http(

@@ -4,6 +4,8 @@ restore lit une sauvegarde Aède et présente chaque magasin qu’il peut rempla
 
 Arrêter le serveur pour une récupération réelle. Sauvegarder les données actuelles avant pour revenir en arrière. Pour un essai, utiliser un dossier --data vide distinct et examiner son contenu avant la production. --yes saute volontairement la confirmation.
 
+Restaurer les comptes conserve propriétaires stables et vérificateurs des mots de passe, mais renouvelle l’époque des identifiants pour invalider toutes les anciennes sessions. Les versions 1 et 2, sans comptes, laissent les identifiants existants intacts. Destinations de comptes et archives avec identifiants exigent des permissions Unix privées. [Reset](reset.md) préserve aussi les comptes.
+
 Le catalogue est une photographie de la date de sauvegarde. Exécuter scan ensuite pour rapprocher musique ajoutée/retirée, toutes les racines accessibles. restore ne récupère pas l’audio absent, non inclus. Un fichier illisible ou sans magasin restaurable est refusé.
 
 ## Syntaxe et arguments

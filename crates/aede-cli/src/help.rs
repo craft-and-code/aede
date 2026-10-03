@@ -17,6 +17,10 @@ pub(crate) struct CommandPage {
 
 pub(crate) fn command_page(command: &str) -> CommandPage {
     match command {
+        "accounts" => CommandPage {
+            usage: "aede accounts [list | init <name> | create <name> <admin|user> | password <name> | role <name> <admin|user> | rename <name> <new-name> | enable <name> | disable <name> | revoke <name>] [--password-stdin] [--json]",
+            summary: "Manage local accounts without exposing passwords; the first administrator retains existing personal data.",
+        },
         "scan" => CommandPage {
             usage: "aede scan [folder…]",
             summary: "Read watched music folders into the local catalog.",
@@ -288,6 +292,7 @@ pub fn print_index() {
                        CLI writes delegate to it locally on Unix.
                        Run aede help serve for setup and access limits
   cancel <task-id>     Stop a delegated scan or fetch on the local server
+  accounts            Manage logins, roles and sessions; run aede help accounts
   roots                List the watched folders and the ones never read
                        (--remove <folder> drops a watched folder;
                        --exclude <folder> keeps one out of the catalog for
@@ -876,8 +881,9 @@ fn print_server_help() {
   parameters and examples; docs/api.md defines the compatibility contract.
 
 {}
-  The catalog API is read-only and has no user accounts or audio playback.
-  Other local users can read its metadata and paths. There is no supported
+  Without accounts, catalog reads are anonymous. aede accounts init creates
+  the first administrator and protects catalog access; personal data is scoped
+  to each session. See docs/server/accounts.md. There is no audio playback or
   remote access: do not publish the port through a proxy, tunnel or router.
   Windows path handling is covered by regression tests; native Windows
   validation is still required before release. Local command delegation
@@ -887,9 +893,9 @@ fn print_server_help() {
   AEDE_ADMIN_TOKEN enables POST /api/admin/v1/scan and POST /api/admin/v1/fetch,
   plus authenticated local-owner annotations, history and smart collections.
   Set a private secret of at least 32 ASCII characters before starting the
-  server; without it administrative routes do not exist.
+  server; an administrator account session can also authorize these routes.
   Send Authorization: Bearer <token>, never the secret in a URL or browser
-  page. This token does not enable remote access or listener accounts.
+  page. This token does not enable remote access.
   A JSON body (even an empty object) starts a task and returns 202 + task_id.
   GET /api/admin/v1/tasks/<id> reads its status and bounded command output;
   POST /api/admin/v1/tasks/<id>/cancel requests cancellation with no body.
@@ -901,12 +907,13 @@ fn print_server_help() {
   A normal local CLI scan needs no administrative token.
   Personal writes use PUT /api/admin/v1/annotation?ref=<token>, POST/GET
   /api/admin/v1/history and GET/PUT/DELETE /api/admin/v1/collection?name=<name>.
-  They write user.json for the single local owner, never audio tags. Accounts
-  and persistent playlists are still future work.
+  They write user.json for the local owner, never audio tags. /api/me/v1 uses
+  the authenticated account's owner; persistent playlists remain future work.
 
 {}
   On Unix, write-capable CLI commands from the same account and data directory
   run under the server. Run aede help scan or aede help fetch for cancellation.
+  Account commands instead take the same writer lock locally, without delegation.
   Keep .aede.lock in place: every writer uses it to coordinate saved data.
   Ctrl-C or SIGTERM stops new work and waits for accepted commands to finish;
   a long fetch can delay shutdown. See docs/operating.md for permissions,

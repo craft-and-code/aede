@@ -11,7 +11,7 @@ curl --get 'http://127.0.0.1:8787/api/v1/album' \
   --data-urlencode 'name=Back in Black'
 ```
 
-`GET` consulte les données. `HEAD` renvoie le même statut et les en-têtes sans corps JSON, pour vérifier la disponibilité ; `curl -I URL` effectue un HEAD. Toutes les routes publiques ordinaires acceptent les deux. `POST` soumet une opération, `PUT` met à jour une ressource et `DELETE` la supprime ; ces méthodes n’existent que sur les routes d’administration prévues. Les options CLI `--json`, `--output` ou `--csv` ne sont pas des paramètres HTTP.
+`GET` consulte les données. `HEAD` renvoie statut/en-têtes sans corps ; `curl -I URL` effectue un HEAD. Le catalogue accepte les deux. `POST` soumet une opération, `PUT` met à jour, `PATCH` modifie certains champs de compte et `DELETE` supprime/révoque. Les mutations existent seulement sur les routes administratives, d’authentification et personnelles documentées. Les options CLI `--json`, `--output` ou `--csv` ne sont pas des paramètres HTTP.
 
 ## Lire une page de résultats
 
@@ -64,9 +64,9 @@ Les erreurs d’authentification, de corps JSON et de tâches sont expliquées d
 
 ## La frontière locale
 
-Les lectures publiques ne demandent aucun jeton et peuvent révéler chemins absolus, commentaires et noms aux autres processus/utilisateurs de cet ordinateur. Localhost n’est pas une authentification par utilisateur. Le serveur valide Host et toute Origin fournie contre son adresse et son port réels ; il ne propose ni autorisation entre origines, ni écoute publique, ni TLS, ni comptes.
+Sans [comptes](accounts.md), les lectures du catalogue ne demandent aucun jeton et peuvent révéler chemins, commentaires et noms aux autres processus/utilisateurs. Avec des comptes, elles exigent une session Bearer ou le jeton administratif. Le serveur valide Host et Origin contre son adresse/port local ; aucune autorisation entre origines, écoute publique ou TLS.
 
-N’intégrez jamais le jeton d’administration dans une page web ou une URL. L’administration refuse tout en-tête Origin, même celui d’un navigateur local correspondant. Un futur lecteur/site ne devient pas un client musical distant sûr simplement en plaçant cette API derrière un proxy.
+Aucun secret dans une page web ou URL. Le jeton administratif historique refuse toute Origin ; les sessions suivent la vérification d’origine locale commune. Un futur lecteur/site nécessite encore une conception de connexion/cookies et de transport distant chiffré.
 
 ## Choisir les routes
 

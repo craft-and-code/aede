@@ -11,6 +11,7 @@ pub(super) struct ApiState {
     pub(super) events: broadcast::Sender<CatalogEvent>,
     pub(super) shutdown: broadcast::Sender<()>,
     pub(super) admin: Option<Admin>,
+    pub(super) auth: Arc<auth::AuthState>,
     pub(super) next_task_id: Arc<AtomicU64>,
     pub(super) websocket_slots: Arc<Semaphore>,
     pub(super) inspection_slots: Arc<Semaphore>,

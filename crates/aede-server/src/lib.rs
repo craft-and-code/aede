@@ -61,7 +61,9 @@ const MAX_WEBSOCKETS: usize = 64;
 const MAX_WEBSOCKET_MESSAGE: usize = 1024;
 const WEBSOCKET_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod accounts_api;
 mod admin;
+mod auth;
 mod catalog;
 mod catalog_commands;
 mod errors;
@@ -94,6 +96,9 @@ use state::*;
 
 #[cfg(test)]
 mod test_support;
+
+#[cfg(test)]
+mod accounts_test_support;
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

@@ -1,6 +1,8 @@
 # backup — Sauvegarder les données
 
-backup crée un fichier versionné contenant catalogue, conclusions, données personnelles et preuves de sources lisibles. Il fonctionne même avec seulement certains magasins ; des notes sans catalogue valent aussi une sauvegarde. Le résumé distingue contenu présent, absent ou illisible.
+backup crée un fichier versionné contenant catalogue, conclusions, données personnelles, preuves de sources et comptes lisibles. Il fonctionne même avec seulement certains magasins ; notes ou comptes sans catalogue valent aussi une sauvegarde. Le résumé distingue contenu présent, absent ou illisible.
+
+La version 3 inclut les vérificateurs salés des mots de passe, jamais les sessions. Une sauvegarde avec identifiants exige des permissions Unix privées, y compris pour remplacer une destination existante (`chmod 600`). Les anciennes versions restent lisibles. Voir [accounts](accounts.md).
 
 Choisir un nom explicite et conserver une copie hors de l’ordinateur/NAS. Si ce fichier existe, Aède demande avant de l’écraser ; --yes évite cette question. Un dossier entièrement vide produit une erreur plutôt qu’une sauvegarde trompeuse.
 

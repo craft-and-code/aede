@@ -2,7 +2,7 @@
 //!
 //! Two commands rather than `backup --restore`, and the reason is the one that
 //! renamed `artwork` to `extract`: **a command that writes is named for the
-//! writing.** Restoring replaces up to four stores at once — the most destructive
+//! writing.** Restoring replaces up to five stores at once — the most destructive
 //! thing this program can be asked to do to its own data — and hiding that
 //! direction behind an option on a command called *backup* would put the
 //! dangerous half under the reassuring name.
@@ -21,7 +21,7 @@
 //! in order to protect the rebuildable one would be the wrong trade twice over.
 
 use aede_core::backup::{self, Backup, Part};
-use aede_core::{clock, conclusions, sources, store, user};
+use aede_core::{accounts, clock, conclusions, sources, store, user};
 
 use super::Res;
 use crate::args::Args;
@@ -89,6 +89,7 @@ pub fn backup(args: &Args) -> Res {
         conclusions: gathered,
         user: part(user::load(&user::user_path(&data))),
         sources: part(sources::load_all(&sources::sources_path(&data))),
+        accounts: part(accounts::load(&accounts::accounts_path(&data))),
     };
 
     // The same store summary a restore prints, from the same function, so the two
@@ -103,7 +104,7 @@ pub fn backup(args: &Args) -> Res {
         // reader that the command works — which is precisely the belief that
         // costs them the library later.
         return Err(format!(
-            "nothing to back up: {} holds no catalog, conclusions, notes or fetched facts",
+            "nothing to back up: {} holds no catalog, conclusions, notes, fetched facts or accounts",
             data.display()
         )
         .into());
@@ -151,6 +152,7 @@ pub fn restore(args: &Args) -> Res {
         conclusions::conclusions_path(&data),
         user::user_path(&data),
         sources::sources_path(&data),
+        accounts::accounts_path(&data),
     ];
     preflight_restore(&held, &path, &data, &into)?;
     let mut writing = 0usize;
@@ -185,6 +187,17 @@ pub fn restore(args: &Args) -> Res {
         return Err("nothing was restored".into());
     }
 
+    // Prepare the fresh epoch before replacing any store. Restoring credentials
+    // must never make an old bearer session valid again, even in a running server.
+    let restored_accounts = held
+        .accounts
+        .held()
+        .map(|original| {
+            let mut accounts = original.clone();
+            accounts.revoke_all().map(|()| accounts)
+        })
+        .transpose()?;
+
     if let Some(catalog) = held.catalog.held() {
         store::save_catalog_only(catalog, &store::catalog_path(&data))?;
     }
@@ -196,6 +209,9 @@ pub fn restore(args: &Args) -> Res {
     }
     if let Some(layer) = held.sources.held() {
         sources::save(layer, &sources::sources_path(&data))?;
+    }
+    if let Some(accounts) = restored_accounts.as_ref() {
+        accounts::save(accounts, &accounts::accounts_path(&data))?;
     }
     println!(
         "{} {} restored",
@@ -211,12 +227,12 @@ pub fn restore(args: &Args) -> Res {
 
 /// Rejects known-invalid destinations before any store can be replaced.
 /// Each subsequent save is atomic on its own, but an unexpected later I/O
-/// failure can still leave a partial restore across the four separate files.
+/// failure can still leave a partial restore across the five separate files.
 fn preflight_restore(
     held: &Backup,
     archive: &std::path::Path,
     data: &std::path::Path,
-    into: &[std::path::PathBuf; 4],
+    into: &[std::path::PathBuf; 5],
 ) -> Res {
     let data = data.canonicalize()?;
     let archive = archive.canonicalize()?;
@@ -225,7 +241,11 @@ fn preflight_restore(
         held.conclusions.held().is_some(),
         held.user.held().is_some(),
         held.sources.held().is_some(),
+        held.accounts.held().is_some(),
     ];
+    if held.accounts.held().is_some() {
+        accounts::check_private_file(&accounts::accounts_path(&data))?;
+    }
     for (path, write) in into.iter().zip(writing) {
         if !write {
             continue;
@@ -323,15 +343,15 @@ impl Doing {
     }
 }
 
-/// The four stores of a backup, named and described, in a fixed order.
+/// The five stores of a backup, named and described, in a fixed order.
 ///
 /// **One function for both commands.** `backup` and `restore` talk about the
-/// same four things, and two lists of wording would have drifted the first
+/// same five things, and two lists of wording would have drifted the first
 /// time a field was added to one of them — the same reason the role vocabulary
 /// is one table read in both directions. Only the words for "there is none"
 /// differ, because they mean different things on the way out and on the way in,
 /// so that one is passed in.
-fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 4] {
+fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 5] {
     [
         ("catalog", state(&held.catalog, catalog_of, nothing)),
         (
@@ -342,6 +362,14 @@ fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 4] {
         (
             "what sources said",
             state(&held.sources, sources_of, nothing),
+        ),
+        (
+            "accounts",
+            state(
+                &held.accounts,
+                |accounts| ui::plural(accounts.all().len(), "account"),
+                nothing,
+            ),
         ),
     ]
 }

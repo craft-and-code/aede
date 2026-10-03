@@ -11,7 +11,7 @@ curl --get 'http://127.0.0.1:8787/api/v1/album' \
   --data-urlencode 'name=Back in Black'
 ```
 
-`GET` reads data. `HEAD` returns the same status and headers without the JSON body, useful for checking availability; `curl -I URL` issues HEAD. Public ordinary routes support both. `POST` submits an operation, `PUT` updates a resource, and `DELETE` removes one; these methods exist only on the explicit administrative routes. CLI options such as `--json`, `--output` or `--csv` are not HTTP parameters.
+`GET` reads data. `HEAD` returns the same status/headers without a body; `curl -I URL` issues HEAD. Catalog routes support both. `POST` submits an operation, `PUT` updates, `PATCH` changes selected account fields and `DELETE` removes/revokes. Mutations exist only on documented administrative, authentication and personal routes. CLI options such as `--json`, `--output` or `--csv` are not HTTP parameters.
 
 ## Decode a page
 
@@ -64,9 +64,9 @@ Administrative authentication, body validation and task-specific errors are expl
 
 ## Local access boundary
 
-Public reads need no token and may reveal absolute music paths, comments and names to other processes/users on this computer. Localhost is not per-user authentication. The server validates Host and any supplied Origin against its actual local address and port, provides no cross-origin permission, and offers no public binding/TLS/account configuration.
+Without [accounts](accounts.md), catalog reads need no token and may reveal music paths, comments and names to other processes/users on this computer. Account mode requires a bearer session or administrative token on catalog reads. The server validates Host and supplied Origin against its local address/port and provides no cross-origin permission, public binding or TLS.
 
-Never embed an administrative token in a web page or URL. Current administration refuses every Origin header, including a matching local browser origin. A future website/player cannot safely become a remote music client merely by placing the current API behind a proxy.
+Never embed a secret in a web page or URL. Legacy administrative-token requests refuse every Origin header; account sessions follow the shared local-origin check. A future website/player still needs its own login/cookie and encrypted remote-transport design.
 
 ## Route map
 

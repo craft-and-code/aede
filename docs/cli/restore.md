@@ -4,6 +4,8 @@ restore reads an Aède backup bundle and explains each store it can replace befo
 
 Stop the server first for a production recovery. Save the current data directory/bundle before restoring so you can go back. For a rehearsal, use a separate empty --data directory and inspect its contents before touching production. --yes skips the confirmation deliberately.
 
+Restoring accounts preserves their stable owners and password verifiers, but rotates the credential epoch to invalidate all previous sessions. Versions 1 and 2 contain no accounts and leave existing credentials untouched. Account destinations and credential archives must have private Unix permissions. [Reset](reset.md) also preserves accounts.
+
 The catalog is the snapshot taken on the backup date. Run scan afterward to reconcile added/removed music, with all original roots reachable. Restore cannot recover missing audio because audio is not in the bundle. An unreadable bundle or one with no supported restorable store is refused.
 
 ## Syntax and arguments

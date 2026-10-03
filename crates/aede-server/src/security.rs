@@ -10,7 +10,21 @@ pub(super) fn require_admin<'a>(
         .admin
         .as_ref()
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "not_found", "unknown API route"))?;
-    if !authorized(request.headers(), &admin.token) {
+    if admin.token.is_empty() || !authorized(request.headers(), &admin.token) {
+        if request
+            .extensions()
+            .get::<auth::Principal>()
+            .is_some_and(|principal| principal.role == aede_core::accounts::Role::Administrator)
+        {
+            return Ok(admin);
+        }
+        if request.extensions().get::<auth::Principal>().is_some() {
+            return Err(error(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "an administrator account is required",
+            ));
+        }
         return Err(error(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
@@ -21,6 +35,9 @@ pub(super) fn require_admin<'a>(
 }
 
 pub(super) fn authorized(headers: &HeaderMap, token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
     // Browser-originated requests have no reason to use the administrative API.
     // Reject them even when a page somehow obtains the bearer token.
     if headers.contains_key(header::ORIGIN) {

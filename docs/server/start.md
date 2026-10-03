@@ -1,6 +1,6 @@
 # Start the local server
 
-Aède's server gives other programs access to your local music **catalog**: albums, artists, tracks, relationships and diagnostics. It answers HTTP requests with JSON and publishes change notifications over WebSocket. It currently does not send audio to a phone, provide listener accounts or offer remote playback.
+Aède's server gives other programs access to your local music **catalog**: albums, artists, tracks, relationships and diagnostics. It answers HTTP requests with JSON and publishes change notifications over WebSocket. Optional [accounts and sessions](accounts.md) protect access and isolate personal data. Audio transmission and remote playback remain future work.
 
 ## Before starting
 

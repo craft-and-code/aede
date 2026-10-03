@@ -44,11 +44,9 @@ pub const USER_FILE: &str = "user.json";
 
 /// Whose opinion it is.
 ///
-/// There is one owner today and there will be several: the Subsonic surface has
-/// accounts by definition, and starred items are per user in that API. The
-/// field is here from the first version so that arriving at that point is a new
-/// value rather than a migration — the single-user case being the multi-user
-/// case with one user, on the same code path, exercised on every run.
+/// Every personal table is scoped by a stable owner from its first version.
+/// Account sessions use immutable account IDs; the CLI and first administrator
+/// retain [`LOCAL_USER`]. A mutable login name is never a personal owner.
 pub type UserRef = String;
 
 /// The owner of a library nobody has named yet.

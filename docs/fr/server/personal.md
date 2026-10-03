@@ -1,6 +1,6 @@
 # Annotations, historique et collections personnels
 
-Ces routes exigent [l’authentification d’administration](administration.md) pour lire **et** écrire, refusent Origin et visent le propriétaire `local` existant. Elles ne créent pas de comptes multiples. Elles lisent catalogue actuel sur disque et `user.json` sous verrou pour valider les cibles et sauvegarder atomiquement dans une même version complète du catalogue.
+Ces routes administratives exigent [l’authentification d’administration](administration.md) et visent `local`. Les [sessions de comptes](accounts.md) emploient les mêmes opérations sous `/api/me/v1`, liées à leur propriétaire authentifié. Aucune requête ne choisit un autre propriétaire. Catalogue sur disque et `user.json` sont lus sous verrou pour valider et publier dans une même version complète.
 
 ## GET /api/admin/v1/annotation
 

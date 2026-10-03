@@ -1,5 +1,14 @@
 [
   {
+    "slug": "cli/accounts",
+    "section": "cli",
+    "title": { "en": "accounts — Manage local accounts", "fr": "accounts — Gérer les comptes locaux" },
+    "description": { "en": "Create accounts, manage roles and passwords, and revoke sessions.", "fr": "Créer les comptes, gérer rôles et mots de passe, révoquer les sessions." },
+    "source": { "en": "docs/cli/accounts.md", "fr": "docs/fr/cli/accounts.md" },
+    "command": "accounts",
+    "group": "maintenance"
+  },
+  {
     "slug": "manual/install",
     "section": "manual",
     "title": {

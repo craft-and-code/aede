@@ -1,5 +1,12 @@
 [
   {
+    "slug": "server/accounts",
+    "section": "server",
+    "title": { "en": "Accounts and sessions", "fr": "Comptes et sessions" },
+    "description": { "en": "Authenticate local clients, manage accounts and keep personal data isolated.", "fr": "Authentifier les clients locaux, gérer les comptes et isoler les données personnelles." },
+    "source": { "en": "docs/server/accounts.md", "fr": "docs/fr/server/accounts.md" }
+  },
+  {
     "slug": "server/start",
     "section": "server",
     "title": {

@@ -51,6 +51,7 @@ impl Fixture {
                 conclusions: Part::Held(conclusions::Conclusions::default()),
                 user: Part::Held(user::UserData::default()),
                 sources: Part::Held(sources::Sources::default()),
+                accounts: Part::Empty,
             },
             path,
         )

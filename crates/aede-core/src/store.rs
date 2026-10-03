@@ -63,6 +63,10 @@ pub enum StoreError {
     Invalid(&'static str),
     /// A malformed row in the conclusions store.
     ConclusionsInvalid(&'static str),
+    /// Private credential document could not be parsed.
+    AccountsParse(json::ParseError),
+    /// Account metadata or credential policy is inconsistent.
+    AccountsInvalid(&'static str),
 }
 
 impl std::fmt::Display for StoreError {
@@ -80,6 +84,8 @@ impl std::fmt::Display for StoreError {
                 write!(f, "conclusions in version {found}, expected {expected}")
             }
             StoreError::ConclusionsInvalid(what) => write!(f, "inconsistent conclusions: {what}"),
+            StoreError::AccountsParse(what) => write!(f, "unreadable accounts: {what}"),
+            StoreError::AccountsInvalid(what) => write!(f, "inconsistent accounts: {what}"),
         }
     }
 }

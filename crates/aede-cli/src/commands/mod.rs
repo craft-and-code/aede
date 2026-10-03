@@ -3,6 +3,7 @@
 //! One module per group of related commands. Everything they share — where the
 //! catalog lives, how it is loaded, how a role is spelled out — stays here.
 
+mod accounts;
 mod album;
 mod analyze;
 mod annotate;
@@ -52,6 +53,7 @@ mod summaries;
 mod track;
 mod work;
 
+pub use accounts::accounts;
 pub use album::show_album;
 pub use analyze::analyze;
 use annotate::panel_for;

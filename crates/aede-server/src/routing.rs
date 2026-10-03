@@ -14,6 +14,8 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
         .route("/api/v1/entities", get(entity))
         .route("/api/v1/events", get(events))
         .route("/api/v1/activity", get(activity))
+        .merge(accounts_api::routes())
+        .merge(personal::account_routes())
         .merge(catalog_commands::routes())
         .merge(inspection::routes());
     if admin_enabled {
@@ -25,6 +27,10 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
     routes
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(not_found)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::enforce_accounts,
+        ))
         .layer(middleware::from_fn_with_state(
             address,
             enforce_local_origin,

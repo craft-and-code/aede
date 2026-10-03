@@ -245,7 +245,9 @@ fn main() {
         eprintln!("{} {}", ui::red("Error:"), ui::literal(&error.to_string()));
         std::process::exit(1);
     }
-    if mutates_store_with_args(command, &args) && std::env::var_os("AEDE_DELEGATED_CHILD").is_none()
+    if command != "accounts"
+        && mutates_store_with_args(command, &args)
+        && std::env::var_os("AEDE_DELEGATED_CHILD").is_none()
     {
         match delegation::try_delegate(&args, std::env::args().skip(1).collect()) {
             Ok(Some(code)) => std::process::exit(code),
@@ -319,6 +321,12 @@ fn mutates_store(command: &str) -> bool {
 }
 
 fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
+    if command == "accounts" {
+        return args
+            .positionals
+            .first()
+            .is_some_and(|operation| operation != "list");
+    }
     if matches!(
         command,
         "scan" | "notes" | "fetch" | "fingerprint" | "extract"
@@ -365,6 +373,7 @@ fn checks_label_online(command: &str, args: &args::Args) -> bool {
 /// At module level rather than inside `main` so that a test can read it, for
 /// the reason written on [`OPTION_SCOPE`].
 const OPTIONS: &[&str] = &[
+    "password-stdin",
     "data",
     "port",
     "replace",
@@ -484,6 +493,11 @@ const OPTIONS: &[&str] = &[
 /// advises `aede fetch --artists` when `--artists` belongs to `playlist` is an
 /// option nobody can type, and only something comparing the two can notice.
 const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
+    (
+        "password-stdin",
+        &["accounts"],
+        "read an account password from redirected input",
+    ),
     ("online", &["label"], "check a label's Discogs profile now"),
     (
         "offline",
@@ -885,6 +899,7 @@ const MEMBER_COMMANDS: &[&str] = &["artist"];
 /// against it, and a command added in one place cannot hide from the other.
 type Command = fn(&Args) -> commands::Res;
 const COMMANDS: &[(&str, Option<&str>, Command)] = &[
+    ("accounts", None, commands::accounts),
     ("scan", None, commands::scan),
     ("serve", None, commands::serve),
     ("cancel", None, commands::cancel),
@@ -974,6 +989,7 @@ const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 /// `--json` used to be declared globally and read by four commands, so
 /// `aede albums --json` printed the ordinary table and dropped the word.
 const JSON_COMMANDS: &[&str] = &[
+    "accounts",
     "scan",
     "analyze",
     "export",

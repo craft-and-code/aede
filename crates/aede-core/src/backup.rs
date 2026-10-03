@@ -1,15 +1,16 @@
 //! One file holding everything Aède knows, so that a disk failure costs a scan
 //! and not a year of listening.
 //!
-//! Four independently versioned stores are nested whole: the mostly derived
+//! Five independently versioned stores are nested whole: the mostly derived
 //! catalog (which also holds watched roots), costly byte-level conclusions,
-//! irreplaceable user statements, and slowly re-fetchable external sources.
+//! irreplaceable user statements, slowly re-fetchable external sources, and
+//! private account credentials. Versions 1 and 2 carry no accounts.
 //! A version-1 envelope is still accepted: its embedded legacy conclusions
 //! are extracted into the fourth store before restoration.
 //!
 //! # A document of documents, and why that matters
 //!
-//! The four are nested **as they are**, each keeping its own `format_version`
+//! The five are nested **as they are**, each keeping its own `format_version`
 //! and read back by its own `from_json`. Nothing here re-encodes a catalog, so
 //! a field added to the catalog tomorrow is in the backup tomorrow, with no
 //! second writer to forget it — the fault that would otherwise be discovered
@@ -29,6 +30,7 @@
 
 use std::path::Path;
 
+use crate::accounts::Accounts;
 use crate::conclusions::Conclusions;
 use crate::json::Json;
 use crate::model::Catalog;
@@ -41,7 +43,7 @@ use crate::user::UserData;
 /// It changes when the *shape of the envelope* changes — a fourth store, a
 /// renamed field — and not when a store inside it moves, because each of those
 /// carries its own version and answers for itself.
-pub const BACKUP_FORMAT_VERSION: u32 = 2;
+pub const BACKUP_FORMAT_VERSION: u32 = 3;
 
 /// One store inside a backup, and what this build can do with it.
 ///
@@ -102,7 +104,7 @@ pub struct Backup {
     /// The version of Aède that wrote it.
     ///
     /// For a reader, not for the program: nothing branches on it, because the
-    /// four stores each state their own format and a version string is a poor
+    /// five stores each state their own format and a version string is a poor
     /// substitute for that. What it answers is "which build made this", which
     /// is the first question asked of a file that will not restore.
     pub made_by: String,
@@ -114,6 +116,8 @@ pub struct Backup {
     pub user: Part<UserData>,
     /// What other sources said. Re-fetchable, slowly.
     pub sources: Part<Sources>,
+    /// Private salted password verifiers and stable personal owners; no sessions.
+    pub accounts: Part<Accounts>,
 }
 
 impl Backup {
@@ -127,10 +131,11 @@ impl Backup {
             && self.conclusions.held().is_none()
             && self.user.held().is_none()
             && self.sources.held().is_none()
+            && self.accounts.held().is_none()
     }
 }
 
-/// The envelope, with the four documents nested unchanged.
+/// The envelope, with the five documents nested unchanged.
 pub fn to_json(backup: &Backup) -> Json {
     let mut root = Json::obj();
     root.set("format_version", BACKUP_FORMAT_VERSION.into());
@@ -166,18 +171,25 @@ pub fn to_json(backup: &Backup) -> Json {
             None => Json::Null,
         },
     );
+    root.set(
+        "accounts",
+        match backup.accounts.held() {
+            Some(accounts) => crate::accounts::to_json(accounts),
+            None => Json::Null,
+        },
+    );
     root
 }
 
 /// Reads back what [`to_json`] wrote.
 ///
-/// Versions 1 and 2 are understood; other envelope shapes are refused rather
+/// Versions 1, 2 and 3 are understood; other envelope shapes are refused rather
 /// than guessed at. A *store* inside a readable
 /// envelope is never fatal: it comes back as [`Part::Unreadable`] with what its
 /// own reader said, and the other stores remain restorable.
 pub fn from_json(value: &Json) -> Result<Backup, StoreError> {
     let found = value.field_u32("format_version").unwrap_or(0);
-    if found != BACKUP_FORMAT_VERSION && found != 1 {
+    if !matches!(found, 1..=3) {
         return Err(StoreError::Version {
             found,
             expected: BACKUP_FORMAT_VERSION,
@@ -206,6 +218,11 @@ pub fn from_json(value: &Json) -> Result<Backup, StoreError> {
         conclusions,
         user: Part::read(value, "user", crate::user::from_json)?,
         sources: Part::read(value, "sources", crate::sources::from_json)?,
+        accounts: if found >= 3 {
+            Part::read(value, "accounts", crate::accounts::from_json)?
+        } else {
+            Part::Empty
+        },
     })
 }
 
@@ -218,6 +235,9 @@ pub fn from_json(value: &Json) -> Result<Backup, StoreError> {
 /// to the CLI. This does not guarantee power-loss durability or protect against
 /// another process concurrently replacing ancestor directories.
 pub fn write(backup: &Backup, path: &Path) -> Result<(), StoreError> {
+    if !matches!(backup.accounts, Part::Empty) {
+        crate::accounts::check_private_file(path)?;
+    }
     let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -237,6 +257,7 @@ pub fn write(backup: &Backup, path: &Path) -> Result<(), StoreError> {
 }
 
 /// Reads a backup from an ordinary local file, refusing blocking special files.
+/// A backup with credentials also requires a private, non-symlink source.
 pub fn read(path: &Path) -> Result<Backup, StoreError> {
     if !std::fs::metadata(path)?.is_file() {
         return Err(std::io::Error::new(
@@ -247,7 +268,11 @@ pub fn read(path: &Path) -> Result<Backup, StoreError> {
     }
     let text = std::fs::read_to_string(path)?;
     let value = crate::json::parse(&text).map_err(StoreError::Parse)?;
-    from_json(&value)
+    let backup = from_json(&value)?;
+    if !matches!(backup.accounts, Part::Empty) {
+        crate::accounts::check_private_file(path)?;
+    }
+    Ok(backup)
 }
 
 #[cfg(test)]

@@ -90,6 +90,7 @@ fn command_test_state() -> ApiState {
         events,
         shutdown,
         admin: None,
+        auth: Arc::new(crate::auth::AuthState::default()),
         next_task_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         tasks: Arc::new(TaskRegistry::default()),
         websocket_slots: Arc::new(tokio::sync::Semaphore::new(64)),

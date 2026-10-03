@@ -131,6 +131,7 @@ aede doctor
 | `aede roots`  | `[paths...]` | `--exclude <path>`, `--remove`, `--no-scan` | Display, add, or exclude watched storage directories.                                       |
 | `aede scan`   | `[path]`     | `--full`, `--dry-run`, `--json`             | Traverses roots to index audio files, tags, and structure.                                  |
 | `aede serve`  | None         | `--port <N>`                                | Runs the loopback-only catalog API and coordinates Unix CLI writes.                        |
+| `aede accounts` | `list`, `init`, `create`, `password`, `role`, `rename`, `enable`, `disable`, `revoke` | `--password-stdin`, `--json` | Manages local accounts, roles and session revocation; preserves existing personal ownership. |
 | `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
 | `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
 | `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
@@ -333,7 +334,7 @@ disappears; `aede doctor --severity=info` then makes it visible.
 | `aede tag`     | `<entity> <name>` | `<tag_name>`, `--remove`                                | Assigns or removes custom tags.                                              |
 | `aede notes`   | None              | `--export`, `--import`, `--output=<file>`               | Backs up or restores user annotations across systems.                        |
 | `aede rules`   | None              | `--export`, `--import`, `--output=<file>`               | Lists or transports reproducible decisions without copying fetched prose or listening history. |
-| `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, conclusions, user annotations, and remote sources into a backup payload. |
+| `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, conclusions, user annotations, remote sources and private account credentials. |
 | `aede restore` | `<file.json>`     | `--yes`                                                 | Restores vault state from a versioned Aède backup bundle.                    |
 
 `aede export --graph --output=graph.json` is the complete local-first export:
@@ -465,6 +466,8 @@ Complete guides to Aède's features and architecture:
 
 - [Library Fundamentals](docs/library.md) — Overview of the catalog structure
 - [Local API](docs/api.md) — HTTP/JSON endpoints, catalog change events and task activity
+- [Accounts and sessions](docs/server/accounts.md) — Local authentication, roles and private personal data; [CLI management](docs/cli/accounts.md)
+- [Account design](docs/design/accounts.md) — Stable owners, credential policy, session limits and backup compatibility
 - [Server route reference](crates/aede-server/README.md) — All available routes, parameters, scan/fetch jobs and examples
 - [Operating the Local Server](docs/operating.md) — Startup, backups, CLI coexistence and NAS security limits
 - [Querying](docs/querying.md) — Complete query language and syntax

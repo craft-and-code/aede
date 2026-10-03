@@ -159,6 +159,35 @@ fn whole() -> Backup {
         conclusions: Part::Held(Conclusions::default()),
         user: Part::Held(user()),
         sources: Part::Held(sources()),
+        accounts: Part::Empty,
+    }
+}
+
+#[test]
+fn credentials_are_independently_versioned_and_old_envelopes_hold_none() {
+    let accounts =
+        crate::accounts::Accounts::bootstrap("operator", "a long test passphrase", 10).unwrap();
+    let mut backup = whole();
+    backup.accounts = Part::Held(accounts.clone());
+    let mut document = to_json(&backup);
+    assert_eq!(
+        document.get("accounts"),
+        Some(&crate::accounts::to_json(&accounts))
+    );
+    assert_eq!(
+        from_json(&document).unwrap().accounts.held(),
+        Some(&accounts)
+    );
+    document.set("accounts", Json::obj());
+    let readable = from_json(&document).unwrap();
+    assert!(matches!(readable.accounts, Part::Unreadable(_)));
+    assert!(readable.user.held().is_some());
+    for version in [1_u32, 2] {
+        document.set("format_version", version.into());
+        assert!(matches!(
+            from_json(&document).unwrap().accounts,
+            Part::Empty
+        ));
     }
 }
 
@@ -243,6 +272,7 @@ fn a_store_that_did_not_exist_is_written_as_null_and_read_as_nothing() {
         conclusions: Part::Empty,
         user: Part::Held(user()),
         sources: Part::Empty,
+        accounts: Part::Empty,
     };
     let document = to_json(&thin);
     // Written rather than left out: a key that is simply absent cannot be told
@@ -269,6 +299,7 @@ fn a_backup_of_nothing_at_all_says_so() {
         conclusions: Part::Empty,
         user: Part::Empty,
         sources: Part::Empty,
+        accounts: Part::Empty,
     };
     assert!(nothing.is_empty());
     assert!(!whole().is_empty());

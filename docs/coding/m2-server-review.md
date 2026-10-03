@@ -23,6 +23,10 @@ These changes harden the current local service. They do not implement accounts, 
 
 ## CLI-shaped route extension
 
+The later [account foundation](../design/accounts.md) implements local account isolation, administrator/user roles, Argon2id credentials, bounded bearer sessions, expiry/revocation and WebSocket termination. The first administrator retains `local`; personal API operations derive the owner from authentication and recheck it under the writer lock. Version-3 backups include private credentials and rotate the epoch on restore. Account commands stay in the trusted OS-owner CLI and are never delegated. The earlier findings and verification numbers below describe their original review snapshot.
+
+The listener remains loopback-only. Encrypted remote transport, target-NAS cost/connection budgets, browser login transport and audio delivery remain outstanding; the local account foundation does not establish supported remote deployment. See the [current route reference](../server/accounts.md).
+
 The subsequent [route expansion](../../crates/aede-server/README.md) adds offline navigation/inspection and typed administrative scan/fetch jobs without changing the local-only access boundary. The bodyless scan remains synchronous; an explicitly validated JSON object now selects asynchronous work, so the earlier blanket nonempty-body rejection above describes the corrective-pass snapshot, not the extended contract. Unknown fields and unsupported options are still refused.
 
 New navigation/inspection shares two blocking-worker slots, bounded query complexity and paginated results. Doctor reads current conclusions under the writer lock; corrupt source data is an error rather than a fabricated unknown origin. Personal query predicates and user stores remain outside unauthenticated reads. Existing original list routes still need broader request-cost controls before remote access.

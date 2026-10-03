@@ -167,6 +167,7 @@ pub(super) fn preflight_path(args: &Args, path: &Path, role: &str) -> Res {
         aede_core::user::USER_FILE,
         aede_core::sources::SOURCES_FILE,
         aede_core::conclusions::CONCLUSIONS_FILE,
+        aede_core::accounts::ACCOUNTS_FILE,
         ".aede.lock",
         ".aede-server.lock",
     ] {

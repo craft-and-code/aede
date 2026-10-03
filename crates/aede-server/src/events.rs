@@ -43,21 +43,42 @@ pub(super) enum CatalogEvent {
 pub(super) async fn events(
     ws: WebSocketUpgrade,
     State(state): State<ApiState>,
+    principal: Option<axum::Extension<auth::Principal>>,
+    admin: Option<axum::Extension<auth::AdministrativeAccess>>,
 ) -> Result<Response, ApiError> {
-    upgrade_notifications(ws, state, false)
+    upgrade_notifications(
+        ws,
+        state,
+        false,
+        auth::SocketIdentity {
+            session: principal.map(|p| p.0),
+            administrative: admin.is_some(),
+        },
+    )
 }
 
 pub(super) async fn activity(
     ws: WebSocketUpgrade,
     State(state): State<ApiState>,
+    principal: Option<axum::Extension<auth::Principal>>,
+    admin: Option<axum::Extension<auth::AdministrativeAccess>>,
 ) -> Result<Response, ApiError> {
-    upgrade_notifications(ws, state, true)
+    upgrade_notifications(
+        ws,
+        state,
+        true,
+        auth::SocketIdentity {
+            session: principal.map(|p| p.0),
+            administrative: admin.is_some(),
+        },
+    )
 }
 
 pub(super) fn upgrade_notifications(
     ws: WebSocketUpgrade,
     state: ApiState,
     include_tasks: bool,
+    identity: auth::SocketIdentity,
 ) -> Result<Response, ApiError> {
     let permit = state
         .websocket_slots
@@ -75,26 +96,44 @@ pub(super) fn upgrade_notifications(
         .max_frame_size(MAX_WEBSOCKET_MESSAGE)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
-            event_stream(socket, state, include_tasks).await;
+            event_stream(socket, state, include_tasks, identity).await;
         }))
 }
 
-pub(super) async fn event_stream(mut socket: WebSocket, state: ApiState, include_tasks: bool) {
+pub(super) async fn event_stream(
+    mut socket: WebSocket,
+    state: ApiState,
+    include_tasks: bool,
+    identity: auth::SocketIdentity,
+) {
+    if !auth::socket_live(&state, &identity).await {
+        return;
+    }
     let mut receiver = state.events.subscribe();
     let mut shutdown = state.shutdown.subscribe();
     let scanned_at = state.catalog.read().await.as_ref().map(|c| c.scanned_at);
     let initial = CatalogEvent::Snapshot { scanned_at };
+    let mut authorization = tokio::time::interval(Duration::from_secs(1));
     if send_event(&mut socket, &initial).await.is_err() {
         return;
     }
     loop {
         tokio::select! {
+            _ = authorization.tick() => {
+                if !auth::socket_live(&state, &identity).await {
+                    let _ = send_message(&mut socket, Message::Close(Some(CloseFrame {
+                        code: close_code::POLICY, reason: "authentication expired or was revoked".into(),
+                    }))).await;
+                    break;
+                }
+            }
             _ = shutdown.recv() => {
                 let _ = send_message(&mut socket, Message::Close(None)).await;
                 break;
             }
             event = receiver.recv() => match event {
                 Ok(event) => {
+                    if !auth::socket_live(&state, &identity).await { break; }
                     if (include_tasks || matches!(event, CatalogEvent::CatalogChanged { .. }))
                         && send_event(&mut socket, &event).await.is_err()
                     {

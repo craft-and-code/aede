@@ -1,9 +1,7 @@
-//! Authenticated single-owner writes to the existing personal-data store.
+//! Personal reads and writes bound to the authenticated account's owner.
 //!
-//! Accounts are intentionally not invented here: until they exist, every route
-//! below addresses the already established local owner. The administrative
-//! token is required for both reads and writes, and these routes are never
-//! part of the public catalog API.
+//! Transitional administrative routes retain the explicit local-owner scope.
+//! The account routes share these operations and never accept an owner field.
 
 use std::collections::BTreeSet;
 
@@ -37,6 +35,70 @@ pub(super) fn routes() -> Router<ApiState> {
                 .delete(delete_collection),
         )
         .route("/api/admin/v1/collections", get(collections))
+}
+
+pub(super) fn account_routes() -> Router<ApiState> {
+    Router::new()
+        .route(
+            "/api/me/v1/annotation",
+            get(annotation).put(update_annotation),
+        )
+        .route("/api/me/v1/history", get(history).post(record_history))
+        .route(
+            "/api/me/v1/collection",
+            get(collection)
+                .put(save_collection)
+                .delete(delete_collection),
+        )
+        .route("/api/me/v1/collections", get(collections))
+}
+
+struct PersonalOwner {
+    id: String,
+    principal: Option<auth::Principal>,
+}
+
+fn spawn_personal<T: Send + 'static>(
+    slots: Arc<Semaphore>,
+    work: impl FnOnce() -> Result<T, ApiError> + Send + 'static,
+) -> Result<tokio::task::JoinHandle<Result<T, ApiError>>, ApiError> {
+    let permit = slots.try_acquire_owned().map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "personal_busy",
+            "personal data workers are busy; retry shortly",
+        )
+    })?;
+    Ok(tokio::task::spawn_blocking(move || {
+        // Keep the slot until the blocking work finishes even if HTTP disconnects.
+        let _permit = permit;
+        work()
+    }))
+}
+
+impl PersonalOwner {
+    fn from_request(state: &ApiState, request: &Request) -> Result<Self, ApiError> {
+        if request.uri().path().starts_with("/api/admin/v1/") {
+            require_admin(state, request)?;
+            Ok(Self {
+                id: LOCAL_USER.into(),
+                principal: request.extensions().get::<auth::Principal>().cloned(),
+            })
+        } else {
+            let principal = auth::request_principal(request)?;
+            Ok(Self {
+                id: principal.owner.clone(),
+                principal: Some(principal),
+            })
+        }
+    }
+
+    fn recheck(&self, state: &ApiState) -> Result<(), ApiError> {
+        match &self.principal {
+            Some(principal) => auth::recheck(state, principal),
+            None => Ok(()),
+        }
+    }
 }
 
 #[derive(Default, Deserialize)]
@@ -181,14 +243,14 @@ fn parsed_query<T>(input: Result<Query<T>, QueryRejection>) -> Result<T, ApiErro
         .map_err(|rejection| invalid_query(rejection.body_text()))
 }
 
-fn no_query(request: &Request) -> Result<(), ApiError> {
+pub(super) fn no_query(request: &Request) -> Result<(), ApiError> {
     if request.uri().query().is_some_and(|query| !query.is_empty()) {
         return Err(invalid_query("this route accepts no query parameters"));
     }
     Ok(())
 }
 
-async fn body(request: Request) -> Result<axum::body::Bytes, ApiError> {
+pub(super) async fn body(request: Request) -> Result<axum::body::Bytes, ApiError> {
     tokio::time::timeout(
         Duration::from_secs(1),
         to_bytes(request.into_body(), MAX_BODY),
@@ -210,7 +272,7 @@ async fn body(request: Request) -> Result<axum::body::Bytes, ApiError> {
     })
 }
 
-async fn json_body<T: DeserializeOwned>(request: Request) -> Result<T, ApiError> {
+pub(super) async fn json_body<T: DeserializeOwned>(request: Request) -> Result<T, ApiError> {
     let bytes = body(request).await?;
     if bytes
         .iter()
@@ -233,7 +295,7 @@ async fn json_body<T: DeserializeOwned>(request: Request) -> Result<T, ApiError>
     })
 }
 
-fn empty_body(bytes: &[u8]) -> Result<(), ApiError> {
+pub(super) fn empty_body(bytes: &[u8]) -> Result<(), ApiError> {
     if bytes.iter().any(|byte| !byte.is_ascii_whitespace()) {
         return Err(error(
             StatusCode::BAD_REQUEST,
@@ -311,9 +373,12 @@ fn locked_personal(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), Ap
 
 fn locked_update<T>(
     data_dir: &Path,
+    state: &ApiState,
+    owner: &PersonalOwner,
     update: impl FnOnce(&Catalog, &mut UserData) -> Result<T, ApiError>,
 ) -> Result<T, ApiError> {
     let (_guard, catalog, mut data) = locked_personal(data_dir)?;
+    owner.recheck(state)?;
     let result = update(&catalog, &mut data)?;
     data.forget_empty();
     user::save(&data, &user::user_path(data_dir)).map_err(|failure| {
@@ -361,18 +426,19 @@ async fn annotation(
     input: Result<Query<RefQuery>, QueryRejection>,
     request: Request,
 ) -> Result<Json<AnnotationResponse>, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let reference = reference(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        owner.recheck(&state)?;
         existing_target(&catalog, &reference)?;
         Ok(Json(AnnotationResponse {
             reference: reference.to_token(),
-            annotation: data.find(LOCAL_USER, &reference).map(annotation_view),
+            annotation: data.find(&owner.id, &reference).map(annotation_view),
         }))
-    })
+    })?
     .await
     .map_err(|_| {
         error(
@@ -388,16 +454,16 @@ async fn update_annotation(
     input: Result<Query<RefQuery>, QueryRejection>,
     request: Request,
 ) -> Result<Json<AnnotationResponse>, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     let patch: AnnotationPatch = json_body(request).await?;
     patch.validate()?;
     let reference = reference(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let now = clock::now_seconds();
-        let saved = locked_update(&data_dir, |catalog, data| {
+        let saved = locked_update(&data_dir, &state, &owner, |catalog, data| {
             existing_target(catalog, &reference)?;
-            let entry = data.entry(LOCAL_USER, &reference, now);
+            let entry = data.entry(&owner.id, &reference, now);
             if let Field::Value(Some(loved)) = patch.loved {
                 entry.loved = loved;
             }
@@ -417,7 +483,7 @@ async fn update_annotation(
             reference: reference.to_token(),
             annotation: (!saved.is_empty()).then(|| annotation_view(&saved)),
         }))
-    })
+    })?
     .await
     .map_err(|_| {
         error(
@@ -444,11 +510,11 @@ fn play_view(data: &UserData, play: &Play) -> PlayView {
         at: play.at,
         ms_played: play.ms_played,
         completed: play.completed,
-        play_count: data.play_count(LOCAL_USER, &play.track),
+        play_count: data.play_count(&play.owner, &play.track),
         last_played: data
             .counts
             .iter()
-            .find(|count| count.owner == LOCAL_USER && count.track == play.track)
+            .find(|count| count.owner == play.owner && count.track == play.track)
             .map(|count| count.last_played)
             .unwrap_or(0),
     }
@@ -463,13 +529,14 @@ struct HistoryResponse {
 fn history_page(
     data: &UserData,
     catalog: &Catalog,
+    owner: &str,
     offset: usize,
     limit: usize,
 ) -> HistoryResponse {
     let items: Vec<_> = data
         .plays
         .iter()
-        .filter(|play| play.owner == LOCAL_USER)
+        .filter(|play| play.owner == owner)
         .rev()
         .map(|play| play_view(data, play))
         .collect();
@@ -493,14 +560,17 @@ async fn history(
     input: Result<Query<PageQuery>, QueryRejection>,
     request: Request,
 ) -> Result<Json<HistoryResponse>, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
-        Ok(Json(history_page(&data, &catalog, offset, limit)))
-    })
+        owner.recheck(&state)?;
+        Ok(Json(history_page(
+            &data, &catalog, &owner.id, offset, limit,
+        )))
+    })?
     .await
     .map_err(|_| {
         error(
@@ -515,18 +585,18 @@ async fn record_history(
     State(state): State<ApiState>,
     request: Request,
 ) -> Result<(StatusCode, Json<PlayView>), ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     no_query(&request)?;
     let input: PlayRequest = json_body(request).await?;
     let now = clock::now_seconds();
     let track = input.validate(now)?;
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let at = input.at.unwrap_or(now);
-        locked_update(&data_dir, |catalog, data| {
+        locked_update(&data_dir, &state, &owner, |catalog, data| {
             existing_target(catalog, &track)?;
             let play = Play {
-                owner: LOCAL_USER.into(),
+                owner: owner.id.clone(),
                 track: track.clone(),
                 at,
                 ms_played: input.ms_played,
@@ -536,7 +606,7 @@ async fn record_history(
             Ok(play_view(data, &play))
         })
         .map(|view| (StatusCode::CREATED, Json(view)))
-    })
+    })?
     .await
     .map_err(|_| {
         error(
@@ -569,16 +639,17 @@ async fn collection(
     input: Result<Query<NameQuery>, QueryRejection>,
     request: Request,
 ) -> Result<Json<CollectionView>, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
     if query.name.trim().is_empty() {
         return Err(invalid_query("name must contain text"));
     }
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, _catalog, data) = locked_personal(&data_dir)?;
-        data.collection(LOCAL_USER, &query.name)
+        owner.recheck(&state)?;
+        data.collection(&owner.id, &query.name)
             .map(collection_view)
             .map(Json)
             .ok_or_else(|| {
@@ -588,7 +659,7 @@ async fn collection(
                     "no collection has this name",
                 )
             })
-    })
+    })?
     .await
     .map_err(|_| {
         error(
@@ -604,7 +675,7 @@ async fn save_collection(
     input: Result<Query<NameQuery>, QueryRejection>,
     request: Request,
 ) -> Result<Json<CollectionView>, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     let query = parsed_query(input)?;
     if query.name.trim().is_empty() || query.name.len() > 256 {
         return Err(invalid_query("name must contain 1 to 256 bytes"));
@@ -625,11 +696,11 @@ async fn save_collection(
         )
     })?;
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let now = clock::now_seconds();
-        locked_update(&data_dir, |_, data| {
-            data.save_collection(LOCAL_USER, &query.name, &input.expression, now);
-            data.collection(LOCAL_USER, &query.name)
+        locked_update(&data_dir, &state, &owner, |_, data| {
+            data.save_collection(&owner.id, &query.name, &input.expression, now);
+            data.collection(&owner.id, &query.name)
                 .map(collection_view)
                 .ok_or_else(|| {
                     error(
@@ -640,7 +711,7 @@ async fn save_collection(
                 })
         })
         .map(Json)
-    })
+    })?
     .await
     .map_err(|_| {
         error(
@@ -656,16 +727,16 @@ async fn delete_collection(
     input: Result<Query<NameQuery>, QueryRejection>,
     request: Request,
 ) -> Result<StatusCode, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
     if query.name.trim().is_empty() {
         return Err(invalid_query("name must contain text"));
     }
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        locked_update(&data_dir, |_, data| {
-            data.forget_collection(LOCAL_USER, &query.name)
+    spawn_personal(state.inspection_slots.clone(), move || {
+        locked_update(&data_dir, &state, &owner, |_, data| {
+            data.forget_collection(&owner.id, &query.name)
                 .then_some(StatusCode::NO_CONTENT)
                 .ok_or_else(|| {
                     error(
@@ -675,7 +746,7 @@ async fn delete_collection(
                     )
                 })
         })
-    })
+    })?
     .await
     .map_err(|_| {
         error(
@@ -697,16 +768,17 @@ async fn collections(
     input: Result<Query<PageQuery>, QueryRejection>,
     request: Request,
 ) -> Result<Json<CollectionsResponse>, ApiError> {
-    require_admin(&state, &request)?;
+    let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        owner.recheck(&state)?;
         let mut items: Vec<_> = data
             .collections
             .iter()
-            .filter(|collection| collection.owner == LOCAL_USER)
+            .filter(|collection| collection.owner == owner.id)
             .map(collection_view)
             .collect();
         items.sort_by(|left, right| {
@@ -723,7 +795,7 @@ async fn collections(
                 scanned_at: catalog.scanned_at,
             },
         }))
-    })
+    })?
     .await
     .map_err(|_| {
         error(

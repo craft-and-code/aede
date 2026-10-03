@@ -12,6 +12,7 @@ pub fn try_delegate(args: &Args, raw: Vec<String>) -> Result<Option<i32>, Box<dy
 pub fn allowed(raw: &[String], command: &str) -> bool {
     let args = Args::parse(raw.to_vec());
     !args.has("help")
+        && command != "accounts"
         && !args.has("version")
         && crate::canonical(&args.command) == command
         && crate::mutates_store_with_args(command, &args)
