@@ -27,7 +27,7 @@ class MarkdownTests(unittest.TestCase):
         return builder.Markdown(rewrite).render(source)
 
     def test_invisible_control_characters_are_rejected_but_tabs_are_kept(self):
-        with self.assertRaisesRegex(ValueError, "U\+0007"):
+        with self.assertRaisesRegex(ValueError, r"U\+0007"):
             self.render("```powershell\nC:\x07ede\n```")
         self.assertIn("Music", self.render("```text\nC:\\Music\n\tindent\n```").html)
 
@@ -103,8 +103,8 @@ class LinkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root/'docs/fr').mkdir(parents=True)
-            (root/'docs/imported-analyses.md').write_text('# What another tool found\n\n## Measurements\n')
-            (root/'docs/fr/imported-analyses.md').write_text('# Analyse importée\n\n## Mesures\n')
+            (root/'docs/imported-analyses.md').write_text('# What another tool found\n\n## Measurements\n', encoding="utf-8")
+            (root/'docs/fr/imported-analyses.md').write_text('# Analyse importée\n\n## Mesures\n', encoding="utf-8")
             href = builder.rewrite_link('imported-analyses.md#what-another-tool-found', 'docs/library.md', 'docs/fr/manual/library.html', 'fr', self.pages, root)
             self.assertEqual('../dsp/measurements.html#analyse-import%C3%A9e', href)
             href = builder.rewrite_link('imported-analyses.md#measurements', 'docs/library.md', 'docs/fr/manual/library.html', 'fr', self.pages, root)
@@ -148,37 +148,37 @@ class PublishTests(unittest.TestCase):
     def test_build_produces_bilingual_source_pages_and_valid_internal_links(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/'site/assets').mkdir(parents=True); (root/'docs').mkdir()
-            (root/'site/index.html').write_text('<html lang="fr"><head><title>Accueil</title><meta name="description" content="Accueil Aède"></head><body><a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a><a href="docs/fr/index.html">Documentation</a></body></html>')
-            (root/'site/home-translations.json').write_text(json.dumps({'en':{'Accueil':'Home','Accueil Aède':'Aède home'}}))
+            (root/'site/index.html').write_text('<html lang="fr"><head><title>Accueil</title><meta name="description" content="Accueil Aède"></head><body><a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a><a href="docs/fr/index.html">Documentation</a></body></html>', encoding="utf-8")
+            (root/'site/home-translations.json').write_text(json.dumps({'en':{'Accueil':'Home','Accueil Aède':'Aède home'}}), encoding="utf-8")
             for asset in ('styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/og-image.png'):
-                (root/'site'/asset).write_text('')
+                (root/'site'/asset).write_text('', encoding="utf-8")
             pages=[]
             for section in ('manual','cli','server','dsp'):
                 for language in ('en','fr'):
-                    path=f'docs/{language}/{section}.md'; (root/path).parent.mkdir(parents=True,exist_ok=True); (root/path).write_text(f'# {section}\n\n## Usage\n\n[Other page](dsp.md#usage)\n')
+                    path=f'docs/{language}/{section}.md'; (root/path).parent.mkdir(parents=True,exist_ok=True); (root/path).write_text(f'# {section}\n\n## Usage\n\n[Other page](dsp.md#usage)\n', encoding="utf-8")
                 pages.append({'slug':f'{section}/start','section':section,'title':{'en':section,'fr':section},'description':{'en':f'{section} guide','fr':f'Guide {section}'},'source':{'en':f'docs/en/{section}.md','fr':f'docs/fr/{section}.md'}})
             for language in ('en','fr'):
-                (root/f'docs/{language}/confirmation.md').write_text('# Confirmation\n\nRequest received.\n')
+                (root/f'docs/{language}/confirmation.md').write_text('# Confirmation\n\nRequest received.\n', encoding="utf-8")
             pages.append({'slug':'manual/subscribed','section':'manual','title':{'en':'Confirmation','fr':'Confirmation'},'description':{'en':'Confirmation page','fr':'Page de confirmation'},'source':{'en':'docs/en/confirmation.md','fr':'docs/fr/confirmation.md'},'navigation':False,'noindex':True})
-            (root/'docs/site-manual-cli.json').write_text(json.dumps(pages))
+            (root/'docs/site-manual-cli.json').write_text(json.dumps(pages), encoding="utf-8")
             destination=root/'dist-site'; builder.build(root,destination)
             self.assertFalse((destination/'home-translations.json').exists())
-            self.assertIn('window.aedeHomeTranslations', (destination/'home-strings.js').read_text())
-            self.assertIn('noindex,follow', (destination/'docs/fr/manual/subscribed.html').read_text())
-            self.assertNotIn('manual/subscribed.html', (destination/'sitemap.xml').read_text())
+            self.assertIn('window.aedeHomeTranslations', (destination/'home-strings.js').read_text(encoding="utf-8"))
+            self.assertIn('noindex,follow', (destination/'docs/fr/manual/subscribed.html').read_text(encoding="utf-8"))
+            self.assertNotIn('manual/subscribed.html', (destination/'sitemap.xml').read_text(encoding="utf-8"))
             self.assertNotIn('Confirmation', builder.sidebar(pages, 'fr', 'docs/fr/index.html'))
             self.assertEqual([],checker.check(destination))
-            french=(destination/'docs/fr/cli/start.html').read_text()
+            french=(destination/'docs/fr/cli/start.html').read_text(encoding="utf-8")
             self.assertIn('href="../dsp/start.html#usage"',french)
             self.assertIn('aria-current="page"',french)
             self.assertIn('data-nav-section="cli" open',french)
-            self.assertIn('href="../"', (destination/'en/index.html').read_text())
-            self.assertIn('>FR</a>', (destination/'en/index.html').read_text())
+            self.assertIn('href="../"', (destination/'en/index.html').read_text(encoding="utf-8"))
+            self.assertIn('>FR</a>', (destination/'en/index.html').read_text(encoding="utf-8"))
 
     def test_checker_rejects_missing_fragments_and_duplicate_ids(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            (root/'index.html').write_text('<html lang="en"><head><title>Aède</title><meta name="description" content="Guide"><link rel="canonical" href="https://example.test/"><link rel="alternate" hreflang="en" href="https://example.test/"><link rel="alternate" hreflang="fr" href="https://example.test/"></head><body><h1 id="same">A</h1><h2 id="same">B</h2><a href="#missing">Missing</a></body></html>')
+            (root/'index.html').write_text('<html lang="en"><head><title>Aède</title><meta name="description" content="Guide"><link rel="canonical" href="https://example.test/"><link rel="alternate" hreflang="en" href="https://example.test/"><link rel="alternate" hreflang="fr" href="https://example.test/"></head><body><h1 id="same">A</h1><h2 id="same">B</h2><a href="#missing">Missing</a></body></html>', encoding="utf-8")
             failures=checker.check(root)
             self.assertTrue(any('missing fragment' in failure for failure in failures))
             self.assertTrue(any('duplicate IDs' in failure for failure in failures))
@@ -186,7 +186,7 @@ class PublishTests(unittest.TestCase):
     def test_third_hreflang_does_not_hide_a_missing_counterpart(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root/'index.html').write_text('<html lang="fr"><head><title>Aède</title><meta name="description" content="Guide"><link rel="canonical" href="https://example.test/"><link rel="alternate" hreflang="fr" href="https://example.test/"><link rel="alternate" hreflang="de" href="https://example.test/"></head></html>')
+            (root/'index.html').write_text('<html lang="fr"><head><title>Aède</title><meta name="description" content="Guide"><link rel="canonical" href="https://example.test/"><link rel="alternate" hreflang="fr" href="https://example.test/"><link rel="alternate" hreflang="de" href="https://example.test/"></head></html>', encoding="utf-8")
             failures = checker.check(root)
             self.assertTrue(any('missing bilingual hreflang' in failure for failure in failures))
 
@@ -237,6 +237,30 @@ class StatisticsFixture:
 
 
 class ProjectStatisticsTests(unittest.TestCase):
+    def test_bilingual_publication_preserves_unicode_when_the_platform_default_is_cp1252(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            fixture.write("site/index.html", '<html lang="fr"><head><title>Bibliothèque 音楽</title><meta name="description" content="Accueil Aède"></head><body><p>Bibliothèque 音楽</p></body></html>')
+            fixture.write("site/home-translations.json", json.dumps({"en": {"Bibliothèque 音楽": "Music library 音楽"}}, ensure_ascii=False))
+            fixture.write("docs/fr/stats.md", "# Statistiques du projet\n\n## Instantané actuel\n\nBibliothèque 音楽 et musique ♫.\n\n<!-- project-statistics -->\n")
+            fixture.write("docs/en/stats.md", "# Project statistics\n\n## Current snapshot\n\nMusic library 音楽 and music ♫.\n\n<!-- project-statistics -->\n")
+            native_open = Path.open
+
+            def windows_text_default(path, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
+                if "b" not in mode and encoding is None:
+                    encoding = "cp1252"
+                return native_open(path, mode, buffering, encoding, errors, newline)
+
+            with patch.object(Path, "open", windows_text_default):
+                builder.build(fixture.root)
+                destination = fixture.root / "dist-site"
+                french = (destination / "docs/fr/manual/project-statistics.html").read_text(encoding="utf-8")
+                english = (destination / "docs/en/manual/project-statistics.html").read_text(encoding="utf-8")
+                self.assertIn("Bibliothèque 音楽 et musique ♫.", french)
+                self.assertIn("Music library 音楽 and music ♫.", english)
+                self.assertIn("Music library 音楽", (destination / "en/index.html").read_text(encoding="utf-8"))
+                self.assertEqual([], checker.check(destination))
+
     def test_optional_documentation_groups_are_hidden_until_they_have_visible_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = StatisticsFixture(directory)
@@ -260,8 +284,8 @@ class ProjectStatisticsTests(unittest.TestCase):
             with patch.object(module, "collect", wraps=module.collect) as collect, patch.object(module, "inventory", side_effect=AssertionError("Website publication must never build tests")):
                 builder.build(fixture.root)
             collect.assert_called_once_with(fixture.root)
-            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text()
-            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text()
+            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text(encoding="utf-8")
+            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text(encoding="utf-8")
             self.assertIn("TU actifs : inventaire indisponible", french)
             self.assertIn("no inventory was supplied", english)
             self.assertIn("aede-core", french)
@@ -279,8 +303,8 @@ class ProjectStatisticsTests(unittest.TestCase):
             fixture = StatisticsFixture(directory)
             snapshot = fixture.inventory()
             builder.build(fixture.root, stats_path=snapshot)
-            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text()
-            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text()
+            french = (fixture.root / "dist-site/docs/fr/manual/project-statistics.html").read_text(encoding="utf-8")
+            english = (fixture.root / "dist-site/docs/en/manual/project-statistics.html").read_text(encoding="utf-8")
             self.assertIn("+ de 1 500 TU actifs", french)
             self.assertIn("&gt; 1,500 active unit tests", english)
             for content in (french, english):
@@ -301,7 +325,7 @@ class ProjectStatisticsTests(unittest.TestCase):
             fixture.write("crates/aede-core/src/lib.rs", "pub fn changed() {}\n")
             with self.assertRaisesRegex(ValueError, "stale"):
                 builder.build(fixture.root, stats_path=snapshot)
-            self.assertEqual("Existing publication\n", preserved.read_text())
+            self.assertEqual("Existing publication\n", preserved.read_text(encoding="utf-8"))
 
     def test_unknown_generated_content_and_missing_or_repeated_markers_are_refused(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -321,9 +345,9 @@ class ProjectStatisticsTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which('node'), 'Node is optional; the static publisher itself only requires Python')
 class DspModelTests(unittest.TestCase):
     def test_normalization_tone_and_downmix_obey_documented_bounds(self):
-        source=(TOOLS.parent/'site/explainers.js').read_text()
+        source=(TOOLS.parent/'site/explainers.js').read_text(encoding="utf-8")
         program='''const assert=require('node:assert/strict'); const vm=require('node:vm'); const window={matchMedia:()=>({matches:true})}; const document={documentElement:{lang:'en'},querySelectorAll:()=>[]}; vm.runInNewContext(SOURCE,{window,document}); const m=window.AedeDspModels; assert.equal(m.safeGain(-24,-18,-3),3); assert.equal(m.safeGain(-10,-18,-1),-8); assert.equal(m.reserve(6,3),9); assert.equal(m.reserve(-6,3),3); assert.equal(m.downmix('LFE')[0],0); assert.equal(m.downmix('LFE')[1],0); assert.ok(Math.abs(m.downmix('FL')[0]+m.downmix('FC')[0]+m.downmix('SL')[0]-1)<1e-12); for(const phase of [0,.2,.6]){let peak=0;for(let i=0;i<10000;i++)peak=Math.max(peak,Math.abs(m.sampleSignal(i/10000,phase)));assert.ok(peak<=1+1e-12);assert.ok(peak>.99999);} assert.equal(m.toneResponse(1000,0,0),0); assert.ok(Math.abs(m.toneResponse(20,6,0))<.1); assert.ok(m.toneResponse(20000,6,0)<-5.9);'''.replace('SOURCE',json.dumps(source))
-        result=subprocess.run(['node','-e',program],capture_output=True,text=True)
+        result=subprocess.run(['node'],input=program,capture_output=True,text=True,encoding="utf-8")
         self.assertEqual(0,result.returncode,result.stderr)
 
 

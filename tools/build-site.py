@@ -296,7 +296,7 @@ def load_pages(root: Path) -> list[dict]:
     manifests.extend(sorted(path for path in (root / "docs").glob("site-*.json") if path not in manifests))
     for manifest in manifests:
         if manifest.exists():
-            data = json.loads(manifest.read_text())
+            data = json.loads(manifest.read_text(encoding="utf-8"))
             pages.extend(data if isinstance(data, list) else data["pages"])
     registered = {source for page in pages for source in page.get("source", {}).values()}
     for name, (section, english, french) in TOPICS.items():
@@ -322,7 +322,7 @@ def relative(source: str, destination: str) -> str:
 
 @lru_cache(maxsize=512)
 def heading_outline(path: str, modified: int, size: int):
-    rendered = Markdown().render(Path(path).read_text())
+    rendered = Markdown().render(Path(path).read_text(encoding="utf-8"))
     return rendered.title_id, tuple(rendered.headings)
 
 
@@ -575,7 +575,7 @@ def generated_page_sources(root: Path, pages: list[dict], stats_path=None) -> di
     for page in generated:
         for language in ("fr", "en"):
             path = page["source"][language]
-            source = (root / path).read_text()
+            source = (root / path).read_text(encoding="utf-8")
             if source.count(PROJECT_STATS_MARKER) != 1:
                 raise ValueError(f"{path}: project-statistics requires exactly one {PROJECT_STATS_MARKER} placeholder")
             sources[page["slug"], language] = source
@@ -600,14 +600,14 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
     shutil.copytree(root / "site", destination)
     for filename in ("README.md", "home-translations.json", "index.en.html"):
         (destination / filename).unlink(missing_ok=True)
-    home_source = (root / "site/index.html").read_text()
+    home_source = (root / "site/index.html").read_text(encoding="utf-8")
     translation_path = root / "site/home-translations.json"
-    translations = json.loads(translation_path.read_text()) if translation_path.exists() else {}
-    (destination / "home-strings.js").write_text("window.aedeHomeTranslations = Object.freeze(" + json.dumps(translations, ensure_ascii=False).replace("<", "\\u003c") + ");\n")
+    translations = json.loads(translation_path.read_text(encoding="utf-8")) if translation_path.exists() else {}
+    (destination / "home-strings.js").write_text("window.aedeHomeTranslations = Object.freeze(" + json.dumps(translations, ensure_ascii=False).replace("<", "\\u003c") + ");\n", encoding="utf-8")
     home_urls = []
     for language in ("fr", "en"):
         output = "index.html" if language == "fr" else "en/index.html"
-        source = (root / "site/index.en.html").read_text() if language == "en" and (root / "site/index.en.html").exists() else localize_home(home_source, translations, language)
+        source = (root / "site/index.en.html").read_text(encoding="utf-8") if language == "en" and (root / "site/index.en.html").exists() else localize_home(home_source, translations, language)
         source = source.replace("docs/fr/", f"docs/{language}/")
         if language == "en":
             def switch_language(match):
@@ -636,7 +636,7 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
         source = source.replace("</head>", seo + "</head>")
         source = re.sub(r'(<meta\b[^>]*property="og:url"[^>]*content=")[^"]*(")', lambda m: m[1] + canonical + m[2], source)
         source = re.sub(r'("url"\s*:\s*")https://craft-and-code.github.io/aede/(?:en/)?(")', lambda m: m[1] + canonical + m[2], source)
-        target = destination / output; target.parent.mkdir(parents=True, exist_ok=True); target.write_text(source)
+        target = destination / output; target.parent.mkdir(parents=True, exist_ok=True); target.write_text(source, encoding="utf-8")
         home_urls.append(canonical)
     urls = list(home_urls)
     for language in ("fr", "en"):
@@ -646,19 +646,19 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
             renderer = Markdown(lambda href: rewrite_link(href, source_path, output, language, pages, root))
             try:
                 source = generated.get((page["slug"], language))
-                content = renderer.render(source if source is not None else (root / source_path).read_text())
+                content = renderer.render(source if source is not None else (root / source_path).read_text(encoding="utf-8"))
             except ValueError as error:
                 raise ValueError(f"{source_path}: {error}") from error
             target = destination / output; target.parent.mkdir(parents=True, exist_ok=True)
             other = "en" if language == "fr" else "fr"
             counterpart = generated.get((page["slug"], other))
-            counterpart_content = Markdown().render(counterpart if counterpart is not None else (root / page["source"][other]).read_text())
-            target.write_text(document_shell(page, language, content, pages, base_url, counterpart_content))
+            counterpart_content = Markdown().render(counterpart if counterpart is not None else (root / page["source"][other]).read_text(encoding="utf-8"))
+            target.write_text(document_shell(page, language, content, pages, base_url, counterpart_content), encoding="utf-8")
             if not page.get("noindex"): urls.append(base_url + output)
         index_page = {"slug": "", "section": "manual", "title": {"en": "Documentation", "fr": "Documentation"}, "description": {"en": "Aède user manual, complete command reference, local server API, interactive audio DSP guides and player compatibility specifications.", "fr": "Manuel utilisateur Aède, référence complète des commandes, API du serveur local, guides interactifs du DSP audio et spécifications de compatibilité des lecteurs."}}
-        (destination / f"docs/{language}/index.html").write_text(document_shell(index_page, language, overview(pages, language), pages, base_url))
+        (destination / f"docs/{language}/index.html").write_text(document_shell(index_page, language, overview(pages, language), pages, base_url), encoding="utf-8")
         urls.append(base_url + f"docs/{language}/index.html")
-    (destination / "docs/index.html").write_text(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Documentation — Aède</title><meta name="description" content="Choisissez votre langue / Choose your language for the Aède documentation."><link rel="canonical" href="{esc(base_url + "docs/index.html")}"><link rel="alternate" hreflang="fr" href="{esc(base_url + "docs/fr/index.html")}"><link rel="alternate" hreflang="en" href="{esc(base_url + "docs/en/index.html")}"><link rel="stylesheet" href="../guide.css"></head><body class="guide-document"><main class="guide-locale"><a class="guide-logo" href="../">aède<span>.</span></a><h1>Documentation</h1><p>Choisissez votre langue / Choose your language</p><a href="fr/index.html" lang="fr">Français →</a><a href="en/index.html" lang="en">English →</a></main></body></html>')
+    (destination / "docs/index.html").write_text(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Documentation — Aède</title><meta name="description" content="Choisissez votre langue / Choose your language for the Aède documentation."><link rel="canonical" href="{esc(base_url + "docs/index.html")}"><link rel="alternate" hreflang="fr" href="{esc(base_url + "docs/fr/index.html")}"><link rel="alternate" hreflang="en" href="{esc(base_url + "docs/en/index.html")}"><link rel="stylesheet" href="../guide.css"></head><body class="guide-document"><main class="guide-locale"><a class="guide-logo" href="../">aède<span>.</span></a><h1>Documentation</h1><p>Choisissez votre langue / Choose your language</p><a href="fr/index.html" lang="fr">Français →</a><a href="en/index.html" lang="en">English →</a></main></body></html>', encoding="utf-8")
     urls.append(base_url + "docs/index.html")
     # Copy images/files linked from Markdown. Generated pages reference these
     # source assets without requiring handwritten copies in site/.
@@ -667,9 +667,9 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
             target = destination / "source-assets" / asset.relative_to(root)
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(asset, target)
     (destination / ".nojekyll").touch()
-    (destination / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {base_url}sitemap.xml\n")
-    (destination / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(f"<url><loc>{esc(url)}</loc></url>" for url in urls) + "\n</urlset>\n")
-    (destination / "site-pages.json").write_text(json.dumps({"pages": [{"slug": p["slug"], "section": p["section"], "command": p.get("command"), "source": p["source"], "explainer": p.get("explainer"), "noindex": p.get("noindex", False), "navigation": p.get("navigation", True)} for p in pages]}, indent=2) + "\n")
+    (destination / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {base_url}sitemap.xml\n", encoding="utf-8")
+    (destination / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(f"<url><loc>{esc(url)}</loc></url>" for url in urls) + "\n</urlset>\n", encoding="utf-8")
+    (destination / "site-pages.json").write_text(json.dumps({"pages": [{"slug": p["slug"], "section": p["section"], "command": p.get("command"), "source": p["source"], "explainer": p.get("explainer"), "noindex": p.get("noindex", False), "navigation": p.get("navigation", True)} for p in pages]}, indent=2) + "\n", encoding="utf-8")
     return pages
 
 

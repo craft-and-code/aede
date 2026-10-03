@@ -11,6 +11,9 @@ use std::process::{Command, Stdio};
 #[path = "fetch_output_support/filesystem.rs"]
 mod m1_filesystem;
 
+#[path = "end_to_end_support/png.rs"]
+mod png_support;
+
 /// One real audio file, for a test that builds a library of its own.
 ///
 /// The reference folder is shared and read-only; a test that adds and removes
@@ -5110,6 +5113,17 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
 
 #[test]
 fn size_changes_the_picture_but_never_by_itself() {
+    let png = include_bytes!("../../aede-core/tests/fixtures/images/rgba.png");
+    assert_eq!(png_support::dimensions(png).unwrap(), (1, 1));
+    for invalid in [b"".as_slice(), &png[..24], &png[..png.len() - 1]] {
+        assert!(png_support::dimensions(invalid).is_err());
+    }
+    assert!(
+        png_support::dimensions(include_bytes!(
+            "../../aede-core/tests/fixtures/images/baseline.jpg"
+        ))
+        .is_err()
+    );
     let sandbox = Sandbox::new("spectrum_size");
     let root = temporary_path("aede_e2e_spectrum_size_src");
     let album = root.join("Album");
@@ -5133,7 +5147,13 @@ fn size_changes_the_picture_but_never_by_itself() {
     let (_, err, ok) = sandbox.run(&["spectrum", "--size", "half"]);
     assert!(ok, "stderr: {err}");
     let picture = album.join("spectrograms").join("01.png");
-    let half = std::fs::metadata(&picture).unwrap().len();
+    let half = std::fs::read(&picture).unwrap();
+    let half_dimensions = png_support::dimensions(&half).unwrap();
+    let modified = std::fs::metadata(&picture).unwrap().modified().unwrap();
+    assert!(
+        half_dimensions.0 > 900 && half_dimensions.1 > 470,
+        "the half-size graph includes its legend: {half_dimensions:?}"
+    );
 
     // Switching --size alone redraws nothing: the picture is still current
     // by date, exactly as an ordinary second run would leave it — the new
@@ -5142,22 +5162,25 @@ fn size_changes_the_picture_but_never_by_itself() {
     assert!(ok, "output: {out}");
     assert!(out.contains("up to date"), "output: {out}");
     assert_eq!(
-        std::fs::metadata(&picture).unwrap().len(),
+        std::fs::read(&picture).unwrap(),
         half,
-        "nothing should have been redrawn"
+        "changing --size alone preserves the exact picture"
+    );
+    assert_eq!(
+        std::fs::metadata(&picture).unwrap().modified().unwrap(),
+        modified,
+        "changing --size alone does not touch the picture"
     );
 
-    // --full forces the redraw, and a full-size picture is a noticeably
-    // bigger file — a spectrogram is mostly noise, which a PNG cannot
-    // compress away, so four times the pixels means roughly four times the
-    // bytes.
+    // --full changes the plotted graph from 900x470 to 1800x940. FFmpeg adds
+    // the same legend margins to both; encoded PNG size depends on compression.
     let (_, err, ok) = sandbox.run(&["spectrum", "--full", "--size", "full"]);
     assert!(ok, "stderr: {err}");
-    let full = std::fs::metadata(&picture).unwrap().len();
-    assert!(
-        full > half * 2,
-        "a full-size picture ({full} bytes) should be well over twice the \
-         half-size one ({half} bytes)"
+    let full = std::fs::read(&picture).unwrap();
+    assert_eq!(
+        png_support::dimensions(&full).unwrap(),
+        (half_dimensions.0 + 900, half_dimensions.1 + 470),
+        "--full redraws the requested full-size graph with its legend"
     );
 
     let _ = std::fs::remove_dir_all(&root);

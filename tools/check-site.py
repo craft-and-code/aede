@@ -89,7 +89,7 @@ def check(directory: Path, require_rustdoc=False) -> list[str]:
     if require_rustdoc and not rustdoc.exists(): failures.append("Missing generated RustDoc at docs/rust/aede_core/index.html")
     manifest = directory / "site-pages.json"
     if manifest.exists():
-        for page in json.loads(manifest.read_text())["pages"]:
+        for page in json.loads(manifest.read_text(encoding="utf-8"))["pages"]:
             for language in ("fr", "en"):
                 expected = f"docs/{language}/{page['slug']}.html"
                 if expected not in pages: failures.append(f"Manifest page not published: {expected}")

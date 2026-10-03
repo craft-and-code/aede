@@ -18,13 +18,10 @@ use crate::ui::{self, Align, Table};
 
 /// The size used when `--size` is not given.
 ///
-/// Half of FlacCompagnon's own frame: a spectrogram is mostly noise, which a
-/// PNG cannot compress away, so its size on disk tracks its pixel count
-/// closely — halving both dimensions turns a few megabytes into a few
-/// hundred kilobytes. Most runs are drawing a whole library rather than
-/// comparing one picture against FlacCompagnon's, so the lighter default is
-/// the useful one; `--size full` still draws FlacCompagnon's own dimensions
-/// for when the comparison is the point.
+/// Half of FlacCompagnon's plotted graph, with a quarter of its plotted pixels.
+/// The final PNG includes legend margins; its encoded size depends on content
+/// and compression. The smaller graph is the default for library-wide runs,
+/// while `--size full` keeps FlacCompagnon's dimensions for comparisons.
 pub const DEFAULT_SIZE: spectrum::Size = spectrum::Size::Half;
 
 pub fn spectrum(args: &Args) -> Res {

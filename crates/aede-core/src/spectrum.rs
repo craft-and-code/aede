@@ -13,8 +13,8 @@
 //! compare them. The frame size no longer has to match: see [`Size`].
 //! `--size full` still draws FlacCompagnon's own dimensions, character for
 //! character, for whoever wants the two side by side; the default is half of
-//! that, because most runs are not a side-by-side and a full-size picture is
-//! a few megabytes a track.
+//! that. A smaller plotted graph can reduce storage use, but the encoded PNG
+//! size depends on its content and compression.
 //!
 //! The folder is another thing that does not match: it is `spectrograms`, in
 //! English like everything else here, where FlacCompagnon writes `spectres`.
@@ -30,20 +30,18 @@ use crate::tags::AudioProperties;
 /// Folder written beside the audio, holding one picture per track.
 pub const FOLDER: &str = "spectrograms";
 
-/// How large a spectrogram picture is drawn.
+/// How large the plotted spectrogram graph is drawn.
 ///
-/// [`Size::Full`] is FlacCompagnon's own frame, `1800x940`, for putting the
-/// two tools' pictures side by side. [`Size::Half`] is the default: halving
-/// both dimensions quarters the pixel count, and a spectrogram is mostly
-/// noise, which a PNG encoder cannot compress away — so the picture shrinks
-/// close to that same quarter instead of by half. A library of a few
-/// thousand tracks stays in the megabytes rather than the gigabytes, and the
-/// legend is still legible at this size.
+/// [`Size::Full`] is FlacCompagnon's own graph, `1800x940`, for putting the
+/// two tools' pictures side by side. [`Size::Half`] is the default, `900x470`:
+/// halving both graph dimensions quarters the plotted pixel count. FFmpeg adds
+/// legend margins to the final image. Encoded PNG size depends on content and
+/// compression, so there is no fixed storage ratio or library-size guarantee.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Size {
-    /// `1800x940`, character for character what FlacCompagnon draws.
+    /// A `1800x940` plotted graph, matching FlacCompagnon.
     Full,
-    /// `900x470`. Used unless `--size full` is given.
+    /// A `900x470` plotted graph, used unless `--size full` is given.
     Half,
 }
 
