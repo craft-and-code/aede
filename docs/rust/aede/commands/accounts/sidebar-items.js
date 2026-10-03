@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["USAGE"],"fn":["accounts","password"],"mod":["keys"]};
+window.SIDEBAR_ITEMS = {"constant":["USAGE"],"fn":["accounts","writer_lock"],"mod":["keys","password_input"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Key"],"fn":["character_key","confirmed","read","read_keys","redirected"],"mod":["unix"]};

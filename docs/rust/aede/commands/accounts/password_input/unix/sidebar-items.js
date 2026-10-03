@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["character","discard_pending","escape","invalid_utf8"],"struct":["Input"]};

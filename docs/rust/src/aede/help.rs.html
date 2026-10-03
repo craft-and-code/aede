@@ -19,7 +19,7 @@
 <a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">match </span>command {
 <a href=#20 id=20 data-nosnippet>20</a>        <span class="string">"accounts" </span>=&gt; CommandPage {
 <a href=#21 id=21 data-nosnippet>21</a>            usage: <span class="string">"aede accounts [list | init &lt;name&gt; | create &lt;name&gt; &lt;admin|user|auditor&gt; | password &lt;name&gt; | role &lt;name&gt; &lt;admin|user|auditor&gt; | rename &lt;name&gt; &lt;new-name&gt; | enable &lt;name&gt; | disable &lt;name&gt; | revoke &lt;name&gt; | keys &lt;name&gt; [create &lt;label&gt; | revoke &lt;id&gt;]] [--password-stdin] [--json]"</span>,
-<a href=#22 id=22 data-nosnippet>22</a>            summary: <span class="string">"Manage local accounts without exposing passwords; the first administrator retains existing personal data. Client API keys are shown once at creation, remain valid until revoked and are cleared by account changes or credential restoration."</span>,
+<a href=#22 id=22 data-nosnippet>22</a>            summary: <span class="string">"Manage local accounts; init, create and password ask for a masked password and confirmation. Use --password-stdin with redirected input for scripts. The first administrator retains existing personal data. Client API keys are shown once at creation, remain valid until revoked and are cleared by account changes or credential restoration."</span>,
 <a href=#23 id=23 data-nosnippet>23</a>        },
 <a href=#24 id=24 data-nosnippet>24</a>        <span class="string">"scan" </span>=&gt; CommandPage {
 <a href=#25 id=25 data-nosnippet>25</a>            usage: <span class="string">"aede scan [folder…]"</span>,
