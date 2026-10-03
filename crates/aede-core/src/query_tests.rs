@@ -895,6 +895,65 @@ fn a_result_can_be_put_in_order_and_the_unknown_goes_last() {
 }
 
 #[test]
+fn result_sorting_keeps_input_order_for_equal_text_and_numeric_keys() {
+    let mut catalog = catalog();
+    let mut data = UserData::default();
+    for (index, track) in catalog.tracks.iter_mut().enumerate() {
+        track.title = ["Same", "sáme", "SAME"][index].into();
+        track.disc_no = Some(1);
+        track.track_no = Some(1);
+        track.duration_ms = Some(1_000);
+    }
+    for (index, release) in catalog.releases.iter_mut().enumerate() {
+        release.title = ["Album", "álbum", "ALBUM"][index].into();
+        release.year = Some(2_000);
+    }
+    for artist in &mut catalog.artists {
+        artist.sort_name = "Equal artist".into();
+    }
+    for file in &mut catalog.files {
+        file.size = 100;
+    }
+    for track in &catalog.tracks {
+        let reference = EntityRef::of(&catalog, EntityKind::Track, track.id).unwrap();
+        data.entry(LOCAL_USER, &reference, 0).rating = Some(3);
+    }
+    let context = Context::new(&catalog, &data, LOCAL_USER);
+    for key in [
+        "title", "artist", "album", "year", "duration", "size", "rating", "played",
+    ] {
+        for order in [key.to_string(), format!("{key}-")] {
+            let mut tracks = vec![2, 0, 1];
+            sort(&mut tracks, Sort::parse(&order).unwrap(), &context);
+            assert_eq!(
+                tracks,
+                [2, 0, 1],
+                "equal {order} keys keep the supplied order"
+            );
+        }
+    }
+}
+
+#[test]
+fn album_sorting_keeps_disc_and_track_position_in_each_direction() {
+    let mut catalog = catalog();
+    let data = UserData::default();
+    for release in &mut catalog.releases {
+        release.title = "Same album".into();
+    }
+    for (track, (disc, position)) in catalog.tracks.iter_mut().zip([(1, 3), (2, 1), (1, 1)]) {
+        track.disc_no = Some(disc);
+        track.track_no = Some(position);
+    }
+    let context = Context::new(&catalog, &data, LOCAL_USER);
+    for (order, expected) in [("album", [2, 0, 1]), ("album-", [1, 0, 2])] {
+        let mut tracks = vec![0, 1, 2];
+        sort(&mut tracks, Sort::parse(order).unwrap(), &context);
+        assert_eq!(tracks, expected, "{order}");
+    }
+}
+
+#[test]
 fn an_empty_query_matches_everything_and_a_broken_one_says_why() {
     let c = catalog();
     let d = UserData::default();

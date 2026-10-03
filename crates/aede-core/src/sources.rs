@@ -2066,10 +2066,11 @@ pub fn load(path: &Path) -> Result<Option<Sources>, crate::store::StoreError> {
 /// Read every stored claim, including Discogs profiles awaiting revalidation.
 /// Only use this for a read/modify/write operation or a backup, not display.
 pub fn load_all(path: &Path) -> Result<Option<Sources>, crate::store::StoreError> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let text = std::fs::read_to_string(path)?;
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
     let value = crate::json::parse(&text).map_err(crate::store::StoreError::Parse)?;
     from_json(&value).map(Some)
 }

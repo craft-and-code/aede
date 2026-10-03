@@ -171,3 +171,46 @@ fn a_private_store_round_trips_without_writing_through_a_link() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn credential_reads_refuse_a_replacement_or_permission_change_during_open() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = std::env::temp_dir().join(format!("aede_accounts_open_{}", random_token().unwrap()));
+    let path = accounts_path(&dir);
+    let replacement = dir.join("replacement.json");
+    let data = accounts();
+    save(&data, &path).unwrap();
+    save(&data, &replacement).unwrap();
+    let result = load_with_open(&path, |path| {
+        std::fs::remove_file(path)?;
+        symlink(&replacement, path)?;
+        std::fs::File::open(path)
+    });
+    assert!(
+        result.is_err(),
+        "a replaced source must not supply credentials"
+    );
+
+    std::fs::remove_file(&path).unwrap();
+    save(&data, &path).unwrap();
+    let result = load_with_open(&path, |path| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
+        std::fs::File::open(path)
+    });
+    assert!(
+        result.is_err(),
+        "the opened credentials must still be private"
+    );
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let result = load_with_open(&path, |path| {
+        std::fs::remove_file(path)?;
+        std::fs::File::open(path)
+    });
+    assert!(
+        result.is_err(),
+        "observed credentials disappearing must not look like initial absence"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

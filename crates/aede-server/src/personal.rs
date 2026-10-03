@@ -3,7 +3,7 @@
 //! Transitional administrative routes retain the explicit local-owner scope.
 //! The account routes share these operations and never accept an owner field.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use aede_core::clock;
 use aede_core::user::{self, Annotation, EntityRef, LOCAL_USER, Play, UserData};
@@ -316,6 +316,7 @@ pub(super) fn empty_body(bytes: &[u8]) -> Result<(), ApiError> {
 }
 
 fn reference(query: RefQuery) -> Result<EntityRef, ApiError> {
+    bounded_text(&query.reference, "ref", MAX_REFERENCE_BYTES)?;
     EntityRef::parse_token(&query.reference)
         .filter(|reference| !reference.key.is_empty())
         .ok_or_else(|| invalid_reference("ref must be a nonempty entity reference"))
@@ -515,18 +516,21 @@ struct PlayView {
 }
 
 fn play_view(data: &UserData, play: &Play) -> PlayView {
+    let count = data
+        .counts
+        .iter()
+        .find(|count| count.owner == play.owner && count.track == play.track);
+    play_view_with_count(play, count)
+}
+
+fn play_view_with_count(play: &Play, count: Option<&user::PlayCount>) -> PlayView {
     PlayView {
         track: play.track.to_token(),
         at: play.at,
         ms_played: play.ms_played,
         completed: play.completed,
-        play_count: data.play_count(&play.owner, &play.track),
-        last_played: data
-            .counts
-            .iter()
-            .find(|count| count.owner == play.owner && count.track == play.track)
-            .map(|count| count.last_played)
-            .unwrap_or(0),
+        play_count: count.map_or(0, |count| count.count),
+        last_played: count.map_or(0, |count| count.last_played),
     }
 }
 
@@ -543,17 +547,23 @@ fn history_page(
     offset: usize,
     limit: usize,
 ) -> HistoryResponse {
-    let items: Vec<_> = data
-        .plays
-        .iter()
-        .filter(|play| play.owner == owner)
+    let plays = data.plays.iter().filter(|play| play.owner == owner);
+    let total = plays.clone().count();
+    let mut counts = BTreeMap::new();
+    for count in data.counts.iter().filter(|count| count.owner == owner) {
+        // Keep the core's first-row behavior for legacy duplicates.
+        counts.entry(&count.track).or_insert(count);
+    }
+    let items = plays
         .rev()
-        .map(|play| play_view(data, play))
+        .skip(offset)
+        .take(limit)
+        .map(|play| play_view_with_count(play, counts.get(&play.track).copied()))
         .collect();
     HistoryResponse {
         page: Page {
-            total: items.len(),
-            items: items.into_iter().skip(offset).take(limit).collect(),
+            total,
+            items,
             offset,
             limit,
             scanned_at: catalog.scanned_at,
@@ -653,9 +663,7 @@ async fn collection(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
-    if query.name.trim().is_empty() {
-        return Err(invalid_query("name must contain text"));
-    }
+    validate_collection_name(&query.name)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, _catalog, data) = locked_personal(&data_dir)?;
@@ -689,9 +697,7 @@ async fn save_collection(
     let owner = PersonalOwner::from_request(&state, &request)?;
     owner.require_mutation()?;
     let query = parsed_query(input)?;
-    if query.name.trim().is_empty() || query.name.len() > 256 {
-        return Err(invalid_query("name must contain 1 to 256 bytes"));
-    }
+    validate_collection_name(&query.name)?;
     let input: CollectionRequest = json_body(request).await?;
     if input.expression.trim().is_empty() || input.expression.len() > 2048 {
         return Err(error(
@@ -743,9 +749,7 @@ async fn delete_collection(
     owner.require_mutation()?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
-    if query.name.trim().is_empty() {
-        return Err(invalid_query("name must contain text"));
-    }
+    validate_collection_name(&query.name)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         locked_update(&data_dir, &state, &owner, |_, data| {
@@ -838,6 +842,13 @@ fn validate_tags(tags: &[String]) -> Result<(), ApiError> {
             "invalid_parameters",
             "tags must not contain duplicates",
         ));
+    }
+    Ok(())
+}
+
+fn validate_collection_name(name: &str) -> Result<(), ApiError> {
+    if name.trim().is_empty() || name.len() > 256 {
+        return Err(invalid_query("name must contain 1 to 256 bytes"));
     }
     Ok(())
 }

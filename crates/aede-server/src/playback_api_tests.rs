@@ -464,3 +464,158 @@ fn acknowledgements_cannot_regress_or_exceed_the_sent_window() {
     assert_eq!(frames_to_milliseconds(7, 8_000), 0);
     assert_eq!(frames_to_milliseconds(8, 8_000), 1);
 }
+
+#[test]
+fn playback_start_refuses_unknown_duplicate_and_unusable_settings() {
+    for input in [
+        r#"{"type":"start","track":"track:x","seek":10}"#,
+        r#"{"type":"start","track":"track:x","track":"track:y"}"#,
+        r#"{"type":"start","track":"track:x","type":"start"}"#,
+        r#"{"type":"ack","frames":0}"#,
+        r#"{"type":"start","track":"release:x"}"#,
+        r#"{"type":"start","track":"track:"}"#,
+        r#"{"type":"start","track":"track:x","sample_rate":7999}"#,
+        r#"{"type":"start","track":"track:x","sample_rate":192001}"#,
+        r#"{"type":"start","track":"track:x","sample_rate":8000.5}"#,
+        r#"{"type":"start","track":"track:x","bass":12.1}"#,
+        r#"{"type":"start","track":"track:x","treble":-12.1}"#,
+        r#"{"type":"start","track":"track:x","bass":1e100}"#,
+        r#"{"type":"start","track":"track:x","normalize":"automatic"}"#,
+    ] {
+        let failure = match Start::parse(input) {
+            Ok(_) => panic!("unusable start was accepted: {input}"),
+            Err(failure) => failure,
+        };
+        assert_eq!(failure.code, "invalid_start", "{input}");
+    }
+    for rate in [8_000, 192_000] {
+        let parsed = Start::parse(
+            &serde_json::json!({
+                "type": "start", "track": "track:x", "sample_rate": rate,
+                "normalize": "album", "bass": -12, "treble": 12,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(parsed.output_rate, Some(rate));
+        assert_eq!(parsed.normalize, Mode::Album);
+    }
+}
+
+#[test]
+fn playback_rate_conversion_keeps_the_converter_tail_and_history_duration() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 401).await;
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let token = login(address, "alice");
+        let mut socket = upgraded_socket(address, &token);
+        socket.send_text(
+            &serde_json::json!({
+                "type": "start", "track": installed.reference, "normalize": "off",
+                "sample_rate": 16_000, "bass": 6, "treble": -3,
+            })
+            .to_string(),
+        );
+        let ServerFrame::Text(format) = socket.next() else {
+            panic!("format frame");
+        };
+        assert_eq!(format["sample_rate"], 16_000);
+        assert_eq!(format["channels"], 1);
+        assert_eq!(format["max_unacknowledged_frames"], 16_000);
+        let mut frames = 0_u64;
+        let mut eof = false;
+        loop {
+            match socket.next() {
+                ServerFrame::Binary(bytes) => {
+                    assert_guarded_pcm(&bytes);
+                    frames += u64::try_from(bytes.len() / 4).unwrap();
+                    socket.send_text(
+                        &serde_json::json!({"type": "ack", "frames": frames}).to_string(),
+                    );
+                }
+                ServerFrame::Text(frame) if frame["type"] == "eof" => {
+                    assert_eq!(frame["frames"], frames);
+                    assert_eq!(frames, 802, "include every converted frame and tail");
+                    eof = true;
+                }
+                ServerFrame::Text(frame) if frame["type"] == "recorded" => {
+                    assert!(eof);
+                    assert_eq!(frame["ms_played"], 50);
+                    assert_eq!(frame["completed"], true);
+                    break;
+                }
+                ServerFrame::Text(frame) => panic!("unexpected playback frame {frame}"),
+                ServerFrame::Close => panic!("rate-converted playback closed early"),
+            }
+        }
+        let play = saved_play(&fixture).await;
+        assert_eq!(play.ms_played, 50);
+        assert!(play.completed);
+        server.abort();
+    });
+}
+
+#[test]
+fn accepting_an_acknowledgement_cannot_be_cancelled_by_a_pending_account_read() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        let (send_socket, socket) = tokio::sync::oneshot::channel();
+        let send_socket = Arc::new(std::sync::Mutex::new(Some(send_socket)));
+        let application = Router::new().route(
+            "/api/me/v1/playback",
+            get(move |upgrade: WebSocketUpgrade| {
+                let send_socket = send_socket.clone();
+                async move {
+                    upgrade.on_upgrade(move |socket| async move {
+                        send_socket
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .unwrap()
+                            .send(socket)
+                            .unwrap();
+                    })
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, application).await.unwrap() });
+        let mut client = upgraded_socket(address, auth::session_token(&principal));
+        let mut socket = socket.await.unwrap();
+        let (entered_at_worker, entered) = std::sync::mpsc::channel();
+        let (release, released_to_worker) = std::sync::mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || {
+            entered_at_worker.send(()).unwrap();
+            released_to_worker.recv().unwrap();
+        });
+        entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        let mut acknowledgements = Acknowledgements::with_window(10);
+        acknowledgements.sent(10, Instant::now()).unwrap();
+        client.send_text(r#"{"type":"ack","frames":4}"#);
+        let received = tokio::time::timeout(
+            Duration::from_millis(100),
+            receive_ack(&mut socket, &mut acknowledgements),
+        )
+        .await;
+        release.send(()).unwrap();
+        worker.await.unwrap();
+        server.abort();
+        assert!(
+            matches!(received, Ok(Ok(true))),
+            "a selected receive must commit its ACK before any cancellable authorization wait"
+        );
+        assert_eq!(acknowledgements.consumed, 4);
+    });
+}

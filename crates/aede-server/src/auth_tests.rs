@@ -79,13 +79,19 @@ fn throttling_limits_unknown_names_and_recovers_without_unbounded_storage() {
 }
 
 #[test]
-fn missing_or_malformed_credentials_never_reopen_an_authenticated_server() {
+fn missing_or_malformed_credentials_fail_closed_until_a_fresh_local_server_starts() {
     let fixture = Fixture::new();
     assert!(load_accounts(&fixture.0).unwrap().is_some());
     std::fs::remove_file(accounts::accounts_path(&fixture.0.data_dir)).unwrap();
     assert_eq!(
         load_accounts(&fixture.0).unwrap_err().status,
         StatusCode::SERVICE_UNAVAILABLE
+    );
+    let mut restarted = fixture.0.clone();
+    restarted.auth = Arc::new(AuthState::default());
+    assert!(
+        load_accounts(&restarted).unwrap().is_none(),
+        "an initially absent store retains the local anonymous compatibility mode"
     );
     let second = Fixture::new();
     std::fs::write(accounts::accounts_path(&second.0.data_dir), "{}").unwrap();

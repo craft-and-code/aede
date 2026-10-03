@@ -1,4 +1,4 @@
-//! Deterministic ordering of query results, with absent values last.
+//! Deterministic ordering of query results, with absent numeric values last.
 
 use super::*;
 
@@ -22,7 +22,8 @@ pub enum SortKey {
     Catalog,
     /// Track title.
     Title,
-    /// Main artist, by filing name.
+    /// Main artist, by filing name. Uncredited tracks precede named artists in
+    /// ascending order and follow them in descending order.
     Artist,
     /// Album title, then disc and track number.
     Album,
@@ -81,50 +82,74 @@ pub fn sort_key_names() -> Vec<&'static str> {
 
 /// Puts a result in order.
 ///
-/// Ties fall back on catalog order, so the same query gives the same rows in
-/// the same places twice running — without which `--offset` would show a track
-/// twice and hide another.
+/// Ties retain the selection's input order, which is catalog order for query
+/// results. The same query therefore keeps rows in the same places twice
+/// running — without which `--offset` would show a track twice and hide another.
 pub fn sort(tracks: &mut [Id], sort: Sort, context: &Context) {
-    if sort.key == SortKey::Catalog {
-        if sort.descending {
-            tracks.reverse();
+    match sort.key {
+        SortKey::Catalog => {
+            if sort.descending {
+                tracks.reverse();
+            }
         }
-        return;
+        SortKey::Title => sort_cached(tracks, sort.descending, |track| {
+            context
+                .catalog
+                .track(track)
+                .map(|row| text::normalize(&row.title))
+        }),
+        SortKey::Artist => sort_cached(tracks, sort.descending, |track| {
+            main_artist(context, track).map(|artist| artist.sort_name.as_str())
+        }),
+        SortKey::Album => {
+            sort_cached(tracks, sort.descending, |track| {
+                album_position(context, track)
+            });
+        }
+        SortKey::Year | SortKey::Duration | SortKey::Size | SortKey::Rating | SortKey::Played => {
+            let Some(field) = sort_field(sort.key) else {
+                return;
+            };
+            sort_numbers(tracks, sort.descending, &field, context);
+        }
     }
-    let position: std::collections::BTreeMap<Id, usize> = tracks
+}
+
+fn sort_cached<Key: Ord>(tracks: &mut [Id], descending: bool, mut key: impl FnMut(Id) -> Key) {
+    // Normalizing a title during every comparison repeats allocations and
+    // text processing O(n log n) times. The cached-key sort computes it once
+    // per result and preserves input order for equal keys in both directions.
+    if descending {
+        tracks.sort_by_cached_key(|&track| std::cmp::Reverse(key(track)));
+    } else {
+        tracks.sort_by_cached_key(|&track| key(track));
+    }
+}
+
+fn sort_numbers(tracks: &mut [Id], descending: bool, field: &Field, context: &Context) {
+    use std::cmp::Ordering;
+
+    let mut keyed: Vec<_> = tracks
         .iter()
-        .enumerate()
-        .map(|(at, &id)| (id, at))
+        .map(|&track| (track, number_of(field, context, track)))
         .collect();
-    tracks.sort_by(|&a, &b| {
-        use std::cmp::Ordering;
+    keyed.sort_by(|(_, left), (_, right)| {
         // "Unknown" is not "smallest", and it is not "largest" either: a track
         // with nothing to compare goes last **whichever way round the sort was
         // asked**, which is why this sits outside the reversal. Sorting by year
         // must not open with everything nobody ever tagged.
-        let order = match (missing(sort.key, context, a), missing(sort.key, context, b)) {
-            (true, true) => Ordering::Equal,
-            (true, false) => Ordering::Greater,
-            (false, true) => Ordering::Less,
-            (false, false) => {
-                let order = compare(sort.key, context, a, b);
-                if sort.descending {
-                    order.reverse()
-                } else {
-                    order
-                }
+        match (left, right) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (Some(left), Some(right)) => {
+                let order = left.partial_cmp(right).unwrap_or(Ordering::Equal);
+                if descending { order.reverse() } else { order }
             }
-        };
-        order.then_with(|| position.get(&a).cmp(&position.get(&b)))
+        }
     });
-}
-
-/// `true` when a track has no value for this key, and therefore belongs at the
-/// end rather than at either extreme.
-fn missing(key: SortKey, context: &Context, track: Id) -> bool {
-    match sort_field(key) {
-        Some(field) => number_of(&field, context, track).is_none(),
-        None => false,
+    for (track, (ordered, _)) in tracks.iter_mut().zip(keyed) {
+        *track = ordered;
     }
 }
 
@@ -138,35 +163,6 @@ fn sort_field(key: SortKey) -> Option<Field> {
         SortKey::Played => Field::Played,
         _ => return None,
     })
-}
-
-fn compare(key: SortKey, context: &Context, a: Id, b: Id) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let catalog = context.catalog;
-    match key {
-        SortKey::Catalog => Ordering::Equal,
-        SortKey::Title => catalog
-            .track(a)
-            .map(|t| text::normalize(&t.title))
-            .cmp(&catalog.track(b).map(|t| text::normalize(&t.title))),
-        SortKey::Artist => sort_name(context, a).cmp(&sort_name(context, b)),
-        SortKey::Album => album_position(context, a).cmp(&album_position(context, b)),
-        SortKey::Year | SortKey::Duration | SortKey::Size | SortKey::Rating | SortKey::Played => {
-            let Some(field) = sort_field(key) else {
-                return Ordering::Equal;
-            };
-            let left = number_of(&field, context, a);
-            let right = number_of(&field, context, b);
-            match (left, right) {
-                (Some(l), Some(r)) => l.partial_cmp(&r).unwrap_or(Ordering::Equal),
-                _ => Ordering::Equal,
-            }
-        }
-    }
-}
-
-fn sort_name(context: &Context, track: Id) -> Option<String> {
-    main_artist(context, track).map(|artist| artist.sort_name.clone())
 }
 
 /// Album title, then where the track sits in it: sorting by album and getting

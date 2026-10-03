@@ -12,12 +12,12 @@ use tokio::task::JoinSet;
 use tower::ServiceExt as _;
 
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-const TLS_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 const TLS_CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
-const TLS_SERVER_DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
-const TLS_WRITE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
-const TLS_MAX_HEADERS: usize = 64;
-const TLS_MAX_HTTP_BUFFER: usize = 32 * 1024;
+const CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
+const HTTP_WRITE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_MAX_HEADERS: usize = 64;
+const HTTP_MAX_BUFFER: usize = 32 * 1024;
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Keeps a TCP admission permit alive for every consumer of the stream.
@@ -47,15 +47,32 @@ impl<S> ConnectionStream<S> {
     fn pending_write(&mut self, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         let deadline = self
             .write_deadline
-            .get_or_insert_with(|| Box::pin(tokio::time::sleep(TLS_WRITE_PROGRESS_TIMEOUT)));
+            .get_or_insert_with(|| Box::pin(tokio::time::sleep(HTTP_WRITE_PROGRESS_TIMEOUT)));
         if std::future::Future::poll(deadline.as_mut(), context).is_ready() {
             self.clear_write_deadline();
             Poll::Ready(Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                "TLS response made no write progress before its deadline",
+                "HTTP response made no write progress before its deadline",
             )))
         } else {
             Poll::Pending
+        }
+    }
+
+    fn write_result(
+        &mut self,
+        outcome: Poll<std::io::Result<usize>>,
+        context: &mut Context<'_>,
+    ) -> Poll<std::io::Result<usize>> {
+        match outcome {
+            Poll::Ready(Ok(written)) => {
+                if written > 0 {
+                    self.clear_write_deadline();
+                }
+                Poll::Ready(Ok(written))
+            }
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Pending => self.pending_write(context).map(|result| result.map(|()| 0)),
         }
     }
 }
@@ -77,18 +94,22 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ConnectionStream<S> {
         buffer: &[u8],
     ) -> Poll<std::io::Result<usize>> {
         let stream = self.as_mut().get_mut();
-        match Pin::new(&mut stream.stream).poll_write(context, buffer) {
-            Poll::Ready(Ok(written)) => {
-                if written > 0 {
-                    stream.clear_write_deadline();
-                }
-                Poll::Ready(Ok(written))
-            }
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-            Poll::Pending => stream
-                .pending_write(context)
-                .map(|result| result.map(|()| 0)),
-        }
+        let outcome = Pin::new(&mut stream.stream).poll_write(context, buffer);
+        stream.write_result(outcome, context)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffers: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        let stream = self.get_mut();
+        let outcome = Pin::new(&mut stream.stream).poll_write_vectored(context, buffers);
+        stream.write_result(outcome, context)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.stream.is_write_vectored()
     }
 
     fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -215,11 +236,19 @@ pub(super) async fn refresh_catalog(
     }
 }
 
-pub(super) async fn watch_catalog(path: PathBuf, state: ApiState) {
+pub(super) fn watch_catalog(path: PathBuf, state: ApiState) -> impl Future<Output = ()> {
+    let shutdown = state.shutdown.subscribe();
+    watch_catalog_until(path, state, shutdown)
+}
+
+async fn watch_catalog_until(
+    path: PathBuf,
+    state: ApiState,
+    mut shutdown: broadcast::Receiver<()>,
+) {
     let mut known = *state.loaded_stamp.read().await;
     let mut reported_failure: Option<Option<(SystemTime, u64)>> = None;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
-    let mut shutdown = state.shutdown.subscribe();
     loop {
         tokio::select! {
             _ = shutdown.recv() => break,
@@ -273,15 +302,25 @@ pub(super) async fn run_http(
         state.clone(),
         command_validator,
     ));
-    let sender = state.shutdown.clone();
     let cleanup_shutdown = state.shutdown.clone();
     let address = listener.local_addr()?;
-    let result = axum::serve(listener, router(state.clone(), address))
-        .with_graceful_shutdown(async move {
-            shutdown.await;
-            let _ = sender.send(());
-        })
-        .await;
+    // Subscribe before spawning the trigger; an immediately ready shutdown
+    // must not disappear before the listener future receives its first poll.
+    let shutdown_receiver = state.shutdown.subscribe();
+    let sender = state.shutdown.clone();
+    let shutdown_task = tokio::spawn(async move {
+        shutdown.await;
+        let _ = sender.send(());
+    });
+    let result = serve_connections(
+        listener,
+        None,
+        router(state.clone(), address),
+        &state,
+        shutdown_receiver,
+    )
+    .await;
+    shutdown_task.abort();
     // Also stop the command listener if serving fails before a signal arrives.
     let _ = cleanup_shutdown.send(());
     watcher.abort();
@@ -316,22 +355,22 @@ async fn run_tls(
         state.clone(),
         command_validator,
     ));
+    let TlsServer {
+        acceptor,
+        authority,
+    } = tls;
+    let serving = serve_tls(
+        listener,
+        acceptor,
+        remote_router(state.clone(), authority),
+        state.clone(),
+    );
     let sender = state.shutdown.clone();
     let shutdown_task = tokio::spawn(async move {
         shutdown.await;
         let _ = sender.send(());
     });
-    let TlsServer {
-        acceptor,
-        authority,
-    } = tls;
-    let result = serve_tls(
-        listener,
-        acceptor,
-        remote_router(state.clone(), authority),
-        state.clone(),
-    )
-    .await;
+    let result = serving.await;
     shutdown_task.abort();
     // Also stop the watcher and command listener if serving fails before a
     // termination signal arrives.
@@ -355,13 +394,28 @@ async fn run_tls(
 ///
 /// The function is separate from startup so tests can exercise real TLS and
 /// WebSocket upgrades without requiring a process signal or a data lock.
-pub(super) async fn serve_tls(
+pub(super) fn serve_tls(
     listener: tokio::net::TcpListener,
     acceptor: tokio_rustls::TlsAcceptor,
     application: Router,
     state: ApiState,
+) -> impl Future<Output = Result<(), std::io::Error>> + Send + 'static {
+    let shutdown = state.shutdown.subscribe();
+    async move { serve_connections(listener, Some(acceptor), application, &state, shutdown).await }
+}
+
+/// Apply the same admission, header and stalled-write bounds to both listeners.
+///
+/// Local HTTP still waits for active requests at shutdown: a bodyless scan is
+/// synchronous and may legitimately take longer than the HTTPS drain budget.
+/// Incomplete headers and blocked writes have their own finite deadlines.
+async fn serve_connections(
+    listener: tokio::net::TcpListener,
+    acceptor: Option<tokio_rustls::TlsAcceptor>,
+    application: Router,
+    state: &ApiState,
+    mut shutdown: broadcast::Receiver<()>,
 ) -> Result<(), std::io::Error> {
-    let mut shutdown = state.shutdown.subscribe();
     // Capture this before accepting. A WebSocket upgrade leaves the HTTP task,
     // but retains its permit in `ConnectionStream`; shutdown below waits until
     // every permit this listener could have issued has returned.
@@ -381,7 +435,7 @@ pub(super) async fn serve_tls(
                     let connection_acceptor = acceptor.clone();
                     let connection_application = application.clone();
                     connections.spawn(async move {
-                        serve_tls_connection(
+                        serve_connection(
                             stream,
                             permit,
                             connection_acceptor,
@@ -397,41 +451,77 @@ pub(super) async fn serve_tls(
         }
     }
     drop(listener);
-    drain_tls_connections(
-        &mut connections,
-        state.connection_slots.as_ref(),
-        connection_capacity,
-    )
-    .await;
+    if acceptor.is_some() {
+        drain_tls_connections(
+            &mut connections,
+            state.connection_slots.as_ref(),
+            connection_capacity,
+        )
+        .await;
+    } else {
+        while connections.join_next().await.is_some() {}
+        drain_upgraded_connections(
+            state.connection_slots.as_ref(),
+            connection_capacity,
+            tokio::time::Instant::now() + CONNECTION_DRAIN_TIMEOUT,
+        )
+        .await;
+    }
     Ok(())
 }
 
-async fn serve_tls_connection(
+async fn serve_connection(
     stream: tokio::net::TcpStream,
     permit: tokio::sync::OwnedSemaphorePermit,
-    acceptor: tokio_rustls::TlsAcceptor,
+    acceptor: Option<tokio_rustls::TlsAcceptor>,
     application: Router,
     mut shutdown: broadcast::Receiver<()>,
 ) {
-    let stream = tokio::select! {
-        accepted = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)) => match accepted {
-            Ok(Ok(stream)) => stream,
-            Ok(Err(_)) | Err(_) => return,
-        },
-        _ = shutdown.recv() => return,
-    };
-    let stream = ConnectionStream::new(stream, permit);
+    if let Some(acceptor) = acceptor {
+        let stream = tokio::select! {
+            accepted = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)) => match accepted {
+                Ok(Ok(stream)) => stream,
+                Ok(Err(_)) | Err(_) => return,
+            },
+            _ = shutdown.recv() => return,
+        };
+        serve_http_connection(
+            ConnectionStream::new(stream, permit),
+            application,
+            shutdown,
+            true,
+        )
+        .await;
+    } else {
+        serve_http_connection(
+            ConnectionStream::new(stream, permit),
+            application,
+            shutdown,
+            false,
+        )
+        .await;
+    }
+}
+
+async fn serve_http_connection<S>(
+    stream: ConnectionStream<S>,
+    application: Router,
+    mut shutdown: broadcast::Receiver<()>,
+    remote: bool,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let service =
         application.map_request(|request: Request<Incoming>| request.map(axum::body::Body::new));
     let service = TowerToHyperService::new(service);
     let mut http = http1::Builder::new();
     http.timer(TokioTimer::new())
-        .header_read_timeout(TLS_HEADER_TIMEOUT)
-        .max_headers(TLS_MAX_HEADERS)
-        .max_buf_size(TLS_MAX_HTTP_BUFFER)
-        // TLS streams do not provide useful vectored writes, so avoid the
-        // extra queue/copy choice heuristic on every response.
-        .writev(false);
+        .header_read_timeout(HTTP_HEADER_TIMEOUT)
+        .max_headers(HTTP_MAX_HEADERS)
+        .max_buf_size(HTTP_MAX_BUFFER)
+        // TCP preserves its efficient vectored writes. TLS does not provide
+        // that capability, so avoid its queue/copy choice heuristic.
+        .writev(!remote);
     let connection = http
         .serve_connection(TokioIo::new(stream), service)
         .with_upgrades();
@@ -440,7 +530,11 @@ async fn serve_tls_connection(
         _ = &mut connection => {},
         _ = shutdown.recv() => {
             connection.as_mut().graceful_shutdown();
-            let _ = tokio::time::timeout(TLS_CONNECTION_DRAIN_TIMEOUT, &mut connection).await;
+            if remote {
+                let _ = tokio::time::timeout(TLS_CONNECTION_DRAIN_TIMEOUT, &mut connection).await;
+            } else {
+                let _ = connection.await;
+            }
         }
     }
 }
@@ -450,7 +544,7 @@ async fn drain_tls_connections(
     connection_slots: &Semaphore,
     connection_capacity: usize,
 ) {
-    let deadline = tokio::time::Instant::now() + TLS_SERVER_DRAIN_TIMEOUT;
+    let deadline = tokio::time::Instant::now() + CONNECTION_DRAIN_TIMEOUT;
     while !connections.is_empty() {
         if tokio::time::timeout_at(deadline, connections.join_next())
             .await
@@ -461,6 +555,14 @@ async fn drain_tls_connections(
             break;
         }
     }
+    drain_upgraded_connections(connection_slots, connection_capacity, deadline).await;
+}
+
+async fn drain_upgraded_connections(
+    connection_slots: &Semaphore,
+    connection_capacity: usize,
+    deadline: tokio::time::Instant,
+) {
     // Upgraded WebSocket callbacks outlive Hyper's connection future. Their
     // stream still owns a permit, so wait for the shared capacity rather than
     // considering only the now-empty JoinSet.

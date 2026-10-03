@@ -685,7 +685,8 @@ fn genre_link_to_json(g: &GenreLink) -> Json {
 /// The version is checked before anything else, so an old file is rejected
 /// rather than half-decoded. Identifiers are then verified to be contiguous:
 /// the model indexes entities by position, and a gap would silently shift
-/// every relation.
+/// every relation. Present tables, lists and polymorphic references must be
+/// well formed; absent optional legacy fields retain their migration defaults.
 pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     let version = value.field_u32("format_version").unwrap_or(0);
     if version != FORMAT_VERSION {
@@ -695,12 +696,34 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
         });
     }
 
+    for table in [
+        "roots",
+        "excluded",
+        "file",
+        "artist",
+        "release",
+        "release_group",
+        "track",
+        "recording",
+        "work",
+        "label",
+        "genre",
+        "credit",
+        "relation",
+        "genre_link",
+        "analysis",
+    ] {
+        if value.get(table).is_some_and(|rows| rows.as_arr().is_none()) {
+            return Err(StoreError::Invalid("catalog tables must be arrays"));
+        }
+    }
+
     let mut catalog = Catalog {
         scanned_at: value.field_u64("scanned_at").unwrap_or(0),
-        roots: string_list(value.get("roots")),
+        roots: string_list(value.get("roots"))?,
         // Absent from a file written before exclusions existed, which reads as
         // "nothing excluded" — the behaviour that file was saved with.
-        excluded: string_list(value.get("excluded")),
+        excluded: string_list(value.get("excluded"))?,
         ..Default::default()
     };
     // Relations inferred under older rules are stale, not wrong: they are
@@ -734,11 +757,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             sort_name: item.field_str("sort_name").unwrap_or_default(),
             key: item.field_str("key").unwrap_or_default(),
             mbid: item.field_str("mbid"),
-            aliases: item
-                .get("aliases")
-                .and_then(Json::as_arr)
-                .map(|values| values.iter().filter_map(Json::as_string).collect())
-                .unwrap_or_default(),
+            aliases: string_list(item.get("aliases"))?,
         });
     }
     for item in rows(value, "release") {
@@ -751,7 +770,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             album_artist_id: item.field_u32("album_artist_id"),
             date: item.field_str("date"),
             year: item.field_u32("year"),
-            label_ids: id_list(item.get("label_ids")),
+            label_ids: id_list(item.get("label_ids"))?,
             catalog_number: item.field_str("catalog_number"),
             barcode: item.field_str("barcode"),
             media: item.field_str("media"),
@@ -761,7 +780,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             is_compilation: item.field_bool("is_compilation"),
             folder: item.field_str("folder").unwrap_or_default(),
             cover_path: item.field_str("cover_path"),
-            track_ids: id_list(item.get("track_ids")),
+            track_ids: id_list(item.get("track_ids"))?,
         });
     }
     for item in rows(value, "release_group") {
@@ -772,7 +791,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             title: item.field_str("title").unwrap_or_default(),
             key: item.field_str("key").unwrap_or_default(),
             mbid: item.field_str("mbid").unwrap_or_default(),
-            release_ids: id_list(item.get("release_ids")),
+            release_ids: id_list(item.get("release_ids"))?,
         });
     }
     if catalog.release_groups.is_empty() {
@@ -810,8 +829,8 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             key: item.field_str("key").unwrap_or_default(),
             isrc: item.field_str("isrc"),
             mbid: item.field_str("mbid"),
-            track_ids: id_list(item.get("track_ids")),
-            work_ids: id_list(item.get("work_ids")),
+            track_ids: id_list(item.get("track_ids"))?,
+            work_ids: id_list(item.get("work_ids"))?,
         });
     }
     if catalog.recordings.is_empty() && !catalog.tracks.is_empty() {
@@ -827,7 +846,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
             mbid: item
                 .field_str("mbid")
                 .ok_or(StoreError::Invalid("work without MusicBrainz identifier"))?,
-            recording_ids: id_list(item.get("recording_ids")),
+            recording_ids: id_list(item.get("recording_ids"))?,
         });
     }
     for item in rows(value, "label") {
@@ -850,16 +869,18 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
         });
     }
     for item in rows(value, "credit") {
-        let Some(kind) = item
+        let kind = item
             .field_str("entity_kind")
             .and_then(|s| EntityKind::parse_kind(&s))
-        else {
-            continue;
-        };
+            .ok_or(StoreError::Invalid("credit without a valid entity kind"))?;
         catalog.credits.push(Credit {
-            artist_id: item.field_u32("artist_id").unwrap_or(0),
+            artist_id: item
+                .field_u32("artist_id")
+                .ok_or(StoreError::Invalid("credit without artist identifier"))?,
             entity_kind: kind,
-            entity_id: item.field_u32("entity_id").unwrap_or(0),
+            entity_id: item
+                .field_u32("entity_id")
+                .ok_or(StoreError::Invalid("credit without entity identifier"))?,
             role: item.field_str("role").unwrap_or_default(),
             credited_as: item.field_str("credited_as"),
             attributes: item
@@ -888,35 +909,43 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
         });
     }
     for item in rows(value, "relation") {
-        let (Some(source_kind), Some(target_kind)) = (
-            item.field_str("source_kind")
-                .and_then(|s| EntityKind::parse_kind(&s)),
-            item.field_str("target_kind")
-                .and_then(|s| EntityKind::parse_kind(&s)),
-        ) else {
-            continue;
-        };
+        let source_kind = item
+            .field_str("source_kind")
+            .and_then(|s| EntityKind::parse_kind(&s))
+            .ok_or(StoreError::Invalid("relation without a valid source kind"))?;
+        let target_kind = item
+            .field_str("target_kind")
+            .and_then(|s| EntityKind::parse_kind(&s))
+            .ok_or(StoreError::Invalid("relation without a valid target kind"))?;
         catalog.relations.push(Relation {
             source_kind,
-            source_id: item.field_u32("source_id").unwrap_or(0),
+            source_id: item
+                .field_u32("source_id")
+                .ok_or(StoreError::Invalid("relation without source identifier"))?,
             target_kind,
-            target_id: item.field_u32("target_id").unwrap_or(0),
+            target_id: item
+                .field_u32("target_id")
+                .ok_or(StoreError::Invalid("relation without target identifier"))?,
             kind: item.field_str("kind").unwrap_or_default(),
             weight: item.field_u32("weight").unwrap_or(1),
             source: item.field_str("source").unwrap_or_default(),
         });
     }
     for item in rows(value, "genre_link") {
-        let Some(kind) = item
+        let kind = item
             .field_str("entity_kind")
             .and_then(|s| EntityKind::parse_kind(&s))
-        else {
-            continue;
-        };
+            .ok_or(StoreError::Invalid(
+                "genre link without a valid entity kind",
+            ))?;
         catalog.genre_links.push(GenreLink {
-            genre_id: item.field_u32("genre_id").unwrap_or(0),
+            genre_id: item
+                .field_u32("genre_id")
+                .ok_or(StoreError::Invalid("genre link without genre identifier"))?,
             entity_kind: kind,
-            entity_id: item.field_u32("entity_id").unwrap_or(0),
+            entity_id: item
+                .field_u32("entity_id")
+                .ok_or(StoreError::Invalid("genre link without entity identifier"))?,
         });
     }
 
@@ -928,12 +957,26 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     if stale_relations {
         model::rebuild_relations(&mut catalog);
     }
+    for relation in &catalog.relations {
+        if !entity_exists(&catalog, relation.source_kind, relation.source_id)
+            || !entity_exists(&catalog, relation.target_kind, relation.target_id)
+        {
+            return Err(StoreError::Invalid("relation attached to a missing entity"));
+        }
+    }
     Ok(catalog)
 }
 
 /// The `Vec`s are indexed by identifier: we check that the file read back
 /// respects that invariant before handing it to the rest of the program.
 fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
+    // A frequently performed work can link thousands of recordings. Walking
+    // that full list for each reverse reference would make loading quadratic.
+    let work_recordings: Vec<std::collections::HashSet<&Id>> = catalog
+        .works
+        .iter()
+        .map(|work| work.recording_ids.iter().collect())
+        .collect();
     let mut file_paths = std::collections::HashSet::new();
     for (index, file) in catalog.files.iter().enumerate() {
         if file.id as usize != index {
@@ -953,6 +996,26 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
             return Err(StoreError::Invalid("non-contiguous release identifiers"));
         }
         if release
+            .album_artist_id
+            .is_some_and(|id| id as usize >= catalog.artists.len())
+        {
+            return Err(StoreError::Invalid("release attached to a missing artist"));
+        }
+        if release
+            .label_ids
+            .iter()
+            .any(|&id| id as usize >= catalog.labels.len())
+        {
+            return Err(StoreError::Invalid("release attached to a missing label"));
+        }
+        if release.track_ids.iter().any(|&id| {
+            catalog
+                .track(id)
+                .is_none_or(|track| track.release_id != Some(release.id))
+        }) {
+            return Err(StoreError::Invalid("release attached to a missing track"));
+        }
+        if release
             .release_group_id
             .is_some_and(|id| id as usize >= catalog.release_groups.len())
         {
@@ -967,6 +1030,16 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
                 "non-contiguous release group identifiers",
             ));
         }
+        if group.release_ids.iter().any(|&id| {
+            catalog
+                .releases
+                .get(id as usize)
+                .is_none_or(|release| release.release_group_id != Some(group.id))
+        }) {
+            return Err(StoreError::Invalid(
+                "release group attached to a missing release",
+            ));
+        }
     }
     for (index, track) in catalog.tracks.iter().enumerate() {
         if track.id as usize != index {
@@ -977,6 +1050,12 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
         }
         if track.recording_id as usize >= catalog.recordings.len() {
             return Err(StoreError::Invalid("track attached to a missing recording"));
+        }
+        if track
+            .release_id
+            .is_some_and(|id| id as usize >= catalog.releases.len())
+        {
+            return Err(StoreError::Invalid("track attached to a missing release"));
         }
     }
     for (index, recording) in catalog.recordings.iter().enumerate() {
@@ -991,10 +1070,9 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
             return Err(StoreError::Invalid("recording attached to a missing track"));
         }
         if recording.work_ids.iter().any(|&id| {
-            catalog
-                .works
+            work_recordings
                 .get(id as usize)
-                .is_none_or(|work| !work.recording_ids.contains(&recording.id))
+                .is_none_or(|recordings| !recordings.contains(&recording.id))
         }) {
             return Err(StoreError::Invalid("recording attached to a missing work"));
         }
@@ -1014,7 +1092,45 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
             return Err(StoreError::Invalid("work attached to a missing recording"));
         }
     }
+    for (index, label) in catalog.labels.iter().enumerate() {
+        if label.id as usize != index {
+            return Err(StoreError::Invalid("non-contiguous label identifiers"));
+        }
+    }
+    for (index, genre) in catalog.genres.iter().enumerate() {
+        if genre.id as usize != index {
+            return Err(StoreError::Invalid("non-contiguous genre identifiers"));
+        }
+    }
+    for credit in &catalog.credits {
+        if credit.artist_id as usize >= catalog.artists.len()
+            || !entity_exists(catalog, credit.entity_kind, credit.entity_id)
+        {
+            return Err(StoreError::Invalid("credit attached to a missing entity"));
+        }
+    }
+    for link in &catalog.genre_links {
+        if link.genre_id as usize >= catalog.genres.len()
+            || !entity_exists(catalog, link.entity_kind, link.entity_id)
+        {
+            return Err(StoreError::Invalid("genre attached to a missing entity"));
+        }
+    }
     Ok(())
+}
+
+fn entity_exists(catalog: &Catalog, kind: EntityKind, id: Id) -> bool {
+    let length = match kind {
+        EntityKind::Artist => catalog.artists.len(),
+        EntityKind::Release => catalog.releases.len(),
+        EntityKind::ReleaseGroup => catalog.release_groups.len(),
+        EntityKind::Track => catalog.tracks.len(),
+        EntityKind::Recording => catalog.recordings.len(),
+        EntityKind::Work => catalog.works.len(),
+        EntityKind::Label => catalog.labels.len(),
+        EntityKind::Genre => catalog.genres.len(),
+    };
+    (id as usize) < length
 }
 
 /// Adds groups to a pre-canonical catalog from explicit release-group MBIDs.
@@ -1094,7 +1210,7 @@ fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
     let mut tags: BTreeMap<String, Vec<String>> = BTreeMap::new();
     if let Some(Json::Obj(map)) = item.get("tags") {
         for (key, values) in map {
-            tags.insert(key.clone(), string_list(Some(values)));
+            tags.insert(key.clone(), string_list(Some(values))?);
         }
     }
     Ok(AudioFile {
@@ -1161,18 +1277,35 @@ fn rows<'a>(value: &'a Json, key: &str) -> &'a [Json] {
     value.get(key).and_then(|v| v.as_arr()).unwrap_or(&[])
 }
 
-fn string_list(value: Option<&Json>) -> Vec<String> {
+fn string_list(value: Option<&Json>) -> Result<Vec<String>, StoreError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
     value
-        .and_then(|v| v.as_arr())
-        .map(|items| items.iter().filter_map(|i| i.as_string()).collect())
-        .unwrap_or_default()
+        .as_arr()
+        .ok_or(StoreError::Invalid("string list must be an array"))?
+        .iter()
+        .map(|item| {
+            item.as_string()
+                .ok_or(StoreError::Invalid("string list contains a non-string"))
+        })
+        .collect()
 }
 
-fn id_list(value: Option<&Json>) -> Vec<Id> {
+fn id_list(value: Option<&Json>) -> Result<Vec<Id>, StoreError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
     value
-        .and_then(|v| v.as_arr())
-        .map(|items| items.iter().filter_map(|i| i.as_u32()).collect())
-        .unwrap_or_default()
+        .as_arr()
+        .ok_or(StoreError::Invalid("identifier list must be an array"))?
+        .iter()
+        .map(|item| {
+            item.as_u32().ok_or(StoreError::Invalid(
+                "identifier list contains an invalid identifier",
+            ))
+        })
+        .collect()
 }
 
 #[cfg(test)]

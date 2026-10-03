@@ -2,6 +2,8 @@
 //!
 //! The lock is separate from the atomically replaced JSON files. Never remove
 //! it: unlinking a locked inode would let another process lock a new inode.
+//! Symbolic links and special lock files are refused. New lock files are
+//! owner-only on Unix, while existing permissions are preserved.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -44,14 +46,56 @@ impl Drop for StoreLock {
 
 fn open_lock(data_dir: &Path) -> io::Result<File> {
     std::fs::create_dir_all(data_dir)?;
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(data_dir.join(LOCK_FILE))
+    let path = data_dir.join(LOCK_FILE);
+    let inspected = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            check_regular_lock(&metadata)?;
+            Some(metadata)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&path)?;
+    let opened = file.metadata()?;
+    check_regular_lock(&opened)?;
+    let published = std::fs::symlink_metadata(&path)?;
+    check_regular_lock(&published)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let same = |metadata: &std::fs::Metadata| {
+            metadata.dev() == opened.dev() && metadata.ino() == opened.ino()
+        };
+        if !same(&published) || inspected.as_ref().is_some_and(|metadata| !same(metadata)) {
+            return Err(io::Error::other("writer lock changed while being opened"));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = inspected;
+    Ok(file)
+}
+
+fn check_regular_lock(metadata: &std::fs::Metadata) -> io::Result<()> {
+    if !metadata.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "writer lock must be an ordinary non-symlink file",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 #[path = "store_lock_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "persistence_test_support.rs"]
+pub(crate) mod test_support;

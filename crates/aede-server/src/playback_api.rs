@@ -74,11 +74,12 @@ async fn playback(
                 "too many active playback streams; retry shortly",
             )
         })?;
+    let shutdown = state.shutdown.subscribe();
     Ok(ws
         .max_message_size(MAX_CONTROL_MESSAGE_BYTES)
         .max_frame_size(MAX_CONTROL_MESSAGE_BYTES)
         .on_upgrade(move |socket| async move {
-            playback_stream(socket, state, principal, permit).await;
+            playback_stream(socket, state, principal, permit, shutdown).await;
         }))
 }
 
@@ -120,13 +121,11 @@ enum ClientFrame {
     Ack { frames: u64 },
 }
 
-#[derive(Clone)]
 struct Start {
     reference: EntityRef,
     normalize: Mode,
     output_rate: Option<u32>,
-    bass: f32,
-    treble: f32,
+    tone: ToneControls,
 }
 
 impl Start {
@@ -146,13 +145,12 @@ impl Start {
         }
         let bass = bass.unwrap_or(0.0);
         let treble = treble.unwrap_or(0.0);
-        ToneControls::new(bass, treble).map_err(|_| StreamFailure::INVALID_START)?;
+        let tone = ToneControls::new(bass, treble).map_err(|_| StreamFailure::INVALID_START)?;
         Ok(Self {
             reference,
             normalize: normalize.mode(),
             output_rate: sample_rate,
-            bass,
-            treble,
+            tone,
         })
     }
 }
@@ -240,7 +238,6 @@ fn validate_source(source: &TrackSource) -> Result<(), StreamFailure> {
     Ok(())
 }
 
-#[derive(Clone)]
 struct ProducerSettings {
     output_rate: Option<u32>,
     tone: ToneControls,
@@ -249,20 +246,14 @@ struct ProducerSettings {
     data_dir: PathBuf,
 }
 
-fn settings(
-    normalization_catalog: Catalog,
-    data_dir: PathBuf,
-    start: &Start,
-) -> Result<ProducerSettings, StreamFailure> {
-    let tone =
-        ToneControls::new(start.bass, start.treble).map_err(|_| StreamFailure::INVALID_START)?;
-    Ok(ProducerSettings {
+fn settings(normalization_catalog: Catalog, data_dir: PathBuf, start: &Start) -> ProducerSettings {
+    ProducerSettings {
         output_rate: start.output_rate,
-        tone,
+        tone: start.tone,
         normalize: start.normalize,
         normalization_catalog,
         data_dir,
-    })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -631,8 +622,8 @@ async fn receive_start(
     socket: &mut WebSocket,
     state: &ApiState,
     captured: &auth::Principal,
+    shutdown: &mut broadcast::Receiver<()>,
 ) -> Result<Start, Option<StreamFailure>> {
-    let mut shutdown = state.shutdown.subscribe();
     let mut authorization = tokio::time::interval(AUTH_RECHECK_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let deadline = tokio::time::sleep(START_TIMEOUT);
@@ -751,8 +742,6 @@ async fn keep_authorized(
 async fn receive_ack(
     socket: &mut WebSocket,
     acknowledgements: &mut Acknowledgements,
-    state: &ApiState,
-    captured: &auth::Principal,
 ) -> Result<bool, StreamFailure> {
     let Some(incoming) = socket.recv().await else {
         return Ok(false);
@@ -762,12 +751,7 @@ async fn receive_ack(
         Message::Text(input) => {
             let ClientFrame::Ack { frames } =
                 serde_json::from_str(&input).map_err(|_| StreamFailure::INVALID_ACK)?;
-            let advanced = acknowledgements.acknowledge(frames, Instant::now())?;
-            // A real consumption acknowledgement is client activity. Duplicate
-            // acknowledgements and transport pings do not extend a session.
-            if advanced && !authorized(state, captured, true).await {
-                return Err(StreamFailure::AUTHENTICATION_EXPIRED);
-            }
+            acknowledgements.acknowledge(frames, Instant::now())?;
             Ok(true)
         }
         Message::Ping(payload) => {
@@ -787,8 +771,8 @@ async fn drive(
     state: &ApiState,
     captured: &auth::Principal,
     receiver: &mut mpsc::Receiver<ProducerEvent>,
+    shutdown: &mut broadcast::Receiver<()>,
 ) -> DriveEnd {
-    let mut shutdown = state.shutdown.subscribe();
     let mut authorization = tokio::time::interval(AUTH_RECHECK_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_authentication = Instant::now();
@@ -1090,12 +1074,24 @@ async fn drive(
                     true,
                 );
             }
-            incoming = receive_ack(socket, &mut acknowledgements, state, captured) => match incoming {
+            incoming = receive_ack(socket, &mut acknowledgements) => match incoming {
                 Ok(true) => {
                     // A growing ACK can reopen a fresh producer wait after a
                     // long client pause. Pings and duplicate ACKs leave this
                     // deadline untouched.
                     if acknowledgements.consumed > consumed_before_receive {
+                        // The ACK is committed only by the selected branch.
+                        // Awaiting this read inside `receive_ack` would let
+                        // another ready producer event cancel it after the
+                        // socket message and frame count were already consumed.
+                        if !authorized(state, captured, true).await {
+                            return DriveEnd::stopped(
+                                &acknowledgements,
+                                Some(format.sample_rate),
+                                Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                                true,
+                            );
+                        }
                         producer_progress = Instant::now();
                     }
                 }
@@ -1315,8 +1311,9 @@ async fn playback_stream(
     state: ApiState,
     captured: auth::Principal,
     permit: tokio::sync::OwnedSemaphorePermit,
+    mut shutdown: broadcast::Receiver<()>,
 ) {
-    let start = match receive_start(&mut socket, &state, &captured).await {
+    let start = match receive_start(&mut socket, &state, &captured, &mut shutdown).await {
         Ok(start) => start,
         Err(Some(failure)) => {
             send_failure(&mut socket, failure).await;
@@ -1335,17 +1332,11 @@ async fn playback_stream(
             return;
         }
     };
-    let settings = match settings(catalog, state.data_dir.clone(), &start) {
-        Ok(settings) => settings,
-        Err(failure) => {
-            send_failure(&mut socket, failure).await;
-            return;
-        }
-    };
+    let settings = settings(catalog, state.data_dir.clone(), &start);
     let started_at = clock::now_seconds();
     let cancelled = std::sync::Arc::new(AtomicBool::new(false));
     let (mut receiver, mut worker) = spawn_producer(source.clone(), settings, cancelled.clone());
-    let end = drive(&mut socket, &state, &captured, &mut receiver).await;
+    let end = drive(&mut socket, &state, &captured, &mut receiver, &mut shutdown).await;
     cancelled.store(true, AtomicOrdering::Release);
     // Closing the bounded receiver wakes a worker blocked on output. A
     // spawned blocking task cannot be forcibly cancelled, so its permit stays

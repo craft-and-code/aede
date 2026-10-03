@@ -92,16 +92,48 @@ impl ServerLock {
                 "Aède data directory must not be writable by other users",
             ));
         }
+        let path = data_dir.join(SERVER_LOCK);
+        let inspected = match std::fs::symlink_metadata(&path) {
+            Ok(inspected) => {
+                check_server_lock(&inspected, metadata.uid())?;
+                Some(inspected)
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .open(data_dir.join(SERVER_LOCK))?;
+            .open(&path)?;
+        let opened = file.metadata()?;
+        check_server_lock(&opened, metadata.uid())?;
+        let published = std::fs::symlink_metadata(&path)?;
+        check_server_lock(&published, metadata.uid())?;
+        let same = |metadata: &std::fs::Metadata| {
+            metadata.dev() == opened.dev() && metadata.ino() == opened.ino()
+        };
+        if !same(&published) || inspected.as_ref().is_some_and(|metadata| !same(metadata)) {
+            return Err(io::Error::other("server lock changed while being opened"));
+        }
         file.try_lock()?;
         Ok(Self { _file: file })
     }
+}
+
+fn check_server_lock(metadata: &std::fs::Metadata, owner: u32) -> io::Result<()> {
+    if !metadata.file_type().is_file()
+        || metadata.uid() != owner
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Aède server lock must be an ordinary private file owned by the data owner",
+        ));
+    }
+    Ok(())
 }
 
 pub fn bind_command_socket(data_dir: &Path) -> io::Result<(tokio::net::UnixListener, PathBuf)> {
@@ -621,6 +653,17 @@ fn send_request(stream: &mut UnixStream, request: &CommandRequest) -> Result<(),
     Ok(())
 }
 
+/// Execute a CLI command through the running server's private Unix channel.
+///
+/// `args` are individual command arguments, without the executable; `command`
+/// names the selected CLI operation. The server validates both before starting
+/// its ordinary CLI subprocess. Standard input and output remain attached to
+/// the client; the data folder and service keys follow the delegation contract.
+///
+/// Returns `Ok(None)` only when no server accepts this channel, so the caller
+/// may run locally. `Ok(Some(code))` is the completed delegated exit code.
+/// Connection/protocol failures are errors, never a signal to repeat a command
+/// that may already have changed data. This channel is separate from HTTP jobs.
 pub fn delegate_command(
     data_dir: &Path,
     args: Vec<String>,
@@ -677,6 +720,13 @@ pub fn delegate_command(
     }
 }
 
+/// Ask the running server to stop one delegated CLI scan or fetch.
+///
+/// Use the process-local identifier announced by [`delegate_command`], not an
+/// HTTP job ID or catalog reference. [`CancelOutcome::Requested`] confirms the
+/// request, not termination or rollback; already saved progress remains saved.
+/// A missing server/task is reported distinctly, while socket/protocol failures
+/// are errors. Native PCM streams are stopped through their own connection.
 pub fn cancel_task(data_dir: &Path, task_id: u64) -> Result<CancelOutcome, Box<dyn Error>> {
     let Some(mut stream) = connect_command_socket(data_dir)? else {
         return Ok(CancelOutcome::NoServer);

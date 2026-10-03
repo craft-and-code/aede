@@ -4,7 +4,7 @@ use super::*;
 use aede_core::{doctor, query, sources, stats};
 use std::collections::BTreeMap;
 
-const MAX_TEXT_BYTES: usize = 2048;
+const MAX_TEXT_BYTES: usize = MAX_SEARCH_TEXT_BYTES;
 const MAX_QUERY_PARTS: usize = 64;
 const ISSUE_FILE_PREVIEW: usize = 20;
 
@@ -731,7 +731,8 @@ fn query_items(
     held: &sources::Sources,
     parsed: &query::Query,
     sort: query::Sort,
-) -> Result<Vec<TrackItem>, ApiError> {
+    window: Window,
+) -> Result<Page<TrackItem>, ApiError> {
     let empty_private_data = aede_core::user::UserData::default();
     let context = query::Context::new(catalog, &empty_private_data, "").with_sources(held);
     if let Some((field, value)) = query::unknown_values(parsed, &context).first() {
@@ -739,8 +740,11 @@ fn query_items(
     }
     let mut tracks = query::run(parsed, &context);
     query::sort(&mut tracks, sort, &context);
-    Ok(tracks
+    let total = tracks.len();
+    let items = tracks
         .into_iter()
+        .skip(window.offset)
+        .take(window.limit)
         .filter_map(|id| {
             catalog.track(id).map(|track| TrackItem {
                 reference: reference(catalog, EntityKind::Track, id).unwrap_or_default(),
@@ -752,7 +756,14 @@ fn query_items(
                 duration_ms: track.duration_ms,
             })
         })
-        .collect())
+        .collect();
+    Ok(Page::new(
+        items,
+        total,
+        window.offset,
+        window.limit,
+        catalog.scanned_at,
+    ))
 }
 
 async fn run_query(
@@ -769,8 +780,13 @@ async fn run_query(
     inspect(state, move |state| {
         let guard = state.catalog.blocking_read();
         let catalog = guard.as_ref().ok_or_else(unavailable)?;
-        let items = query_items(catalog, &held_sources(&state.data_dir)?, &parsed, sort)?;
-        Ok(window.page(items, catalog.scanned_at))
+        query_items(
+            catalog,
+            &held_sources(&state.data_dir)?,
+            &parsed,
+            sort,
+            window,
+        )
     })
     .await
 }

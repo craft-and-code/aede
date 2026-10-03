@@ -2,6 +2,36 @@ use super::*;
 use crate::model::{self, ScannedFile};
 use crate::tags::RawTags;
 
+#[cfg(unix)]
+use crate::store_lock::test_support as persistence_test_support;
+
+#[cfg(unix)]
+#[test]
+fn unreadable_stores_are_errors_rather_than_missing_personal_or_expensive_data() {
+    let directory = persistence_test_support::Directory::new("unreadable_stores");
+    let path = directory.path().join("loop.json");
+    std::os::unix::fs::symlink("loop.json", &path).unwrap();
+    assert!(load(&path).is_err(), "catalog must report the read failure");
+    assert!(
+        conclusions::load(&path).is_err(),
+        "conclusions must report the read failure"
+    );
+    assert!(
+        crate::user::load(&path).is_err(),
+        "personal data must report the read failure"
+    );
+    assert!(
+        crate::sources::load_all(&path).is_err(),
+        "source claims must report the read failure"
+    );
+
+    let absent = directory.path().join("absent.json");
+    assert!(load(&absent).unwrap().is_none());
+    assert!(conclusions::load(&absent).unwrap().is_none());
+    assert!(crate::user::load(&absent).unwrap().is_none());
+    assert!(crate::sources::load_all(&absent).unwrap().is_none());
+}
+
 fn example_catalog() -> Catalog {
     let mut tags = RawTags::default();
     tags.insert("title", "So What");
@@ -106,6 +136,128 @@ fn duplicate_file_paths_are_refused_before_their_identity_maps_can_collide() {
         from_json(&value),
         Err(StoreError::Invalid("duplicate file path"))
     ));
+}
+
+#[test]
+fn malformed_catalog_tables_are_refused_instead_of_loaded_as_empty() {
+    for table in [
+        "roots",
+        "excluded",
+        "file",
+        "artist",
+        "release",
+        "release_group",
+        "track",
+        "recording",
+        "work",
+        "label",
+        "genre",
+        "credit",
+        "relation",
+        "genre_link",
+        "analysis",
+    ] {
+        let mut value = to_json(&example_catalog());
+        value.set(table, Json::obj());
+        assert!(
+            from_json(&value).is_err(),
+            "{table} must be an array when present"
+        );
+    }
+}
+
+#[test]
+fn invalid_graph_identifiers_and_foreign_references_cannot_be_published() {
+    let corruptions: &[fn(&mut Catalog)] = &[
+        |catalog| catalog.labels[0].id = 99,
+        |catalog| catalog.genres[0].id = 99,
+        |catalog| catalog.releases[0].album_artist_id = Some(99),
+        |catalog| catalog.releases[0].label_ids = vec![99],
+        |catalog| catalog.releases[0].track_ids = vec![99],
+        |catalog| catalog.tracks[0].release_id = Some(99),
+        |catalog| catalog.credits[0].artist_id = 99,
+        |catalog| catalog.credits[0].entity_id = 99,
+        |catalog| catalog.relations[0].source_id = 99,
+        |catalog| catalog.relations[0].target_id = 99,
+        |catalog| catalog.genre_links[0].genre_id = 99,
+        |catalog| catalog.genre_links[0].entity_id = 99,
+    ];
+    for (index, corrupt) in corruptions.iter().enumerate() {
+        let mut catalog = example_catalog();
+        corrupt(&mut catalog);
+        assert!(
+            from_json(&to_json(&catalog)).is_err(),
+            "corruption {index} must be refused"
+        );
+    }
+}
+
+#[test]
+fn malformed_polymorphic_rows_cannot_silently_disappear_or_attach_to_entity_zero() {
+    for (table, field) in [
+        ("credit", "entity_kind"),
+        ("credit", "artist_id"),
+        ("credit", "entity_id"),
+        ("relation", "source_kind"),
+        ("relation", "source_id"),
+        ("relation", "target_kind"),
+        ("relation", "target_id"),
+        ("genre_link", "entity_kind"),
+        ("genre_link", "entity_id"),
+        ("genre_link", "genre_id"),
+    ] {
+        let mut value = to_json(&example_catalog());
+        let mut rows = value.get(table).unwrap().as_arr().unwrap().to_vec();
+        rows[0].set(field, "invalid".into());
+        value.set(table, Json::Arr(rows));
+        assert!(from_json(&value).is_err(), "{table}.{field} must be valid");
+    }
+}
+
+#[test]
+fn malformed_catalog_lists_cannot_silently_drop_paths_or_graph_references() {
+    for table in ["roots", "excluded"] {
+        let mut value = to_json(&example_catalog());
+        value.set(table, Json::Arr(vec![1_u32.into()]));
+        assert!(
+            from_json(&value).is_err(),
+            "{table} must contain only paths"
+        );
+    }
+    for (table, field) in [
+        ("artist", "aliases"),
+        ("release", "label_ids"),
+        ("release", "track_ids"),
+        ("release_group", "release_ids"),
+        ("recording", "track_ids"),
+        ("recording", "work_ids"),
+        ("work", "recording_ids"),
+    ] {
+        let mut value = to_json(&example_catalog());
+        let mut rows = value.get(table).unwrap().as_arr().unwrap().to_vec();
+        if rows.is_empty() {
+            let mut row = Json::obj();
+            row.set("id", 0_u32.into());
+            row.set("mbid", "test-explicit-identity".into());
+            rows.push(row);
+        }
+        rows[0].set(field, Json::Arr(vec![Json::obj()]));
+        value.set(table, Json::Arr(rows));
+        assert!(
+            from_json(&value).is_err(),
+            "{table}.{field} must refuse malformed items"
+        );
+    }
+    let mut value = to_json(&example_catalog());
+    let mut files = value.get("file").unwrap().as_arr().unwrap().to_vec();
+    let mut tags = Json::obj();
+    tags.set("artist", Json::Arr(vec![1_u32.into()]));
+    files[0].set("tags", tags);
+    value.set("file", Json::Arr(files));
+    assert!(
+        from_json(&value).is_err(),
+        "tag values must be preserved as strings"
+    );
 }
 
 #[test]

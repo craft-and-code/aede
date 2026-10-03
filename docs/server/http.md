@@ -39,6 +39,10 @@ Filters combine with AND. Ordinary browse lists default to `sort=catalog&order=a
 
 Unknown/duplicate parameters and unsupported combinations are refused. `/status` and `/library` are older exceptions that do not interpret query parameters; omit parameters on both rather than relying on that exception.
 
+Catalog `q`, `name` and `mbid` values accept at most 2048 UTF-8 bytes after URL decoding and before normalization. Stable references, including `ref` and reference filters, accept at most 16384 UTF-8 bytes. Selectors that accept either a name or a reference apply the 2048-byte limit to names and the 16384-byte limit to recognized reference-kind prefixes; references must still have the kind required by the route. Oversized values return `400 invalid_query`.
+
+Catalog lists and entity details, including the original `/artists`, `/releases`, `/tracks`, `/recordings` and `/entities`, share two blocking workers with navigation, inspection and personal operations. Catalog/navigation/inspection saturation returns `429 inspection_busy`; personal saturation returns `503 personal_busy`. `/status` and `/library` read snapshot metadata and counts in constant time outside this worker budget. Authentication and transport admission still apply.
+
 ## Read errors
 
 ```json
@@ -56,7 +60,7 @@ The HTTP status gives the broad outcome; `error.code` is the stable value softwa
 | 405 `method_not_allowed` | The route does not support this HTTP method. |
 | 409 `ambiguous_entity` | Pick one returned reference. |
 | 409 `store_busy` | Wait for the current writer and retry a read; do not remove its lock. |
-| 429 `inspection_busy` | The two navigation/inspection workers are occupied; retry later. |
+| 429 `inspection_busy` | The two shared catalog/navigation/inspection/personal workers are occupied; retry later. |
 | 500 `sources_unavailable`, `catalog_read_failed`, `inspection_failed`, `store_error` | Inspect the server's error log and preserve data before recovery. |
 | 503 `catalog_unavailable` | The catalog was removed/unavailable; restore it or scan, then retry. |
 
@@ -64,7 +68,7 @@ Administrative authentication, body validation and task-specific errors are expl
 
 ## Local access boundary
 
-Without [accounts](accounts.md), local HTTP catalog reads need no token and may reveal music paths, comments and names to other processes/users on this computer. Account mode requires a bearer session or, on local HTTP, administrative token on catalog reads. [HTTPS](remote.md) requires accounts, accepts only sessions and validates Host and supplied Origin against its configured authority. HTTP stays restricted to loopback. Neither transport grants cross-origin permission.
+With no [account store](accounts.md) on first access in a fresh local HTTP process, catalog reads need no token and may reveal music paths, comments and names to other processes/users on this computer. Once the process has observed the store, catalog reads require a bearer session or, on local HTTP, administrative token; a missing or unreadable store then fails closed until the process stops. Restarting local HTTP without the store restores anonymous compatibility mode. An unreadable store fails closed even on first access. [HTTPS](remote.md) always requires accounts, accepts only sessions and validates Host and supplied Origin against its configured authority. HTTP stays restricted to loopback. Neither transport grants cross-origin permission.
 
 Never embed a secret in a web page or URL. Legacy administrative-token requests refuse every Origin header; account sessions follow the transport's same-origin check. A future website/player still needs its own login/cookie design.
 

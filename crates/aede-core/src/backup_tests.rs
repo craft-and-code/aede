@@ -10,6 +10,66 @@ use crate::model::builder::{ScannedFile, build};
 use crate::sources::{ArtistFacts, Confidence, Facts, SourceRecord};
 use crate::tags::RawTags;
 
+#[cfg(unix)]
+#[test]
+fn credential_archives_recheck_the_permissions_of_the_opened_source() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = temporary_directory("changed_read_permissions");
+    let path = directory.join("backup.json");
+    let mut backup = whole();
+    backup.accounts = Part::Held(
+        crate::accounts::Accounts::bootstrap("operator", "a long test passphrase", 10).unwrap(),
+    );
+    write(&backup, &path).unwrap();
+    let result = read_with_open(&path, |path| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
+        let file = std::fs::File::open(path)?;
+        // A private pathname after opening must not legitimize the different,
+        // public descriptor that actually supplied the credential bytes.
+        let replacement = path.with_extension("replacement");
+        write(&backup, &replacement).unwrap();
+        std::fs::rename(replacement, path)?;
+        Ok(file)
+    });
+    std::fs::remove_dir_all(directory).unwrap();
+    assert!(
+        result.is_err(),
+        "credentials must be protected on the descriptor read"
+    );
+}
+
+#[test]
+fn backup_read_refuses_a_source_replaced_before_it_is_opened() {
+    let directory = temporary_directory("replaced_read_source");
+    let path = directory.join("backup.json");
+    write(&whole(), &path).unwrap();
+    let result = read_with_open(&path, |path| {
+        let replacement = path.with_extension("replacement");
+        let mut other = whole();
+        other.made_by = "a different source".into();
+        write(&other, &replacement).unwrap();
+        std::fs::rename(replacement, path)?;
+        std::fs::File::open(path)
+    });
+    std::fs::remove_dir_all(directory).unwrap();
+    assert!(result.is_err(), "replaced archives require a fresh read");
+}
+
+#[test]
+fn a_growing_backup_read_stops_at_the_inspected_length_and_refuses_short_reads() {
+    let mut grown = std::io::Cursor::new(vec![b' '; 1024]);
+    assert!(read_document(&mut grown, 4).is_err());
+    assert_eq!(
+        grown.position(),
+        5,
+        "an extending source cannot grow the allocation without bound"
+    );
+    let mut truncated = std::io::Cursor::new(vec![b' '; 3]);
+    assert!(read_document(&mut truncated, 4).is_err());
+    let mut complete = std::io::Cursor::new(vec![b' '; 4]);
+    assert_eq!(read_document(&mut complete, 4).unwrap(), "    ");
+}
+
 fn temporary_directory(name: &str) -> std::path::PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let directory = std::env::temp_dir().join(format!(

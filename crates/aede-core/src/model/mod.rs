@@ -6,8 +6,9 @@
 //! drummer and see their forty appearances, without redoing anything.
 //!
 //! Each `Vec` is indexed by identifier: `catalog.artists[id]` is artist `id`.
-//! The move to SQLite (milestone M1) is mechanical — each `Vec` becomes a
-//! table, described in `schema.sql`.
+//! The persisted graph mirrors the tables described in `schema.sql`. A future
+//! database would preserve this vocabulary; adopting SQLite depends on measured
+//! storage and deployment budgets, rather than a mandatory milestone migration.
 //!
 //! The module is divided by what the code *does* with the graph, which is the
 //! only division that holds up. This file is the vocabulary — the entities and

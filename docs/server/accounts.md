@@ -1,10 +1,12 @@
 # Accounts, sessions and private data
 
-Initialize accounts with [accounts](../cli/accounts.md). With no account store, local HTTP catalog reads remain anonymous and local administration uses the optional `AEDE_ADMIN_TOKEN`. Once configured, every `/api/v1` HTTP or WebSocket request needs an account session or, on local HTTP, the administrative token. Missing, unreadable or exposed credentials fail closed. [HTTPS](remote.md) requires accounts and accepts only sessions; every `/api/admin` route is unavailable there.
+Initialize accounts with [accounts](../cli/accounts.md). With no account store on first access in a fresh local HTTP process, catalog reads remain anonymous and local administration uses the optional `AEDE_ADMIN_TOKEN`. Once the process has observed the store, every `/api/v1` HTTP or WebSocket request needs an account session or, on local HTTP, the administrative token. A missing store then fails closed until that process stops; restarting local HTTP without the store restores anonymous compatibility mode. Unreadable or exposed credentials fail closed even on first access. [HTTPS](remote.md) always requires accounts and accepts only sessions; every `/api/admin` route is unavailable there.
 
 An `admin` may manage accounts and installation work. A `user` may read and change only their own personal data. An `auditor` can read the shared catalog and use `GET` or `HEAD` only on their own `/api/me/v1` data; every personal mutation, password change, administration or job route returns `403 forbidden`. Auditors may still sign in, inspect their session and sign out.
 
 ## Sign in and manage a session
+
+Login names contain 1–64 ASCII letters, digits, dots, underscores or hyphens, including at least one letter or digit. They compare case-insensitively.
 
 | Method and path | Body | Result |
 | --- | --- | --- |
@@ -21,7 +23,7 @@ Login/password verification uses two bounded workers. Limits are five attempts p
 
 ## Own annotations, history and collections
 
-Use the [personal routes](personal.md) with `/api/me/v1` replacing `/api/admin/v1`. Their selectors, bodies, pagination and response shapes are unchanged. The server derives the owner from the session; no request can choose it. This includes history counts and collection contents. A `user` or `admin` can use every listed method for that owner. An `auditor` can use only `GET` and `HEAD`; mutations return `403 forbidden`. Two workers shared with catalog inspection bound personal operations; contention returns `503 personal_busy` or `409 store_busy`. Every personal operation uses the current disk catalog and user store under the writer lock, then rechecks the session before exposing or changing data.
+Use the [personal routes](personal.md) with `/api/me/v1` replacing `/api/admin/v1`. Their selectors, bodies, pagination and response shapes are unchanged. The server derives the owner from the session; no request can choose it. This includes history counts and collection contents. A `user` or `admin` can use every listed method for that owner. An `auditor` can use only `GET` and `HEAD`; mutations return `403 forbidden`. Two blocking workers shared with catalog lists/entity details, navigation and inspection bound personal operations; worker saturation returns `503 personal_busy`, and writer-lock contention returns `409 store_busy`. Every personal operation uses the current disk catalog and user store under the writer lock, then rechecks the session before exposing or changing data.
 
 | Route | Methods |
 | --- | --- |

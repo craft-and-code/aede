@@ -27,6 +27,8 @@ Les nouveaux fichiers annexes d’images/paroles sont publiés atomiquement, san
 
 Après les tâches/commandes acceptées et l’arrêt des connexions, Aède laisse au plus cinq secondes aux travailleurs de fond non interruptibles. Un décodeur bloqué sur le stockage peut ne pas finir avant la sortie du processus. Il lit l’audio source ; l’historique utilise un remplacement atomique : les originaux ne sont ni modifiés ni tronqués. Une écriture tardive d’historique peut rester non confirmée.
 
+HTTP et HTTPS admettent au plus 64 connexions TCP, WebSockets compris. Les en-têtes sont limités à 64 champs et 32 Kio avec un délai de dix secondes ; une sortie ne progressant plus pendant dix secondes est fermée. HTTP local attend les requêtes acceptées, puis laisse au plus quinze secondes aux connexions devenues WebSockets pour se terminer. HTTPS applique un délai de quinze secondes à l’arrêt des connexions. Ces limites n’annulent pas un scan/fetch local ou une commande déléguée déjà acceptés.
+
 ## HTTPS et lecture native
 
 L’écoute HTTP par défaut est réservée à la boucle locale. Pour des clients distants, choisissez `--bind` et configurez ensemble `--tls-cert`, `--tls-key` et `--authority` ; le [guide HTTPS](server/remote.md) définit le certificat, l’autorité et le réseau. L’autorité est le `HOST:PORT` public exact utilisé par les clients et peut différer de l’adresse d’écoute grâce à une redirection de port préservant TLS. HTTPS exige des comptes initialisés et refuse un store de comptes absent ou illisible. Il désactive toute route `/api/admin`, y compris l’administration des comptes et les routes transitoires `local`, et désactive `AEDE_ADMIN_TOKEN` même avec HTTPS sur la boucle locale. Ne publiez pas HTTP par défaut via proxy, tunnel ou routeur ; TLS se termine dans Aède.
@@ -45,11 +47,15 @@ Le dossier de données ne doit être accessible en écriture ni aux autres utili
 
 Tous les rédacteurs Aède actuels partagent le verrou des données, y compris la CLI sans serveur. Ne supprimez pas `.aede.lock`, n’éditez pas le JSON pendant Aède et ne mélangez pas anciens exécutables et serveur actuel. Un verrou concurrent fait répondre `409 store_busy` au scan HTTP synchrone ou doctor ; les tâches HTTP asynchrones l’attendent. Le serveur détecte un `catalog.json` remplacé en environ une seconde. Un remplacement mal formé laisse le dernier instantané valide et journalise une erreur ; retirer le catalogue rend les routes indisponibles jusqu’à sa restauration.
 
+Les nouveaux verrous Unix utilisent le mode 0600 ; un verrou de données existant garde ses permissions. Aède refuse un lien symbolique, un fichier spécial ou un remplacement détecté à l’ouverture d’un verrou. Le verrou du serveur exige aussi des permissions privées et le propriétaire système courant. Un store JSON facultatif illisible est une erreur ; seule son absence signifie qu’aucune donnée n’a été enregistrée.
+
 <div id="backups-and-recovery" data-legacy-anchor></div>
 
 ## Sauvegarde et récupération
 
 Sauvegardez le dossier de données sur un stockage persistant. Il contient `catalog.json` (graphe reconstructible), `conclusions.json` (intégrité et analyses importées), `user.json` (annotations personnelles), `sources.json` (informations externes attribuées), les identifiants privés `accounts.json` et les ressources dérivées. `aede backup <file>` produit une sauvegarde versionnée des stores JSON ; gardez des copies hors NAS. Ce fichier **ne sauvegarde pas** la musique originale ni les images/paroles dérivées. Dossier et sauvegarde sont privés : historique, chemins et informations téléchargées peuvent y figurer.
+
+La restauration lit un fichier ordinaire et refuse un changement détecté de taille, de date ou d’identité pendant sa lecture. Une sauvegarde contenant des comptes doit aussi garder des permissions Unix privées et ne pas être un lien symbolique. Les contrôles des identifiants portent sur le fichier ouvert comme sur son chemin ; un remplacement entre vérification et ouverture est refusé.
 
 Pour récupérer, arrêtez le serveur, préservez les données endommagées et lancez `aede restore <file>` avec les mêmes AEDE_HOME/data. Lisez la confirmation avant d’accepter. Restore écrit seulement les stores présents et lisibles dans la sauvegarde ; il ne supprime pas un store absent. Redémarrez et vérifiez `/api/v1/status` et `/api/v1/library`. Les anciennes conclusions embarquées migrent vers `conclusions.json` lors de la prochaine sauvegarde de catalogue sous verrou ou d’une restauration version 1 ; leur simple lecture ne réécrit rien. Gardez une sauvegarde avant mise à jour/restauration. Sauvegardez séparément l’audio original.
 

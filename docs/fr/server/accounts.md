@@ -1,10 +1,12 @@
 # Comptes, sessions et données privées
 
-Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes, les lectures HTTP locales restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Une fois les comptes configurés, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou, en HTTP local, le jeton administratif. Identifiants absents, illisibles ou exposés : l’accès reste fermé. [HTTPS](remote.md) exige des comptes et accepte seulement les sessions ; toutes les routes `/api/admin` y sont indisponibles.
+Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes à la première lecture dans un nouveau processus HTTP local, les lectures du catalogue restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Dès que le processus a observé le magasin, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou, en HTTP local, le jeton administratif. Un magasin ensuite absent ferme l’accès jusqu’à l’arrêt de ce processus ; redémarrer HTTP local sans magasin rétablit le mode de compatibilité anonyme. Des identifiants illisibles ou exposés ferment l’accès même à la première lecture. [HTTPS](remote.md) exige toujours des comptes et accepte seulement les sessions ; toutes les routes `/api/admin` y sont indisponibles.
 
 Un `admin` gère les comptes et les tâches de l’installation. Un `user` lit et modifie uniquement ses propres données personnelles. Un `auditor` lit le catalogue partagé et emploie seulement `GET` ou `HEAD` sur ses propres données `/api/me/v1` ; toute modification personnelle, changement de mot de passe, administration ou tâche renvoie `403 forbidden`. Un auditeur peut toujours se connecter, consulter sa session et se déconnecter.
 
 ## Connexion et gestion d’une session
+
+Les identifiants de connexion contiennent 1–64 lettres ou chiffres ASCII, points, tirets bas ou traits d’union, avec au moins une lettre ou un chiffre. Leur comparaison ignore la casse.
 
 | Méthode et chemin | Corps | Résultat |
 | --- | --- | --- |
@@ -21,7 +23,7 @@ Deux travailleurs bornés vérifient les mots de passe. Limites : cinq tentative
 
 ## Ses annotations, historiques et collections
 
-Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/api/admin/v1`. Sélecteurs, corps, pagination et réponses restent identiques. Le serveur déduit le propriétaire depuis la session ; aucune requête ne peut le choisir. Cela inclut compteurs d’écoute et contenu des collections. Un `user` ou un `admin` peut employer toutes les méthodes listées pour ce propriétaire. Un `auditor` peut employer seulement `GET` et `HEAD` ; les modifications renvoient `403 forbidden`. Deux travailleurs partagés avec l’inspection bornent les opérations ; contention : `503 personal_busy` ou `409 store_busy`. Chaque opération utilise catalogue et données personnelles actuels sous le verrou, puis revérifie la session avant lecture ou modification.
+Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/api/admin/v1`. Sélecteurs, corps, pagination et réponses restent identiques. Le serveur déduit le propriétaire depuis la session ; aucune requête ne peut le choisir. Cela inclut compteurs d’écoute et contenu des collections. Un `user` ou un `admin` peut employer toutes les méthodes listées pour ce propriétaire. Un `auditor` peut employer seulement `GET` et `HEAD` ; les modifications renvoient `403 forbidden`. Deux travailleurs bloquants partagés avec les listes/détails du catalogue, la navigation et l’inspection bornent les opérations personnelles ; saturation des travailleurs : `503 personal_busy`, contention du verrou d’écriture : `409 store_busy`. Chaque opération utilise catalogue et données personnelles actuels sous le verrou, puis revérifie la session avant lecture ou modification.
 
 | Route | Méthodes |
 | --- | --- |

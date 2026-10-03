@@ -28,6 +28,7 @@
 //! here touches the library, and — as everywhere in this program — nothing
 //! here touches an audio file.
 
+use std::io::Read;
 use std::path::Path;
 
 use crate::accounts::Accounts;
@@ -258,21 +259,77 @@ pub fn write(backup: &Backup, path: &Path) -> Result<(), StoreError> {
 
 /// Reads a backup from an ordinary local file, refusing blocking special files.
 /// A backup with credentials also requires a private, non-symlink source.
+/// The opened file's identity and permissions are checked, and changes during
+/// reading are refused. Reading cannot grow past its inspected length.
 pub fn read(path: &Path) -> Result<Backup, StoreError> {
-    if !std::fs::metadata(path)?.is_file() {
+    read_with_open(path, |path| std::fs::File::open(path))
+}
+
+fn read_with_open(
+    path: &Path,
+    open: impl FnOnce(&Path) -> std::io::Result<std::fs::File>,
+) -> Result<Backup, StoreError> {
+    let path_metadata = std::fs::symlink_metadata(path)?;
+    let inspected = std::fs::metadata(path)?;
+    check_regular_source(&inspected)?;
+    let mut file = open(path)?;
+    let opened = file.metadata()?;
+    check_regular_source(&opened)?;
+    check_unchanged_source(&inspected, &opened)?;
+    let text = read_document(&mut file, opened.len())?;
+    check_unchanged_source(&opened, &file.metadata()?)?;
+    check_unchanged_source(&opened, &std::fs::metadata(path)?)?;
+    let value = crate::json::parse(&text).map_err(StoreError::Parse)?;
+    let backup = from_json(&value)?;
+    if !matches!(backup.accounts, Part::Empty) {
+        crate::accounts::validate_private_read(&path_metadata, &opened)?;
+        crate::accounts::validate_private_read(&opened, &file.metadata()?)?;
+        crate::accounts::validate_private_read(&opened, &std::fs::symlink_metadata(path)?)?;
+    }
+    Ok(backup)
+}
+
+fn check_regular_source(metadata: &std::fs::Metadata) -> Result<(), StoreError> {
+    if !metadata.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "backup source is not an ordinary file",
         )
         .into());
     }
-    let text = std::fs::read_to_string(path)?;
-    let value = crate::json::parse(&text).map_err(StoreError::Parse)?;
-    let backup = from_json(&value)?;
-    if !matches!(backup.accounts, Part::Empty) {
-        crate::accounts::check_private_file(path)?;
+    Ok(())
+}
+
+fn check_unchanged_source(
+    inspected: &std::fs::Metadata,
+    current: &std::fs::Metadata,
+) -> Result<(), StoreError> {
+    let changed =
+        inspected.len() != current.len() || inspected.modified()? != current.modified()?;
+    #[cfg(unix)]
+    let changed = {
+        use std::os::unix::fs::MetadataExt;
+        changed || inspected.dev() != current.dev() || inspected.ino() != current.ino()
+    };
+    if changed {
+        return Err(std::io::Error::other("backup source changed while reading; retry").into());
     }
-    Ok(backup)
+    Ok(())
+}
+
+fn read_document(input: &mut impl Read, expected: u64) -> Result<String, StoreError> {
+    let limit = expected.checked_add(1).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "backup source is too large",
+        )
+    })?;
+    let mut text = String::new();
+    input.take(limit).read_to_string(&mut text)?;
+    if text.len() as u64 != expected {
+        return Err(std::io::Error::other("backup source changed while reading; retry").into());
+    }
+    Ok(text)
 }
 
 #[cfg(test)]

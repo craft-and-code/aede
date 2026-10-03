@@ -12,7 +12,7 @@ Le [README du serveur](../../crates/aede-server/README.md) constitue la référe
 
 ## Frontière d’accès
 
-Toutes les routes `/api/v1`, y compris `/status` et le WebSocket, sont en lecture seule. Sans comptes, elles restent anonymes et peuvent révéler noms, chemins, commentaires et origines aux autres utilisateurs/processus locaux. Avec des [comptes](server/accounts.md), une session ou le jeton administratif est exigé ; `/api/me/v1` limite les opérations personnelles au propriétaire authentifié. Une session `auditor` peut seulement employer ses routes personnelles `GET`/`HEAD`, tandis que la gestion des comptes exige un administrateur. Aucune annotation privée ni clé de service dans les réponses du catalogue. Identifiants absents/illisibles après activation : l’accès reste fermé.
+Toutes les routes `/api/v1`, y compris `/status` et le WebSocket, sont en lecture seule. Sans comptes, elles restent anonymes et peuvent révéler noms, chemins, commentaires et origines aux autres utilisateurs/processus locaux. Avec des [comptes](server/accounts.md), une session ou le jeton administratif est exigé ; `/api/me/v1` limite les opérations personnelles au propriétaire authentifié. Une session `auditor` peut seulement employer ses routes personnelles `GET`/`HEAD`, tandis que la gestion des comptes exige un administrateur. Aucune annotation privée ni clé de service dans les réponses du catalogue. Dès qu’un processus en cours a observé le magasin de comptes, des identifiants absents ou illisibles ferment l’accès jusqu’à son arrêt. Un nouveau processus HTTP local démarré sans magasin reprend le mode de compatibilité anonyme ; HTTPS exige toujours des comptes initialisés. Un magasin illisible ferme l’accès même à la première lecture.
 
 HTTP écoute par défaut sur la boucle locale. Une [écoute HTTPS explicite](server/remote.md) exige des comptes, certificat/clé et une adresse publique configurée. En HTTPS, catalogue et données personnelles exigent une session, le jeton historique est désactivé et toutes les routes `/api/admin` sont indisponibles. Aucune redirection automatique, autorisation d’origine tierce ou interface de connexion de navigateur n’est implémentée. Les routes personnelles administratives transitoires conservent `local` en HTTP local.
 
@@ -25,6 +25,8 @@ Chaque requête HTTP et négociation WebSocket fournit un seul `Host` correspond
 Les réponses aux requêtes réussies et aux erreurs applicatives sont du JSON UTF-8 avec `Content-Type: application/json`. `GET` est défini ; les routes JSON ordinaires acceptent aussi `HEAD`, avec mêmes statut/en-têtes mais sans corps. Un chemin inconnu renvoie une erreur JSON 404 ; une méthode différente sur un chemin connu renvoie une erreur JSON 405. La négociation WebSocket est une exception : les échecs de passage en WebSocket sont des erreurs de transport, sans garantie d’enveloppe JSON. Aucune méthode d’écriture n’est définie sous `/api/v1`.
 
 Tous les noms de champs suivent `snake_case`. Les dates `scanned_at` sont en secondes Unix ; durées en millisecondes, tailles en octets. Les valeurs scalaires facultatives sont `null`, pas absentes. Les collections sont des tableaux, même vides. Noms et titres conservent l’écriture lue dans les fichiers. Les relations utilisent les jetons stables `reference` d’`EntityRef`, jamais les indices des tableaux du catalogue. Une référence de piste dépend de son chemin et change lorsque le fichier est déplacé. Les clients doivent encoder le jeton pour URL lorsqu’ils le transmettent comme paramètre.
+
+Les routes d’origine `/status` et `/library` lisent les métadonnées et compteurs de l’instantané en temps constant et n’interprètent pas les paramètres de requête. Elles restent hors du budget des travailleurs d’inspection du catalogue ; n’ajoutez aucun paramètre sur ces deux routes. L’authentification et l’admission du transport s’appliquent toujours.
 
 | Requête | Réponse |
 | --- | --- |
@@ -72,13 +74,15 @@ Chaque analyse de piste contient `source`, `source_version`, `imported_at`, `sta
 
 `/genres`, `/labels`, `/works`, `/release-groups`, `/countries`, `/years` et `/roles` ajoutent une navigation paginée. `/doctor`, `/stats` et `/roots` fournissent diagnostics/inspection structurés ; `/search` classe les noms et éventuellement les commentaires enregistrés ; `/query` évalue le sous-ensemble public de la grammaire CLI. Prédicats/tris dépendant du propriétaire et requêtes de paroles sont refusés. Aucune lecture ne télécharge d’information externe. Voir les [paramètres et structures complets](../../crates/aede-server/README.md#read-routes).
 
-Les nouvelles requêtes de navigation/inspection partagent deux emplacements bornés de travail bloquant et renvoient `429 inspection_busy` à saturation. Search/query limitent le texte à 2048 octets et l’analyse d’expression à 64 unités de complexité. Ce sont des protections locales, pas un budget général de requêtes Internet. Doctor lit catalogue/conclusions et sources actuels sous verrou partagé (`409 store_busy` s’il est indisponible) ; les autres routes utilisent le catalogue en cache et, au besoin, le dernier fichier de sources sauvegardé atomiquement. Une source corrompue produit une erreur, pas une origine inconnue trompeuse. Aucun instantané commun à plusieurs requêtes ou au couple catalogue/sources n’est garanti pour ces dernières lectures.
+Les listes et détails du catalogue, y compris les routes d’origine `/artists`, `/releases`, `/tracks`, `/recordings` et `/entities`, partagent deux emplacements bornés de travail bloquant avec la navigation, l’inspection et les opérations personnelles. À saturation, catalogue/navigation/inspection renvoient `429 inspection_busy` ; les opérations personnelles renvoient `503 personal_busy`. L’analyse d’expression est limitée à 64 unités de complexité. HTTPS ajoute un budget d’admission de requêtes distinct, déplace les traitements hors des travailleurs du moteur asynchrone et fixe un délai de réponse ; la capacité sur cible reste à mesurer. Doctor lit catalogue/conclusions et sources actuels sous verrou partagé (`409 store_busy` s’il est indisponible) ; les autres routes utilisent le catalogue en cache et, au besoin, le dernier fichier de sources sauvegardé atomiquement. Une source corrompue produit une erreur, pas une origine inconnue trompeuse. Aucun instantané commun à plusieurs requêtes ou au couple catalogue/sources n’est garanti pour ces dernières lectures.
 
 <div id="search-filters-sorting-and-pagination" data-legacy-anchor></div>
 
 ## Recherche, filtres, tri et pagination
 
 Ces paramètres concernent les quatre listes d’origine. Paramètres inconnus/répétés, `q` vide, tris non pris en charge et références mal formées sont des erreurs. Recherche et filtres se combinent avec ET ; chaque ligne correspondante apparaît une fois. Le texte utilise la comparaison normalisée d’Aède, sans distinction de casse/accents, par fragment. La recherche examine seulement les champs suivants, sans consulter silencieusement d’autres tags ou sources externes.
+
+Les valeurs `q`, `name` et `mbid` du catalogue sont limitées à 2048 octets UTF-8 après décodage de l’URL et avant normalisation. Les références stables, dont `/entities?ref=…` et les filtres par référence, sont limitées à 16384 octets UTF-8. Lorsqu’un sélecteur accepte un nom ou une référence, les noms utilisent la limite de 2048 octets et les préfixes de types de référence reconnus celle de 16384 octets ; la référence doit toujours avoir le type exigé par la route. Une valeur trop longue renvoie `400 invalid_query`.
 
 | Liste | Champs examinés par `q` | Filtres exacts | `sort` accepté |
 | --- | --- | --- | --- |
@@ -111,7 +115,7 @@ Une erreur applicative est `{ "error": { "code": string, "message": string } }`.
 | 405 | `method_not_allowed` | Méthode HTTP non prise en charge sur un chemin connu. |
 | 409 | `ambiguous_entity` | Un nom au singulier choisit plusieurs entités ; des candidats bornés accompagnent l’erreur. |
 | 409 | `store_busy` | Doctor ou le scan administratif synchrone ne peut prendre le verrou des données. |
-| 429 | `inspection_busy` | Le budget des nouveaux travailleurs de navigation/inspection est plein. |
+| 429 | `inspection_busy` | Le budget partagé de catalogue/navigation/inspection est plein. |
 | 500 | `sources_unavailable` | Un fichier de sources enregistré n’a pas pu être lu. |
 | 500 | `catalog_read_failed` | Doctor n’a pas pu lire catalogue/conclusions. |
 | 500 | `inspection_failed` | Un travail d’inspection en arrière-plan a échoué. |

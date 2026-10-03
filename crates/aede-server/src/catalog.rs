@@ -77,55 +77,60 @@ pub(super) async fn artists(
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<Page<ArtistItem>>, ApiError> {
     let options = list_query(query, ListKind::Artist)?;
-    let guard = state.catalog.read().await;
-    let catalog = guard.as_ref().ok_or_else(unavailable)?;
-    let mut rows: Vec<_> = catalog
-        .artists
-        .iter()
-        .filter(|artist| {
-            options
-                .mbid
-                .as_deref()
-                .is_none_or(|mbid| artist.mbid.as_deref() == Some(mbid))
-                && options.q.as_deref().is_none_or(|q| {
-                    text::normalize(&artist.name).contains(q)
-                        || artist
-                            .aliases
-                            .iter()
-                            .any(|alias| text::normalize(alias).contains(q))
-                })
-        })
-        .collect();
-    match options.sort {
-        SortMode::Catalog if options.descending => rows.reverse(),
-        SortMode::Name if options.descending => {
-            rows.sort_by_cached_key(|artist| std::cmp::Reverse(text::normalize(&artist.sort_name)));
-        }
-        SortMode::Name => rows.sort_by_cached_key(|artist| text::normalize(&artist.sort_name)),
-        _ => {}
-    }
-    let total = rows.len();
-    let items = rows
-        .into_iter()
-        .skip(options.offset)
-        .take(options.limit)
-        .filter_map(|artist| {
-            Some(ArtistItem {
-                reference: reference(catalog, EntityKind::Artist, artist.id)?,
-                name: artist.name.clone(),
-                sort_name: artist.sort_name.clone(),
-                mbid: artist.mbid.clone(),
-                aliases: artist.aliases.clone(),
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        let mut rows: Vec<_> = catalog
+            .artists
+            .iter()
+            .filter(|artist| {
+                options
+                    .mbid
+                    .as_deref()
+                    .is_none_or(|mbid| artist.mbid.as_deref() == Some(mbid))
+                    && options.q.as_deref().is_none_or(|q| {
+                        text::normalize(&artist.name).contains(q)
+                            || artist
+                                .aliases
+                                .iter()
+                                .any(|alias| text::normalize(alias).contains(q))
+                    })
             })
-        })
-        .collect();
-    Ok(Json(Page::new(
-        items,
-        total,
-        options.offset,
-        options.limit,
-        catalog.scanned_at,
-    )))
+            .collect();
+        match options.sort {
+            SortMode::Catalog if options.descending => rows.reverse(),
+            SortMode::Name if options.descending => {
+                rows.sort_by_cached_key(|artist| {
+                    std::cmp::Reverse(text::normalize(&artist.sort_name))
+                });
+            }
+            SortMode::Name => rows.sort_by_cached_key(|artist| text::normalize(&artist.sort_name)),
+            _ => {}
+        }
+        let total = rows.len();
+        let items = rows
+            .into_iter()
+            .skip(options.offset)
+            .take(options.limit)
+            .filter_map(|artist| {
+                Some(ArtistItem {
+                    reference: reference(catalog, EntityKind::Artist, artist.id)?,
+                    name: artist.name.clone(),
+                    sort_name: artist.sort_name.clone(),
+                    mbid: artist.mbid.clone(),
+                    aliases: artist.aliases.clone(),
+                })
+            })
+            .collect();
+        Ok(Page::new(
+            items,
+            total,
+            options.offset,
+            options.limit,
+            catalog.scanned_at,
+        ))
+    })
+    .await
 }
 
 pub(super) async fn releases(
@@ -133,50 +138,55 @@ pub(super) async fn releases(
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<Page<ReleaseItem>>, ApiError> {
     let options = list_query(query, ListKind::Release)?;
-    let guard = state.catalog.read().await;
-    let catalog = guard.as_ref().ok_or_else(unavailable)?;
-    let artist_id = options
-        .artist
-        .as_deref()
-        .map(|token| filter_reference(catalog, token, EntityKind::Artist))
-        .transpose()?;
-    let mut rows: Vec<_> = catalog
-        .releases
-        .iter()
-        .filter(|release| {
-            options.year.is_none_or(|year| release.year == Some(year))
-                && artist_id.is_none_or(|id| release.album_artist_id == Some(id))
-                && options
-                    .q
-                    .as_deref()
-                    .is_none_or(|q| text::normalize(&release.title).contains(q))
-        })
-        .collect();
-    match options.sort {
-        SortMode::Catalog if options.descending => rows.reverse(),
-        SortMode::Title if options.descending => {
-            rows.sort_by_cached_key(|release| std::cmp::Reverse(text::normalize(&release.title)));
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        let artist_id = options
+            .artist
+            .as_deref()
+            .map(|token| filter_reference(catalog, token, EntityKind::Artist))
+            .transpose()?;
+        let mut rows: Vec<_> = catalog
+            .releases
+            .iter()
+            .filter(|release| {
+                options.year.is_none_or(|year| release.year == Some(year))
+                    && artist_id.is_none_or(|id| release.album_artist_id == Some(id))
+                    && options
+                        .q
+                        .as_deref()
+                        .is_none_or(|q| text::normalize(&release.title).contains(q))
+            })
+            .collect();
+        match options.sort {
+            SortMode::Catalog if options.descending => rows.reverse(),
+            SortMode::Title if options.descending => {
+                rows.sort_by_cached_key(|release| {
+                    std::cmp::Reverse(text::normalize(&release.title))
+                });
+            }
+            SortMode::Title => rows.sort_by_cached_key(|release| text::normalize(&release.title)),
+            SortMode::Year => {
+                rows.sort_by_cached_key(|release| release_year_key(release, options.descending))
+            }
+            _ => {}
         }
-        SortMode::Title => rows.sort_by_cached_key(|release| text::normalize(&release.title)),
-        SortMode::Year => {
-            rows.sort_by_cached_key(|release| release_year_key(release, options.descending))
-        }
-        _ => {}
-    }
-    let total = rows.len();
-    let items = rows
-        .into_iter()
-        .skip(options.offset)
-        .take(options.limit)
-        .filter_map(|release| release_item(catalog, release))
-        .collect();
-    Ok(Json(Page::new(
-        items,
-        total,
-        options.offset,
-        options.limit,
-        catalog.scanned_at,
-    )))
+        let total = rows.len();
+        let items = rows
+            .into_iter()
+            .skip(options.offset)
+            .take(options.limit)
+            .filter_map(|release| release_item(catalog, release))
+            .collect();
+        Ok(Page::new(
+            items,
+            total,
+            options.offset,
+            options.limit,
+            catalog.scanned_at,
+        ))
+    })
+    .await
 }
 
 pub(super) async fn tracks(
@@ -184,56 +194,59 @@ pub(super) async fn tracks(
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<Page<TrackItem>>, ApiError> {
     let options = list_query(query, ListKind::Track)?;
-    let guard = state.catalog.read().await;
-    let catalog = guard.as_ref().ok_or_else(unavailable)?;
-    let release_id = options
-        .release
-        .as_deref()
-        .map(|token| filter_reference(catalog, token, EntityKind::Release))
-        .transpose()?;
-    let mut rows: Vec<_> = catalog
-        .tracks
-        .iter()
-        .filter(|track| {
-            release_id.is_none_or(|id| track.release_id == Some(id))
-                && options
-                    .q
-                    .as_deref()
-                    .is_none_or(|q| text::normalize(&track.title).contains(q))
-        })
-        .collect();
-    match options.sort {
-        SortMode::Catalog if options.descending => rows.reverse(),
-        SortMode::Title if options.descending => {
-            rows.sort_by_cached_key(|track| std::cmp::Reverse(text::normalize(&track.title)));
-        }
-        SortMode::Title => rows.sort_by_cached_key(|track| text::normalize(&track.title)),
-        _ => {}
-    }
-    let total = rows.len();
-    let items = rows
-        .into_iter()
-        .skip(options.offset)
-        .take(options.limit)
-        .filter_map(|track| {
-            Some(TrackItem {
-                reference: reference(catalog, EntityKind::Track, track.id)?,
-                title: track.title.clone(),
-                release: track
-                    .release_id
-                    .and_then(|id| reference(catalog, EntityKind::Release, id)),
-                recording: reference(catalog, EntityKind::Recording, track.recording_id),
-                duration_ms: track.duration_ms,
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        let release_id = options
+            .release
+            .as_deref()
+            .map(|token| filter_reference(catalog, token, EntityKind::Release))
+            .transpose()?;
+        let mut rows: Vec<_> = catalog
+            .tracks
+            .iter()
+            .filter(|track| {
+                release_id.is_none_or(|id| track.release_id == Some(id))
+                    && options
+                        .q
+                        .as_deref()
+                        .is_none_or(|q| text::normalize(&track.title).contains(q))
             })
-        })
-        .collect();
-    Ok(Json(Page::new(
-        items,
-        total,
-        options.offset,
-        options.limit,
-        catalog.scanned_at,
-    )))
+            .collect();
+        match options.sort {
+            SortMode::Catalog if options.descending => rows.reverse(),
+            SortMode::Title if options.descending => {
+                rows.sort_by_cached_key(|track| std::cmp::Reverse(text::normalize(&track.title)));
+            }
+            SortMode::Title => rows.sort_by_cached_key(|track| text::normalize(&track.title)),
+            _ => {}
+        }
+        let total = rows.len();
+        let items = rows
+            .into_iter()
+            .skip(options.offset)
+            .take(options.limit)
+            .filter_map(|track| {
+                Some(TrackItem {
+                    reference: reference(catalog, EntityKind::Track, track.id)?,
+                    title: track.title.clone(),
+                    release: track
+                        .release_id
+                        .and_then(|id| reference(catalog, EntityKind::Release, id)),
+                    recording: reference(catalog, EntityKind::Recording, track.recording_id),
+                    duration_ms: track.duration_ms,
+                })
+            })
+            .collect();
+        Ok(Page::new(
+            items,
+            total,
+            options.offset,
+            options.limit,
+            catalog.scanned_at,
+        ))
+    })
+    .await
 }
 
 pub(super) async fn recordings(
@@ -241,53 +254,59 @@ pub(super) async fn recordings(
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<Page<RecordingItem>>, ApiError> {
     let options = list_query(query, ListKind::Recording)?;
-    let guard = state.catalog.read().await;
-    let catalog = guard.as_ref().ok_or_else(unavailable)?;
-    let work_id = options
-        .work
-        .as_deref()
-        .map(|token| filter_reference(catalog, token, EntityKind::Work))
-        .transpose()?;
-    let mut rows: Vec<_> = catalog
-        .recordings
-        .iter()
-        .filter(|recording| {
-            work_id.is_none_or(|id| recording.work_ids.contains(&id))
-                && options
-                    .q
-                    .as_deref()
-                    .is_none_or(|q| text::normalize(&recording.title).contains(q))
-        })
-        .collect();
-    match options.sort {
-        SortMode::Catalog if options.descending => rows.reverse(),
-        SortMode::Title if options.descending => rows
-            .sort_by_cached_key(|recording| std::cmp::Reverse(text::normalize(&recording.title))),
-        SortMode::Title => rows.sort_by_cached_key(|recording| text::normalize(&recording.title)),
-        _ => {}
-    }
-    let total = rows.len();
-    let items = rows
-        .into_iter()
-        .skip(options.offset)
-        .take(options.limit)
-        .filter_map(|recording| {
-            Some(RecordingItem {
-                reference: reference(catalog, EntityKind::Recording, recording.id)?,
-                title: recording.title.clone(),
-                mbid: recording.mbid.clone(),
-                track_count: recording.track_ids.len(),
-                work_count: recording.work_ids.len(),
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        let work_id = options
+            .work
+            .as_deref()
+            .map(|token| filter_reference(catalog, token, EntityKind::Work))
+            .transpose()?;
+        let mut rows: Vec<_> = catalog
+            .recordings
+            .iter()
+            .filter(|recording| {
+                work_id.is_none_or(|id| recording.work_ids.contains(&id))
+                    && options
+                        .q
+                        .as_deref()
+                        .is_none_or(|q| text::normalize(&recording.title).contains(q))
             })
-        })
-        .collect();
-    Ok(Json(Page::new(
-        items,
-        total,
-        options.offset,
-        options.limit,
-        catalog.scanned_at,
-    )))
+            .collect();
+        match options.sort {
+            SortMode::Catalog if options.descending => rows.reverse(),
+            SortMode::Title if options.descending => rows.sort_by_cached_key(|recording| {
+                std::cmp::Reverse(text::normalize(&recording.title))
+            }),
+            SortMode::Title => {
+                rows.sort_by_cached_key(|recording| text::normalize(&recording.title))
+            }
+            _ => {}
+        }
+        let total = rows.len();
+        let items = rows
+            .into_iter()
+            .skip(options.offset)
+            .take(options.limit)
+            .filter_map(|recording| {
+                Some(RecordingItem {
+                    reference: reference(catalog, EntityKind::Recording, recording.id)?,
+                    title: recording.title.clone(),
+                    mbid: recording.mbid.clone(),
+                    track_count: recording.track_ids.len(),
+                    work_count: recording.work_ids.len(),
+                })
+            })
+            .collect();
+        Ok(Page::new(
+            items,
+            total,
+            options.offset,
+            options.limit,
+            catalog.scanned_at,
+        ))
+    })
+    .await
 }
 
 pub(super) async fn entity(
@@ -301,6 +320,7 @@ pub(super) async fn entity(
             rejection.body_text(),
         )
     })?;
+    bounded_text(&query.reference, "ref", MAX_REFERENCE_BYTES)?;
     let requested = EntityRef::parse_token(&query.reference)
         .filter(|reference| !reference.key.trim().is_empty())
         .ok_or_else(|| {
@@ -310,9 +330,12 @@ pub(super) async fn entity(
                 "ref must be a stable entity reference such as artist:miles davis",
             )
         })?;
-    let guard = state.catalog.read().await;
-    let catalog = guard.as_ref().ok_or_else(unavailable)?;
-    entity_detail(catalog, &requested).map(Json)
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        entity_detail(catalog, &requested)
+    })
+    .await
 }
 
 pub(super) fn entity_detail(

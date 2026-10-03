@@ -132,6 +132,12 @@ fn selection(
     query: Result<Query<SelectionQuery>, QueryRejection>,
 ) -> Result<SelectionQuery, ApiError> {
     let Query(query) = query.map_err(|rejection| invalid_query(rejection.body_text()))?;
+    if let Some(value) = &query.name {
+        bounded_text(value, "name", MAX_SEARCH_TEXT_BYTES)?;
+    }
+    if let Some(value) = &query.reference {
+        bounded_text(value, "ref", MAX_REFERENCE_BYTES)?;
+    }
     if query.reference.is_some() == query.name.is_some() {
         return Err(invalid_query("provide exactly one of ref or name"));
     }
@@ -422,6 +428,24 @@ struct BrowseOptions {
 }
 
 fn browse_options(query: &BrowseQuery, kind: EntityKind) -> Result<BrowseOptions, ApiError> {
+    for (field, value) in [
+        ("q", &query.q),
+        ("name", &query.name),
+        ("mbid", &query.mbid),
+    ] {
+        if let Some(value) = value {
+            bounded_text(value, field, MAX_SEARCH_TEXT_BYTES)?;
+        }
+    }
+    for (field, value) in [
+        ("artist", &query.artist),
+        ("genre", &query.genre),
+        ("label", &query.label),
+    ] {
+        if let Some(value) = value {
+            bounded_selector(value, field)?;
+        }
+    }
     if query.q.is_some() && query.name.is_some() {
         return Err(invalid_query("q and name are aliases; provide only one"));
     }

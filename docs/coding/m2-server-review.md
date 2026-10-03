@@ -35,6 +35,25 @@ Navigation/inspection shares bounded blocking work, bounded query complexity and
 
 The bounded limits are protections, not a claim that any NAS, browser or real music library has sufficient capacity. Target-NAS connection, memory, CPU and request-cost validation, browser protocol interoperability, client buffering and physical playback remain required before presenting this as a complete remote player deployment.
 
+## M2 hardening follow-up, 2026-10-03
+
+This follow-up covers the current account, HTTPS, native PCM, catalog, personal-data, job and storage paths. The numbered September findings below remain historical evidence.
+
+| Area | Correction and preserved behavior |
+| --- | --- |
+| Credential and backup reads | Validate the opened descriptor as well as the inspected pathname; reject a changed identity, special file or exposed private credential file. Backup reads are bounded by the opened file's initial size and reject detected size/timestamp/identity changes, without imposing an arbitrary maximum on legitimate large backups. |
+| Writer/server locks | Reject links, special files and detected replacement during opening. New Unix lock files are private; existing data-lock permissions are preserved. Server locks also require private permissions and the current owner. |
+| Optional stores and graph validation | Only NotFound means an absent optional store. Other metadata failures propagate. Malformed present catalog tables, rows, IDs, foreign keys and inconsistent work/recording links are rejected instead of silently dropped or defaulted. Legacy absent optional tables remain readable. |
+| HTTP transport and shutdown | Local HTTP now shares HTTPS parser/admission bounds and write-progress deadlines. Accepted local requests/jobs finish before the final background timeout; upgraded sockets have a bounded drain. Shutdown receivers are installed before first polling so an early signal cannot be lost. |
+| PCM acknowledgements | Receive and parse an ACK before applying its progress within the selected branch. Another ready stream branch cannot cancel the receive after consuming an ACK but before updating playback progress/history. Tone validation remains shared with the core. |
+| Catalog and personal work | Original heavy catalog routes join the two bounded blocking workers. Search/name/identifier text and references have explicit byte limits. Query and history pagination occurs before rendering/cloning result views; owner counts are indexed once, preserving legacy first-row behavior. |
+| Query sorting | Normalize title/album keys and extract numeric values once per result. Stable sorting preserves the supplied selection's order on equal keys; missing numeric values remain last in both directions. |
+| Tests and documentation | Reproduce failure cases before fixing them; keep fixtures and tests outside production files. Correct stale CLI playback help, public RustDoc and bilingual operational/API limits. No new dependency or unsafe code is introduced. |
+
+Local HTTP intentionally retains its pre-account compatibility mode: absence of the account store on a fresh process allows anonymous catalog reads. Once that running process observes accounts, later absence fails closed until restart. An unreadable account store always fails closed; HTTPS requires accounts at startup. This is a documented process-local latch, not a persistent activation marker.
+
+The [synthetic HTTP measurements](m2-storage-benchmark.md) compare the previous release and this follow-up on the same generated catalog. They establish a local regression comparison, not NAS capacity, concurrent-client throughput or physical audio behavior. Full verification results are recorded in [current state](current-state.md).
+
 ## Outcome and evidence
 
 The initial verification suite passed (`tools/check.sh`: formatting, lint, tests, documentation and release build) despite the original defects. The corrective pass adds regression coverage for these cases; this is why a green suite alone was not sufficient evidence of the boundary. That original conclusion applied before the later account, HTTPS and playback work. The current implementation has an explicit remote transport boundary, but this review does not claim a completed NAS, browser-client or physical-playback validation.

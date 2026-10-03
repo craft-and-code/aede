@@ -391,10 +391,11 @@ pub fn save(conclusions: &Conclusions, path: &Path) -> Result<(), StoreError> {
 
 /// Loads the independent store, or returns `None` when it does not exist.
 pub fn load(path: &Path) -> Result<Option<Conclusions>, StoreError> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let content = std::fs::read_to_string(path)?;
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
     let value = json::parse(&content).map_err(StoreError::ConclusionsParse)?;
     from_json(&value).map(Some)
 }

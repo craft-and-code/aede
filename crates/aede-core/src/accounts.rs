@@ -287,6 +287,8 @@ fn next_revision(previous: u64) -> Result<u64, String> {
 }
 
 /// Validate and canonicalize a login name without treating it as a path or owner.
+/// Accept 1–64 ASCII letters, digits, dots, underscores or hyphens, with at
+/// least one letter or digit. The canonical spelling is lowercase.
 pub fn login_name(name: &str) -> Result<String, String> {
     if name.is_empty()
         || name.len() > 64
@@ -296,7 +298,7 @@ pub fn login_name(name: &str) -> Result<String, String> {
         || !name.bytes().any(|byte| byte.is_ascii_alphanumeric())
     {
         return Err(
-            "login names need 1–64 ASCII letters, digits, dots, underscores or hyphens".into(),
+            "login names need 1–64 ASCII letters, digits, dots, underscores or hyphens, including at least one letter or digit".into(),
         );
     }
     Ok(name.to_ascii_lowercase())
@@ -352,11 +354,21 @@ pub fn accounts_path(data_dir: &Path) -> PathBuf {
 /// Refuse links, special files and Unix credentials readable by other users.
 /// An absent destination is accepted for a new atomic write.
 pub fn check_private_file(path: &Path) -> Result<(), StoreError> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
+    inspect_private_file(path).map(|_| ())
+}
+
+fn inspect_private_file(path: &Path) -> Result<Option<std::fs::Metadata>, StoreError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            check_private_metadata(&metadata)?;
+            Ok(Some(metadata))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn check_private_metadata(metadata: &std::fs::Metadata) -> Result<(), StoreError> {
     if !metadata.is_file() {
         return Err(StoreError::AccountsInvalid(
             "credentials require a regular file, never a symbolic link",
@@ -374,14 +386,48 @@ pub fn check_private_file(path: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Read a bounded private account file; absence is distinct from malformed data.
+/// Validate the inspected source and the descriptor that supplied credentials.
+/// On Unix their device/inode identity must also match, so an intervening
+/// replacement cannot supply a different account store or private backup.
+pub(crate) fn validate_private_read(
+    inspected: &std::fs::Metadata,
+    opened: &std::fs::Metadata,
+) -> Result<(), StoreError> {
+    check_private_metadata(inspected)?;
+    check_private_metadata(opened)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if inspected.dev() != opened.dev() || inspected.ino() != opened.ino() {
+            return Err(StoreError::AccountsInvalid(
+                "credential source changed while it was opened; retry",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Read a bounded private account file; initial absence is distinct from malformed data.
+/// The opened descriptor is rechecked for regular-file type and private Unix
+/// permissions, including device/inode identity on Unix. Disappearance after
+/// inspection is an error, so it cannot silently disable authentication.
 pub fn load(path: &Path) -> Result<Option<Accounts>, StoreError> {
-    check_private_file(path)?;
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
+    load_with_open(path, |path| std::fs::File::open(path))
+}
+
+fn load_with_open(
+    path: &Path,
+    open: impl FnOnce(&Path) -> std::io::Result<std::fs::File>,
+) -> Result<Option<Accounts>, StoreError> {
+    let Some(inspected) = inspect_private_file(path)? else {
+        return Ok(None);
     };
+    let file = open(path)?;
+    let opened = file.metadata()?;
+    validate_private_read(&inspected, &opened)?;
+    if opened.len() > MAX_FILE_BYTES {
+        return Err(StoreError::AccountsInvalid("account file exceeds 1 MiB"));
+    }
     let mut text = String::new();
     file.take(MAX_FILE_BYTES + 1).read_to_string(&mut text)?;
     if text.len() as u64 > MAX_FILE_BYTES {

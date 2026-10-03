@@ -25,6 +25,7 @@ pub(crate) async fn start_server(state: ApiState) -> (SocketAddr, tokio::task::J
 }
 
 pub(crate) fn sample_state() -> ApiState {
+    static NEXT_STATE: AtomicU64 = AtomicU64::new(1);
     let catalog = Catalog {
         scanned_at: 1_700_000_000,
         artists: vec![Artist {
@@ -100,7 +101,13 @@ pub(crate) fn sample_state() -> ApiState {
     let (events, _) = broadcast::channel(8);
     let (shutdown, _) = broadcast::channel(1);
     ApiState {
-        data_dir: std::env::temp_dir(),
+        // Optional credential/source reads must never inspect the shared temp
+        // folder. Persistence fixtures replace this deliberately absent path.
+        data_dir: std::env::temp_dir().join(format!(
+            "aede_server_no_store_{}_{}",
+            std::process::id(),
+            NEXT_STATE.fetch_add(1, Ordering::Relaxed)
+        )),
         catalog: Arc::new(RwLock::new(Some(catalog))),
         loaded_stamp: Arc::new(RwLock::new(None)),
         reload_gate: Arc::new(Mutex::new(())),
@@ -172,6 +179,10 @@ pub(crate) fn response_headers(address: SocketAddr, request: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "test_support_tests.rs"]
+mod tests;
 
 pub(crate) struct WebSocketReader {
     pub(crate) stream: std::net::TcpStream,

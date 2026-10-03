@@ -21,53 +21,99 @@ const MAX_RETAINED: usize = 64;
 const MAX_OUTPUT: usize = 64 * 1024;
 
 /// Scan options; named folders extend watched roots unless replacement is explicit.
+///
+/// Missing JSON fields use these defaults. The administrative HTTP endpoint
+/// validates paths and bounds before invoking the server's job callback.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScanRequest {
+    /// Up to 64 absolute server-side folders, 4096 bytes each and without NUL.
+    /// Empty means rescan the already watched roots.
     pub folders: Vec<String>,
+    /// Replace watched roots instead of adding; requires nonempty `folders`.
     pub replace: bool,
+    /// Reread tags rather than reusing unchanged files; keep saved conclusions.
     pub full: bool,
+    /// Tag-reading concurrency from 0 to 64; `None` and zero choose automatically.
     pub threads: Option<usize>,
+    /// Follow symbolic links during discovery; disabled by default.
     pub follow_symlinks: bool,
+    /// Include hidden entries during discovery; disabled by default.
     pub include_hidden: bool,
 }
 
 /// The explicit fetch options, using the same pass selection as the CLI.
+///
+/// Missing booleans default to false. No pass flags selects ordinary MusicBrainz
+/// identification, so a default request is not a no-op. HTTP validates option
+/// dependencies before the callback; service keys come from the server's
+/// environment, not this request. Full details are in `docs/server/jobs.md`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FetchRequest {
+    /// Up to 64 nonempty names or server-folder paths, 4096 bytes each, no NUL.
+    /// Empty selects the CLI's ordinary all-catalog scope for the chosen passes.
     pub targets: Vec<String>,
+    /// Fetch attributed artist/album prose.
     pub summaries: bool,
+    /// Fetch artist discographies for later missing-release inspection.
     pub discography: bool,
+    /// Fetch cover-art information; image downloads additionally require `images`.
     pub covers: bool,
+    /// Explicitly fetch lyrics; identification never enables this implicitly.
     pub lyrics: bool,
+    /// Include the ordinary identification pass alongside selected passes.
     pub identify: bool,
+    /// Fetch edition, recording and work credits through the scoped CLI pipeline.
     pub credits: bool,
+    /// Fetch recording-level identification/information.
     pub recordings: bool,
+    /// Fetch supported artist portraits.
     pub portraits: bool,
+    /// Fetch supported artist/label logos.
     pub logos: bool,
+    /// Fetch record-label information.
     pub labels: bool,
+    /// Enable the Fanart.tv artwork families and their explicit exclusions.
     pub fanart: bool,
+    /// Include banners; requires `logos` or `fanart` and conflicts with `no_banner`.
     pub banners: bool,
+    /// Download derivative cover images; requires `covers`.
     pub images: bool,
+    /// Repeat lookups that would otherwise reuse stored complete results.
     pub full: bool,
+    /// Preview the selected work without contacting external services.
     pub dry_run: bool,
+    /// Explicitly accept a large-run confirmation; HTTP never prompts interactively.
     pub yes: bool,
+    /// Exclude Fanart.tv artist logos; requires `fanart` and conflicts with `logos`.
     pub no_logo: bool,
+    /// Exclude Fanart.tv label logos; requires `fanart`.
     pub no_label_logo: bool,
+    /// Exclude Fanart.tv artist portraits; requires `fanart`.
     pub no_portrait: bool,
+    /// Exclude Fanart.tv artist backgrounds; requires `fanart`.
     pub no_background: bool,
+    /// Exclude Fanart.tv banners; requires `fanart` and conflicts with `banners`.
     pub no_banner: bool,
+    /// Exclude Fanart.tv album covers; requires `fanart`.
     pub no_album_cover: bool,
+    /// Exclude Fanart.tv disc artwork; requires `fanart`.
     pub no_cdart: bool,
+    /// Cover size `250`, `500`, `1200`, `original` (`full` aliases original).
+    /// Requires `covers`; `None` keeps the CLI default.
     pub size: Option<String>,
+    /// Nonempty prose-language selection, up to 256 bytes and without NUL.
+    /// `None` keeps the CLI's configured language behavior.
     pub lang: Option<String>,
 }
 
 /// A typed operation; HTTP clients cannot provide arbitrary executable arguments.
 #[derive(Clone, Debug)]
 pub enum JobRequest {
+    /// A local scan of watched/newly supplied folders.
     Scan(ScanRequest),
+    /// An explicitly requested online pass, or an offline `dry_run` preview.
     Fetch(FetchRequest),
 }
 
@@ -160,9 +206,13 @@ impl JobRequest {
 /// Bounded captured output of the existing command implementation.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct JobOutput {
+    /// CLI exit code: zero succeeds; a cancelled callback normally returns 130.
     pub exit_code: i32,
+    /// Standard output, retained at most 64 KiB on a UTF-8 boundary.
     pub stdout: String,
+    /// Standard error, retained at most 64 KiB on a UTF-8 boundary.
     pub stderr: String,
+    /// Either captured stream was shortened; retained output is incomplete.
     pub output_truncated: bool,
 }
 

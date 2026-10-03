@@ -893,7 +893,10 @@ fn print_server_help() {
 {}
   Without accounts, catalog reads are anonymous. aede accounts init creates
   the first administrator and protects catalog access; personal data is scoped
-  to each session. See docs/server/accounts.md. There is no audio playback.
+  to each session. See docs/server/accounts.md. GET /api/me/v1/playback provides
+  native audio playback as processed f32le PCM over WebSocket, with consumed
+  frame acknowledgements for private history. See docs/server/playback.md.
+  A browser/mobile player interface remains separate work.
   Explicit HTTPS mode provides the supported remote access boundary; do not
   publish the default local HTTP listener through a proxy, tunnel or router.
   Windows path handling is covered by regression tests; native Windows

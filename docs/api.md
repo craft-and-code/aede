@@ -8,7 +8,7 @@ The [server README](../crates/aede-server/README.md) is the complete route and p
 
 ## Access boundary
 
-All `/api/v1` endpoints, including `/status` and the WebSocket, are read-only. Without accounts they are anonymous and can expose music names, paths, comments and attributed origins to other local processes/users. With [accounts](server/accounts.md), catalog reads require a session or administrative token; `/api/me/v1` isolates personal reads/writes to the authenticated owner. An `auditor` session may use only its own `GET`/`HEAD` personal routes, while account administration requires an administrator. Personal annotations and external service credentials are never included in catalog responses. Missing or unreadable credentials fail closed after account activation.
+All `/api/v1` endpoints, including `/status` and the WebSocket, are read-only. Without accounts they are anonymous and can expose music names, paths, comments and attributed origins to other local processes/users. With [accounts](server/accounts.md), catalog reads require a session or administrative token; `/api/me/v1` isolates personal reads/writes to the authenticated owner. An `auditor` session may use only its own `GET`/`HEAD` personal routes, while account administration requires an administrator. Personal annotations and external service credentials are never included in catalog responses. Once a running process has observed an account store, missing or unreadable credentials fail closed until that process stops. A fresh local HTTP process with no account store starts in the anonymous compatibility mode; HTTPS always requires initialized accounts. An unreadable store fails closed even on first access.
 
 The default HTTP server binds to loopback. An explicit [HTTPS listener](server/remote.md) requires accounts, a certificate/key and one configured public authority. On HTTPS, catalog and personal requests require a session, legacy administrative tokens are disabled and every `/api/admin` route is unavailable. No automatic forwarding, cross-origin permission or browser login interface is implemented. Transitional administrative personal routes retain `local` on local HTTP.
 
@@ -19,6 +19,8 @@ Every HTTP request and WebSocket handshake must have one `Host` matching the lis
 HTTP responses from successful API requests and application errors are UTF-8 JSON with `Content-Type: application/json`. `GET` is defined; ordinary JSON routes also answer `HEAD` with the same status and headers but no body. Unknown paths return JSON 404; other methods on known paths return JSON 405. The WebSocket handshake is the exception: HTTP upgrade failures are transport errors and do not promise the JSON error envelope. No write method is defined under `/api/v1`.
 
 All field names use `snake_case`. Times named `scanned_at` are Unix seconds; durations are milliseconds; file sizes are bytes. Optional scalar values are `null`, not absent. Collections are arrays, including when empty. Names and titles preserve the spelling read from files. Relations between entities use stable `reference` tokens from `EntityRef`, never catalog vector indexes. A track reference is path-based and changes if the file moves. Clients must URL-encode a token when passing it as a query value.
+
+The original `/status` and `/library` routes read snapshot metadata and counts in constant time and do not interpret query parameters. They remain outside the catalog inspection-worker budget; omit query parameters on both. Authentication and transport admission still apply.
 
 | Request | Response |
 | --- | --- |
@@ -64,11 +66,13 @@ Each track analysis contains `source`, `source_version`, `imported_at`, `stale`,
 
 `/genres`, `/labels`, `/works`, `/release-groups`, `/countries`, `/years` and `/roles` expose further paginated navigation. `/doctor`, `/stats` and `/roots` provide structured diagnostics and inspection; `/search` ranks names and optionally stored comments; `/query` evaluates the public subset of the CLI expression grammar. Owner-dependent predicates/sorts and lyrics queries are refused. None of these reads fetches external information. See the [complete parameters and shapes](../crates/aede-server/README.md#read-routes).
 
-New navigation/inspection requests share two bounded blocking-worker slots, returning `429 inspection_busy` at capacity. Search/query text is bounded to 2048 bytes and query parsing to 64 complexity units. HTTPS adds bounded request admission, offloads routed work from runtime workers and has a response deadline; target-device capacity remains a measured deployment concern. Doctor reads current catalog/conclusions and sources under the shared writer lock (`409 store_busy` when unavailable); other endpoints use the cached catalog and, when needed, the latest atomically saved source file. Corrupt sources return an error, not an unknown-origin answer. No multi-request or catalog/source snapshot is guaranteed for the latter reads.
+Catalog lists and entity details, including the original `/artists`, `/releases`, `/tracks`, `/recordings` and `/entities`, share two bounded blocking-worker slots with navigation, inspection and personal-data operations. Catalog/navigation/inspection saturation returns `429 inspection_busy`; personal operations return `503 personal_busy`. Query expression parsing is bounded to 64 complexity units. HTTPS adds a separate bounded request-admission budget, offloads routed work from runtime workers and has a response deadline; target-device capacity remains a measured deployment concern. Doctor reads current catalog/conclusions and sources under the shared writer lock (`409 store_busy` when unavailable); other endpoints use the cached catalog and, when needed, the latest atomically saved source file. Corrupt sources return an error, not an unknown-origin answer. No multi-request or catalog/source snapshot is guaranteed for the latter reads.
 
 ## Search, filters, sorting and pagination
 
 These parameters apply to the four list endpoints. Unknown parameters, duplicate parameters, an empty `q`, unsupported sort values and malformed references are errors. Search and filters combine with AND; each matching row appears once. Text comparison uses Aède's normalized matching (case and accent insensitive) and checks for a substring. Search only examines the fields below; it does not silently search unrelated tags or external source claims.
+
+Catalog `q`, `name` and `mbid` values are limited to 2048 UTF-8 bytes after URL decoding and before normalization. Stable references, including `/entities?ref=…` and reference filters, are limited to 16384 UTF-8 bytes. Where a selector accepts either a name or a reference, names use the 2048-byte limit and recognized reference-kind prefixes use the 16384-byte limit; the reference must still have the kind required by that route. Oversized values return `400 invalid_query`.
 
 | List | `q` searches | Exact filters | Accepted `sort` |
 | --- | --- | --- | --- |
@@ -99,7 +103,7 @@ Application errors are `{ "error": { "code": string, "message": string } }`. `co
 | 405 | `method_not_allowed` | A known path was called with an unsupported HTTP method. |
 | 409 | `ambiguous_entity` | A singular name selects several entities; bounded candidates accompany the error. |
 | 409 | `store_busy` | Doctor or the synchronous administrative scan cannot acquire the data lock. |
-| 429 | `inspection_busy` | The new navigation/inspection worker budget is full. |
+| 429 | `inspection_busy` | The shared catalog/navigation/inspection worker budget is full. |
 | 500 | `sources_unavailable` | A stored source file could not be read. |
 | 500 | `catalog_read_failed` | Doctor could not read catalog/conclusions. |
 | 500 | `inspection_failed` | A background inspection worker failed. |

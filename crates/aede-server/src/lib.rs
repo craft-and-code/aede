@@ -35,13 +35,19 @@ pub use delegation::{cancel_task, delegate_command};
 
 /// Result of asking the local server to stop one cancellable task.
 pub enum CancelOutcome {
+    /// An active cancellable task received the stop request.
     Requested,
+    /// No active cancellable task has this process-local identifier.
     NotFound,
+    /// No server is listening on this data directory's local command channel.
     NoServer,
+    /// The current platform has no local command channel implementation.
     Unsupported,
 }
 
 #[cfg(not(unix))]
+/// Local command delegation is unavailable on this platform; callers execute
+/// their command directly when this returns `Ok(None)`.
 pub fn delegate_command(
     _data_dir: &Path,
     _args: Vec<String>,
@@ -51,6 +57,8 @@ pub fn delegate_command(
 }
 
 #[cfg(not(unix))]
+/// Returns [`CancelOutcome::Unsupported`] where the Unix command channel is
+/// unavailable. This does not cancel HTTP jobs or native PCM streams.
 pub fn cancel_task(_data_dir: &Path, _task_id: u64) -> Result<CancelOutcome, Box<dyn Error>> {
     Ok(CancelOutcome::Unsupported)
 }

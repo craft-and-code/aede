@@ -1,5 +1,7 @@
 use super::*;
-use crate::test_support::{encoded, json_response, request, sample_state};
+use crate::test_support::{
+    encoded, json_response, request, sample_state, start_server as start, test_runtime as runtime,
+};
 use aede_core::model::{
     Artist, AudioFile, Genre, GenreLink, Label, Recording, Release, ReleaseGroup, Track, Work,
 };
@@ -108,24 +110,6 @@ async fn fixture() -> ApiState {
         }
     }
     state
-}
-
-async fn start(state: ApiState) -> (SocketAddr, tokio::task::JoinHandle<()>) {
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-        .await
-        .unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = tokio::spawn(async move {
-        let _ = axum::serve(listener, crate::router(state, address)).await;
-    });
-    (address, server)
-}
-
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
 }
 
 fn response_json(response: &str) -> serde_json::Value {
@@ -409,6 +393,11 @@ fn navigation_shares_the_inspection_budget_and_keeps_status_available() {
             "/api/v1/artist?name=AC%2FDC",
             "/api/v1/from?name=AC%2FDC",
             "/api/v1/genres",
+            "/api/v1/artists",
+            "/api/v1/releases",
+            "/api/v1/tracks",
+            "/api/v1/recordings",
+            "/api/v1/entities?ref=artist%3Aac%2Fdc",
         ] {
             let response = request(address, path);
             assert!(response.starts_with("HTTP/1.1 429"), "{response}");
@@ -417,6 +406,37 @@ fn navigation_shares_the_inspection_budget_and_keeps_status_available() {
         assert_eq!(json_response(address, "/api/v1/status")["status"], "ok");
         drop(permits);
         assert_eq!(json_response(address, "/api/v1/albums")["total"], 3);
+        server.abort();
+    });
+}
+
+#[test]
+fn catalog_navigation_bounds_search_text_before_lookup() {
+    runtime().block_on(async {
+        let (address, server) = start(fixture().await).await;
+        let oversized = "x".repeat(2049);
+        for selector in [
+            "/api/v1/artists?q=",
+            "/api/v1/releases?q=",
+            "/api/v1/tracks?q=",
+            "/api/v1/recordings?q=",
+            "/api/v1/albums?name=",
+            "/api/v1/albums?artist=",
+            "/api/v1/artist?name=",
+            "/api/v1/from?name=",
+            "/api/v1/genres?q=",
+        ] {
+            let response = request(address, &format!("{selector}{oversized}"));
+            assert!(
+                response.starts_with("HTTP/1.1 400"),
+                "{selector}: {response}"
+            );
+            assert_eq!(response_json(&response)["error"]["code"], "invalid_query");
+        }
+        assert_eq!(
+            json_response(address, "/api/v1/albums?name=Black")["total"],
+            3
+        );
         server.abort();
     });
 }

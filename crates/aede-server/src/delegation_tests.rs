@@ -1,4 +1,21 @@
 use super::*;
+
+#[test]
+fn the_server_lifetime_lock_cannot_be_redirected_to_another_file() {
+    let directory =
+        std::env::temp_dir().join(format!("aede_server_linked_lock_{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let original = directory.join("original.lock");
+    std::fs::write(&original, b"keep original").unwrap();
+    std::os::unix::fs::symlink(&original, directory.join(SERVER_LOCK)).unwrap();
+    let result = ServerLock::acquire(&directory);
+    let refused = result.is_err();
+    let original_bytes = std::fs::read(&original).unwrap();
+    drop(result);
+    std::fs::remove_dir_all(directory).unwrap();
+    assert!(refused, "the server must keep one independent lock inode");
+    assert_eq!(original_bytes, b"keep original");
+}
 use crate::{MAX_PLAYBACKS, MAX_REMOTE_REQUESTS};
 
 #[test]

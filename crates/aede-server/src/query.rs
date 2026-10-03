@@ -2,6 +2,32 @@
 
 use super::*;
 
+pub(super) const MAX_SEARCH_TEXT_BYTES: usize = 2048;
+pub(super) const MAX_REFERENCE_BYTES: usize = 16 * 1024;
+
+pub(super) fn bounded_text(value: &str, field: &str, maximum: usize) -> Result<(), ApiError> {
+    if value.len() > maximum {
+        return Err(invalid_query(format!(
+            "{field} must be at most {maximum} bytes"
+        )));
+    }
+    Ok(())
+}
+
+// Stable references include native paths and release keys, so their limit is
+// larger than a name search. Check the prefix without allocating a reference.
+pub(super) fn bounded_selector(value: &str, field: &str) -> Result<(), ApiError> {
+    let maximum = if value
+        .split_once(':')
+        .is_some_and(|(kind, _)| EntityKind::parse_kind(kind).is_some())
+    {
+        MAX_REFERENCE_BYTES
+    } else {
+        MAX_SEARCH_TEXT_BYTES
+    };
+    bounded_text(value, field, maximum)
+}
+
 pub(super) fn decimal(value: &str, field: &str, pagination: bool) -> Result<usize, ApiError> {
     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
         let message = format!("{field} must be a non-negative decimal integer");
@@ -48,6 +74,20 @@ pub(super) fn list_query(
     kind: ListKind,
 ) -> Result<ListOptions, ApiError> {
     let Query(query) = query.map_err(|rejection| invalid_query(rejection.body_text()))?;
+    for (field, value) in [("q", &query.q), ("mbid", &query.mbid)] {
+        if let Some(value) = value {
+            bounded_text(value, field, MAX_SEARCH_TEXT_BYTES)?;
+        }
+    }
+    for (field, value) in [
+        ("artist", &query.artist),
+        ("release", &query.release),
+        ("work", &query.work),
+    ] {
+        if let Some(value) = value {
+            bounded_text(value, field, MAX_REFERENCE_BYTES)?;
+        }
+    }
     let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
     let q = query
         .q

@@ -727,10 +727,11 @@ pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store:
 
 /// Loads what the user wrote; `Ok(None)` when nothing has been written yet.
 pub fn load(path: &std::path::Path) -> Result<Option<UserData>, crate::store::StoreError> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let text = std::fs::read_to_string(path)?;
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
     let value = crate::json::parse(&text).map_err(crate::store::StoreError::Parse)?;
     from_json(&value).map(Some)
 }

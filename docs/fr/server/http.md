@@ -39,6 +39,10 @@ Les filtres se combinent avec ET. Les listes ordinaires utilisent `sort=catalog&
 
 Les paramètres inconnus, répétés ou incompatibles sont refusés. `/status` et `/library` sont des exceptions historiques qui n’interprètent pas les paramètres ; n’en ajoutez pas plutôt que de dépendre de cette exception.
 
+Les valeurs `q`, `name` et `mbid` du catalogue acceptent au plus 2048 octets UTF-8 après décodage de l’URL et avant normalisation. Les références stables, dont `ref` et les filtres par référence, acceptent au plus 16384 octets UTF-8. Les sélecteurs acceptant un nom ou une référence appliquent la limite de 2048 octets aux noms et celle de 16384 octets aux préfixes de types de référence reconnus ; les références doivent toujours avoir le type exigé par la route. Une valeur trop longue renvoie `400 invalid_query`.
+
+Les listes et détails du catalogue, y compris les routes d’origine `/artists`, `/releases`, `/tracks`, `/recordings` et `/entities`, partagent deux travailleurs bloquants avec la navigation, l’inspection et les opérations personnelles. À saturation, catalogue/navigation/inspection renvoient `429 inspection_busy` ; les opérations personnelles renvoient `503 personal_busy`. `/status` et `/library` lisent les métadonnées et compteurs de l’instantané en temps constant, hors de ce budget. L’authentification et l’admission du transport s’appliquent toujours.
+
 ## Comprendre une erreur
 
 ```json
@@ -56,7 +60,7 @@ Le statut HTTP décrit la catégorie de résultat. `error.code` est la valeur st
 | 405 `method_not_allowed` | Cette méthode HTTP n’existe pas sur cette route. |
 | 409 `ambiguous_entity` | Choisissez une référence parmi les candidats. |
 | 409 `store_busy` | Attendez la fin de l’écriture et réessayez la lecture ; ne supprimez pas le verrou. |
-| 429 `inspection_busy` | Les deux travailleurs de navigation/inspection sont occupés ; réessayez plus tard. |
+| 429 `inspection_busy` | Les deux travailleurs partagés de catalogue/navigation/inspection/données personnelles sont occupés ; réessayez plus tard. |
 | 500 `sources_unavailable`, `catalog_read_failed`, `inspection_failed`, `store_error` | Consultez le journal serveur et préservez les données avant réparation. |
 | 503 `catalog_unavailable` | Le catalogue est absent ; restaurez-le ou effectuez un scan, puis réessayez. |
 
@@ -64,7 +68,7 @@ Les erreurs d’authentification, de corps JSON et de tâches sont expliquées d
 
 ## La frontière locale
 
-Sans [comptes](accounts.md), les lectures HTTP locales ne demandent aucun jeton et peuvent révéler chemins, commentaires et noms aux autres processus/utilisateurs. Avec des comptes, elles exigent une session Bearer ou, en HTTP local, le jeton administratif. [HTTPS](remote.md) exige des comptes, accepte seulement les sessions et valide Host/Origin contre son adresse configurée. HTTP reste limité à la boucle locale. Aucun transport n’autorise les origines tierces.
+Sans [magasin de comptes](accounts.md) à la première lecture dans un nouveau processus HTTP local, les lectures du catalogue ne demandent aucun jeton et peuvent révéler chemins, commentaires et noms aux autres processus/utilisateurs. Dès que le processus a observé le magasin, elles exigent une session Bearer ou, en HTTP local, le jeton administratif ; un magasin ensuite absent ou illisible ferme l’accès jusqu’à l’arrêt du processus. Redémarrer HTTP local sans magasin rétablit le mode de compatibilité anonyme. Un magasin illisible ferme l’accès même à la première lecture. [HTTPS](remote.md) exige toujours des comptes, accepte seulement les sessions et valide Host/Origin contre son adresse configurée. HTTP reste limité à la boucle locale. Aucun transport n’autorise les origines tierces.
 
 Aucun secret dans une page web ou URL. Le jeton administratif historique refuse toute Origin ; les sessions suivent la vérification d’origine du transport. Un futur lecteur/site nécessite encore une conception de connexion/cookies.
 

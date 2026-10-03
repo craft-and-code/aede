@@ -23,6 +23,8 @@ New image and lyric sidecars are published atomically without replacing an exist
 
 Once accepted jobs/commands and connection shutdown finish, Aède gives remaining uninterruptible background workers at most five seconds to finish. A decoder blocked on storage may not finish before process exit. It reads source audio; history uses atomic replacement, so original music is not altered or truncated. A late history write may remain unconfirmed.
 
+Both HTTP and HTTPS admit at most 64 TCP connections, including upgraded WebSockets. Request headers are limited to 64 fields and 32 KiB with a ten-second header deadline; an output that makes no write progress for ten seconds is closed. Local HTTP waits for accepted requests, then gives upgraded connections at most fifteen seconds to drain. HTTPS has a fifteen-second connection-drain deadline. These limits do not cancel an already accepted local scan/fetch job or delegated command.
+
 ## HTTPS and native playback
 
 The default HTTP listener is for loopback use only. For remote clients, configure `--bind` and all three of `--tls-cert`, `--tls-key` and `--authority`; the [HTTPS guide](server/remote.md) defines the certificate, authority and network setup. The authority is the exact public `HOST:PORT` clients use and may differ from the listening address through a TLS-preserving port mapping. HTTPS requires initialized accounts and refuses an absent or unreadable account store. It disables every `/api/admin` route, including account administration and transitional `local` routes, and disables `AEDE_ADMIN_TOKEN` even when HTTPS listens on loopback. Do not expose default HTTP through a proxy, tunnel or router; TLS terminates in Aède.
@@ -39,9 +41,13 @@ The data directory must not be writable by other users or groups. The private co
 
 All current Aède writers coordinate through a lock in the data directory, including CLI commands with no server. Do not delete `.aede.lock`, hand-edit JSON while Aède is running, or mix old executables with the current server. A store held by another command makes a synchronous HTTP scan or doctor request return `409 store_busy`; asynchronous HTTP jobs wait for the lock. The server notices an externally replaced `catalog.json` in about a second. A malformed replacement leaves the last good snapshot available and logs an error; removing the catalog makes catalog routes unavailable until it is restored.
 
+New Unix lock files use mode 0600; an existing data lock keeps its permissions. Aède refuses a symlink, special file or replacement detected while opening a lock. The server lock additionally requires private permissions and the current OS owner. Unreadable optional JSON stores are errors; only an absent store means that no data has been saved.
+
 ## Backups and recovery
 
 Back up the data directory on persistent storage. It contains `catalog.json` (rebuildable graph), `conclusions.json` (integrity results and imported analyses), `user.json` (personal annotations), `sources.json` (attributed external information), private `accounts.json` credentials, and derivative assets. `aede backup <file>` produces a versioned bundle of the JSON stores; keep copies off the NAS. The bundle is **not** a backup of the original music or derivative image and lyric files. Treat both the data directory and bundle as private: they can contain listening history, file paths and fetched data.
+
+Restore reads a regular file and refuses a size, timestamp or identity change detected during that read. Bundles containing accounts must also retain private Unix permissions and must not be symlinks. Credential checks apply to the opened file as well as its pathname; a replacement between inspection and opening is refused.
 
 For recovery, stop the server, preserve the damaged data directory, and run `aede restore <file>` with the same `AEDE_HOME` or `--data`. Review the command's confirmation before accepting it. Restore writes only stores present and readable in the bundle; it does not delete an absent store. Start the server again and check `/api/v1/status` and `/api/v1/library`. Legacy embedded conclusions are carried into `conclusions.json` on the next protected catalog save or when restoring a version-1 backup; reading a legacy catalog does not rewrite files. Keep a backup before upgrading or restoring. The original audio files must be backed up separately.
 

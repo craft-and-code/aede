@@ -8,6 +8,46 @@ use std::sync::Arc;
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn personal_selectors_reject_oversized_names_and_references_before_store_reads() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let name = "x".repeat(257);
+        let read = collection(
+            State(state.clone()),
+            Ok(Query(NameQuery { name: name.clone() })),
+            request("/api/admin/v1/collection", ""),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(read.status, StatusCode::BAD_REQUEST);
+        assert_eq!(read.code, "invalid_query");
+        let delete = delete_collection(
+            State(state.clone()),
+            Ok(Query(NameQuery { name })),
+            request("/api/admin/v1/collection", ""),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(delete.status, StatusCode::BAD_REQUEST);
+        let read = annotation(
+            State(state.clone()),
+            Ok(Query(RefQuery {
+                reference: format!("track:{}", "x".repeat(MAX_REFERENCE_BYTES)),
+            })),
+            request("/api/admin/v1/annotation", ""),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(read.status, StatusCode::BAD_REQUEST);
+        assert!(!user::user_path(&state.data_dir).exists());
+        cleanup(&state);
+    });
+}
+
 fn state() -> ApiState {
     let mut state = crate::test_support::sample_state();
     let nonce = SystemTime::now()
