@@ -1105,6 +1105,30 @@
       "navigation": false
     },
     {
+      "slug": "manual/project-statistics",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/project-statistics.md",
+        "fr": "docs/fr/manual/project-statistics.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "compatibility/specification",
+      "section": "compatibility",
+      "command": null,
+      "source": {
+        "en": "docs/server/compatible-aede.md",
+        "fr": "docs/fr/server/compatible-aede.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
       "slug": "manual/reference/library",
       "section": "manual",
       "command": null,
