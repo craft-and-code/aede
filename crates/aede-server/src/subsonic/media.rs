@@ -31,7 +31,7 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 const SOURCE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The MIME type of original audio, independent of its private filesystem path.
-pub(super) fn content_type(properties: &AudioProperties) -> &'static str {
+pub(crate) fn content_type(properties: &AudioProperties) -> &'static str {
     match suffix(properties) {
         "flac" => "audio/flac",
         "mp3" => "audio/mpeg",
@@ -70,13 +70,16 @@ pub(super) fn suffix(properties: &AudioProperties) -> &'static str {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ByteRange {
-    start: u64,
-    length: u64,
-    partial: bool,
+pub(crate) struct ByteRange {
+    pub(crate) start: u64,
+    pub(crate) length: u64,
+    pub(crate) partial: bool,
 }
 
-fn requested_range(headers: &HeaderMap, size: u64) -> Result<Option<ByteRange>, ProtocolError> {
+pub(crate) fn requested_range(
+    headers: &HeaderMap,
+    size: u64,
+) -> Result<Option<ByteRange>, ProtocolError> {
     let mut ranges = headers.get_all(header::RANGE).iter();
     let range = ranges.next();
     if ranges.next().is_some() {

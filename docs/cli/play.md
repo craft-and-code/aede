@@ -159,3 +159,9 @@ The terminal names the album and numbered filename as playback advances, shows t
 [track](track.md), [analyze](analyze.md), [history](history.md).
 
 Detailed existing guide: [design/playback.md](../design/playback.md).
+
+## Local output and network devices
+
+CPAL is already the default on macOS, Windows and glibc Linux when a compatible device can open. ffplay is the explicit/automatic fallback and the static-musl output path. `AEDE_AUDIO_BACKEND=native aede play /path/to/song.flac` requires CPAL and reports why it cannot open instead of falling back. Native visual timing uses callback-consumed frames; local history still follows submitted audio. CPAL hands audio to the host and does not prove physical DAC audibility.
+
+For SlimProto, UPnP AV or OpenHome equipment, use [device casting](../server/devices.md). These first profiles send original encoded files for device-side decoding; local CPAL output and server DSP are separate from that transport.

@@ -510,6 +510,8 @@ Complete guides to Aède's features and architecture:
 - [Project Statistics](docs/manual/project-statistics.md) — Generated code measurements by crate and a rounded inventory of active unit tests
 - [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
 - [M3 Hardening](docs/coding/m3-review.md) — Player/DSP security, source identity, spectrum timing, performance measurements and verification limits
+- [Audio DSP Comparison](docs/coding/dsp-comparison.md) — Aède/FlacCompagnon responsibilities, measured differences and safe sharing candidates
+- [Network Audio Devices](docs/server/devices.md) — Initial SlimProto, UPnP AV and OpenHome casting profiles and acceptance limits
 - [Gapless Measurement](docs/coding/gapless-measurement.md) — Whole/split probes, physical capture and bounded idle/load trials
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support

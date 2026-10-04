@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use lofty::file::{AudioFile, FileType, TaggedFileExt};
+use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
 use lofty::prelude::ItemKey;
 use lofty::tag::{Tag, TagType};
 
@@ -25,6 +25,17 @@ use super::{RawTags, TagError};
 /// Reads a file through `lofty` and translates the result into [`RawTags`].
 pub fn read(path: &Path) -> Result<RawTags, TagError> {
     let file = lofty::read_from_path(path).map_err(|_| TagError::UnrecognizedFormat)?;
+    Ok(translate(file))
+}
+
+pub(super) fn read_from_file(file: &mut std::fs::File) -> Result<RawTags, TagError> {
+    use std::io::{Seek, SeekFrom};
+    file.seek(SeekFrom::Start(0))?;
+    let tagged = lofty::read_from(file).map_err(|_| TagError::UnrecognizedFormat)?;
+    Ok(translate(tagged))
+}
+
+fn translate(file: TaggedFile) -> RawTags {
     let mut tags = RawTags::default();
 
     describe_stream(file.file_type(), &mut tags);
@@ -47,7 +58,7 @@ pub fn read(path: &Path) -> Result<RawTags, TagError> {
     for tag in file.tags() {
         collect(tag, &mut tags);
     }
-    Ok(tags)
+    tags
 }
 
 /// Fills in codec, container and losslessness from the detected file type.

@@ -169,7 +169,8 @@ class HomeTests(unittest.TestCase):
                     self.assertIn(scope, section)
                     self.assertIn(label, section)
                     images = re.findall(r'<img\b[^>]*>', section)
-                    self.assertLessEqual({"Subsonic", "OpenSubsonic"}, {re.search(r'\balt="([^"]+)"', tag)[1] for tag in images})
+                    self.assertLessEqual({"Subsonic", "OpenSubsonic", "SlimProto", "UPnP", "OpenHome"}, {re.search(r'\balt="([^"]+)"', tag)[1] for tag in images})
+                    self.assertIn("validation sur appareils réels à compléter" if language == "fr" else "real-device validation pending", section)
                     for tag in images:
                         src = re.search(r'\bsrc="([^"]+)"', tag)[1]
                         self.assertTrue((destination / home).parent.joinpath(src).is_file(), src)

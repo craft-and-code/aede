@@ -14,13 +14,15 @@ aede play /chemin/vers/morceau.flac --normalize track
 
 En lecture piste, un tag valide du périmètre demandé est prioritaire. Sans lui, Aède consulte l’analyse FlacCompagnon actuelle, puis le cache dérivé frais. L’autre périmètre de métadonnées peut servir de repli si aucune mesure appropriée n’est prête. Les tags retenus invalides sont signalés, pas masqués. Pour l’album, la donnée doit couvrir tout le programme ordonné : on ne calcule pas ses LUFS en moyennant ceux des pistes.
 
+Si crête vraie et crête d’échantillon importées sont présentes et finies, la réserve de gain ne repose jamais sur une crête inférieure à celle des échantillons. Cette borne dérivée prudente conserve le rapport attribué inchangé ; une crête vraie absente reste inconnue. La [comparaison DSP](../../coding/dsp-comparison.md) détaille le cas de fin de filtre qui justifie cette protection.
+
 ## Apprendre pendant l’écoute
 
 Le volume manquant est mesuré sur le PCM original décodé **avant** mélange des canaux, conversion de fréquence, gain et tonalité. Aucun décodage intégral préalable ne retarde le démarrage. Le gain actuel reste fixe ; l’apprentissage sert à une écoute suivante. La publication s’effectue hors boucle de décodage, après décodage complet et vérification du fichier inchangé (chemin, taille, date de modification).
 
 Une piste interrompue/sautée/en erreur n’est pas enregistrée comme mesure complète. La capture album exige toutes ses pistes dans l’ordre, sans interruption. Sans tags/cache album valides, le niveau actuel reste inchangé plutôt que s’adapter piste par piste. Un fichier modifié invalide la capture. Silence, programme insuffisant ou agencement source non pris en charge peuvent empêcher une mesure LUFS exploitable : l’inconnu reste explicite, sans inventer les positions des canaux.
 
-La méthode actuelle du cache dérivé est version 4 ; les versions antérieures sont rejetées car certaines limites de décodage/crêtes finales pouvaient donner des valeurs incorrectes. Les analyses FlacCompagnon importées restent distinctes et ne sont pas effacées par cette invalidation. Un résultat importé périmé demeure une information, sans devenir silencieusement une décision de gain actuelle.
+La méthode actuelle du cache dérivé est version 5 ; les versions antérieures sont rejetées car certaines limites de décodage/crêtes finales et l’identité à la seconde pouvaient réutiliser des valeurs incorrectes ou périmées. Les analyses FlacCompagnon importées restent distinctes et ne sont pas effacées par cette invalidation. Un résultat importé périmé demeure une information, sans devenir silencieusement une décision de gain actuelle.
 
 ## Limites des mesures
 

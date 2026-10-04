@@ -372,6 +372,9 @@ fn checks_label_online(command: &str, args: &args::Args) -> bool {
 /// At module level rather than inside `main` so that a test can read it, for
 /// the reason written on [`OPTION_SCOPE`].
 const OPTIONS: &[&str] = &[
+    "protocol",
+    "device",
+    "device-volume",
     "password-stdin",
     "data",
     "port",
@@ -501,6 +504,11 @@ const OPTIONS: &[&str] = &[
 /// option nobody can type, and only something comparing the two can notice.
 const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     (
+        "device-volume",
+        &["cast"],
+        "explicitly set SlimProto digital gain from 0 to 100 percent",
+    ),
+    (
         "password-stdin",
         &["accounts"],
         "read an account password from redirected input for scripts",
@@ -511,8 +519,22 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["label"],
         "show a label without a network check",
     ),
-    ("port", &["serve"], "choose the local or HTTPS API port"),
-    ("bind", &["serve"], "choose a literal listener IP address"),
+    (
+        "port",
+        &["serve", "cast"],
+        "choose the API or SlimProto listener port",
+    ),
+    (
+        "bind",
+        &["serve", "devices", "cast"],
+        "choose a literal listener IP address",
+    ),
+    ("protocol", &["cast"], "select slimproto, upnp or openhome"),
+    (
+        "device",
+        &["cast"],
+        "select the player IP or device-description URL",
+    ),
     (
         "tls-cert",
         &["serve"],
@@ -723,7 +745,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["analyze"],
         "save reports in album or artist folders",
     ),
-    ("replace", &["scan", "copy"], "forget the watched folders"),
+    (
+        "replace",
+        &["scan", "copy", "cast"],
+        "replace watched folders, destination files or the OpenHome playlist",
+    ),
     (
         "exclude",
         &["roots", "credit"],
@@ -937,6 +963,8 @@ const COMMANDS: &[(&str, Option<&str>, Command)] = &[
     ("spectrum", None, commands::spectrum),
     ("playlist", None, commands::playlist),
     ("play", None, commands::play),
+    ("devices", None, commands::devices),
+    ("cast", None, commands::cast),
     ("reset", None, commands::reset),
     ("backup", None, commands::backup),
     ("restore", None, commands::restore),

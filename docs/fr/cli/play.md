@@ -159,3 +159,9 @@ Le terminal affiche album et nom de fichier numéroté, spectre Rétro (ou passa
 [track](track.md), [analyze](analyze.md), [history](history.md).
 
 Guide détaillé existant : [design/playback.md](../../design/playback.md).
+
+## Sortie locale et appareils réseau
+
+CPAL est déjà prioritaire sur macOS, Windows et Linux glibc lorsqu’un appareil compatible peut être ouvert. ffplay sert de repli automatique/explicite et de sortie pour le binaire musl statique. `AEDE_AUDIO_BACKEND=native aede play /chemin/vers/morceau.flac` impose CPAL et signale le problème au lieu de changer de sortie. Le suivi visuel natif utilise les échantillons consommés par le callback ; l’historique local suit encore l’audio soumis. CPAL remet l’audio au système sans prouver qu’il est déjà audible au DAC.
+
+Pour un appareil SlimProto, UPnP AV ou OpenHome, utiliser la [diffusion vers un appareil](../server/devices.md). Les premiers profils transmettent les originaux encodés que l’appareil décode ; sortie CPAL locale et DSP serveur restent des fonctions distinctes.

@@ -1,5 +1,12 @@
 [
   {
+    "slug": "server/devices",
+    "section": "server",
+    "title": { "en": "Network audio devices", "fr": "Appareils audio réseau" },
+    "description": { "en": "Play original audio on SlimProto, UPnP AV and OpenHome devices with explicit LAN boundaries.", "fr": "Lire les originaux sur des appareils SlimProto, UPnP AV et OpenHome avec des limites réseau explicites." },
+    "source": { "en": "docs/server/devices.md", "fr": "docs/fr/server/devices.md" }
+  },
+  {
     "slug": "server/subsonic",
     "section": "server",
     "title": { "en": "Subsonic and OpenSubsonic", "fr": "Subsonic et OpenSubsonic" },

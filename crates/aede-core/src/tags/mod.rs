@@ -193,16 +193,41 @@ pub fn is_audio_path(path: &Path) -> bool {
 /// that are in fact FLAC.
 pub fn read(path: &Path) -> Result<RawTags, TagError> {
     let mut file = std::fs::File::open(path)?;
+    read_opened(&mut file, |_| foreign::read(path))
+}
+
+/// Read metadata from an already opened regular file without reopening a path.
+///
+/// The descriptor is rewound first; native and fallback parsers inspect that
+/// same descriptor by signature. This lets callers retain their source identity
+/// checks across path replacement. It does not acquire or validate a filesystem
+/// identity for the caller, and leaves the descriptor at the parser's position.
+pub fn read_from_file(file: &mut std::fs::File) -> Result<RawTags, TagError> {
+    use std::io::{Seek, SeekFrom};
+    if !file.metadata()?.is_file() {
+        return Err(TagError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "metadata descriptor must be a regular file",
+        )));
+    }
+    file.seek(SeekFrom::Start(0))?;
+    read_opened(file, foreign::read_from_file)
+}
+
+fn read_opened(
+    file: &mut std::fs::File,
+    fallback: impl FnOnce(&mut std::fs::File) -> Result<RawTags, TagError>,
+) -> Result<RawTags, TagError> {
     let size = file.metadata()?.len();
-    let magic = read_magic(&mut file)?;
+    let magic = read_magic(file)?;
 
     let native = match detect(&magic) {
-        Some(Container::Flac) => flac::read(&mut file, size),
-        Some(Container::Ogg) => ogg::read(&mut file, size),
-        Some(Container::Mp4) => mp4::read(&mut file, size),
-        Some(Container::Riff) => riff::read_wav(&mut file, size),
-        Some(Container::Aiff) => riff::read_aiff(&mut file, size),
-        Some(Container::Mp3) => mp3::read(&mut file, size),
+        Some(Container::Flac) => flac::read(file, size),
+        Some(Container::Ogg) => ogg::read(file, size),
+        Some(Container::Mp4) => mp4::read(file, size),
+        Some(Container::Riff) => riff::read_wav(file, size),
+        Some(Container::Aiff) => riff::read_aiff(file, size),
+        Some(Container::Mp3) => mp3::read(file, size),
         None => Err(TagError::UnrecognizedFormat),
     };
 
@@ -211,7 +236,7 @@ pub fn read(path: &Path) -> Result<RawTags, TagError> {
     // recognised the file and then failed keeps its own diagnosis, which is
     // more precise than anything the fallback would say.
     let mut tags = match native {
-        Err(TagError::UnrecognizedFormat) => foreign::read(path)?,
+        Err(TagError::UnrecognizedFormat) => fallback(file)?,
         other => other?,
     };
 

@@ -251,3 +251,7 @@ The native HTTP routes leave static-playlist creation/export, relation annotatio
 - `*_tests.rs`, `test_support.rs`: isolated tests and shared test-only fixtures.
 
 The CLI adapter in `aede-cli/src/commands/server_jobs.rs` maps typed requests to existing commands without a shell. No new storage format or database is required.
+
+## M4 device controller
+
+The public `devices` module implements explicit finite SlimProto, UPnP AVTransport and OpenHome Playlist controllers used by `aede devices` / `aede cast`. It does not add a route to the authenticated catalog API. A capability/peer restricted temporary media listener serves only selected unchanged originals. See [Network audio devices](../../docs/server/devices.md) for protocol profiles, LAN restrictions and outstanding hardware acceptance.

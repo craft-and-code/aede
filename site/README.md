@@ -64,6 +64,9 @@ Official assets are stored unchanged under `assets/compatibility/`:
 
 - `subsonic.png`: the [Subsonic pictogram](https://www.subsonic.org/pages/inc/img/subsonic_logo.png) used beside the name on the [official website](https://www.subsonic.org/pages/index.jsp), originally 512 × 406 pixels. No asset-specific license was identified on that website.
 - `opensubsonic.svg`: the [OpenSubsonic logo](https://github.com/opensubsonic/open-subsonic-api/blob/main/assets/icons/logo.svg), originally 400 × 400 pixels. The upstream repository uses Apache-2.0; its license is retained in `assets/compatibility/LICENSE-OpenSubsonic.txt`.
+- `openhome.png`: the unchanged 48 × 48 [OpenHome Player icon](https://github.com/openhome/ohPlayer/blob/master/linux/OpenHome-48x48.png). The upstream [license notice](https://github.com/openhome/ohPlayer/blob/master/License.txt) refers to MIT; `MitLicense.txt` is retained as `assets/compatibility/LICENSE-OpenHome.txt`. This is OpenHome audio, not the unrelated Open Home Foundation.
+
+`slimproto.svg` and `upnp.svg` are Aède-authored protocol pictograms under the repository license, not official brand marks. SlimProto identifies the [Squeezebox wire protocol](https://lyrion.org/reference/slimproto-protocol/), without claiming the complete Lyrion server API. The UPnP pictogram does not reproduce the [certification mark](https://openconnectivity.org/certification/upnp-certification/). The homepage labels the three M4 profiles as initial implementations pending real-device validation; it does not claim certification, complete protocol coverage or measured gapless behavior.
 
 The browser loads the logos from Aède's own site, without contacting those projects.
 

@@ -62,6 +62,7 @@ fn imported_loudness_requires_current_bytes_and_attributed_success() {
     assert!((found.true_peak.unwrap() - 0.708).abs() < 0.002);
     let mut no_peak = valid.clone();
     no_peak.true_peak_dbtp = None;
+    no_peak.peak_dbfs = Some(0.0);
     assert_eq!(
         from_flaccompagnon(&[no_peak], &file).unwrap().true_peak,
         None
@@ -75,6 +76,40 @@ fn imported_loudness_requires_current_bytes_and_attributed_success() {
     let mut wrong_source = valid;
     wrong_source.source = "unknown".into();
     assert_eq!(from_flaccompagnon(&[wrong_source], &file), None);
+}
+
+#[test]
+fn imported_true_peak_cannot_justify_gain_above_a_known_sample_peak() {
+    let file = ProgrammeFile {
+        path: "/music/last-frame.flac".into(),
+        size: 42,
+        mtime: 7,
+        mtime_subseconds: Some(1),
+    };
+    // An unfinished interpolation tail can miss a final-frame sample peak.
+    // Keep the external evidence intact while deriving safer playback headroom.
+    for (sample_dbfs, true_dbtp, expected_db) in
+        [(0.0, -68.8, 0.0), (-3.0, -20.0, -3.0), (-3.0, -1.0, -1.0)]
+    {
+        let analysis = FileAnalysis {
+            path: file.path.clone(),
+            source: "flaccompagnon".into(),
+            size_bytes: file.size,
+            modified_unix: file.mtime,
+            integrated_lufs: Some(-36.0),
+            peak_dbfs: Some(sample_dbfs),
+            true_peak_dbtp: Some(true_dbtp),
+            ..Default::default()
+        };
+        let original = analysis.clone();
+        let found = from_flaccompagnon(std::slice::from_ref(&analysis), &file).unwrap();
+        let gain = aede_dsp::gain_with_headroom_db(18.0, found.true_peak).unwrap();
+        assert!((f64::from(gain) + expected_db).abs() < 0.0001);
+        assert_eq!(
+            analysis, original,
+            "source measurements retain their provenance"
+        );
+    }
 }
 
 #[test]

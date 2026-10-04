@@ -91,6 +91,7 @@
     "Une clé par application. Navigation et lecture FLAC vérifiées avec Submariner sur macOS ; compatibilité à vérifier selon le lecteur.": "Use a separate key for each application. Browsing and FLAC playback have been verified with Submariner on macOS; check which features your player supports.",
     "Compatible avec": "Compatible with",
     "Protocoles compatibles": "Compatible protocols",
+    "SlimProto, UPnP et OpenHome : premiers profils disponibles, validation sur appareils réels à compléter.": "SlimProto, UPnP and OpenHome: initial profiles available; real-device validation pending.",
     "NAS, Raspberry Pi et lecteurs mobiles : à valider.": "NAS, Raspberry Pi and mobile players: validation pending.",
     "Parcours du catalogue local, des fichiers à Aède puis à la CLI ; Phémios est un futur client": "The local catalog flows from files through Aède to the CLI; Phémios is a future client",
     "Vos fichiers": "Your files",

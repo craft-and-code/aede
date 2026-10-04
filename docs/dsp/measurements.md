@@ -14,13 +14,15 @@ aede play /path/to/song.flac --normalize track
 
 In track playback, a valid tag for the requested scope is preferred. If absent, Aède checks current FlacCompagnon track analysis, then a fresh derived cache. The other metadata scope can provide fallback where the requested scope is unavailable and no suitable measurement is ready. Invalid selected tags are reported rather than hidden. Album data must describe the whole ordered programme: individual track reports do not become an album measurement by averaging.
 
+When both an imported true peak and sample peak are present and finite, playback headroom never uses a peak lower than that sample peak. This conservative derived bound leaves the attributed report unchanged; an absent true peak remains unknown. The [DSP comparison](../coding/dsp-comparison.md) explains the finite-tail case motivating it.
+
 ## Learn during listening
 
 Missing loudness is observed from original decoded PCM **before** downmix, rate conversion, gain and tone. No full-selection predecode delays startup. The current gain is fixed; newly learned data applies on a later listen. Measurement publication happens outside the decode loop, after complete decoding and an unchanged file-identity check (path, size and modification time).
 
 An interrupted/skipped/failed track cannot be saved as a complete track measurement. Album capture needs every track of the complete uninterrupted programme in order. Without valid album tags/cache, the current album keeps an unchanged level rather than adopting each track's loudness independently. A file changed during playback invalidates capture. Silence, insufficient measurable programme or an unsupported source layout can yield no usable LUFS; unknown is kept explicit rather than computed from an unlabelled channel guess.
 
-The current derived loudness-cache method is version 4; older derived caches are discarded because earlier boundary/true-peak handling could produce incorrect values. Imported FlacCompagnon analysis remains distinct and is not erased by that cache invalidation. A stale imported result remains evidence but is not silently used as a fresh gain decision.
+The current derived loudness-cache method is version 5; older derived caches are discarded because earlier boundary/true-peak handling and whole-second source identity could reuse incorrect or stale values. Imported FlacCompagnon analysis remains distinct and is not erased by that cache invalidation. A stale imported result remains evidence but is not silently used as a fresh gain decision.
 
 ## Measurement limits
 

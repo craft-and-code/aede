@@ -446,6 +446,19 @@ fn resolve(
     Ok(selection)
 }
 
+/// Device playback reuses local selection semantics, including duplicates.
+pub(super) fn selected_paths(args: &Args) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let raw = args.positionals.join(" ");
+    if raw.trim().is_empty() {
+        return Err(
+            "give a file, folder, M3U, collection, artist, album or title: aede cast <selection>"
+                .into(),
+        );
+    }
+    let catalog = store::load(&store::catalog_path(&data_dir(args)))?;
+    Ok(resolve(&raw, catalog.as_ref(), Some(args))?.paths)
+}
+
 fn resolve_selection(
     raw: &str,
     catalog: Option<&Catalog>,

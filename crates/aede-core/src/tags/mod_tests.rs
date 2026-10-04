@@ -64,3 +64,32 @@ fn extension_recognition() {
     assert!(!is_audio_path(Path::new("/music/cover.jpg")));
     assert!(!is_audio_path(Path::new("/music/folder")));
 }
+
+#[test]
+fn opened_metadata_reads_native_and_foreign_sources_after_path_replacement() {
+    use std::io::{Seek, SeekFrom};
+
+    let directory = crate::store_lock::test_support::Directory::new("opened_tags");
+    for name in ["track.flac", "track.wv", "track.aac"] {
+        let original = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        let expected = read(&original).unwrap();
+        let path = directory.path().join(name);
+        std::fs::copy(original, &path).unwrap();
+        let mut file = std::fs::File::open(&path).unwrap();
+        file.seek(SeekFrom::Start(17)).unwrap();
+        std::fs::rename(&path, path.with_extension("previous")).unwrap();
+        std::fs::write(&path, b"replacement is not the opened audio").unwrap();
+        let found = read_from_file(&mut file).unwrap();
+        assert_eq!(
+            found.fields, expected.fields,
+            "{name} metadata stays on the opened source"
+        );
+        assert_eq!(
+            found.properties, expected.properties,
+            "{name} format stays on the opened source"
+        );
+        assert_eq!(found.has_embedded_art, expected.has_embedded_art);
+    }
+}

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 mod artwork;
 pub(crate) mod authentication;
 mod catalog;
-mod media;
+pub(crate) mod media;
 mod now_playing;
 mod parameters;
 mod personal;

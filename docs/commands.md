@@ -297,3 +297,7 @@ aede albums --all --csv -o all.csv # and into a file
 When your entire query fits on one screen, nothing extra is printed. Silence means completion. A window pushed past the end explicitly tells you so, never showing a blank screen that might induce a panic of a lost library.
 
 `-o` is simply the swift companion to `--output`.
+
+## Network audio device commands
+
+`aede devices --bind IPV4` discovers UPnP/OpenHome renderers explicitly. `aede cast <selection> --protocol slimproto|upnp|openhome --bind IPV4 --device TARGET` sends a finite original-file selection to one player. The [device guide](server/devices.md) covers addresses, SlimProto connection, optional digital gain, OpenHome replacement permission and pending hardware acceptance.

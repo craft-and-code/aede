@@ -99,6 +99,9 @@ pub fn identity(path: &Path) -> Result<ProgrammeFile, std::io::Error> {
 
 /// Reuse an attributed analysis while its recorded size/whole-second time match.
 /// A missing true peak stays unknown so the output stage can choose its policy.
+/// A finite imported sample peak floors the playback peak estimate: incomplete
+/// interpolation tails must not justify gain above a known source sample.
+/// The attributed report itself is never changed by this conservative bound.
 pub fn from_flaccompagnon(analyses: &[FileAnalysis], file: &ProgrammeFile) -> Option<Measurement> {
     analyses.iter().rev().find_map(|analysis| {
         if analysis.path != file.path
@@ -112,11 +115,19 @@ pub fn from_flaccompagnon(analyses: &[FileAnalysis], file: &ProgrammeFile) -> Op
         if !loudness.is_finite() || !(-100.0..=20.0).contains(&loudness) {
             return None;
         }
-        let peak = analysis
-            .true_peak_dbtp
-            .filter(|value| value.is_finite())
-            .map(|db| 10f64.powf(db / 20.0) as f32)
-            .filter(|peak| peak.is_finite() && *peak >= 0.0);
+        let linear_peak = |db: f64| {
+            if !db.is_finite() {
+                return None;
+            }
+            let peak = 10f64.powf(db / 20.0) as f32;
+            peak.is_finite().then_some(peak)
+        };
+        let peak = analysis.true_peak_dbtp.and_then(linear_peak).map(|peak| {
+            analysis
+                .peak_dbfs
+                .and_then(linear_peak)
+                .map_or(peak, |sample_peak| peak.max(sample_peak))
+        });
         Some(Measurement {
             integrated_lufs: loudness as f32,
             true_peak: peak,

@@ -1,5 +1,23 @@
 [
   {
+    "slug": "cli/devices",
+    "section": "cli",
+    "title": { "en": "devices — Discover audio devices", "fr": "devices — Découvrir les appareils audio" },
+    "description": { "en": "Find UPnP/OpenHome renderers on an explicit LAN interface.", "fr": "Trouver les lecteurs UPnP/OpenHome sur une interface explicite." },
+    "source": { "en": "docs/cli/devices.md", "fr": "docs/fr/cli/devices.md" },
+    "command": "devices",
+    "group": "selection"
+  },
+  {
+    "slug": "cli/cast",
+    "section": "cli",
+    "title": { "en": "cast — Play on a network device", "fr": "cast — Lire sur un appareil réseau" },
+    "description": { "en": "Send original audio to one SlimProto, UPnP AV or OpenHome player.", "fr": "Transmettre les originaux à un lecteur SlimProto, UPnP AV ou OpenHome." },
+    "source": { "en": "docs/cli/cast.md", "fr": "docs/fr/cli/cast.md" },
+    "command": "cast",
+    "group": "selection"
+  },
+  {
     "slug": "cli/accounts",
     "section": "cli",
     "title": { "en": "accounts — Manage local accounts", "fr": "accounts — Gérer les comptes locaux" },

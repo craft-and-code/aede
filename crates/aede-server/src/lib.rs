@@ -79,6 +79,7 @@ mod admin;
 mod auth;
 mod catalog;
 mod catalog_commands;
+pub mod devices;
 mod errors;
 mod events;
 mod inspection;

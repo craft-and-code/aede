@@ -152,14 +152,23 @@ fn every_command_has_a_dedicated_help_page() {
 }
 
 #[test]
-fn server_listener_options_are_known_and_limited_to_serve() {
-    for option in ["bind", "tls-cert", "tls-key", "authority"] {
+fn network_options_are_known_and_limited_to_their_commands() {
+    for (option, expected) in [
+        ("bind", &["serve", "devices", "cast"][..]),
+        ("port", &["serve", "cast"][..]),
+        ("tls-cert", &["serve"][..]),
+        ("tls-key", &["serve"][..]),
+        ("authority", &["serve"][..]),
+        ("protocol", &["cast"][..]),
+        ("device", &["cast"][..]),
+        ("device-volume", &["cast"][..]),
+    ] {
         assert!(OPTIONS.contains(&option), "--{option} must be known");
         let (_, commands, _) = OPTION_SCOPE
             .iter()
             .find(|(candidate, _, _)| *candidate == option)
             .unwrap_or_else(|| panic!("--{option} has no command scope"));
-        assert_eq!(*commands, ["serve"], "--{option} scope");
+        assert_eq!(*commands, expected, "--{option} scope");
     }
 }
 
