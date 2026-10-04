@@ -1,5 +1,5 @@
 use super::*;
-use aede_core::model::{AudioFile, Credit, Genre, GenreLink};
+use aede_core::model::{AudioFile, Credit, Genre, GenreLink, Recording};
 use aede_core::tags::AudioProperties;
 
 fn catalog() -> Catalog {
@@ -187,6 +187,50 @@ fn credit(track: Id, artist: Id, role: &str) -> Credit {
     }
 }
 
+fn compilation_catalog() -> Catalog {
+    let mut catalog = catalog();
+    for (id, name) in [(0, "Alpha Band"), (1, "Beta Solo")] {
+        catalog.artists[id].name = name.into();
+        catalog.artists[id].sort_name = name.into();
+        catalog.artists[id].key = text::normalize(name);
+        catalog.artists[id].aliases.clear();
+    }
+    catalog.releases = vec![Release {
+        id: 0,
+        title: "Compilation".into(),
+        is_compilation: true,
+        folder: "/private/music/compilation".into(),
+        track_ids: vec![0, 1, 2],
+        ..Default::default()
+    }];
+    catalog.tracks.truncate(3);
+    for track in &mut catalog.tracks {
+        track.release_id = Some(0);
+    }
+    catalog.credits = vec![
+        credit(0, 0, "main"),
+        credit(0, 0, "main"),
+        credit(1, 1, "main"),
+        credit(2, 0, "main"),
+        credit(0, 2, "composer"),
+        credit(1, 3, "featured"),
+    ];
+    catalog
+}
+
+fn compilation_catalog_with_album_artist() -> Catalog {
+    let mut catalog = compilation_catalog();
+    catalog.artists.push(Artist {
+        id: 4,
+        name: "Various Artists".into(),
+        sort_name: "Various Artists".into(),
+        key: "various artists".into(),
+        ..Default::default()
+    });
+    catalog.releases[0].album_artist_id = Some(4);
+    catalog
+}
+
 fn genre_link(kind: EntityKind, id: Id, genre: Id) -> GenreLink {
     GenreLink {
         entity_kind: kind,
@@ -205,6 +249,16 @@ fn list_names(value: &Value) -> Vec<&str> {
         .unwrap()
         .iter()
         .map(|row| row["name"].as_str().unwrap())
+        .collect()
+}
+
+fn indexed_artist_names(value: &Value) -> Vec<&str> {
+    value["artists"]["index"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|group| group["artist"].as_array().unwrap())
+        .map(|artist| artist["name"].as_str().unwrap())
         .collect()
 }
 
@@ -238,7 +292,7 @@ fn browsing_uses_one_logical_library_and_opaque_ids_without_private_paths() {
 }
 
 #[test]
-fn artist_indexes_are_sorted_with_accents_and_keep_zero_album_artists() {
+fn artist_indexes_are_sorted_with_accents_and_only_list_artists_with_albums() {
     let value = call(&catalog(), "getArtists", &[]);
     assert_eq!(value["artists"]["ignoredArticles"], "");
     let groups = value["artists"]["index"].as_array().unwrap();
@@ -247,25 +301,26 @@ fn artist_indexes_are_sorted_with_accents_and_keep_zero_album_artists() {
             .iter()
             .map(|group| group["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["B", "E", "G", "W"]
+        ["B", "E", "G"]
     );
     assert_eq!(groups[0]["artist"][0]["name"], "Björk");
     assert_eq!(groups[0]["artist"][0]["musicBrainzId"], "artist-mbid");
     assert_eq!(groups[1]["artist"][0]["musicBrainzId"], "");
     assert_eq!(groups[1]["artist"][0]["albumCount"], 2);
-    assert_eq!(groups[2]["artist"][0]["albumCount"], 0);
-    assert_eq!(groups[3]["artist"][0]["albumCount"], 0);
+    assert_eq!(groups[2]["artist"][0]["albumCount"], 1);
 }
 
 #[test]
-fn artist_albums_do_not_turn_composing_or_guest_credits_into_discography() {
+fn artist_albums_include_primary_compilation_tracks_but_not_other_credits() {
     let catalog = catalog();
-    for artist in [2, 3] {
-        let id = opaque_id(&catalog, EntityKind::Artist, artist).unwrap();
-        let value = call(&catalog, "getArtist", &[("id", &id)]);
-        assert_eq!(value["artist"]["albumCount"], 0);
-        assert_eq!(value["artist"]["album"], json!([]));
-    }
+    let writer = opaque_id(&catalog, EntityKind::Artist, 2).unwrap();
+    let value = call(&catalog, "getArtist", &[("id", &writer)]);
+    assert_eq!(value["artist"]["albumCount"], 0);
+    assert_eq!(value["artist"]["album"], json!([]));
+    let guest = opaque_id(&catalog, EntityKind::Artist, 3).unwrap();
+    let value = call(&catalog, "getArtist", &[("id", &guest)]);
+    assert_eq!(value["artist"]["albumCount"], 1);
+    assert_eq!(list_names(&value["artist"]["album"]), ["Compilation"]);
     let id = opaque_id(&catalog, EntityKind::Artist, 0).unwrap();
     let value = call(&catalog, "getArtist", &[("id", &id)]);
     assert_eq!(list_names(&value["artist"]["album"]), ["Alpha", "Zebra"]);
@@ -281,11 +336,14 @@ fn explicit_co_album_artist_gets_the_album_without_promoting_other_release_roles
     }
     let co_artist = opaque_id(&catalog, EntityKind::Artist, 3).unwrap();
     let value = call(&catalog, "getArtist", &[("id", &co_artist)]);
-    assert_eq!(value["artist"]["albumCount"], 1);
-    assert_eq!(list_names(&value["artist"]["album"]), ["Zebra"]);
+    assert_eq!(value["artist"]["albumCount"], 2);
+    assert_eq!(
+        list_names(&value["artist"]["album"]),
+        ["Compilation", "Zebra"]
+    );
     assert_eq!(
         list_names(&call(&catalog, "search3", &[("query", "Guest")])["searchResult3"]["album"]),
-        ["Zebra"]
+        ["Compilation", "Zebra"]
     );
     let writer = opaque_id(&catalog, EntityKind::Artist, 2).unwrap();
     assert_eq!(
@@ -297,6 +355,273 @@ fn explicit_co_album_artist_gets_the_album_without_promoting_other_release_roles
     assert_eq!(
         value["album"]["artistId"],
         opaque_id(&catalog, EntityKind::Artist, 0).unwrap()
+    );
+}
+
+#[test]
+fn primary_compilation_artists_find_the_album_without_becoming_its_album_artist() {
+    let catalog = compilation_catalog();
+    let artists = call(&catalog, "getArtists", &[]);
+    assert_eq!(indexed_artist_names(&artists), ["Alpha Band", "Beta Solo"]);
+    for (artist, name) in [(0, "Alpha Band"), (1, "Beta Solo")] {
+        let id = opaque_id(&catalog, EntityKind::Artist, artist).unwrap();
+        let value = call(&catalog, "getArtist", &[("id", &id)]);
+        assert_eq!(value["artist"]["id"], id);
+        assert_eq!(value["artist"]["albumCount"], 1);
+        assert_eq!(list_names(&value["artist"]["album"]), ["Compilation"]);
+        let search = call(&catalog, "search3", &[("query", name)]);
+        assert_eq!(search["searchResult3"]["artist"][0]["id"], id);
+        assert_eq!(
+            list_names(&search["searchResult3"]["album"]),
+            ["Compilation"]
+        );
+    }
+    let album_id = opaque_id(&catalog, EntityKind::Release, 0).unwrap();
+    let album = call(&catalog, "getAlbum", &[("id", &album_id)]);
+    assert!(album["album"].get("artistId").is_none());
+    assert!(album["album"].get("artist").is_none());
+    assert_eq!(album["album"]["song"][0]["artist"], "Alpha Band");
+    assert_eq!(album["album"]["song"][1]["artist"], "Beta Solo / Guest");
+}
+
+#[test]
+fn submariner_lists_only_canonical_album_artists_with_consistent_counts_and_ids() {
+    let catalog = compilation_catalog_with_album_artist();
+    let various = opaque_id(&catalog, EntityKind::Artist, 4).unwrap();
+    let album = opaque_id(&catalog, EntityKind::Release, 0).unwrap();
+    let index = Index::new(&catalog).unwrap();
+    for client in ["submariner", "Submariner", "SUBMARINER", "sUbMaRiNeR"] {
+        let artists = call(&catalog, "getArtists", &[("c", client)]);
+        assert_eq!(indexed_artist_names(&artists), ["Various Artists"]);
+        let indexed = &artists["artists"]["index"][0]["artist"][0];
+        assert_eq!(indexed["id"], various);
+        let detail = call(&catalog, "getArtist", &[("c", client), ("id", &various)]);
+        assert_eq!(detail["artist"]["albumCount"], 1);
+        assert_eq!(indexed["albumCount"], detail["artist"]["albumCount"]);
+        assert_eq!(
+            detail["artist"]["albumCount"].as_u64().unwrap() as usize,
+            detail["artist"]["album"].as_array().unwrap().len()
+        );
+        assert_eq!(detail["artist"]["album"][0]["id"], album);
+        assert_eq!(detail["artist"]["album"][0]["artistId"], various);
+        let sync = call(&catalog, "search3", &[("c", client), ("query", "")]);
+        assert_eq!(
+            list_names(&sync["searchResult3"]["artist"]),
+            ["Various Artists"]
+        );
+        assert_eq!(sync["searchResult3"]["artist"][0], *indexed);
+        for (artist, name) in [(0, "Alpha Band"), (1, "Beta Solo")] {
+            let id = opaque_id(&catalog, EntityKind::Artist, artist).unwrap();
+            let detail = call(&catalog, "getArtist", &[("c", client), ("id", &id)]);
+            assert_eq!(detail["artist"]["id"], id);
+            assert_eq!(detail["artist"]["albumCount"], 0);
+            assert_eq!(detail["artist"]["album"], json!([]));
+            let search = call(&catalog, "search3", &[("c", client), ("query", name)]);
+            assert_eq!(search["searchResult3"]["artist"], json!([]));
+            assert!(
+                !search["searchResult3"]["song"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                list_names(&search["searchResult3"]["album"]),
+                ["Compilation"]
+            );
+            let reference = EntityRef::of(&catalog, EntityKind::Artist, artist).unwrap();
+            assert_eq!(index.render_reference(&reference).unwrap()["id"], id);
+        }
+        let canonical = call(&catalog, "getAlbum", &[("c", client), ("id", &album)]);
+        assert_eq!(canonical["album"]["artistId"], various);
+        assert_eq!(canonical["album"]["artist"], "Various Artists");
+        assert_eq!(canonical["album"]["song"][0]["artist"], "Alpha Band");
+        assert_eq!(canonical["album"]["song"][1]["artist"], "Beta Solo / Guest");
+    }
+}
+
+#[test]
+fn other_clients_keep_extended_artists_and_submariner_counts_only_their_own_albums() {
+    let mut catalog = compilation_catalog_with_album_artist();
+    catalog.releases.push(Release {
+        id: 1,
+        title: "Alpha Album".into(),
+        album_artist_id: Some(0),
+        folder: "/private/music/alpha".into(),
+        ..Default::default()
+    });
+    let alpha = opaque_id(&catalog, EntityKind::Artist, 0).unwrap();
+    for client in [
+        None,
+        Some("supersonic"),
+        Some("submariner-mobile"),
+        Some(" submariner"),
+        Some("submariner "),
+    ] {
+        let mut parameters = Vec::new();
+        if let Some(client) = client {
+            parameters.push(("c", client));
+        }
+        let artists = call(&catalog, "getArtists", &parameters);
+        assert_eq!(
+            indexed_artist_names(&artists),
+            ["Alpha Band", "Beta Solo", "Various Artists"]
+        );
+        let mut search_parameters = parameters.clone();
+        search_parameters.push(("query", "Alpha Band"));
+        let search = call(&catalog, "search3", &search_parameters);
+        assert_eq!(search["searchResult3"]["artist"][0]["id"], alpha);
+        assert_eq!(search["searchResult3"]["artist"][0]["albumCount"], 2);
+        parameters.push(("id", alpha.as_str()));
+        let detail = call(&catalog, "getArtist", &parameters);
+        assert_eq!(detail["artist"]["albumCount"], 2);
+        assert_eq!(
+            list_names(&detail["artist"]["album"]),
+            ["Alpha Album", "Compilation"]
+        );
+        let indexed = &artists["artists"]["index"][0]["artist"][0];
+        assert_eq!(indexed["id"], alpha);
+        assert_eq!(indexed["albumCount"], detail["artist"]["albumCount"]);
+    }
+    let artists = call(&catalog, "getArtists", &[("c", "submariner")]);
+    assert_eq!(
+        indexed_artist_names(&artists),
+        ["Alpha Band", "Various Artists"]
+    );
+    let detail = call(
+        &catalog,
+        "getArtist",
+        &[("c", "submariner"), ("id", &alpha)],
+    );
+    assert_eq!(detail["artist"]["albumCount"], 1);
+    assert_eq!(list_names(&detail["artist"]["album"]), ["Alpha Album"]);
+    assert_eq!(
+        artists["artists"]["index"][0]["artist"][0]["albumCount"],
+        detail["artist"]["albumCount"]
+    );
+    let search = call(
+        &catalog,
+        "search3",
+        &[("c", "submariner"), ("query", "Alpha Band")],
+    );
+    assert_eq!(search["searchResult3"]["artist"][0]["id"], alpha);
+    assert_eq!(search["searchResult3"]["artist"][0]["albumCount"], 1);
+}
+
+#[test]
+fn recording_primary_credits_reach_each_local_edition_without_promoting_other_roles() {
+    let mut catalog = catalog();
+    catalog.recordings = vec![Recording {
+        id: 0,
+        title: "Shared performance".into(),
+        track_ids: vec![0, 1, 2, 3, 4],
+        ..Default::default()
+    }];
+    for (kind, artist, role) in [
+        (EntityKind::Recording, 2, "main"),
+        (EntityKind::Recording, 2, "main"),
+        (EntityKind::Recording, 3, "featured"),
+        (EntityKind::Recording, 3, "performer"),
+        (EntityKind::Work, 3, "main"),
+        (EntityKind::Release, 3, "main"),
+    ] {
+        let mut link = credit(0, artist, role);
+        link.entity_kind = kind;
+        catalog.credits.push(link);
+    }
+    let writer = opaque_id(&catalog, EntityKind::Artist, 2).unwrap();
+    let value = call(&catalog, "getArtist", &[("id", &writer)]);
+    assert_eq!(value["artist"]["albumCount"], 3);
+    assert_eq!(
+        list_names(&value["artist"]["album"]),
+        ["Árbor", "Compilation", "Zebra"]
+    );
+    let guest = opaque_id(&catalog, EntityKind::Artist, 3).unwrap();
+    assert_eq!(
+        list_names(&call(&catalog, "getArtist", &[("id", &guest)])["artist"]["album"]),
+        ["Compilation"]
+    );
+    let song = opaque_id(&catalog, EntityKind::Track, 2).unwrap();
+    assert_eq!(
+        call(&catalog, "getSong", &[("id", &song)])["song"]["artist"],
+        "Björk"
+    );
+}
+
+#[test]
+fn primary_track_credit_does_not_claim_other_placements_of_the_recording() {
+    let mut catalog = catalog();
+    catalog.recordings = vec![Recording {
+        id: 0,
+        title: "Shared performance".into(),
+        track_ids: vec![0, 1, 2, 3, 4],
+        ..Default::default()
+    }];
+    catalog.credits.retain(|link| {
+        !(link.entity_kind == EntityKind::Track
+            && link.entity_id == 3
+            && link.artist_id == 3
+            && link.role == "main")
+    });
+    catalog.credits.push(credit(0, 3, "main"));
+    catalog.credits.push(credit(0, 3, "main"));
+    let guest = opaque_id(&catalog, EntityKind::Artist, 3).unwrap();
+    let value = call(&catalog, "getArtist", &[("id", &guest)]);
+    assert_eq!(value["artist"]["albumCount"], 1);
+    assert_eq!(list_names(&value["artist"]["album"]), ["Zebra"]);
+    assert_eq!(
+        list_names(&call(&catalog, "search3", &[("query", "Guest")])["searchResult3"]["album"]),
+        ["Zebra"]
+    );
+}
+
+#[test]
+fn hidden_contributors_and_unattached_primary_artists_keep_ids_and_song_search() {
+    let mut catalog = catalog();
+    let writer_id = opaque_id(&catalog, EntityKind::Artist, 2).unwrap();
+    let guest_id = opaque_id(&catalog, EntityKind::Artist, 3).unwrap();
+    catalog.artists[2].sort_name = "A Writer".into();
+    catalog.artists[3].sort_name = "A Guest".into();
+    catalog.credits.retain(|link| {
+        !(link.entity_kind == EntityKind::Track
+            && link.entity_id == 3
+            && link.artist_id == 3
+            && link.role == "main")
+    });
+    catalog.credits.push(credit(4, 2, "main"));
+    assert_eq!(
+        indexed_artist_names(&call(&catalog, "getArtists", &[])),
+        ["Björk", "The Écho"]
+    );
+    let page = call(
+        &catalog,
+        "search3",
+        &[("query", ""), ("artistOffset", "1"), ("artistCount", "1")],
+    );
+    assert_eq!(page["searchResult3"]["artist"][0]["name"], "The Écho");
+    let index = Index::new(&catalog).unwrap();
+    for (artist, id, query, title) in [
+        (2, writer_id, "Writer", "Lone"),
+        (3, guest_id, "Guest", "First"),
+    ] {
+        let value = call(&catalog, "getArtist", &[("id", &id)]);
+        assert_eq!(value["artist"]["id"], id);
+        assert_eq!(value["artist"]["albumCount"], 0);
+        assert_eq!(value["artist"]["album"], json!([]));
+        let reference = EntityRef::of(&catalog, EntityKind::Artist, artist).unwrap();
+        assert_eq!(index.render_reference(&reference).unwrap()["id"], id);
+        assert_eq!(
+            index.reference(&id, &[EntityKind::Artist]).unwrap(),
+            reference
+        );
+        let search = call(&catalog, "search3", &[("query", query)]);
+        assert_eq!(search["searchResult3"]["artist"], json!([]));
+        assert_eq!(search["searchResult3"]["album"], json!([]));
+        assert_eq!(search["searchResult3"]["song"][0]["title"], title);
+    }
+    let first = opaque_id(&catalog, EntityKind::Track, 0).unwrap();
+    assert_eq!(
+        call(&catalog, "getSong", &[("id", &first)])["song"]["artist"],
+        "The Écho / Guest"
     );
 }
 

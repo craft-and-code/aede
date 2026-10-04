@@ -6,7 +6,7 @@ use aede_core::accounts::Role;
 use aede_core::user::{self, Annotation, Playlist, Scrobble, UserData};
 
 use super::authentication::Identity;
-use super::catalog::Index;
+use super::catalog::{ArtistScope, Index};
 use super::*;
 
 fn failure(message: &str) -> ProtocolError {
@@ -83,7 +83,8 @@ async fn locked(
         let now = aede_core::clock::now_seconds();
         let result = if catalog_read {
             let mut result = super::catalog::dispatch_index(&method, &parameters, &index)?;
-            PrivateView::new(&data, &identity).decorate_payload(&index, &mut result)?;
+            PrivateView::new(&data, &identity, &parameters)
+                .decorate_payload(&index, &mut result)?;
             result
         } else {
             dispatch(&method, &parameters, &index, &identity, &mut data, now)?
@@ -113,10 +114,11 @@ fn folder(parameters: &Parameters) -> Result<(), ProtocolError> {
 struct PrivateView<'a> {
     annotations: BTreeMap<&'a EntityRef, &'a Annotation>,
     counts: BTreeMap<&'a EntityRef, u32>,
+    artist_scope: ArtistScope,
 }
 
 impl<'a> PrivateView<'a> {
-    fn new(data: &'a UserData, identity: &Identity) -> Self {
+    fn new(data: &'a UserData, identity: &Identity, parameters: &Parameters) -> Self {
         let mut annotations = BTreeMap::new();
         let mut counts = BTreeMap::new();
         // Match the core's first-record lookup even for a legacy duplicate.
@@ -133,11 +135,12 @@ impl<'a> PrivateView<'a> {
         Self {
             annotations,
             counts,
+            artist_scope: ArtistScope::for_client(parameters),
         }
     }
 
     fn render(&self, index: &Index<'_>, reference: &EntityRef) -> Result<Value, ProtocolError> {
-        let mut value = index.render_reference(reference)?;
+        let mut value = index.render_reference_scoped(reference, self.artist_scope)?;
         self.decorate(reference, &mut value)?;
         Ok(value)
     }
@@ -248,7 +251,7 @@ fn dispatch(
         "getStarred2" => {
             parameters.allowed(&["musicFolderId"])?;
             folder(parameters)?;
-            let view = PrivateView::new(data, identity);
+            let view = PrivateView::new(data, identity, parameters);
             let mut artists = Vec::new();
             let mut albums = Vec::new();
             let mut songs = Vec::new();
@@ -325,7 +328,7 @@ fn dispatch(
                     "only your own playlists are available",
                 ));
             }
-            let view = PrivateView::new(data, identity);
+            let view = PrivateView::new(data, identity, parameters);
             let playlists = data
                 .playlists
                 .iter()
@@ -340,7 +343,7 @@ fn dispatch(
                 .playlist(&identity.owner, parameters.required("id")?)
                 .ok_or_else(missing)?;
             Ok(
-                json!({"playlist": playlist_view(index, &PrivateView::new(data, identity), identity, playlist, true)?}),
+                json!({"playlist": playlist_view(index, &PrivateView::new(data, identity, parameters), identity, playlist, true)?}),
             )
         }
         "createPlaylist" => {
@@ -364,7 +367,7 @@ fn dispatch(
             };
             let playlist = data.playlist(&identity.owner, &id).ok_or_else(missing)?;
             Ok(
-                json!({"playlist": playlist_view(index, &PrivateView::new(data, identity), identity, playlist, true)?}),
+                json!({"playlist": playlist_view(index, &PrivateView::new(data, identity, parameters), identity, playlist, true)?}),
             )
         }
         "updatePlaylist" => {

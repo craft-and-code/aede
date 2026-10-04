@@ -179,6 +179,12 @@ Do not duplicate information unnecessarily.
 Do not enforce a maximum line length in Markdown files; write and wrap lines
 for readability.
 
+Use fictional account names and generic paths in repository examples. Do not
+copy personal identifiers, machine-specific paths or private anecdotes from
+conversations or screenshots into documentation, comments or test fixtures.
+Verification records should preserve technical evidence without identifying
+the person or their private library.
+
 - `CLAUDE.md` contains permanent instructions required during every coding session.
 - `docs/coding/current-state.md` contains the current project state.
 - `docs/coding/engineering-rules.md` contains detailed, stable engineering rules.

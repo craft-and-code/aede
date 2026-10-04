@@ -111,7 +111,22 @@ Audio et tags inchangés.</pre>
         </div>
       </section>
       <section id="ae-server" class="ae-section ae-reveal">
-        <div class="ae-section-copy"><p class="ae-eyebrow">02 / LE SERVEUR</p><h2>Votre collection.<br><span class="ae-section-ink">Un point de rencontre.</span></h2><p>Le serveur local expose le catalogue aux clients et centralise les tâches de scan et de récupération d’informations.</p><p class="ae-status">API, comptes et HTTPS disponibles</p><ul class="ae-feature-list"><li>Un catalogue partagé entre les clients.</li><li>Des scans et récupérations suivis au même endroit.</li><li>Une base pour les futures interfaces.</li></ul><p class="ae-future">NAS et Raspberry Pi : déploiements à valider.<br>Clients mobiles : à venir.</p><a class="ae-text-link" href="docs/fr/server/start.html">Comprendre le serveur <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+        <div class="ae-section-copy">
+          <p class="ae-eyebrow">02 / LE SERVEUR</p><h2>Votre collection.<br><span class="ae-section-ink">Un point de rencontre.</span></h2>
+          <p>Le serveur local expose le catalogue aux clients et centralise les tâches de scan et de récupération d’informations.</p>
+          <p class="ae-status">API, comptes et HTTPS disponibles</p>
+          <ul class="ae-feature-list"><li>Un catalogue partagé entre les clients.</li><li>Des scans et récupérations suivis au même endroit.</li><li>Catalogue, audio original, favoris et playlists via Subsonic/OpenSubsonic.</li><li>Une base pour les futures interfaces.</li></ul>
+          <p class="ae-future">Une clé par application. Navigation et lecture FLAC vérifiées avec Submariner sur macOS ; compatibilité à vérifier selon le lecteur.</p>
+          <div class="ae-compatibility">
+            <p class="ae-compatibility-label">Compatible avec</p>
+            <ul class="ae-compatibility-logos" aria-label="Protocoles compatibles">
+              <li><img src="assets/compatibility/subsonic.png" alt="Subsonic" width="40" height="40" loading="lazy"><span aria-hidden="true">Subsonic</span></li>
+              <li><img src="assets/compatibility/opensubsonic.svg" alt="OpenSubsonic" width="40" height="40" loading="lazy"><span aria-hidden="true">OpenSubsonic</span></li>
+            </ul>
+          </div>
+          <p class="ae-future">NAS, Raspberry Pi et lecteurs mobiles : à valider.</p>
+          <a class="ae-text-link" href="docs/fr/server/start.html">Comprendre le serveur <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        </div>
         <div class="ae-server-visual" aria-label="Parcours du catalogue local, des fichiers à Aède puis à la CLI ; Phémios est un futur client">
           <div class="ae-server-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2"/><path d="m3 11 3-7h12l3 7m-5 4h2m-11 0h1"/></svg><span>Vos fichiers</span></div>
           <div class="ae-server-wire" aria-hidden="true"><span class="ae-packet ae-packet-source"></span></div>

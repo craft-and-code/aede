@@ -142,9 +142,9 @@ fn a_word_wider_than_the_line_is_left_whole() {
 
 #[test]
 fn a_path_column_keeps_its_file_name() {
-    // On macOS a temporary path is 60 columns of "/private/var/folders/…"
-    // before the name even starts; cutting the tail names nothing.
-    let long = "/private/var/folders/94/hlcz0ry94lb6knr29wxlyt_c0000gn/T/bad.flac";
+    // A long temporary-directory prefix can fill the column before the file
+    // name even starts; cutting the tail names nothing.
+    let long = "/temporary/cache/with/a/long/generated/directory/name/bad.flac";
     let cut = truncate_start(long, 20);
     assert!(cut.ends_with("bad.flac"), "kept: {cut}");
     assert!(cut.starts_with('…'));

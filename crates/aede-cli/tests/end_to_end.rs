@@ -1143,6 +1143,77 @@ fn a_rating_given_is_a_rating_shown() {
 }
 
 #[test]
+fn track_listening_counts_are_visible_without_an_annotation() {
+    use aede_core::model::EntityKind;
+    use aede_core::user::{self, EntityRef, LOCAL_USER, Play, UserData};
+
+    let sandbox = Sandbox::new("listening_panel");
+    let (_, error, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
+    assert!(ok, "{error}");
+    let catalog = aede_core::store::load(&sandbox.dir.join("catalog.json"))
+        .unwrap()
+        .unwrap();
+    let track = catalog
+        .tracks
+        .iter()
+        .find(|track| track.title == "Take Five")
+        .unwrap();
+    let reference = EntityRef::of(&catalog, EntityKind::Track, track.id).unwrap();
+    let path = user::user_path(&sandbox.dir);
+    let mut data = UserData::default();
+    data.record_play(Play {
+        owner: "another-owner".into(),
+        track: reference.clone(),
+        at: 1_700_000_000,
+        ms_played: 1_000,
+        completed: false,
+    });
+    user::save(&data, &path).unwrap();
+
+    let (output, error, ok) = sandbox.run(&["track", "Take Five"]);
+    assert!(ok, "{error}");
+    assert!(
+        !output.contains("Yours"),
+        "another owner's listen: {output}"
+    );
+    for _ in 0..2 {
+        let (_, error, ok) = sandbox.run(&["played", "Take Five"]);
+        assert!(ok, "{error}");
+    }
+    let data = user::load(&path).unwrap().unwrap();
+    assert!(data.find(LOCAL_USER, &reference).is_none());
+    assert_eq!(data.play_count(LOCAL_USER, &reference), 2);
+    let before = std::fs::read(&path).unwrap();
+    let (output, error, ok) = sandbox.run(&["track", "Take Five"]);
+    assert!(ok, "{error}");
+    assert!(
+        output.contains("Yours"),
+        "listening alone is visible: {output}"
+    );
+    assert!(output.contains("played 2 times"), "{output}");
+    assert!(!output.contains('★') && !output.contains('♥'), "{output}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    let (_, error, ok) = sandbox.run(&["rate", "track", "Take Five", "--stars", "4"]);
+    assert!(ok, "{error}");
+    let (output, error, ok) = sandbox.run(&["track", "Take Five"]);
+    assert!(ok, "{error}");
+    assert!(
+        output.contains("★★★★") && output.contains("played 2 times"),
+        "{output}"
+    );
+    let (_, error, ok) = sandbox.run(&["rate", "track", "Take Five", "--remove"]);
+    assert!(ok, "{error}");
+    let (output, error, ok) = sandbox.run(&["track", "Take Five"]);
+    assert!(ok, "{error}");
+    assert!(
+        output.contains("played 2 times"),
+        "removing a rating keeps listens: {output}"
+    );
+    assert!(!output.contains('★'), "{output}");
+}
+
+#[test]
 fn a_note_is_a_written_thing_with_a_section_of_its_own() {
     // A rating is a label on a thing; a note is a text somebody wrote, and
     // burying it in a row of stars and tags says it matters less than they do.

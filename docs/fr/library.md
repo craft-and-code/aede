@@ -133,7 +133,7 @@ export AEDE_HOME=/volume1/aede      # globally relocate catalog storage
 ```
 This catalog
 
-  Kept in       /Users/kcell/.local/share/aede
+  Kept in       /Users/alice/.local/share/aede
   Weighs        11.2 MB
   Last scanned  3 days ago
   aede backup writes all four stores to one file; AEDE_HOME moves them
@@ -176,7 +176,7 @@ Backup
   conclusions        18 412 file results, 236 analyses
   what you said      312 annotations, 4 collections, 9 records set aside
   what sources said  1 841 records
-→ /Users/kcell/aede-2026-09-03.json (9.7 MB)
+→ /Users/alice/aede-2026-09-03.json (9.7 MB)
 ```
 
 Chaque store possède sa version de format dans le bundle. La restauration les examine indépendamment. Si un store manque, par exemple dans une sauvegarde faite avant tout téléchargement externe, son fichier local existant reste intact au lieu d’être écrasé/supprimé.
@@ -187,7 +187,7 @@ Avant de restaurer, Aède résume l’opération et demande confirmation :
 Restore
 
   made 3 days ago by Aède 0.3.0
-  into /Users/kcell/.local/share/aede
+  into /Users/alice/.local/share/aede
   catalog            20 148 tracks, 1 604 albums — replaces what is there
   what you said      312 annotations — replaces what is there
   what sources said  not in this backup — left as it is
@@ -207,7 +207,7 @@ Watched folders
   Folder                 Tracks  Duration       Size
   ─────────────────────  ──────  ────────  ─────────
   /Volumes/Music/FLAC     18 402   52 days     4.1 TB
-  /Users/kcell/Music         746   2 days    112.4 GB
+  /Users/alice/Music         746   2 days    112.4 GB
   (no longer watched)         92   6 h        8.1 GB
 ```
 

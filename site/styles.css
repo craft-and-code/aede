@@ -1,4 +1,4 @@
-html{scroll-behavior:smooth;scroll-padding-top:var(--ae-header-height,100px);background:#111213}html:has(#aede-motion-concepts){--ae-header-height:79px}body{margin:0}#aede-motion-concepts{--ae-page-gutter:max(32px,calc((100vw - 1120px)/2))}a,button,summary,input{ -webkit-tap-highlight-color:transparent }button,summary,.cursor-interaction{cursor:pointer}:focus-visible{outline:2px solid #d8f36a;outline-offset:5px}.skip-link{position:fixed;left:20px;top:-100px;z-index:10;padding:12px 18px;background:#d8f36a;color:#111213}.skip-link:focus{top:12px}.ae-honey{display:none!important}
+html{scroll-behavior:smooth;scroll-padding-top:var(--ae-header-height,100px);background:#111213}html:has(#aede-motion-concepts){--ae-header-height:79px}body{margin:0}#aede-motion-concepts{--ae-page-gutter:max(32px,calc((100vw - 1120px)/2))}a,button,summary,input{ -webkit-tap-highlight-color:transparent }a[href],button,summary,.cursor-interaction{cursor:pointer}:focus-visible{outline:2px solid #d8f36a;outline-offset:5px}.skip-link{position:fixed;left:20px;top:-100px;z-index:10;padding:12px 18px;background:#d8f36a;color:#111213}.skip-link:focus{top:12px}.ae-honey{display:none!important}
 
   #aede-motion-concepts{--ae-bg:#111213;--ae-fg:#f1f0eb;--ae-muted:#a4a6a7;--ae-line:#303236;--ae-panel:#181a1c;--ae-accent:#d8f36a;--ae-violet:#c3b8ff;--ae-mono:"SFMono-Regular",Consolas,monospace;color-scheme:dark}
   #aede-motion-concepts .ae-page{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:var(--ae-fg);background:var(--ae-bg);padding:0 var(--ae-page-gutter) 22px;overflow:hidden;position:relative}
@@ -84,6 +84,11 @@ html{scroll-behavior:smooth;scroll-padding-top:var(--ae-header-height,100px);bac
   #aede-motion-concepts #ae-command-caption{font-size:13px;color:var(--ae-muted);line-height:1.6;padding:15px 20px;margin:0}
   #aede-motion-concepts .ae-section-copy p.ae-status{color:var(--ae-accent);font-size:14px}
   #aede-motion-concepts .ae-section-copy p.ae-future{font-size:14px;color:var(--ae-muted)}
+  #aede-motion-concepts .ae-compatibility{margin:26px 0}
+  #aede-motion-concepts .ae-compatibility-label{margin:0 0 12px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ae-muted)}
+  #aede-motion-concepts .ae-compatibility-logos{display:flex;flex-wrap:wrap;align-items:center;gap:16px 30px;list-style:none;margin:0;padding:0}
+  #aede-motion-concepts .ae-compatibility-logos li{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ae-fg)}
+  #aede-motion-concepts .ae-compatibility-logos img{display:block;width:40px;height:40px;object-fit:contain;flex:none}
   #aede-motion-concepts .ae-server-visual{--ae-server-signal:#0077b6;padding:20px;text-align:center}
   #aede-motion-concepts .ae-server-source{display:flex;gap:10px;justify-content:center;align-items:center;font-size:14px;color:var(--ae-muted)}
   #aede-motion-concepts .ae-server-source svg{width:19px;height:19px}

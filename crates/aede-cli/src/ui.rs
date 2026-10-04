@@ -237,7 +237,7 @@ pub fn wrap(text: &str, max: usize) -> Vec<String> {
 /// Truncates to `max` columns by dropping the **start** of the text.
 ///
 /// For a file path, the end is what identifies the file. Cutting the tail off
-/// `/private/var/folders/94/hlcz0ry94lb6knr29wxlyt_c0000gn/T/bad.flac` leaves a
+/// `/temporary/cache/with/a/long/generated/directory/name/bad.flac` leaves a
 /// row that names no file at all.
 pub fn truncate_start(text: &str, max: usize) -> String {
     if display_width(text) <= max || max == 0 {

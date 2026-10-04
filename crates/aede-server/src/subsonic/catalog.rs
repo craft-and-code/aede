@@ -16,6 +16,27 @@ const SEARCH_LIMIT: usize = 1000;
 const QUERY_LIMIT: usize = 1024;
 const MUSIC_FOLDER_ID: &str = "1";
 
+#[derive(Clone, Copy)]
+pub(super) enum ArtistScope {
+    Extended,
+    AlbumArtist,
+}
+
+impl ArtistScope {
+    pub(super) fn for_client(params: &Parameters) -> Self {
+        // Submariner files an album under its singular canonical artist, so
+        // artist pages must use that same association instead of track credits.
+        if params
+            .get("c")
+            .is_some_and(|client| client.eq_ignore_ascii_case("submariner"))
+        {
+            Self::AlbumArtist
+        } else {
+            Self::Extended
+        }
+    }
+}
+
 struct ArtistRow<'a> {
     entity: &'a Artist,
     id: String,
@@ -167,24 +188,51 @@ impl<'a> Index<'a> {
             }
         }
         let mut album_credits = HashSet::new();
-        for album in &index.albums {
-            if let Some(artist) = album
-                .entity
-                .album_artist_id
-                .and_then(|id| index.artists.get_mut(id as usize))
-            {
-                album_credits.insert((artist.entity.id, album.entity.id));
-                artist.albums.push(album.entity.id);
+        for album in &catalog.releases {
+            if let Some(artist) = album.album_artist_id {
+                index.attach_artist_album(&mut album_credits, artist, album.id);
             }
         }
+        let mut recording_artists: HashMap<Id, HashSet<Id>> = HashMap::new();
         for credit in &catalog.credits {
-            if credit.entity_kind == EntityKind::Release
-                && credit.role == "album"
-                && index.albums.get(credit.entity_id as usize).is_some()
-                && album_credits.insert((credit.artist_id, credit.entity_id))
-                && let Some(artist) = index.artists.get_mut(credit.artist_id as usize)
+            match (credit.entity_kind, credit.role.as_str()) {
+                (EntityKind::Release, "album") => {
+                    index.attach_artist_album(
+                        &mut album_credits,
+                        credit.artist_id,
+                        credit.entity_id,
+                    );
+                }
+                (EntityKind::Track, "main") => {
+                    if let Some(album) = catalog
+                        .track(credit.entity_id)
+                        .and_then(|track| track.release_id)
+                    {
+                        index.attach_artist_album(&mut album_credits, credit.artist_id, album);
+                    }
+                }
+                (EntityKind::Recording, "main")
+                    if catalog.recording(credit.entity_id).is_some()
+                        && index.artists.get(credit.artist_id as usize).is_some() =>
+                {
+                    recording_artists
+                        .entry(credit.entity_id)
+                        .or_default()
+                        .insert(credit.artist_id);
+                }
+                _ => {}
+            }
+        }
+        // A primary recording credit reaches every local placement. A primary
+        // track credit stays on its own placement; neither promotes personnel
+        // roles to album artists or changes the album's canonical artist.
+        for track in &catalog.tracks {
+            if let Some(album) = track.release_id
+                && let Some(artists) = recording_artists.get(&track.recording_id)
             {
-                artist.albums.push(credit.entity_id);
+                for &artist in artists {
+                    index.attach_artist_album(&mut album_credits, artist, album);
+                }
             }
         }
         let mut credits: Vec<_> = catalog
@@ -259,6 +307,15 @@ impl<'a> Index<'a> {
         Ok(index)
     }
 
+    fn attach_artist_album(&mut self, attached: &mut HashSet<(Id, Id)>, artist: Id, album: Id) {
+        if self.albums.get(album as usize).is_some()
+            && let Some(row) = self.artists.get_mut(artist as usize)
+            && attached.insert((artist, album))
+        {
+            row.albums.push(album);
+        }
+    }
+
     fn resolve(&self, id: &str, kind: EntityKind) -> Result<Id, ProtocolError> {
         self.ids
             .get(id)
@@ -285,8 +342,20 @@ impl<'a> Index<'a> {
 
     /// Render a native artist, release or track as one compatibility list item.
     pub(super) fn render(&self, kind: EntityKind, id: Id) -> Result<Value, ProtocolError> {
+        self.render_scoped(kind, id, ArtistScope::Extended)
+    }
+
+    fn render_scoped(
+        &self,
+        kind: EntityKind,
+        id: Id,
+        artist_scope: ArtistScope,
+    ) -> Result<Value, ProtocolError> {
         let value = match kind {
-            EntityKind::Artist => self.artists.get(id as usize).map(|row| self.artist(row)),
+            EntityKind::Artist => self
+                .artists
+                .get(id as usize)
+                .map(|row| self.artist(row, artist_scope)),
             EntityKind::Release => self.albums.get(id as usize).map(|row| self.album(row)),
             EntityKind::Track => self.songs.get(id as usize).map(|row| self.song(row)),
             _ => None,
@@ -296,6 +365,20 @@ impl<'a> Index<'a> {
 
     /// Render a saved stable reference without rescanning the catalog per row.
     pub(super) fn render_reference(&self, reference: &EntityRef) -> Result<Value, ProtocolError> {
+        self.render(reference.kind, self.reference_id(reference)?)
+    }
+
+    /// Keep explicitly requested personal entities while counting the albums
+    /// available in this client's artist view.
+    pub(super) fn render_reference_scoped(
+        &self,
+        reference: &EntityRef,
+        artist_scope: ArtistScope,
+    ) -> Result<Value, ProtocolError> {
+        self.render_scoped(reference.kind, self.reference_id(reference)?, artist_scope)
+    }
+
+    fn reference_id(&self, reference: &EntityRef) -> Result<Id, ProtocolError> {
         let legacy = (reference.kind == EntityKind::Release)
             .then(|| {
                 let (prefix, folder) = reference
@@ -317,7 +400,7 @@ impl<'a> Index<'a> {
                     .and_then(|reference| self.references.get(reference))
             })
             .ok_or_else(|| ProtocolError::new(70, "requested media was not found"))?;
-        self.render(reference.kind, id)
+        Ok(id)
     }
 
     /// Known song duration in whole seconds without constructing a JSON item.
@@ -334,11 +417,25 @@ impl<'a> Index<'a> {
         Ok(track.duration_ms.map(|duration| duration / 1000))
     }
 
-    fn artist(&self, row: &ArtistRow<'_>) -> Value {
+    fn artist_albums<'b>(
+        &'b self,
+        row: &'b ArtistRow<'a>,
+        scope: ArtistScope,
+    ) -> impl Iterator<Item = &'b AlbumRow<'a>> {
+        row.albums
+            .iter()
+            .filter_map(|id| self.albums.get(*id as usize))
+            .filter(move |album| {
+                matches!(scope, ArtistScope::Extended)
+                    || album.entity.album_artist_id == Some(row.entity.id)
+            })
+    }
+
+    fn artist(&self, row: &ArtistRow<'a>, scope: ArtistScope) -> Value {
         json!({
             "id": row.id,
             "name": row.entity.name,
-            "albumCount": row.albums.len(),
+            "albumCount": self.artist_albums(row, scope).count(),
             "musicBrainzId": row.entity.mbid.as_deref().unwrap_or_default(),
             "sortName": row.entity.sort_name,
         })
@@ -544,10 +641,15 @@ fn dispatch_validated(
     params: &Parameters,
     index: &Index<'_>,
 ) -> Result<Value, ProtocolError> {
+    let artist_scope = ArtistScope::for_client(params);
     match method {
         "getMusicFolders" => Ok(music_folders()),
         "getArtists" => {
-            let mut rows: Vec<_> = index.artists.iter().collect();
+            let mut rows: Vec<_> = index
+                .artists
+                .iter()
+                .filter(|row| index.artist_albums(row, artist_scope).next().is_some())
+                .collect();
             rows.sort_by(|a, b| (a.sort.as_str(), &a.id).cmp(&(b.sort.as_str(), &b.id)));
             let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
             for row in rows {
@@ -558,7 +660,10 @@ fn dispatch_validated(
                     .filter(|letter| letter.is_alphabetic())
                     .map(|letter| letter.to_uppercase().collect::<String>())
                     .unwrap_or_else(|| "#".into());
-                groups.entry(letter).or_default().push(index.artist(row));
+                groups
+                    .entry(letter)
+                    .or_default()
+                    .push(index.artist(row, artist_scope));
             }
             Ok(
                 json!({"artists": {"ignoredArticles": "", "index": groups.into_iter()
@@ -568,12 +673,8 @@ fn dispatch_validated(
         "getArtist" => {
             let id = index.resolve(params.required("id")?, EntityKind::Artist)?;
             let row = &index.artists[id as usize];
-            let mut value = index.artist(row);
-            let mut albums: Vec<_> = row
-                .albums
-                .iter()
-                .filter_map(|id| index.albums.get(*id as usize))
-                .collect();
+            let mut value = index.artist(row, artist_scope);
+            let mut albums: Vec<_> = index.artist_albums(row, artist_scope).collect();
             albums.sort_by(|a, b| (a.sort.as_str(), &a.id).cmp(&(b.sort.as_str(), &b.id)));
             value["album"] = json!(
                 albums
@@ -789,6 +890,7 @@ pub(super) fn scan_status(catalog: &Catalog, scanning: bool) -> Result<Value, Pr
 }
 
 fn search(params: &Parameters, index: &Index<'_>) -> Result<Value, ProtocolError> {
+    let artist_scope = ArtistScope::for_client(params);
     let query = params
         .get("query")
         .ok_or_else(|| ProtocolError::new(10, "query is required"))?;
@@ -829,7 +931,9 @@ fn search(params: &Parameters, index: &Index<'_>) -> Result<Value, ProtocolError
     let mut artists: Vec<_> = index
         .artists
         .iter()
-        .filter(|row| artist_matches(row.entity.id))
+        .filter(|row| {
+            artist_matches(row.entity.id) && index.artist_albums(row, artist_scope).next().is_some()
+        })
         .collect();
     artists.sort_by(|a, b| (a.sort.as_str(), &a.id).cmp(&(b.sort.as_str(), &b.id)));
     let albums = index.sorted_albums().into_iter().filter(|row| {
@@ -855,7 +959,7 @@ fn search(params: &Parameters, index: &Index<'_>) -> Result<Value, ProtocolError
     songs.sort_by(|a, b| (a.sort.as_str(), &a.id).cmp(&(b.sort.as_str(), &b.id)));
     Ok(json!({"searchResult3": {
         "artist": artists.into_iter().skip(artist_offset).take(artist_count)
-            .map(|row| index.artist(row)).collect::<Vec<_>>(),
+            .map(|row| index.artist(row, artist_scope)).collect::<Vec<_>>(),
         "album": albums.skip(album_offset).take(album_count)
             .map(|row| index.album(row)).collect::<Vec<_>>(),
         "song": songs.into_iter().skip(song_offset).take(song_count)

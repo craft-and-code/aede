@@ -2,6 +2,8 @@
 
 Aède's server gives other programs access to your music **catalog**: albums, artists, tracks, relationships and diagnostics. It answers HTTP requests with JSON and publishes change notifications over WebSocket. Optional [accounts and sessions](accounts.md) protect local access and isolate personal data. An authenticated [audio contract](playback.md) streams processed PCM; explicit [HTTPS configuration](remote.md) enables remote access with mandatory accounts.
 
+To connect Submariner or another Subsonic/OpenSubsonic client, first create an application key as described in [client setup](subsonic.md). The Aède account password cannot be used for that connection.
+
 ## A dedicated home for the library
 
 For a lasting or shared collection, Aède is designed around a dedicated server, NAS or small always-on computer. Music, catalog data and background tasks stay on that host, while listening clients connect from your everyday devices. This gives the library stable paths and availability independent of your laptop's sleep or replacement, with backups managed on the library host.

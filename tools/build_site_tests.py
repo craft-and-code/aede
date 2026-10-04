@@ -129,6 +129,33 @@ class LinkTests(unittest.TestCase):
 
 
 class HomeTests(unittest.TestCase):
+    def test_home_publishes_compatibility_logos_and_verified_client_scope_in_both_languages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "publication"
+            builder.build(destination=destination)
+            for language, home, label, key, scope in (
+                ("fr", "index.html", "Compatible avec", "clé par application", "compatibilité à vérifier selon le lecteur"),
+                ("en", "en/index.html", "Compatible with", "key for each application", "check which features your player supports"),
+            ):
+                with self.subTest(language=language):
+                    source = (destination / home).read_text(encoding="utf-8")
+                    section = re.search(r'<section id="ae-server"\s.*?</section>', source, re.S)
+                    self.assertIsNotNone(section)
+                    section = section[0]
+                    self.assertIn("Subsonic/OpenSubsonic", section)
+                    self.assertIn("Submariner", section)
+                    self.assertIn(key, section)
+                    self.assertIn(scope, section)
+                    self.assertIn(label, section)
+                    images = re.findall(r'<img\b[^>]*>', section)
+                    self.assertLessEqual({"Subsonic", "OpenSubsonic"}, {re.search(r'\balt="([^"]+)"', tag)[1] for tag in images})
+                    for tag in images:
+                        src = re.search(r'\bsrc="([^"]+)"', tag)[1]
+                        self.assertTrue((destination / home).parent.joinpath(src).is_file(), src)
+                    self.assertNotIn("server/subsonic.html", section)
+                    if language == "en":
+                        self.assertNotIn("Configurer un lecteur", section)
+
     def test_exact_text_localization_preserves_nested_markup_and_code(self):
         source = '<html lang="fr"><head><title>Bonjour</title><meta name="description" content="Texte français"></head><body><p> Bonjour <strong>musique</strong> ! </p><button aria-label="Aller">Aller</button><script>const value="Bonjour";</script></body></html>'
         translated = builder.localize_home(source, {'en':{'Bonjour':'Hello','musique':'music','Aller':'Go','Texte français':'English text'}}, 'en')

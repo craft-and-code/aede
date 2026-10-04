@@ -4,6 +4,103 @@ use super::artwork::test_support as pictures;
 use super::test_support::*;
 use super::*;
 use crate::accounts_test_support::Fixture;
+use aede_core::user;
+
+#[test]
+fn submariner_album_favourites_round_trip_with_legacy_form_authentication() {
+    let runtime = crate::test_support::test_runtime();
+    let fixture = Fixture::new();
+    let alice_key = key(&fixture, "alice");
+    let bob_key = key(&fixture, "bob");
+    let encode_key = |token: &str| {
+        token
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let common = format!(
+        "u=alice&p=enc%3A{}&v=1.16.1&c=submariner",
+        encode_key(&alice_key)
+    );
+    let other_common = format!(
+        "u=bob&p=enc%3A{}&v=1.16.1&c=submariner",
+        encode_key(&bob_key)
+    );
+    let (album, artist, reference) = {
+        let catalog = fixture.0.catalog.try_read().unwrap();
+        let catalog = catalog.as_ref().unwrap();
+        (
+            opaque_id(catalog, EntityKind::Release, 0).unwrap(),
+            opaque_id(catalog, EntityKind::Artist, 0).unwrap(),
+            EntityRef::of(catalog, EntityKind::Release, 0).unwrap(),
+        )
+    };
+    let owner = fixture.accounts().find("alice").unwrap().id.clone();
+    let (address, server) = runtime.block_on(crate::test_support::start_server(fixture.0.clone()));
+    let post = |method: &str, parameters: &str| {
+        let (status, _, bytes) = request(
+            address,
+            "POST",
+            &format!("/rest/{method}.view"),
+            "Content-Type: application/x-www-form-urlencoded\r\n",
+            &format!("{common}&{parameters}"),
+        );
+        assert_eq!(status, 200);
+        let body = String::from_utf8(bytes).unwrap();
+        assert!(body.contains("status=\"ok\""), "{body}");
+    };
+    let get = |common: &str, method: &str, parameters: &str| {
+        let suffix = if parameters.is_empty() {
+            String::new()
+        } else {
+            format!("&{parameters}")
+        };
+        let (status, _, bytes) = request(
+            address,
+            "GET",
+            &format!("/rest/{method}.view?{common}{suffix}"),
+            "",
+            "",
+        );
+        assert_eq!(status, 200);
+        let body = String::from_utf8(bytes).unwrap();
+        assert!(body.contains("status=\"ok\""), "{body}");
+        body
+    };
+    post("setRating", &format!("id={album}&rating=4"));
+    post("star", &format!("albumId={album}"));
+    let saved = user::load(&user::user_path(&fixture.0.data_dir))
+        .unwrap()
+        .unwrap();
+    let annotation = saved.find(&owner, &reference).unwrap();
+    assert!(annotation.loved);
+    assert_eq!(annotation.rating, Some(4));
+    for (method, parameters) in [
+        ("getAlbum", format!("id={album}")),
+        ("getArtist", format!("id={artist}")),
+        ("getAlbumList2", "type=alphabeticalByName".into()),
+        ("getStarred2", String::new()),
+    ] {
+        let ours = get(&common, method, &parameters);
+        assert!(ours.contains(&format!("id=\"{album}\"")), "{ours}");
+        assert!(ours.contains("starred=\""), "{ours}");
+        assert!(ours.contains("userRating=\"4\""), "{ours}");
+        let theirs = get(&other_common, method, &parameters);
+        assert!(!theirs.contains("starred=\""), "{theirs}");
+        assert!(!theirs.contains("userRating=\""), "{theirs}");
+    }
+    post("unstar", &format!("albumId={album}"));
+    let saved = user::load(&user::user_path(&fixture.0.data_dir))
+        .unwrap()
+        .unwrap();
+    let annotation = saved.find(&owner, &reference).unwrap();
+    assert!(!annotation.loved);
+    assert_eq!(annotation.rating, Some(4));
+    let detail = get(&common, "getAlbum", &format!("id={album}"));
+    assert!(!detail.contains("starred=\""), "{detail}");
+    assert!(detail.contains("userRating=\"4\""), "{detail}");
+    server.abort();
+}
 
 #[test]
 fn head_requests_cannot_change_favourites_or_record_a_scrobble() {

@@ -21,13 +21,30 @@ aede accounts keys <name> revoke <key-id>
 
 `init` crée une seule fois le premier administrateur. `create` exige un rôle explicite. Un `admin` gère comptes et tâches de l’installation ; un `user` peut modifier uniquement ses données personnelles ; un `auditor` peut seulement lire le catalogue partagé et ses vues personnelles d’API. Un auditeur ne peut pas modifier son mot de passe par l’API, ses données personnelles, les comptes ni les tâches. Au moins un administrateur doit rester actif. `password` réinitialise un mot de passe ; `revoke` invalide sessions et clés API sans le modifier. Changer le nom, le rôle, le mot de passe ou l’état actif révoque les sessions et clés concernées. Il n’existe ni suppression de compte ni inscription publique ; désactiver conserve la propriété des données pour un retour ultérieur.
 
-`keys` liste les clés OpenSubsonic persistantes d’un compte nommé. `keys … create <label>` sauvegarde une clé et affiche son secret complet une seule fois ; `keys … revoke <key-id>` retire uniquement cette clé. Le libellé est non blanc et limité à 128 octets UTF-8. Maximum : huit clés par compte, 512 au total. `--json` produit des tableaux de métadonnées pour liste/révocation, ou un objet de métadonnées avec `token` pour création. Gardez cette sortie de création privée. La liste ne demande pas de verrou ; création/révocation le prennent. Ces clés survivent au redémarrage, sans expiration automatique, et sont retirées par modification du compte, révocation globale du compte ou restauration. Voir [configuration client et méthodes disponibles](../server/subsonic.md).
-
 Les identifiants acceptent 1–64 lettres ASCII, chiffres, points, tirets ou tirets bas, sans distinction de casse. Une lettre ou un chiffre est obligatoire. Un mot de passe contient au moins 15 caractères Unicode et au plus 1024 octets UTF-8, sans NUL. Les espaces au début et à la fin sont conservés.
 
 Dans un terminal, `init`, `create` et `password` demandent `Password:` puis `Confirm password:`. Rien ne s’affiche pendant la saisie ou le collage, pas même des astérisques. Appuyez sur Entrée après chaque saisie. Retour arrière retire le dernier caractère Unicode ; Ctrl-U efface la saisie. Ctrl-C, Ctrl-D ou Échap annulent sans sauvegarder. Une confirmation différente ou une longueur excessive conserve également les identifiants existants. La saisie au terminal accepte les caractères imprimables et refuse les caractères de contrôle. Les invites utilisent stderr : la sortie JSON sur stdout peut donc être redirigée. L’entrée standard et stderr doivent toutes deux être des terminaux pour la saisie masquée. Sur macOS et Linux, `stty` doit être disponible, comme pour les commandes de lecture locale ; Windows utilise sa console native. La fin d’un collage encore en attente est supprimée pendant que la saisie reste masquée, puis le mode initial du terminal est restauré avant la sauvegarde, y compris après une annulation ou une erreur de saisie. Si le nettoyage échoue, aucun identifiant n’est sauvegardé. Le message d’erreur indique si le terminal reste masqué pour protéger la saisie encore en attente.
 
 Pour les scripts, utilisez explicitement `--password-stdin` avec une entrée redirigée. Ce mode accepte une ligne et retire un LF ou CRLF final ; les sauts de ligne internes sont refusés. Il ne demande pas de confirmation. Le drapeau refuse une entrée provenant d’un terminal pour éviter une saisie visible. Les mots de passe ne sont jamais des arguments de commande.
+
+## Créer la clé avant de connecter un client Subsonic
+
+**Le mot de passe du compte Aède ne permet pas de connecter Submariner ou un autre client Subsonic/OpenSubsonic. Créez d’abord une clé d’application :**
+
+```sh
+aede accounts keys alice create "Submariner Mac"
+```
+
+Remplacez le nom d’exemple `alice` par votre compte administrateur ou utilisateur existant et actif. Utilisez le même dossier `--data` que le serveur. Copiez uniquement la valeur complète après `API key (shown once):` : **129 caractères sous la forme `id.secret`**, avec le point et les deux parties de 64 caractères. Dans Submariner, collez-la dans **Password** ; l’ID seul du tableau ne suffit pas. Le secret complet n’est affiché qu’une fois et ne peut pas être retrouvé en listant les clés. Conservez-le dans un emplacement privé, ou créez une remplaçante en cas de perte. Voir la [configuration Submariner étape par étape](../server/subsonic.md), avec les chemins de l’exécutable et l’authentification par jeton à décocher.
+
+Pour lister les clés ou en révoquer une :
+
+```sh
+aede accounts keys alice
+aede accounts keys alice revoke <key-id>
+```
+
+La liste affiche uniquement des métadonnées ; la révocation retire seulement la clé choisie. Création et révocation sont prises en compte sans redémarrer le serveur. Les clés survivent au redémarrage, sans expiration automatique, et sont retirées par modification du compte, révocation globale du compte ou restauration. Le libellé est non blanc et limité à 128 octets UTF-8. Maximum : huit clés par compte, 512 au total. `--json` produit des tableaux de métadonnées pour liste/révocation, ou un objet de métadonnées avec `token` pour création. Gardez cette sortie de création privée. La liste ne demande pas de verrou ; création/révocation le prennent.
 
 ## Options de cette commande
 

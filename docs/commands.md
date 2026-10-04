@@ -262,9 +262,9 @@ Paths are absolute, ensuring the playlist works seamlessly wherever it is saved.
 
 ```
 $ aede extract ~/Desktop/new-rips
-Error: no file in the catalog is under "/Users/kcell/Desktop/new-rips".
+Error: no file in the catalog is under "/Users/alice/Desktop/new-rips".
 It is on disk, so this catalog was scanned 3 days ago and has not seen it — a folder added since is not in it yet.
-Add it: aede scan "/Users/kcell/Desktop/new-rips"
+Add it: aede scan "/Users/alice/Desktop/new-rips"
 ```
 
 The date is provided because context is everything: you can effortlessly weigh "scanned three days ago" against the rips you've made since Tuesday.

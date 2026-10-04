@@ -2,6 +2,8 @@
 
 Le serveur d’Aède permet à d’autres programmes de consulter votre **catalogue** musical : albums, artistes, pistes, relations et diagnostics. Il répond en JSON et annonce les changements par WebSocket. Les [comptes et sessions](accounts.md) facultatifs protègent l’accès local et isolent les données personnelles. Un [contrat audio authentifié](playback.md) transmet le PCM traité ; une [configuration HTTPS explicite](remote.md) active l’accès distant avec comptes obligatoires.
 
+Pour connecter Submariner ou un autre client Subsonic/OpenSubsonic, créez d’abord une clé d’application selon le [guide de configuration client](subsonic.md). Le mot de passe du compte Aède ne permet pas cette connexion.
+
 <div id="a-dedicated-home-for-the-library" data-legacy-anchor></div>
 
 ## Un hôte dédié à la bibliothèque

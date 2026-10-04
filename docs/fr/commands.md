@@ -162,9 +162,9 @@ Les chemins sont absolus : la playlist fonctionne quel que soit son emplacement 
 
 ```
 $ aede extract ~/Desktop/new-rips
-Error: no file in the catalog is under "/Users/kcell/Desktop/new-rips".
+Error: no file in the catalog is under "/Users/alice/Desktop/new-rips".
 It is on disk, so this catalog was scanned 3 days ago and has not seen it — a folder added since is not in it yet.
-Add it: aede scan "/Users/kcell/Desktop/new-rips"
+Add it: aede scan "/Users/alice/Desktop/new-rips"
 ```
 
 La date fournit le contexte nécessaire : vous pouvez comparer « scanné il y a trois jours » aux extractions réalisées depuis mardi.

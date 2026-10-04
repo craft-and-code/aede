@@ -8,6 +8,8 @@ JSON goes to standard output, or to the requested `--output` file while retainin
 
 Continue links open the underlying recording, works, album and credited artists. A recording is a performance identity; a track is its placement within an edition. CSV/M3U outputs use the matching local files. If too many matches appear, add artist/album restrictions instead of assuming the first is the intended edition.
 
+The **Yours** section displays personal marks and a positive track listening count independently: adding a rating, favourite or note is not required to see recorded listens. Local CLI pages show the local owner's data; other accounts' counters remain separate.
+
 ## Syntax and arguments
 
 ```text

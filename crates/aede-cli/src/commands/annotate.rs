@@ -43,9 +43,9 @@ fn write(args: &Args, data: &mut UserData, catalog: &Catalog) -> Res {
 
 /// The owner of what is being written.
 ///
-/// One value today. Every read filters on it and every write stamps it, so the
-/// day there are accounts is the day this function returns something else —
-/// not the day the store has to be migrated.
+/// Local CLI commands retain the legacy local owner. Server clients select
+/// their authenticated account's stable owner; every read and write preserves
+/// that boundary rather than merging personal data across accounts.
 fn owner(_args: &Args) -> String {
     LOCAL_USER.to_string()
 }
@@ -181,31 +181,34 @@ fn find(catalog: &Catalog, kind: EntityKind, name: &str) -> Result<EntityRef, Bo
 /// that names an entity ends with this, and prints nothing at all when nothing
 /// was written — a heading over an empty block says "you have nothing here",
 /// which is a claim, and a tedious one to read on every page.
+/// Track listening counts are independent of annotations and appear whenever
+/// positive, including when the track has no other personal marks.
 pub fn panel(args: &Args, catalog: &Catalog, reference: &EntityRef) {
     let Ok(data) = read(args, catalog) else {
         // Unreadable user data must not take a page down with it: the page is
         // about the music, and the music is still there.
         return;
     };
-    let Some(entry) = data.find(&owner(args), reference) else {
-        return;
-    };
+    let owner = owner(args);
+    let entry = data.find(&owner, reference);
 
     // The marks first, in one line: they are labels on the thing.
     let mut marks: Vec<String> = Vec::new();
-    if let Some(rating) = entry.rating {
-        marks.push(stars_of(rating));
-    }
-    if entry.loved {
-        marks.push("♥".to_string());
-    }
-    if !entry.tags.is_empty() {
-        marks.push(ui::literal(
-            &entry.tags.iter().cloned().collect::<Vec<_>>().join(", "),
-        ));
+    if let Some(entry) = entry {
+        if let Some(rating) = entry.rating {
+            marks.push(stars_of(rating));
+        }
+        if entry.loved {
+            marks.push("♥".to_string());
+        }
+        if !entry.tags.is_empty() {
+            marks.push(ui::literal(
+                &entry.tags.iter().cloned().collect::<Vec<_>>().join(", "),
+            ));
+        }
     }
     let played = if reference.kind == EntityKind::Track {
-        data.play_count(&owner(args), reference)
+        data.play_count(&owner, reference)
     } else {
         0
     };
@@ -226,7 +229,9 @@ pub fn panel(args: &Args, catalog: &Catalog, reference: &EntityRef) {
     // thing; a note is a text the user wrote, sometimes at length, and burying
     // it in a row of stars and tags says it matters less than they do. One
     // note per entity, so the section is that note and nothing else.
-    print_note(entry);
+    if let Some(entry) = entry {
+        print_note(entry);
+    }
 }
 
 /// The written note, with a heading of its own and the date it was last

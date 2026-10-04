@@ -1,20 +1,22 @@
 # Subsonic and OpenSubsonic clients
 
-Aède exposes a compatibility adapter at `/rest/<method>` and `/rest/<method>.view`, using the existing catalog, accounts and personal store. It follows the [Subsonic API](https://www.subsonic.org/pages/api.jsp) and the [OpenSubsonic API-key extension](https://opensubsonic.netlify.app/docs/extensions/apikeyauth/). The supported browsing, original audio, sidecar artwork and private personal operations are listed below. Supersonic on macOS is the first validation target; source inspection establishes its request shape, but successful physical playback and complete client interoperability still require a real-client test.
+Aède exposes a compatibility adapter at `/rest/<method>` and `/rest/<method>.view`, using the existing catalog, accounts and personal store. It follows the [Subsonic API](https://www.subsonic.org/pages/api.jsp) and the [OpenSubsonic API-key extension](https://opensubsonic.netlify.app/docs/extensions/apikeyauth/). The supported browsing, original audio, sidecar artwork and private personal operations are listed below. Local authentication, album browsing and original FLAC playback have been confirmed with Submariner 3.4 on macOS. Supersonic's request shape has been checked in its official source; its real-client playback and broader client interoperability remain to be validated.
 
 In the route reference, `/rest/{method}` means replacing `{method}` with a supported method name, optionally followed by `.view`.
 
 ## Create a client key
 
-Initialize accounts through [accounts](../cli/accounts.md), then run these commands locally with the server's data folder:
+**Create an application key before configuring a Subsonic/OpenSubsonic client. The Aède account password cannot connect to this adapter.** Initialize accounts through [accounts](../cli/accounts.md), then create a separate key for each client using the server's data folder:
 
 ```sh
 aede accounts keys alice create "Phone"
-aede accounts keys alice
-aede accounts keys alice revoke <key-id>
 ```
 
-Creation displays the full `id.secret` key once, after saving it successfully. Listing exposes only `id,label,created_at`; revocation removes that account's selected key. `--json` creates an object containing those metadata fields plus `token`; list/revoke produce an array of metadata. Keys do not expire automatically, survive server restart and are independently revocable. A password/name/role/status change, `accounts revoke` or restoration of credentials invalidates affected keys; restoring accounts rotates the epoch and removes all restored keys. A legacy backup without accounts preserves current keys. Create replacement keys after credential recovery. Each account has at most eight keys and the installation at most 512; labels need non-whitespace text within 128 UTF-8 bytes.
+Replace `alice` with your existing account name. Commands in this guide use `aede` when it is on your `PATH`. From the repository root, use `./target/release/aede`; from the directory containing an extracted `aede` folder, use `./aede/aede` (or `./aede` once inside that folder). If you use a custom data folder, add the same `--data "/path/to/data"` to account commands and `serve`.
+
+Copy only the complete value after `API key (shown once):`: `id.secret`, **129 characters including the dot** (64 hexadecimal characters, a dot, then 64 hexadecimal characters). The ID shown in the table cannot authenticate on its own. The secret is revealed only once, after successful saving; key listing cannot recover it. Keep the complete key privately, or create a replacement if it is lost. The [Submariner steps below](#local-macos-setup-with-submariner) show exactly where to paste it.
+
+Creation and revocation take effect without restarting the server. Keys do not expire automatically, survive server restart and are independently revocable. See [key listing and revocation](../cli/accounts.md). Listing exposes only `id,label,created_at`; `--json` creation adds `token` to those metadata fields, while list/revoke produce an array of metadata. A password/name/role/status change, `accounts revoke` or restoration of credentials invalidates affected keys; restoring accounts rotates the epoch and removes all restored keys. A legacy backup without accounts preserves current keys. Create replacement keys after credential recovery. Each account has at most eight keys and the installation at most 512; labels need non-whitespace text within 128 UTF-8 bytes.
 
 The private account store contains only salted Argon2 verifiers for key secrets. A client may supply `apiKey=<id.secret>`, or use the legacy fields `u=<account-name>&p=<complete-id.secret>` when it lacks an API-key field. The password field carries the revocable client key, not the account password. Hex encoding the complete key as `p=enc:<hex>` is also accepted; it does not encrypt the request. The username must match the key's current account. Account-password login remains unavailable (code 42), as does salted-MD5 `u+t+s` (41). Combining `apiKey` with any old credential parameter returns 43; an invalid/revoked key or mismatched account returns 44. Native bearer sessions remain exclusive to `/api`; they cannot authenticate this adapter, and these keys cannot authenticate native routes.
 
@@ -37,7 +39,7 @@ Client protocol versions must use major version 1 and a minor version no newer t
 | `ping`, `getLicense`, `tokenInfo` | None. License is valid; no paid license is required. |
 | `getUser` | Required `username`, restricted to yourself. Users/admins can stream, download, scrobble and manage their own playlists; auditors have metadata/artwork read access only. Installation administration remains unavailable. |
 | `getMusicFolders` | None. One logical library, ID `1`, named Aède; this does not expose filesystem roots. |
-| `getArtists` | Optional `musicFolderId=1`; sorted artist indexes including artists without an album. |
+| `getArtists` | Optional `musicFolderId=1`; sorted artist indexes limited to artists associated with a navigable album. Submariner uses the album-artist view described below. |
 | `getArtist`, `getAlbum`, `getSong` | Required opaque `id` from an earlier response. |
 | `getAlbumList2` | Required `type`, one of `alphabeticalByName`, `alphabeticalByArtist`, `byYear`, `byGenre`, `random`; optional `size` (default 10, maximum 500), `offset`, `musicFolderId=1`. `byYear` requires `fromYear,toYear`; reversed bounds give descending years. `byGenre` requires `genre`. Those filters are refused for other types. Supersonic's `limit` is a bounded alias for `size`; supplying both is an error. Random pages are reshuffled per request. Other types are refused. |
 | `search3` | Required `query`, which may be empty for library synchronization. Optional `artistCount,artistOffset,albumCount,albumOffset,songCount,songOffset` and `musicFolderId=1`. Each count defaults to 20, maximum 1000; offsets default to 0. Counts of zero return an empty category. Search text is at most 1024 UTF-8 bytes. |
@@ -58,7 +60,13 @@ Client protocol versions must use major version 1 and a minor version no newer t
 | `scrobble` | Repeatable song `id`, matching optional Unix-millisecond `time` values, and `submission=true` by default. Stores client declarations and increments your private counts. `submission=false` accepts exactly one song and optional time as a temporary now-playing report. |
 | `getNowPlaying` | None; current, unexpired reports from your own clients only, checked against still-valid keys. |
 
-Albums are local release editions and songs are track placements, including tracks without albums. Artists' albums come from explicit album artists, including co-artists, rather than composer/guest credits. IDs hash stable Aède references with SHA-256; they survive dense catalog renumbering when the underlying references stay unchanged. Paths, cover paths, raw tags and source prose are omitted. Required album `created` is a documented UTC proxy for the catalog's scan timestamp, since Aède has no album-added timestamp; it is not used to promise a newest-album sort. Browse responses include only your own favourite/rating fields and song play counts, when available.
+Albums are local release editions and songs are track placements, including tracks without albums. By default, an artist's albums include editions naming them as an album artist or as a main artist on one of that edition's tracks or recordings. A main-track credit links only its own edition; composer, performer or featured-only credits do not create an album association. `getArtists` and the artist results of `search3` include only artists with such an album association. This view reflects your local catalog, not a complete artist discography.
+
+**Album-artist view for Submariner.** For the exact client name `c=submariner` (ASCII case-insensitive), `getArtists` and the artist results of `search3` list only artists named by at least one album's canonical `artistId`. `getArtist` returns only that artist's canonical albums, and `albumCount` follows the same rule. Explicitly starred artists remain visible in favourites through `getStarred2`, including track-only artists; their `albumCount` follows this canonical rule and may be zero. This matches [Submariner 3.4's album parser](https://github.com/SubmarinerApp/Submariner/blob/v3.4/Submariner/SBSubsonicParsingOperation.swift#L282-L320), which assigns an album to its reported artist. It is a distinction between album and track credits, not between bands and individual people. A compilation remains under its album artist, often Various Artists; tracks by its individual artists remain accessible through song search and the compilation. Other clients keep the broader artist view above. The native graph and the album's canonical artist are unchanged.
+
+After updating and restarting Aède, select its server in Submariner and choose **View → Reload Server** (⌘R), or right-click the server and choose **Reload Server**, to request fresh indexes. Submariner 3.4 can also create artist entries in its own cache from song searches, playlists, folder navigation or now-playing information. Those names can therefore reappear without canonical albums, despite Aède's filtered artist index. Ordinary album browsing does not create those performer entries. This is client cache behavior; Aède retains the true track-artist references rather than relabeling compilations.
+
+An artist whose only tracks have no album remains available through song search and the native API; Aède does not fabricate an album for artist navigation. IDs hash stable Aède references with SHA-256; they survive dense catalog renumbering when the underlying references stay unchanged. Paths, cover paths, raw tags and source prose are omitted. Required album `created` is a documented UTC proxy for the catalog's scan timestamp, since Aède has no album-added timestamp; it is not used to promise a newest-album sort. Browse responses include only your own favourite/rating fields and song play counts, when available.
 
 Audio is passed through byte-for-byte, without DSP, normalization, resampling or tag changes. At most four native/audio/artwork transfers run together; reads use bounded chunks and queues and stop on revocation, shutdown or failed source checks. Audio sources must remain regular catalogued files with the precise size/timestamp captured by a current scan; a changed/legacy-imprecise source requires a rescan. A single `Range: bytes=…` selects original audio bytes. Without a recognized strong validator, `If-Range` causes a full response, protecting resumptions from combining different files. Auditors may browse metadata and artwork but cannot stream or download audio.
 
@@ -87,28 +95,57 @@ On the **Albums** page select **Title (A-Z)** in the sort menu. Supersonic's def
 
 ## Local macOS setup with Submariner
 
-For [Submariner](https://github.com/SubmarinerApp/Submariner), use the same client-key transport. Its [authentication implementation](https://github.com/SubmarinerApp/Submariner/blob/master/Submariner/SBServer.swift) sends `u+t+s` when **Use Token-Based Authentication** is checked, and `u+p=enc:<hex>` when unchecked. Only the latter can carry an Aède application key.
+For [Submariner 3.4](https://github.com/SubmarinerApp/Submariner/tree/v3.4), use the same client-key transport. Its [authentication implementation](https://github.com/SubmarinerApp/Submariner/blob/v3.4/Submariner/SBServer.swift) sends `u+t+s` when **Use Token-Based Authentication** is checked, and `u+p=enc:<hex>` when unchecked. Only the latter can carry an Aède application key.
 
-List your existing accounts, then replace `alice` with an enabled administrator or user account:
+**The key-creation command is required before entering the client settings.** Follow these steps in order from the directory containing the `aede` executable. From the repository root, replace `./aede` with `./target/release/aede`; if Aède is on your `PATH`, use `aede` instead.
 
-```sh
-aede accounts list
-aede accounts keys alice create "Submariner Mac"
-```
+1. Check that accounts are initialized and choose an enabled administrator or user account. If needed, first follow [account setup](../cli/accounts.md).
 
-Copy the entire key after `API key (shown once):`, including the dot. With `aede serve --port 3412` running on this Mac, fill in the server dialog:
+   ```sh
+   ./aede accounts list
+   ```
 
-| Field | Value |
-| --- | --- |
-| Server Name | `Aède`, or another label you choose |
-| URL | `http://127.0.0.1:3412` |
-| Username | The account name used to create the key, such as `alice` |
-| Password | The complete application key, not the account password |
-| Use Token-Based Authentication | Unchecked |
+2. **Create the Submariner key**, replacing the example name `alice` with the account you chose:
 
-The URL has no `/api/v1/status` or `/rest` suffix. If accounts are not initialized, first follow [account setup](../cli/accounts.md); account passwords need at least 15 characters. Use the same `--data` directory for account commands and the server when it is customized. Aède already supplies the server; no separate Subsonic installation is required.
+   ```sh
+   ./aede accounts keys alice create "Submariner Mac"
+   ```
 
-These settings establish the authentication format, not complete Submariner interoperability. Artist/album browsing is available; folder navigation, some album sorts and optional client panels may call unsupported methods. Full Submariner navigation and physical playback still require a real-client test.
+3. Copy the complete 129-character `id.secret` value after `API key (shown once):`. Keep the dot and both halves; copy neither the table's ID alone nor the `API key (shown once):` label. It is shown only once. Do not use the account password.
+
+4. Before the first client playback, refresh the existing catalog with a normal scan:
+
+   ```sh
+   ./aede scan
+   ```
+
+   This reuses the watched music folders and refreshes older file identities that lack precise modification timestamps. No `--full` or `--replace` is needed. Music files and tags remain intact; watched folders that are temporarily offline retain their catalog entries. Their audio becomes available only when those folders are accessible again. See [scan](../cli/scan.md).
+
+5. Start the server on this Mac if it is not already running:
+
+   ```sh
+   ./aede serve --port 8787
+   ```
+
+   Use the same `--data` directory for all four commands if customized. An already-running server sees the new key and published scan without a restart. If it uses another port, use the address it prints instead of the example port `8787`.
+
+6. Add the server in Submariner with these settings:
+
+   | Field | Value |
+   | --- | --- |
+   | Server Name | `Aède`, or another label you choose |
+   | URL | `http://127.0.0.1:8787` |
+   | Username | The account used in step 2, for example `alice` |
+   | Password | The complete 129-character `id.secret` key from step 3 |
+   | Use Token-Based Authentication | Unchecked |
+
+The URL has no `/api/v1/status` or `/rest` suffix. Leave **Use Token-Based Authentication unchecked**: Submariner encodes the key itself; do not add `enc:` or hex-encode it manually. Aède already supplies the server; no separate Subsonic installation is required.
+
+If Aède returns **`enc: must encode a complete API key`**, the password field did not contain a complete key: an account password, the ID alone or a truncated paste cannot work. Create a key with step 2 if you have not done so, then replace the client's password with the entire value from step 3 and check that token-based authentication is disabled. A lost secret must be replaced; `accounts keys alice` lists IDs, not usable complete keys.
+
+If **Play stays at 00:00** and Aède reports **`Media source is unavailable or changed; refresh the catalog`**, check that the music folder is accessible and repeat the normal `./aede scan` from step 4 with the server's data folder. An old catalog without precise file timestamps needs this refresh before streaming; changed or unavailable sources remain refused until their current identity can be checked. This keeps source validation in place and does not rewrite the audio.
+
+Local authentication, album browsing and original FLAC playback with Submariner 3.4 on macOS have been confirmed in a real-client check. Other audio formats, optional client panels, remote access and target NAS capacity still need validation; folder navigation and some album sorts may call unsupported methods. This check does not establish complete Submariner interoperability.
 
 ## Remaining compatibility work
 

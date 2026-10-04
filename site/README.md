@@ -56,6 +56,17 @@ Language choices are explicit on documentation pages, point to the same guide in
 
 Repository references use the published `master` branch, declared once as `REPOSITORY_BRANCH` in the publisher. The Markdown source link opens GitHub's editor for the page's selected language; unpublished local source changes become available there when pushed to that branch.
 
+## Compatibility logos
+
+The server section displays supported protocols in `.ae-compatibility-logos`. Add a list item with a locally stored logo and an accessible brand name when another compatibility is implemented. The row wraps automatically; keep the shared logo dimensions and preserve each asset's proportions. These marks identify protocol compatibility, whose supported methods and client validation remain described in the server guide.
+
+Official assets are stored unchanged under `assets/compatibility/`:
+
+- `subsonic.png`: the [Subsonic pictogram](https://www.subsonic.org/pages/inc/img/subsonic_logo.png) used beside the name on the [official website](https://www.subsonic.org/pages/index.jsp), originally 512 × 406 pixels. No asset-specific license was identified on that website.
+- `opensubsonic.svg`: the [OpenSubsonic logo](https://github.com/opensubsonic/open-subsonic-api/blob/main/assets/icons/logo.svg), originally 400 × 400 pixels. The upstream repository uses Apache-2.0; its license is retained in `assets/compatibility/LICENSE-OpenSubsonic.txt`.
+
+The browser loads the logos from Aède's own site, without contacting those projects.
+
 ## Navigation behaviour
 
 `guide.js` stores the sidebar's scroll position and expanded groups in session storage before navigation and restores them after layout. It opens the active page's group without resetting the menu to its top, making only the smallest scroll adjustment if the active item would otherwise fall outside the visible menu (on a first visit or after changing language). Ordinary menu links retain the exact saved position. Searching filters command/topic labels without losing the pre-search expanded-group state. The mobile menu supports keyboard focus and Escape. Fragment navigation opens any enclosing `details` elements before scrolling. Code blocks offer clipboard copying when the browser permits it, with a terminal header for shell examples.

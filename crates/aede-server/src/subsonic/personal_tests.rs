@@ -53,6 +53,165 @@ fn persisted(fixture: &Fixture) -> UserData {
         .unwrap_or_default()
 }
 
+fn compilation_catalog() -> Catalog {
+    let files = [
+        (
+            "/music/Alpha Band/01.flac",
+            "Alpha Band",
+            "Alpha Album",
+            false,
+        ),
+        (
+            "/music/Compilation/01.flac",
+            "Alpha Band",
+            "Compilation",
+            true,
+        ),
+        (
+            "/music/Compilation/02.flac",
+            "Beta Solo",
+            "Compilation",
+            true,
+        ),
+    ]
+    .into_iter()
+    .map(|(path, artist, album, compilation)| {
+        let mut tags = aede_core::tags::RawTags::default();
+        tags.insert("title", format!("{artist} on {album}"));
+        tags.insert("artist", artist);
+        tags.insert("album", album);
+        if compilation {
+            tags.insert("compilation", "1");
+        }
+        aede_core::model::ScannedFile {
+            path: path.into(),
+            size: 42,
+            mtime: 0,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }
+    })
+    .collect();
+    aede_core::model::build(files, vec!["/music".into()], 1_700_000_000, &[])
+}
+
+#[test]
+fn starred_artist_counts_follow_the_client_view_without_losing_explicit_favourites() {
+    let runtime = crate::test_support::test_runtime();
+    let fixture = Fixture::new();
+    let alice = identity(&fixture, "alice");
+    let bob = identity(&fixture, "bob");
+    let local = compilation_catalog();
+    let artist_id = |name: &str| {
+        let artist = local
+            .artists
+            .iter()
+            .find(|artist| artist.name == name)
+            .unwrap();
+        opaque_id(&local, EntityKind::Artist, artist.id).unwrap()
+    };
+    let alpha = artist_id("Alpha Band");
+    let beta = artist_id("Beta Solo");
+    let release = local
+        .releases
+        .iter()
+        .find(|album| album.title == "Compilation")
+        .unwrap();
+    let album = opaque_id(&local, EntityKind::Release, release.id).unwrap();
+    let song = opaque_id(&local, EntityKind::Track, release.track_ids[0]).unwrap();
+    store::save_catalog_only(&local, &store::catalog_path(&fixture.0.data_dir)).unwrap();
+    *fixture.0.catalog.try_write().unwrap() = Some(local);
+    run(
+        &runtime,
+        &fixture,
+        &alice,
+        "star",
+        &[
+            ("artistId", &alpha),
+            ("artistId", &beta),
+            ("albumId", &album),
+            ("id", &song),
+        ],
+    )
+    .unwrap();
+    for target in [&alpha, &beta, &album, &song] {
+        run(
+            &runtime,
+            &fixture,
+            &alice,
+            "setRating",
+            &[("id", target), ("rating", "4")],
+        )
+        .unwrap();
+    }
+    let before = user::to_json(&persisted(&fixture));
+    let extended = run(
+        &runtime,
+        &fixture,
+        &alice,
+        "getStarred2",
+        &[("c", "supersonic")],
+    )
+    .unwrap();
+    let scoped = run(
+        &runtime,
+        &fixture,
+        &alice,
+        "getStarred2",
+        &[("c", "SuBmArInEr")],
+    )
+    .unwrap();
+    assert_eq!(scoped["starred2"]["artist"].as_array().unwrap().len(), 2);
+    for (id, scoped_count, extended_count) in [(&alpha, 1, 2), (&beta, 0, 1)] {
+        let find = |value: &Value| {
+            value["starred2"]["artist"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|artist| artist["id"] == *id)
+                .unwrap()
+                .clone()
+        };
+        let starred = find(&scoped);
+        assert_eq!(starred["albumCount"], scoped_count);
+        assert_eq!(find(&extended)["albumCount"], extended_count);
+        assert_eq!(starred["userRating"], 4);
+        assert!(starred["starred"].is_string());
+        let detail = runtime
+            .block_on(catalog(
+                fixture.0.clone(),
+                alice.clone(),
+                "getArtist",
+                Parameters::from_pairs(&[("c", "submariner"), ("id", id)]),
+            ))
+            .unwrap();
+        assert_eq!(detail["artist"]["id"], *id);
+        assert_eq!(starred["albumCount"], detail["artist"]["albumCount"]);
+        assert_eq!(
+            detail["artist"]["album"].as_array().unwrap().len(),
+            scoped_count as usize
+        );
+    }
+    assert_eq!(scoped["starred2"]["album"], extended["starred2"]["album"]);
+    assert_eq!(scoped["starred2"]["song"], extended["starred2"]["song"]);
+    let theirs = run(
+        &runtime,
+        &fixture,
+        &bob,
+        "getStarred2",
+        &[("c", "submariner")],
+    )
+    .unwrap();
+    assert_eq!(
+        theirs,
+        json!({"starred2": {"artist": [], "album": [], "song": []}})
+    );
+    assert_eq!(user::to_json(&persisted(&fixture)), before);
+}
+
 #[test]
 fn favourites_and_ratings_use_existing_annotations_and_never_cross_owners() {
     let runtime = crate::test_support::test_runtime();

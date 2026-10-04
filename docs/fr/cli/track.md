@@ -8,6 +8,8 @@ Le JSON est écrit dans le terminal, ou dans le fichier demandé avec `--output`
 
 Continue ouvre enregistrement, œuvres, album et artistes. Un enregistrement identifie une interprétation ; une piste la place dans une édition. CSV/M3U utilisent les fichiers correspondants. Ajouter artiste/album devant trop d’homonymes plutôt que supposer la première bonne édition.
 
+La section **Yours** affiche les marques personnelles et un compteur positif d’écoutes de la piste indépendamment : ajouter des étoiles, un favori ou une note n’est pas nécessaire pour voir les écoutes enregistrées. Les pages du CLI montrent les données du propriétaire local ; les compteurs des autres comptes restent séparés.
+
 ## Syntaxe et arguments
 
 ```text
