@@ -110,7 +110,12 @@ impl SessionOutput for FakeOutput {
 
 #[test]
 fn transport_actions_interrupt_native_host_tail_before_finalization() {
-    for action in [PlaybackEnd::Stop, PlaybackEnd::Next, PlaybackEnd::Previous] {
+    for action in [
+        PlaybackEnd::Stop,
+        PlaybackEnd::Next,
+        PlaybackEnd::Previous,
+        PlaybackEnd::SeekRelative(10_000),
+    ] {
         let time = Rc::new(Cell::new(0));
         let mut output = FakeOutput::new(&time);
         let mut clock = PlaybackClock::new();
@@ -131,7 +136,12 @@ fn transport_actions_interrupt_native_host_tail_before_finalization() {
 #[test]
 fn transport_actions_cancel_format_reopening_while_queued_output_drains() {
     for native in [false, true] {
-        for action in [PlaybackEnd::Stop, PlaybackEnd::Next, PlaybackEnd::Previous] {
+        for action in [
+            PlaybackEnd::Stop,
+            PlaybackEnd::Next,
+            PlaybackEnd::Previous,
+            PlaybackEnd::SeekRelative(10_000),
+        ] {
             let time = Rc::new(Cell::new(0));
             let mut output = FakeOutput::new(&time);
             output.native = native;

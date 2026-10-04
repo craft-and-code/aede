@@ -7,6 +7,7 @@
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
+use std::time::Duration;
 
 use super::decoder::{self, FileDecoder};
 use super::format::PcmStreamFormat;
@@ -127,7 +128,7 @@ impl PcmTrack {
         self.source_format
     }
 
-    /// Choose the sink's sample rate before reading the first block. When
+    /// Choose the sink's sample rate before seeking or reading the first block. When
     /// rates match, samples retain the exact decoded path.
     pub fn set_output_rate(&mut self, rate: u32) -> Result<(), RateError> {
         if self.started || self.resampler.is_some() {
@@ -140,6 +141,39 @@ impl PcmTrack {
             self.resampler = Some(converter);
         }
         Ok(())
+    }
+
+    /// Position a newly opened track at the source frame at or before `position`.
+    ///
+    /// Seeking progressively decodes and discards the prefix, without sending
+    /// it through the source observer, downmix, resampler or caller's DSP. It
+    /// preserves the ordinary decoder's delay, padding and error semantics and
+    /// uses no whole-file buffer. Work grows with the requested position;
+    /// cancellation is checked between bounded frame steps, though one decoder
+    /// call may block on I/O. A position beyond EOF returns the actual frame
+    /// count with `reached_eof` set, rather than trusting tag duration.
+    ///
+    /// Call at most once, before reading PCM. Set the output rate first when
+    /// needed. A backward or subsequent seek requires reopening the track and
+    /// resetting the driver's output and DSP session. After cancellation or a
+    /// decode error, discard this track. Measurements of the suffix are not a
+    /// full-track loudness result and must not be cached as one.
+    pub fn seek_from_start(
+        &mut self,
+        position: Duration,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<decoder::SeekResult, decoder::Error> {
+        if self.started {
+            return Err(decoder::Error::SeekAfterStart);
+        }
+        let rate = u128::from(self.source_format.sample_rate());
+        let frames = u128::from(position.as_secs()) * rate
+            + u128::from(position.subsec_nanos()) * rate / 1_000_000_000;
+        let frames = u64::try_from(frames).map_err(|_| decoder::Error::InvalidPosition)?;
+        self.started = true;
+        let result = self.decoder.skip_frames(frames, cancelled)?;
+        self.ended = result.reached_eof;
+        Ok(result)
     }
 
     /// Read, optionally process, and encode the next block.

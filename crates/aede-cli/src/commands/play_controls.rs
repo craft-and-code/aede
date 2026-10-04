@@ -16,6 +16,9 @@ pub(super) enum Action {
     Next,
     Previous,
     Stop,
+    SeekRelative(i64),
+    CycleRepeat,
+    CycleShuffle,
 }
 
 #[cfg(any(unix, test))]
@@ -28,11 +31,11 @@ struct KeyParser {
 impl KeyParser {
     fn feed(&mut self, byte: u8) -> Option<Action> {
         match (self.escape, byte) {
-            (0, 0x1b) => {
+            (_, 0x1b) => {
                 self.escape = 1;
                 None
             }
-            (1, b'[') => {
+            (1, b'[' | b'O') => {
                 self.escape = 2;
                 None
             }
@@ -44,13 +47,24 @@ impl KeyParser {
                 self.escape = 0;
                 Some(Action::Previous)
             }
+            (2, 0x20..=0x3f) => None,
+            (1 | 2, _) => {
+                // Consume unknown escape sequences rather than interpreting
+                // their final letter as a standalone transport command.
+                self.escape = 0;
+                None
+            }
             (_, byte) => {
                 self.escape = 0;
                 match byte {
                     b' ' => Some(Action::Pause),
                     b'n' | b'N' => Some(Action::Next),
                     b'p' | b'P' => Some(Action::Previous),
-                    b'q' | b'Q' | b's' | b'S' => Some(Action::Stop),
+                    0x03 | b'q' | b'Q' | b's' | b'S' => Some(Action::Stop),
+                    b'[' => Some(Action::SeekRelative(-10_000)),
+                    b']' => Some(Action::SeekRelative(10_000)),
+                    b'r' | b'R' => Some(Action::CycleRepeat),
+                    b'z' | b'Z' => Some(Action::CycleShuffle),
                     _ => None,
                 }
             }
@@ -70,7 +84,10 @@ impl Controls {
         if !io::stdin().is_terminal() {
             return Ok(None);
         }
-        let terminal_mode = TerminalMode::start(&["-icanon", "-echo", "min", "1", "time", "0"])?;
+        // Read Ctrl-C as an orderly Stop instead of terminating before the
+        // guard can restore input mode and the driver can finish history.
+        let terminal_mode =
+            TerminalMode::start(&["-icanon", "-echo", "-isig", "min", "1", "time", "0"])?;
         let (sender, actions) = mpsc::channel();
         std::thread::spawn(move || {
             let mut input = io::stdin().lock();

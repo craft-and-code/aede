@@ -5,7 +5,7 @@ use aede_core::playback::session::PcmSession;
 use aede_core::playback::stream::PcmTrack;
 use aede_dsp::ToneControls;
 
-use super::{PlaybackClock, PlaybackEnd, next_index, play, record_play, resolve};
+use super::{PlaybackClock, PlaybackEnd, play, record_play, resolve};
 use crate::args::Args;
 use aede_core::conclusions;
 use aede_core::model::{Artist, AudioFile, Catalog, Release, Track};
@@ -63,6 +63,11 @@ fn playing_label_shows_album_and_numbered_filename_without_the_path() {
     assert_eq!(
         super::playing_label(&path, Some(&catalog)),
         "No More Tears — 01 Mr. Tinkertrain"
+    );
+    let injected = PathBuf::from("/music/album/01\x1b]52;c;payload\x07.wav");
+    assert_eq!(
+        super::playing_label(&injected, None),
+        "album — 01\\u{1b}]52;c;payload\\u{7}"
     );
 }
 
@@ -469,12 +474,25 @@ fn surround_source_reaches_cli_output_as_stereo_frames() {
 
 #[test]
 fn transport_moves_within_the_selection_and_previous_restarts_after_three_seconds() {
-    assert_eq!(next_index(0, 3, 0, PlaybackEnd::Next), Some(1));
-    assert_eq!(next_index(1, 3, 1_000, PlaybackEnd::Previous), Some(0));
-    assert_eq!(next_index(1, 3, 3_001, PlaybackEnd::Previous), Some(1));
-    assert_eq!(next_index(0, 3, 100, PlaybackEnd::Previous), Some(0));
-    assert_eq!(next_index(2, 3, 0, PlaybackEnd::Next), None);
-    assert_eq!(next_index(1, 3, 0, PlaybackEnd::Stop), None);
+    let paths = ["a.wav", "b.wav", "c.wav"].map(PathBuf::from);
+    let options = crate::args::PlaybackOptions::default();
+    let mut order = super::PlaybackOrder::new(&paths, None, &options).unwrap();
+    assert_eq!(order.advance(PlaybackEnd::Next, 0).unwrap(), Some(1));
+    assert_eq!(
+        order.advance(PlaybackEnd::Previous, 1_000).unwrap(),
+        Some(0)
+    );
+    order.focus(1).unwrap();
+    assert_eq!(
+        order.advance(PlaybackEnd::Previous, 3_001).unwrap(),
+        Some(1)
+    );
+    order.focus(0).unwrap();
+    assert_eq!(order.advance(PlaybackEnd::Previous, 100).unwrap(), Some(0));
+    order.focus(2).unwrap();
+    assert_eq!(order.advance(PlaybackEnd::Next, 0).unwrap(), None);
+    order.focus(1).unwrap();
+    assert_eq!(order.advance(PlaybackEnd::Stop, 0).unwrap(), None);
 }
 
 #[test]

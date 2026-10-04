@@ -74,8 +74,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Write portable playlists in album and artist folders.",
         },
         "play" => CommandPage {
-            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--normalize off|track|album] [--bass DB] [--treble DB]",
-            summary: "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
+            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--normalize off|track|album] [--bass DB] [--treble DB]",
+            summary: "Play local audio, an M3U, a saved collection or a catalogued name, with an initial seek position, repeat modes and seeded random or smart order. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -395,8 +395,13 @@ pub fn print_index() {
                        in year order; duplicate album/track titles play all
                        matches. In a macOS/Linux terminal: Space pauses or
                        resumes, n/→ skips forward, p/← goes back (or restarts
-                       after three seconds), and q stops and returns to the
-                       shell. The 24 thin spectrum bars animate only in a
+                       after three seconds), [/] seeks ten seconds back/forward,
+                       r cycles repeat, z cycles shuffle, and q or Ctrl-C stops
+                       orderly and returns to the shell. --seek TIME starts the first track at a
+                       position in seconds, mm:ss or hh:mm:ss. --repeat
+                       off|one|all controls natural completion; --shuffle
+                       off|random|smart chooses the order. --seed U64 reproduces
+                       an enabled shuffle. The 24 thin spectrum bars animate only in a
                        terminal. The label shows album — numbered filename;
                        every played file enters history. --normalize
                        off|track|album overrides automatic ReplayGain or
@@ -1073,10 +1078,22 @@ fn print_play_help() {
     println!("\n{}", ui::cyan("SELECTIONS"));
     println!("  aede play ~/Music/album.m3u     Playlist paths resolve beside the M3U");
     println!("  aede play collection:Favorites   Select a saved collection explicitly");
+    println!("\n{}", ui::cyan("POSITION AND ORDER"));
+    println!("  --seek TIME       Start the first played track at seconds, mm:ss or hh:mm:ss");
+    println!("                    Seconds accept up to three decimal places, such as 1:30.250");
+    println!("  --repeat off|one|all      No repeat, repeat one track, or repeat the selection");
+    println!(
+        "  --shuffle off|random|smart   Original, uniform random, or catalog similarity order"
+    );
+    println!("  --seed U64        Reproduce an order; requires random or smart shuffle");
+    println!("                    Repeat and shuffle default to off; seek defaults to zero");
     println!("\n{}", ui::cyan("KEYS (macOS/Linux terminal)"));
     println!("  Space    Pause or resume");
-    println!("  n or →   Next track; return to the shell after the last one");
+    println!("  n or →   Next track");
     println!("  p or ←   Previous track, or restart after three seconds");
-    println!("  q or s   Stop playback and return to the shell");
+    println!("  [ or ]   Seek ten seconds backward or forward");
+    println!("  r        Cycle repeat: off → one → all → off");
+    println!("  z        Cycle shuffle: off → random → smart → off");
+    println!("  q or s / Ctrl-C   Stop orderly, restore the terminal and return to the shell");
     println!("\n  Without a terminal on standard input, the selection plays automatically.");
 }

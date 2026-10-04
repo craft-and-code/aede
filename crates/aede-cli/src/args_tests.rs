@@ -159,6 +159,137 @@ fn a_word_option_keeps_taking_exactly_one_word() {
 }
 
 #[test]
+fn playback_options_keep_the_selection_and_parse_transport_settings() {
+    let defaults = parse(&["play", "album"]).playback_options().unwrap();
+    assert_eq!(defaults.seek_ms, 0);
+    assert_eq!(defaults.repeat, aede_core::playback::Repeat::Off);
+    assert_eq!(defaults.shuffle, PlaybackShuffle::Off);
+    assert_eq!(defaults.seed, None);
+
+    let args = parse(&[
+        "play",
+        "--seek",
+        "1:02:03.125",
+        "--repeat",
+        "all",
+        "--shuffle",
+        "smart",
+        "--seed",
+        "18446744073709551615",
+        "album",
+    ]);
+    assert_eq!(args.positionals, ["album"]);
+    let options = args.playback_options().unwrap();
+    assert_eq!(options.seek_ms, 3_723_125);
+    assert_eq!(options.repeat, aede_core::playback::Repeat::All);
+    assert_eq!(options.shuffle, PlaybackShuffle::Smart);
+    assert_eq!(options.seed, Some(u64::MAX));
+
+    for (time, milliseconds) in [
+        ("0", 0),
+        ("90", 90_000),
+        ("1.5", 1_500),
+        ("01:30", 90_000),
+        ("90:00.001", 5_400_001),
+        ("00:00:00.010", 10),
+        ("18446744073709551.615", u64::MAX),
+    ] {
+        let args = parse(&["play", "album", &format!("--seek={time}")]);
+        assert_eq!(args.playback_options().unwrap().seek_ms, milliseconds);
+    }
+    let random = parse(&[
+        "play",
+        "album",
+        "--repeat=one",
+        "--shuffle=random",
+        "--seed=0",
+    ])
+    .playback_options()
+    .unwrap();
+    assert_eq!(random.repeat, aede_core::playback::Repeat::One);
+    assert_eq!(random.shuffle, PlaybackShuffle::Random);
+    assert_eq!(random.seed, Some(0));
+}
+
+#[test]
+fn playback_options_refuse_missing_invalid_and_ineffective_values() {
+    for option in ["seek", "repeat", "shuffle", "seed"] {
+        let args = parse(&["play", "album", &format!("--{option}")]);
+        assert_eq!(args.options_missing_a_value(), [option]);
+        assert!(args.playback_options().is_err(), "--{option}");
+    }
+    for option in [
+        "--repeat=queue",
+        "--repeat=ALL",
+        "--repeat=",
+        "--shuffle=uniform",
+        "--shuffle=SMART",
+        "--shuffle=",
+    ] {
+        assert!(
+            parse(&["play", "album", option])
+                .playback_options()
+                .is_err(),
+            "{option}"
+        );
+    }
+    for seed in ["", "-1", "+1", "18446744073709551616", "1.5", " 1", "１"] {
+        assert!(
+            parse(&[
+                "play",
+                "album",
+                "--shuffle=random",
+                &format!("--seed={seed}")
+            ])
+            .playback_options()
+            .is_err(),
+            "{seed:?}"
+        );
+    }
+    assert!(
+        parse(&["play", "album", "--seed=0"])
+            .playback_options()
+            .is_err()
+    );
+    assert!(
+        parse(&["play", "album", "--shuffle=off", "--seed=1"])
+            .playback_options()
+            .is_err()
+    );
+    for time in [
+        "",
+        "-1",
+        "+1",
+        "NaN",
+        "inf",
+        "1e3",
+        ".5",
+        "1.",
+        "1.0001",
+        " 1",
+        "1 ",
+        "1:60",
+        "1:60:00",
+        ":01",
+        "1:",
+        "1::01",
+        "1:2:3:4",
+        "1.5:02",
+        "９０",
+        "18446744073709552",
+        "18446744073709551.616",
+        "18446744073709551615:00:00",
+    ] {
+        assert!(
+            parse(&["play", "album", &format!("--seek={time}")])
+                .playback_options()
+                .is_err(),
+            "{time:?}"
+        );
+    }
+}
+
+#[test]
 fn an_option_left_without_a_value_is_reported() {
     let a = parse(&["track", "So What", "--album"]);
     assert_eq!(a.options_missing_a_value(), ["album"]);

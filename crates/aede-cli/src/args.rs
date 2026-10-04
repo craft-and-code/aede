@@ -6,6 +6,33 @@
 
 use std::collections::BTreeMap;
 
+use aede_core::playback::Repeat;
+
+/// The requested order for a local playback selection.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum PlaybackShuffle {
+    /// Preserve the selection's original order.
+    #[default]
+    Off,
+    /// Use a seeded uniform permutation.
+    Random,
+    /// Use the catalog's seeded similarity order.
+    Smart,
+}
+
+/// Validated transport settings for `aede play`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PlaybackOptions {
+    /// Initial position within the first played track, in milliseconds.
+    pub(crate) seek_ms: u64,
+    /// What happens when a track or selection ends naturally.
+    pub(crate) repeat: Repeat,
+    /// How the selection is ordered.
+    pub(crate) shuffle: PlaybackShuffle,
+    /// An explicit reproducible seed, permitted only with an enabled shuffle.
+    pub(crate) seed: Option<u64>,
+}
+
 /// Where a listing starts and how many rows it shows.
 ///
 /// `limit` is `usize::MAX` when `--all` was given: "everything" is a very large
@@ -79,6 +106,10 @@ const VALUED_WORD: &[&str] = &[
     "normalize",
     "bass",
     "treble",
+    "seek",
+    "repeat",
+    "shuffle",
+    "seed",
     "relink",
     "to",
     "undo-relink",
@@ -250,6 +281,51 @@ impl Args {
         self.flags.get(name).and_then(|v| v.as_deref())
     }
 
+    /// Parse local transport options without silently ignoring invalid input.
+    ///
+    /// Seek positions accept seconds, `mm:ss` or `hh:mm:ss`, with up to three
+    /// decimal places on seconds. Checked integer arithmetic preserves exact
+    /// milliseconds and refuses values outside the transport's `u64` range.
+    pub(crate) fn playback_options(&self) -> Result<PlaybackOptions, String> {
+        let value = |name: &str| match self.flags.get(name) {
+            None => Ok(None),
+            Some(Some(value)) => Ok(Some(value.as_str())),
+            Some(None) => Err(format!("--{name} expects a value")),
+        };
+        let seek_ms = match value("seek")? {
+            None => 0,
+            Some(raw) => seek_milliseconds(raw).ok_or(
+                "--seek expects non-negative seconds, mm:ss or hh:mm:ss (up to three decimal places)",
+            )?,
+        };
+        let repeat = match value("repeat")? {
+            None | Some("off") => Repeat::Off,
+            Some("one") => Repeat::One,
+            Some("all") => Repeat::All,
+            _ => return Err("--repeat expects off, one or all".into()),
+        };
+        let shuffle = match value("shuffle")? {
+            None | Some("off") => PlaybackShuffle::Off,
+            Some("random") => PlaybackShuffle::Random,
+            Some("smart") => PlaybackShuffle::Smart,
+            _ => return Err("--shuffle expects off, random or smart".into()),
+        };
+        let seed = value("seed")?
+            .map(|raw| {
+                unsigned_decimal(raw).ok_or("--seed expects a whole number from 0 to u64::MAX")
+            })
+            .transpose()?;
+        if seed.is_some() && shuffle == PlaybackShuffle::Off {
+            return Err("--seed requires --shuffle=random or --shuffle=smart".into());
+        }
+        Ok(PlaybackOptions {
+            seek_ms,
+            repeat,
+            shuffle,
+            seed,
+        })
+    }
+
     /// The slice of a result to show: where to start, and how much.
     ///
     /// One reading for the whole program, because paging is only meaningful if
@@ -370,6 +446,53 @@ impl Args {
     /// wrote. Same rule as the role names: what is shown is what was accepted.
     fn as_typed<'a>(&'a self, name: &'a str) -> &'a str {
         self.spellings.get(name).map(|s| s.as_str()).unwrap_or(name)
+    }
+}
+
+fn unsigned_decimal(raw: &str) -> Option<u64> {
+    if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    raw.parse().ok()
+}
+
+fn seek_milliseconds(raw: &str) -> Option<u64> {
+    fn seconds(raw: &str, within_minute: bool) -> Option<u64> {
+        let (whole, fraction) = raw
+            .split_once('.')
+            .map_or((raw, None), |(whole, fraction)| (whole, Some(fraction)));
+        let whole = unsigned_decimal(whole)?;
+        if within_minute && whole >= 60 {
+            return None;
+        }
+        let fraction = match fraction {
+            None => 0,
+            Some(fraction) if fraction.len() <= 3 => {
+                unsigned_decimal(fraction)? * 10u64.pow(3 - fraction.len() as u32)
+            }
+            Some(_) => return None,
+        };
+        whole.checked_mul(1_000)?.checked_add(fraction)
+    }
+    // Four components already make the time invalid; do not allocate for an
+    // arbitrarily long sequence of separators in a malformed argument.
+    let components = raw.split(':').take(4).collect::<Vec<_>>();
+    match components.as_slice() {
+        [value] => seconds(value, false),
+        [minutes, value] => unsigned_decimal(minutes)?
+            .checked_mul(60_000)?
+            .checked_add(seconds(value, true)?),
+        [hours, minutes, value] => {
+            let minutes = unsigned_decimal(minutes)?;
+            if minutes >= 60 {
+                return None;
+            }
+            unsigned_decimal(hours)?
+                .checked_mul(3_600_000)?
+                .checked_add(minutes * 60_000)?
+                .checked_add(seconds(value, true)?)
+        }
+        _ => None,
     }
 }
 

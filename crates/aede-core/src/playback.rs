@@ -13,6 +13,7 @@ pub mod loudness;
 pub mod normalization;
 pub mod output;
 pub mod session;
+pub mod shuffle;
 pub mod stream;
 
 /// What happens when the current track reaches its end.
@@ -101,6 +102,88 @@ impl Queue {
         self.cursor
     }
 
+    /// Original selection occurrence under the cursor, distinguishing repeats.
+    pub fn current_entry(&self) -> Option<usize> {
+        self.cursor.map(|cursor| self.order[cursor])
+    }
+
+    /// Select an existing occurrence after the driver abandons preparation of
+    /// a later source. Missing occurrences leave the queue unchanged.
+    pub fn select_entry(&mut self, entry: usize) -> bool {
+        let Some(cursor) = self.order.iter().position(|&index| index == entry) else {
+            return false;
+        };
+        self.cursor = Some(cursor);
+        self.position_ms = 0;
+        true
+    }
+
+    /// The current permutation of original selection occurrences.
+    pub fn order(&self) -> &[usize] {
+        &self.order
+    }
+
+    /// Replace future order, retaining the played prefix and current occurrence.
+    ///
+    /// `order` must contain every original occurrence exactly once. Invalid
+    /// input leaves transport, history, seed and position unchanged. Changing
+    /// mode clears saved neighbouring cycles, but not Previous within this one.
+    pub fn reorder(&mut self, order: Vec<usize>, seed: Option<u64>) -> Result<(), &'static str> {
+        self.validate_order(&order)?;
+        let prefix_len = self.cursor.map_or(0, |cursor| cursor + 1);
+        let mut retained = vec![false; self.tracks.len()];
+        for &entry in &self.order[..prefix_len] {
+            retained[entry] = true;
+        }
+        self.order.truncate(prefix_len);
+        self.order
+            .extend(order.into_iter().filter(|&entry| !retained[entry]));
+        self.seed = seed;
+        self.previous_cycle = None;
+        self.next_cycle = None;
+        Ok(())
+    }
+
+    /// Supply an externally planned next repeat-all cycle.
+    ///
+    /// Return false when Previous has already retained the forward cycle.
+    /// Such an order must not be silently replaced by a new shuffle draw.
+    pub fn set_next_order(
+        &mut self,
+        order: Vec<usize>,
+        seed: Option<u64>,
+    ) -> Result<bool, &'static str> {
+        self.validate_order(&order)?;
+        if self.next_cycle.is_some() {
+            return Ok(false);
+        }
+        self.next_cycle = Some((order, seed));
+        Ok(true)
+    }
+
+    /// Reproducible seed for the next shuffled repeat-all cycle.
+    pub fn next_seed(&self) -> Option<u64> {
+        self.seed
+            .map(|seed| seed.wrapping_add(0x9e37_79b9_7f4a_7c15))
+    }
+
+    fn validate_order(&self, order: &[usize]) -> Result<(), &'static str> {
+        if order.len() != self.tracks.len() {
+            return Err("playback order must contain every selection occurrence");
+        }
+        let mut seen = vec![false; self.tracks.len()];
+        for &entry in order {
+            let Some(present) = seen.get_mut(entry) else {
+                return Err("playback order has an out-of-range occurrence");
+            };
+            if *present {
+                return Err("playback order repeats a selection occurrence");
+            }
+            *present = true;
+        }
+        Ok(())
+    }
+
     /// Current transport state.
     pub fn transport(&self) -> Transport {
         self.transport
@@ -181,9 +264,7 @@ impl Queue {
         if next == self.order.len() {
             if self.repeat == Repeat::All {
                 let (order, seed) = self.next_cycle.take().unwrap_or_else(|| {
-                    let seed = self
-                        .seed
-                        .map(|seed| seed.wrapping_add(0x9e37_79b9_7f4a_7c15));
+                    let seed = self.next_seed();
                     let mut order: Vec<usize> = (0..self.tracks.len()).collect();
                     if let Some(seed) = seed {
                         shuffle(&mut order, seed);

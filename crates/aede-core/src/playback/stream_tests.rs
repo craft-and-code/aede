@@ -256,3 +256,151 @@ fn real_five_one_wav_downmixes_to_stereo_without_lfe() {
     assert!(block.samples[10] == 0.0 && block.samples[11] > 0.1); // rear right
     assert_eq!(block.f32le.len(), block.frames * 2 * 4);
 }
+
+#[test]
+fn seeking_rounds_to_the_source_frame_and_observes_only_the_remaining_audio() {
+    let (source_format, blocks) = source_blocks(&fixture());
+    let reference: Vec<_> = blocks.into_iter().flatten().collect();
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    // 1 ms at 44.1 kHz lies between frames 44 and 45.
+    let seek = track
+        .seek_from_start(std::time::Duration::from_millis(1), || false)
+        .expect("seek succeeds");
+    assert_eq!(seek.frames, 44);
+    assert!(!seek.reached_eof);
+    let mut observed = Vec::new();
+    let mut output = Vec::new();
+    while let Some(block) = track
+        .read_block_observed(
+            |format, samples| {
+                assert_eq!(format, source_format);
+                observed.extend_from_slice(samples);
+            },
+            |_| Ok::<(), Infallible>(()),
+        )
+        .expect("suffix decodes")
+    {
+        output.extend_from_slice(block.samples);
+    }
+    assert_eq!(observed, reference[44 * 2..]);
+    assert_eq!(output, observed);
+}
+
+#[test]
+fn source_seek_happens_before_resampling_and_retains_exact_remaining_frame_count() {
+    let (_, blocks) = source_blocks(&fixture());
+    let source_frames = blocks.iter().map(|block| block.len() / 2).sum::<usize>();
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    track.set_output_rate(48_000).expect("output rate");
+    let seek = track
+        .seek_from_start(std::time::Duration::from_millis(137), || false)
+        .expect("seek succeeds");
+    assert_eq!(seek.frames, 6_041);
+    let mut observed_frames = 0;
+    let mut output_frames = 0;
+    while let Some(block) = track
+        .read_block_observed(
+            |format, samples| observed_frames += samples.len() / usize::from(format.channels()),
+            |_| Ok::<(), Infallible>(()),
+        )
+        .expect("suffix resamples")
+    {
+        output_frames += block.frames;
+    }
+    let remaining_frames = source_frames - seek.frames as usize;
+    assert_eq!(observed_frames, remaining_frames);
+    assert_eq!(
+        output_frames as u64,
+        (remaining_frames as u64 * 48_000).div_ceil(44_100)
+    );
+}
+
+#[test]
+fn multichannel_seek_preserves_source_layout_and_stereo_downmix() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/channel_fixtures/surround-5_1.wav");
+    let (source_format, blocks) = source_blocks(&path);
+    let reference: Vec<_> = blocks.into_iter().flatten().collect();
+    let mut track = PcmTrack::open_stereo(&path).expect("known layout");
+    let seek = track
+        .seek_from_start(std::time::Duration::from_millis(1), || false)
+        .expect("seek succeeds");
+    let mut observed = Vec::new();
+    let mut output_frames = 0;
+    while let Some(block) = track
+        .read_block_observed(
+            |format, samples| {
+                assert_eq!(format, source_format);
+                observed.extend_from_slice(samples);
+            },
+            |_| Ok::<(), Infallible>(()),
+        )
+        .expect("remaining multichannel frames downmix")
+    {
+        output_frames += block.frames;
+        assert_eq!(block.samples.len(), block.frames * 2);
+    }
+    assert_eq!(observed, reference[seek.frames as usize * 6..]);
+    assert_eq!(output_frames as u64, 120 - seek.frames);
+    assert_eq!(track.source_format().layout().mask(), Some(0x3f));
+}
+
+#[test]
+fn positions_past_eof_are_clamped_without_observation_or_processing() {
+    let (_, blocks) = source_blocks(&fixture());
+    let source_frames = blocks.iter().map(|block| block.len() / 2).sum::<usize>();
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    track.set_output_rate(48_000).expect("output rate");
+    let seek = track
+        .seek_from_start(std::time::Duration::from_secs(10), || false)
+        .expect("EOF clamps");
+    assert_eq!(seek.frames, source_frames as u64);
+    assert!(seek.reached_eof);
+    assert!(
+        track
+            .read_block_observed(
+                |_, _| panic!("discarded prefix must not be observed"),
+                |_| -> Result<(), Infallible> { panic!("EOF has no processed samples") },
+            )
+            .expect("clamped EOF")
+            .is_none()
+    );
+}
+
+#[test]
+fn seek_rejects_unrepresentable_positions_without_advancing_the_source() {
+    let (_, reference) = source_blocks(&fixture());
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    assert!(matches!(
+        track.seek_from_start(std::time::Duration::from_secs(u64::MAX), || false),
+        Err(super::decoder::Error::InvalidPosition)
+    ));
+    let block = track
+        .read_block(|_| Ok::<(), Infallible>(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(block.samples, reference[0]);
+}
+
+#[test]
+fn repeated_or_started_seeks_require_reopening_and_cancellation_is_reported() {
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    track
+        .seek_from_start(std::time::Duration::ZERO, || false)
+        .unwrap();
+    assert!(matches!(
+        track.seek_from_start(std::time::Duration::ZERO, || false),
+        Err(super::decoder::Error::SeekAfterStart)
+    ));
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    track.read_block(|_| Ok::<(), Infallible>(())).unwrap();
+    assert!(matches!(
+        track.seek_from_start(std::time::Duration::ZERO, || false),
+        Err(super::decoder::Error::SeekAfterStart)
+    ));
+    let mut track = PcmTrack::open(&fixture()).expect("fixture opens");
+    assert!(matches!(
+        track.seek_from_start(std::time::Duration::from_secs(1), || true),
+        Err(super::decoder::Error::SeekCancelled)
+    ));
+}

@@ -142,3 +142,99 @@ fn opus_pre_skip_and_end_trim_yield_only_playable_frames() {
     assert_eq!(rate, 48_000);
     assert_eq!(samples.len() / usize::from(channels), 48_000);
 }
+
+#[test]
+fn progressive_skip_keeps_exact_native_pcm_and_clamps_at_actual_eof() {
+    for name in [
+        "audit-stereo.flac",
+        "hires.flac",
+        "track.wav",
+        "track.mp3",
+        "track.ogg",
+    ] {
+        let (_, channels, reference) = decode_all(name, 127);
+        let channels = usize::from(channels);
+        let source_frames = reference.len() / channels;
+        for requested in [0, 1, 127, 4_099, source_frames as u64 + 1] {
+            let mut decoder = FileDecoder::open(&fixture(name)).expect("fixture opens");
+            let seek = decoder
+                .skip_frames(requested, || false)
+                .expect("seek succeeds");
+            let actual = requested.min(source_frames as u64);
+            assert_eq!(seek.frames, actual, "{name}, target {requested}");
+            assert_eq!(seek.reached_eof, requested > source_frames as u64);
+            let mut buffer = vec![0.0; 113 * channels];
+            let mut suffix = Vec::new();
+            loop {
+                let frames = decoder.read_frames(&mut buffer).expect("suffix decodes");
+                if frames == 0 {
+                    break;
+                }
+                suffix.extend_from_slice(&buffer[..frames * channels]);
+            }
+            assert_eq!(suffix, reference[actual as usize * channels..], "{name}");
+        }
+    }
+}
+
+#[test]
+fn progressive_skip_advances_from_a_partially_read_packet() {
+    let (_, channels, reference) = decode_all("audit-stereo.flac", 127);
+    let channels = usize::from(channels);
+    let mut decoder = FileDecoder::open(&fixture("audit-stereo.flac")).expect("fixture opens");
+    let mut frame = vec![0.0; channels];
+    assert_eq!(decoder.read_frames(&mut frame).expect("first frame"), 1);
+    assert_eq!(decoder.skip_frames(7, || false).unwrap().frames, 7);
+    assert_eq!(
+        decoder.read_frames(&mut frame).expect("frame after skip"),
+        1
+    );
+    assert_eq!(frame, reference[8 * channels..9 * channels]);
+}
+
+#[test]
+fn progressive_seek_cancellation_is_distinct_from_eof_and_polled_during_work() {
+    let mut decoder = FileDecoder::open(&fixture("audit-stereo.flac")).expect("fixture opens");
+    let mut polls = 0;
+    let result = decoder.skip_frames(u64::MAX, || {
+        polls += 1;
+        polls == 3
+    });
+    assert!(matches!(result, Err(Error::SeekCancelled)));
+    assert_eq!(polls, 3);
+
+    let mut decoder = FileDecoder::open(&fixture("track.flac")).expect("fixture opens");
+    assert!(matches!(
+        decoder.skip_frames(0, || true),
+        Err(Error::SeekCancelled)
+    ));
+}
+
+#[test]
+fn progressive_seek_preserves_ffmpeg_encoder_trim_and_source_samples() {
+    if crate::ffmpeg::find().is_none() {
+        eprintln!("skipped: ffmpeg is not installed");
+        return;
+    }
+    for name in ["track.opus", "track.m4a", "aac.m4a"] {
+        let (_, channels, reference) = decode_all(name, 127);
+        let channels = usize::from(channels);
+        let mut decoder = FileDecoder::open(&fixture(name)).expect("fixture opens");
+        let skipped = 17_123;
+        let seek = decoder
+            .skip_frames(skipped, || false)
+            .expect("fallback seeks");
+        assert_eq!(seek.frames, skipped);
+        assert!(!seek.reached_eof);
+        let mut buffer = vec![0.0; 127 * channels];
+        let mut suffix = Vec::new();
+        loop {
+            let frames = decoder.read_frames(&mut buffer).expect("fallback suffix");
+            if frames == 0 {
+                break;
+            }
+            suffix.extend_from_slice(&buffer[..frames * channels]);
+        }
+        assert_eq!(suffix, reference[skipped as usize * channels..], "{name}");
+    }
+}

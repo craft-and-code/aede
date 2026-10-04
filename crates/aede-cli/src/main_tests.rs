@@ -163,6 +163,20 @@ fn server_listener_options_are_known_and_limited_to_serve() {
     }
 }
 
+#[test]
+fn playback_transport_options_are_known_and_limited_to_play() {
+    for option in ["seek", "repeat", "shuffle", "seed"] {
+        assert!(OPTIONS.contains(&option), "--{option} must be known");
+        let (_, commands, _) = OPTION_SCOPE
+            .iter()
+            .find(|(candidate, _, _)| *candidate == option)
+            .unwrap_or_else(|| panic!("--{option} has no command scope"));
+        assert_eq!(*commands, ["play"], "--{option} scope");
+        let args = args::Args::parse(["play".into(), format!("--{option}")]);
+        assert_eq!(args.options_missing_a_value(), [option]);
+    }
+}
+
 /// Every `.rs` file of this crate's `src`, as text.
 fn sources() -> Vec<(String, String)> {
     fn walk(dir: &std::path::Path, found: &mut Vec<(String, String)>) {

@@ -171,6 +171,16 @@ fn vorbis_rejects_a_truncated_initial_audio_page_or_a_corrupt_header_checksum() 
     assert!(FileDecoder::open(corrupt.path()).is_err());
 }
 
+#[test]
+fn seeking_does_not_hide_a_malformed_vorbis_tail_as_clamped_eof() {
+    let file = fixtures::TempVorbis::new(&fixtures::final_page(1_000, true));
+    let mut decoder = FileDecoder::open(file.path()).expect("header has a known granule");
+    assert!(matches!(
+        decoder.skip_frames(u64::MAX, || false),
+        Err(super::Error::Decode(_))
+    ));
+}
+
 fn assert_decode_error(path: &Path) {
     let mut decoder = FileDecoder::open(path).expect("header has a known granule");
     let mut buffer = vec![0.0; usize::from(decoder.channels()) * 127];

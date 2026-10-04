@@ -69,10 +69,12 @@ fn interrupted_partial_submission_keeps_accepted_frames_in_incomplete_history() 
     let mut session = PcmSession::new(format, 48_000, ToneControls::FLAT).expect("session");
     let token = 7;
     session.begin_track(token, 0.0).expect("track");
-    let (sender, receive) = mpsc::channel();
-    let mut records = PlaybackRecords::new(&sender, 1);
+    let (sender, receive) = mpsc::sync_channel(64);
+    let mut records = PlaybackRecords::new(&sender);
     let mut clock = PlaybackClock::new();
-    records.begin(token, 0, Path::new("partial.wav"), format, &clock);
+    records
+        .begin(token, 0, Path::new("partial.wav"), format, &clock)
+        .expect("track record");
     clock.started = Instant::now() - Duration::from_secs(1);
     let mut output = PartialThenBroken {
         accepted_bytes: 0,
@@ -142,12 +144,14 @@ fn delayed_src_frames_keep_the_previous_tracks_listening_identity() {
     let input = PcmFormat::new(44_100, 2).expect("source format");
     let mut session = PcmSession::new(input, 48_000, ToneControls::FLAT).expect("session");
     let format = session.output_format();
-    let (sender, receive) = mpsc::channel();
-    let mut records = PlaybackRecords::new(&sender, 2);
+    let (sender, receive) = mpsc::sync_channel(64);
+    let mut records = PlaybackRecords::new(&sender);
     let mut clock = PlaybackClock::new();
     let mut output = Vec::new();
     session.begin_track(10, 0.0).expect("first track");
-    records.begin(10, 0, Path::new("first.wav"), format, &clock);
+    records
+        .begin(10, 0, Path::new("first.wav"), format, &clock)
+        .expect("track record");
     submit_block(
         session.push_source(&[0.25; 120 * 2]).expect("first source"),
         &mut output,
@@ -171,7 +175,9 @@ fn delayed_src_frames_keep_the_previous_tracks_listening_identity() {
     assert!(receive.try_recv().is_err());
 
     session.begin_track(11, 0.0).expect("second track");
-    records.begin(11, 1, Path::new("second.wav"), format, &clock);
+    records
+        .begin(11, 1, Path::new("second.wav"), format, &clock)
+        .expect("track record");
     submit_block(
         session
             .push_source(&[0.25; 5_000 * 2])
@@ -297,11 +303,15 @@ fn direct_pcm_submission_preserves_original_samples_and_each_tracks_progress() {
             complete: true,
         },
     ];
-    let (sender, receive) = mpsc::channel();
-    let mut records = PlaybackRecords::new(&sender, 2);
+    let (sender, receive) = mpsc::sync_channel(64);
+    let mut records = PlaybackRecords::new(&sender);
     let mut clock = PlaybackClock::new();
-    records.begin(21, 0, Path::new("first-direct.wav"), format, &clock);
-    records.begin(22, 1, Path::new("second-direct.wav"), format, &clock);
+    records
+        .begin(21, 0, Path::new("first-direct.wav"), format, &clock)
+        .expect("track record");
+    records
+        .begin(22, 1, Path::new("second-direct.wav"), format, &clock)
+        .expect("track record");
     let mut output = DirectPcmOutput {
         maximum_bytes: 32,
         calls: Vec::new(),
@@ -471,10 +481,12 @@ fn byte_fallback_failure_keeps_only_complete_frames_of_the_exact_accepted_prefix
         .push_source(&[0.25, -0.5].repeat(128))
         .expect("source");
     let expected = block.f32le.to_vec();
-    let (sender, receive) = mpsc::channel();
-    let mut records = PlaybackRecords::new(&sender, 1);
+    let (sender, receive) = mpsc::sync_channel(64);
+    let mut records = PlaybackRecords::new(&sender);
     let mut clock = PlaybackClock::new();
-    records.begin(31, 0, Path::new("odd-prefix.wav"), format, &clock);
+    records
+        .begin(31, 0, Path::new("odd-prefix.wav"), format, &clock)
+        .expect("track record");
     clock.started = Instant::now() - Duration::from_secs(1);
     let mut output = BytePrefixOutput {
         prefixes: [3, 511, 5].into(),

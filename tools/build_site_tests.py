@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+from html import unescape
 import json
 import re
 import shutil
@@ -122,6 +123,26 @@ class LinkTests(unittest.TestCase):
             with self.subTest(language=language):
                 rendered = builder.document_shell(page, language, content, [page])
                 self.assertIn(f'href="https://github.com/craft-and-code/aede/edit/master/{source}"', rendered)
+
+    def test_documentation_has_one_switch_to_the_corresponding_translated_page(self):
+        contents = {
+            "en": builder.Markdown().render('# First steps\n\n## Listening\n'),
+            "fr": builder.Markdown().render('# Premiers pas\n\n## Écoute\n'),
+        }
+        for slug in ("manual/first-steps", ""):
+            page = {'slug':slug, 'section':'manual', 'title':{'en':'First steps','fr':'Premiers pas'}, 'description':{'en':'Start using Aède','fr':'Commencer avec Aède'}}
+            for language, other, label in (("fr", "en", "Read in English"), ("en", "fr", "Lire en français")):
+                with self.subTest(slug=slug, language=language):
+                    rendered = builder.document_shell(page, language, contents[language], [page], counterpart_content=contents[other])
+                    switches = re.findall(r'<a\b[^>]*\bdata-language="[^"]+"[^>]*>', rendered)
+                    self.assertEqual(len(switches), 1)
+                    switch = switches[0]
+                    target = f'../../{other}/{slug}.html' if slug else f'../{other}/index.html'
+                    for attribute, value in (("href", target), ("lang", other), ("hreflang", other), ("data-language", other), ("aria-label", label)):
+                        self.assertIn(f'{attribute}="{value}"', switch)
+                    mapping = json.loads(unescape(re.search(r'data-fragment-map="([^"]+)"', switch)[1]))
+                    self.assertEqual(mapping[contents[language].title_id], contents[other].title_id)
+                    self.assertEqual(mapping[contents[language].headings[0][1]], contents[other].headings[0][1])
 
     def test_external_and_fragment_links_remain_unchanged(self):
         for href in ('#usage','https://example.test/a#b','mailto:hello@example.test'):

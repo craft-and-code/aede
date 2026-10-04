@@ -485,6 +485,10 @@ const OPTIONS: &[&str] = &[
     "normalize",
     "bass",
     "treble",
+    "seek",
+    "repeat",
+    "shuffle",
+    "seed",
 ];
 
 /// Where each restricted option means something.
@@ -527,6 +531,10 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ),
     ("bass", &["play"], "adjust playback bass"),
     ("treble", &["play"], "adjust playback treble"),
+    ("seek", &["play"], "start playback at a track position"),
+    ("repeat", &["play"], "repeat the current track or selection"),
+    ("shuffle", &["play"], "choose the playback selection order"),
+    ("seed", &["play"], "reproduce a shuffled playback order"),
     ("csv", CSV_COMMANDS, "produce a table"),
     ("m3u", M3U_COMMANDS, "produce a playlist"),
     ("output", OUTPUT_COMMANDS, "write to a file"),

@@ -36,6 +36,12 @@ pub enum Error {
     ChannelLayout(String),
     /// An external decoder could not be started or did not finish cleanly.
     External(String),
+    /// The requested position exceeds the representable source-frame count.
+    InvalidPosition,
+    /// Seeking requires a newly opened stream, before any PCM is read.
+    SeekAfterStart,
+    /// The caller stopped a progressive seek before reaching its target.
+    SeekCancelled,
 }
 
 impl fmt::Display for Error {
@@ -48,6 +54,9 @@ impl fmt::Display for Error {
             Self::NonFiniteSample => f.write_str("decoded packet contains a non-finite sample"),
             Self::ChannelLayout(error) => write!(f, "cannot identify channel positions: {error}"),
             Self::External(error) => write!(f, "external audio decoder failed: {error}"),
+            Self::InvalidPosition => f.write_str("seek position exceeds the source-frame range"),
+            Self::SeekAfterStart => f.write_str("seek requires a newly opened PCM stream"),
+            Self::SeekCancelled => f.write_str("audio seek was cancelled"),
         }
     }
 }
@@ -86,6 +95,15 @@ enum Source {
     Native(PcmStreamDecoder),
     Vorbis(vorbis::VorbisStream),
     Ffmpeg(FfmpegStream),
+}
+
+/// Source frames traversed by a progressive seek.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SeekResult {
+    /// Complete source frames discarded before the next readable frame.
+    pub frames: u64,
+    /// The source ended before the requested position could be reached.
+    pub reached_eof: bool,
 }
 
 impl FileDecoder {
@@ -172,10 +190,60 @@ impl FileDecoder {
         if output.is_empty() || !output.len().is_multiple_of(channels) {
             return Err(Error::InvalidBuffer);
         }
-        if self.finished {
+        if !self.fill_pending()? {
             return Ok(0);
         }
 
+        let count = output.len().min(self.pending.len() - self.pending_offset);
+        output[..count]
+            .copy_from_slice(&self.pending[self.pending_offset..self.pending_offset + count]);
+        self.pending_offset += count;
+        Ok(count / channels)
+    }
+
+    /// Discard up to `frames` complete source frames from the current position.
+    ///
+    /// This uses the ordinary decoder, preserving encoder-delay and end-trim
+    /// handling exactly. Memory stays bounded by one decoded packet, but work
+    /// grows with the traversed audio. Cancellation is checked before decoding
+    /// and after at most 4096 discarded frames; an individual decoder call may
+    /// still block on I/O. On cancellation or a decode error, discard this
+    /// decoder: its partially advanced position is not a successful seek.
+    pub fn skip_frames(
+        &mut self,
+        frames: u64,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<SeekResult, Error> {
+        let channels = usize::from(self.channels);
+        let mut skipped = 0;
+        loop {
+            if cancelled() {
+                return Err(Error::SeekCancelled);
+            }
+            if skipped == frames {
+                return Ok(SeekResult {
+                    frames: skipped,
+                    reached_eof: false,
+                });
+            }
+            if !self.fill_pending()? {
+                return Ok(SeekResult {
+                    frames: skipped,
+                    reached_eof: true,
+                });
+            }
+            let available = (self.pending.len() - self.pending_offset) / channels;
+            let count = available.min((frames - skipped).min(4096) as usize);
+            self.pending_offset += count * channels;
+            skipped += count as u64;
+        }
+    }
+
+    fn fill_pending(&mut self) -> Result<bool, Error> {
+        if self.finished {
+            return Ok(false);
+        }
+        let channels = usize::from(self.channels);
         while self.pending_offset == self.pending.len() {
             let chunk = match &mut self.inner {
                 Source::Native(native) => native.next_chunk().map_err(Error::Decode)?,
@@ -184,7 +252,7 @@ impl FileDecoder {
             };
             let Some(chunk) = chunk else {
                 self.finished = true;
-                return Ok(0);
+                return Ok(false);
             };
             if !chunk.len().is_multiple_of(channels) {
                 return Err(Error::IncompleteFrame);
@@ -195,12 +263,7 @@ impl FileDecoder {
             self.pending = chunk;
             self.pending_offset = 0;
         }
-
-        let count = output.len().min(self.pending.len() - self.pending_offset);
-        output[..count]
-            .copy_from_slice(&self.pending[self.pending_offset..self.pending_offset + count]);
-        self.pending_offset += count;
-        Ok(count / channels)
+        Ok(true)
     }
 }
 

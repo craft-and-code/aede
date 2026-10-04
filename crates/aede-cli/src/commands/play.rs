@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use aede_core::model::{Catalog, Id, TitleMatch};
+use aede_core::playback::Repeat;
 use aede_core::playback::gain_plan::{self, GainPlan, ReadyNormalization};
 use aede_core::playback::normalization::Mode as NormalizationMode;
 use aede_core::playback::stream::PcmTrack;
@@ -18,7 +19,7 @@ use aede_core::{clock, model::EntityKind, query, tags};
 use aede_dsp::{OutputMeter, OutputMeterError, ToneControls, gain_with_headroom_db};
 
 use super::{Res, data_dir};
-use crate::args::Args;
+use crate::args::{Args, PlaybackShuffle};
 
 #[path = "play_visualizer.rs"]
 mod visualizer;
@@ -35,7 +36,12 @@ use output::LocalOutput;
 #[path = "play_session.rs"]
 mod session;
 
+#[path = "play_order.rs"]
+mod order;
+use order::PlaybackOrder;
+
 pub fn play(args: &Args) -> Res {
+    let options = args.playback_options()?;
     let requested_normalization = normalization_mode(args)?;
     let tone = tone_controls(args)?;
     let raw = args.positionals.join(" ");
@@ -49,6 +55,7 @@ pub fn play(args: &Args) -> Res {
     let selection = resolve(&raw, catalog.as_ref(), Some(args))?;
     let normalization_mode = selection.normalization_mode(requested_normalization);
     let paths = selection.paths;
+    let mut order = PlaybackOrder::new(&paths, catalog.as_ref(), &options)?;
     let mut normalization = ReadyNormalization::new(
         &paths,
         selection.is_album,
@@ -58,10 +65,14 @@ pub fn play(args: &Args) -> Res {
     )?;
     let controls = Controls::start()?;
     if controls.is_some() {
-        println!("Controls: Space pause/resume · n/→ next · p/← previous · q stop");
+        println!(
+            "Controls: Space pause/resume · n/→ next · p/← previous · [/] seek 10s · r repeat · z shuffle · q/Ctrl-C stop"
+        );
     }
     let mut output = LocalOutput::new()?;
-    let (history_send, history_receive) = mpsc::channel::<PlaybackRecord>();
+    // Repeat may run indefinitely. Slow storage must back-pressure the producer
+    // rather than accumulate an unbounded number of private listening events.
+    let (history_send, history_receive) = mpsc::sync_channel::<PlaybackRecord>(64);
     let history_args = args.clone();
     let history_worker = std::thread::spawn(move || -> Result<(), String> {
         for item in history_receive {
@@ -86,12 +97,16 @@ pub fn play(args: &Args) -> Res {
     let playback_result = session::play_selection(
         &paths,
         catalog.as_ref(),
-        normalization_mode,
-        tone,
         &mut normalization,
         controls.as_ref(),
         &mut output,
         &history_send,
+        session::SelectionSettings {
+            normalization_mode,
+            tone,
+            order: &mut order,
+            options,
+        },
     );
     drop(history_send);
     let history_result = history_worker
@@ -181,21 +196,17 @@ enum PlaybackEnd {
     Stop,
     Next,
     Previous,
-}
-
-fn next_index(index: usize, count: usize, played_ms: u64, end: PlaybackEnd) -> Option<usize> {
-    match end {
-        PlaybackEnd::Natural | PlaybackEnd::Next => (index + 1 < count).then_some(index + 1),
-        PlaybackEnd::Previous if played_ms > 3_000 => Some(index),
-        PlaybackEnd::Previous => Some(index.saturating_sub(1)),
-        PlaybackEnd::Stop => None,
-    }
+    SeekRelative(i64),
 }
 
 struct PlaybackClock {
     started: Instant,
     paused_since: Option<Instant>,
     paused_duration: Duration,
+    repeat: Repeat,
+    shuffle: PlaybackShuffle,
+    shuffle_revision: u64,
+    smart_available: bool,
 }
 
 impl PlaybackClock {
@@ -204,7 +215,19 @@ impl PlaybackClock {
             started: Instant::now(),
             paused_since: None,
             paused_duration: Duration::ZERO,
+            repeat: Repeat::Off,
+            shuffle: PlaybackShuffle::Off,
+            shuffle_revision: 0,
+            smart_available: false,
         }
+    }
+
+    fn reset_elapsed(&mut self) {
+        self.started = Instant::now();
+        if self.paused_since.is_some() {
+            self.paused_since = Some(self.started);
+        }
+        self.paused_duration = Duration::ZERO;
     }
 
     fn active_ms(&self) -> u64 {
@@ -246,6 +269,42 @@ fn control_action(
             Some(Action::Stop) => return Ok(Some(PlaybackEnd::Stop)),
             Some(Action::Next) => return Ok(Some(PlaybackEnd::Next)),
             Some(Action::Previous) => return Ok(Some(PlaybackEnd::Previous)),
+            Some(Action::SeekRelative(delta)) => return Ok(Some(PlaybackEnd::SeekRelative(delta))),
+            Some(Action::CycleRepeat) => {
+                clock.repeat = match clock.repeat {
+                    Repeat::Off => Repeat::One,
+                    Repeat::One => Repeat::All,
+                    Repeat::All => Repeat::Off,
+                };
+                println!(
+                    "Repeat: {}",
+                    match clock.repeat {
+                        Repeat::Off => "off",
+                        Repeat::One => "one",
+                        Repeat::All => "all",
+                    }
+                );
+            }
+            Some(Action::CycleShuffle) => {
+                clock.shuffle = match clock.shuffle {
+                    PlaybackShuffle::Off => PlaybackShuffle::Random,
+                    PlaybackShuffle::Random if clock.smart_available => PlaybackShuffle::Smart,
+                    PlaybackShuffle::Random => {
+                        eprintln!("Smart shuffle unavailable without a scanned catalog");
+                        PlaybackShuffle::Off
+                    }
+                    PlaybackShuffle::Smart => PlaybackShuffle::Off,
+                };
+                clock.shuffle_revision = clock.shuffle_revision.wrapping_add(1);
+                println!(
+                    "Shuffle: {} (future entries)",
+                    match clock.shuffle {
+                        PlaybackShuffle::Off => "off",
+                        PlaybackShuffle::Random => "random",
+                        PlaybackShuffle::Smart => "smart",
+                    }
+                );
+            }
             None if clock.paused_since.is_some() => clock.toggle_pause(output)?,
             None => return Ok(None),
         }
@@ -456,7 +515,7 @@ fn playing_label(path: &Path, catalog: Option<&Catalog>) -> String {
         })
         .unwrap_or("Unknown album");
     let title = path.file_stem().unwrap_or_default().to_string_lossy();
-    format!("{album} — {title}")
+    crate::ui::literal(&format!("{album} — {title}")).replace(['\n', '\t'], " ")
 }
 
 fn paths_for_artists(

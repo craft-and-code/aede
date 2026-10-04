@@ -117,3 +117,67 @@ fn natural_end_only_advances_an_actually_playing_track() {
     assert_eq!(queue.finished(), None);
     assert_eq!(queue.current(), Some(1));
 }
+
+#[test]
+fn replacing_future_order_keeps_current_occurrence_and_the_played_prefix() {
+    let mut queue = Queue::new(vec![7, 7, 8, 9], None);
+    queue.play();
+    queue.skip_next();
+    queue.set_position_ms(1_500);
+    queue.pause();
+    queue
+        .reorder(vec![3, 2, 1, 0], Some(9))
+        .expect("permutation");
+    assert_eq!(queue.ordered_tracks().collect::<Vec<_>>(), [7, 7, 9, 8]);
+    assert_eq!(queue.current_entry(), Some(1));
+    assert_eq!(queue.position_ms(), 1_500);
+    assert_eq!(queue.transport(), Transport::Paused);
+    assert_eq!(queue.previous(), Some(7));
+    assert_eq!(queue.current_entry(), Some(0));
+}
+
+#[test]
+fn invalid_reordering_cannot_change_playback_or_discard_an_occurrence() {
+    let mut queue = Queue::new(vec![1, 2, 1], Some(3));
+    queue.play();
+    let before = queue.order().to_vec();
+    for invalid in [vec![0, 1], vec![0, 1, 1], vec![0, 1, 3]] {
+        assert!(queue.reorder(invalid.clone(), None).is_err());
+        assert!(queue.set_next_order(invalid, None).is_err());
+        assert_eq!(queue.order(), before);
+        assert_eq!(queue.seed(), Some(3));
+    }
+    queue.set_position_ms(1_500);
+    queue.pause();
+    assert!(!queue.select_entry(3));
+    assert_eq!(queue.position_ms(), 1_500);
+    assert!(queue.select_entry(2));
+    assert_eq!(queue.current_entry(), Some(2));
+    assert_eq!(queue.current(), Some(1));
+    assert_eq!(queue.position_ms(), 0);
+    assert_eq!(queue.transport(), Transport::Paused);
+}
+
+#[test]
+fn externally_planned_cycles_keep_previous_and_forward_navigation() {
+    let mut queue = Queue::new(vec![10, 11, 12], None);
+    queue.set_repeat(Repeat::All);
+    queue.play();
+    queue.finished();
+    queue.finished();
+    assert!(
+        queue
+            .set_next_order(vec![1, 0, 2], Some(77))
+            .expect("cycle")
+    );
+    assert_eq!(queue.finished(), Some(11));
+    assert_eq!(queue.previous(), Some(12));
+    // A driver planning ahead must not overwrite the cycle restored by Previous.
+    assert!(
+        !queue
+            .set_next_order(vec![2, 0, 1], Some(88))
+            .expect("valid")
+    );
+    assert_eq!(queue.skip_next(), Some(11));
+    assert_eq!(queue.seed(), Some(77));
+}

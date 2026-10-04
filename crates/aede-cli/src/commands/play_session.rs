@@ -53,6 +53,9 @@ struct PendingTrack {
     complete: bool,
     meter: OutputMeter,
     loudness: Option<gain_plan::LoudnessUpdate>,
+    offset_ms: u64,
+    played_before_ms: u64,
+    had_seek: bool,
 }
 
 impl PendingTrack {
@@ -66,20 +69,29 @@ impl PendingTrack {
     }
 }
 
+struct ResumeListen {
+    index: usize,
+    path: PathBuf,
+    started: u64,
+    played_ms: u64,
+}
+
 struct PlaybackRecords<'a> {
     pending: BTreeMap<usize, PendingTrack>,
-    sender: &'a mpsc::Sender<PlaybackRecord>,
-    selection_len: usize,
+    sender: &'a mpsc::SyncSender<PlaybackRecord>,
+    next_offset_ms: u64,
+    resume: Option<ResumeListen>,
     last_position: Option<(usize, u64)>,
     visualizer: Option<TerminalVisualizer>,
 }
 
 impl<'a> PlaybackRecords<'a> {
-    fn new(sender: &'a mpsc::Sender<PlaybackRecord>, selection_len: usize) -> Self {
+    fn new(sender: &'a mpsc::SyncSender<PlaybackRecord>) -> Self {
         Self {
             pending: BTreeMap::new(),
             sender,
-            selection_len,
+            next_offset_ms: 0,
+            resume: None,
             last_position: None,
             visualizer: None,
         }
@@ -92,7 +104,14 @@ impl<'a> PlaybackRecords<'a> {
         path: &Path,
         format: PcmFormat,
         clock: &PlaybackClock,
-    ) {
+    ) -> Res {
+        if self
+            .resume
+            .as_ref()
+            .is_some_and(|listen| listen.index != index)
+        {
+            return Err("seek listening identity does not match the next source".into());
+        }
         let meter = match OutputMeter::new(format) {
             Ok(meter) => meter,
             Err(error) => {
@@ -100,12 +119,17 @@ impl<'a> PlaybackRecords<'a> {
                 OutputMeter::sample_peak_only(format)
             }
         };
+        let resumed = self.resume.take();
+        let offset_ms = self.next_offset_ms;
+        self.next_offset_ms = 0;
         self.pending.insert(
             token,
             PendingTrack {
                 index,
                 path: path.to_path_buf(),
-                started: clock::now_seconds(),
+                started: resumed
+                    .as_ref()
+                    .map_or_else(clock::now_seconds, |listen| listen.started),
                 active_started_ms: clock.active_ms(),
                 format,
                 frames: 0,
@@ -113,8 +137,12 @@ impl<'a> PlaybackRecords<'a> {
                 complete: false,
                 meter,
                 loudness: None,
+                offset_ms,
+                played_before_ms: resumed.as_ref().map_or(0, |listen| listen.played_ms),
+                had_seek: resumed.is_some() || offset_ms > 0,
             },
         );
+        Ok(())
     }
 
     fn source_finished(&mut self, token: usize, update: Option<gain_plan::LoudnessUpdate>) -> Res {
@@ -163,7 +191,7 @@ impl<'a> PlaybackRecords<'a> {
         record.complete |= span.complete;
         // The last listen stays pending until the output has actually drained,
         // preserving Stop/Next's incomplete-history behavior at the final tail.
-        if record.complete && record.index + 1 < self.selection_len {
+        if record.complete && self.pending.keys().next_back().copied() != Some(span.token) {
             self.publish(span.token, true, None)?;
         }
         Ok(())
@@ -174,7 +202,11 @@ impl<'a> PlaybackRecords<'a> {
             .values()
             .rev()
             .find(|record| record.index == index)
-            .map(|record| record.interrupted_ms(clock))
+            .map(|record| {
+                record
+                    .offset_ms
+                    .saturating_add(record.interrupted_ms(clock))
+            })
             .or_else(|| {
                 self.last_position
                     .filter(|(last, _)| *last == index)
@@ -192,7 +224,9 @@ impl<'a> PlaybackRecords<'a> {
             || record.submitted_ms(),
             |clock| record.interrupted_ms(clock),
         );
-        self.last_position = Some((record.index, played_ms));
+        self.last_position = Some((record.index, record.offset_ms.saturating_add(played_ms)));
+        let played_ms = played_ms.saturating_add(record.played_before_ms);
+        let completed = completed && !record.had_seek;
         let measured_frames = record.meter.sample_peak_snapshot().frames;
         report_meter(&mut record.meter);
         if measured_frames < record.frames {
@@ -219,6 +253,57 @@ impl<'a> PlaybackRecords<'a> {
         Ok(())
     }
 
+    fn publish_completed(&mut self) -> Res {
+        let tokens = self
+            .pending
+            .iter()
+            .filter_map(|(&token, record)| record.complete.then_some(token))
+            .collect::<Vec<_>>();
+        for token in tokens {
+            self.publish(token, true, None)?;
+        }
+        Ok(())
+    }
+
+    fn carry_seek(&mut self, index: usize, clock: &PlaybackClock) -> Res {
+        let current = self
+            .pending
+            .iter()
+            .rev()
+            .find_map(|(&token, record)| (record.index == index).then_some(token));
+        if let Some(token) = current {
+            let mut record = self
+                .pending
+                .remove(&token)
+                .ok_or("seek listening record is missing")?;
+            report_meter(&mut record.meter);
+            let played_ms = record
+                .played_before_ms
+                .saturating_add(record.interrupted_ms(clock));
+            self.last_position = Some((
+                index,
+                record
+                    .offset_ms
+                    .saturating_add(record.interrupted_ms(clock)),
+            ));
+            self.resume = Some(ResumeListen {
+                index,
+                path: record.path,
+                started: record.started,
+                played_ms,
+            });
+        }
+        let tokens = self.pending.keys().copied().collect::<Vec<_>>();
+        for token in tokens {
+            let complete = self
+                .pending
+                .get(&token)
+                .is_some_and(|record| record.complete);
+            self.publish(token, complete, (!complete).then_some(clock))?;
+        }
+        Ok(())
+    }
+
     fn finish(&mut self, completed: bool, clock: &PlaybackClock) -> Res {
         let tokens = self.pending.keys().copied().collect::<Vec<_>>();
         for token in tokens {
@@ -228,6 +313,22 @@ impl<'a> PlaybackRecords<'a> {
                     .get(&token)
                     .is_some_and(|record| record.complete);
             self.publish(token, natural, (!natural).then_some(clock))?;
+        }
+        self.finish_resume()
+    }
+
+    fn finish_resume(&mut self) -> Res {
+        if let Some(listen) = self.resume.take()
+            && listen.played_ms > 0
+        {
+            self.sender
+                .send(PlaybackRecord::History(HistoryItem {
+                    path: listen.path,
+                    started: listen.started,
+                    played_ms: listen.played_ms,
+                    completed: false,
+                }))
+                .map_err(|_| "listening history worker stopped")?;
         }
         Ok(())
     }
@@ -405,39 +506,48 @@ fn prepare_output_with<O: SessionOutput>(
     output.prepare(format).map(PreparedOutput::Ready)
 }
 
+pub(super) struct SelectionSettings<'a> {
+    pub(super) normalization_mode: NormalizationMode,
+    pub(super) tone: ToneControls,
+    pub(super) order: &'a mut PlaybackOrder,
+    pub(super) options: crate::args::PlaybackOptions,
+}
+
 pub(super) fn play_selection(
     paths: &[PathBuf],
     catalog: Option<&Catalog>,
-    normalization_mode: NormalizationMode,
-    tone: ToneControls,
     normalization: &mut ReadyNormalization<'_>,
     controls: Option<&Controls>,
     output: &mut LocalOutput,
-    sender: &mpsc::Sender<PlaybackRecord>,
+    sender: &mpsc::SyncSender<PlaybackRecord>,
+    settings: SelectionSettings<'_>,
 ) -> Res {
-    let mut records = PlaybackRecords::new(sender, paths.len());
+    let SelectionSettings {
+        normalization_mode,
+        tone,
+        order,
+        options,
+    } = settings;
+    let mut records = PlaybackRecords::new(sender);
     let mut processing: Option<PcmSession> = None;
     let mut playback_clock = PlaybackClock::new();
-    let mut index = 0;
-    let mut cursor = 0;
+    playback_clock.repeat = options.repeat;
+    playback_clock.shuffle = options.shuffle;
+    playback_clock.smart_available = catalog.is_some();
+    let mut cursor = order.current().unwrap_or(0);
+    let mut seek_ms = options.seek_ms;
+    let mut initial_seek_pending = true;
     let mut token = 0usize;
     let result = (|| -> Res {
-        loop {
-            while index < paths.len() {
+        while let Some(index) = order.current() {
+            order.sync(&playback_clock, catalog, paths)?;
+            let path = &paths[index];
+            let mut seeking = false;
+            let mut seek_reached_eof = false;
+            let end = (|| -> Result<PlaybackEnd, Box<dyn Error>> {
                 if let Some(action) = control_action(controls, output, &mut playback_clock)? {
-                    let played_ms = records.position_ms(cursor, &playback_clock);
-                    output.abort()?;
-                    processing = None;
-                    normalization.finish_track(index, false)?;
-                    records.finish(false, &playback_clock)?;
-                    let Some(next) = next_index(cursor, paths.len(), played_ms, action) else {
-                        return Ok(());
-                    };
-                    index = next;
-                    playback_clock = PlaybackClock::new();
-                    continue;
+                    return Ok(action);
                 }
-                let path = &paths[index];
                 let prepared = (|| -> Result<_, Box<dyn Error>> {
                     let gain = normalization.prepare(index)?;
                     let track = PcmTrack::open_stereo(path)?;
@@ -446,8 +556,8 @@ pub(super) fn play_selection(
                 let (selected_gain, mut track) = match prepared {
                     Ok(prepared) => prepared,
                     Err(error) => {
-                        // The preceding source ended naturally. Deliver its pending
-                        // filter tail before reporting a bad subsequent file.
+                        // Preserve a preceding natural source's filter tail even
+                        // when preparing the following file fails.
                         let end = flush_group(
                             &mut processing,
                             &mut records,
@@ -465,41 +575,54 @@ pub(super) fn play_selection(
                             return Err(error);
                         }
                         eprintln!("Warning: could not prepare the next track: {error}");
-                        let played_ms = records.position_ms(cursor, &playback_clock);
-                        output.abort()?;
-                        normalization.finish_track(index, false)?;
-                        records.finish(false, &playback_clock)?;
-                        let Some(next) = next_index(cursor, paths.len(), played_ms, end) else {
-                            return Ok(());
-                        };
-                        index = next;
-                        playback_clock = PlaybackClock::new();
-                        continue;
+                        return Ok(end);
                     }
                 };
+                if seek_ms > 0 {
+                    seeking = true;
+                    normalization.finish_track(index, false)?;
+                    let mut interrupted = None;
+                    let seek = track.seek_from_start(Duration::from_millis(seek_ms), || {
+                        match control_action(controls, output, &mut playback_clock) {
+                            Ok(None) => false,
+                            result => {
+                                interrupted = Some(result);
+                                true
+                            }
+                        }
+                    });
+                    if let Some(interrupted) = interrupted {
+                        return interrupted?
+                            .ok_or_else(|| "seek interruption has no action".into());
+                    }
+                    let seek = seek?;
+                    seek_ms = seek.frames.saturating_mul(1000)
+                        / u64::from(track.source_format().sample_rate());
+                    println!("Position: {}.{:03} s", seek_ms / 1000, seek_ms % 1000);
+                    if seek.reached_eof {
+                        cursor = index;
+                        initial_seek_pending = false;
+                        seek_reached_eof = true;
+                        order.activated();
+                        records.finish_resume()?;
+                        return Ok(PlaybackEnd::Natural);
+                    }
+                }
+                seeking = false;
                 let input_format = track.format();
                 if processing
                     .as_ref()
                     .is_some_and(|session| session.input_format() != input_format)
                 {
-                    let action = flush_group(
+                    let end = flush_group(
                         &mut processing,
                         &mut records,
                         output,
                         controls,
                         &mut playback_clock,
                     )?;
-                    if action != PlaybackEnd::Natural {
-                        let played_ms = records.position_ms(cursor, &playback_clock);
-                        output.abort()?;
-                        normalization.finish_track(index, false)?;
-                        records.finish(false, &playback_clock)?;
-                        let Some(next) = next_index(cursor, paths.len(), played_ms, action) else {
-                            return Ok(());
-                        };
-                        index = next;
-                        playback_clock = PlaybackClock::new();
-                        continue;
+                    if end != PlaybackEnd::Natural {
+                        return Ok(end);
                     }
                 }
                 let format = if let Some(session) = &processing {
@@ -514,19 +637,7 @@ pub(super) fn play_selection(
                         || std::thread::sleep(Duration::from_millis(25)),
                     )? {
                         PreparedOutput::Ready(format) => format,
-                        PreparedOutput::Interrupted(action) => {
-                            let played_ms = records.position_ms(cursor, &playback_clock);
-                            output.abort()?;
-                            normalization.finish_track(index, false)?;
-                            records.finish(false, &playback_clock)?;
-                            let Some(next) = next_index(cursor, paths.len(), played_ms, action)
-                            else {
-                                return Ok(());
-                            };
-                            index = next;
-                            playback_clock = PlaybackClock::new();
-                            continue;
-                        }
+                        PreparedOutput::Interrupted(end) => return Ok(end),
                     };
                     processing = Some(PcmSession::new(input_format, format.sample_rate(), tone)?);
                     records.visualizer = TerminalVisualizer::new(format);
@@ -550,14 +661,20 @@ pub(super) fn play_selection(
                     .checked_add(1)
                     .ok_or("playback track token exhausted")?;
                 cursor = index;
-                records.begin(token, index, path, format, &playback_clock);
+                records.publish_completed()?;
+                records.next_offset_ms = seek_ms;
+                records.begin(token, index, path, format, &playback_clock)?;
+                initial_seek_pending = false;
+                order.activated();
+                order.describe_transition(paths, catalog);
                 let session = processing
                     .as_mut()
                     .ok_or("PCM processing session is missing")?;
                 session.begin_track(token, gain_db)?;
-                let end = loop {
+                let mut source_frames = 0u64;
+                loop {
                     if let Some(action) = control_action(controls, output, &mut playback_clock)? {
-                        break action;
+                        return Ok(action);
                     }
                     let raw = track.read_block_observed(
                         |format, samples| {
@@ -568,6 +685,7 @@ pub(super) fn play_selection(
                         |_| Ok::<(), std::convert::Infallible>(()),
                     )?;
                     let end = if let Some(raw) = raw {
+                        source_frames = source_frames.saturating_add(raw.frames as u64);
                         submit_block(
                             session.push_source(raw.samples)?,
                             output,
@@ -576,7 +694,11 @@ pub(super) fn play_selection(
                             |event| records.submitted(event),
                         )?
                     } else {
-                        let update = match normalization.finish_track(index, true) {
+                        order.sync(&playback_clock, catalog, paths)?;
+                        if source_frames == 0 && seek_ms == 0 && order.repeats() {
+                            return Err("cannot repeat an empty audio track".into());
+                        }
+                        let update = match normalization.finish_track(index, seek_ms == 0) {
                             Ok(update) => update,
                             Err(error) => {
                                 eprintln!("Warning: source loudness was not cached: {error}");
@@ -584,67 +706,113 @@ pub(super) fn play_selection(
                             }
                         };
                         records.source_finished(token, update)?;
-                        break submit_block(
+                        return submit_block(
                             session.end_track()?,
                             output,
                             controls,
                             &mut playback_clock,
                             |event| records.submitted(event),
-                        )?;
+                        );
                     };
                     if end != PlaybackEnd::Natural {
-                        break end;
+                        return Ok(end);
                     }
-                };
-                if end != PlaybackEnd::Natural {
-                    let played_ms = records.position_ms(index, &playback_clock);
-                    output.abort()?;
-                    processing = None;
-                    normalization.finish_track(index, false)?;
-                    records.finish(false, &playback_clock)?;
-                    let Some(next) = next_index(index, paths.len(), played_ms, end) else {
-                        return Ok(());
-                    };
-                    index = next;
-                    playback_clock = PlaybackClock::new();
-                    continue;
                 }
-                if output.stopped_early()? {
+            })()?;
+            if end != PlaybackEnd::Natural {
+                order.focus(cursor)?;
+            }
+            if end != PlaybackEnd::Stop {
+                order.sync(&playback_clock, catalog, paths)?;
+            }
+            let end = if end == PlaybackEnd::Natural {
+                if !seek_reached_eof && output.stopped_early()? {
                     return Err("audio output stopped before the selection ended".into());
                 }
-                index += 1;
-            }
-            let end = flush_group(
-                &mut processing,
-                &mut records,
-                output,
-                controls,
-                &mut playback_clock,
-            )?;
-            let end = if end == PlaybackEnd::Natural {
-                drain_output(output, controls, &mut playback_clock)?
+                if order.continues() {
+                    // Natural repeat/advance keeps compatible PCM state; manual
+                    // transport and seeking below discard it explicitly.
+                    order.advance(
+                        PlaybackEnd::Natural,
+                        records.position_ms(cursor, &playback_clock),
+                    )?;
+                    seek_ms = 0;
+                    continue;
+                }
+                let end = flush_group(
+                    &mut processing,
+                    &mut records,
+                    output,
+                    controls,
+                    &mut playback_clock,
+                )?;
+                let end = if end == PlaybackEnd::Natural {
+                    drain_output(output, controls, &mut playback_clock)?
+                } else {
+                    end
+                };
+                if end != PlaybackEnd::Stop {
+                    order.sync(&playback_clock, catalog, paths)?;
+                }
+                if end == PlaybackEnd::Natural {
+                    if order.continues() {
+                        records.finish(true, &playback_clock)?;
+                        order.advance(end, 0)?;
+                        seek_ms = 0;
+                        playback_clock.reset_elapsed();
+                        continue;
+                    }
+                    records.finish(true, &playback_clock)?;
+                    order.advance(end, 0)?;
+                    return Ok(());
+                }
+                end
             } else {
                 end
             };
-            if end == PlaybackEnd::Natural {
-                records.finish(true, &playback_clock)?;
-                return Ok(());
-            }
-            let played_ms = records.position_ms(cursor, &playback_clock);
-            output.abort()?;
-            normalization.finish_track(cursor, false)?;
-            records.finish(false, &playback_clock)?;
-            let Some(next) = next_index(cursor, paths.len(), played_ms, end) else {
-                return Ok(());
+            let position_ms = if seeking {
+                seek_ms
+            } else {
+                records.position_ms(cursor, &playback_clock)
             };
-            index = next;
-            playback_clock = PlaybackClock::new();
+            output.abort()?;
+            processing = None;
+            normalization.finish_track(index, false)?;
+            order.focus(cursor)?;
+            if let PlaybackEnd::SeekRelative(delta) = end {
+                initial_seek_pending = false;
+                records.carry_seek(cursor, &playback_clock)?;
+                seek_ms = position_ms.saturating_add_signed(delta);
+                records.last_position = Some((cursor, seek_ms));
+                println!("Seeking: {}.{:03} s", seek_ms / 1000, seek_ms % 1000);
+            } else {
+                records.finish(false, &playback_clock)?;
+                let Some(next) = order.advance(end, position_ms)? else {
+                    return Ok(());
+                };
+                // Manual transport has discarded the old output already. A
+                // second key during preparation belongs to this new selection,
+                // unlike a speculative advance after a natural source end.
+                cursor = next;
+                seek_ms = if initial_seek_pending {
+                    options.seek_ms
+                } else {
+                    0
+                };
+            }
+            playback_clock.reset_elapsed();
         }
+        Ok(())
     })();
     if result.is_err() {
-        // Failed source/transport work must not replay a buffered filter tail.
-        let _ = output.abort();
-        let _ = normalization.finish_track(index, false);
+        if let Err(error) = output.abort() {
+            eprintln!("Warning: could not stop output: {error}");
+        }
+        if let Some(index) = order.current()
+            && let Err(error) = normalization.finish_track(index, false)
+        {
+            eprintln!("Warning: could not discard loudness capture: {error}");
+        }
         records.finish(false, &playback_clock)?;
     }
     result
