@@ -1,6 +1,30 @@
 {
   "pages": [
     {
+      "slug": "cli/devices",
+      "section": "cli",
+      "command": "devices",
+      "source": {
+        "en": "docs/cli/devices.md",
+        "fr": "docs/fr/cli/devices.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "cli/cast",
+      "section": "cli",
+      "command": "cast",
+      "source": {
+        "en": "docs/cli/cast.md",
+        "fr": "docs/fr/cli/cast.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
       "slug": "cli/accounts",
       "section": "cli",
       "command": "accounts",
@@ -763,6 +787,18 @@
       "source": {
         "en": "docs/cli/options.md",
         "fr": "docs/fr/cli/options.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
+      "slug": "server/devices",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/devices.md",
+        "fr": "docs/fr/server/devices.md"
       },
       "explainer": null,
       "noindex": false,

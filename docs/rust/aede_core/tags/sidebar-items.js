@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["AUDIO_EXTENSIONS"],"enum":["TagError"],"fn":["canonical_key","is_audio_path","read"],"mod":["flac","foreign","id3","mp3","mp4","ogg","riff"],"struct":["AudioProperties","RawTags"]};
+window.SIDEBAR_ITEMS = {"constant":["AUDIO_EXTENSIONS"],"enum":["TagError"],"fn":["canonical_key","is_audio_path","read","read_from_file"],"mod":["flac","foreign","id3","mp3","mp4","ogg","riff"],"struct":["AudioProperties","RawTags"]};

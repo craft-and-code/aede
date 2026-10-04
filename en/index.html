@@ -13,7 +13,7 @@
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Aède — Audio player, music library and DSP"><meta name="twitter:description" content="Aède, a local audio player and music library manager: lyrics, credits, artist relationships, search, verified copying and DSP. Explore the CLI, server and user manual."><meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <link rel="stylesheet" href="../styles.css?v=a89d81b45fc1">
-<script src="../language.js?v=cd2025bbb364"></script><script defer src="../home-strings.js?v=83338877fbb7"></script><script defer src="../translations.js?v=31dfe162ed1c"></script><script defer src="../app.js?v=1db64f4eec8e"></script>
+<script src="../language.js?v=cd2025bbb364"></script><script defer src="../home-strings.js?v=657e3d7da89d"></script><script defer src="../translations.js?v=31dfe162ed1c"></script><script defer src="../app.js?v=e9e87789db85"></script>
 <script type="application/ld+json">{
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -113,7 +113,7 @@ Audio and tags unchanged.</pre>
           <article><span class="ae-mini-label">SEARCH &amp; QUERY</span><h3>Ask the right question.</h3><p>Find a title, lyric or note. Combine years, genres, formats, ratings and musical roles in a query, then export the selection as M3U, CSV or JSON.</p></article>
           <article><span class="ae-mini-label">YOUR PERSPECTIVE</span><h3>A personal collection.</h3><p>Favourites, ratings, tags and Markdown notes stay separate from audio files. Saved collections follow their criteria; listening history keeps track of your plays.</p></article>
           <article><span class="ae-mini-label">COPYING &amp; INTEGRITY</span><h3>Preserve. Then take along.</h3><p><code>check</code> checks the checksums embedded in FLAC frames and Ogg pages. Identical copies can be read back and compared; after conversion, Aède checks structure and duration.</p><small>Lossless sources can be converted. Lossy files are copied without re-encoding.</small></article>
-          <article><span class="ae-mini-label">PLAYBACK &amp; ANALYSIS</span><h3>Understand your files.</h3><p>Play a file, folder, playlist or local selection. Run an analysis with <code>analyze</code> or import a <a class="ae-inline-link" href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">FlacCompagnon</a> report to see its measurements in track details.</p></article>
+          <article><span class="ae-mini-label">PLAYBACK &amp; ANALYSIS</span><h3>Your FLAC, checked as you listen.</h3><p>In the Terminal or through native PCM streaming, Aède checks the MD5 of decoded FLAC audio before any processing, without modifying your files.</p><small>Verification completes at the end of decoding, when a checksum is present. <a class="ae-inline-link" href="../docs/en/cli/reference/integrity.html#flac-audio-md5-during-playback">How it works and its limits</a>.</small><small>You can also run an analysis with <code>analyze</code> or import a <a class="ae-inline-link" href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">FlacCompagnon</a> report to see its measurements in track details.</small></article>
         </div>
       </section>
       <section id="ae-server" class="ae-section ae-reveal">
@@ -128,7 +128,11 @@ Audio and tags unchanged.</pre>
             <ul class="ae-compatibility-logos" aria-label="Compatible protocols">
               <li><img src="../assets/compatibility/subsonic.png" alt="Subsonic" width="40" height="40" loading="lazy"><span aria-hidden="true">Subsonic</span></li>
               <li><img src="../assets/compatibility/opensubsonic.svg" alt="OpenSubsonic" width="40" height="40" loading="lazy"><span aria-hidden="true">OpenSubsonic</span></li>
+              <li><img src="../assets/compatibility/slimproto.svg" alt="SlimProto" width="40" height="40" loading="lazy"><span aria-hidden="true">SlimProto</span></li>
+              <li><img src="../assets/compatibility/upnp.svg" alt="UPnP" width="40" height="40" loading="lazy"><span aria-hidden="true">UPnP</span></li>
+              <li><img src="../assets/compatibility/openhome.png" alt="OpenHome" width="40" height="40" loading="lazy"><span aria-hidden="true">OpenHome</span></li>
             </ul>
+            <p class="ae-future">SlimProto, UPnP and OpenHome: initial profiles available; real-device validation pending.</p>
           </div>
           <p class="ae-future">NAS, Raspberry Pi and mobile players: validation pending.</p>
           <a class="ae-text-link" href="../docs/en/server/start.html">Understand the server <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>

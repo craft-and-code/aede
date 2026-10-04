@@ -10,5 +10,5 @@ is launched by Finder and inherits no shell environment; a command run from
 a terminal inherits the user’s <code>PATH</code> by construction, and looking anywhere
 else would only find a <em>different</em> ffmpeg from the one they get when they
 type the name themselves. Playback uses it for formats that the native
-decoder cannot open and for exact Vorbis end trimming.</p>
+decoder cannot open, currently Opus, AAC and ALAC.</p>
 </div></details><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.find.html" title="fn aede_core::ffmpeg::find">find</a></dt><dd>Where ffmpeg is, or <code>None</code> when it is not installed.</dd><dt><a class="fn" href="fn.missing.html" title="fn aede_core::ffmpeg::missing">missing</a></dt><dd>What to tell somebody who has no ffmpeg, worded so they can act on it.</dd></dl></section></div></main></body></html>

@@ -16,7 +16,7 @@
 <a href=#16 id=16 data-nosnippet>16</a>
 <a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">use </span>std::path::Path;
 <a href=#18 id=18 data-nosnippet>18</a>
-<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>lofty::file::{AudioFile, FileType, TaggedFileExt};
+<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
 <a href=#20 id=20 data-nosnippet>20</a><span class="kw">use </span>lofty::prelude::ItemKey;
 <a href=#21 id=21 data-nosnippet>21</a><span class="kw">use </span>lofty::tag::{Tag, TagType};
 <a href=#22 id=22 data-nosnippet>22</a>
@@ -25,81 +25,92 @@
 <a href=#25 id=25 data-nosnippet>25</a><span class="doccomment">/// Reads a file through `lofty` and translates the result into [`RawTags`].
 <a href=#26 id=26 data-nosnippet>26</a></span><span class="kw">pub fn </span>read(path: <span class="kw-2">&amp;</span>Path) -&gt; <span class="prelude-ty">Result</span>&lt;RawTags, TagError&gt; {
 <a href=#27 id=27 data-nosnippet>27</a>    <span class="kw">let </span>file = lofty::read_from_path(path).map_err(|<span class="kw">_</span>| TagError::UnrecognizedFormat)<span class="question-mark">?</span>;
-<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">let </span><span class="kw-2">mut </span>tags = RawTags::default();
-<a href=#29 id=29 data-nosnippet>29</a>
-<a href=#30 id=30 data-nosnippet>30</a>    describe_stream(file.file_type(), <span class="kw-2">&amp;mut </span>tags);
-<a href=#31 id=31 data-nosnippet>31</a>    <span class="kw">let </span>properties = file.properties();
-<a href=#32 id=32 data-nosnippet>32</a>    tags.properties.sample_rate = properties.sample_rate();
-<a href=#33 id=33 data-nosnippet>33</a>    tags.properties.channels = properties.channels().map(u16::from);
-<a href=#34 id=34 data-nosnippet>34</a>    <span class="kw">if </span>tags.properties.lossless {
-<a href=#35 id=35 data-nosnippet>35</a>        tags.properties.bit_depth = properties.bit_depth().map(u16::from);
-<a href=#36 id=36 data-nosnippet>36</a>    }
-<a href=#37 id=37 data-nosnippet>37</a>    <span class="kw">let </span>duration = properties.duration().as_millis();
-<a href=#38 id=38 data-nosnippet>38</a>    <span class="kw">if </span>duration &gt; <span class="number">0 </span>{
-<a href=#39 id=39 data-nosnippet>39</a>        tags.properties.duration_ms = <span class="prelude-val">Some</span>(duration <span class="kw">as </span>u64);
-<a href=#40 id=40 data-nosnippet>40</a>    }
-<a href=#41 id=41 data-nosnippet>41</a>    tags.properties.bitrate_kbps = properties.audio_bitrate().or(properties.overall_bitrate());
-<a href=#42 id=42 data-nosnippet>42</a>
-<a href=#43 id=43 data-nosnippet>43</a>    <span class="comment">// Later tags do not overwrite earlier ones: `RawTags::insert` appends, and
-<a href=#44 id=44 data-nosnippet>44</a>    // the readers of the catalog take the first value. A file carrying both an
-<a href=#45 id=45 data-nosnippet>45</a>    // APE tag and an ID3v1 one therefore keeps the richer of the two, which
-<a href=#46 id=46 data-nosnippet>46</a>    // `lofty` lists first.
-<a href=#47 id=47 data-nosnippet>47</a>    </span><span class="kw">for </span>tag <span class="kw">in </span>file.tags() {
-<a href=#48 id=48 data-nosnippet>48</a>        collect(tag, <span class="kw-2">&amp;mut </span>tags);
-<a href=#49 id=49 data-nosnippet>49</a>    }
-<a href=#50 id=50 data-nosnippet>50</a>    <span class="prelude-val">Ok</span>(tags)
-<a href=#51 id=51 data-nosnippet>51</a>}
-<a href=#52 id=52 data-nosnippet>52</a>
-<a href=#53 id=53 data-nosnippet>53</a><span class="doccomment">/// Fills in codec, container and losslessness from the detected file type.
-<a href=#54 id=54 data-nosnippet>54</a>///
-<a href=#55 id=55 data-nosnippet>55</a>/// Names follow the ones the native parsers use, since they end up in the same
-<a href=#56 id=56 data-nosnippet>56</a>/// statistics and in the same `codec` column of the catalog.
-<a href=#57 id=57 data-nosnippet>57</a></span><span class="kw">fn </span>describe_stream(file_type: FileType, tags: <span class="kw-2">&amp;mut </span>RawTags) {
-<a href=#58 id=58 data-nosnippet>58</a>    <span class="kw">let </span>(codec, container, lossless) = <span class="kw">match </span>file_type {
-<a href=#59 id=59 data-nosnippet>59</a>        FileType::Aac =&gt; (<span class="string">"aac"</span>, <span class="string">"adts"</span>, <span class="bool-val">false</span>),
-<a href=#60 id=60 data-nosnippet>60</a>        FileType::Ape =&gt; (<span class="string">"ape"</span>, <span class="string">"ape"</span>, <span class="bool-val">true</span>),
-<a href=#61 id=61 data-nosnippet>61</a>        FileType::Mpc =&gt; (<span class="string">"musepack"</span>, <span class="string">"musepack"</span>, <span class="bool-val">false</span>),
-<a href=#62 id=62 data-nosnippet>62</a>        FileType::WavPack =&gt; (<span class="string">"wavpack"</span>, <span class="string">"wavpack"</span>, <span class="bool-val">true</span>),
-<a href=#63 id=63 data-nosnippet>63</a>        FileType::Speex =&gt; (<span class="string">"speex"</span>, <span class="string">"ogg"</span>, <span class="bool-val">false</span>),
-<a href=#64 id=64 data-nosnippet>64</a>        FileType::Flac =&gt; (<span class="string">"flac"</span>, <span class="string">"flac"</span>, <span class="bool-val">true</span>),
-<a href=#65 id=65 data-nosnippet>65</a>        FileType::Mpeg =&gt; (<span class="string">"mp3"</span>, <span class="string">"mp3"</span>, <span class="bool-val">false</span>),
-<a href=#66 id=66 data-nosnippet>66</a>        FileType::Mp4 =&gt; (<span class="string">"aac"</span>, <span class="string">"mp4"</span>, <span class="bool-val">false</span>),
-<a href=#67 id=67 data-nosnippet>67</a>        FileType::Opus =&gt; (<span class="string">"opus"</span>, <span class="string">"ogg"</span>, <span class="bool-val">false</span>),
-<a href=#68 id=68 data-nosnippet>68</a>        FileType::Vorbis =&gt; (<span class="string">"vorbis"</span>, <span class="string">"ogg"</span>, <span class="bool-val">false</span>),
-<a href=#69 id=69 data-nosnippet>69</a>        FileType::Wav =&gt; (<span class="string">"pcm"</span>, <span class="string">"wav"</span>, <span class="bool-val">true</span>),
-<a href=#70 id=70 data-nosnippet>70</a>        FileType::Aiff =&gt; (<span class="string">"pcm"</span>, <span class="string">"aiff"</span>, <span class="bool-val">true</span>),
-<a href=#71 id=71 data-nosnippet>71</a>        <span class="comment">// A resolver registered by a third party. Nothing sensible to say
-<a href=#72 id=72 data-nosnippet>72</a>        // about the stream, but its tags are still worth keeping.
-<a href=#73 id=73 data-nosnippet>73</a>        </span><span class="kw">_ </span>=&gt; (<span class="string">""</span>, <span class="string">""</span>, <span class="bool-val">false</span>),
-<a href=#74 id=74 data-nosnippet>74</a>    };
-<a href=#75 id=75 data-nosnippet>75</a>    tags.properties.codec = codec.to_string();
-<a href=#76 id=76 data-nosnippet>76</a>    tags.properties.container = container.to_string();
-<a href=#77 id=77 data-nosnippet>77</a>    tags.properties.lossless = lossless;
-<a href=#78 id=78 data-nosnippet>78</a>}
-<a href=#79 id=79 data-nosnippet>79</a>
-<a href=#80 id=80 data-nosnippet>80</a><span class="doccomment">/// Copies the textual items and the presence of cover art out of one tag.
-<a href=#81 id=81 data-nosnippet>81</a></span><span class="kw">fn </span>collect(tag: <span class="kw-2">&amp;</span>Tag, tags: <span class="kw-2">&amp;mut </span>RawTags) {
-<a href=#82 id=82 data-nosnippet>82</a>    <span class="kw">if </span>tag.picture_count() &gt; <span class="number">0 </span>{
-<a href=#83 id=83 data-nosnippet>83</a>        tags.has_embedded_art = <span class="bool-val">true</span>;
-<a href=#84 id=84 data-nosnippet>84</a>    }
-<a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">for </span>item <span class="kw">in </span>tag.items() {
-<a href=#86 id=86 data-nosnippet>86</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(text) = item.value().text() <span class="kw">else </span>{
-<a href=#87 id=87 data-nosnippet>87</a>            <span class="kw">continue</span>;
-<a href=#88 id=88 data-nosnippet>88</a>        };
-<a href=#89 id=89 data-nosnippet>89</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(key) = field_name(item.key()) {
-<a href=#90 id=90 data-nosnippet>90</a>            tags.insert(key, text);
-<a href=#91 id=91 data-nosnippet>91</a>        }
-<a href=#92 id=92 data-nosnippet>92</a>    }
-<a href=#93 id=93 data-nosnippet>93</a>}
-<a href=#94 id=94 data-nosnippet>94</a>
-<a href=#95 id=95 data-nosnippet>95</a><span class="doccomment">/// Spelling of a key in the vocabulary the rest of the program speaks.
-<a href=#96 id=96 data-nosnippet>96</a>///
-<a href=#97 id=97 data-nosnippet>97</a>/// `lofty` normalises every format onto its own [`ItemKey`] enumeration; asking
-<a href=#98 id=98 data-nosnippet>98</a>/// it for the Vorbis Comment spelling brings the value back into the vocabulary
-<a href=#99 id=99 data-nosnippet>99</a>/// [`super::canonical_key`] already understands. `ItemKey` carries no variant
-<a href=#100 id=100 data-nosnippet>100</a>/// for a key it does not know, so a tag `lofty` did not recognise is lost here —
-<a href=#101 id=101 data-nosnippet>101</a>/// the alternative being a file that cannot be read at all.
-<a href=#102 id=102 data-nosnippet>102</a></span><span class="kw">fn </span>field_name(key: ItemKey) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str&gt; {
-<a href=#103 id=103 data-nosnippet>103</a>    key.map_key(TagType::VorbisComments)
-<a href=#104 id=104 data-nosnippet>104</a>        .or_else(|| key.map_key(TagType::Ape))
-<a href=#105 id=105 data-nosnippet>105</a>}</code></pre></div></section></main></body></html>
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="prelude-val">Ok</span>(translate(file))
+<a href=#29 id=29 data-nosnippet>29</a>}
+<a href=#30 id=30 data-nosnippet>30</a>
+<a href=#31 id=31 data-nosnippet>31</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>read_from_file(file: <span class="kw-2">&amp;mut </span>std::fs::File) -&gt; <span class="prelude-ty">Result</span>&lt;RawTags, TagError&gt; {
+<a href=#32 id=32 data-nosnippet>32</a>    <span class="kw">use </span>std::io::{Seek, SeekFrom};
+<a href=#33 id=33 data-nosnippet>33</a>    file.seek(SeekFrom::Start(<span class="number">0</span>))<span class="question-mark">?</span>;
+<a href=#34 id=34 data-nosnippet>34</a>    <span class="kw">let </span>tagged = lofty::read_from(file).map_err(|<span class="kw">_</span>| TagError::UnrecognizedFormat)<span class="question-mark">?</span>;
+<a href=#35 id=35 data-nosnippet>35</a>    <span class="prelude-val">Ok</span>(translate(tagged))
+<a href=#36 id=36 data-nosnippet>36</a>}
+<a href=#37 id=37 data-nosnippet>37</a>
+<a href=#38 id=38 data-nosnippet>38</a><span class="kw">fn </span>translate(file: TaggedFile) -&gt; RawTags {
+<a href=#39 id=39 data-nosnippet>39</a>    <span class="kw">let </span><span class="kw-2">mut </span>tags = RawTags::default();
+<a href=#40 id=40 data-nosnippet>40</a>
+<a href=#41 id=41 data-nosnippet>41</a>    describe_stream(file.file_type(), <span class="kw-2">&amp;mut </span>tags);
+<a href=#42 id=42 data-nosnippet>42</a>    <span class="kw">let </span>properties = file.properties();
+<a href=#43 id=43 data-nosnippet>43</a>    tags.properties.sample_rate = properties.sample_rate();
+<a href=#44 id=44 data-nosnippet>44</a>    tags.properties.channels = properties.channels().map(u16::from);
+<a href=#45 id=45 data-nosnippet>45</a>    <span class="kw">if </span>tags.properties.lossless {
+<a href=#46 id=46 data-nosnippet>46</a>        tags.properties.bit_depth = properties.bit_depth().map(u16::from);
+<a href=#47 id=47 data-nosnippet>47</a>    }
+<a href=#48 id=48 data-nosnippet>48</a>    <span class="kw">let </span>duration = properties.duration().as_millis();
+<a href=#49 id=49 data-nosnippet>49</a>    <span class="kw">if </span>duration &gt; <span class="number">0 </span>{
+<a href=#50 id=50 data-nosnippet>50</a>        tags.properties.duration_ms = <span class="prelude-val">Some</span>(duration <span class="kw">as </span>u64);
+<a href=#51 id=51 data-nosnippet>51</a>    }
+<a href=#52 id=52 data-nosnippet>52</a>    tags.properties.bitrate_kbps = properties.audio_bitrate().or(properties.overall_bitrate());
+<a href=#53 id=53 data-nosnippet>53</a>
+<a href=#54 id=54 data-nosnippet>54</a>    <span class="comment">// Later tags do not overwrite earlier ones: `RawTags::insert` appends, and
+<a href=#55 id=55 data-nosnippet>55</a>    // the readers of the catalog take the first value. A file carrying both an
+<a href=#56 id=56 data-nosnippet>56</a>    // APE tag and an ID3v1 one therefore keeps the richer of the two, which
+<a href=#57 id=57 data-nosnippet>57</a>    // `lofty` lists first.
+<a href=#58 id=58 data-nosnippet>58</a>    </span><span class="kw">for </span>tag <span class="kw">in </span>file.tags() {
+<a href=#59 id=59 data-nosnippet>59</a>        collect(tag, <span class="kw-2">&amp;mut </span>tags);
+<a href=#60 id=60 data-nosnippet>60</a>    }
+<a href=#61 id=61 data-nosnippet>61</a>    tags
+<a href=#62 id=62 data-nosnippet>62</a>}
+<a href=#63 id=63 data-nosnippet>63</a>
+<a href=#64 id=64 data-nosnippet>64</a><span class="doccomment">/// Fills in codec, container and losslessness from the detected file type.
+<a href=#65 id=65 data-nosnippet>65</a>///
+<a href=#66 id=66 data-nosnippet>66</a>/// Names follow the ones the native parsers use, since they end up in the same
+<a href=#67 id=67 data-nosnippet>67</a>/// statistics and in the same `codec` column of the catalog.
+<a href=#68 id=68 data-nosnippet>68</a></span><span class="kw">fn </span>describe_stream(file_type: FileType, tags: <span class="kw-2">&amp;mut </span>RawTags) {
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="kw">let </span>(codec, container, lossless) = <span class="kw">match </span>file_type {
+<a href=#70 id=70 data-nosnippet>70</a>        FileType::Aac =&gt; (<span class="string">"aac"</span>, <span class="string">"adts"</span>, <span class="bool-val">false</span>),
+<a href=#71 id=71 data-nosnippet>71</a>        FileType::Ape =&gt; (<span class="string">"ape"</span>, <span class="string">"ape"</span>, <span class="bool-val">true</span>),
+<a href=#72 id=72 data-nosnippet>72</a>        FileType::Mpc =&gt; (<span class="string">"musepack"</span>, <span class="string">"musepack"</span>, <span class="bool-val">false</span>),
+<a href=#73 id=73 data-nosnippet>73</a>        FileType::WavPack =&gt; (<span class="string">"wavpack"</span>, <span class="string">"wavpack"</span>, <span class="bool-val">true</span>),
+<a href=#74 id=74 data-nosnippet>74</a>        FileType::Speex =&gt; (<span class="string">"speex"</span>, <span class="string">"ogg"</span>, <span class="bool-val">false</span>),
+<a href=#75 id=75 data-nosnippet>75</a>        FileType::Flac =&gt; (<span class="string">"flac"</span>, <span class="string">"flac"</span>, <span class="bool-val">true</span>),
+<a href=#76 id=76 data-nosnippet>76</a>        FileType::Mpeg =&gt; (<span class="string">"mp3"</span>, <span class="string">"mp3"</span>, <span class="bool-val">false</span>),
+<a href=#77 id=77 data-nosnippet>77</a>        FileType::Mp4 =&gt; (<span class="string">"aac"</span>, <span class="string">"mp4"</span>, <span class="bool-val">false</span>),
+<a href=#78 id=78 data-nosnippet>78</a>        FileType::Opus =&gt; (<span class="string">"opus"</span>, <span class="string">"ogg"</span>, <span class="bool-val">false</span>),
+<a href=#79 id=79 data-nosnippet>79</a>        FileType::Vorbis =&gt; (<span class="string">"vorbis"</span>, <span class="string">"ogg"</span>, <span class="bool-val">false</span>),
+<a href=#80 id=80 data-nosnippet>80</a>        FileType::Wav =&gt; (<span class="string">"pcm"</span>, <span class="string">"wav"</span>, <span class="bool-val">true</span>),
+<a href=#81 id=81 data-nosnippet>81</a>        FileType::Aiff =&gt; (<span class="string">"pcm"</span>, <span class="string">"aiff"</span>, <span class="bool-val">true</span>),
+<a href=#82 id=82 data-nosnippet>82</a>        <span class="comment">// A resolver registered by a third party. Nothing sensible to say
+<a href=#83 id=83 data-nosnippet>83</a>        // about the stream, but its tags are still worth keeping.
+<a href=#84 id=84 data-nosnippet>84</a>        </span><span class="kw">_ </span>=&gt; (<span class="string">""</span>, <span class="string">""</span>, <span class="bool-val">false</span>),
+<a href=#85 id=85 data-nosnippet>85</a>    };
+<a href=#86 id=86 data-nosnippet>86</a>    tags.properties.codec = codec.to_string();
+<a href=#87 id=87 data-nosnippet>87</a>    tags.properties.container = container.to_string();
+<a href=#88 id=88 data-nosnippet>88</a>    tags.properties.lossless = lossless;
+<a href=#89 id=89 data-nosnippet>89</a>}
+<a href=#90 id=90 data-nosnippet>90</a>
+<a href=#91 id=91 data-nosnippet>91</a><span class="doccomment">/// Copies the textual items and the presence of cover art out of one tag.
+<a href=#92 id=92 data-nosnippet>92</a></span><span class="kw">fn </span>collect(tag: <span class="kw-2">&amp;</span>Tag, tags: <span class="kw-2">&amp;mut </span>RawTags) {
+<a href=#93 id=93 data-nosnippet>93</a>    <span class="kw">if </span>tag.picture_count() &gt; <span class="number">0 </span>{
+<a href=#94 id=94 data-nosnippet>94</a>        tags.has_embedded_art = <span class="bool-val">true</span>;
+<a href=#95 id=95 data-nosnippet>95</a>    }
+<a href=#96 id=96 data-nosnippet>96</a>    <span class="kw">for </span>item <span class="kw">in </span>tag.items() {
+<a href=#97 id=97 data-nosnippet>97</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(text) = item.value().text() <span class="kw">else </span>{
+<a href=#98 id=98 data-nosnippet>98</a>            <span class="kw">continue</span>;
+<a href=#99 id=99 data-nosnippet>99</a>        };
+<a href=#100 id=100 data-nosnippet>100</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(key) = field_name(item.key()) {
+<a href=#101 id=101 data-nosnippet>101</a>            tags.insert(key, text);
+<a href=#102 id=102 data-nosnippet>102</a>        }
+<a href=#103 id=103 data-nosnippet>103</a>    }
+<a href=#104 id=104 data-nosnippet>104</a>}
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a><span class="doccomment">/// Spelling of a key in the vocabulary the rest of the program speaks.
+<a href=#107 id=107 data-nosnippet>107</a>///
+<a href=#108 id=108 data-nosnippet>108</a>/// `lofty` normalises every format onto its own [`ItemKey`] enumeration; asking
+<a href=#109 id=109 data-nosnippet>109</a>/// it for the Vorbis Comment spelling brings the value back into the vocabulary
+<a href=#110 id=110 data-nosnippet>110</a>/// [`super::canonical_key`] already understands. `ItemKey` carries no variant
+<a href=#111 id=111 data-nosnippet>111</a>/// for a key it does not know, so a tag `lofty` did not recognise is lost here —
+<a href=#112 id=112 data-nosnippet>112</a>/// the alternative being a file that cannot be read at all.
+<a href=#113 id=113 data-nosnippet>113</a></span><span class="kw">fn </span>field_name(key: ItemKey) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str&gt; {
+<a href=#114 id=114 data-nosnippet>114</a>    key.map_key(TagType::VorbisComments)
+<a href=#115 id=115 data-nosnippet>115</a>        .or_else(|| key.map_key(TagType::Ape))
+<a href=#116 id=116 data-nosnippet>116</a>}</code></pre></div></section></main></body></html>

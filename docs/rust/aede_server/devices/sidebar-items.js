@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DeviceProtocol"],"fn":["cast","discover"],"struct":["CastOptions","DeviceDescription"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["HEIGHT","REFRESH","SIZE_REFRESH"],"fn":["bar_rows","terminal_columns"],"struct":["TerminalVisualizer"]};
+window.SIDEBAR_ITEMS = {"constant":["ANALYSIS_STEP_FRAMES","DISPLAY_BANDS","HEIGHT","MAX_COLUMNS","MAX_SNAPSHOTS","PEAK_FALL_PER_SECOND","PEAK_HOLD","POSITION_ROWS","REFRESH","SIZE_REFRESH"],"fn":["bar_rows","clock_text","position_rows","terminal_columns"],"struct":["Peaks","TerminalVisualizer"]};

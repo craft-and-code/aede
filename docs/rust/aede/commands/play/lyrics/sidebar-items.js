@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_CUE_LINES"],"fn":["cue_text"],"struct":["PlaybackLyrics","Visit"]};

@@ -299,7 +299,7 @@
 <a href=#299 id=299 data-nosnippet>299</a>        <span class="kw">let </span><span class="kw-2">mut </span>total = <span class="number">0u64</span>;
 <a href=#300 id=300 data-nosnippet>300</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>next <span class="kw">in </span>candidates {
 <a href=#301 id=301 data-nosnippet>301</a>            <span class="kw">let </span>distance = <span class="self">self</span>.transition_distance(previous, next);
-<a href=#302 id=302 data-nosnippet>302</a>            <span class="kw">if </span>radius.is_some_and(|radius| !distance.is_some_and(|d| d &lt;= radius)) {
+<a href=#302 id=302 data-nosnippet>302</a>            <span class="kw">if </span>radius.is_some_and(|radius| distance.is_none_or(|d| d &gt; radius)) {
 <a href=#303 id=303 data-nosnippet>303</a>                <span class="kw">continue</span>;
 <a href=#304 id=304 data-nosnippet>304</a>            }
 <a href=#305 id=305 data-nosnippet>305</a>            <span class="kw">if </span>radius.is_none() &amp;&amp; has_known &amp;&amp; distance.is_none() {
