@@ -42,8 +42,58 @@ On Unix with a matching local server, check delegates to it. Closing the CLI or 
 
 ### The Limits of the Container
 
-FLAC's audio MD5 describes decoded audio and needs a decode to compare. It is not verified by the current playback path or by this container-only check. `aede analyze` or imported [FlacCompagnon reports](imported-analyses.md#what-another-tool-found) can provide an attributed decoded-audio MD5 result.
+FLAC's audio MD5 describes decoded audio and needs a decode to compare. The container-only `aede check` command does not verify it. Playback now compares it during its normal decode, while `aede analyze` or imported [FlacCompagnon reports](imported-analyses.md#what-another-tool-found) can provide a separately attributed decoded-audio MD5 result.
 
 A CRC pass and a decoded MD5 mismatch can coexist: they test different properties. A mismatch needs investigation; it does not by itself prove a particular editing history. Spectral source-quality inferences are also distinct from either checksum.
+
+## FLAC audio MD5 during playback
+
+`aede play` and native PCM playback verify a present FLAC STREAMINFO audio MD5
+using the same progressive decode that supplies audio. The existing Symphonia
+FLAC decoder computes it from original integer samples before conversion to
+`f32`, downmix, gain, sample-rate conversion or other DSP. There is no extra
+full-file preflight decode and no change to music or tags.
+
+The checksum covers all decoded channels and samples; a zero checksum means
+the value is unknown, as specified in [RFC 9639, section
+8.2](https://www.rfc-editor.org/rfc/rfc9639.html#section-8.2). It can expose an
+audio inconsistency even when container checks pass. MD5 is a consistency
+check, not cryptographic proof of origin or authenticity; see [RFC
+6151](https://www.rfc-editor.org/rfc/rfc6151.html).
+
+The decoder's `flac_md5_status` distinguishes `Pending`, `Verified`,
+`NoSignature` and `Mismatch`. Verification finishes only when decoding reaches EOF. Stopping
+or skipping before EOF leaves a present checksum pending, without a successful whole-track
+verdict. A zero STREAMINFO MD5 permits playback with `NoSignature`; it is not
+reported as a verified digest. A mismatch is a decoding error, prevents natural
+completion and discards any new full-track loudness result. The native PCM
+route reports `decode_failed`; already delivered audio cannot be recalled.
+
+Progressive seeking still decodes and discards the prefix before playing the
+suffix. If that decoder subsequently reaches EOF, it has inspected the entire
+track and can verify its MD5 even though the listening history remains
+incomplete. Decoding verification and listening completion answer different
+questions.
+
+This runtime status does not write an integrity verdict or analysis to
+`conclusions.json`. Existing Aède or FlacCompagnon conclusions do not bypass the
+current decode's comparison. Other codecs retain their existing behavior.
+Subsonic/OpenSubsonic streams original encoded bytes without this decode, so
+decoded-audio verification there belongs to the client.
+
+Native and Ogg FLAC sources use the same integer-sample validator. Source frame
+counts and frame format declarations are checked; missing, repeated or reordered
+native frames are errors even without a stored signature. Independent 32-bit
+channels are supported, but the pinned codec cannot decode a correlated 32-bit
+stereo frame's 33-bit side channel or the newer explicit 32-bit frame-header
+encoding. Those sources are refused rather than reported as verified. Native
+FLAC playback skips optional metadata bodies on the original opened descriptor and
+exposes only STREAMINFO and encoded audio to the demuxer; large artwork is not
+decoded or capped for playback. At most 65,536 metadata headers are accepted,
+including zero-length blocks, to bound opening work. No source bytes are rewritten.
+
+This is not a certificate for all container bytes. Optional metadata content,
+trailing non-audio data and every Ogg page/link are outside the decoded MD5
+verdict. Keep the separate container check when investigating structural errors.
 
 For command syntax, threads, stored verdicts and practical limits see [check](cli/check.md). For read-back of newly copied destination files see [copy](cli/copy.md); it has different verification semantics.

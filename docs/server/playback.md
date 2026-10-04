@@ -22,6 +22,8 @@ Copy `track` from a catalog response's stable reference. Unknown fields, duplica
 
 The server opens the regular file represented by the current catalog and checks its size and precise modification time around decoding and before history publication. Changed sources and older catalogs lacking precise timestamps require a fresh scan. It refuses source links and unknown multichannel layouts. Audio files and tags are never rewritten.
 
+For a FLAC carrying a nonzero STREAMINFO MD5, reaching decoded EOF also checks the complete integer PCM against that digest, before floating-point conversion, normalization, downmix or other DSP. A mismatch ends playback with `decode_failed`, without a successful `eof` or `track_end` for the failed occurrence. Earlier PCM may already have reached the client: any accepted acknowledgements can still become an incomplete listen. Previously completed and fully acknowledged occurrences are preserved; later queued tracks are not started. A FLAC without a stored digest remains playable, but no MD5 verification is claimed. Closing before decoded EOF cannot establish the complete digest. This checks the encoded source's decoded content, not its identity or the client's physical output, and does not replace the source-identity checks.
+
 The first successful server text message describes the transmitted format:
 
 ```json
@@ -108,7 +110,8 @@ After upgrade, failures send `{"type":"error","code":"…","message":"…"}` whe
 | `invalid_start`, `invalid_ack` | Invalid control message, setting, reference kind or consumption counter. |
 | `track_not_found`, `catalog_unavailable` | Refresh the catalog/reference before retrying. |
 | `source_changed`, `source_unavailable` | Restore or rescan the regular audio source. |
-| `decode_failed`, `processing_failed`, `stream_failed` | Decode, DSP or worker failure; preserve partial-listen semantics. |
+| `decode_failed` | Audio decoding failed, including a FLAC decoded-content MD5 mismatch at EOF; preserve partial-listen semantics. |
+| `processing_failed`, `stream_failed` | DSP or worker failure; preserve partial-listen semantics. |
 | `ack_timeout` | Client consumption made no progress in time. |
 | `authentication_expired` | Session expired/revoked or account no longer permits playback. |
 | `history_failed` | History could not be confirmed as saved. |

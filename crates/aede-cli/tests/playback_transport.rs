@@ -5,6 +5,116 @@ mod playback_transport_support;
 use playback_transport_support::{Library, pcm};
 
 #[test]
+fn flac_md5_mismatch_stops_the_queue_and_never_publishes_complete_bad_audio_or_loudness() {
+    let mut library = Library::new();
+    let valid = library.copy_core_fixture("track.flac");
+    let invalid = library.flac_with_wrong_audio_md5(&valid);
+    let unvisited = library.wav("unvisited.wav", 4800, 7000);
+    let valid_key = valid.canonicalize().unwrap();
+    let invalid_key = invalid.canonicalize().unwrap();
+    let unvisited_key = unvisited.canonicalize().unwrap();
+    for mode in ["track", "album"] {
+        let result = library.play(
+            &[&valid, &invalid, &unvisited],
+            &["--normalize", mode],
+            true,
+        );
+        assert!(
+            !result.output.status.success(),
+            "MD5 mismatch must fail playback"
+        );
+        assert!(String::from_utf8_lossy(&result.output.stderr).contains("MD5"));
+        let history = result.history().expect("audio before failure is retained");
+        assert_eq!(history.plays.len(), 2);
+        assert_eq!(std::path::Path::new(&history.plays[0].track.key), valid_key);
+        assert!(history.plays[0].completed);
+        assert_eq!(history.plays[0].ms_played, 1000);
+        assert_eq!(
+            std::path::Path::new(&history.plays[1].track.key),
+            invalid_key
+        );
+        assert!(!history.plays[1].completed);
+        assert!(history.plays[1].ms_played > 0 && history.plays[1].ms_played <= 1000);
+        assert_eq!(history.counts.len(), 2, "the later track was never visited");
+        let cache =
+            aede_core::conclusions::load(&aede_core::conclusions::conclusions_path(&result.data))
+                .unwrap();
+        if mode == "track" {
+            assert!(
+                cache.as_ref().is_some_and(|cache| {
+                    cache.loudness_tracks.len() == 1
+                        && cache
+                            .loudness_tracks
+                            .contains_key(&valid_key.to_string_lossy().into_owned())
+                }),
+                "the completed valid track keeps its measured loudness"
+            );
+        }
+        if let Some(cache) = cache {
+            assert!(
+                cache
+                    .loudness_tracks
+                    .keys()
+                    .all(|track| std::path::Path::new(track) != invalid_key
+                        && std::path::Path::new(track) != unvisited_key)
+            );
+            assert!(
+                cache.loudness_programmes.is_empty(),
+                "a failed source cannot complete its album programme"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_flac_md5_mismatch_after_initial_seek_is_a_decode_failure_not_a_complete_suffix_listen() {
+    let mut library = Library::new();
+    let valid = library.copy_core_fixture("track.flac");
+    let invalid = library.flac_with_wrong_audio_md5(&valid);
+    let result = library.play(&[&invalid], &["--seek", "0.1"], false);
+    assert!(!result.output.status.success());
+    assert!(String::from_utf8_lossy(&result.output.stderr).contains("MD5"));
+    let history = result
+        .history()
+        .expect("played suffix is retained as incomplete");
+    assert_eq!(history.plays.len(), 1);
+    assert!(!history.plays[0].completed);
+    assert!(history.plays[0].ms_played > 0 && history.plays[0].ms_played <= 900);
+    result.assert_no_loudness_cache();
+}
+
+#[test]
+fn seeking_past_flac_eof_checks_all_discarded_audio_md5_without_creating_a_listen_or_cache() {
+    let mut library = Library::new();
+    let valid = library.copy_core_fixture("track.flac");
+    let invalid = library.flac_with_wrong_audio_md5(&valid);
+    let result = library.play(&[&invalid], &["--seek", "10"], false);
+    assert!(!result.output.status.success());
+    assert!(String::from_utf8_lossy(&result.output.stderr).contains("MD5"));
+    assert!(result.pcm.is_empty());
+    assert!(
+        result
+            .history()
+            .is_none_or(|history| history.plays.is_empty() && history.counts.is_empty())
+    );
+    result.assert_no_loudness_cache();
+}
+
+#[test]
+fn stopping_flac_before_eof_records_only_partial_audio_without_claiming_an_md5_result() {
+    let mut library = Library::new();
+    let valid = library.copy_core_fixture("track.flac");
+    let invalid = library.flac_with_wrong_audio_md5(&valid);
+    let result = library.terminal(&[&invalid], "flac-md5-stop");
+    result.assert_success();
+    let history = result.history().expect("partial audio is retained");
+    assert_eq!(history.plays.len(), 1);
+    assert!(!history.plays[0].completed);
+    assert!(history.plays[0].ms_played > 0 && history.plays[0].ms_played < 1000);
+    result.assert_no_loudness_cache();
+}
+
+#[test]
 fn lyric_cues_follow_pause_both_seek_directions_and_manual_next_in_a_real_terminal() {
     let mut library = Library::new();
     let first = library.timeline("first.wav", 24);
@@ -90,7 +200,7 @@ fn initial_seek_submits_the_exact_suffix_and_counts_only_audio_actually_played()
 #[test]
 fn seeking_into_a_track_never_publishes_suffix_loudness_as_a_whole_track_measurement() {
     let mut library = Library::new();
-    let track = library.copy_core_fixture("audit-stereo.flac");
+    let track = library.copy_core_fixture("playback-stereo.flac");
     let original = pcm(&track);
     let result = library.play(&[&track], &["--seek", "0.1"], false);
     result.assert_success();
@@ -108,7 +218,7 @@ fn seeking_into_a_track_never_publishes_suffix_loudness_as_a_whole_track_measure
 #[test]
 fn initial_seek_past_actual_eof_produces_no_audio_listen_or_loudness_cache() {
     let mut library = Library::new();
-    let track = library.copy_core_fixture("audit-stereo.flac");
+    let track = library.copy_core_fixture("playback-stereo.flac");
     let result = library.play(&[&track], &["--seek", "10"], false);
     result.assert_success();
     assert!(result.pcm.is_empty());

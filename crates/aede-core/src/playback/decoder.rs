@@ -17,7 +17,24 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+mod flac;
+mod flac_source;
 mod vorbis;
+
+/// Verification of a FLAC's original integer PCM against its stored MD5.
+///
+/// This describes this decoder run, not a persisted audit or audio quality.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FlacMd5Status {
+    /// STREAMINFO has no signature; successful decoding cannot verify MD5.
+    NoSignature,
+    /// A signature exists, but the complete source has not reached EOF.
+    Pending,
+    /// All decoded source samples match the signature at successful EOF.
+    Verified,
+    /// Complete decoding disagrees with the signature; reads return an error.
+    Mismatch,
+}
 
 /// A file or buffer that cannot satisfy the playback PCM contract.
 #[derive(Debug)]
@@ -42,6 +59,8 @@ pub enum Error {
     SeekAfterStart,
     /// The caller stopped a progressive seek before reaching its target.
     SeekCancelled,
+    /// The completely decoded FLAC audio disagrees with its STREAMINFO MD5.
+    FlacMd5Mismatch,
 }
 
 impl fmt::Display for Error {
@@ -57,6 +76,9 @@ impl fmt::Display for Error {
             Self::InvalidPosition => f.write_str("seek position exceeds the source-frame range"),
             Self::SeekAfterStart => f.write_str("seek requires a newly opened PCM stream"),
             Self::SeekCancelled => f.write_str("audio seek was cancelled"),
+            Self::FlacMd5Mismatch => {
+                f.write_str("decoded FLAC audio does not match its STREAMINFO MD5")
+            }
         }
     }
 }
@@ -92,6 +114,7 @@ pub struct FileDecoder {
 }
 
 enum Source {
+    Flac(flac::FlacStream),
     Native(PcmStreamDecoder),
     Vorbis(vorbis::VorbisStream),
     Ffmpeg(FfmpegStream),
@@ -114,6 +137,10 @@ impl FileDecoder {
             let sample_rate = native.sample_rate;
             let channels = native.channels;
             (Source::Vorbis(native), sample_rate, channels)
+        } else if let Some(native) = flac::FlacStream::open(path)? {
+            let sample_rate = native.sample_rate;
+            let channels = native.channels;
+            (Source::Flac(native), sample_rate, channels)
         } else {
             match PcmStreamDecoder::open(path) {
                 Ok(native) => {
@@ -148,6 +175,7 @@ impl FileDecoder {
             (1, _) => ChannelLayout::MONO,
             (2, _) => ChannelLayout::STEREO,
             (_, Source::Vorbis(native)) => native.layout,
+            (_, Source::Flac(native)) => native.layout,
             (_, Source::Native(_)) => {
                 ChannelLayout::from_mask(probe_channel_mask(path, sample_rate, channels)?)
                     .map_err(|_| Error::InvalidFormat)?
@@ -178,6 +206,19 @@ impl FileDecoder {
     /// Speaker positions, when the decoder exposes them.
     pub fn channel_layout(&self) -> ChannelLayout {
         self.layout
+    }
+
+    /// FLAC source MD5 status, or `None` for another codec.
+    ///
+    /// Verification uses original integer samples before float conversion or
+    /// DSP and becomes conclusive only at EOF. Stopping early leaves it pending.
+    /// Progressive seeking also decodes the discarded prefix and therefore
+    /// still permits whole-source verification when the remainder reaches EOF.
+    pub fn flac_md5_status(&self) -> Option<FlacMd5Status> {
+        match &self.inner {
+            Source::Flac(native) => Some(native.md5_status()),
+            _ => None,
+        }
     }
 
     /// Fill a buffer with complete frames and return the number of frames.
@@ -246,6 +287,7 @@ impl FileDecoder {
         let channels = usize::from(self.channels);
         while self.pending_offset == self.pending.len() {
             let chunk = match &mut self.inner {
+                Source::Flac(native) => native.next_chunk()?,
                 Source::Native(native) => native.next_chunk().map_err(Error::Decode)?,
                 Source::Vorbis(native) => native.next_chunk()?,
                 Source::Ffmpeg(external) => external.next_chunk()?,

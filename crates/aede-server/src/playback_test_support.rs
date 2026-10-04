@@ -1,4 +1,4 @@
-//! Test-only WAV catalog and WebSocket fixtures shared by playback transport tests.
+//! Test-only audio catalog and WebSocket fixtures shared by playback transport tests.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -19,8 +19,16 @@ pub(super) struct InstalledTrack {
 }
 
 pub(super) async fn install_wav(fixture: &Fixture, frames: u32) -> InstalledTrack {
+    install_wav_channels(fixture, frames, 1).await
+}
+
+pub(super) async fn install_stereo_wav(fixture: &Fixture, frames: u32) -> InstalledTrack {
+    install_wav_channels(fixture, frames, 2).await
+}
+
+async fn install_wav_channels(fixture: &Fixture, frames: u32, channels: u16) -> InstalledTrack {
     let path = fixture.0.data_dir.join("remote-playback.wav");
-    std::fs::write(&path, wav_bytes(frames)).expect("write WAV fixture");
+    std::fs::write(&path, wav_bytes_channels(frames, channels)).expect("write WAV fixture");
     let metadata = std::fs::metadata(&path).expect("WAV metadata");
     let path_text = path.to_string_lossy().into_owned();
     let mut guard = fixture.0.catalog.write().await;
@@ -34,9 +42,9 @@ pub(super) async fn install_wav(fixture: &Fixture, frames: u32) -> InstalledTrac
         container: "wav".into(),
         sample_rate: Some(8_000),
         bit_depth: Some(16),
-        channels: Some(1),
+        channels: Some(channels),
         duration_ms: Some(u64::from(frames) * 1_000 / 8_000),
-        bitrate_kbps: Some(128),
+        bitrate_kbps: Some(128 * u32::from(channels)),
         lossless: true,
     };
     catalog
@@ -50,8 +58,66 @@ pub(super) async fn install_wav(fixture: &Fixture, frames: u32) -> InstalledTrac
     InstalledTrack { reference, path }
 }
 
+pub(super) async fn additional_flac(
+    fixture: &Fixture,
+    name: &str,
+    wrong_audio_md5: bool,
+) -> InstalledTrack {
+    let source =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../aede-core/tests/fixtures/track.flac");
+    let path = fixture.0.data_dir.join(name);
+    let mut bytes = std::fs::read(source).expect("real FLAC fixture");
+    assert_eq!(&bytes[..4], b"fLaC");
+    assert_eq!(bytes[4] & 0x7f, 0, "first metadata block is STREAMINFO");
+    assert_eq!(&bytes[5..8], &[0, 0, 34]);
+    assert!(bytes[26..42].iter().any(|byte| *byte != 0));
+    if wrong_audio_md5 {
+        // Encoded frames, their CRCs and every decoded sample remain intact.
+        bytes[26] ^= 1;
+    }
+    std::fs::write(&path, bytes).expect("disposable FLAC fixture");
+    let metadata = std::fs::metadata(&path).expect("FLAC metadata");
+    let properties = aede_core::tags::read(&path)
+        .expect("FLAC properties")
+        .properties;
+    let path_text = path.to_string_lossy().into_owned();
+    let mut guard = fixture.0.catalog.write().await;
+    let catalog = guard.as_mut().expect("fixture catalog");
+    let mut file = catalog.files[0].clone();
+    file.id = catalog.files.len() as u32;
+    file.path = path_text.clone();
+    file.size = metadata.len();
+    file.mtime = clock::mtime_seconds(&metadata);
+    file.properties = properties;
+    let mut track = catalog.tracks[0].clone();
+    track.id = catalog.tracks.len() as u32;
+    track.file_id = file.id;
+    if let Some(release) = track.release_id {
+        catalog.releases[release as usize].track_ids.push(track.id);
+    }
+    catalog.recordings[track.recording_id as usize]
+        .track_ids
+        .push(track.id);
+    let id = track.id;
+    catalog.files.push(file);
+    catalog.tracks.push(track);
+    catalog
+        .file_mtime_subseconds
+        .insert(path_text, clock::mtime_subseconds(&metadata));
+    let reference = EntityRef::of(catalog, EntityKind::Track, id)
+        .expect("additional FLAC reference")
+        .to_token();
+    store::save_catalog_only(catalog, &store::catalog_path(&fixture.0.data_dir))
+        .expect("save additional FLAC");
+    InstalledTrack { reference, path }
+}
+
 pub(super) fn wav_bytes(frames: u32) -> Vec<u8> {
-    let bytes_per_frame = 2_u32;
+    wav_bytes_channels(frames, 1)
+}
+
+fn wav_bytes_channels(frames: u32, channels: u16) -> Vec<u8> {
+    let bytes_per_frame = 2 * u32::from(channels);
     let data_size = frames * bytes_per_frame;
     let mut bytes = Vec::with_capacity(44 + data_size as usize);
     bytes.extend_from_slice(b"RIFF");
@@ -59,10 +125,10 @@ pub(super) fn wav_bytes(frames: u32) -> Vec<u8> {
     bytes.extend_from_slice(b"WAVEfmt ");
     bytes.extend_from_slice(&16_u32.to_le_bytes());
     bytes.extend_from_slice(&1_u16.to_le_bytes());
-    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&channels.to_le_bytes());
     bytes.extend_from_slice(&8_000_u32.to_le_bytes());
     bytes.extend_from_slice(&(8_000_u32 * bytes_per_frame).to_le_bytes());
-    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&(2 * channels).to_le_bytes());
     bytes.extend_from_slice(&16_u16.to_le_bytes());
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_size.to_le_bytes());
@@ -72,7 +138,9 @@ pub(super) fn wav_bytes(frames: u32) -> Vec<u8> {
         } else {
             -8_000_i16
         };
-        bytes.extend_from_slice(&sample.to_le_bytes());
+        for _ in 0..channels {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
     }
     bytes
 }

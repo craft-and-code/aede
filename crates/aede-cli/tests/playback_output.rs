@@ -38,7 +38,8 @@ fn cli_reuses_the_output_for_matching_tracks_and_reopens_on_format_change() {
 
     let fixtures =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../aede-core/tests/fixtures");
-    let stereo = fixtures.join("audit-stereo.flac");
+    let stereo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-core/tests/playback_fixtures/flac/playback-stereo.flac");
     let mp3 = fixtures.join("gapless-stereo.mp3");
     let mono = fixtures.join("hires.flac");
     let playlist = root.join("play.m3u");
@@ -92,7 +93,7 @@ fn cli_reuses_the_output_for_matching_tracks_and_reopens_on_format_change() {
 #[test]
 fn cli_rejects_an_unknown_audio_backend() {
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../aede-core/tests/fixtures/audit-stereo.flac");
+        .join("../aede-core/tests/playback_fixtures/flac/playback-stereo.flac");
     let result = Command::new(env!("CARGO_BIN_EXE_aede"))
         .args(["play", &fixture.to_string_lossy()])
         .env("AEDE_AUDIO_BACKEND", "unknown")
@@ -115,7 +116,7 @@ fn missing_loudness_on_later_tracks_does_not_delay_or_prevent_the_first_output()
     let first = music.join("01.flac");
     std::fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../aede-core/tests/fixtures/audit-stereo.flac"),
+            .join("../aede-core/tests/playback_fixtures/flac/playback-stereo.flac"),
         &first,
     )
     .expect("first fixture");

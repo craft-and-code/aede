@@ -128,6 +128,14 @@ impl PcmTrack {
         self.source_format
     }
 
+    /// FLAC source verification for this run, before downmix, resampling or DSP.
+    ///
+    /// Only a fully decoded source reaching EOF can be verified; another codec
+    /// returns `None`. This status does not alter persisted integrity results.
+    pub fn flac_md5_status(&self) -> Option<decoder::FlacMd5Status> {
+        self.decoder.flac_md5_status()
+    }
+
     /// Choose the sink's sample rate before seeking or reading the first block. When
     /// rates match, samples retain the exact decoded path.
     pub fn set_output_rate(&mut self, rate: u32) -> Result<(), RateError> {

@@ -205,7 +205,7 @@ The pinned Symphonia 0.5.5 Ogg reader buffers the first audio page before discov
 | `vorbis-stereo-10001.ogg` | Stereo / 48 kHz | 10,816 | 9,873 | 10,001 |
 | `vorbis-stereo-300013.ogg` | Stereo / 48 kHz | 300,013 | 300,013 | 300,013 |
 
-A narrow wrapper uses the existing native Vorbis codec, not a new decoder or dependency. CRC-checked, bounded header inspection uses the same file handle later owned by the reader. A non-EOS initial audio page can declare a prefix crop; an EOS initial page cannot use that inferred delay as a prefix. The wrapper clears packet trims, discards a real prefix once and limits emitted PCM to the validated playable frame count. It continues through EOF to detect known premature ending, codec errors and chained stream resets. An EOS cannot silently discard more than the final decoded packet. Detected multiplexing, unknown EOS bounds and headers above 8 MiB are explicit errors. This is not a complete integrity checker: skipped corrupt Ogg pages and incomplete trailing links can still be hidden by the dependency's EOF behavior. FLAC MD5 remains separate.
+A narrow wrapper uses the existing native Vorbis codec, not a new decoder or dependency. CRC-checked, bounded header inspection uses the same file handle later owned by the reader. A non-EOS initial audio page can declare a prefix crop; an EOS initial page cannot use that inferred delay as a prefix. The wrapper clears packet trims, discards a real prefix once and limits emitted PCM to the validated playable frame count. It continues through EOF to detect known premature ending, codec errors and chained stream resets. An EOS cannot silently discard more than the final decoded packet. Detected multiplexing, unknown EOS bounds and headers above 8 MiB are explicit errors. This is not a complete integrity checker: skipped corrupt Ogg pages and incomplete trailing links can still be hidden by the dependency's EOF behavior. The separate [decoded FLAC check](#decoded-flac-verification) now runs during FLAC playback.
 
 The four new fixtures are synthetic local PCM encoded with Xiph libVorbis 1.3.7/libogg 1.3.6. Their exact source definition, encoder arguments, checksums and independent first/last 16-frame samples are retained in [the reference record](../../crates/aede-core/tests/playback_fixtures/vorbis-reference.json). Optional C utilities beside that record reproduce encoding and reference extraction; Aède and its tests do not build or depend on them. Five checked-in sources and a repaged 100-frame prefix crop compare frame counts and boundary samples with an absolute tolerance of 2e-6. Positive granule origins, 1-frame reads, detected chains, checksum corruption, truncation, missing/unknown granules and excessive final trimming also have tests. The pre-existing `track.ogg` expectation is corrected from 43,972 to the independent 44,100-frame oracle; it no longer requires ffmpeg.
 
@@ -236,6 +236,26 @@ Two development-Mac observations illustrate these costs without setting a hardwa
 
 These measurements do not include a cold real library, physical output or a NAS. No target latency, callback deadline or constant-time seek guarantee follows from them. Native PCM v1 accepts finite queues without these local seek/repeat/shuffle controls; Subsonic clients independently use the existing original-file byte-range contract.
 
+## Decoded FLAC verification
+
+FLAC playback now enables verification in the existing Symphonia codec and
+finalizes its STREAMINFO MD5 at EOF. It checks the original integer samples
+before `f32` conversion, downmix and DSP, during the same progressive decode;
+there is no second whole-file read before sound starts. A zero signature is
+allowed and reported as unavailable, while stopping before EOF establishes no
+whole-track success. Progressive seeking decodes the discarded prefix, so its
+decoder can still verify at EOF despite an incomplete listening event.
+
+A mismatch returns a decode error to the CLI/native PCM server and prevents
+natural completion or publication of newly captured full-track loudness.
+Previously delivered PCM remains delivered. The runtime result writes no
+stored integrity verdict or attributed analysis, and existing FlacCompagnon
+conclusions do not bypass the comparison. Subsonic original-file streaming has
+no server decode and leaves this verification to the client. See [integrity
+scope](../integrity.md#flac-audio-md5-during-playback) and [RFC 9639 section
+8.2](https://www.rfc-editor.org/rfc/rfc9639.html#section-8.2). This checksum is not
+an authenticity guarantee or new evidence of physical output quality.
+
 ## Remaining work in priority order
 
 ### 1. Close decoder and physical gapless gaps
@@ -246,7 +266,7 @@ Native Vorbis trimming and control-aware drain are corrected and covered below. 
 
 Development-host release profiling establishes a repeatable baseline, not NAS acceptance. Measure representative real-library cold/warm startup, decode throughput, CPU/RSS, queue margin and underruns under load on the intended NAS and output device. Include uncommon-ratio sinc conversion, multichannel input and changing formats. Select budgets from that hardware and workload; software timing checks alone cannot establish a callback deadline or physical playback latency.
 
-Native PCM transport also needs real-client output/buffering acceptance. Its finite-queue v1 extension establishes continuous compatible PCM joins in software, with cumulative acknowledgements and separate occurrence history. It has no seeking/live editing, and physical remote gaplessness still depends on the client buffer and output. Local queue integration, seeking, repeat, uniform/smart shuffle, Windows console controls and synchronized terminal lyrics are implemented. The lyric renderer follows callback-consumed frames with CPAL and explicitly estimated active time with ffplay; it performs no work in the audio callback and makes no DAC-latency claim. A separate native lyrics API supplies source/text/timestamps for graphical clients following their own clock without changing the PCM stream. Native Windows console/output acceptance and decoded FLAC MD5 remain separate player work, described in [Playback](../design/playback.md).
+Native PCM transport also needs real-client output/buffering acceptance. Its finite-queue v1 extension establishes continuous compatible PCM joins in software, with cumulative acknowledgements and separate occurrence history. It has no seeking/live editing, and physical remote gaplessness still depends on the client buffer and output. Local queue integration, seeking, repeat, uniform/smart shuffle, Windows console controls, synchronized terminal lyrics and decoded FLAC MD5 verification are implemented. The lyric renderer follows callback-consumed frames with CPAL and explicitly estimated active time with ffplay; it performs no work in the audio callback and makes no DAC-latency claim. A separate native lyrics API supplies source/text/timestamps for graphical clients following their own clock without changing the PCM stream. Native Windows console/output acceptance remains separate player work, described in [Playback](../design/playback.md).
 
 ### 3. Optional loudness preparation workflow
 

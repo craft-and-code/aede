@@ -346,13 +346,17 @@ fn an_explicit_collection_name_disambiguates_a_track_title() {
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../aede-core/tests/fixtures")
+        .join(if name.starts_with("playback") {
+            "../aede-core/tests/playback_fixtures/flac"
+        } else {
+            "../aede-core/tests/fixtures"
+        })
         .join(name)
 }
 
 #[test]
 fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
-    let path = fixture("audit-stereo.flac");
+    let path = fixture("playback-stereo.flac");
     let mut track = PcmTrack::open(&path).expect("fixture opens");
     let format = track.format();
     let mut session =
@@ -397,7 +401,7 @@ fn pcm_stream_reaches_output_as_interleaved_little_endian_floats() {
 
 #[test]
 fn tone_processing_reaches_the_serialized_playback_stream() {
-    let path = fixture("audit-stereo.flac");
+    let path = fixture("playback-stereo.flac");
     let mut track = PcmTrack::open(&path).expect("fixture opens");
     let tone = ToneControls::new(6.0, -3.0).expect("tone");
     let mut session =
@@ -641,7 +645,7 @@ fn a_direct_file_records_history_without_a_catalog() {
         "--data".to_string(),
         root.to_string_lossy().into_owned(),
     ]);
-    let path = fixture("audit-stereo.flac").canonicalize().unwrap();
+    let path = fixture("playback-stereo.flac").canonicalize().unwrap();
     record_play(&args, &path, 123, 456, true).unwrap();
     let data = user::load(&user::user_path(&root)).unwrap().unwrap();
     assert_eq!(data.plays.len(), 1);

@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use super::{PcmStreamFormat, PcmTrack, StreamError};
 
 fn fixture() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audit-stereo.flac")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/playback_fixtures/flac/playback-stereo.flac")
 }
 
 fn source_blocks(path: &std::path::Path) -> (PcmStreamFormat, Vec<Vec<f32>>) {

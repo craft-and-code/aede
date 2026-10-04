@@ -79,10 +79,28 @@ impl Library {
 
     pub fn copy_core_fixture(&self, name: &str) -> PathBuf {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../aede-core/tests/fixtures")
+            .join(if name.starts_with("playback") {
+                "../aede-core/tests/playback_fixtures/flac"
+            } else {
+                "../aede-core/tests/fixtures"
+            })
             .join(name);
         let path = self.root.join(name);
         std::fs::copy(source, &path).expect("disposable audio fixture");
+        path
+    }
+
+    pub fn flac_with_wrong_audio_md5(&self, valid: &Path) -> PathBuf {
+        let path = self.root.join("wrong-audio-md5.flac");
+        let mut bytes = std::fs::read(valid).expect("real FLAC fixture");
+        assert_eq!(&bytes[..4], b"fLaC");
+        assert_eq!(bytes[4] & 0x7f, 0, "first block is STREAMINFO");
+        assert_eq!(&bytes[5..8], &[0, 0, 34]);
+        assert!(bytes[26..42].iter().any(|byte| *byte != 0));
+        // Only STREAMINFO's decoded-audio MD5 changes. Encoded frames, their
+        // CRCs and the sample programme remain the original valid fixture.
+        bytes[26] ^= 1;
+        std::fs::write(&path, bytes).expect("disposable MD5 mismatch");
         path
     }
 

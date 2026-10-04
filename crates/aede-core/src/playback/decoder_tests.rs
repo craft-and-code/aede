@@ -4,8 +4,51 @@ use super::{Error, FileDecoder};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
+        .join(if name.starts_with("playback") {
+            "tests/playback_fixtures/flac"
+        } else {
+            "tests/fixtures"
+        })
         .join(name)
+}
+
+#[test]
+fn a_flac_md5_mismatch_is_not_reported_as_successful_decoded_eof() {
+    let mut bytes = std::fs::read(fixture("playback-stereo.flac")).unwrap();
+    assert_eq!(&bytes[..4], b"fLaC");
+    assert!(bytes[26..42].iter().any(|&byte| byte != 0));
+    bytes[26] ^= 1;
+    let path = std::env::temp_dir().join(format!(
+        "aede_flac_md5_mismatch_{}.flac",
+        std::process::id()
+    ));
+    std::fs::write(&path, &bytes).unwrap();
+    let result = (|| {
+        let mut decoder = FileDecoder::open(&path).unwrap();
+        let mut buffer = vec![0.0; 4096 * usize::from(decoder.channels())];
+        loop {
+            match decoder.read_frames(&mut buffer) {
+                Ok(0) => return None,
+                Ok(_) => {}
+                Err(error) => {
+                    assert_eq!(
+                        decoder.flac_md5_status(),
+                        Some(super::FlacMd5Status::Mismatch)
+                    );
+                    assert!(matches!(
+                        decoder.read_frames(&mut buffer),
+                        Err(Error::FlacMd5Mismatch)
+                    ));
+                    return Some(error);
+                }
+            }
+        }
+    })();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        result.is_some_and(|error| error.to_string().contains("MD5")),
+        "the decoded FLAC must fail when its stored audio digest differs"
+    );
 }
 
 fn decode_all(name: &str, buffer_frames: usize) -> (u32, u16, Vec<f32>) {
@@ -75,7 +118,7 @@ fn encoder_delay_and_padding_do_not_reach_playback_pcm() {
 
 #[test]
 fn invalid_output_buffer_does_not_consume_audio() {
-    let mut decoder = FileDecoder::open(&fixture("audit-stereo.flac")).expect("fixture opens");
+    let mut decoder = FileDecoder::open(&fixture("playback-stereo.flac")).expect("fixture opens");
     assert_eq!(decoder.channels(), 2);
     let channels = usize::from(decoder.channels());
     let mut empty = [];
@@ -92,7 +135,7 @@ fn invalid_output_buffer_does_not_consume_audio() {
 
     let mut output = vec![0.0; channels];
     assert_eq!(decoder.read_frames(&mut output).expect("first frame"), 1);
-    let (_, _, reference) = decode_all("audit-stereo.flac", 32);
+    let (_, _, reference) = decode_all("playback-stereo.flac", 32);
     assert_eq!(output, reference[..channels]);
 }
 
@@ -146,7 +189,7 @@ fn opus_pre_skip_and_end_trim_yield_only_playable_frames() {
 #[test]
 fn progressive_skip_keeps_exact_native_pcm_and_clamps_at_actual_eof() {
     for name in [
-        "audit-stereo.flac",
+        "playback-stereo.flac",
         "hires.flac",
         "track.wav",
         "track.mp3",
@@ -179,9 +222,9 @@ fn progressive_skip_keeps_exact_native_pcm_and_clamps_at_actual_eof() {
 
 #[test]
 fn progressive_skip_advances_from_a_partially_read_packet() {
-    let (_, channels, reference) = decode_all("audit-stereo.flac", 127);
+    let (_, channels, reference) = decode_all("playback-stereo.flac", 127);
     let channels = usize::from(channels);
-    let mut decoder = FileDecoder::open(&fixture("audit-stereo.flac")).expect("fixture opens");
+    let mut decoder = FileDecoder::open(&fixture("playback-stereo.flac")).expect("fixture opens");
     let mut frame = vec![0.0; channels];
     assert_eq!(decoder.read_frames(&mut frame).expect("first frame"), 1);
     assert_eq!(decoder.skip_frames(7, || false).unwrap().frames, 7);
@@ -194,7 +237,7 @@ fn progressive_skip_advances_from_a_partially_read_packet() {
 
 #[test]
 fn progressive_seek_cancellation_is_distinct_from_eof_and_polled_during_work() {
-    let mut decoder = FileDecoder::open(&fixture("audit-stereo.flac")).expect("fixture opens");
+    let mut decoder = FileDecoder::open(&fixture("playback-stereo.flac")).expect("fixture opens");
     let mut polls = 0;
     let result = decoder.skip_frames(u64::MAX, || {
         polls += 1;

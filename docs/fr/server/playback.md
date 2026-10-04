@@ -22,6 +22,8 @@ Copiez `track` depuis la référence stable d’une réponse du catalogue. Champ
 
 Le serveur ouvre le fichier ordinaire du catalogue actuel et vérifie taille/date précise autour du décodage et avant publication de l’historique. Source modifiée et ancien catalogue sans date précise demandent un nouveau scan. Liens de source et dispositions multicanaux inconnues sont refusés. Fichiers audio et tags ne sont jamais réécrits.
 
+Pour un FLAC dont STREAMINFO contient un MD5 non nul, atteindre la fin décodée vérifie aussi le PCM entier complet contre cette empreinte, avant conversion en flottants, normalisation, mélange de canaux ou autre DSP. Une différence arrête la lecture avec `decode_failed`, sans `eof` réussi ni `track_end` pour l’occurrence en échec. Du PCM peut déjà avoir atteint le client : les confirmations acceptées peuvent encore produire une écoute incomplète. Les occurrences précédentes terminées et entièrement confirmées sont conservées ; les pistes suivantes ne démarrent pas. Un FLAC sans empreinte reste lisible, mais aucune vérification MD5 n’est annoncée. Fermer avant la fin décodée ne permet pas d’établir l’empreinte complète. Ce contrôle concerne le contenu décodé de la source encodée, pas son identité ni la sortie physique du client, et ne remplace pas les vérifications d’identité de source.
+
 Le premier message texte réussi décrit le format transmis :
 
 ```json
@@ -108,7 +110,8 @@ Après passage en WebSocket, un échec envoie `{"type":"error","code":"…","mes
 | `invalid_start`, `invalid_ack` | Commande, réglage, type de référence ou compteur invalides. |
 | `track_not_found`, `catalog_unavailable` | Actualiser catalogue/référence avant de réessayer. |
 | `source_changed`, `source_unavailable` | Restaurer ou rescanner la source audio ordinaire. |
-| `decode_failed`, `processing_failed`, `stream_failed` | Échec du décodeur, DSP ou travailleur ; conserver le sens d’écoute partielle. |
+| `decode_failed` | Échec du décodage audio, notamment différence de MD5 du contenu FLAC décodé en fin de piste ; conserver le sens d’écoute partielle. |
+| `processing_failed`, `stream_failed` | Échec DSP ou travailleur ; conserver le sens d’écoute partielle. |
 | `ack_timeout` | Aucun progrès de consommation client à temps. |
 | `authentication_expired` | Session expirée/révoquée ou compte ne permettant plus la lecture. |
 | `history_failed` | Sauvegarde de l’historique non confirmée. |

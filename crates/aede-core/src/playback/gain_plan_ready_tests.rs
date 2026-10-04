@@ -14,12 +14,16 @@ fn root() -> PathBuf {
 }
 
 fn fixture(root: &Path, name: &str) -> PathBuf {
-    fixture_from(root, name, "audit-stereo.flac")
+    fixture_from(root, name, "playback-stereo.flac")
 }
 
 fn fixture_from(root: &Path, name: &str, source_name: &str) -> PathBuf {
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
+        .join(if source_name.starts_with("playback") {
+            "tests/playback_fixtures/flac"
+        } else {
+            "tests/fixtures"
+        })
         .join(source_name);
     let target = root.join(name);
     std::fs::copy(source, &target).expect("fixture copy");
@@ -423,7 +427,7 @@ fn an_unknown_album_can_restart_capture_without_changing_its_frozen_gain() {
     let directory = root();
     let paths = vec![
         fixture(&directory, "first.flac"),
-        fixture_from(&directory, "second.flac", "audit-dualmono.flac"),
+        fixture_from(&directory, "second.flac", "playback-dualmono.flac"),
     ];
     let mut session =
         ReadyNormalization::new(&paths, false, None, &directory, NormalizationMode::Album)

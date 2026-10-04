@@ -41,7 +41,7 @@
     const palette=ctx.createLinearGradient(left,0,left+span,0);
     palette.addColorStop(0,'#d8f36a');palette.addColorStop(.48,'#49d9ff');palette.addColorStop(1,'#b69aff');
     ctx.strokeStyle='#303236';ctx.lineWidth=1;ctx.globalAlpha=.55;
-    for(const y of [mid-height,mid,mid+height]){ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(left+span,y);ctx.stroke();}
+    ctx.beginPath();ctx.moveTo(left,mid);ctx.lineTo(left+span,mid);ctx.stroke();
     // The beat drives motion only: this is an illustration, not a measured spectrum.
     for(let ring=0;ring<2;ring++){
       const progress=(phase+ring*.5)%1,radius=22+progress*height;

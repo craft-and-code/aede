@@ -1413,3 +1413,7 @@ mod tests;
 #[cfg(test)]
 #[path = "playback_queue_tests.rs"]
 mod queue_tests;
+
+#[cfg(test)]
+#[path = "playback_md5_tests.rs"]
+mod md5_tests;

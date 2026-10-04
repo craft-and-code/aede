@@ -51,8 +51,26 @@ Sur Unix avec serveur correspondant, check est délégué. Fermer la CLI ou son 
 
 ### Limites du conteneur
 
-Le MD5 audio FLAC concerne l’audio décodé ; le comparer exige le décodage. Ni lecture actuelle ni check ne le vérifient. `analyze` ou [rapports FlacCompagnon](imported-analyses.md) peuvent apporter ce résultat attribué.
+Le MD5 audio FLAC concerne l’audio décodé ; le comparer exige le décodage. La commande `aede check`, limitée au conteneur, ne le vérifie pas. La lecture le compare désormais pendant son décodage normal ; `aede analyze` ou les [rapports FlacCompagnon](imported-analyses.md) peuvent fournir séparément un résultat MD5 attribué à leur source.
 
 CRC valide et MD5 décodé divergent parfois : ils interrogent des propriétés différentes. Une divergence demande enquête, sans prouver une histoire de modification précise. Les inférences spectrales sont encore une autre question.
+
+<div id="flac-audio-md5-during-playback" data-legacy-anchor></div>
+
+## MD5 audio FLAC pendant la lecture
+
+`aede play` et la lecture PCM native vérifient le MD5 audio présent dans le bloc STREAMINFO du FLAC pendant le décodage progressif qui fournit le son. Le décodeur FLAC Symphonia déjà utilisé le calcule sur les échantillons entiers originaux, avant conversion en `f32`, réduction des canaux, gain, conversion de fréquence ou autre traitement DSP. Aucun décodage préalable supplémentaire du fichier entier n’est effectué ; musique et tags restent inchangés.
+
+La somme porte sur tous les canaux et échantillons décodés ; une somme nulle signifie que sa valeur est inconnue, conformément à la [RFC 9639, section 8.2](https://www.rfc-editor.org/rfc/rfc9639.html#section-8.2). Elle peut révéler une incohérence audio même lorsque les contrôles du conteneur réussissent. Le MD5 sert ici à contrôler la cohérence, sans constituer une preuve cryptographique d’origine ou d’authenticité ; voir la [RFC 6151](https://www.rfc-editor.org/rfc/rfc6151.html).
+
+Le statut `flac_md5_status` du décodeur distingue `Pending`, `Verified`, `NoSignature` et `Mismatch`. La vérification ne se termine que lorsque le décodage atteint la fin du fichier. Arrêter ou sauter le morceau avant cette fin laisse une somme présente en attente, sans verdict réussi sur le morceau entier. Un MD5 STREAMINFO nul autorise la lecture avec `NoSignature` ; il n’est pas présenté comme une somme vérifiée. Une divergence provoque une erreur de décodage, empêche la fin normale de lecture et abandonne tout nouveau résultat de mesure de sonie (LUFS) sur le morceau entier. La route PCM native signale `decode_failed` ; l’audio déjà transmis ne peut pas être rappelé.
+
+Le déplacement progressif dans un morceau décode et écarte toujours le préfixe avant de lire la suite. Si ce décodeur atteint ensuite la fin du fichier, il a parcouru le morceau entier et peut vérifier son MD5, même si l’historique d’écoute reste incomplet. Vérification du décodage et écoute complète répondent à des questions différentes.
+
+Ce statut d’exécution n’écrit aucun verdict d’intégrité ni aucune analyse dans `conclusions.json`. Les conclusions Aède ou FlacCompagnon existantes ne dispensent pas le décodage actuel de cette comparaison. Les autres codecs conservent leur comportement. Subsonic/OpenSubsonic transmet les octets encodés originaux sans ce décodage ; la vérification de l’audio décodé y appartient donc au client.
+
+Les sources FLAC natives et Ogg utilisent le même vérificateur des échantillons entiers. Le nombre de trames source et les déclarations de format sont contrôlés ; des trames natives manquantes, répétées ou réordonnées provoquent une erreur même sans somme stockée. Les canaux indépendants sur 32 bits sont pris en charge, mais la version du codec utilisée ne peut pas décoder le canal latéral de 33 bits d’une trame stéréo corrélée sur 32 bits, ni le nouvel encodage explicite sur 32 bits de l’en-tête de trame. Ces sources sont refusées plutôt que déclarées vérifiées. Pour la lecture FLAC native, les corps des métadonnées facultatives sont sautés sur le descripteur du fichier initialement ouvert ; seuls STREAMINFO et l’audio encodé sont présentés au démultiplexeur. Les grandes pochettes ne sont ni décodées ni soumises à une limite de taille pour la lecture. Au plus 65 536 en-têtes de métadonnées sont acceptés, y compris les blocs vides, pour borner le travail d’ouverture. Aucun octet source n’est réécrit.
+
+Ce contrôle ne certifie pas tous les octets du conteneur. Le contenu des métadonnées facultatives, les données non audio finales et l’ensemble des pages ou des flux enchaînés Ogg ne sont pas couverts par le verdict MD5 décodé. Conserver le contrôle de conteneur séparé pour rechercher des erreurs de structure.
 
 [check](cli/check.md) détaille syntaxe, fils de travail et verdicts ; [copy](cli/copy.md) décrit la relecture des destinations nouvellement écrites, aux règles différentes.

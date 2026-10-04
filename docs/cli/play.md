@@ -126,6 +126,14 @@ With native output, cues follow frames consumed by the CPAL callback, including 
 
 The [native lyrics API](../server/playback.md#lyrics-and-the-client-clock) gives Phémios or another authorized client a separate timed text resource. The client follows its own audio presentation position, pauses and seeks. Lyrics are not embedded in the PCM packets; this API does not enable the separate Subsonic lyrics methods.
 
+## FLAC audio integrity during playback
+
+For FLAC sources, Aède compares the decoded audio with the MD5 stored in STREAMINFO during the same progressive decode pass. The comparison uses original integer samples before float conversion, normalization, downmix, resampling or tone controls. It does not change the file or its sound, predecode the whole track, or run FlacCompagnon's full analysis again. A previous analysis result does not skip the check of the currently opened source.
+
+Verification is conclusive only when the complete source reaches EOF. Stopping or skipping to another track before EOF leaves it pending. Seeking progressively decodes the discarded prefix, so reaching EOF after a seek can still verify the whole source; skipped audio remains absent from listening history and loudness capture. An all-zero stored MD5 means that no signature is available: playback is allowed without a verified verdict. A mismatch returns a decode diagnostic, stops the queue and prevents natural completion or saving a newly captured full-track loudness result. Earlier completed listens remain valid, and acknowledged/submitted listening to the failing track is incomplete. No integrity verdict is written to the catalog.
+
+This checks decoded-audio consistency, not mastering quality or authenticity. FLAC file transfers to Subsonic clients do not decode audio on the server, so this playback check applies to local playback and native remote PCM. See [integrity](../integrity.md#flac-audio-md5-during-playback) for the exact scope and codec limits.
+
 ## Result and errors
 
 The terminal names the album and numbered filename as playback advances, shows 24 animated spectrum bars (or lyric cues with `--lyrics`), and reports active DSP stages, normalization/tone headroom and output-meter values. The meter observes guarded PCM submitted to local output before dither/device conversion, not sound measured at the loudspeaker. Read normalization source and guard intervention reports when interpreting level changes. Completion follows the selected repeat mode. A missing decoder/output device, unsupported channel layout, malformed playlist or file decode/output failure returns a diagnostic; completed listening records may already be saved. A device shortage/underrun is an output problem, distinct from a catalog tag issue. See the DSP guide for measurement limits.

@@ -200,6 +200,8 @@ try:
     elif scenario == "lyrics-repeat":
         wait_for(lambda: bytes(transcript).count(b"repeated-opening") >= 2)
         assert len(streams()) == 1, "compatible repeats retain the same output session"
+    elif scenario == "flac-md5-stop":
+        wait_for(lambda: stream_ready(1))
     else:
         raise AssertionError(f"unknown scenario: {scenario}")
     if scenario != "seek-past-end" and not scenario.startswith("initial-seek-next"):
@@ -211,6 +213,8 @@ try:
             raise AssertionError(f"q did not stop playback: {bytes(transcript)!r}")
     read_output()
     assert child.returncode == 0, bytes(transcript)
+    if scenario == "flac-md5-stop":
+        assert b"MD5" not in transcript, "an early stop cannot check the complete source MD5"
     mode = termios.tcgetattr(slave)
     mode[3] &= ~getattr(termios, "PENDIN", 0)
     original_mode[3] &= ~getattr(termios, "PENDIN", 0)
