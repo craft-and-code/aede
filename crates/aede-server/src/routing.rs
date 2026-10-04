@@ -35,7 +35,8 @@ fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
         .merge(playback_api::routes())
         .merge(subsonic::routes())
         .merge(catalog_commands::routes())
-        .merge(inspection::routes());
+        .merge(inspection::routes())
+        .merge(lyrics::routes());
     if admin_enabled {
         routes = routes
             .route("/api/admin/v1/scan", post(jobs::scan_route))

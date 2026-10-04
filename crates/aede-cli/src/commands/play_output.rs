@@ -241,6 +241,10 @@ mod native {
             })
         }
 
+        pub(super) fn consumed_frames(&self) -> u64 {
+            self.producer.snapshot().consumed_frames
+        }
+
         pub(super) fn host_tail(&self) -> Duration {
             if self.started {
                 Duration::from_millis(100)
@@ -454,6 +458,18 @@ impl LocalOutput {
             ))]
             Self::Native { output, .. } => output.stage_description(),
             Self::Unopened { .. } => "unopened",
+        }
+    }
+
+    pub(super) fn consumed_frames(&self) -> Option<u64> {
+        match self {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => Some(output.consumed_frames()),
+            _ => None,
         }
     }
 

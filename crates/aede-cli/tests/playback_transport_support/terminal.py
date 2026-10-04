@@ -48,6 +48,10 @@ if scenario.startswith("repeat-"):
     arguments += ["--normalize", "off", "--repeat", scenario.removeprefix("repeat-")]
 elif scenario.startswith("initial-seek-next"):
     arguments += ["--normalize", "off", "--seek", "0.02"]
+elif scenario.startswith("lyrics-"):
+    arguments += ["--normalize", "off", "--lyrics"]
+    if scenario == "lyrics-repeat":
+        arguments += ["--repeat", "one"]
 environment = {
     **os.environ,
     "PATH": str(bin_directory) + os.pathsep + os.environ.get("PATH", ""),
@@ -175,6 +179,27 @@ try:
         assert len(streams()) == 1, "changing order must not reopen the current track"
         os.write(master, b" ")
         wait_for(lambda: paused_output.stat().st_size > paused_size)
+    elif scenario == "lyrics-transport":
+        wait_for(lambda: b"first-opening" in transcript and stream_ready(1))
+        assert b"Timing estimated" in transcript, "ffplay must announce its estimated clock"
+        os.write(master, b" ")
+        output_paused = paused_probe()
+        wait_for(output_paused)
+        paused_words = bytes(transcript).count(b"first-opening")
+        os.write(master, b"r")
+        wait_for(lambda: b"Repeat: one" in transcript)
+        assert b"first-later" not in transcript, "pause cannot advance the lyric timeline"
+        assert bytes(transcript).count(b"first-opening") == paused_words
+        os.write(master, b" ")
+        os.write(master, b"]")
+        wait_for(lambda: b"first-later" in transcript and stream_ready(2))
+        os.write(master, b"[")
+        wait_for(lambda: bytes(transcript).count(b"first-opening") >= 2 and stream_ready(3))
+        os.write(master, b"n")
+        wait_for(lambda: b"second-opening" in transcript)
+    elif scenario == "lyrics-repeat":
+        wait_for(lambda: bytes(transcript).count(b"repeated-opening") >= 2)
+        assert len(streams()) == 1, "compatible repeats retain the same output session"
     else:
         raise AssertionError(f"unknown scenario: {scenario}")
     if scenario != "seek-past-end" and not scenario.startswith("initial-seek-next"):
@@ -200,6 +225,8 @@ try:
     (directory / "output.pcm").write_bytes(output)
     print(json.dumps({"playing": [line.decode(errors="replace") for line in playing()],
                       "first_samples": samples,
+                      "lyrics": [line.decode(errors="replace") for line in
+                                 re.findall(rb"[^\r\n]*\xe2\x96\xb8[^\r\n]*", bytes(transcript))],
                       "elapsed_ms": int((time.monotonic() - started) * 1000)}))
 finally:
     if child.poll() is None:

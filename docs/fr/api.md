@@ -41,6 +41,7 @@ Les routes d’origine `/status` et `/library` lisent les métadonnées et compt
 | `GET /api/v1/tracks` | Page de résumés de pistes. |
 | `GET /api/v1/recordings` | Page de résumés d’enregistrements. |
 | `GET /api/v1/entities?ref=<token>` | Détail d’une entité sélectionnée par un jeton stable. |
+| `GET /api/v1/lyrics?track=<token>` | Paroles locales complètes avec horodatages éventuels, ou `lyrics: null`. |
 | `GET /api/v1/events` | Notifications WebSocket de catalogue, inchangées par rapport au contrat v1 figé. |
 | `GET /api/v1/activity` | Notifications WebSocket de catalogue et d’activité des tâches. |
 
@@ -116,15 +117,20 @@ Une erreur applicative est `{ "error": { "code": string, "message": string } }`.
 | 403 | `invalid_origin` | Origine de navigateur étrangère, mal formée ou ambiguë. |
 | 404 | `entity_not_found` | Référence correctement formée absente du catalogue actuel. |
 | 404 | `not_found` | Chemin inconnu. |
+| 404 | `source_unavailable`, `lyrics_unavailable` | Le fichier audio ou de paroles catalogué est indisponible. |
 | 405 | `method_not_allowed` | Méthode HTTP non prise en charge sur un chemin connu. |
 | 409 | `ambiguous_entity` | Un nom au singulier choisit plusieurs entités ; des candidats bornés accompagnent l’erreur. |
 | 409 | `store_busy` | Doctor ou le scan administratif synchrone ne peut prendre le verrou des données. |
+| 409 | `source_changed`, `lyrics_changed` | Les paroles ne peuvent être associées aux fichiers audio/paroles réguliers actuels ; restaurer ou rescanner la source. |
+| 413 | `lyrics_too_large` | Les paroles complètes dépassent une limite d’entrée, de développement ou de réponse JSON. |
 | 429 | `inspection_busy` | Le budget partagé de catalogue/navigation/inspection est plein. |
 | 500 | `sources_unavailable` | Un fichier de sources enregistré n’a pas pu être lu. |
 | 500 | `catalog_read_failed` | Doctor n’a pas pu lire catalogue/conclusions. |
 | 500 | `inspection_failed` | Un travail d’inspection en arrière-plan a échoué. |
+| 500 | `lyrics_read_failed` | La lecture complète des paroles a échoué. |
 | 503 | `catalog_unavailable` | Le catalogue a été retiré pendant le fonctionnement du serveur. |
 | 503 | `connection_limit` | La limite partagée de connexions WebSocket est atteinte. |
+| 503 | `lyrics_timeout` | La lecture locale complète des paroles a dépassé son délai de réponse. |
 
 Le serveur vérifie `catalog.json` environ chaque seconde. Un remplacement réussi échange l’instantané en mémoire. Un remplacement illisible laisse l’ancien instantané en service et écrit une erreur sur la sortie d’erreur ; supprimer le fichier fait renvoyer 503 aux routes de catalogue jusqu’au chargement d’un nouveau catalogue. `/status` reste disponible. Les échecs inattendus de transport/exécution sortent de l’enveloppe d’erreur applicative.
 
@@ -171,6 +177,20 @@ Sur Unix, les commandes CLI pouvant écrire les stores se délèguent automatiqu
 Le fichier exclusif `.aede.lock` reste la protection finale contre les mises à jour perdues : sous-processus délégués et CLI sans serveur le tiennent pendant toute lecture/modification/écriture ; backup le tient pour un instantané cohérent entre fichiers. Le scan administratif synchrone renvoie 409 au lieu d’attendre ; les tâches HTTP asynchrones attendent. Conservez ce fichier même à l’arrêt : le retirer pendant sa détention peut neutraliser le verrou. Le remplacement JSON atomique protège des fichiers partiels. C’est une coopération entre Aède actuels ; éditer manuellement le JSON ou utiliser simultanément un ancien exécutable reste dangereux. Le serveur recharge les changements de catalogue CLI environ chaque seconde.
 
 Ctrl-C/SIGTERM arrêtent les nouvelles connexions et ferment les WebSockets actifs. Les scans/fetch acceptés terminent avant la sortie ; annulez une tâche asynchrone indésirable avant l’arrêt. HTTP par défaut reste local ; un client distant doit employer HTTPS explicitement configuré avec comptes.
+
+## Paroles locales
+
+`GET /api/v1/lyrics?track=<référence stable de piste>` est un ajout en lecture seule, sans pagination. Paramètres absents, dupliqués, inconnus et références d’un autre type sont refusés. Une piste actuelle sans paroles non vides répond `{ "track": "track:…", "lyrics": null }` ; sinon la réponse complète est :
+
+```json
+{"track":"track:…","lyrics":{"source":"sidecar","synced":true,"lines":[{"at_ms":1250,"text":"Première ligne"},{"at_ms":2500,"text":""},{"at_ms":null,"text":"Couplet sans horodatage"}]}}
+```
+
+`source` vaut `tag` ou `sidecar` ; les paroles non vides du tag précèdent le `.lrc` adjacent catalogué. Aucun chemin d’origine supplémentaire n’est fourni. `synced` indique qu’au moins une ligne possède un horodatage. `at_ms` est une position entière non négative en millisecondes depuis le début du morceau, ou `null` ; le décalage LRC a déjà été appliqué. `text` est du texte UTF-8 littéral, avec remplacement des octets invalides du fichier de paroles. Ordre source, horodatages répétés et lignes vides horodatées sont conservés. Les lignes horodatées peuvent être désordonnées ; le client regroupe les horodatages égaux, puis choisit le dernier groupe chronologique ne dépassant pas sa propre position audio consommée. Les lignes sans horodatage restent lisibles, sans timing inventé. Voir les [règles d’horloge du client](server/playback.md#paroles-et-horloge-du-client).
+
+L’authentification du catalogue s’applique, y compris aux auditeurs en lecture seule, et est vérifiée de nouveau avant publication. Seul le catalogue actuel sélectionne une source ; aucun chemin arbitraire n’est accepté. Taille, date précise de modification de l’audio et métadonnées des descripteurs/chemins ouverts sont contrôlées ; un ancien catalogue avec dates à la seconde exige un scan normal. Le fichier de paroles doit porter le même nom de base et se trouver dans le même dossier que l’audio, avec extension `.lrc` insensible à la casse. Liens, fichiers non réguliers et sources modifiées sont refusés. L’entrée est limitée à 256 Kio, le texte complet décodé/développé à 1 Mio et le JSON sérialisé à 1 Mio, échappement et métadonnées des lignes compris. Un contenu excessif produit une erreur explicite, jamais une troncature silencieuse. Les travailleurs d’inspection partagés bornent lecture et sérialisation, avec un délai de réponse de dix secondes ; une opération bloquante conserve son emplacement jusqu’à sa fin, même après expiration du délai ou déconnexion. Les réponses utilisent `Cache-Control: no-store`.
+
+Cette route ne télécharge et n’écrit rien, et fonctionne indépendamment de l’audio. Les messages PCM et méthodes Subsonic/OpenSubsonic restent inchangés. Un client comme Phémios peut récupérer les paroles une fois par piste et suivre sa propre horloge audio ; il doit effacer ses données mises en cache pour le compte à la déconnexion et les actualiser lorsque la source ou le catalogue change.
 
 ## Audio authentifié
 

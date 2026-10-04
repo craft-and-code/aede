@@ -14,9 +14,21 @@
 //! about what the file says. The catalog therefore stores the sidecar's
 //! **path**, and the text is read from it when somebody asks — it is one small
 //! file, sitting right next to the music it belongs to.
+//!
+//! [`Timeline`] indexes the parsed timings for terminal and graphical players.
+//! The player supplies its decoded-track position; this module does not run a
+//! playback clock or attach lyrics to audio packets.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+
+#[path = "lyrics_source.rs"]
+mod source;
+pub use source::{CurrentTrack, ReadError, read_current, read_local};
+
+#[path = "lyrics_timeline.rs"]
+mod timeline;
+pub use timeline::{Cue, Timeline};
 
 /// Extension of a lyrics file beside a track.
 pub const EXTENSION: &str = "lrc";
@@ -34,9 +46,8 @@ const MIN_TEXT_BUDGET: usize = 1024 * 1024;
 pub struct Line {
     /// Milliseconds from the start of the track, or `None` on a plain line.
     ///
-    /// Kept at read time rather than recovered later: M3 needs a playhead to
-    /// follow, and asking it to re-read every file would be asking twice for
-    /// something already in hand.
+    /// Offsets in LRC input have already been applied. A player uses its
+    /// decoded-track position, including a seek offset, to follow these times.
     pub at_ms: Option<u64>,
     /// The line as written, without its timestamp when it could be expanded safely.
     /// Invalid or excessive timestamps remain literal text on an untimed line.
@@ -142,6 +153,8 @@ pub fn from_tag(origin: &str, tag: &str) -> Option<Lyrics> {
 /// name is settled. `[offset:…]` is applied, since it exists precisely to shift
 /// a file that was timed against another encoding. An unrepresentable timestamp
 /// remains literal, untimed text rather than hiding the line or overflowing.
+/// Timed blank lines are kept, including at the end, so a player can clear the
+/// preceding verse. Only untimed blank edges and an initial UTF-8 BOM are removed.
 ///
 /// Repeated timestamps share a text budget of `max(1 MiB, 4 * text.len())`
 /// bytes across the entire result. A line that cannot fit its expanded copies
@@ -150,7 +163,44 @@ pub fn parse(text: &str) -> Vec<Line> {
     parse_with_budget(text, MIN_TEXT_BUDGET.max(text.len().saturating_mul(4)))
 }
 
+/// A complete lyrics result would exceed the permitted UTF-8 text budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseLimitExceeded;
+
+impl std::fmt::Display for ParseLimitExceeded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("complete lyrics exceed the text budget")
+    }
+}
+
+impl std::error::Error for ParseLimitExceeded {}
+
+/// Parses lyrics completely, refusing excessive timestamp expansion.
+///
+/// Unlike [`parse`], this does not turn an over-budget timed chorus into
+/// literal untimed text. This distinction lets an API promise complete timing
+/// rather than silently downgrade it. Malformed timestamps remain literal
+/// text under the same rules as the ordinary parser.
+///
+/// `text_budget` limits the combined UTF-8 bytes in all returned line texts,
+/// including every expanded repetition; it does not include vector storage,
+/// line separators or a transport's serialization overhead. Callers reading
+/// untrusted sources must also bound their input and encoded response size.
+pub fn parse_complete(text: &str, text_budget: usize) -> Result<Vec<Line>, ParseLimitExceeded> {
+    let (lines, exceeded) = parse_bounded(text, text_budget, true);
+    if exceeded {
+        Err(ParseLimitExceeded)
+    } else {
+        Ok(lines)
+    }
+}
+
 fn parse_with_budget(text: &str, budget: usize) -> Vec<Line> {
+    parse_bounded(text, budget, false).0
+}
+
+fn parse_bounded(text: &str, budget: usize, complete: bool) -> (Vec<Line>, bool) {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut offset_ms: i64 = 0;
     let mut lines = Vec::new();
     let mut used_text = 0usize;
@@ -176,6 +226,9 @@ fn parse_with_budget(text: &str, budget: usize) -> Vec<Line> {
             // one at the very start is just the file's shape.
             if !text.is_empty() || !lines.is_empty() {
                 used_text = used_text.saturating_add(text.len());
+                if complete && used_text > budget {
+                    return (Vec::new(), true);
+                }
                 lines.push(Line { at_ms: None, text });
             }
             continue;
@@ -185,10 +238,16 @@ fn parse_with_budget(text: &str, budget: usize) -> Vec<Line> {
         // player silent at its second turn.
         let text = rest.trim();
         let expanded = text.len().saturating_mul(times.len());
-        let available = budget
-            .saturating_sub(used_text)
-            .saturating_sub(remaining_raw);
+        let available = match complete {
+            true => budget.saturating_sub(used_text),
+            false => budget
+                .saturating_sub(used_text)
+                .saturating_sub(remaining_raw),
+        };
         if expanded > available {
+            if complete {
+                return (Vec::new(), true);
+            }
             used_text = used_text.saturating_add(raw.len());
             lines.push(Line {
                 at_ms: None,
@@ -204,10 +263,13 @@ fn parse_with_budget(text: &str, budget: usize) -> Vec<Line> {
             });
         }
     }
-    while lines.last().is_some_and(|l| l.text.is_empty()) {
+    while lines
+        .last()
+        .is_some_and(|line| line.at_ms.is_none() && line.text.is_empty())
+    {
         lines.pop();
     }
-    lines
+    (lines, false)
 }
 
 /// The value of an `.lrc` header such as `[offset:+250]`, if this is one.

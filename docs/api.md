@@ -35,6 +35,7 @@ The original `/status` and `/library` routes read snapshot metadata and counts i
 | `GET /api/v1/tracks` | Page of track summaries. |
 | `GET /api/v1/recordings` | Page of recording summaries. |
 | `GET /api/v1/entities?ref=<token>` | One entity detail, selected by a stable token. |
+| `GET /api/v1/lyrics?track=<token>` | Complete local lyrics with optional line timestamps, or `lyrics: null`. |
 | `GET /api/v1/events` | WebSocket catalog notifications, unchanged from the frozen v1 contract. |
 | `GET /api/v1/activity` | WebSocket catalog and task activity notifications. |
 
@@ -104,15 +105,20 @@ Application errors are `{ "error": { "code": string, "message": string } }`. `co
 | 403 | `invalid_origin` | A browser origin is foreign, malformed or ambiguous. |
 | 404 | `entity_not_found` | Well-formed reference absent from the current catalog. |
 | 404 | `not_found` | Unknown path. |
+| 404 | `source_unavailable`, `lyrics_unavailable` | The catalogued audio or lyrics sidecar is unavailable. |
 | 405 | `method_not_allowed` | A known path was called with an unsupported HTTP method. |
 | 409 | `ambiguous_entity` | A singular name selects several entities; bounded candidates accompany the error. |
 | 409 | `store_busy` | Doctor or the synchronous administrative scan cannot acquire the data lock. |
+| 409 | `source_changed`, `lyrics_changed` | Lyrics cannot be associated with current regular audio/sidecar identity; restore or rescan the source. |
+| 413 | `lyrics_too_large` | Complete lyrics exceed an input, expansion or serialized-response limit. |
 | 429 | `inspection_busy` | The shared catalog/navigation/inspection worker budget is full. |
 | 500 | `sources_unavailable` | A stored source file could not be read. |
 | 500 | `catalog_read_failed` | Doctor could not read catalog/conclusions. |
 | 500 | `inspection_failed` | A background inspection worker failed. |
+| 500 | `lyrics_read_failed` | A complete lyrics read failed. |
 | 503 | `catalog_unavailable` | The catalog was removed while the server was running. |
 | 503 | `connection_limit` | The shared WebSocket connection limit has been reached. |
+| 503 | `lyrics_timeout` | The complete local lyrics read exceeded its response deadline. |
 
 The server checks `catalog.json` approximately once per second. A successful replacement swaps the in-memory snapshot. An unreadable replacement leaves the previous snapshot in service and is logged to standard error; removing the file makes catalog endpoints return 503 until a new catalog is loaded. `/status` remains available. Unexpected transport/runtime failures are outside the application error envelope.
 
@@ -155,6 +161,20 @@ On Unix, CLI commands that may write Aède's stores automatically delegate to th
 The exclusive `.aede.lock` file in the data folder remains the final protection against lost updates: delegated subprocesses and CLI commands without a server hold it for the entire read/modify/write operation; `aede backup` holds it for a coherent multi-file snapshot. A synchronous administrative scan returns 409 instead of waiting if the lock is held; asynchronous HTTP jobs wait for it. Keep this file in place even when the server is stopped: removing it while another process holds it can defeat the lock. Atomic JSON replacement still protects readers from partial files. This is cooperative coordination between current Aède processes; hand-editing JSON or using an older Aède executable concurrently remains unsafe. The HTTP server reloads external CLI catalog changes approximately once per second.
 
 The server handles Ctrl-C and SIGTERM by stopping new connections and closing active WebSockets. Accepted scans and fetches are allowed to finish before the process exits; cancel an unwanted asynchronous job before shutting down. Default HTTP stays local; remote clients must use the explicit account-backed HTTPS configuration.
+
+## Local lyrics
+
+`GET /api/v1/lyrics?track=<stable track token>` is a read-only, non-paginated addition. It rejects missing, duplicate, unknown and wrong-kind parameters. A current track with no nonempty lyrics returns `{ "track": "track:…", "lyrics": null }`; otherwise the complete response is:
+
+```json
+{"track":"track:…","lyrics":{"source":"sidecar","synced":true,"lines":[{"at_ms":1250,"text":"First line"},{"at_ms":2500,"text":""},{"at_ms":null,"text":"Untimed verse"}]}}
+```
+
+`source` is `tag` or `sidecar`; nonempty tag lyrics precede the catalogued adjacent `.lrc`. No extra filesystem origin is supplied. `synced` means at least one timed line. `at_ms` is an unsigned millisecond position from track start, or `null`; the parser has already applied an LRC offset. `text` is literal UTF-8, with invalid sidecar bytes replaced. Source order, repeated timestamps and timed empty lines are preserved. Timed lines may be unsorted; a client groups equal timestamps and selects the latest chronological group no later than its own consumed playback position. Untimed lines remain readable but receive no invented timing. See the [client clock rules](server/playback.md#lyrics-and-the-client-clock).
+
+Catalog authentication applies, including read-only auditors, and is repeated before publication. Only the current catalog can select a source; arbitrary paths are never accepted. Audio size/precise modification time and opened/path metadata are checked; legacy whole-second catalogs require a normal scan. A sidecar must have the same basename and parent as its audio, with case-insensitive `.lrc` extension. Linked/nonregular or changed sources are refused. Input is at most 256 KiB, complete decoded/expanded text at most 1 MiB and serialized JSON at most 1 MiB, including escaping/line overhead. Oversized answers fail explicitly; they are never silently truncated. The shared inspection workers bound file I/O and serialization, with a ten-second response deadline; an underlying blocking operation keeps its permit until completion even after timeout/disconnection. Responses use `Cache-Control: no-store`.
+
+This endpoint fetches nothing, writes nothing and runs independently of audio. The PCM messages and Subsonic/OpenSubsonic method list do not change. Clients such as Phémios can retrieve the lyrics once per track and follow their own audio clock; a client must clear account-specific cached data on logout and refresh when the source/catalog changes.
 
 ## Authenticated audio
 

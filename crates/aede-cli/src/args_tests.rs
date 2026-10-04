@@ -165,6 +165,7 @@ fn playback_options_keep_the_selection_and_parse_transport_settings() {
     assert_eq!(defaults.repeat, aede_core::playback::Repeat::Off);
     assert_eq!(defaults.shuffle, PlaybackShuffle::Off);
     assert_eq!(defaults.seed, None);
+    assert!(!defaults.lyrics);
 
     let args = parse(&[
         "play",
@@ -176,6 +177,7 @@ fn playback_options_keep_the_selection_and_parse_transport_settings() {
         "smart",
         "--seed",
         "18446744073709551615",
+        "--lyrics",
         "album",
     ]);
     assert_eq!(args.positionals, ["album"]);
@@ -184,6 +186,7 @@ fn playback_options_keep_the_selection_and_parse_transport_settings() {
     assert_eq!(options.repeat, aede_core::playback::Repeat::All);
     assert_eq!(options.shuffle, PlaybackShuffle::Smart);
     assert_eq!(options.seed, Some(u64::MAX));
+    assert!(options.lyrics);
 
     for (time, milliseconds) in [
         ("0", 0),
@@ -225,6 +228,8 @@ fn playback_options_refuse_missing_invalid_and_ineffective_values() {
         "--shuffle=uniform",
         "--shuffle=SMART",
         "--shuffle=",
+        "--lyrics=on",
+        "--lyrics=",
     ] {
         assert!(
             parse(&["play", "album", option])

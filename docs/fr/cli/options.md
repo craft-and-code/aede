@@ -77,7 +77,7 @@ Cette liste suit répartition et traitements actuels. Elle décrit la portée ac
 | `--list` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md), [fingerprint](fingerprint.md) |
 | `--members` | [artist](artist.md) |
 | `--no-scan` | [roots](roots.md) |
-| `--lyrics` | [fetch](fetch.md), [track](track.md), [search](search.md) |
+| `--lyrics` | [fetch](fetch.md), [track](track.md), [search](search.md), [play](play.md) |
 | `--simple` | [playlist](playlist.md) |
 | `--artists` | [playlist](playlist.md) |
 | `--extras none\|cover\|images\|all` | [copy](copy.md) |

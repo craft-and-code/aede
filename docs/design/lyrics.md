@@ -1,7 +1,8 @@
 # Lyrics
 
-Not built, and worth splitting into three before it is, because the three parts
-have nothing in common but the word.
+Lyrics have three separate paths: reading local words, explicitly fetching
+missing words and following them during playback. They share the same parser,
+but neither reading nor playback starts a network request.
 
 **Reading them was M0 work, and it is done.** Lyrics sit in the files already:
 `USLT` in ID3, `LYRICS`/`UNSYNCEDLYRICS` in Vorbis comments, `©lyr` in MP4 — all
@@ -26,15 +27,15 @@ Both sources go through one parser, because a tag can perfectly well hold LRC:
 plenty of taggers write the synced text straight into `LYRICS`, and a reader
 that only understood plain text would show a page of `[00:12.34]` to somebody
 who asked for the words. Timestamps are kept as read — `mm:ss`, `mm:ss.cc` and
-`mm:ss.mmm` are all written in the wild — so that M3 finds them in hand rather
-than asking for a re-read of the library. A chorus timed twice (`[00:12][01:44]
+`mm:ss.mmm` are all written in the wild — so playback can follow them without
+recovering times from displayed text. A chorus timed twice (`[00:12][01:44]
 the chorus`) is two lines, because the file means both and a player that kept
 only the first would fall silent at its second turn. The `[ar:]`, `[ti:]` and
 `[by:]` headers are dropped, since they repeat what the tags already say and a
 `.lrc` is not where an artist's name is settled; `[offset:]` is applied, since
 it exists precisely to shift a timing made against another encoding.
 
-Reading a sidecar takes at most 256 KiB from disk. Repeated timestamps share a text budget across the whole song: 1 MiB for sidecars, and the greater of 1 MiB or four times the input's UTF-8 byte length for tag lyrics. If expanding a line would exceed the remaining budget, that line is kept once as literal, unsynchronized text, including every original timestamp and word. Space is reserved for later lines so an oversized chorus cannot hide the rest of the song. Ordinary twice-timed choruses still produce both timed lines. Invalid timestamps that cannot fit in milliseconds likewise remain readable as literal text.
+The static lyrics reader reads at most 256 KiB from a sidecar. Repeated timestamps share a text budget across the whole song: 1 MiB for sidecars, and the greater of 1 MiB or four times the input's UTF-8 byte length for tag lyrics. If expanding a line would exceed the remaining budget, that line is kept once as literal, unsynchronized text, including every original timestamp and word. Space is reserved for later lines so an oversized chorus cannot hide the rest of the song. Ordinary twice-timed choruses still produce both timed lines. Invalid timestamps that cannot fit in milliseconds likewise remain readable as literal text. Playback and the native lyrics API use a complete, bounded read and refuse excessive expansion instead of degrading its timing.
 
 **Where they live follows the rule the rest of the catalog follows.** Tag lyrics
 are already in it, because raw tags are kept per file. A sidecar is not in the
@@ -54,8 +55,8 @@ read to learn what a file _is_.
 
 One consequence is still ahead: a lyric the _user_ typed or corrected is
 something they wrote, and belongs to the annotation store, not to the catalog.
-Same boundary as everywhere else — read versus written — and nothing writes
-lyrics yet.
+Same boundary as everywhere else — read versus written — and Aède does not yet
+manage user-written corrections.
 
 **Fetching them is M1 work, and comes with a caveat that is not technical.**
 Lyrics are the _composition_ copyright, which owning a FLAC grants no rights
@@ -192,7 +193,50 @@ never seen, and a run reporting four hundred failures would describe a working
 service as broken. `Refusal::Missing` is now its own thing, and both passes read
 it.
 
-**Showing them in time is M3 work.** Synchronised lyrics are what `SYLT` and
-enhanced `.lrc` carry, and they only mean anything once there is a playhead to
-follow. The parsers should keep the timings when they read them, so that M3
-finds them there rather than asking for a re-read of the library.
+## Following the playback clock
+
+**Line-synchronized display is implemented in M3.** `aede play <selection>
+--lyrics` reads existing tag lyrics or a local `.lrc`, without fetching or
+writing anything. It requires terminal output; use `aede track <selection>
+--lyrics` for a static listing or redirected output. Missing or unavailable
+lyrics do not stop audio. Plain lyrics have no invented clock and appear as a
+four-line preview; the static track view remains available for the full text.
+
+The shared [`lyrics::Timeline`](../../crates/aede-core/src/lyrics_timeline.rs)
+indexes every timed line chronologically without rewriting its source. Lines
+with the same timestamp form one cue in original line order; a repeated chorus
+appears at each supplied time. Timed blank lines, including the final blank,
+end the previous words. Untimed lines remain available in the original lyrics
+but receive no guessed position. Before the first cue there are no active
+words; a final nonblank cue remains active until the track ends. Parser offsets
+are already applied and must not be applied again by a player.
+
+The lookup uses milliseconds from the decoded track's beginning, including
+the current seek offset. Native terminal playback follows frames consumed by
+the CPAL callback, preserving track-occurrence boundaries across compatible
+joins. The ffplay fallback has no consumption counter and displays an explicit
+estimate based on active playback time. Pause, seeking, repeat and track changes
+recalculate the position. These are player clocks, not a measurement of DAC
+latency or proof of the instant sound reaches a listener. The terminal bounds
+each cue to four displayed lines and the current width; lyrics rendering and
+file reads stay outside the audio callback. Lookahead is bounded to 64 occurrences; if very short sources fill it before rate conversion emits their delayed frames, the player flushes the processing group and waits for consumption. The output stream stays open, while converter rounding and filter tails restart at that exceptional boundary.
+
+## Sharing lyrics with a graphical player
+
+The native `GET /api/v1/lyrics?track=<stable-track-reference>` route lets a
+client retrieve the words once for its current track. Its payload preserves
+original line order, line text and nullable `at_ms`, together with the source
+and `synced` flag. It reads local data using the track's current file identity
+and refuses an over-budget complete result instead of silently truncating it.
+The [API reference](../api.md) describes access and response details.
+
+Phémios can use this route independently of the audio stream, then follow its
+own playback clock to highlight and scroll the active cue. Audio transmission
+time is unsuitable: received samples can still be waiting in the client's
+output buffer. The native PCM WebSocket remains unchanged and carries no lyric
+packets. A client using another audio transport can use the same lyrics route
+and track-relative times; Subsonic lyrics methods are a separate adapter surface.
+
+The delivered timings are per line. Reading binary ID3 `SYLT`, enhanced LRC
+word-level timing, editing lyrics and storing user corrections remain separate
+extensions; none is implied by the current line-synchronized display.

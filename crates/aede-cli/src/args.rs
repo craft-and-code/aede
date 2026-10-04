@@ -23,6 +23,8 @@ pub(crate) enum PlaybackShuffle {
 /// Validated transport settings for `aede play`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PlaybackOptions {
+    /// Display local lyrics following the output timeline.
+    pub(crate) lyrics: bool,
     /// Initial position within the first played track, in milliseconds.
     pub(crate) seek_ms: u64,
     /// What happens when a track or selection ends naturally.
@@ -287,6 +289,9 @@ impl Args {
     /// decimal places on seconds. Checked integer arithmetic preserves exact
     /// milliseconds and refuses values outside the transport's `u64` range.
     pub(crate) fn playback_options(&self) -> Result<PlaybackOptions, String> {
+        if self.value("lyrics").is_some() {
+            return Err("--lyrics does not accept a value".into());
+        }
         let value = |name: &str| match self.flags.get(name) {
             None => Ok(None),
             Some(Some(value)) => Ok(Some(value.as_str())),
@@ -319,6 +324,7 @@ impl Args {
             return Err("--seed requires --shuffle=random or --shuffle=smart".into());
         }
         Ok(PlaybackOptions {
+            lyrics: self.has("lyrics"),
             seek_ms,
             repeat,
             shuffle,

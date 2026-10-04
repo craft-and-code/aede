@@ -83,6 +83,7 @@ mod errors;
 mod events;
 mod inspection;
 mod jobs;
+mod lyrics;
 mod models;
 mod personal;
 mod playback_api;

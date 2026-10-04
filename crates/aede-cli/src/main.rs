@@ -762,7 +762,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ),
     (
         "lyrics",
-        &["track", "search", "fetch"],
+        &["track", "search", "fetch", "play"],
         "show the words, look in them, or go and get them",
     ),
     ("simple", &["playlist"], "leave out the #EXTINF lines"),

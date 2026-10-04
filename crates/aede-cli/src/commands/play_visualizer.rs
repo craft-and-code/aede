@@ -126,7 +126,7 @@ fn bar_rows(levels: &[f32; SPECTRUM_BANDS], columns: usize) -> [String; HEIGHT] 
     })
 }
 
-fn terminal_columns() -> usize {
+pub(super) fn terminal_columns() -> usize {
     #[cfg(unix)]
     if let Ok(terminal) = std::fs::File::open("/dev/tty")
         && let Ok(output) = std::process::Command::new("stty")

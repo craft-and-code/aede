@@ -367,6 +367,10 @@ pub(super) fn submit_block(
             match output.write_pcm(samples, bytes, byte_offset) {
                 Ok(0) => return Err("audio output closed before accepting PCM".into()),
                 Ok(count) if count <= bytes.len() - byte_offset => {
+                    let active_ms = clock.active_ms();
+                    if let Some(lyrics) = &mut clock.lyrics {
+                        lyrics.submitted(span.token, count, active_ms)?;
+                    }
                     submitted(Submitted::Bytes {
                         token: span.token,
                         count,
@@ -382,6 +386,11 @@ pub(super) fn submit_block(
             }
         }
         submitted(Submitted::Complete { span, samples })?;
+        if span.complete
+            && let Some(lyrics) = &mut clock.lyrics
+        {
+            lyrics.completed(span.token)?;
+        }
     }
     Ok(PlaybackEnd::Natural)
 }
@@ -502,6 +511,9 @@ fn prepare_output_with<O: SessionOutput>(
         if end != PlaybackEnd::Natural {
             return Ok(PreparedOutput::Interrupted(end));
         }
+        if let Some(lyrics) = &mut clock.lyrics {
+            lyrics.reset_output();
+        }
     }
     output.prepare(format).map(PreparedOutput::Ready)
 }
@@ -534,6 +546,22 @@ pub(super) fn play_selection(
     playback_clock.repeat = options.repeat;
     playback_clock.shuffle = options.shuffle;
     playback_clock.smart_available = catalog.is_some();
+    playback_clock.lyrics = options.lyrics.then(lyrics::PlaybackLyrics::new);
+    // Index catalog evidence once, restricted to this selection. Repeated
+    // occurrences must not rescan the whole catalog to read their lyrics.
+    let lyric_files = if options.lyrics {
+        let selected: std::collections::HashSet<_> = paths.iter().map(PathBuf::as_path).collect();
+        catalog.map(|catalog| {
+            catalog
+                .files
+                .iter()
+                .filter(|file| selected.contains(Path::new(&file.path)))
+                .map(|file| (Path::new(&file.path), file))
+                .collect::<std::collections::HashMap<_, _>>()
+        })
+    } else {
+        None
+    };
     let mut cursor = order.current().unwrap_or(0);
     let mut seek_ms = options.seek_ms;
     let mut initial_seek_pending = true;
@@ -547,6 +575,35 @@ pub(super) fn play_selection(
             let end = (|| -> Result<PlaybackEnd, Box<dyn Error>> {
                 if let Some(action) = control_action(controls, output, &mut playback_clock)? {
                     return Ok(action);
+                }
+                // Extremely short sources can fill the lyric lookahead before
+                // the SRC emits its delayed frames. Flush that processing tail
+                // so waiting for consumption cannot starve the converter.
+                if playback_clock
+                    .lyrics
+                    .as_ref()
+                    .is_some_and(|lyrics| !lyrics.has_capacity())
+                {
+                    let end = flush_group(
+                        &mut processing,
+                        &mut records,
+                        output,
+                        controls,
+                        &mut playback_clock,
+                    )?;
+                    if end != PlaybackEnd::Natural {
+                        return Ok(end);
+                    }
+                }
+                while playback_clock
+                    .lyrics
+                    .as_ref()
+                    .is_some_and(|lyrics| !lyrics.has_capacity())
+                {
+                    if let Some(action) = control_action(controls, output, &mut playback_clock)? {
+                        return Ok(action);
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
                 }
                 let prepared = (|| -> Result<_, Box<dyn Error>> {
                     let gain = normalization.prepare(index)?;
@@ -640,7 +697,11 @@ pub(super) fn play_selection(
                         PreparedOutput::Interrupted(end) => return Ok(end),
                     };
                     processing = Some(PcmSession::new(input_format, format.sample_rate(), tone)?);
-                    records.visualizer = TerminalVisualizer::new(format);
+                    records.visualizer = if options.lyrics {
+                        None
+                    } else {
+                        TerminalVisualizer::new(format)
+                    };
                     format
                 };
                 let settings = PlaybackSettings {
@@ -664,6 +725,32 @@ pub(super) fn play_selection(
                 records.publish_completed()?;
                 records.next_offset_ms = seek_ms;
                 records.begin(token, index, path, format, &playback_clock)?;
+                if let Some(lyrics) = &mut playback_clock.lyrics {
+                    let current = catalog
+                        .zip(lyric_files.as_ref())
+                        .and_then(|(catalog, files)| {
+                            files.get(path.as_path()).and_then(|file| {
+                                catalog.file_mtime_subseconds.get(&file.path).map(
+                                    |&mtime_subseconds| aede_core::lyrics::CurrentTrack {
+                                        path,
+                                        size: file.size,
+                                        mtime: file.mtime,
+                                        mtime_subseconds,
+                                        tag: file.first_tag("lyrics"),
+                                        sidecar: file.lyrics_path.as_deref().map(Path::new),
+                                    },
+                                )
+                            })
+                        });
+                    lyrics.begin(
+                        token,
+                        path,
+                        current,
+                        &playing_label(path, catalog),
+                        format,
+                        seek_ms,
+                    )?;
+                }
                 initial_seek_pending = false;
                 order.activated();
                 order.describe_transition(paths, catalog);
@@ -759,6 +846,9 @@ pub(super) fn play_selection(
                         records.finish(true, &playback_clock)?;
                         order.advance(end, 0)?;
                         seek_ms = 0;
+                        if let Some(lyrics) = &mut playback_clock.lyrics {
+                            lyrics.reset_output();
+                        }
                         playback_clock.reset_elapsed();
                         continue;
                     }
@@ -776,6 +866,9 @@ pub(super) fn play_selection(
                 records.position_ms(cursor, &playback_clock)
             };
             output.abort()?;
+            if let Some(lyrics) = &mut playback_clock.lyrics {
+                lyrics.reset_output();
+            }
             processing = None;
             normalization.finish_track(index, false)?;
             order.focus(cursor)?;

@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn a_utf8_bom_does_not_hide_the_first_timestamp_or_offset_header() {
+    for (text, position) in [
+        ("\u{feff}[00:01]verse", 1_000),
+        ("\u{feff}[offset:250]\n[00:01]verse", 1_250),
+    ] {
+        let expected = vec![Line {
+            at_ms: Some(position),
+            text: "verse".into(),
+        }];
+        assert_eq!(parse(text), expected);
+        assert_eq!(parse_complete(text, 100).unwrap(), expected);
+    }
+    assert_eq!(parse("\u{feff}plain words")[0].text, "plain words");
+    assert_eq!(parse("words\u{feff}inside")[0].text, "words\u{feff}inside");
+}
+
+#[test]
 fn a_plain_text_file_is_lines_with_no_times() {
     let lines = parse("First line\nSecond line\n");
     assert_eq!(lines.len(), 2);
@@ -163,6 +180,24 @@ fn a_verse_break_survives_and_the_edges_do_not() {
 }
 
 #[test]
+fn a_final_timed_blank_survives_to_clear_the_previous_verse() {
+    let lyrics = from_tag("track.flac", "[00:01]first\n[00:03]\n\n").unwrap();
+    assert_eq!(
+        lyrics.lines,
+        vec![
+            Line {
+                at_ms: Some(1_000),
+                text: "first".into(),
+            },
+            Line {
+                at_ms: Some(3_000),
+                text: String::new(),
+            },
+        ]
+    );
+}
+
+#[test]
 fn nothing_at_all_is_nothing_rather_than_empty_lyrics() {
     // A tag holding spaces is a tag holding nothing, and a page announcing
     // "Lyrics" over a blank space is worse than a page with no such
@@ -247,4 +282,25 @@ fn sidecar_errors_after_the_read_limit_do_not_hide_the_lyrics_prefix() {
     let reader = std::io::Cursor::new(prefix.as_bytes()).chain(UnreadableTail);
     let text = read_text(reader).expect("the requested lyrics prefix is fully readable");
     assert_eq!(text, prefix);
+}
+
+#[test]
+fn complete_parsing_refuses_expansion_without_degrading_timed_lyrics() {
+    let raw = "[00:01][00:02]chorus\n[00:03]verse";
+    assert_eq!(parse_complete(raw, 16), Err(ParseLimitExceeded));
+    let complete = parse_complete(raw, 17).unwrap();
+    assert_eq!(complete, parse(raw));
+    assert_eq!(complete.len(), 3);
+    assert!(complete.iter().all(|line| line.at_ms.is_some()));
+}
+
+#[test]
+fn complete_parsing_bounds_plain_and_malformed_text_as_well_as_cues() {
+    for raw in ["plain", "[invalid]words", "[00:01]a\nplain"] {
+        let expected = parse(raw);
+        let budget = expected.iter().map(|line| line.text.len()).sum::<usize>();
+        assert_eq!(parse_complete(raw, budget).unwrap(), expected);
+        assert_eq!(parse_complete(raw, budget - 1), Err(ParseLimitExceeded));
+    }
+    assert!(parse_complete("[00:00]\n[ar:artist]", 0).is_ok());
 }

@@ -25,6 +25,9 @@ use crate::args::{Args, PlaybackShuffle};
 mod visualizer;
 use visualizer::TerminalVisualizer;
 
+#[path = "play_lyrics.rs"]
+mod lyrics;
+
 #[path = "play_controls.rs"]
 mod controls;
 use controls::{Action, Controls};
@@ -42,6 +45,12 @@ use order::PlaybackOrder;
 
 pub fn play(args: &Args) -> Res {
     let options = args.playback_options()?;
+    if options.lyrics && !crate::ui::is_interactive() {
+        return Err(
+            "play --lyrics requires terminal output; use track --lyrics for a static listing"
+                .into(),
+        );
+    }
     let requested_normalization = normalization_mode(args)?;
     let tone = tone_controls(args)?;
     let raw = args.positionals.join(" ");
@@ -207,6 +216,7 @@ struct PlaybackClock {
     shuffle: PlaybackShuffle,
     shuffle_revision: u64,
     smart_available: bool,
+    lyrics: Option<lyrics::PlaybackLyrics>,
 }
 
 impl PlaybackClock {
@@ -219,6 +229,7 @@ impl PlaybackClock {
             shuffle: PlaybackShuffle::Off,
             shuffle_revision: 0,
             smart_available: false,
+            lyrics: None,
         }
     }
 
@@ -255,6 +266,10 @@ fn control_action(
     output: &impl PlaybackOutput,
     clock: &mut PlaybackClock,
 ) -> Result<Option<PlaybackEnd>, Box<dyn Error>> {
+    let active_ms = clock.active_ms();
+    if let Some(lyrics) = &mut clock.lyrics {
+        lyrics.render(output.consumed_frames(), active_ms)?;
+    }
     let Some(controls) = controls else {
         return Ok(None);
     };
@@ -312,6 +327,10 @@ fn control_action(
 }
 
 trait PlaybackOutput: Write {
+    /// Frames handed to the native device callback, when this output can report them.
+    fn consumed_frames(&self) -> Option<u64> {
+        None
+    }
     /// Accept PCM from its original samples or encoded transport bytes. The
     /// byte offset and return value retain arbitrary partial-write semantics.
     fn write_pcm(
@@ -328,6 +347,9 @@ trait PlaybackOutput: Write {
 }
 
 impl PlaybackOutput for LocalOutput {
+    fn consumed_frames(&self) -> Option<u64> {
+        self.consumed_frames()
+    }
     fn write_pcm(
         &mut self,
         samples: &[f32],

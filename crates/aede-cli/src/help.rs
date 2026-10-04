@@ -74,8 +74,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Write portable playlists in album and artist folders.",
         },
         "play" => CommandPage {
-            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--normalize off|track|album] [--bass DB] [--treble DB]",
-            summary: "Play local audio, an M3U, a saved collection or a catalogued name, with an initial seek position, repeat modes and seeded random or smart order. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
+            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]",
+            summary: "Play local audio, an M3U, a saved collection or a catalogued name, with an initial seek position, repeat modes and seeded random or smart order. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. --lyrics replaces the terminal spectrum with local timed lyric cues or a short untimed preview; it never downloads lyrics. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -393,7 +393,7 @@ pub fn print_index() {
                        artist, album or track by name. Use collection:<name>
                        when a collection shares a name with music. Albums play
                        in year order; duplicate album/track titles play all
-                       matches. In a macOS/Linux terminal: Space pauses or
+                       matches. In a macOS/Linux terminal or Windows console: Space pauses or
                        resumes, n/→ skips forward, p/← goes back (or restarts
                        after three seconds), [/] seeks ten seconds back/forward,
                        r cycles repeat, z cycles shuffle, and q or Ctrl-C stops
@@ -402,7 +402,9 @@ pub fn print_index() {
                        off|one|all controls natural completion; --shuffle
                        off|random|smart chooses the order. --seed U64 reproduces
                        an enabled shuffle. The 24 thin spectrum bars animate only in a
-                       terminal. The label shows album — numbered filename;
+                       terminal. --lyrics replaces them with local timed words
+                       or an untimed preview, without downloading anything.
+                       The label shows album — numbered filename;
                        every played file enters history. --normalize
                        off|track|album overrides automatic ReplayGain or
                        Opus R128 selection. Album names use album gain;
@@ -1087,7 +1089,16 @@ fn print_play_help() {
     );
     println!("  --seed U64        Reproduce an order; requires random or smart shuffle");
     println!("                    Repeat and shuffle default to off; seek defaults to zero");
-    println!("\n{}", ui::cyan("KEYS (macOS/Linux terminal)"));
+    println!(
+        "  --lyrics          Show local lyric cues instead of the spectrum; requires terminal output"
+    );
+    println!(
+        "                    Native output follows consumed frames; ffplay timing is estimated"
+    );
+    println!(
+        "\n{}",
+        ui::cyan("KEYS (macOS/Linux terminal and Windows console)")
+    );
     println!("  Space    Pause or resume");
     println!("  n or →   Next track");
     println!("  p or ←   Previous track, or restart after three seconds");

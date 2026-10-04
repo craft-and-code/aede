@@ -79,6 +79,16 @@ Compatible natural joins retain the same `PcmSession`, rate converter and tone f
 
 There is one final `eof` for the whole queue. After consuming and acknowledging it, wait for a `recorded` confirmation for each saved occurrence; queue confirmations additionally contain `index` and `track`. Occurrences below one millisecond have no listening record. Keep the client output open across compatible joins and provision a bounded buffer with enough scheduling margin. Continuous server PCM does not guarantee that a client device or an overloaded host is gapless.
 
+## Lyrics and the client clock
+
+Retrieve local lyrics separately with `GET /api/v1/lyrics?track=<stable reference>` and the catalog's session authentication. The [lyrics API](../api.md#local-lyrics) supplies complete text, provenance category and optional millisecond timestamps. It does not inject lyrics into PCM, alter audio flow control or create listening history. No Subsonic/OpenSubsonic lyrics method is added by this native endpoint.
+
+Fetch once per current track, then follow the position of audio actually consumed by the client output. Receipt of audio, a `track` marker or a lyric response does not mean the device has reached that position. For a finite PCM queue, map the cumulative consumed frame position to the appropriate occurrence using `start_frame`/`end_frame`, subtract that occurrence's start and convert with the transmitted sample rate. If the client resamples, map device consumption back to transmitted frames first. A repeated track starts its lyric position again; its next occurrence may reuse the same source data.
+
+Group equal timestamps in source order and sort the groups chronologically. Select the latest group whose `at_ms` does not exceed the track position; display nothing before the first timed group. A timed empty group clears the preceding words, and the final group remains active through track end unless an empty cue clears it. LRC offset is already applied; do not apply it again. Pause freezes the clock. A client that can seek through another audio transport recalculates the current group after every move rather than replaying intervening lines. Seeking itself remains unsupported by this PCM transport.
+
+Mixed timed/untimed lyrics keep their complete source text: only timed lines drive highlighting, while plain text stays available for reading. `lyrics: null` means no nonempty local lyrics; an unavailable, stale or excessive source is an explicit error. These optional client rules also appear in [Compatible Aède](compatible-aede.md#optional-synchronized-lyrics).
+
 ## Listening history
 
 The single-track request records at most one `Play`; a queue records at most one per occurrence, using the existing personal-history rule and the authenticated owner. `ms_played` is acknowledged output frames within that occurrence's boundaries divided by output sample rate, rounded down to milliseconds. Less than one millisecond records nothing. `completed` requires a valid decoded end for that occurrence and acknowledgement of all its assigned output. Sending bytes alone never records a complete listen. Closing during the second track can therefore preserve a completed first listen and an incomplete second listen, without counting later queued tracks.

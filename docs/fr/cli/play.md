@@ -11,7 +11,7 @@ AEDE_AUDIO_BACKEND choisit la sortie locale : absent, essayer native puis ffplay
 ## Syntaxe et arguments
 
 ```text
-aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--normalize off|track|album] [--bass DB] [--treble DB]
+aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]
 ```
 
 Une sélection ; entourer de guillemets noms/chemins avec espaces. Préfixer une collection par collection:.
@@ -24,6 +24,7 @@ Une sélection ; entourer de guillemets noms/chemins avec espaces. Préfixer une
 | `--repeat off\|one\|all` | Arrêter en fin de sélection, répéter le morceau ou répéter toute la sélection. off par défaut. |
 | `--shuffle off\|random\|smart` | Garder l’ordre de sélection, mélanger uniformément ou privilégier des transitions progressives entre genres. off par défaut. Le mode smart demande un catalogue. |
 | `--seed U64` | Reproduire un ordre mélangé avec une graine entière non signée sur 64 bits. Demande random ou smart. Sinon, une graine est générée et affichée. |
+| `--lyrics` | Remplacer le spectre par les paroles locales synchronisées ou un aperçu de quatre lignes sans horodatage. Demande une sortie Terminal ; ne télécharge rien. |
 | `--normalize off\|track\|album` | Choisir off, track ou album pour la normalisation. Par défaut album pour un album du catalogue, track pour les autres sélections. |
 | `--bass DB` | Réglage large des graves, de -12 à +12 dB. 0 est neutre ; les hausses réservent une marge. |
 | `--treble DB` | Réglage large des aigus, de -12 à +12 dB. 0 est neutre ; les hausses réservent une marge. |
@@ -40,6 +41,7 @@ aede play "$HOME/Music/album/album.m3u" --normalize off
 aede play "Kind of Blue" --seek 02:15.500
 aede play collection:Road --shuffle random --repeat all
 aede play collection:Journey --shuffle smart --seed 42
+aede play "Kind of Blue" --lyrics
 ```
 
 ## Commandes du Terminal
@@ -113,6 +115,16 @@ Les artistes des cinq dernières occurrences et les albums des trois dernières 
 Les deux modes utilisent SplitMix64 et un tirage entier par rejet ; Fisher–Yates produit les priorités initiales. Une même sélection, les mêmes métadonnées de catalogue, graine et version d’algorithme reproduisent l’ordre sur chaque plateforme. Chaque cycle de répétition complète incrémente la graine modulo 2⁶⁴ de `0x9e3779b97f4a7c15` ; smart tient compte de la dernière occurrence précédente pour choisir son ouverture. Retaguer, modifier la sélection, intervenir pendant la lecture ou changer de version d’algorithme peut modifier le résultat.
 
 Le graphe est borné et le calcul des candidats ne construit pas de matrice de distances entre toutes les pistes. Le moteur prépare les métadonnées avant l’audio et les réutilise entre cycles. Les plus courts chemins peuvent traverser des genres sans enregistrement sélectionné : ces nœuds influencent la distance mais n’ajoutent jamais de morceaux. La mémoire des artistes/albums couvre le plan actuel ; une frontière de répétition ne fournit que la dernière occurrence du cycle précédent. Le moteur privilégie des voisinages cohérents sans imposer une dérive chronométrée ni trouver un trajet optimal entre tous les styles. Tags personnalisés ou incohérents, absence de morceaux intermédiaires et échantillonnage borné des candidats limitent ses déductions. Il ne calcule qu’un ordre ; il ne modifie ni fichiers, ni tags, ni métadonnées stockées du catalogue.
+
+## Paroles pendant la lecture
+
+`--lyrics` affiche le passage LRC actif lorsqu’il change, à la place du spectre. Les lignes partageant un horodatage sont regroupées dans leur ordre source, avec jusqu’à quatre lignes par passage. Un passage horodaté vide efface les mots actifs. Les paroles sans horodatage donnent un aperçu de quatre lignes une fois par occurrence ; des paroles absentes ou invalides sont signalées sans arrêter la musique. Les lignes longues sont coupées à la largeur du Terminal. Les passages défilent avec la lecture ; cet affichage compact n’est pas un écran de karaoké complet.
+
+Un tag de paroles non vide est prioritaire sur le `.lrc` adjacent. La lecture accepte au plus 256 Kio de texte source et 1 Mio après expansion des horodatages. Les informations du catalogue doivent toujours correspondre au fichier audio ; les fichiers lus directement sont examinés à nouveau. Aucun appel à LRCLIB ou à un autre service n’est effectué. Utiliser [fetch --lyrics](fetch.md) séparément pour récupérer les paroles manquantes, ou [track --lyrics](track.md) pour consulter le texte complet. Une sortie redirigée refuse `play --lyrics` ; la lecture sans cette option reste disponible.
+
+Avec la sortie native, les paroles suivent les trames consommées par le callback CPAL, en ajoutant la position du déplacement initial. Elles restent figées pendant une pause et se recalculent après un redémarrage, un déplacement ou un changement de piste. Les enchaînements compatibles et les répétitions naturelles conservent l’horloge de sortie tout en créant une nouvelle occurrence de paroles. Cela évite d’afficher le morceau suivant simplement parce que son décodage a commencé. L’anticipation des paroles contient au plus 64 occurrences ; si des morceaux très courts atteignent cette limite avant leur émission par le rééchantillonneur, Aède termine le groupe de traitement et attend la consommation audio. Le flux de sortie reste ouvert, mais les queues des filtres et les arrondis de conversion redémarrent à cette frontière exceptionnelle. La latence du périphérique et de l’hôte n’est pas mesurée : aucun alignement avec le son physique au DAC n’est garanti. Avec ffplay, le temps de lecture actif fournit une estimation annoncée explicitement ; la mise en tampon et les blocages de sortie peuvent réduire sa précision.
+
+L’[API native des paroles](../server/playback.md) fournit à Phémios ou à un autre client autorisé une ressource de texte horodaté distincte. Le client suit sa propre position de présentation audio, ses pauses et ses déplacements. Les paroles ne sont pas insérées dans les paquets PCM ; cette API n’active pas les méthodes distinctes de paroles Subsonic.
 
 ## Résultat et erreurs
 

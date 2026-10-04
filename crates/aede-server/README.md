@@ -51,6 +51,7 @@ A **page** is `{items,total,offset,limit,scanned_at}`. Pagination defaults to `o
 | `/from` | Exactly one artist `ref` or `name`; no pagination. | `{reference,name,origin}`; explicit unknown origin when unavailable. |
 | `/tracks` | `q`, `release` (stable reference), `sort`, `order`. | Page of track summaries. |
 | `/track` | Exactly one of `ref` or `name`; no pagination. | One track, recording/album references, duration, local file facts and attributed analyses (including complete source data when available). |
+| `/lyrics` | Required stable `track` reference; no pagination. | Complete local lyrics, source and optional line timestamps, or explicit `lyrics: null`. |
 | `/genres` | `q` or `name`, `sort`, `order`. | Page of `{kind,reference,name,release_count,track_count}`. |
 | `/genre` | Exactly one of `ref` or `name`; no pagination. | One genre and its linked albums/tracks, including a track's inherited album genre. |
 | `/labels` | `q` or `name`, `mbid`, `sort`, `order`. | Page of `{kind,reference,name,mbid,release_count}`. |
@@ -105,6 +106,18 @@ The message is explanatory, not a stable code. Origins use `status: "known"` whe
 `/stats` includes counts, `duration_ms`, `bytes`, `tracks_without_album`, completeness ratios and paginated `by_codec,by_quality,by_sample_rate,by_decade,by_country,roles,top.artists,top.writers`. Country bucket counts mean artists, not tracks; their byte values are zero (not measured). `/roots` rows contain `status,path,tracks,duration_ms,bytes`; the synthetic `unwatched` row has a null path. Overlapping roots can overlap in row counts; `totals` counts each track once.
 
 `/search` rows contain `kind,reference,name,context,found_in`. A track matching both its name and comment can have two hits distinguished by `found_in`. `/query` uses the [CLI grammar](../../docs/querying.md) and public sorts; personal clauses/sorts (notes, ratings, loves, tags, play history) and lyrics are explicitly refused, not evaluated with another user's data. Catalog search/name/identifier text is limited to 2048 UTF-8 bytes, stable references to 16384 bytes, and query complexity to 64 terms/parentheses/negations. Catalog listing/detail, navigation, inspection and personal work share two blocking-worker slots; catalog saturation returns `429 inspection_busy`. The constant-time `/status` and `/library` routes remain outside those workers.
+
+### Local lyrics and client synchronization
+
+```sh
+curl --get 'http://127.0.0.1:3412/api/v1/lyrics' --data-urlencode 'track=track:…'
+```
+
+Copy the stable track token from the catalog; supply the same bearer session as other catalog reads when accounts exist. User, administrator and auditor sessions may read lyrics. The route never fetches or writes them, and does not add any messages to the PCM stream or methods to the Subsonic adapter.
+
+The response is `{track,lyrics:null}` when no nonempty local lyrics exist, otherwise `{track,lyrics:{source:"tag"|"sidecar",synced:bool,lines:[{at_ms:u64|null,text:string}]}}`. A nonempty tag precedes the catalogued adjacent `.lrc`; `source` identifies this choice without an extra filesystem origin. All lines remain in source order, including repeated timestamps, untimed verses and timed blanks. `synced` means at least one timed line. Times are milliseconds from track start, with LRC offset already applied. For highlighting, group equal timestamps, sort groups chronologically and select the latest group at or before the **client's consumed playback position**. An empty timed group clears the preceding words. Pause freezes the position; seeking/repetition recalculates it. Untimed lyrics remain a readable page. See [playback](../../docs/server/playback.md#lyrics-and-the-client-clock) and the optional [client requirements](../../docs/server/compatible-aede.md#optional-synchronized-lyrics).
+
+Complete reads require current audio size and precise timestamps; old catalogs need a normal rescan. Sidecars must match the audio basename and parent, with `.lrc` matched case-insensitively. Links/nonregular files and changed descriptors/paths are refused. Input is limited to 256 KiB, complete expanded text and serialized JSON independently to 1 MiB; excessive content returns `413 lyrics_too_large` instead of a prefix. Source errors are `404 source_unavailable`, `409 source_changed`, `404 lyrics_unavailable`, `409 lyrics_changed` or `500 lyrics_read_failed`. The shared worker budget applies, with a ten-second response deadline (`503 lyrics_timeout`); a timed-out blocking read retains its permit until it ends. Access is checked again before publication, and responses are private `no-store` data.
 
 Corrupt source stores produce an error, never a false “no information” answer. Source-based reads may combine the latest atomic source file with the cached catalog; there is no multi-request snapshot guarantee.
 
@@ -217,7 +230,7 @@ Every personal read and write obtains the same data-directory lock as the CLI an
 
 ## Deliberately not exposed yet
 
-The native HTTP routes leave static-playlist creation/export, relation annotations, source-review decisions, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution to other interfaces. The [Subsonic adapter](../../docs/server/subsonic.md) exposes private persistent static playlists and verified sidecar artwork under its compatibility contract. Aède's `playlist` CLI command generates an M3U from a current selection, while native collection routes retain query collections. CLI availability does not imply an HTTP route. Native lyrics/prose/artwork delivery still needs a defined contract; native audio uses the documented PCM WebSocket. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
+The native HTTP routes leave static-playlist creation/export, relation annotations, source-review decisions, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution to other interfaces. The [Subsonic adapter](../../docs/server/subsonic.md) exposes private persistent static playlists and verified sidecar artwork under its compatibility contract. Aède's `playlist` CLI command generates an M3U from a current selection, while native collection routes retain query collections. CLI availability does not imply an HTTP route. Native prose/artwork delivery still needs a defined contract; local lyrics use `/lyrics`, and native audio uses the documented PCM WebSocket. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
 
 ## Code layout
 
@@ -226,6 +239,7 @@ The native HTTP routes leave static-playlist creation/export, relation annotatio
 - `routing.rs`: route registration.
 - `runtime.rs`, `state.rs`: startup/shutdown, catalog reloads and shared state.
 - `catalog.rs`, `catalog_commands.rs`, `inspection.rs`: original catalog contract, CLI-shaped navigation, diagnostics/search.
+- `lyrics.rs`: complete bounded local lyrics, independent of PCM transport.
 - `models.rs`, `query.rs`, `errors.rs`: JSON types, original list validation and error envelopes.
 - `security.rs`, `auth.rs`, `accounts_api.rs`, `tls.rs`: Host/Origin checks, account authentication, account routes and HTTPS configuration.
 - `events.rs`: WebSocket notifications.

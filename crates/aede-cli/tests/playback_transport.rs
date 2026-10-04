@@ -5,6 +5,68 @@ mod playback_transport_support;
 use playback_transport_support::{Library, pcm};
 
 #[test]
+fn lyric_cues_follow_pause_both_seek_directions_and_manual_next_in_a_real_terminal() {
+    let mut library = Library::new();
+    let first = library.timeline("first.wav", 24);
+    let second = library.timeline("second.wav", 24);
+    std::fs::write(
+        first.with_extension("lrc"),
+        "[00:00]first-opening\n[00:10]first-later",
+    )
+    .unwrap();
+    std::fs::write(second.with_extension("lrc"), "[00:00]second-opening").unwrap();
+    let result = library.terminal(&[&first, &second], "lyrics-transport");
+    result.assert_success();
+    let evidence = aede_core::json::parse(&String::from_utf8_lossy(&result.output.stdout)).unwrap();
+    let lyrics = evidence.get("lyrics").unwrap().as_arr().unwrap();
+    assert_eq!(lyrics.len(), 4);
+    for (line, expected) in lyrics.iter().zip([
+        "first-opening",
+        "first-later",
+        "first-opening",
+        "second-opening",
+    ]) {
+        assert!(line.as_str().unwrap().contains(expected));
+    }
+    assert_eq!(
+        result.history().unwrap().plays.len(),
+        2,
+        "seeking keeps one listen per occurrence"
+    );
+}
+
+#[test]
+fn natural_repeat_replays_lyric_cues_without_reopening_the_output() {
+    let mut library = Library::new();
+    let first = library.timeline("first.wav", 2);
+    std::fs::write(first.with_extension("lrc"), "[00:00]repeated-opening").unwrap();
+    let result = library.terminal(&[&first], "lyrics-repeat");
+    result.assert_success();
+    let evidence = aede_core::json::parse(&String::from_utf8_lossy(&result.output.stdout)).unwrap();
+    assert_eq!(
+        evidence
+            .get("first_samples")
+            .unwrap()
+            .as_arr()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(evidence.get("lyrics").unwrap().as_arr().unwrap().len() >= 2);
+}
+
+#[test]
+fn redirected_lyric_playback_is_refused_before_audio_or_history_is_written() {
+    let mut library = Library::new();
+    let first = library.timeline("first.wav", 1);
+    let result = library.play(&[&first], &["--lyrics"], false);
+    assert!(!result.output.status.success());
+    assert!(String::from_utf8_lossy(&result.output.stderr).contains("requires terminal output"));
+    assert!(result.pcm.is_empty());
+    assert!(result.history().is_none());
+}
+
+#[test]
 fn initial_seek_submits_the_exact_suffix_and_counts_only_audio_actually_played() {
     let mut library = Library::new();
     let track = library.wav("seek.wav", 48_000, 2_000);

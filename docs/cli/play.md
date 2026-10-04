@@ -11,7 +11,7 @@ AEDE_AUDIO_BACKEND chooses local output: unset tries native then ffplay; native 
 ## Syntax and arguments
 
 ```text
-aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--normalize off|track|album] [--bass DB] [--treble DB]
+aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]
 ```
 
 One selection; quote names/paths containing spaces. Prefix a saved collection with collection:.
@@ -24,6 +24,7 @@ One selection; quote names/paths containing spaces. Prefix a saved collection wi
 | `--repeat off\|one\|all` | Stop at selection end, repeat the current track, or repeat the selection. Default off. |
 | `--shuffle off\|random\|smart` | Keep selection order, use uniform random order, or prefer progressive genre transitions. Default off. Smart mode needs a catalog. |
 | `--seed U64` | Reproduce a shuffled order with an unsigned 64-bit seed. Requires random or smart mode. Otherwise a seed is generated and displayed. |
+| `--lyrics` | Replace the spectrum with local lyric cues or a four-line untimed preview. Requires terminal output; never downloads lyrics. |
 | `--normalize off\|track\|album` | Choose off, track or album loudness normalization. Default album for a catalogued album selection, track for other selections. |
 | `--bass DB` | Broad bass shelf, -12 to +12 dB. 0 is flat; positive boosts reserve headroom. |
 | `--treble DB` | Broad treble shelf, -12 to +12 dB. 0 is flat; positive boosts reserve headroom. |
@@ -40,6 +41,7 @@ aede play "$HOME/Music/album/album.m3u" --normalize off
 aede play "Kind of Blue" --seek 02:15.500
 aede play collection:Road --shuffle random --repeat all
 aede play collection:Journey --shuffle smart --seed 42
+aede play "Kind of Blue" --lyrics
 ```
 
 ## Terminal controls
@@ -114,9 +116,19 @@ Both modes use SplitMix64 and integer rejection sampling; Fisher–Yates builds 
 
 The graph is bounded and candidate work does not build an all-track pairwise distance matrix. The planner prepares metadata before audio and reuses it across cycles. Shortest paths can traverse genre nodes with no selected recordings; these nodes influence distance but never add tracks to the selection. Artist/album memory covers the current plan; a repeat boundary supplies only the previous cycle's final occurrence. The planner favors coherent neighborhoods rather than forcing a timed drift or finding an optimal route through every style. Custom or inconsistent tags, unavailable bridge recordings and bounded candidate/lookahead sampling limit what it can infer. It computes an order only; it does not alter files, tags or stored catalog metadata.
 
+## Lyrics during playback
+
+`--lyrics` prints the active LRC cue when it changes, in place of the spectrum. Equal timestamps appear together, in source order, with up to four lines per cue. A timestamped blank clears the active words. Plain lyrics produce a four-line preview once per occurrence; unavailable or invalid lyrics give a diagnostic without stopping the music. Long lines are clipped to the terminal width. Cue output scrolls with playback; it is a compact display, not a full karaoke screen.
+
+A nonempty lyrics tag takes precedence over an adjacent `.lrc`. Reads are bounded to 256 KiB of source text and 1 MiB after timestamp expansion. Existing catalog evidence must still match the audio; files played directly are read afresh. No request to LRCLIB or other service occurs. Use [fetch --lyrics](fetch.md) separately to retrieve missing words, or [track --lyrics](track.md) for a complete static listing. Redirected output refuses `play --lyrics`; playback without this option remains available.
+
+With native output, cues follow frames consumed by the CPAL callback, including the current seek offset. They stay frozen during pause and reset when restarting, seeking or skipping. Compatible joins and natural repeats retain the output clock while starting a new lyric occurrence. This avoids showing the next track simply because its decoder has started preparing it. Lyric lookahead holds at most 64 occurrences; if very short tracks reach that bound before the resampler emits them, Aède flushes the processing group and waits for output consumption. The output stream stays open, but filter tails and rate-conversion rounding restart at that exceptional boundary. Device/host latency is not measured, so this does not promise alignment with the physical sound at the DAC. With ffplay, elapsed active playback supplies an explicitly announced estimate; buffering and output stalls can reduce its accuracy.
+
+The [native lyrics API](../server/playback.md#lyrics-and-the-client-clock) gives Phémios or another authorized client a separate timed text resource. The client follows its own audio presentation position, pauses and seeks. Lyrics are not embedded in the PCM packets; this API does not enable the separate Subsonic lyrics methods.
+
 ## Result and errors
 
-The terminal names the album and numbered filename as playback advances, shows 24 animated spectrum bars, and reports active DSP stages, normalization/tone headroom and output-meter values. The meter observes guarded PCM submitted to local output before dither/device conversion, not sound measured at the loudspeaker. Read normalization source and guard intervention reports when interpreting level changes. Completion follows the selected repeat mode. A missing decoder/output device, unsupported channel layout, malformed playlist or file decode/output failure returns a diagnostic; completed listening records may already be saved. A device shortage/underrun is an output problem, distinct from a catalog tag issue. See the DSP guide for measurement limits.
+The terminal names the album and numbered filename as playback advances, shows 24 animated spectrum bars (or lyric cues with `--lyrics`), and reports active DSP stages, normalization/tone headroom and output-meter values. The meter observes guarded PCM submitted to local output before dither/device conversion, not sound measured at the loudspeaker. Read normalization source and guard intervention reports when interpreting level changes. Completion follows the selected repeat mode. A missing decoder/output device, unsupported channel layout, malformed playlist or file decode/output failure returns a diagnostic; completed listening records may already be saved. A device shortage/underrun is an output problem, distinct from a catalog tag issue. See the DSP guide for measurement limits.
 
 ## Related reading
 
