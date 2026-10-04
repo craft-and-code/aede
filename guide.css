@@ -6,6 +6,7 @@ body.guide-document[data-section="cli"] { --guide-accent:#d8f36a; }
 .guide-document * { box-sizing:border-box; }
 .guide-document [hidden] { display:none !important; }
 .guide-document a { color:var(--guide-accent); text-decoration:none; }
+.guide-document a[href] { cursor:pointer; }
 .guide-document a:hover { text-decoration:underline; text-underline-offset:4px; }
 .guide-document button,.guide-document input,.guide-document select { font:inherit; }
 .guide-document :focus-visible { outline:2px solid var(--guide-accent); outline-offset:4px; }

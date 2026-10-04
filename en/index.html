@@ -12,8 +12,8 @@
 <meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Aède — Audio player, music library and DSP"><meta name="twitter:description" content="Aède, a local audio player and music library manager: lyrics, credits, artist relationships, search, verified copying and DSP. Explore the CLI, server and user manual."><meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
-<link rel="stylesheet" href="../styles.css?v=e4137f5ebdea">
-<script src="../language.js?v=cd2025bbb364"></script><script defer src="../home-strings.js?v=6195eef564ef"></script><script defer src="../translations.js?v=31dfe162ed1c"></script><script defer src="../app.js?v=1db64f4eec8e"></script>
+<link rel="stylesheet" href="../styles.css?v=a89d81b45fc1">
+<script src="../language.js?v=cd2025bbb364"></script><script defer src="../home-strings.js?v=83338877fbb7"></script><script defer src="../translations.js?v=31dfe162ed1c"></script><script defer src="../app.js?v=1db64f4eec8e"></script>
 <script type="application/ld+json">{
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -117,7 +117,22 @@ Audio and tags unchanged.</pre>
         </div>
       </section>
       <section id="ae-server" class="ae-section ae-reveal">
-        <div class="ae-section-copy"><p class="ae-eyebrow">02 / THE SERVER</p><h2>Your collection.<br><span class="ae-section-ink">A meeting place.</span></h2><p>The local server exposes the catalog to clients and centralises scanning and information retrieval jobs.</p><p class="ae-status">API, accounts and HTTPS available</p><ul class="ae-feature-list"><li>A catalog shared between clients.</li><li>Scans and fetches tracked in one place.</li><li>A foundation for future interfaces.</li></ul><p class="ae-future">NAS and Raspberry Pi: deployments to validate.<br>Mobile clients: planned.</p><a class="ae-text-link" href="../docs/en/server/start.html">Understand the server <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+        <div class="ae-section-copy">
+          <p class="ae-eyebrow">02 / THE SERVER</p><h2>Your collection.<br><span class="ae-section-ink">A meeting place.</span></h2>
+          <p>The local server exposes the catalog to clients and centralises scanning and information retrieval jobs.</p>
+          <p class="ae-status">API, accounts and HTTPS available</p>
+          <ul class="ae-feature-list"><li>A catalog shared between clients.</li><li>Scans and fetches tracked in one place.</li><li>Catalog browsing, original audio, favourites and playlists through Subsonic/OpenSubsonic.</li><li>A foundation for future interfaces.</li></ul>
+          <p class="ae-future">Use a separate key for each application. Browsing and FLAC playback have been verified with Submariner on macOS; check which features your player supports.</p>
+          <div class="ae-compatibility">
+            <p class="ae-compatibility-label">Compatible with</p>
+            <ul class="ae-compatibility-logos" aria-label="Compatible protocols">
+              <li><img src="../assets/compatibility/subsonic.png" alt="Subsonic" width="40" height="40" loading="lazy"><span aria-hidden="true">Subsonic</span></li>
+              <li><img src="../assets/compatibility/opensubsonic.svg" alt="OpenSubsonic" width="40" height="40" loading="lazy"><span aria-hidden="true">OpenSubsonic</span></li>
+            </ul>
+          </div>
+          <p class="ae-future">NAS, Raspberry Pi and mobile players: validation pending.</p>
+          <a class="ae-text-link" href="../docs/en/server/start.html">Understand the server <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        </div>
         <div class="ae-server-visual" aria-label="The local catalog flows from files through Aède to the CLI; Phémios is a future client">
           <div class="ae-server-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2"/><path d="m3 11 3-7h12l3 7m-5 4h2m-11 0h1"/></svg><span>Your files</span></div>
           <div class="ae-server-wire" aria-hidden="true"><span class="ae-packet ae-packet-source"></span></div>
