@@ -1,8 +1,13 @@
 use std::io;
 
-use super::{
-    CharacterInput, EventData, InputRecord, KeyEvent, KeyUnit, key_unit, password_mode, read_scalar,
+use super::{CharacterInput, KeyUnit, key_character, read_scalar};
+use crate::commands::windows_console::{
+    EventData, InputRecord, KeyEvent, key_event, raw_mode as password_mode,
 };
+
+fn key_unit(record: &InputRecord) -> Option<KeyUnit> {
+    key_character(key_event(record)?)
+}
 
 fn key_record(key_down: bool, virtual_key: u16, unit: u16, repeat_count: u16) -> InputRecord {
     InputRecord {

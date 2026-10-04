@@ -299,7 +299,7 @@ impl SmartShuffle {
         let mut total = 0u64;
         for &next in candidates {
             let distance = self.transition_distance(previous, next);
-            if radius.is_some_and(|radius| !distance.is_some_and(|d| d <= radius)) {
+            if radius.is_some_and(|radius| distance.is_none_or(|d| d > radius)) {
                 continue;
             }
             if radius.is_none() && has_known && distance.is_none() {

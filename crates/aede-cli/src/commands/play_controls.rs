@@ -1,14 +1,22 @@
 //! Interactive terminal transport controls for local playback.
 
 use std::error::Error;
+use std::io;
+#[cfg(not(windows))]
 use std::sync::mpsc::Receiver;
 
 #[cfg(unix)]
 use super::super::terminal_mode::TerminalMode;
+#[cfg(any(unix, windows))]
+use std::io::IsTerminal;
 #[cfg(unix)]
-use std::io::{self, IsTerminal, Read};
+use std::io::Read;
 #[cfg(unix)]
 use std::sync::mpsc;
+
+#[cfg(any(windows, test))]
+#[path = "play_controls_windows.rs"]
+mod windows;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Action {
@@ -56,26 +64,33 @@ impl KeyParser {
             }
             (_, byte) => {
                 self.escape = 0;
-                match byte {
-                    b' ' => Some(Action::Pause),
-                    b'n' | b'N' => Some(Action::Next),
-                    b'p' | b'P' => Some(Action::Previous),
-                    0x03 | b'q' | b'Q' | b's' | b'S' => Some(Action::Stop),
-                    b'[' => Some(Action::SeekRelative(-10_000)),
-                    b']' => Some(Action::SeekRelative(10_000)),
-                    b'r' | b'R' => Some(Action::CycleRepeat),
-                    b'z' | b'Z' => Some(Action::CycleShuffle),
-                    _ => None,
-                }
+                character_action(byte)
             }
         }
     }
 }
 
+fn character_action(byte: u8) -> Option<Action> {
+    match byte {
+        b' ' => Some(Action::Pause),
+        b'n' | b'N' => Some(Action::Next),
+        b'p' | b'P' => Some(Action::Previous),
+        0x03 | b'q' | b'Q' | b's' | b'S' => Some(Action::Stop),
+        b'[' => Some(Action::SeekRelative(-10_000)),
+        b']' => Some(Action::SeekRelative(10_000)),
+        b'r' | b'R' => Some(Action::CycleRepeat),
+        b'z' | b'Z' => Some(Action::CycleShuffle),
+        _ => None,
+    }
+}
+
 pub(super) struct Controls {
+    #[cfg(not(windows))]
     actions: Receiver<Action>,
     #[cfg(unix)]
     _terminal_mode: TerminalMode,
+    #[cfg(windows)]
+    input: std::cell::RefCell<windows::Input>,
 }
 
 impl Controls {
@@ -117,17 +132,33 @@ impl Controls {
         }))
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    pub(super) fn start() -> Result<Option<Self>, Box<dyn Error>> {
+        if !io::stdin().is_terminal() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            input: std::cell::RefCell::new(windows::Input::start()?),
+        }))
+    }
+
+    #[cfg(not(any(unix, windows)))]
     pub(super) fn start() -> Result<Option<Self>, Box<dyn Error>> {
         Ok(None)
     }
 
-    pub(super) fn poll(&self) -> Option<Action> {
-        self.actions.try_recv().ok()
+    pub(super) fn poll(&self) -> io::Result<Option<Action>> {
+        #[cfg(not(windows))]
+        return Ok(self.actions.try_recv().ok());
+        #[cfg(windows)]
+        self.input.borrow_mut().poll()
     }
 
-    pub(super) fn wait(&self) -> Option<Action> {
-        self.actions.recv().ok()
+    pub(super) fn wait(&self) -> io::Result<Option<Action>> {
+        #[cfg(not(windows))]
+        return Ok(self.actions.recv().ok());
+        #[cfg(windows)]
+        self.input.borrow_mut().wait()
     }
 }
 

@@ -16,7 +16,7 @@ Input/output/tone incompatibility starts a new processing session. An output-for
 aede play "A Continuous Album" --normalize album
 ```
 
-Use a catalogued album selection with shuffle off to preserve its order and album normalization. The CLI drives the queue with repeat off/one/all and uniform or smart shuffle. On Unix terminals, Space pauses/resumes, `n`/Right moves forward, `p`/Left goes back or restarts after three seconds, `[`/`]` moves ten seconds, `r` changes repeat, `z` changes shuffle, and `q` or Ctrl-C stops. A seek discards queued audio and processing state; compatible natural repeats retain the continuous session. Windows supports command options, while its interactive transport keys remain future work. See [play](../cli/play.md) for modes, history and the Expert smart-shuffle explanation.
+Use a catalogued album selection with shuffle off to preserve its order and album normalization. The CLI drives the queue with repeat off/one/all and uniform or smart shuffle. On Unix terminals and the native Windows console, Space pauses/resumes, `n`/Right moves forward, `p`/Left goes back or restarts after three seconds, `[`/`]` moves ten seconds, `r` changes repeat, `z` changes shuffle, and `q` or Ctrl-C stops, without Enter. Redirected input disables these keys; Windows console/device acceptance remains pending. A seek discards queued audio and processing state; compatible natural repeats retain the continuous session. See [play](../cli/play.md) for modes, history and the Expert smart-shuffle explanation.
 
 ## Hardware boundaries
 

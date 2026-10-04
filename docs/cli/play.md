@@ -2,7 +2,7 @@
 
 play accepts an existing file, recursively ordered folder, M3U/M3U8, saved collection or catalogued name. Use collection:NAME to select a collection explicitly. Relative playlist entries resolve beside the playlist, not the terminal’s working directory. File/folder playback can start without scanning; catalog names and collections need the catalog.
 
-On a macOS/Linux terminal, playback accepts the keys below without Enter. Without terminal input, the selection advances automatically using the requested repeat and shuffle modes. These options also work on Windows; interactive Windows transport keys remain unimplemented. Listening history is recorded in personal data.
+In macOS/Linux terminals and the native Windows console, playback accepts the keys below without Enter. With redirected standard input, interactive controls are disabled and the selection advances automatically using the requested repeat and shuffle modes. Listening history is recorded in personal data. Windows console input is implemented; acceptance on an actual Windows console and audio device remains pending.
 
 Album normalization is the default for a catalogued album; other selections use track normalization toward -18 LUFS. Current FlacCompagnon LUFS/true-peak results, tags or cached measurements can supply gain. Missing loudness is measured during playback, without changing the current track’s level midway. Bass/treble boosts reserve headroom. CPAL uses a compatible native output where available, otherwise ffplay; Opus/AAC/ALAC decoding can need ffmpeg. Linux release archives require ffplay. The meter and output guard report sample overloads; there is no dynamic limiter or guarantee of a true-peak ceiling. Hardware gapless behavior remains unmeasured.
 
@@ -44,6 +44,8 @@ aede play collection:Journey --shuffle smart --seed 42
 
 ## Terminal controls
 
+Keep the terminal focused; these keys control Aède directly, without Enter. Windows Terminal and the classic console use native key events; PowerShell ISE and other hosts without console input do not provide these controls. Letter commands are case-insensitive. Key releases and unrelated mouse/window events do not trigger transport actions.
+
 | Key | Action |
 | --- | --- |
 | Space | Pause/resume. |
@@ -53,6 +55,10 @@ aede play collection:Journey --shuffle smart --seed 42
 | `r` | Cycle repeat: off → one → all → off. |
 | `z` | Cycle shuffle: off → random → smart → off. Without a catalog, smart is skipped with an explanation. |
 | `q`, `s` or Ctrl-C | Stop, save listening history and return to the shell. |
+
+During interactive playback, terminal input has no echo. Aède restores the original input mode after a normal stop or an error. Ctrl-C follows the same orderly stop/history path as `q`; on Windows it is read as a console key rather than an immediate process termination. If playback input cannot be read or the input mode cannot be restored, the command reports the error.
+
+Windows accepts AltGr brackets on French keyboards. Classic-console mouse selection is disabled during playback to prevent it from freezing console I/O and starving audio; the original setting is restored afterward.
 
 Repeat and shuffle can be changed while paused. Changing shuffle retains the current occurrence and the already-played prefix; it reorders only the remaining occurrences. Turning shuffle off restores their original relative order. A mode change does not cut the current audio. Previous follows the actual playing order, including the preceding repeat-all cycle while it is retained.
 

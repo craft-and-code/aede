@@ -16,7 +16,7 @@ Une incompatibilité d’entrée/sortie/tonalité relance la session. Une modifi
 aede play "Un Album Continu" --normalize album
 ```
 
-Sélectionnez un album catalogué avec le mélange désactivé pour conserver son ordre et sa normalisation album. La CLI utilise la file avec répétition off/one/all et mélange uniforme ou intelligent. Sur terminal Unix, Espace pause/reprend, `n`/Droite avance, `p`/Gauche revient ou recommence après trois secondes, `[`/`]` déplace de dix secondes, `r` change la répétition, `z` change le mélange, et `q` ou Ctrl-C arrête. Un déplacement abandonne l’audio en attente et l’état de traitement ; les répétitions naturelles compatibles conservent la session continue. Windows accepte les options de commande, mais ses touches interactives restent à développer. Voir [play](../cli/play.md) pour les modes, l’historique et l’explication Expert du mélange intelligent.
+Sélectionnez un album catalogué avec le mélange désactivé pour conserver son ordre et sa normalisation album. La CLI utilise la file avec répétition off/one/all et mélange uniforme ou intelligent. Sur terminal Unix et console native Windows, Espace pause/reprend, `n`/Droite avance, `p`/Gauche revient ou recommence après trois secondes, `[`/`]` déplace de dix secondes, `r` change la répétition, `z` change le mélange, et `q` ou Ctrl-C arrête, sans Entrée. Une entrée redirigée désactive ces touches ; la validation sur console/périphérique Windows reste à faire. Un déplacement abandonne l’audio en attente et l’état de traitement ; les répétitions naturelles compatibles conservent la session continue. Voir [play](../cli/play.md) pour les modes, l’historique et l’explication Expert du mélange intelligent.
 
 ## Frontières du matériel
 

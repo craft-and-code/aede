@@ -85,8 +85,8 @@ impl PlaybackOrder {
             && let Some(smart) = &self.smart
         {
             let distance = smart.transition_distance(previous, next);
-            if !distance
-                .is_some_and(|distance| distance <= aede_core::playback::shuffle::MAX_STYLE_STEP)
+            if distance
+                .is_none_or(|distance| distance > aede_core::playback::shuffle::MAX_STYLE_STEP)
             {
                 let reason = distance.map_or_else(
                     || "genre evidence unavailable".to_owned(),

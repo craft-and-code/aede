@@ -2,7 +2,7 @@
 
 play accepte un fichier, un dossier parcouru récursivement dans l’ordre, un M3U/M3U8, une collection ou un nom catalogué. collection:NOM désigne explicitement une collection. Les chemins relatifs d’une playlist partent de son dossier, pas du terminal. Fichiers/dossiers se lisent sans scan ; noms et collections demandent un catalogue.
 
-Dans un terminal macOS/Linux, les touches ci-dessous fonctionnent sans Entrée. Sans entrée terminal, la sélection avance automatiquement avec les modes de répétition et de mélange demandés. Ces options fonctionnent aussi sur Windows ; ses touches interactives restent à développer. Les écoutes sont enregistrées dans les données personnelles.
+Dans les terminaux macOS/Linux et la console native Windows, les touches ci-dessous fonctionnent sans Entrée. Avec l’entrée standard redirigée, les commandes interactives sont désactivées et la sélection avance automatiquement avec les modes de répétition et de mélange demandés. Les écoutes sont enregistrées dans les données personnelles. La saisie console Windows est implémentée ; sa validation sur une console et un périphérique audio Windows réels reste à effectuer.
 
 La normalisation album s’applique par défaut à un album catalogué ; les autres sélections utilisent track vers -18 LUFS. Les mesures actuelles FlacCompagnon, tags ou valeurs en cache peuvent fournir le gain. Une mesure manquante se calcule pendant la lecture, sans changer le niveau en cours de piste. Les hausses graves/aigus réservent une marge. CPAL fournit la sortie native compatible, sinon ffplay ; Opus/AAC/ALAC peuvent nécessiter ffmpeg. Les archives Linux exigent ffplay. Le garde de sortie signale les dépassements d’échantillon ; aucun limiteur dynamique ni plafond true peak garanti. La continuité physique sur matériel reste à mesurer.
 
@@ -44,6 +44,8 @@ aede play collection:Journey --shuffle smart --seed 42
 
 ## Commandes du Terminal
 
+Garder le terminal actif ; ces touches commandent directement Aède, sans Entrée. Windows Terminal et la console classique utilisent les événements clavier natifs ; PowerShell ISE et les autres hôtes sans entrée console ne fournissent pas ces commandes. Les lettres sont reconnues en minuscules et majuscules. Les relâchements de touche et les événements souris/fenêtre sans rapport ne déclenchent aucune action de lecture.
+
 | Touche | Action |
 | --- | --- |
 | Espace | Pause/reprise. |
@@ -53,6 +55,10 @@ aede play collection:Journey --shuffle smart --seed 42
 | `r` | Faire défiler la répétition : off → one → all → off. |
 | `z` | Faire défiler le mélange : off → random → smart → off. Sans catalogue, smart est sauté avec une explication. |
 | `q`, `s` ou Ctrl-C | Arrêter, sauvegarder l’historique et revenir au shell. |
+
+Pendant la lecture interactive, la saisie n’est pas affichée. Aède restaure le mode d’entrée initial après un arrêt normal ou une erreur. Ctrl-C suit le même arrêt ordonné avec sauvegarde d’historique que `q` ; sous Windows, il est lu comme une touche console plutôt que terminer immédiatement le processus. Une erreur de lecture de l’entrée ou de restauration du mode est signalée.
+
+Sous Windows, les crochets saisis avec AltGr sur un clavier français sont reconnus. La sélection à la souris de la console classique est désactivée pendant la lecture pour éviter qu’elle bloque les entrées/sorties et interrompe l’audio ; le réglage initial est rétabli à la sortie.
 
 Répétition et mélange se changent aussi pendant une pause. Un changement de mélange conserve l’occurrence actuelle et celles déjà passées ; seules les occurrences restantes sont réordonnées. Désactiver le mélange restaure leur ordre relatif initial. Cela ne coupe pas le morceau en cours. Précédent suit l’ordre réellement joué, y compris le cycle précédent de répétition complète lorsqu’il est encore conservé.
 

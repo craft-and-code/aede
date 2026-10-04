@@ -10,7 +10,7 @@ Le processus de publication prépare les archives suivantes. Télécharger un fi
 | --- | --- | --- |
 | macOS, Apple Silicon | `macOS-AppleSilicon` | Sortie CPAL native compatible, sinon ffplay |
 | Linux, x86_64 | `Linux-x86_64` | Archive musl, ffplay nécessaire à la lecture |
-| Windows, x64 | `Windows-x64` | Scan/copie testés en CI Windows ; touches de lecture/délégation locale encore Unix seulement |
+| Windows, x64 | `Windows-x64` | Sortie native avec repli ffplay et touches console implémentées ; validation console/périphérique à faire ; délégation locale encore Unix seulement |
 
 Les prochaines versions ne proposeront plus d’archive précompilée pour les Mac Intel. Aucune archive Linux ARM/Raspberry Pi ni image Docker publiée dans le processus actuel. Compiler une autre cible exige une validation spécifique. Le serveur propose une API de catalogue, la [lecture PCM native authentifiée](../server/playback.md) et la [diffusion du fichier original Subsonic/OpenSubsonic](../server/subsonic.md). L’accès distant exige la [configuration HTTPS](../server/remote.md) explicite ; aucun lecteur web/mobile ni déploiement NAS validé n’est fourni.
 

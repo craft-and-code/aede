@@ -260,9 +260,9 @@ fn control_action(
     };
     loop {
         let action = if clock.paused_since.is_some() {
-            controls.wait()
+            controls.wait()?
         } else {
-            controls.poll()
+            controls.poll()?
         };
         match action {
             Some(Action::Pause) => clock.toggle_pause(output)?,

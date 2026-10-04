@@ -53,6 +53,8 @@ mod summaries;
 #[cfg(unix)]
 mod terminal_mode;
 mod track;
+#[cfg(any(windows, test))]
+mod windows_console;
 mod work;
 
 pub use accounts::accounts;

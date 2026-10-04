@@ -30,7 +30,7 @@ Plural commands list entities; singular commands open one. Read the copyable `Op
 aede play "Kind of Blue"
 ```
 
-In a macOS/Linux terminal, Space pauses/resumes, `n` advances, `p` goes back/restarts, and `q` stops. Windows terminal controls are not available yet. Playback may require FFmpeg/ffplay depending on the format/build. Album selections preserve relative track levels with album normalization by default. [Playback reference](../cli/play.md) explains gain, tools and current limits.
+In macOS/Linux terminals and the native Windows console, Space pauses/resumes, `n` advances, `p` goes back/restarts, and `q` stops without Enter. Redirected input disables interactive controls. Windows console/device acceptance remains pending. Playback may require FFmpeg/ffplay depending on the format/build. Album selections preserve relative track levels with album normalization by default. [Playback reference](../cli/play.md) explains all keys, gain, tools and current limits.
 
 ## 4. Add your own information
 
