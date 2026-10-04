@@ -12,7 +12,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Component, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use aede_core::clock;
@@ -270,7 +270,21 @@ async fn current_sources(
     state: &ApiState,
     requested: &[EntityRef],
 ) -> Result<(Vec<TrackSource>, Catalog), StreamFailure> {
-    let catalog = state.catalog.read().await;
+    // Track references and selected analyses can each scan a large catalog.
+    // The socket's playback permit bounds this work independently of HTTP
+    // workers; keep it away from Tokio's network and acknowledgement threads.
+    let state = state.clone();
+    let requested = requested.to_vec();
+    tokio::task::spawn_blocking(move || selected_sources(&state, &requested))
+        .await
+        .map_err(|_| StreamFailure::STREAM_FAILED)?
+}
+
+fn selected_sources(
+    state: &ApiState,
+    requested: &[EntityRef],
+) -> Result<(Vec<TrackSource>, Catalog), StreamFailure> {
+    let catalog = state.catalog.blocking_read();
     let catalog = catalog.as_ref().ok_or(StreamFailure::CATALOG_UNAVAILABLE)?;
     let sources = requested
         .iter()
@@ -297,9 +311,18 @@ async fn current_sources(
 
 /// File identity is checked around opening and decoding. This cannot make a
 /// pathname-based decoder immune to every operating-system race, but it
-/// refuses links and special files, never accepts a caller-supplied path, and
-/// detects a replacement before it can become an acknowledged listen.
+/// refuses relative/traversing paths, links and special files, never accepts a
+/// caller-supplied path, and detects a replacement before it can become an
+/// acknowledged listen.
 pub(super) fn validate_source(source: &TrackSource) -> Result<(), StreamFailure> {
+    if !source.path.is_absolute()
+        || source
+            .path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(StreamFailure::SOURCE_CHANGED);
+    }
     let metadata = fs::symlink_metadata(&source.path).map_err(|failure| {
         if failure.kind() == ErrorKind::NotFound {
             StreamFailure::SOURCE_UNAVAILABLE

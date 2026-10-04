@@ -99,3 +99,14 @@ fn shelves_remain_defined_at_low_sample_rates() {
     dsp.process(&mut samples).expect("signal");
     assert!(samples.iter().all(|sample| sample.is_finite()));
 }
+
+#[test]
+fn tone_transient_overflow_is_reported_without_producing_non_finite_pcm() {
+    let mut dsp = Dsp::new(PcmFormat::new(48_000, 1).expect("format"));
+    dsp.set_tone(ToneControls::new(-12.0, 0.0).expect("tone"))
+        .expect("filter");
+    let mut samples = vec![f32::MAX; 1_001];
+    samples[1_000] = -f32::MAX;
+    assert_eq!(dsp.process(&mut samples), Err(DspError::SampleOverflow));
+    assert!(samples.iter().all(|sample| sample.is_finite()));
+}

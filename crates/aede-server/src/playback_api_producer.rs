@@ -214,7 +214,8 @@ fn produce(
         &settings.data_dir,
         settings.normalize,
     )
-    .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
+    .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?
+    .without_capture();
     let mut output = Output {
         sender: &sender,
         cancelled: &cancelled,

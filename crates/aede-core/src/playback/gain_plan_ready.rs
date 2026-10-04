@@ -91,6 +91,7 @@ pub struct ReadyNormalization<'a> {
     learnable_album_starts: Vec<bool>,
     plans: Vec<Option<GainPlan>>,
     capture: Option<Capture>,
+    capture_enabled: bool,
 }
 
 impl<'a> ReadyNormalization<'a> {
@@ -128,7 +129,22 @@ impl<'a> ReadyNormalization<'a> {
             learnable_album_starts: vec![false; paths.len()],
             plans: vec![None; paths.len()],
             capture: None,
+            capture_enabled: true,
         })
+    }
+
+    /// Reuse known gains without measuring or publishing new source loudness.
+    ///
+    /// Native PCM transport selects this policy because it does not observe
+    /// source samples or publish complete-track measurements. Missing track
+    /// gains retain the existing fallback policy; missing album gain retains
+    /// one unchanged level. No meter or capture is prepared for unknown values.
+    /// Calling this after preparation discards any pending optional capture.
+    pub fn without_capture(mut self) -> Self {
+        self.capture_enabled = false;
+        self.capture = None;
+        self.learnable_album_starts.fill(false);
+        self
     }
 
     /// Choose an already available gain for the current track or album.
@@ -193,7 +209,7 @@ impl<'a> ReadyNormalization<'a> {
             .cache
             .loudness_tracks
             .get(&file.path)
-            .filter(|cached| cached.size == file.size && cached.mtime == file.mtime)
+            .filter(|cached| cached.matches(&file))
         {
             self.capture = None;
             return Ok(cached
@@ -201,12 +217,14 @@ impl<'a> ReadyNormalization<'a> {
                 .map(|value| measured_plan(value, false, false))
                 .or_else(|| metadata.map(metadata_plan)));
         }
-        self.capture = Some(Capture {
-            indices: vec![index],
-            files: vec![file],
-            next: 0,
-            meter: Some(LoudnessProgramme::new()),
-        });
+        if self.capture_enabled {
+            self.capture = Some(Capture {
+                indices: vec![index],
+                files: vec![file],
+                next: 0,
+                meter: Some(LoudnessProgramme::new()),
+            });
+        }
         Ok(metadata.map(metadata_plan))
     }
 
@@ -248,7 +266,9 @@ impl<'a> ReadyNormalization<'a> {
             for &index in &indices {
                 self.plans[index] = plan;
             }
-        } else if let Some(&first) = indices.first() {
+        } else if self.capture_enabled
+            && let Some(&first) = indices.first()
+        {
             // Incomplete album metadata must not turn album mode into a series
             // of per-track adjustments. Learn one programme for a later play.
             self.learnable_album_starts[first] = true;
@@ -333,6 +353,7 @@ impl<'a> ReadyNormalization<'a> {
             let cached = CachedTrack {
                 size: file.size,
                 mtime: file.mtime,
+                mtime_subseconds: file.mtime_subseconds,
                 measurement,
             };
             self.cache

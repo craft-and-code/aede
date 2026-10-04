@@ -20,6 +20,7 @@ fn consumed_position_keeps_the_heard_occurrence_and_corrects_its_metadata_durati
     let first = timeline.position(Some(48_000), 90_000).unwrap();
     assert_eq!(first.token, 1);
     assert_eq!(first.position_ms, 11_000);
+    assert_eq!(first.output_frames, 48_000);
     assert_eq!(first.duration_ms, Some(12_000));
     assert_eq!(first.label, "first");
     assert!(!first.estimated);
@@ -32,6 +33,7 @@ fn consumed_position_keeps_the_heard_occurrence_and_corrects_its_metadata_durati
     let second = timeline.position(Some(96_000), 91_001).unwrap();
     assert_eq!(second.token, 2);
     assert_eq!(second.position_ms, 0);
+    assert_eq!(second.output_frames, 96_000);
     assert_eq!(second.duration_ms, None);
     let final_position = timeline.position(Some(144_000), 91_002).unwrap();
     assert_eq!(final_position.token, 2);
@@ -60,6 +62,7 @@ fn ffplay_position_starts_at_submission_and_preserves_its_estimated_final_snapsh
         "an inaccurate total cannot hide actual progress"
     );
     assert!(heard.estimated);
+    assert_eq!(heard.output_frames, 24_000);
     assert_eq!(timeline.position(None, 9_500).unwrap().position_ms, 500);
     assert_eq!(timeline.position(None, 12_000).unwrap().position_ms, 1_000);
     timeline.set_duration(1, 1_000).unwrap();

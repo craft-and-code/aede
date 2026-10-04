@@ -1,6 +1,6 @@
 # play — Écouter la musique
 
-play accepte un fichier, un dossier parcouru récursivement dans l’ordre, un M3U/M3U8, une collection ou un nom catalogué. collection:NOM désigne explicitement une collection. Les chemins relatifs d’une playlist partent de son dossier, pas du terminal. Fichiers/dossiers se lisent sans scan ; noms et collections demandent un catalogue.
+play accepte un fichier, un dossier parcouru récursivement dans l’ordre, un M3U/M3U8, une collection ou un nom catalogué. collection:NOM désigne explicitement une collection. Les chemins relatifs d’une playlist partent de son dossier, pas du terminal. Un M3U/M3U8 est limité à 16 Mio et doit être un fichier local ordinaire. Les chemins audio doivent être en UTF-8 valide pour éviter toute collision de clés dans l’historique et le cache de volume. Fichiers/dossiers se lisent sans scan ; noms et collections demandent un catalogue.
 
 Dans les terminaux macOS/Linux et la console native Windows, les touches ci-dessous fonctionnent sans Entrée. Avec l’entrée standard redirigée, les commandes interactives sont désactivées et la sélection avance automatiquement avec les modes de répétition et de mélange demandés. Les écoutes sont enregistrées dans les données personnelles. La saisie console Windows est implémentée ; sa validation sur une console et un périphérique audio Windows réels reste à effectuer.
 
@@ -70,7 +70,7 @@ Répétition et mélange se changent aussi pendant une pause. Un changement de m
 
 Le décodeur rouvre la source puis décode progressivement le début pour l’écarter, avec une mémoire de travail bornée. Cette partie sautée ne passe ni dans le DSP, ni dans la sortie, ni dans l’historique. La position est arrondie vers le bas à une trame source ; son affichage utilise les millisecondes. Le déplacement n’est pas instantané par index : son coût augmente avec la position visée, et une lecture lente du fichier ou du décodeur peut retarder une commande entre deux contrôles d’annulation. Le déplacement réinitialise l’audio en attente et l’état DSP.
 
-Plusieurs déplacements pendant une même visite créent une seule écoute incomplète. Sa durée estime l’audio soumis pendant le temps actif, en excluant pauses et parties sautées. Une visite partielle ne publie jamais une mesure de loudness du morceau entier. L’historique local s’appuie sur l’audio soumis et le temps actif, pas sur un accusé de lecture physique du périphérique.
+Plusieurs déplacements pendant une même visite créent une seule écoute incomplète. Les segments inférieurs à une milliseconde sont cumulés avant l’arrondi final. Sa durée estime l’audio soumis pendant le temps actif, en excluant pauses et parties sautées. Une visite partielle ne publie jamais une mesure de loudness du morceau entier. L’historique local s’appuie sur l’audio soumis et le temps actif, pas sur un accusé de lecture physique du périphérique ; il peut devancer la consommation native du tampon de sortie en attente (jusqu’à 500 ms). Le transport natif distant compte séparément les trames confirmées par le client.
 
 ## Répétition
 
@@ -125,6 +125,8 @@ Avec la sortie native, la position suit les trames consommées par le callback C
 ## Spectre dans le Terminal
 
 La lecture dans le Terminal affiche un spectre Rétro à douze bandes larges et segmentées, des basses fréquences à gauche aux hautes fréquences à droite. Il regroupe les 24 bandes d’analyse existantes pour l’affichage, sans changer l’analyse ni le son. Chaque colonne se remplit depuis le bas, avec des segments verts en bas, jaunes plus haut et rouges au sommet. Un repère de crête distinct retombe plus lentement après la baisse du niveau courant.
+
+La FFT s’exécute hors du callback audio. Ses instantanés attendent la même horloge de trames consommées que la progression : les échantillons en tampon n’animent donc plus les barres en avance sur la sortie native. Les enchaînements compatibles conservent les fenêtres d’analyse partielles et les crêtes ; déplacements, sauts et réinitialisations de sortie les écartent. La latence du périphérique et du mixeur reste inconnue ; ffplay utilise l’estimation signalée par la progression. À 48 kHz, une fenêtre de 2048 trames représente environ 43 ms, avec au plus 256 trames supplémentaires (environ 5 ms) pour son horodatage, puis un rafraîchissement du Terminal toutes les 50 ms. Ces intervalles logiciels ne garantissent pas une latence de bout en bout mesurée. Au plus 256 instantanés attendent la consommation ; un excès exceptionnel écarte les plus anciens sans retarder l’audio. La largeur du Terminal est vérifiée une fois par seconde. Le rendu reste sur le thread producteur : un Terminal bloqué ou une connexion SSH lente peut retarder l’audio lorsque le tampon de sortie est épuisé.
 
 La largeur des bandes suit celle du Terminal. Un Terminal étroit regroupe les bandes au lieu de faire déborder l’affichage. `--no-color` ou `NO_COLOR` conserve les blocs et repères de crête en monochrome. Une sortie redirigée n’affiche pas de spectre animé ; `--lyrics` le remplace par les passages de paroles.
 

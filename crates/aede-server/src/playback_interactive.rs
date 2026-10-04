@@ -204,7 +204,7 @@ async fn initial_state(
     state: &ApiState,
     captured: &auth::Principal,
     start: &Start,
-) -> Result<(PlaybackState, Vec<TrackSource>, Catalog), StreamFailure> {
+) -> Result<PlaybackState, StreamFailure> {
     if start
         .profile
         .as_deref()
@@ -233,11 +233,13 @@ async fn initial_state(
     } else {
         start.references.clone()
     };
-    let (sources, catalog) = current_sources(state, &references).await?;
-    let captured_sources = sources.clone();
-    tokio::task::spawn_blocking(move || captured_sources.iter().try_for_each(validate_source))
-        .await
-        .map_err(|_| StreamFailure::STATE_FAILED)??;
+    let (sources, _) = current_sources(state, &references).await?;
+    let sources = tokio::task::spawn_blocking(move || {
+        sources.iter().try_for_each(validate_source)?;
+        Ok::<_, StreamFailure>(sources)
+    })
+    .await
+    .map_err(|_| StreamFailure::STATE_FAILED)??;
     let mut snapshot = if start.resume {
         let previous = previous.clone().ok_or(StreamFailure::STATE_FAILED)?;
         if !sources_match(&previous.entries, &sources) {
@@ -294,7 +296,7 @@ async fn initial_state(
         .await
         .map_err(|_| StreamFailure::STATE_FAILED)??;
     }
-    Ok((snapshot, sources, catalog))
+    Ok(snapshot)
 }
 
 async fn reset_ack(
@@ -493,7 +495,7 @@ pub(super) async fn run(
         },
         None => None,
     };
-    let (mut snapshot, _, _) = match initial_state(&state, &captured, &start).await {
+    let mut snapshot = match initial_state(&state, &captured, &start).await {
         Ok(initial) => initial,
         Err(failure) => {
             send_failure(&mut socket, failure).await;

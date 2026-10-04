@@ -36,7 +36,8 @@ pub struct CurrentTrack<'a> {
 pub enum ReadError {
     /// The catalogued audio is missing or cannot be opened.
     SourceUnavailable,
-    /// Audio identity changed, or its path is a link or non-regular file.
+    /// Audio identity changed, its precise timestamp is unavailable, or its
+    /// path is a link or non-regular file.
     SourceChanged,
     /// The catalogued sidecar is missing or cannot be opened.
     SidecarUnavailable,
@@ -95,8 +96,18 @@ fn unchanged(before: &Metadata, after: &Metadata) -> bool {
 fn audio_matches(source: &CurrentTrack<'_>, metadata: &Metadata) -> bool {
     regular(metadata)
         && metadata.len() == source.size
-        && crate::clock::mtime_seconds(metadata) == source.mtime
-        && crate::clock::mtime_subseconds(metadata) == source.mtime_subseconds
+        && modification(metadata).is_some_and(|modified| {
+            modified.as_secs() == source.mtime && modified.subsec_nanos() == source.mtime_subseconds
+        })
+}
+
+fn modification(metadata: &Metadata) -> Option<std::time::Duration> {
+    // Unknown and pre-epoch dates cannot become a valid zero file identity.
+    metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
 }
 
 fn open_audio(source: &CurrentTrack<'_>) -> Result<(File, Metadata), ReadError> {
@@ -253,12 +264,13 @@ pub fn read_local(path: &Path) -> Result<Option<Lyrics>, ReadError> {
     if !regular(&before) {
         return Err(ReadError::SourceChanged);
     }
+    let modified = modification(&before).ok_or(ReadError::SourceChanged)?;
     let absolute = fs::canonicalize(path).map_err(|_| ReadError::SourceUnavailable)?;
     let source = CurrentTrack {
         path: &absolute,
         size: before.len(),
-        mtime: crate::clock::mtime_seconds(&before),
-        mtime_subseconds: crate::clock::mtime_subseconds(&before),
+        mtime: modified.as_secs(),
+        mtime_subseconds: modified.subsec_nanos(),
         tag: None,
         sidecar: None,
     };

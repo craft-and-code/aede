@@ -62,6 +62,8 @@ pub struct OutputMeter {
 }
 
 impl OutputMeter {
+    /// Prepare sample/guard diagnostics and oversampled true peak when supported.
+    /// True peak is unavailable at sample rates of 192 kHz and above.
     pub fn new(format: PcmFormat) -> Result<Self, OutputMeterError> {
         let true_peak = if format.sample_rate() < 192_000 {
             Some(
@@ -99,6 +101,11 @@ impl OutputMeter {
         }
     }
 
+    /// Observe one guarded block with its matching pre-guard processing stats.
+    ///
+    /// Invalid frames or inconsistent sample peaks are refused before counters
+    /// change. Meter-library failure retains sample/guard diagnostics and
+    /// disables true-peak capture; the caller must report that error.
     pub fn observe(
         &mut self,
         guarded_samples: &[f32],

@@ -76,7 +76,7 @@ impl PlaybackOrder {
         self.preparing_advance = false;
     }
 
-    pub(super) fn describe_transition(&mut self, paths: &[PathBuf], catalog: Option<&Catalog>) {
+    pub(super) fn describe_transition(&mut self, labels: &[String]) {
         let Some(next) = self.current() else {
             return;
         };
@@ -94,8 +94,7 @@ impl PlaybackOrder {
                 );
                 eprintln!(
                     "Smart transition: {} → {} ({reason})",
-                    playing_label(&paths[previous], catalog),
-                    playing_label(&paths[next], catalog)
+                    labels[previous], labels[next]
                 );
             }
         }

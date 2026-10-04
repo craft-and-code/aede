@@ -58,7 +58,7 @@ pub struct Selection {
 pub enum Error {
     /// The requested loudness target is not finite or is outside the usable range.
     InvalidTarget,
-    /// Several distinct values claim the same gain or peak.
+    /// Several values claim the same gain or peak.
     RepeatedTag(&'static str),
     /// A selected gain or peak is malformed.
     InvalidTag(&'static str),

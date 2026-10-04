@@ -61,8 +61,14 @@ fn playing_label_shows_album_and_numbered_filename_without_the_path() {
         ..Default::default()
     };
     assert_eq!(
-        super::playing_label(&path, Some(&catalog)),
+        super::playing_labels(&[path.clone(), path.clone()], Some(&catalog))[0],
         "No More Tears — 01 Mr. Tinkertrain"
+    );
+    let labels = super::playing_labels(&[path.clone(), path.clone()], Some(&catalog));
+    assert_eq!(labels.len(), 2);
+    assert_eq!(
+        labels[0], labels[1],
+        "repeated occurrences retain their label"
     );
     let injected = PathBuf::from("/music/album/01\x1b]52;c;payload\x07.wav");
     assert_eq!(
@@ -191,6 +197,18 @@ fn m3u_refuses_missing_entries_and_remote_urls() {
     std::fs::write(&playlist, "https://example.com/audio.flac\n").unwrap();
     assert!(super::resolve(&playlist.to_string_lossy(), None, None).is_err());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn oversized_playlists_are_refused_before_their_contents_are_loaded() {
+    let path = std::env::temp_dir().join(format!("aede_play_large_m3u_{}.m3u", std::process::id()));
+    let mut file = std::fs::File::create(&path).unwrap();
+    std::io::Write::write_all(&mut file, b"#").unwrap();
+    file.set_len(16 * 1024 * 1024 + 1).unwrap();
+    drop(file);
+    let error = super::read_m3u(&path).unwrap_err().to_string();
+    std::fs::remove_file(path).unwrap();
+    assert!(error.contains("playlist exceeds"), "{error}");
 }
 
 #[test]
@@ -702,4 +720,21 @@ fn stream_pcm_counted(
     )?;
     super::session::submit_block(session.finish()?, output, None, &mut clock, &mut accepted)?;
     Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_audio_cannot_alias_a_personal_history_key() {
+    use std::os::unix::ffi::OsStringExt;
+    let root = std::env::temp_dir().join(format!("aede_play_non_utf8_{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join(std::ffi::OsString::from_vec(b"bad\xff.wav".to_vec()));
+    let args = Args::parse([
+        "play".into(),
+        "--data".into(),
+        root.to_str().unwrap().into(),
+    ]);
+    assert!(record_play(&args, &path, 0, 1, false).is_err());
+    assert!(!user::user_path(&root).exists());
+    std::fs::remove_dir_all(root).unwrap();
 }

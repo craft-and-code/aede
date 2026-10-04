@@ -144,6 +144,30 @@ fn complete_lyrics_require_precise_current_audio_metadata_and_regular_sources() 
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn complete_lyrics_refuse_pre_epoch_audio_instead_of_accepting_zero_identity() {
+    let fixture = Fixture::new();
+    let modified = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
+    File::options()
+        .write(true)
+        .open(&fixture.audio)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    assert_eq!(
+        fs::metadata(&fixture.audio).unwrap().modified().unwrap(),
+        modified
+    );
+    let source = CurrentTrack {
+        mtime: 0,
+        mtime_subseconds: 0,
+        ..fixture.source(Some("stale tag words"), false)
+    };
+    assert_eq!(read_current(source), Err(ReadError::SourceChanged));
+    assert_eq!(read_local(&fixture.audio), Err(ReadError::SourceChanged));
+}
+
 #[test]
 fn complete_sidecars_require_the_same_basename_and_parent_but_accept_uppercase_extension() {
     let fixture = Fixture::new();

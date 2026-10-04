@@ -12,9 +12,10 @@ use crate::store::{self, StoreError};
 
 /// Independent on-disk format version for the conclusions store.
 pub const FORMAT_VERSION: u32 = 1;
-// Version 4 includes corrected native Vorbis bounds; older derived values may
-// measure truncated audio or padding. Imported analyses have their own provenance.
-const LOUDNESS_METHOD_VERSION: u32 = 4;
+// Version 5 requires precise file evidence for derived playback measurements.
+// Older values cannot detect same-size changes within one second. Imported
+// analyses retain their independent source attribution and legacy evidence.
+const LOUDNESS_METHOD_VERSION: u32 = 5;
 /// File name inside Aède's data directory.
 pub const CONCLUSIONS_FILE: &str = "conclusions.json";
 
@@ -162,6 +163,9 @@ pub fn to_json(conclusions: &Conclusions) -> Json {
                     row.set("path", path.clone().into());
                     row.set("size", cached.size.into());
                     row.set("mtime", cached.mtime.into());
+                    if let Some(fraction) = cached.mtime_subseconds {
+                        row.set("mtime_subseconds", fraction.into());
+                    }
                     row.set("measurement", measurement_json(cached.measurement));
                     row
                 })
@@ -187,6 +191,9 @@ pub fn to_json(conclusions: &Conclusions) -> Json {
                                     value.set("path", file.path.clone().into());
                                     value.set("size", file.size.into());
                                     value.set("mtime", file.mtime.into());
+                                    if let Some(fraction) = file.mtime_subseconds {
+                                        value.set("mtime_subseconds", fraction.into());
+                                    }
                                     value
                                 })
                                 .collect(),
@@ -294,17 +301,7 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
         let record = FileConclusion {
             size,
             mtime,
-            mtime_subseconds: match row.get("mtime_subseconds") {
-                None => None,
-                Some(value) => Some(
-                    value
-                        .as_u32()
-                        .filter(|fraction| *fraction < 1_000_000_000)
-                        .ok_or(StoreError::ConclusionsInvalid(
-                            "invalid file modification fraction",
-                        ))?,
-                ),
-            },
+            mtime_subseconds: modification_fraction(row)?,
             integrity,
             fingerprint,
         };
@@ -336,6 +333,7 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
                     .ok_or(StoreError::ConclusionsInvalid(
                         "loudness track without mtime",
                     ))?,
+                mtime_subseconds: modification_fraction(row)?,
                 measurement: measurement_from_json(row.get("measurement"))?,
             };
             if result.loudness_tracks.insert(path, cached).is_some() {
@@ -368,6 +366,7 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
                             mtime: file.field_u64("mtime").ok_or(
                                 StoreError::ConclusionsInvalid("programme file without mtime"),
                             )?,
+                            mtime_subseconds: modification_fraction(file)?,
                         })
                     })
                     .collect::<Result<Vec<_>, StoreError>>()?;
@@ -381,6 +380,19 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
         }
     }
     Ok(result)
+}
+
+fn modification_fraction(row: &Json) -> Result<Option<u32>, StoreError> {
+    row.get("mtime_subseconds")
+        .map(|value| {
+            value
+                .as_u32()
+                .filter(|fraction| *fraction < 1_000_000_000)
+                .ok_or(StoreError::ConclusionsInvalid(
+                    "invalid file modification fraction",
+                ))
+        })
+        .transpose()
 }
 
 /// Atomically saves the independent store.

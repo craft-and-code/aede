@@ -516,3 +516,31 @@ fn byte_fallback_failure_keeps_only_complete_frames_of_the_exact_accepted_prefix
     assert!(!history.completed);
     assert!(receive.try_recv().is_err());
 }
+
+#[test]
+fn repeated_tiny_seek_segments_are_rounded_once_when_the_listen_is_saved() {
+    let (sender, receive) = mpsc::sync_channel(64);
+    let mut records = PlaybackRecords::new(&sender);
+    let format = PcmFormat::new(8_000, 1).unwrap();
+    let mut clock = PlaybackClock::new();
+    for token in 1..=8 {
+        records
+            .begin(token, 0, Path::new("tiny.wav"), format, &clock)
+            .unwrap();
+        clock.started -= Duration::from_millis(1);
+        records
+            .submitted(Submitted::Bytes { token, count: 4 })
+            .unwrap();
+        records.carry_seek(0, &clock).unwrap();
+    }
+    records.finish_resume().unwrap();
+    let PlaybackRecord::History(listen) = receive
+        .try_recv()
+        .expect("eight frames are one millisecond")
+    else {
+        panic!("expected listening history");
+    };
+    assert_eq!(listen.played_ms, 1);
+    assert!(!listen.completed);
+    assert!(receive.try_recv().is_err());
+}

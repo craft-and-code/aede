@@ -22,6 +22,7 @@ struct Visit {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Position<'a> {
     pub(super) token: usize,
+    pub(super) output_frames: u64,
     pub(super) position_ms: u64,
     pub(super) duration_ms: Option<u64>,
     pub(super) label: &'a str,
@@ -113,6 +114,12 @@ impl PlaybackTimeline {
         Ok(())
     }
 
+    pub(super) fn submitted_frames(&self) -> u64 {
+        self.format.map_or(0, |format| {
+            self.submitted_bytes / (u64::from(format.channels()) * 4)
+        })
+    }
+
     pub(super) fn completed(&mut self, token: usize) -> io::Result<()> {
         let visit = self
             .visits
@@ -175,6 +182,7 @@ impl PlaybackTimeline {
         );
         Some(Position {
             token: visit.token,
+            output_frames: played_frames,
             position_ms,
             duration_ms: visit.duration_ms,
             label: &visit.label,

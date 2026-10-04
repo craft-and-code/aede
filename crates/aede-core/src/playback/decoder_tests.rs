@@ -175,6 +175,57 @@ fn ffmpeg_fallback_preserves_samples_across_buffer_sizes() {
     assert_eq!(decode_all("track.opus", 1), decode_all("track.opus", 4096));
 }
 
+#[cfg(unix)]
+#[test]
+fn ffmpeg_fallback_treats_a_relative_protocol_like_filename_as_local_audio() {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    if crate::ffmpeg::find().is_none() {
+        eprintln!("skipped: ffmpeg is not installed");
+        return;
+    }
+    struct TemporaryInput(PathBuf);
+    impl Drop for TemporaryInput {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    // A colon is a legal Unix filename character. FFmpeg must not strip its
+    // "file:" spelling as a protocol and attempt a different local path.
+    let input = TemporaryInput(PathBuf::from(format!(
+        "file:aede_local_decoder_{}_{}_{nonce}.opus",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed),
+    )));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&input.0)
+        .unwrap()
+        .write_all(&std::fs::read(fixture("track.opus")).unwrap())
+        .unwrap();
+    let (_, channels, expected) = decode_all("track.opus", 127);
+    let mut decoder = FileDecoder::open(&input.0).expect("local source opens");
+    let mut buffer = vec![0.0; 127 * usize::from(channels)];
+    let mut actual = Vec::new();
+    loop {
+        let frames = decoder
+            .read_frames(&mut buffer)
+            .expect("local filename is not a URL");
+        if frames == 0 {
+            break;
+        }
+        actual.extend_from_slice(&buffer[..frames * usize::from(channels)]);
+    }
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn opus_pre_skip_and_end_trim_yield_only_playable_frames() {
     if crate::ffmpeg::find().is_none() {

@@ -2,7 +2,7 @@
 
 use std::error::Error;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -264,13 +264,21 @@ impl PlaybackClock {
         }
     }
 
-    fn observe_visualizer(&mut self, samples: &[f32]) {
-        let active_time = self.active_elapsed();
-        if let Some(visualizer) = &mut self.visualizer
-            && let Err(error) = visualizer.observe(samples, active_time)
-        {
-            visualizer.disable();
-            eprintln!("visualizer stopped: {error}");
+    fn observe_visualizer(&mut self, samples: &[f32], first_byte: usize, end_byte: usize) {
+        let submitted_frames = self
+            .timeline
+            .as_ref()
+            .map_or(0, timeline::PlaybackTimeline::submitted_frames);
+        if let Some(visualizer) = &mut self.visualizer {
+            let channels = visualizer.channels();
+            let first = first_byte / (channels * 4) * channels;
+            let end = end_byte / (channels * 4) * channels;
+            if end > first
+                && let Err(error) = visualizer.observe(&samples[first..end], submitted_frames)
+            {
+                visualizer.disable();
+                eprintln!("visualizer stopped: {error}");
+            }
         }
     }
 
@@ -428,6 +436,21 @@ fn resolve(
     catalog: Option<&Catalog>,
     args: Option<&Args>,
 ) -> Result<PlaybackSelection, Box<dyn Error>> {
+    let selection = resolve_selection(raw, catalog, args)?;
+    if selection.paths.iter().any(|path| path.to_str().is_none()) {
+        return Err(
+            "audio playback requires UTF-8 source paths to preserve history and cache identity"
+                .into(),
+        );
+    }
+    Ok(selection)
+}
+
+fn resolve_selection(
+    raw: &str,
+    catalog: Option<&Catalog>,
+    args: Option<&Args>,
+) -> Result<PlaybackSelection, Box<dyn Error>> {
     let path = Path::new(raw);
     if path.is_file() {
         return if is_m3u(path) {
@@ -495,7 +518,21 @@ fn is_m3u(path: &Path) -> bool {
 }
 
 fn read_m3u(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
+    const MAX_PLAYLIST_BYTES: u64 = 16 * 1024 * 1024;
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err("M3U input must be a regular file".into());
+    }
+    if metadata.len() > MAX_PLAYLIST_BYTES {
+        return Err("playlist exceeds the 16 MiB input limit".into());
+    }
+    let mut contents = String::new();
+    file.take(MAX_PLAYLIST_BYTES + 1)
+        .read_to_string(&mut contents)?;
+    if contents.len() as u64 > MAX_PLAYLIST_BYTES {
+        return Err("playlist exceeds the 16 MiB input limit".into());
+    }
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut tracks = Vec::new();
     for (index, raw_line) in contents.trim_start_matches('\u{feff}').lines().enumerate() {
@@ -566,16 +603,29 @@ fn collection_paths(
     Ok(paths)
 }
 
-fn playing_label(path: &Path, catalog: Option<&Catalog>) -> String {
-    let album = catalog
-        .and_then(|catalog| {
-            catalog.tracks.iter().find_map(|track| {
-                (catalog.file(track.file_id)?.path == path.to_string_lossy())
-                    .then(|| track.release_id.and_then(|id| catalog.release(id)))
-                    .flatten()
-            })
-        })
-        .map(|release| release.title.as_str())
+fn playing_labels(paths: &[PathBuf], catalog: Option<&Catalog>) -> Vec<String> {
+    let selected: std::collections::HashSet<_> = paths.iter().map(PathBuf::as_path).collect();
+    let mut albums = std::collections::HashMap::new();
+    if let Some(catalog) = catalog {
+        for track in &catalog.tracks {
+            if let Some(file) = catalog.file(track.file_id)
+                && selected.contains(Path::new(&file.path))
+                && let Some(release) = track.release_id.and_then(|id| catalog.release(id))
+            {
+                albums
+                    .entry(Path::new(&file.path))
+                    .or_insert(release.title.as_str());
+            }
+        }
+    }
+    paths
+        .iter()
+        .map(|path| playing_label(path, albums.get(path.as_path()).copied()))
+        .collect()
+}
+
+fn playing_label(path: &Path, album: Option<&str>) -> String {
+    let album = album
         .filter(|title| !title.is_empty())
         .or_else(|| {
             path.parent()
@@ -668,13 +718,16 @@ fn collect_audio(folder: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn 
 }
 
 fn record_play(args: &Args, path: &Path, started: u64, played_ms: u64, completed: bool) -> Res {
+    let key = path
+        .to_str()
+        .ok_or("audio history requires a UTF-8 source path")?;
     let directory = data_dir(args);
     let _lock = StoreLock::acquire(&directory)?;
     let user_path = user::user_path(&directory);
     let mut data = user::load(&user_path)?.unwrap_or_default();
     data.record_play(Play {
         owner: LOCAL_USER.to_string(),
-        track: EntityRef::new(EntityKind::Track, path.to_string_lossy().into_owned()),
+        track: EntityRef::new(EntityKind::Track, key.to_owned()),
         at: started,
         ms_played: played_ms,
         completed,

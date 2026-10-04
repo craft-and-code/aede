@@ -55,3 +55,27 @@ fn analysis_keeps_its_window_across_pcm_blocks() {
         .expect("completed window");
     assert!(levels.iter().any(|level| *level > 0.0));
 }
+
+#[test]
+fn rejected_frames_do_not_replace_or_advance_a_partial_analysis_window() {
+    let format = PcmFormat::new(48_000, 2).expect("stereo");
+    let samples = tone(400.0, 2_048)
+        .into_iter()
+        .flat_map(|sample| [sample, -sample])
+        .collect::<Vec<_>>();
+    let mut spectrum = Spectrum::new(format);
+    let mut reference = Spectrum::new(format);
+    assert!(spectrum.push(&samples[..1_000]).expect("prefix").is_none());
+    assert_eq!(
+        spectrum.push(&[0.25]),
+        Err(crate::DspError::IncompleteFrame)
+    );
+    assert_eq!(
+        spectrum.push(&[0.25, f32::INFINITY]),
+        Err(crate::DspError::NonFiniteSample)
+    );
+    assert_eq!(
+        spectrum.push(&samples[1_000..]).expect("remaining signal"),
+        reference.push(&samples).expect("reference signal")
+    );
+}

@@ -23,7 +23,7 @@ pub struct Measurement {
 /// Invalid sample layout or a measurement-library failure.
 #[derive(Debug)]
 pub enum LoudnessError {
-    /// Speaker positions are unknown for more than two channels.
+    /// The source is not mono/stereo, even if a wider speaker mask is known.
     UnsupportedLayout,
     /// An input block is not a complete set of finite frames.
     InvalidBuffer,

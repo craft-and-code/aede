@@ -319,19 +319,23 @@ fn auditor_and_changed_sources_are_refused_before_pcm_is_sent() {
 #[test]
 fn acknowledgements_cannot_regress_or_exceed_the_sent_window() {
     let now = Instant::now();
+    let progressed = now + Duration::from_secs(1);
     let mut acknowledgements = Acknowledgements::with_window(10);
     acknowledgements.sent(10, now).expect("sent frames");
     assert_eq!(acknowledgements.available(), 0);
+    assert_eq!(acknowledgements.deadline(), Some(now + ACK_TIMEOUT));
     assert!(
         acknowledgements
-            .acknowledge(5, now)
+            .acknowledge(5, progressed)
             .expect("partial acknowledgement")
     );
+    assert_eq!(acknowledgements.deadline(), Some(progressed + ACK_TIMEOUT));
     assert!(
         !acknowledgements
-            .acknowledge(5, now)
+            .acknowledge(5, now + Duration::from_secs(2))
             .expect("duplicate acknowledgement")
     );
+    assert_eq!(acknowledgements.deadline(), Some(progressed + ACK_TIMEOUT));
     assert_eq!(acknowledgements.available(), 5);
     assert_eq!(
         acknowledgements.acknowledge(4, now).unwrap_err().code,
@@ -341,8 +345,61 @@ fn acknowledgements_cannot_regress_or_exceed_the_sent_window() {
         acknowledgements.acknowledge(11, now).unwrap_err().code,
         "invalid_ack"
     );
+    assert_eq!(acknowledgements.deadline(), Some(progressed + ACK_TIMEOUT));
+    acknowledgements.acknowledge(10, progressed).unwrap();
+    assert!(acknowledgements.deadline().is_none());
     assert_eq!(frames_to_milliseconds(7, 8_000), 0);
     assert_eq!(frames_to_milliseconds(8, 8_000), 1);
+}
+
+#[test]
+fn full_playback_admission_and_ack_windows_remain_cancellable_during_shutdown() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 24_000).await;
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let token = login(address, "alice");
+        let mut sockets = Vec::new();
+        for _ in 0..MAX_PLAYBACKS {
+            let mut socket = upgraded_socket(address, &token);
+            start(&mut socket, &installed.reference);
+            let ServerFrame::Text(format) = socket.next() else {
+                panic!("format must precede audio");
+            };
+            assert_eq!(format["type"], "format");
+            let mut received = 0;
+            while received < 8_000 {
+                let ServerFrame::Binary(bytes) = socket.next() else {
+                    panic!("unacknowledged audio must fill only its bounded window");
+                };
+                received += bytes.len() / 4;
+            }
+            assert_eq!(received, 8_000);
+            sockets.push(socket);
+        }
+        assert_eq!(fixture.0.playback_slots.available_permits(), 0);
+        let (refused, response, _) = upgrade(address, &token);
+        assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+        drop(refused);
+        fixture.0.shutdown.send(()).unwrap();
+        for mut socket in sockets {
+            let ServerFrame::Text(failure) = socket.next() else {
+                panic!("shutdown must interrupt a full acknowledgement window");
+            };
+            assert_eq!(failure["type"], "error");
+            assert_eq!(failure["code"], "server_shutdown");
+            assert!(matches!(socket.next(), ServerFrame::Close));
+        }
+        for _ in 0..80 {
+            if fixture.0.playback_slots.available_permits() == MAX_PLAYBACKS {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert_eq!(fixture.0.playback_slots.available_permits(), MAX_PLAYBACKS);
+        assert_no_saved_play(&fixture).await;
+        server.abort();
+    });
 }
 
 #[test]
@@ -435,6 +492,53 @@ fn playback_source_snapshots_preserve_identity_without_large_raw_tags() {
         assert_eq!(source.file.path, catalog.files[0].path);
         assert_eq!(source.file.properties.duration_ms, Some(10));
         validate_source(&source).unwrap();
+    });
+}
+
+#[test]
+fn remote_sources_refuse_relative_paths_and_parent_traversal_before_opening() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 80).await;
+        let reference = EntityRef::parse_token(&installed.reference).unwrap();
+        let (sources, _) = current_sources(&fixture.0, &[reference]).await.unwrap();
+        let original = &sources[0];
+        validate_source(original).unwrap();
+
+        let folder = installed.path.parent().unwrap();
+        std::fs::create_dir(folder.join("nested")).unwrap();
+        let mut traversal = original.clone();
+        traversal.path = folder
+            .join("nested")
+            .join("..")
+            .join(installed.path.file_name().unwrap());
+        traversal.file.path = traversal.path.to_string_lossy().into_owned();
+        assert_eq!(
+            std::fs::metadata(&traversal.path).unwrap().len(),
+            original.file.size
+        );
+        assert_eq!(
+            validate_source(&traversal).unwrap_err().code,
+            "source_changed"
+        );
+
+        let path = PathBuf::from("Cargo.toml");
+        let metadata = std::fs::metadata(&path).unwrap();
+        let relative = TrackSource {
+            reference: EntityRef::new(EntityKind::Track, "Cargo.toml"),
+            path,
+            file: AudioFile {
+                path: "Cargo.toml".into(),
+                size: metadata.len(),
+                mtime: clock::mtime_seconds(&metadata),
+                ..AudioFile::default()
+            },
+            mtime_subseconds: clock::mtime_subseconds(&metadata),
+        };
+        assert_eq!(
+            validate_source(&relative).unwrap_err().code,
+            "source_changed"
+        );
     });
 }
 

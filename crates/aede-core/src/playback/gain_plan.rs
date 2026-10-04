@@ -83,8 +83,9 @@ fn album_groups(paths: &[PathBuf], is_album: bool, catalog: Option<&Catalog>) ->
     let mut previous = None;
     for (index, path) in paths.iter().enumerate() {
         let release = catalog.and_then(|catalog| {
+            let path = path.to_str()?;
             catalog.tracks.iter().find_map(|track| {
-                (catalog.file(track.file_id)?.path == path.to_string_lossy())
+                (catalog.file(track.file_id)?.path == path)
                     .then_some(track.release_id)
                     .flatten()
             })
@@ -145,7 +146,7 @@ pub fn plan_normalization(
             } else if let Some(cached) = new_tracks
                 .get(&file.path)
                 .or_else(|| cache.loudness_tracks.get(&file.path))
-                .filter(|cached| cached.size == file.size && cached.mtime == file.mtime)
+                .filter(|cached| cached.matches(file))
             {
                 cached.measurement
             } else {
@@ -155,6 +156,7 @@ pub fn plan_normalization(
                     CachedTrack {
                         size: file.size,
                         mtime: file.mtime,
+                        mtime_subseconds: file.mtime_subseconds,
                         measurement: measured,
                     },
                 );
@@ -206,6 +208,18 @@ pub fn plan_normalization(
     }
     if !new_tracks.is_empty() || !new_programmes.is_empty() {
         let _lock = StoreLock::acquire(directory)?;
+        for (path, cached) in &new_tracks {
+            if !cached.matches(&loudness::identity(Path::new(path))?) {
+                return Err("audio file changed before its loudness could be cached".into());
+            }
+        }
+        for item in &new_programmes {
+            for file in &item.files {
+                if loudness::identity(Path::new(&file.path))? != *file {
+                    return Err("audio file changed before its loudness could be cached".into());
+                }
+            }
+        }
         let mut current = conclusions::load(&cache_path)?
             .unwrap_or_else(|| catalog.map(Conclusions::from_catalog).unwrap_or_default());
         current.loudness_tracks.extend(new_tracks);

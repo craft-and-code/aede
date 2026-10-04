@@ -1,5 +1,6 @@
 //! Terminal-only rendering of frequency bands and the consumed playback position.
 
+use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,10 @@ const POSITION_ROWS: usize = 2;
 const DISPLAY_BANDS: usize = 12;
 const MAX_COLUMNS: usize = 4096;
 const REFRESH: Duration = Duration::from_millis(50);
-const SIZE_REFRESH: Duration = Duration::from_millis(250);
+const SIZE_REFRESH: Duration = Duration::from_secs(1);
+// Analysis stays on the producer thread; never add FFT work to the device callback.
+const ANALYSIS_STEP_FRAMES: usize = 256;
+const MAX_SNAPSHOTS: usize = 256;
 const PEAK_HOLD: Duration = Duration::from_millis(350);
 const PEAK_FALL_PER_SECOND: f32 = 0.45;
 
@@ -47,6 +51,8 @@ impl Peaks {
 pub(super) struct TerminalVisualizer {
     spectrum: Spectrum,
     spectrum_enabled: bool,
+    format: PcmFormat,
+    pending: VecDeque<(u64, [f32; SPECTRUM_BANDS])>,
     levels: [f32; SPECTRUM_BANDS],
     peaks: Peaks,
     last_draw: Option<Instant>,
@@ -62,6 +68,8 @@ impl TerminalVisualizer {
         ui::is_interactive().then(|| Self {
             spectrum: Spectrum::new(format),
             spectrum_enabled,
+            format,
+            pending: VecDeque::with_capacity(MAX_SNAPSHOTS),
             levels: [0.0; SPECTRUM_BANDS],
             peaks: Peaks::default(),
             last_draw: None,
@@ -73,18 +81,51 @@ impl TerminalVisualizer {
         })
     }
 
-    pub(super) fn observe(&mut self, samples: &[f32], active_time: Duration) -> io::Result<()> {
+    pub(super) fn channels(&self) -> usize {
+        usize::from(self.format.channels())
+    }
+
+    pub(super) fn observe(&mut self, samples: &[f32], submitted_frames: u64) -> io::Result<()> {
         if self.disabled || !self.spectrum_enabled {
             return Ok(());
         }
-        let Some(levels) = self.spectrum.push(samples).map_err(io::Error::other)? else {
-            return Ok(());
-        };
-        // Keep transients even when the terminal redraw is throttled. Active
-        // playback time also keeps the held peaks frozen during a pause.
-        self.peaks.update(&levels, active_time);
-        self.levels = levels;
+        let channels = usize::from(self.format.channels());
+        let frames = samples.len() / channels;
+        let mut end_frame = submitted_frames.saturating_sub(frames as u64);
+        // A small step exposes every completed FFT window, including transients
+        // in a large decoder block. Its timestamp never precedes its samples.
+        for chunk in samples.chunks(ANALYSIS_STEP_FRAMES * channels) {
+            end_frame = end_frame.saturating_add((chunk.len() / channels) as u64);
+            if let Some(levels) = self.spectrum.push(chunk).map_err(io::Error::other)? {
+                // Delayed rendering must not grow snapshot memory. Normal device
+                // lookahead fits; excess visualization snapshots are discarded.
+                if self.pending.len() == MAX_SNAPSHOTS {
+                    self.pending.pop_front();
+                }
+                self.pending.push_back((end_frame, levels));
+            }
+        }
         Ok(())
+    }
+
+    fn advance(&mut self, consumed_frames: u64) {
+        let rate = f64::from(self.format.sample_rate());
+        while self
+            .pending
+            .front()
+            .is_some_and(|(frame, _)| *frame <= consumed_frames)
+        {
+            if let Some((frame, levels)) = self.pending.pop_front() {
+                self.peaks
+                    .update(&levels, Duration::from_secs_f64(frame as f64 / rate));
+                self.levels = levels;
+            }
+        }
+        // Consumption freezes during pause, so both bars and held peaks freeze.
+        self.peaks.update(
+            &self.levels,
+            Duration::from_secs_f64(consumed_frames as f64 / rate),
+        );
     }
 
     pub(super) fn render(
@@ -98,6 +139,7 @@ impl TerminalVisualizer {
         let Some(position) = position else {
             return Ok(());
         };
+        self.advance(position.output_frames);
         let now = Instant::now();
         if self.drawn
             && paused == self.last_paused
@@ -115,6 +157,7 @@ impl TerminalVisualizer {
 
     pub(super) fn disable(&mut self) {
         self.disabled = true;
+        self.pending.clear();
         self.clear();
     }
 

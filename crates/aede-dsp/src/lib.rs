@@ -61,14 +61,17 @@ impl PcmFormat {
         Ok(format)
     }
 
+    /// Frames per second, shared by every channel in this stream.
     pub fn sample_rate(self) -> u32 {
         self.sample_rate
     }
 
+    /// Number of interleaved samples in one complete frame.
     pub fn channels(self) -> u16 {
         self.channels
     }
 
+    /// Known speaker positions, or an explicit count-only layout.
     pub fn layout(self) -> ChannelLayout {
         self.layout
     }
@@ -195,6 +198,7 @@ impl Dsp {
         }
     }
 
+    /// The fixed layout accepted by this processor.
     pub fn format(&self) -> PcmFormat {
         self.format
     }
@@ -240,7 +244,9 @@ impl Dsp {
     /// Input samples and a conservative gain bound are checked before mutation,
     /// so invalid input does not advance an in-progress gain ramp. Samples
     /// above 1.0 are measured, not clipped; the output adapter owns any final
-    /// limiting or conversion.
+    /// limiting or conversion. An unexpected filter-result overflow may be
+    /// detected after earlier frames have changed; discard the block and
+    /// processor after any processing failure.
     pub fn process(&mut self, samples: &mut [f32]) -> Result<ProcessStats, DspError> {
         let channels = usize::from(self.format.channels);
         if !samples.len().is_multiple_of(channels) {

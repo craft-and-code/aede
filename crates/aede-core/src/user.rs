@@ -342,9 +342,9 @@ pub struct Play {
 /// How often one person played one track, for as long as the library lasts.
 ///
 /// Deliberately not derived from the log: the log is bounded so that the file
-/// stays small, and "what have I never heard" — the question M3's `discover`
-/// shuffle asks — cannot be answered from a truncated one. Two structures,
-/// because they answer two questions.
+/// stays small, and "what have I never heard" cannot be answered from a
+/// truncated one. The bounded events and all-time totals answer different
+/// questions without implying a history-weighted shuffle policy.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayCount {
     /// Whose count it is.
@@ -576,7 +576,6 @@ impl UserData {
         true
     }
 
-    /// Records a play: one event in the log, one more on the counter.
     /// Takes back the most recent play of a track, log and counter together.
     ///
     /// The counter is not a summary of the log — the log is bounded at

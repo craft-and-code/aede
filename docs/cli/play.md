@@ -1,6 +1,6 @@
 # play — Play local music
 
-play accepts an existing file, recursively ordered folder, M3U/M3U8, saved collection or catalogued name. Use collection:NAME to select a collection explicitly. Relative playlist entries resolve beside the playlist, not the terminal’s working directory. File/folder playback can start without scanning; catalog names and collections need the catalog.
+play accepts an existing file, recursively ordered folder, M3U/M3U8, saved collection or catalogued name. Use collection:NAME to select a collection explicitly. Relative playlist entries resolve beside the playlist, not the terminal’s working directory. M3U/M3U8 input is limited to 16 MiB and must be a regular local file. Source paths must be valid UTF-8 so history and loudness keys cannot alias different filenames. File/folder playback can start without scanning; catalog names and collections need the catalog.
 
 In macOS/Linux terminals and the native Windows console, playback accepts the keys below without Enter. With redirected standard input, interactive controls are disabled and the selection advances automatically using the requested repeat and shuffle modes. Listening history is recorded in personal data. Windows console input is implemented; acceptance on an actual Windows console and audio device remains pending.
 
@@ -70,7 +70,7 @@ Repeat and shuffle can be changed while paused. Changing shuffle retains the cur
 
 The decoder reopens the source and progressively discards the prefix, with bounded working memory. It does not send skipped audio through the DSP, output or listening history. This is sample-based positioning, rounded down to a source frame; the displayed position uses milliseconds. It is not an indexed instant seek: work grows with the target position and slow file/decoder reads can delay a control between cancellation checks. Moving resets queued audio and DSP state.
 
-Multiple moves during one visit create one incomplete listening record, counting only the estimated submitted-and-active audio duration, excluding pauses and skipped prefixes. A partial-track visit never publishes a full-track loudness measurement. Local history reflects submitted playback and active time, not a physical device acknowledgement.
+Multiple moves during one visit create one incomplete listening record, counting only the estimated submitted-and-active audio duration, excluding pauses and skipped prefixes. Submillisecond segments accumulate before the final millisecond rounding. A partial-track visit never publishes a full-track loudness measurement. Local history reflects submitted playback and active time, not a physical device acknowledgement; it can precede native consumption by the pending output buffer (up to 500 ms). The remote native transport separately counts client-acknowledged frames.
 
 ## Repetition
 
@@ -125,6 +125,8 @@ Native output follows frames consumed by the CPAL callback, attributed to the cu
 ## Terminal spectrum
 
 Terminal playback shows a Retro spectrum with twelve broad, segmented bands, ordered from low to high frequencies. It groups the existing 24 analysis bands for display; it does not change the analysis or the audio. Each column fills from the bottom, with green lower segments, yellow upper segments and red top segments. A separate peak marker falls more slowly after the current level drops.
+
+The FFT runs outside the audio callback. Its snapshots wait for the same consumed-frame clock as the position display, so buffered samples do not animate ahead of native output. Compatible track joins retain partial analysis windows and held peaks; seeks, skips and output resets discard them. Native device/mixer latency remains unmeasured; ffplay uses the position display’s marked time estimate. At 48 kHz, a 2048-frame window spans about 43 ms, with at most another 256 frames (about 5 ms) of timestamp quantization and a terminal redraw every 50 ms. These software intervals are not a measured end-to-end latency guarantee. Pending visualization is bounded to 256 snapshots; exceptional excess drops old snapshots without delaying audio. Terminal resize checks run once per second. Drawing stays on the producer thread: a stalled terminal or slow SSH connection can still delay audio after the output buffer empties.
 
 Band widths follow the terminal width. Narrow terminals combine bands rather than wrapping the display. `--no-color` or `NO_COLOR` keeps the same blocks and peak markers in monochrome. Redirected output has no animated spectrum; `--lyrics` replaces it with lyric cues.
 

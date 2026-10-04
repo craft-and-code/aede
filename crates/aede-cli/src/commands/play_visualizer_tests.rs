@@ -2,9 +2,58 @@ use super::{DISPLAY_BANDS, HEIGHT, MAX_COLUMNS, Peaks, Position, bar_rows, posit
 use aede_dsp::SPECTRUM_BANDS;
 use std::time::Duration;
 
+fn visualizer() -> super::TerminalVisualizer {
+    super::TerminalVisualizer {
+        spectrum: aede_dsp::Spectrum::new(aede_dsp::PcmFormat::new(48_000, 1).unwrap()),
+        spectrum_enabled: true,
+        format: aede_dsp::PcmFormat::new(48_000, 1).unwrap(),
+        pending: std::collections::VecDeque::new(),
+        levels: [0.0; SPECTRUM_BANDS],
+        peaks: Peaks::default(),
+        last_draw: None,
+        last_size_check: std::time::Instant::now(),
+        columns: 79,
+        drawn: false,
+        last_paused: false,
+        disabled: false,
+    }
+}
+
+#[test]
+fn fft_windows_wait_for_their_consumed_output_frames() {
+    let mut display = visualizer();
+    let samples: Vec<_> = (0..2048)
+        .map(|frame| (std::f32::consts::TAU * 1000.0 * frame as f32 / 48_000.0).sin() * 0.5)
+        .collect();
+    display.observe(&samples, 2048).unwrap();
+    display.advance(2047);
+    assert_eq!(
+        display.levels, [0.0; SPECTRUM_BANDS],
+        "buffered audio must not animate the spectrum before consumption"
+    );
+    display.advance(2048);
+    assert!(display.levels.iter().any(|level| *level > 0.5));
+    let held = display.peaks.levels;
+    display.observe(&[0.0; 2048], 4096).unwrap();
+    display.advance(2048);
+    assert_eq!(
+        display.peaks.levels, held,
+        "paused consumption freezes peaks and queued silence"
+    );
+    display.advance(4096);
+    assert!(
+        display
+            .levels
+            .iter()
+            .zip(held)
+            .all(|(level, peak)| *level <= peak)
+    );
+}
+
 fn position(position_ms: u64, duration_ms: Option<u64>) -> Position<'static> {
     Position {
         token: 1,
+        output_frames: 0,
         label: "Album — 01 song",
         position_ms,
         duration_ms,
@@ -203,4 +252,33 @@ fn a_new_peak_rises_immediately_and_restarts_its_hold() {
     assert_eq!(peaks.levels, [0.8; SPECTRUM_BANDS]);
     peaks.update(&[0.0; SPECTRUM_BANDS], Duration::from_millis(600));
     assert_eq!(peaks.levels, [0.8; SPECTRUM_BANDS]);
+}
+
+#[test]
+fn spectrum_lookahead_is_bounded_without_showing_future_audio() {
+    let mut display = visualizer();
+    let samples: Vec<_> = (0..2048 * (super::MAX_SNAPSHOTS + 1))
+        .map(|frame| (std::f32::consts::TAU * 1000.0 * frame as f32 / 48_000.0).sin() * 0.5)
+        .collect();
+    display.observe(&samples, samples.len() as u64).unwrap();
+    assert_eq!(display.pending.len(), super::MAX_SNAPSHOTS);
+    display.advance(2048);
+    assert_eq!(display.levels, [0.0; SPECTRUM_BANDS]);
+    display.advance(samples.len() as u64);
+    assert!(display.pending.is_empty());
+    assert!(display.levels.iter().any(|level| *level > 0.0));
+}
+
+#[test]
+fn compatible_source_boundaries_preserve_an_incomplete_analysis_window() {
+    let mut display = visualizer();
+    let samples: Vec<_> = (0..2048)
+        .map(|frame| (std::f32::consts::TAU * 1000.0 * frame as f32 / 48_000.0).sin() * 0.5)
+        .collect();
+    display.observe(&samples[..1000], 1000).unwrap();
+    display.observe(&samples[1000..], 2048).unwrap();
+    display.advance(2047);
+    assert_eq!(display.levels, [0.0; SPECTRUM_BANDS]);
+    display.advance(2048);
+    assert!(display.levels.iter().any(|level| *level > 0.5));
 }

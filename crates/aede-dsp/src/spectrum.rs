@@ -4,6 +4,7 @@ use std::f32::consts::TAU;
 
 use crate::{DspError, PcmFormat};
 
+/// Number of logarithmic display bands between 45 Hz and min(Nyquist, 16 kHz).
 pub const SPECTRUM_BANDS: usize = 24;
 const WINDOW: usize = 2048;
 
@@ -21,6 +22,8 @@ pub struct Spectrum {
 }
 
 impl Spectrum {
+    /// Prepare a fresh fixed-format 2048-frame analysis window.
+    /// Build this outside the real-time audio callback.
     pub fn new(format: PcmFormat) -> Self {
         let mut taper = [0.0; WINDOW];
         for (index, weight) in taper.iter_mut().enumerate() {
@@ -36,6 +39,10 @@ impl Spectrum {
     }
 
     /// Consume complete PCM frames and return the latest completed window.
+    ///
+    /// Incomplete or non-finite input leaves both smoothing and partially
+    /// collected PCM unchanged. A block may complete multiple windows; the
+    /// result describes the last one, or `None` if no window completed.
     pub fn push(&mut self, samples: &[f32]) -> Result<Option<[f32; SPECTRUM_BANDS]>, DspError> {
         let channels = usize::from(self.format.channels());
         if !samples.len().is_multiple_of(channels) {

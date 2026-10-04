@@ -10,7 +10,6 @@ use std::path::Path;
 use aede_dsp::{PcmFormat, loudness::LoudnessProgramme};
 
 use crate::analysis::FileAnalysis;
-use crate::clock;
 
 use super::decoder::FileDecoder;
 
@@ -23,6 +22,9 @@ pub struct CachedTrack {
     pub size: u64,
     /// File modification time at measurement time.
     pub mtime: u64,
+    /// Nanosecond fraction captured by current measurements.
+    /// Legacy caches without precision cannot match a freshly read identity.
+    pub mtime_subseconds: Option<u32>,
     /// `None` records silence or an unsupported channel layout.
     pub measurement: Option<Measurement>,
 }
@@ -30,12 +32,22 @@ pub struct CachedTrack {
 /// A file's identity within an ordered album programme.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProgrammeFile {
-    /// Canonical audio file path.
+    /// Audio file path retained as supplied by the playback selection.
     pub path: String,
     /// File size at measurement time.
     pub size: u64,
     /// File modification time at measurement time.
     pub mtime: u64,
+    /// Nanosecond fraction, absent only in older serialized cache entries.
+    pub mtime_subseconds: Option<u32>,
+}
+
+impl CachedTrack {
+    pub(crate) fn matches(&self, file: &ProgrammeFile) -> bool {
+        self.size == file.size
+            && self.mtime == file.mtime
+            && self.mtime_subseconds == file.mtime_subseconds
+    }
 }
 
 /// One programme loudness measurement, invalidated when any member changes.
@@ -47,17 +59,45 @@ pub struct CachedProgramme {
     pub measurement: Option<Measurement>,
 }
 
-/// Read the identity used by both the imported-analysis and playback caches.
+/// Read a regular file's precise identity for playback measurements.
+///
+/// Unavailable and pre-epoch modification times are explicit errors. Imported
+/// analyses retain their original whole-second evidence; no added precision is
+/// inferred for those externally supplied measurements. Paths that cannot be
+/// represented exactly as UTF-8 are refused before accessing the filesystem,
+/// because a lossy persisted spelling could identify another audio file.
 pub fn identity(path: &Path) -> Result<ProgrammeFile, std::io::Error> {
+    let stored_path = path.to_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "playback loudness path must be valid UTF-8",
+        )
+    })?;
     let metadata = std::fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "playback loudness source must be a regular file",
+        ));
+    }
+    let modified = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "playback loudness source timestamp predates the epoch",
+            )
+        })?;
     Ok(ProgrammeFile {
-        path: path.to_string_lossy().into_owned(),
+        path: stored_path.to_owned(),
         size: metadata.len(),
-        mtime: clock::mtime_seconds(&metadata),
+        mtime: modified.as_secs(),
+        mtime_subseconds: Some(modified.subsec_nanos()),
     })
 }
 
-/// Reuse an attributed analysis only while it describes these exact bytes.
+/// Reuse an attributed analysis while its recorded size/whole-second time match.
 /// A missing true peak stays unknown so the output stage can choose its policy.
 pub fn from_flaccompagnon(analyses: &[FileAnalysis], file: &ProgrammeFile) -> Option<Measurement> {
     analyses.iter().rev().find_map(|analysis| {

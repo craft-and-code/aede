@@ -344,8 +344,7 @@ fn probe_channel_mask(path: &Path, sample_rate: u32, channels: u16) -> Result<u3
     Ok(mask)
 }
 
-/// FFmpeg handles unsupported native codecs and Vorbis streams whose final
-/// granule needs more precise trimming than the current native path provides.
+/// FFmpeg handles Opus, AAC and ALAC when the native decoder cannot open them.
 /// Stream data and errors are kept separate, so a failed decode never looks
 /// like an ordinary end of file.
 struct FfmpegStream {
@@ -373,9 +372,28 @@ impl FfmpegStream {
         if sample_rate == 0 || channels == 0 {
             return Err(Error::InvalidFormat);
         }
+        // FFmpeg parses relative colon-prefixed names as URLs. A canonical
+        // local path and restricted protocols keep fallback decoding local.
+        let path =
+            std::fs::canonicalize(path).map_err(|error| Error::External(error.to_string()))?;
+        let metadata =
+            std::fs::metadata(&path).map_err(|error| Error::External(error.to_string()))?;
+        if !metadata.is_file() {
+            return Err(Error::External(
+                "playback requires a local regular file".into(),
+            ));
+        }
         let mut child = Command::new(ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
-            .arg(path)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-i",
+            ])
+            .arg(&path)
             .args([
                 "-map",
                 "0:a:0",

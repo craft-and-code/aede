@@ -26,6 +26,8 @@ The player starts without decoding the whole selection first. It uses already av
 
 Album mode needs complete album-scope tags or a cached measurement of the complete ordered programme. Aède never averages track LUFS to invent album LUFS. Without ready album data, the session keeps one unchanged level and can learn the full uninterrupted programme for later playback. Skipping, stopping, decoding failure or file changes prevent an incomplete capture from being saved as a complete album.
 
+Playback cache reuse and publication compare file size and modification time including its nanosecond fraction. A same-size change within one second invalidates a derived measurement. Older derived caches without that precision expire and may be learned again during a complete later listen; imported FlacCompagnon reports retain their original, whole-second source evidence. Native remote PCM reuses ready values but does not capture missing loudness; the local player can learn it. Neither path rewrites audio or tags.
+
 A quiet track can therefore remain quiet on first play, or never reach the target because there is not enough peak headroom. Check the reported normalization source/gain/headroom before assuming a bug. For tone-independent listening, also use `--bass 0 --treble 0`.
 
 The interactive example changes synthetic levels to demonstrate constant gain and peak reserves; it does not control your playback.

@@ -164,6 +164,7 @@ CREATE TABLE playback_track_loudness (
     path             TEXT    PRIMARY KEY,
     size_bytes       INTEGER NOT NULL,
     modified_unix    INTEGER NOT NULL,
+    modified_subseconds INTEGER CHECK (modified_subseconds BETWEEN 0 AND 999999999),
     method_version   INTEGER NOT NULL,
     integrated_lufs  REAL,
     true_peak        REAL
@@ -184,6 +185,7 @@ CREATE TABLE playback_programme_file (
     path             TEXT    NOT NULL,
     size_bytes       INTEGER NOT NULL,
     modified_unix    INTEGER NOT NULL,
+    modified_subseconds INTEGER CHECK (modified_subseconds BETWEEN 0 AND 999999999),
     PRIMARY KEY (programme_id, ordinal)
 );
 

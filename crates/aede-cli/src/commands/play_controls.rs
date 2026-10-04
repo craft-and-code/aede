@@ -103,7 +103,7 @@ impl Controls {
         // guard can restore input mode and the driver can finish history.
         let terminal_mode =
             TerminalMode::start(&["-icanon", "-echo", "-isig", "min", "1", "time", "0"])?;
-        let (sender, actions) = mpsc::channel();
+        let (sender, actions) = mpsc::sync_channel(64);
         std::thread::spawn(move || {
             let mut input = io::stdin().lock();
             let mut parser = KeyParser::default();

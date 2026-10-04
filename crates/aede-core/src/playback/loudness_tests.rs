@@ -1,5 +1,20 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn loudness_identity_refuses_paths_that_cannot_be_persisted_without_collisions() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let directory = crate::store_lock::test_support::Directory::new("loudness_utf8");
+    let path = directory.path().join(OsStr::from_bytes(b"track-\xff.flac"));
+    // APFS itself rejects these filenames. Refuse their lossy persisted key
+    // before touching the filesystem, on every Unix host.
+    let error = identity(&path).expect_err("identity needs an exact persisted path");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(error.to_string().contains("UTF-8"));
+}
+
 fn wave(path: &Path, rate: u32, amplitude: f32) {
     let frames = rate;
     let bytes = frames * 2;
@@ -31,6 +46,7 @@ fn imported_loudness_requires_current_bytes_and_attributed_success() {
         path: "/music/a.flac".into(),
         size: 42,
         mtime: 7,
+        mtime_subseconds: None,
     };
     let valid = FileAnalysis {
         path: file.path.clone(),

@@ -54,18 +54,25 @@ struct PendingTrack {
     meter: OutputMeter,
     loudness: Option<gain_plan::LoudnessUpdate>,
     offset_ms: u64,
-    played_before_ms: u64,
+    played_before: Duration,
     had_seek: bool,
 }
 
 impl PendingTrack {
-    fn submitted_ms(&self) -> u64 {
-        self.frames.saturating_mul(1000) / u64::from(self.format.sample_rate())
+    fn submitted_duration(&self) -> Duration {
+        let rate = u64::from(self.format.sample_rate());
+        Duration::from_secs(self.frames / rate)
+            + Duration::from_nanos((self.frames % rate) * 1_000_000_000 / rate)
+    }
+
+    fn interrupted_duration(&self, clock: &PlaybackClock) -> Duration {
+        self.submitted_duration().min(Duration::from_millis(
+            clock.active_ms().saturating_sub(self.active_started_ms),
+        ))
     }
 
     fn interrupted_ms(&self, clock: &PlaybackClock) -> u64 {
-        self.submitted_ms()
-            .min(clock.active_ms().saturating_sub(self.active_started_ms))
+        milliseconds(self.interrupted_duration(clock))
     }
 }
 
@@ -73,7 +80,11 @@ struct ResumeListen {
     index: usize,
     path: PathBuf,
     started: u64,
-    played_ms: u64,
+    played: Duration,
+}
+
+fn milliseconds(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 struct PlaybackRecords<'a> {
@@ -136,7 +147,9 @@ impl<'a> PlaybackRecords<'a> {
                 meter,
                 loudness: None,
                 offset_ms,
-                played_before_ms: resumed.as_ref().map_or(0, |listen| listen.played_ms),
+                played_before: resumed
+                    .as_ref()
+                    .map_or(Duration::ZERO, |listen| listen.played),
                 had_seek: resumed.is_some() || offset_ms > 0,
             },
         );
@@ -212,12 +225,15 @@ impl<'a> PlaybackRecords<'a> {
             .pending
             .remove(&token)
             .ok_or("playback track record is missing")?;
-        let played_ms = clock.map_or_else(
-            || record.submitted_ms(),
-            |clock| record.interrupted_ms(clock),
+        let played = clock.map_or_else(
+            || record.submitted_duration(),
+            |clock| record.interrupted_duration(clock),
         );
-        self.last_position = Some((record.index, record.offset_ms.saturating_add(played_ms)));
-        let played_ms = played_ms.saturating_add(record.played_before_ms);
+        self.last_position = Some((
+            record.index,
+            record.offset_ms.saturating_add(milliseconds(played)),
+        ));
+        let played_ms = milliseconds(played.saturating_add(record.played_before));
         let completed = completed && !record.had_seek;
         let measured_frames = record.meter.sample_peak_snapshot().frames;
         report_meter(&mut record.meter);
@@ -269,9 +285,9 @@ impl<'a> PlaybackRecords<'a> {
                 .remove(&token)
                 .ok_or("seek listening record is missing")?;
             report_meter(&mut record.meter);
-            let played_ms = record
-                .played_before_ms
-                .saturating_add(record.interrupted_ms(clock));
+            let played = record
+                .played_before
+                .saturating_add(record.interrupted_duration(clock));
             self.last_position = Some((
                 index,
                 record
@@ -282,7 +298,7 @@ impl<'a> PlaybackRecords<'a> {
                 index,
                 path: record.path,
                 started: record.started,
-                played_ms,
+                played,
             });
         }
         let tokens = self.pending.keys().copied().collect::<Vec<_>>();
@@ -311,13 +327,13 @@ impl<'a> PlaybackRecords<'a> {
 
     fn finish_resume(&mut self) -> Res {
         if let Some(listen) = self.resume.take()
-            && listen.played_ms > 0
+            && milliseconds(listen.played) > 0
         {
             self.sender
                 .send(PlaybackRecord::History(HistoryItem {
                     path: listen.path,
                     started: listen.started,
-                    played_ms: listen.played_ms,
+                    played_ms: milliseconds(listen.played),
                     completed: false,
                 }))
                 .map_err(|_| "listening history worker stopped")?;
@@ -367,6 +383,7 @@ pub(super) fn submit_block(
                         token: span.token,
                         count,
                     })?;
+                    clock.observe_visualizer(samples, byte_offset, byte_offset + count);
                     byte_offset += count;
                 }
                 Ok(_) => return Err("audio output reported an invalid write length".into()),
@@ -383,9 +400,6 @@ pub(super) fn submit_block(
             clock.clear_visualizer();
         }
         submitted(Submitted::Complete { span, samples })?;
-        if !samples.is_empty() {
-            clock.observe_visualizer(samples);
-        }
         if span.complete
             && let Some(timeline) = &mut clock.timeline
         {
@@ -517,6 +531,7 @@ fn prepare_output_with<O: SessionOutput>(
         if let Some(timeline) = &mut clock.timeline {
             timeline.reset_output();
         }
+        clock.visualizer = None;
     }
     output.prepare(format).map(PreparedOutput::Ready)
 }
@@ -554,6 +569,9 @@ pub(super) fn play_selection(
     // Repeats reuse display metadata within this invocation; successful EOF
     // replaces the estimate with the source's decoded duration.
     let mut durations = std::collections::HashMap::new();
+    // Labels are stable within this invocation; one scan avoids catalog-sized
+    // searches during every repeat and speculative source preparation.
+    let labels = playing_labels(paths, catalog);
     // Index catalog evidence once, restricted to this selection. Repeated
     // occurrences must not rescan the whole catalog to read their lyrics.
     let lyric_files = if options.lyrics {
@@ -710,7 +728,9 @@ pub(super) fn play_selection(
                     format
                 };
                 playback_clock.clear_visualizer();
-                playback_clock.visualizer = TerminalVisualizer::new(format, !options.lyrics);
+                if playback_clock.visualizer.is_none() {
+                    playback_clock.visualizer = TerminalVisualizer::new(format, !options.lyrics);
+                }
                 let settings = PlaybackSettings {
                     normalization_mode,
                     selected_gain,
@@ -722,7 +742,7 @@ pub(super) fn play_selection(
                     output,
                     &settings,
                     normalization.is_measuring(),
-                    &playing_label(path, catalog),
+                    &labels[index],
                     !options.lyrics && playback_clock.visualizer.is_some(),
                 )?;
                 token = token
@@ -743,13 +763,7 @@ pub(super) fn play_selection(
                                     None
                                 }
                             });
-                    timeline.begin(
-                        token,
-                        format,
-                        seek_ms,
-                        duration_ms,
-                        &playing_label(path, catalog),
-                    )?;
+                    timeline.begin(token, format, seek_ms, duration_ms, &labels[index])?;
                 }
                 if let Some(lyrics) = &mut playback_clock.lyrics {
                     let current = catalog
@@ -772,7 +786,7 @@ pub(super) fn play_selection(
                 }
                 initial_seek_pending = false;
                 order.activated();
-                order.describe_transition(paths, catalog);
+                order.describe_transition(&labels);
                 let session = processing
                     .as_mut()
                     .ok_or("PCM processing session is missing")?;
@@ -882,6 +896,7 @@ pub(super) fn play_selection(
                         if let Some(timeline) = &mut playback_clock.timeline {
                             timeline.reset_output();
                         }
+                        playback_clock.visualizer = None;
                         playback_clock.reset_elapsed();
                         continue;
                     }
@@ -907,6 +922,7 @@ pub(super) fn play_selection(
                 timeline.reset_output();
             }
             processing = None;
+            playback_clock.visualizer = None;
             normalization.finish_track(index, false)?;
             order.focus(cursor)?;
             if let PlaybackEnd::SeekRelative(delta) = end {

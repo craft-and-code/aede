@@ -160,6 +160,7 @@ fn playback_loudness_roundtrips_and_survives_catalog_updates() {
         path: "/music/one.wav".into(),
         size: 100,
         mtime: 4,
+        mtime_subseconds: Some(123_456_789),
     };
     let measurement = Measurement {
         integrated_lufs: -19.0,
@@ -170,6 +171,7 @@ fn playback_loudness_roundtrips_and_survives_catalog_updates() {
         CachedTrack {
             size: file.size,
             mtime: file.mtime,
+            mtime_subseconds: file.mtime_subseconds,
             measurement: Some(measurement),
         },
     );
@@ -187,12 +189,98 @@ fn playback_loudness_roundtrips_and_survives_catalog_updates() {
         restored.loudness_programmes[0].measurement,
         Some(measurement)
     );
-    for version in [1u32, 2, 3] {
+    assert_eq!(
+        restored.loudness_programmes[0].files[0].mtime_subseconds,
+        Some(123_456_789)
+    );
+    assert_eq!(
+        restored
+            .loudness_tracks
+            .values()
+            .next()
+            .unwrap()
+            .mtime_subseconds,
+        Some(123_456_789)
+    );
+    for version in [1u32, 2, 3, 4] {
         let mut old_method = to_json(&restored);
         old_method.set("loudness_method_version", version.into());
         let expired = from_json(&old_method).unwrap();
         assert!(expired.loudness_tracks.is_empty());
         assert!(expired.loudness_programmes.is_empty());
         assert_eq!(expired.analyses, vec![imported.clone()]);
+    }
+}
+
+#[test]
+fn playback_loudness_refuses_malformed_optional_precision_without_discarding_legacy_rows() {
+    let mut stored = Conclusions::default();
+    stored.loudness_tracks.insert(
+        "/music/one.wav".into(),
+        CachedTrack {
+            size: 100,
+            mtime: 4,
+            mtime_subseconds: None,
+            measurement: None,
+        },
+    );
+    stored.loudness_programmes.push(CachedProgramme {
+        files: vec![ProgrammeFile {
+            path: "/music/one.wav".into(),
+            size: 100,
+            mtime: 4,
+            mtime_subseconds: None,
+        }],
+        measurement: None,
+    });
+    let serialized = to_json(&stored);
+    let legacy = from_json(&serialized).expect("optional precision is backward-compatible");
+    assert_eq!(legacy.loudness_tracks, stored.loudness_tracks);
+    assert_eq!(legacy.loudness_programmes, stored.loudness_programmes);
+    let current = ProgrammeFile {
+        mtime_subseconds: Some(123),
+        ..stored.loudness_programmes[0].files[0].clone()
+    };
+    assert!(!legacy.loudness_tracks["/music/one.wav"].matches(&current));
+    for fraction in [
+        Json::Null,
+        (-1_i64).into(),
+        1_000_000_000_u64.into(),
+        "invalid".into(),
+    ] {
+        for programme in [false, true] {
+            let mut row = if programme {
+                serialized
+                    .get("loudness_programme")
+                    .unwrap()
+                    .as_arr()
+                    .unwrap()[0]
+                    .get("file")
+                    .unwrap()
+                    .as_arr()
+                    .unwrap()[0]
+                    .clone()
+            } else {
+                serialized.get("loudness_track").unwrap().as_arr().unwrap()[0].clone()
+            };
+            row.set("mtime_subseconds", fraction.clone());
+            let mut malformed = serialized.clone();
+            if programme {
+                let mut programme = serialized
+                    .get("loudness_programme")
+                    .unwrap()
+                    .as_arr()
+                    .unwrap()[0]
+                    .clone();
+                programme.set("file", Json::Arr(vec![row]));
+                malformed.set("loudness_programme", Json::Arr(vec![programme]));
+            } else {
+                malformed.set("loudness_track", Json::Arr(vec![row]));
+            }
+            assert!(
+                from_json(&malformed).is_err(),
+                "invalid precision must be an explicit error"
+            );
+        }
     }
 }

@@ -12,7 +12,7 @@
 //! a terminal inherits the user's `PATH` by construction, and looking anywhere
 //! else would only find a *different* ffmpeg from the one they get when they
 //! type the name themselves. Playback uses it for formats that the native
-//! decoder cannot open and for exact Vorbis end trimming.
+//! decoder cannot open, currently Opus, AAC and ALAC.
 
 use std::process::{Command, Stdio};
 

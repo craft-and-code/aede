@@ -8,14 +8,20 @@ use crate::DspError;
 /// retains its channel count but cannot be downmixed by guessing positions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChannelLayout {
+    /// A channel count without trustworthy speaker positions.
     Unknown(u16),
+    /// Speaker positions in ascending WAVEFORMATEXTENSIBLE mask-bit order.
+    /// Unrecognized nonzero masks can be retained without implying downmix support.
     Mask(u32),
 }
 
 impl ChannelLayout {
+    /// Canonical one-channel layout used for decoded mono.
     pub const MONO: Self = Self::Mask(0x1);
+    /// Front left followed by front right.
     pub const STEREO: Self = Self::Mask(0x3);
 
+    /// Retain a nonempty speaker mask; downmix support is checked separately.
     pub fn from_mask(mask: u32) -> Result<Self, DspError> {
         if mask == 0 {
             return Err(DspError::InvalidLayout);
@@ -23,6 +29,7 @@ impl ChannelLayout {
         Ok(Self::Mask(mask))
     }
 
+    /// Number of interleaved samples in each complete PCM frame.
     pub fn channels(self) -> u16 {
         match self {
             Self::Unknown(channels) => channels,
@@ -30,6 +37,7 @@ impl ChannelLayout {
         }
     }
 
+    /// The retained positions, or `None` for a count-only layout.
     pub fn mask(self) -> Option<u32> {
         match self {
             Self::Unknown(_) => None,
@@ -37,6 +45,7 @@ impl ChannelLayout {
         }
     }
 
+    /// A diagnostic label for recognized positions, with an explicit unknown fallback.
     pub fn name(self) -> &'static str {
         match self {
             Self::Mask(0x1) => "mono",
@@ -94,6 +103,8 @@ pub struct StereoDownmixer {
 }
 
 impl StereoDownmixer {
+    /// Prepare a supported conventional 2.1–7.1 fold-down. Mono/stereo use
+    /// their original frames; unknown or unsupported masks are refused.
     pub fn new(layout: ChannelLayout) -> Result<Self, DspError> {
         let mask = layout.mask().ok_or(DspError::InvalidLayout)?;
         if !matches!(
@@ -142,6 +153,7 @@ impl StereoDownmixer {
     }
 
     /// Write one stereo frame for each source frame, without allocation.
+    /// Invalid or incomplete source/destination frames leave output unchanged.
     pub fn process(&self, source: &[f32], stereo: &mut [f32]) -> Result<(), DspError> {
         if !source.len().is_multiple_of(self.channels)
             || stereo.len() != source.len() / self.channels * 2

@@ -26,6 +26,8 @@ La lecture commence sans décoder toute la sélection à l’avance. Elle réuti
 
 Le mode album demande des tags album complets ou une mesure en cache du programme ordonné complet. Aède ne moyenne jamais les LUFS des pistes pour inventer ceux de l’album. Sans données album prêtes, la session garde un niveau inchangé et peut apprendre le programme entier ininterrompu. Saut, arrêt, erreur de décodage ou fichier modifié empêchent de sauvegarder une capture partielle comme album complet.
 
+La réutilisation et la publication du cache de lecture comparent taille et date de modification, avec sa fraction en nanosecondes. Une modification de même taille dans la même seconde invalide une mesure dérivée. Les anciens caches sans cette précision expirent et peuvent être appris à nouveau lors d’une écoute complète ; les rapports FlacCompagnon importés conservent leur preuve d’origine à la seconde entière. Le PCM distant natif réutilise les valeurs prêtes sans capturer le volume manquant ; le lecteur local peut l’apprendre. Aucun de ces chemins ne réécrit l’audio ou les tags.
+
 Un morceau calme peut donc rester calme à la première écoute ou ne jamais atteindre la cible faute de marge de crête. Consultez source/gain/réserve affichés avant de conclure à une panne. Pour écouter sans correction de tonalité, ajoutez aussi `--bass 0 --treble 0`.
 
 L’exemple interactif modifie des signaux synthétiques pour illustrer gain constant et réserve de crêtes ; il ne pilote pas la lecture.

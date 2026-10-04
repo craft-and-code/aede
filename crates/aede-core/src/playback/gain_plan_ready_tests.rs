@@ -83,6 +83,143 @@ fn append_source_byte(path: &Path) {
         .expect("change source size");
 }
 
+fn set_subsecond_identity(path: &Path, nanos: u32) {
+    let modified = std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, nanos);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("source")
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .expect("precise source timestamp");
+}
+
+fn change_source_inside_the_same_second(path: &Path) {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .expect("source");
+    file.seek(SeekFrom::End(-1)).expect("last audio byte");
+    let mut byte = [0_u8];
+    file.read_exact(&mut byte).expect("audio byte");
+    file.seek(SeekFrom::End(-1)).expect("replace audio byte");
+    file.write_all(&[byte[0] ^ 1])
+        .expect("same-size source change");
+    drop(file);
+    set_subsecond_identity(path, 900_000_000);
+}
+
+#[test]
+fn subsecond_source_change_invalidates_track_and_album_capture_before_finish() {
+    for mode in [NormalizationMode::Track, NormalizationMode::Album] {
+        let directory = root();
+        let path = fixture(&directory, "first.flac");
+        set_subsecond_identity(&path, 100_000_000);
+        let paths = vec![path.clone()];
+        let mut session =
+            ReadyNormalization::new(&paths, false, None, &directory, mode).expect("session");
+        session.prepare(0).expect("prepare");
+        observe_file(&mut session, &path);
+        change_source_inside_the_same_second(&path);
+        assert!(
+            session.finish_track(0, true).is_err(),
+            "same-size subsecond changes invalidate captured PCM"
+        );
+        assert!(!conclusions::conclusions_path(&directory).exists());
+        std::fs::remove_dir_all(directory).expect("cleanup");
+    }
+}
+
+#[test]
+fn subsecond_source_change_invalidates_track_and_album_update_before_save() {
+    for mode in [NormalizationMode::Track, NormalizationMode::Album] {
+        let directory = root();
+        let path = fixture(&directory, "first.flac");
+        set_subsecond_identity(&path, 100_000_000);
+        let paths = vec![path.clone()];
+        let mut session =
+            ReadyNormalization::new(&paths, false, None, &directory, mode).expect("session");
+        session.prepare(0).expect("prepare");
+        observe_file(&mut session, &path);
+        let update = session
+            .finish_track(0, true)
+            .expect("finish")
+            .expect("update");
+        change_source_inside_the_same_second(&path);
+        assert!(
+            update.save(&directory).is_err(),
+            "asynchronous publication must recheck precise timestamps"
+        );
+        assert!(!conclusions::conclusions_path(&directory).exists());
+        std::fs::remove_dir_all(directory).expect("cleanup");
+    }
+}
+
+#[test]
+fn subsecond_source_change_invalidates_cached_track_and_album_gain_before_reuse() {
+    for mode in [NormalizationMode::Track, NormalizationMode::Album] {
+        let directory = root();
+        let path = fixture(&directory, "first.flac");
+        set_subsecond_identity(&path, 100_000_000);
+        let paths = vec![path.clone()];
+        let mut session =
+            ReadyNormalization::new(&paths, false, None, &directory, mode).expect("session");
+        session.prepare(0).expect("prepare");
+        observe_file(&mut session, &path);
+        session
+            .finish_track(0, true)
+            .expect("finish")
+            .expect("update")
+            .save(&directory)
+            .expect("publish current measurement");
+        change_source_inside_the_same_second(&path);
+        let mut next =
+            ReadyNormalization::new(&paths, false, None, &directory, mode).expect("later session");
+        assert!(
+            next.prepare(0).expect("prepare changed source").is_none(),
+            "a stored gain cannot apply to a different subsecond identity"
+        );
+        assert!(next.is_measuring());
+        std::fs::remove_dir_all(directory).expect("cleanup");
+    }
+}
+
+#[test]
+fn gain_reuse_only_never_captures_or_publishes_unknown_track_or_album_loudness() {
+    let directory = root();
+    let path = fixture(&directory, "unknown.flac");
+    let paths = vec![path.clone()];
+    for mode in [NormalizationMode::Track, NormalizationMode::Album] {
+        let mut session = ReadyNormalization::new(&paths, false, None, &directory, mode)
+            .expect("session")
+            .without_capture();
+        assert!(session.prepare(0).expect("unknown gain").is_none());
+        assert!(!session.is_measuring());
+        observe_file(&mut session, &path);
+        assert!(
+            session
+                .finish_track(0, true)
+                .expect("complete source")
+                .is_none()
+        );
+        assert!(!conclusions::conclusions_path(&directory).exists());
+    }
+    let tagged = vec![replaygain_fixture(&directory)];
+    let mut session =
+        ReadyNormalization::new(&tagged, false, None, &directory, NormalizationMode::Track)
+            .expect("known gain session")
+            .without_capture();
+    let gain = session
+        .prepare(0)
+        .expect("tag gain")
+        .expect("known metadata gain");
+    assert_eq!(gain.label, "ReplayGain track");
+    assert_eq!(gain.gain_db, -4.0);
+    assert!(!session.is_measuring());
+    std::fs::remove_dir_all(directory).expect("cleanup");
+}
+
 fn replaygain_fixture(directory: &Path) -> PathBuf {
     let path = fixture(directory, "tagged.flac");
     let original = std::fs::read(&path).expect("FLAC bytes");

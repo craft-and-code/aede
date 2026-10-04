@@ -56,6 +56,32 @@ fn invalid_pcm_does_not_consume_converter_state() {
 }
 
 #[test]
+fn finite_extremes_are_refused_before_conversion_and_normal_pcm_still_works() {
+    for input_rate in [44_100, 44_101] {
+        let format = PcmFormat::new(input_rate, 1).expect("mono");
+        let mut converter = RateConverter::new(format, 48_000).expect("converter");
+        let samples = [1.25; 4_096];
+        let mut fresh = RateConverter::new(format, 48_000).expect("fresh converter");
+        converter.push(&samples[..777], false).expect("prefix");
+        fresh
+            .push(&samples[..777], false)
+            .expect("reference prefix");
+        assert!(matches!(
+            converter.push(&vec![f32::MAX; 4_096], true),
+            Err(RateError::SampleOverflow)
+        ));
+        let converted = converter
+            .push(&samples[777..], true)
+            .expect("normal signal");
+        assert_eq!(
+            converted,
+            fresh.push(&samples[777..], true).expect("reference signal")
+        );
+        assert!(converted.iter().any(|sample| *sample > 1.0));
+    }
+}
+
+#[test]
 fn downsampling_preserves_passband_and_rejects_aliasing() {
     fn converted_sine(frequency: f32) -> Vec<f32> {
         let format = PcmFormat::new(48_000, 1).expect("mono");
