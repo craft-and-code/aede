@@ -217,6 +217,7 @@ struct PlaybackClock {
     shuffle_revision: u64,
     smart_available: bool,
     lyrics: Option<lyrics::PlaybackLyrics>,
+    visualizer: Option<TerminalVisualizer>,
 }
 
 impl PlaybackClock {
@@ -230,6 +231,7 @@ impl PlaybackClock {
             shuffle_revision: 0,
             smart_available: false,
             lyrics: None,
+            visualizer: None,
         }
     }
 
@@ -241,12 +243,30 @@ impl PlaybackClock {
         self.paused_duration = Duration::ZERO;
     }
 
-    fn active_ms(&self) -> u64 {
+    fn active_elapsed(&self) -> Duration {
         let now = self.paused_since.unwrap_or_else(Instant::now);
-        let elapsed = now
-            .duration_since(self.started)
-            .saturating_sub(self.paused_duration);
-        u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        now.duration_since(self.started)
+            .saturating_sub(self.paused_duration)
+    }
+
+    fn active_ms(&self) -> u64 {
+        u64::try_from(self.active_elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    fn clear_visualizer(&mut self) {
+        if let Some(visualizer) = &mut self.visualizer {
+            visualizer.clear();
+        }
+    }
+
+    fn observe_visualizer(&mut self, samples: &[f32]) {
+        let active_time = self.active_elapsed();
+        if let Some(visualizer) = &mut self.visualizer
+            && let Err(error) = visualizer.observe(samples, active_time)
+        {
+            visualizer.disable();
+            eprintln!("visualizer stopped: {error}");
+        }
     }
 
     fn toggle_pause(&mut self, output: &impl PlaybackOutput) -> Res {
@@ -286,6 +306,7 @@ fn control_action(
             Some(Action::Previous) => return Ok(Some(PlaybackEnd::Previous)),
             Some(Action::SeekRelative(delta)) => return Ok(Some(PlaybackEnd::SeekRelative(delta))),
             Some(Action::CycleRepeat) => {
+                clock.clear_visualizer();
                 clock.repeat = match clock.repeat {
                     Repeat::Off => Repeat::One,
                     Repeat::One => Repeat::All,
@@ -301,6 +322,7 @@ fn control_action(
                 );
             }
             Some(Action::CycleShuffle) => {
+                clock.clear_visualizer();
                 clock.shuffle = match clock.shuffle {
                     PlaybackShuffle::Off => PlaybackShuffle::Random,
                     PlaybackShuffle::Random if clock.smart_available => PlaybackShuffle::Smart,

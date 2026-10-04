@@ -94,7 +94,14 @@ fn with_loading_output<T>(
 }
 
 fn colorize(code: &str, text: &str) -> String {
-    let enabled = COLOR_ENABLED.load(Ordering::Relaxed);
+    colorize_with_color(code, text, color_enabled())
+}
+
+pub(crate) fn color_enabled() -> bool {
+    COLOR_ENABLED.load(Ordering::Relaxed)
+}
+
+pub(crate) fn colorize_with_color(code: &str, text: &str, enabled: bool) -> String {
     let text = literal_styled_with_color(text, enabled);
     if enabled {
         format!("\x1b[{code}m{text}\x1b[0m")

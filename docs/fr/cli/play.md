@@ -116,6 +116,14 @@ Les deux modes utilisent SplitMix64 et un tirage entier par rejet ; Fisher–Yat
 
 Le graphe est borné et le calcul des candidats ne construit pas de matrice de distances entre toutes les pistes. Le moteur prépare les métadonnées avant l’audio et les réutilise entre cycles. Les plus courts chemins peuvent traverser des genres sans enregistrement sélectionné : ces nœuds influencent la distance mais n’ajoutent jamais de morceaux. La mémoire des artistes/albums couvre le plan actuel ; une frontière de répétition ne fournit que la dernière occurrence du cycle précédent. Le moteur privilégie des voisinages cohérents sans imposer une dérive chronométrée ni trouver un trajet optimal entre tous les styles. Tags personnalisés ou incohérents, absence de morceaux intermédiaires et échantillonnage borné des candidats limitent ses déductions. Il ne calcule qu’un ordre ; il ne modifie ni fichiers, ni tags, ni métadonnées stockées du catalogue.
 
+## Spectre dans le Terminal
+
+La lecture dans le Terminal affiche un spectre Rétro à douze bandes larges et segmentées, des basses fréquences à gauche aux hautes fréquences à droite. Il regroupe les 24 bandes d’analyse existantes pour l’affichage, sans changer l’analyse ni le son. Chaque colonne se remplit depuis le bas, avec des segments verts en bas, jaunes plus haut et rouges au sommet. Un repère de crête distinct retombe plus lentement après la baisse du niveau courant.
+
+La largeur des bandes suit celle du Terminal. Un Terminal étroit regroupe les bandes au lieu de faire déborder l’affichage. `--no-color` ou `NO_COLOR` conserve les blocs et repères de crête en monochrome. Une sortie redirigée n’affiche pas de spectre animé ; `--lyrics` le remplace par les passages de paroles.
+
+Les couleurs indiquent une hauteur d’affichage, pas un écrêtage ni un seuil de niveau calibré. Pour examiner les dépassements, consulter les mesures de sortie et les interventions du garde. L’animation n’ajoute aucune égalisation ni autre traitement audio.
+
 ## Paroles pendant la lecture
 
 `--lyrics` affiche le passage LRC actif lorsqu’il change, à la place du spectre. Les lignes partageant un horodatage sont regroupées dans leur ordre source, avec jusqu’à quatre lignes par passage. Un passage horodaté vide efface les mots actifs. Les paroles sans horodatage donnent un aperçu de quatre lignes une fois par occurrence ; des paroles absentes ou invalides sont signalées sans arrêter la musique. Les lignes longues sont coupées à la largeur du Terminal. Les passages défilent avec la lecture ; cet affichage compact n’est pas un écran de karaoké complet.
@@ -136,7 +144,7 @@ Ce contrôle vérifie la cohérence de l’audio décodé, pas la qualité du ma
 
 ## Résultat et erreurs
 
-Le terminal affiche album et nom de fichier numéroté, 24 barres spectrales animées, étapes DSP actives, marges de normalisation/correction et mesures de sortie. Le compteur observe le PCM protégé soumis à la sortie avant dither/conversion de périphérique, pas le son mesuré au haut-parleur. Lire la source de normalisation et les interventions du garde pour comprendre un changement de niveau. La fin suit le mode de répétition choisi. Décodeur/sortie absent, disposition de canaux inconnue, playlist mal formée ou erreur de décodage/sortie produisent un diagnostic ; des écoutes terminées peuvent être déjà sauvées. Une sous-alimentation de périphérique est distincte d’un problème de tag. Le guide DSP précise les limites de mesure.
+Le terminal affiche album et nom de fichier numéroté, spectre Rétro (ou passages de paroles avec `--lyrics`), étapes DSP actives, marges de normalisation/correction et mesures de sortie. Le compteur observe le PCM protégé soumis à la sortie avant dither/conversion de périphérique, pas le son mesuré au haut-parleur. Lire la source de normalisation et les interventions du garde pour comprendre un changement de niveau. La fin suit le mode de répétition choisi. Décodeur/sortie absent, disposition de canaux inconnue, playlist mal formée ou erreur de décodage/sortie produisent un diagnostic ; des écoutes terminées peuvent être déjà sauvées. Une sous-alimentation de périphérique est distincte d’un problème de tag. Le guide DSP précise les limites de mesure.
 
 ## Pour continuer
 

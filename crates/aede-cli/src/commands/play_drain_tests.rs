@@ -286,6 +286,7 @@ fn the_playback_clock_excludes_paused_time_from_host_tail_and_stall_deadlines() 
     let mut clock = PlaybackClock::new();
     clock.started = anchor - Duration::from_secs(30);
     clock.paused_since = Some(clock.started + Duration::from_secs(1));
+    assert_eq!(clock.active_elapsed(), Duration::from_secs(1));
     assert_eq!(clock.active_ms(), 1_000);
     let progress = output::DrainProgress {
         drained: false,
@@ -308,6 +309,7 @@ fn the_playback_clock_excludes_paused_time_from_host_tail_and_stall_deadlines() 
     // The pause point lies over 28 seconds in the past. Its wall time must not
     // finish the host allowance or trip the five-second progress watchdog.
     clock.paused_since = Some(clock.started + Duration::from_millis(1_025));
+    assert_eq!(clock.active_elapsed(), Duration::from_millis(1_025));
     assert_eq!(clock.active_ms(), 1_025);
     assert!(!tail.advance(clock.active_ms(), drained, allowance).unwrap());
     assert!(
@@ -319,6 +321,7 @@ fn the_playback_clock_excludes_paused_time_from_host_tail_and_stall_deadlines() 
     // A subsequent pause includes ten seconds already excluded by resume.
     clock.paused_duration = Duration::from_secs(10);
     clock.paused_since = Some(clock.started + Duration::from_millis(11_125));
+    assert_eq!(clock.active_elapsed(), Duration::from_millis(1_125));
     assert_eq!(clock.active_ms(), 1_125);
     assert!(tail.advance(clock.active_ms(), drained, allowance).unwrap());
     assert!(

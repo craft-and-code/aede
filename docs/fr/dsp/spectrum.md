@@ -16,8 +16,10 @@ Les niveaux montent plus vite qu’ils ne descendent et sont ramenés à des val
 
 ## Terminal et limites
 
-Les 24 barres fines s’adaptent à la largeur et s’animent dans un terminal interactif. Une sortie redirigée ne constitue pas un flux d’animation audio. Le libellé montre album et nom de fichier numéroté sans chemin complet. La vue approche le contenu entrant dans la sortie choisie ; elle ne mesure ni mixeur système, ni DAC, ni pièce.
+Le CLI regroupe les 24 bandes d’analyse en douze bandes larges et segmentées pour l’affichage Rétro, des basses aux hautes fréquences. Leur largeur suit celle du Terminal ; un Terminal étroit regroupe davantage les bandes au lieu de faire déborder l’affichage. Les colonnes se remplissent depuis le bas, avec des segments verts en bas, jaunes plus haut et rouges au sommet. Des repères de crête distincts retombent plus lentement après la baisse du niveau courant. Ces couleurs indiquent une hauteur d’affichage, pas des seuils d’écrêtage calibrés.
 
-Pour crêtes/protection, consultez les [diagnostics de sortie](output.md). Pour une image du fichier dans le temps, la commande CLI `spectrum` produit des spectrogrammes avec le traitement d’analyse ; elle diffère de ces 24 barres en direct. Sa [référence CLI](../cli/spectrum.md) décrit size/threads/full.
+L’animation demande une sortie Terminal interactive. `NO_COLOR` ou `--no-color` conserve les blocs et repères de crête en monochrome ; `--lyrics` remplace le spectre par les passages de paroles. Une sortie redirigée ne constitue pas un flux d’animation audio. Le libellé montre album et nom de fichier numéroté sans chemin complet. La vue approche le contenu entrant dans la sortie choisie ; elle ne mesure ni mixeur système, ni DAC, ni pièce.
+
+Pour crêtes/protection, consultez les [diagnostics de sortie](output.md). Pour une image du fichier dans le temps, la commande CLI `spectrum` produit des spectrogrammes avec le traitement d’analyse ; elle diffère de l’affichage Rétro en direct. Sa [référence CLI](../cli/spectrum.md) décrit size/threads/full.
 
 Le spectre animé du site est synthétique pour montrer les bandes sans envoyer votre musique ni accéder au périphérique. Il n’analyse pas un fichier glissé dans la documentation.

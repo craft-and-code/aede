@@ -16,8 +16,10 @@ Levels are smoothed with a quicker rise and slower fall, then mapped to display 
 
 ## Terminal and metering limits
 
-The CLI's 24 thin bars fill and follow terminal width and animate only in an interactive terminal. Redirected output is not an audio animation feed. The labels show album and numbered filename, without the whole path. The view approximates material entering the selected output; it does not measure the host mixer, DAC or room.
+The CLI groups the 24 analysis bands into twelve broad, segmented Retro display bands, from low to high frequencies. Their widths follow the terminal width; narrow terminals combine bands further rather than wrapping. The columns fill from the bottom with green lower segments, yellow upper segments and red top segments. Separate peak markers fall more slowly after the current level drops. These colors indicate display height, not calibrated clipping thresholds.
 
-For sample/true peaks and guard intervention, read [output diagnostics](output.md). For an image of the file over time, the separate CLI `spectrum` command generates spectrogram files using the analysis workflow; it is different from these live 24 bars. See the [spectrum command reference](../cli/spectrum.md) for its size/threads/full options.
+Animation requires interactive terminal output. `NO_COLOR` or `--no-color` retains the blocks and peak markers in monochrome; `--lyrics` replaces the spectrum with lyric cues. Redirected output is not an audio animation feed. The labels show album and numbered filename, without the whole path. The view approximates material entering the selected output; it does not measure the host mixer, DAC or room.
+
+For sample/true peaks and guard intervention, read [output diagnostics](output.md). For an image of the file over time, the separate CLI `spectrum` command generates spectrogram files using the analysis workflow; it is different from the live Retro display. See the [spectrum command reference](../cli/spectrum.md) for its size/threads/full options.
 
 The website's animated spectrum uses a synthetic example so band behavior remains visible without sending your audio or accessing the device. It does not analyze a file dropped into the documentation.

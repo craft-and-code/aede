@@ -156,14 +156,17 @@ try:
         wait_for(lambda: bool(playing()))
         assert all(expected_name in label for label in playing()), "each preloaded Next must skip one source before playback"
     elif scenario == "paused-modes":
-        wait_for(lambda: stream_ready(1))
+        wait_for(lambda: stream_ready(1) and b"\x1b[K" in transcript)
         os.write(master, b" ")
         output_paused = paused_probe()
         wait_for(output_paused)
         paused_output = directory / ("pcm." + streams()[0])
         paused_size = paused_output.stat().st_size
+        mode_start = len(transcript)
         os.write(master, b"r")
         wait_for(lambda: b"Repeat: one" in transcript)
+        repeat_message = bytes(transcript[mode_start:]).split(b"Repeat: one", 1)[0]
+        assert b"\x1b[10A\r\x1b[J" in repeat_message, "clear the spectrum before the transport diagnostic"
         os.write(master, b"z")
         wait_for(lambda: b"Shuffle: random (future entries)" in transcript)
         os.write(master, b"z")
@@ -213,6 +216,13 @@ try:
             raise AssertionError(f"q did not stop playback: {bytes(transcript)!r}")
     read_output()
     assert child.returncode == 0, bytes(transcript)
+    clear_drawing = b"\x1b[10A\r\x1b[J"
+    for message in re.finditer(rb"Playing: ", bytes(transcript)):
+        previous = bytes(transcript[:message.start()])
+        last_row = previous.rfind(b"\x1b[K")
+        if last_row >= 0:
+            assert previous.rfind(clear_drawing) > last_row, "clear the old spectrum before the next track header"
+    assert not re.search(rb"\x1b\[[0-9;]*m", bytes(transcript)), "NO_COLOR keeps the spectrum monochrome"
     if scenario == "flac-md5-stop":
         assert b"MD5" not in transcript, "an early stop cannot check the complete source MD5"
     mode = termios.tcgetattr(slave)

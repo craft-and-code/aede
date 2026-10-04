@@ -82,7 +82,6 @@ struct PlaybackRecords<'a> {
     next_offset_ms: u64,
     resume: Option<ResumeListen>,
     last_position: Option<(usize, u64)>,
-    visualizer: Option<TerminalVisualizer>,
 }
 
 impl<'a> PlaybackRecords<'a> {
@@ -93,7 +92,6 @@ impl<'a> PlaybackRecords<'a> {
             next_offset_ms: 0,
             resume: None,
             last_position: None,
-            visualizer: None,
         }
     }
 
@@ -180,12 +178,6 @@ impl<'a> PlaybackRecords<'a> {
                     eprintln!("True-peak meter stopped: {error}")
                 }
                 Err(error) => return Err(error.into()),
-            }
-            if let Some(visualizer) = &mut self.visualizer
-                && let Err(error) = visualizer.observe(samples)
-            {
-                eprintln!("visualizer stopped: {error}");
-                visualizer.disable();
             }
         }
         record.complete |= span.complete;
@@ -385,7 +377,15 @@ pub(super) fn submit_block(
                 Err(error) => return Err(format!("audio output closed: {error}").into()),
             }
         }
+        // Completed occurrence callbacks can publish signal diagnostics. Clear
+        // the temporary drawing first so its next redraw cannot erase them.
+        if span.complete {
+            clock.clear_visualizer();
+        }
         submitted(Submitted::Complete { span, samples })?;
+        if !samples.is_empty() {
+            clock.observe_visualizer(samples);
+        }
         if span.complete
             && let Some(lyrics) = &mut clock.lyrics
         {
@@ -568,6 +568,7 @@ pub(super) fn play_selection(
     let mut token = 0usize;
     let result = (|| -> Res {
         while let Some(index) = order.current() {
+            playback_clock.clear_visualizer();
             order.sync(&playback_clock, catalog, paths)?;
             let path = &paths[index];
             let mut seeking = false;
@@ -628,9 +629,11 @@ pub(super) fn play_selection(
                             end
                         };
                         if end == PlaybackEnd::Natural {
+                            playback_clock.clear_visualizer();
                             records.finish(true, &playback_clock)?;
                             return Err(error);
                         }
+                        playback_clock.clear_visualizer();
                         eprintln!("Warning: could not prepare the next track: {error}");
                         return Ok(end);
                     }
@@ -697,12 +700,13 @@ pub(super) fn play_selection(
                         PreparedOutput::Interrupted(end) => return Ok(end),
                     };
                     processing = Some(PcmSession::new(input_format, format.sample_rate(), tone)?);
-                    records.visualizer = if options.lyrics {
-                        None
-                    } else {
-                        TerminalVisualizer::new(format)
-                    };
                     format
+                };
+                playback_clock.clear_visualizer();
+                playback_clock.visualizer = if options.lyrics {
+                    None
+                } else {
+                    TerminalVisualizer::new(format)
                 };
                 let settings = PlaybackSettings {
                     normalization_mode,
@@ -716,7 +720,7 @@ pub(super) fn play_selection(
                     &settings,
                     normalization.is_measuring(),
                     &playing_label(path, catalog),
-                    records.visualizer.is_some(),
+                    playback_clock.visualizer.is_some(),
                 )?;
                 token = token
                     .checked_add(1)
@@ -766,6 +770,7 @@ pub(super) fn play_selection(
                     let raw = track.read_block_observed(
                         |format, samples| {
                             if let Err(error) = normalization.observe_source(format, samples) {
+                                playback_clock.clear_visualizer();
                                 eprintln!("Source loudness meter stopped: {error}");
                             }
                         },
@@ -788,6 +793,7 @@ pub(super) fn play_selection(
                         let update = match normalization.finish_track(index, seek_ms == 0) {
                             Ok(update) => update,
                             Err(error) => {
+                                playback_clock.clear_visualizer();
                                 eprintln!("Warning: source loudness was not cached: {error}");
                                 None
                             }
@@ -842,6 +848,7 @@ pub(super) fn play_selection(
                     order.sync(&playback_clock, catalog, paths)?;
                 }
                 if end == PlaybackEnd::Natural {
+                    playback_clock.clear_visualizer();
                     if order.continues() {
                         records.finish(true, &playback_clock)?;
                         order.advance(end, 0)?;
@@ -865,6 +872,7 @@ pub(super) fn play_selection(
             } else {
                 records.position_ms(cursor, &playback_clock)
             };
+            playback_clock.clear_visualizer();
             output.abort()?;
             if let Some(lyrics) = &mut playback_clock.lyrics {
                 lyrics.reset_output();
@@ -898,6 +906,7 @@ pub(super) fn play_selection(
         Ok(())
     })();
     if result.is_err() {
+        playback_clock.clear_visualizer();
         if let Err(error) = output.abort() {
             eprintln!("Warning: could not stop output: {error}");
         }
