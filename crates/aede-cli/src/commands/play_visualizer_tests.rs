@@ -1,6 +1,69 @@
-use super::{DISPLAY_BANDS, HEIGHT, MAX_COLUMNS, Peaks, bar_rows};
+use super::{DISPLAY_BANDS, HEIGHT, MAX_COLUMNS, Peaks, Position, bar_rows, position_rows};
 use aede_dsp::SPECTRUM_BANDS;
 use std::time::Duration;
+
+fn position(position_ms: u64, duration_ms: Option<u64>) -> Position<'static> {
+    Position {
+        token: 1,
+        label: "Album — 01 song",
+        position_ms,
+        duration_ms,
+        estimated: false,
+        completed: false,
+    }
+}
+
+#[test]
+fn playback_position_shows_elapsed_total_and_a_proportional_progress_bar() {
+    let start = position_rows(position(0, Some(240_000)), false, 79);
+    assert_eq!(start[0], "Now: Album — 01 song");
+    assert!(start[1].starts_with("Position: 00:00 / 04:00 ["));
+    assert!(start[1].ends_with(" 0%"));
+    assert!(!start[1].contains('━'));
+    let middle = position_rows(position(120_000, Some(240_000)), false, 79);
+    assert!(middle[1].contains("02:00 / 04:00"));
+    assert!(middle[1].contains('━') && middle[1].contains('─'));
+    assert!(middle[1].ends_with(" 50%"));
+    assert_eq!(middle[1].chars().count(), 79);
+    let end = position_rows(position(240_000, Some(240_000)), false, 79);
+    assert!(end[1].ends_with(" 100%"));
+    assert!(!end[1].contains('─'));
+}
+
+#[test]
+fn pause_and_fallback_timing_are_visible_without_hiding_the_source_offset() {
+    let mut held = position(3_671_000, Some(7_200_000));
+    held.estimated = true;
+    let rows = position_rows(held, true, 79);
+    assert_eq!(rows[0], "Paused: Album — 01 song");
+    assert!(rows[1].contains("Position: ~1:01:11 / 2:00:00"));
+    let short_header = position_rows(position(5_000, Some(1_000)), false, 79);
+    assert!(short_header[1].contains("00:05 / 00:01"));
+    assert!(short_header[1].ends_with(" 100%"));
+}
+
+#[test]
+fn unknown_duration_does_not_invent_a_percentage_or_progress_extent() {
+    for duration in [None, Some(0)] {
+        let rows = position_rows(position(72_000, duration), false, 79);
+        assert_eq!(rows[1], "Position: 01:12 / --:--");
+        assert!(!rows[1].contains(['%', '[', '━']));
+    }
+}
+
+#[test]
+fn position_text_is_bounded_and_cannot_inject_terminal_controls() {
+    let mut current = position(u64::MAX, Some(u64::MAX));
+    current.label = "bad\x1b[2J\nlabel";
+    for columns in [1, 2, 20, 79, usize::MAX] {
+        let rows = position_rows(current, false, columns);
+        assert!(
+            rows.iter()
+                .all(|row| row.chars().count() <= columns.min(MAX_COLUMNS))
+        );
+        assert!(rows.iter().all(|row| !row.contains(['\x1b', '\n', '\r'])));
+    }
+}
 
 #[test]
 fn wide_segments_fill_from_the_bottom_at_their_own_heights() {

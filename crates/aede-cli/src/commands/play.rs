@@ -28,6 +28,9 @@ use visualizer::TerminalVisualizer;
 #[path = "play_lyrics.rs"]
 mod lyrics;
 
+#[path = "play_timeline.rs"]
+mod timeline;
+
 #[path = "play_controls.rs"]
 mod controls;
 use controls::{Action, Controls};
@@ -217,6 +220,7 @@ struct PlaybackClock {
     shuffle_revision: u64,
     smart_available: bool,
     lyrics: Option<lyrics::PlaybackLyrics>,
+    timeline: Option<timeline::PlaybackTimeline>,
     visualizer: Option<TerminalVisualizer>,
 }
 
@@ -231,6 +235,7 @@ impl PlaybackClock {
             shuffle_revision: 0,
             smart_available: false,
             lyrics: None,
+            timeline: None,
             visualizer: None,
         }
     }
@@ -269,6 +274,28 @@ impl PlaybackClock {
         }
     }
 
+    fn render_display(&mut self, output: &impl PlaybackOutput) -> Res {
+        let active_ms = self.active_ms();
+        let position = self
+            .timeline
+            .as_mut()
+            .and_then(|timeline| timeline.position(output.consumed_frames(), active_ms));
+        if let Some(lyrics) = &mut self.lyrics {
+            lyrics.render(position, || {
+                if let Some(visualizer) = &mut self.visualizer {
+                    visualizer.clear();
+                }
+            })?;
+        }
+        if let Some(visualizer) = &mut self.visualizer
+            && let Err(error) = visualizer.render(position, self.paused_since.is_some())
+        {
+            visualizer.disable();
+            eprintln!("visualizer stopped: {error}");
+        }
+        Ok(())
+    }
+
     fn toggle_pause(&mut self, output: &impl PlaybackOutput) -> Res {
         if let Some(paused_since) = self.paused_since.take() {
             output.resume()?;
@@ -286,10 +313,7 @@ fn control_action(
     output: &impl PlaybackOutput,
     clock: &mut PlaybackClock,
 ) -> Result<Option<PlaybackEnd>, Box<dyn Error>> {
-    let active_ms = clock.active_ms();
-    if let Some(lyrics) = &mut clock.lyrics {
-        lyrics.render(output.consumed_frames(), active_ms)?;
-    }
+    clock.render_display(output)?;
     let Some(controls) = controls else {
         return Ok(None);
     };
@@ -345,6 +369,7 @@ fn control_action(
             None if clock.paused_since.is_some() => clock.toggle_pause(output)?,
             None => return Ok(None),
         }
+        clock.render_display(output)?;
     }
 }
 

@@ -1,13 +1,15 @@
-//! Terminal-only rendering of the playback frequency bands.
+//! Terminal-only rendering of frequency bands and the consumed playback position.
 
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use aede_dsp::{PcmFormat, SPECTRUM_BANDS, Spectrum};
 
+use super::timeline::Position;
 use crate::ui;
 
 const HEIGHT: usize = 10;
+const POSITION_ROWS: usize = 2;
 const DISPLAY_BANDS: usize = 12;
 const MAX_COLUMNS: usize = 4096;
 const REFRESH: Duration = Duration::from_millis(50);
@@ -44,29 +46,35 @@ impl Peaks {
 
 pub(super) struct TerminalVisualizer {
     spectrum: Spectrum,
+    spectrum_enabled: bool,
+    levels: [f32; SPECTRUM_BANDS],
     peaks: Peaks,
     last_draw: Option<Instant>,
     last_size_check: Instant,
     columns: usize,
     drawn: bool,
+    last_paused: bool,
     disabled: bool,
 }
 
 impl TerminalVisualizer {
-    pub(super) fn new(format: PcmFormat) -> Option<Self> {
+    pub(super) fn new(format: PcmFormat, spectrum_enabled: bool) -> Option<Self> {
         ui::is_interactive().then(|| Self {
             spectrum: Spectrum::new(format),
+            spectrum_enabled,
+            levels: [0.0; SPECTRUM_BANDS],
             peaks: Peaks::default(),
             last_draw: None,
             last_size_check: Instant::now(),
             columns: terminal_columns().saturating_sub(1).max(1),
             drawn: false,
+            last_paused: false,
             disabled: false,
         })
     }
 
     pub(super) fn observe(&mut self, samples: &[f32], active_time: Duration) -> io::Result<()> {
-        if self.disabled {
+        if self.disabled || !self.spectrum_enabled {
             return Ok(());
         }
         let Some(levels) = self.spectrum.push(samples).map_err(io::Error::other)? else {
@@ -75,15 +83,33 @@ impl TerminalVisualizer {
         // Keep transients even when the terminal redraw is throttled. Active
         // playback time also keeps the held peaks frozen during a pause.
         self.peaks.update(&levels, active_time);
+        self.levels = levels;
+        Ok(())
+    }
+
+    pub(super) fn render(
+        &mut self,
+        position: Option<Position<'_>>,
+        paused: bool,
+    ) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
+        let Some(position) = position else {
+            return Ok(());
+        };
         let now = Instant::now();
-        if self
-            .last_draw
-            .is_some_and(|previous| now.duration_since(previous) < REFRESH)
+        if self.drawn
+            && paused == self.last_paused
+            && self
+                .last_draw
+                .is_some_and(|previous| now.duration_since(previous) < REFRESH)
         {
             return Ok(());
         }
-        self.draw(&levels)?;
+        self.draw(position, paused)?;
         self.last_draw = Some(now);
+        self.last_paused = paused;
         Ok(())
     }
 
@@ -92,21 +118,30 @@ impl TerminalVisualizer {
         self.clear();
     }
 
-    fn draw(&mut self, levels: &[f32; SPECTRUM_BANDS]) -> io::Result<()> {
+    fn height(&self) -> usize {
+        POSITION_ROWS + if self.spectrum_enabled { HEIGHT } else { 0 }
+    }
+
+    fn draw(&mut self, position: Position<'_>, paused: bool) -> io::Result<()> {
         if self.last_size_check.elapsed() >= SIZE_REFRESH {
             self.columns = terminal_columns().saturating_sub(1).max(1);
             self.last_size_check = Instant::now();
         }
         let mut output = io::stdout().lock();
         if self.drawn {
-            write!(output, "\x1b[{HEIGHT}A")?;
+            write!(output, "\x1b[{}A", self.height())?;
         }
-        for row in bar_rows(
-            levels,
-            &self.peaks.levels,
-            self.columns,
-            ui::color_enabled(),
-        ) {
+        if self.spectrum_enabled {
+            for row in bar_rows(
+                &self.levels,
+                &self.peaks.levels,
+                self.columns,
+                ui::color_enabled(),
+            ) {
+                write!(output, "\r{row}\x1b[K\n")?;
+            }
+        }
+        for row in position_rows(position, paused, self.columns) {
             write!(output, "\r{row}\x1b[K\n")?;
         }
         output.flush()?;
@@ -117,7 +152,7 @@ impl TerminalVisualizer {
     pub(super) fn clear(&mut self) {
         if self.drawn {
             let mut output = io::stdout().lock();
-            let _ = write!(output, "\x1b[{HEIGHT}A\r\x1b[J").and_then(|_| output.flush());
+            let _ = write!(output, "\x1b[{}A\r\x1b[J", self.height()).and_then(|_| output.flush());
             self.drawn = false;
         }
     }
@@ -126,6 +161,59 @@ impl TerminalVisualizer {
 impl Drop for TerminalVisualizer {
     fn drop(&mut self) {
         self.clear();
+    }
+}
+
+fn position_rows(position: Position<'_>, paused: bool, columns: usize) -> [String; POSITION_ROWS] {
+    let columns = columns.clamp(1, MAX_COLUMNS);
+    let status = if paused { "Paused" } else { "Now" };
+    let label = ui::truncate(
+        &format!(
+            "{status}: {}",
+            ui::literal(position.label).replace(['\n', '\t'], " ")
+        ),
+        columns,
+    );
+    let elapsed = clock_text(position.position_ms);
+    let total = position.duration_ms.filter(|&total| total > 0);
+    let duration = total.map_or_else(|| "--:--".into(), clock_text);
+    let estimate = if position.estimated { "~" } else { "" };
+    let text = format!("Position: {estimate}{elapsed} / {duration}");
+    let progress = if let Some(total) = total {
+        // Only the bar is clamped to metadata's total; a short header must not
+        // hide the actual source position observed on the output clock.
+        let percent =
+            (u128::from(position.position_ms.min(total)) * 100 / u128::from(total)) as usize;
+        let suffix = format!(" {percent}%");
+        let width = columns.saturating_sub(text.len() + suffix.len() + 3);
+        if width > 0 {
+            let filled = (u128::from(position.position_ms.min(total)) * width as u128
+                / u128::from(total)) as usize;
+            format!(
+                "{text} [{}{}]{suffix}",
+                "━".repeat(filled),
+                "─".repeat(width - filled)
+            )
+        } else {
+            format!("{text}{suffix}")
+        }
+    } else {
+        text
+    };
+    [label, ui::truncate(&progress, columns)]
+}
+
+fn clock_text(milliseconds: u64) -> String {
+    let seconds = milliseconds / 1000;
+    if seconds >= 3600 {
+        format!(
+            "{}:{:02}:{:02}",
+            seconds / 3600,
+            seconds / 60 % 60,
+            seconds % 60
+        )
+    } else {
+        format!("{:02}:{:02}", seconds / 60, seconds % 60)
     }
 }
 

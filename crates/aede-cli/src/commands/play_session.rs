@@ -360,8 +360,8 @@ pub(super) fn submit_block(
                 Ok(0) => return Err("audio output closed before accepting PCM".into()),
                 Ok(count) if count <= bytes.len() - byte_offset => {
                     let active_ms = clock.active_ms();
-                    if let Some(lyrics) = &mut clock.lyrics {
-                        lyrics.submitted(span.token, count, active_ms)?;
+                    if let Some(timeline) = &mut clock.timeline {
+                        timeline.submitted(span.token, count, active_ms)?;
                     }
                     submitted(Submitted::Bytes {
                         token: span.token,
@@ -387,9 +387,9 @@ pub(super) fn submit_block(
             clock.observe_visualizer(samples);
         }
         if span.complete
-            && let Some(lyrics) = &mut clock.lyrics
+            && let Some(timeline) = &mut clock.timeline
         {
-            lyrics.completed(span.token)?;
+            timeline.completed(span.token)?;
         }
     }
     Ok(PlaybackEnd::Natural)
@@ -514,6 +514,9 @@ fn prepare_output_with<O: SessionOutput>(
         if let Some(lyrics) = &mut clock.lyrics {
             lyrics.reset_output();
         }
+        if let Some(timeline) = &mut clock.timeline {
+            timeline.reset_output();
+        }
     }
     output.prepare(format).map(PreparedOutput::Ready)
 }
@@ -547,6 +550,10 @@ pub(super) fn play_selection(
     playback_clock.shuffle = options.shuffle;
     playback_clock.smart_available = catalog.is_some();
     playback_clock.lyrics = options.lyrics.then(lyrics::PlaybackLyrics::new);
+    playback_clock.timeline = crate::ui::is_interactive().then(timeline::PlaybackTimeline::new);
+    // Repeats reuse display metadata within this invocation; successful EOF
+    // replaces the estimate with the source's decoded duration.
+    let mut durations = std::collections::HashMap::new();
     // Index catalog evidence once, restricted to this selection. Repeated
     // occurrences must not rescan the whole catalog to read their lyrics.
     let lyric_files = if options.lyrics {
@@ -577,13 +584,13 @@ pub(super) fn play_selection(
                 if let Some(action) = control_action(controls, output, &mut playback_clock)? {
                     return Ok(action);
                 }
-                // Extremely short sources can fill the lyric lookahead before
+                // Extremely short sources can fill the display lookahead before
                 // the SRC emits its delayed frames. Flush that processing tail
                 // so waiting for consumption cannot starve the converter.
                 if playback_clock
-                    .lyrics
+                    .timeline
                     .as_ref()
-                    .is_some_and(|lyrics| !lyrics.has_capacity())
+                    .is_some_and(|timeline| !timeline.has_capacity())
                 {
                     let end = flush_group(
                         &mut processing,
@@ -597,9 +604,9 @@ pub(super) fn play_selection(
                     }
                 }
                 while playback_clock
-                    .lyrics
+                    .timeline
                     .as_ref()
-                    .is_some_and(|lyrics| !lyrics.has_capacity())
+                    .is_some_and(|timeline| !timeline.has_capacity())
                 {
                     if let Some(action) = control_action(controls, output, &mut playback_clock)? {
                         return Ok(action);
@@ -703,11 +710,7 @@ pub(super) fn play_selection(
                     format
                 };
                 playback_clock.clear_visualizer();
-                playback_clock.visualizer = if options.lyrics {
-                    None
-                } else {
-                    TerminalVisualizer::new(format)
-                };
+                playback_clock.visualizer = TerminalVisualizer::new(format, !options.lyrics);
                 let settings = PlaybackSettings {
                     normalization_mode,
                     selected_gain,
@@ -720,7 +723,7 @@ pub(super) fn play_selection(
                     &settings,
                     normalization.is_measuring(),
                     &playing_label(path, catalog),
-                    playback_clock.visualizer.is_some(),
+                    !options.lyrics && playback_clock.visualizer.is_some(),
                 )?;
                 token = token
                     .checked_add(1)
@@ -729,6 +732,25 @@ pub(super) fn play_selection(
                 records.publish_completed()?;
                 records.next_offset_ms = seek_ms;
                 records.begin(token, index, path, format, &playback_clock)?;
+                if let Some(timeline) = &mut playback_clock.timeline {
+                    let duration_ms =
+                        *durations
+                            .entry(index)
+                            .or_insert_with(|| match tags::read(path) {
+                                Ok(tags) => tags.properties.duration_ms,
+                                Err(error) => {
+                                    eprintln!("Playback duration unavailable: {error}");
+                                    None
+                                }
+                            });
+                    timeline.begin(
+                        token,
+                        format,
+                        seek_ms,
+                        duration_ms,
+                        &playing_label(path, catalog),
+                    )?;
+                }
                 if let Some(lyrics) = &mut playback_clock.lyrics {
                     let current = catalog
                         .zip(lyric_files.as_ref())
@@ -746,14 +768,7 @@ pub(super) fn play_selection(
                                 )
                             })
                         });
-                    lyrics.begin(
-                        token,
-                        path,
-                        current,
-                        &playing_label(path, catalog),
-                        format,
-                        seek_ms,
-                    )?;
+                    lyrics.begin(token, path, current)?;
                 }
                 initial_seek_pending = false;
                 order.activated();
@@ -799,6 +814,14 @@ pub(super) fn play_selection(
                             }
                         };
                         records.source_finished(token, update)?;
+                        if let Some(timeline) = &mut playback_clock.timeline {
+                            let duration = u128::from(source_frames) * 1000
+                                / u128::from(track.source_format().sample_rate());
+                            let duration_ms =
+                                seek_ms.saturating_add(u64::try_from(duration).unwrap_or(u64::MAX));
+                            timeline.set_duration(token, duration_ms)?;
+                            durations.insert(index, Some(duration_ms));
+                        }
                         return submit_block(
                             session.end_track()?,
                             output,
@@ -856,6 +879,9 @@ pub(super) fn play_selection(
                         if let Some(lyrics) = &mut playback_clock.lyrics {
                             lyrics.reset_output();
                         }
+                        if let Some(timeline) = &mut playback_clock.timeline {
+                            timeline.reset_output();
+                        }
                         playback_clock.reset_elapsed();
                         continue;
                     }
@@ -876,6 +902,9 @@ pub(super) fn play_selection(
             output.abort()?;
             if let Some(lyrics) = &mut playback_clock.lyrics {
                 lyrics.reset_output();
+            }
+            if let Some(timeline) = &mut playback_clock.timeline {
+                timeline.reset_output();
             }
             processing = None;
             normalization.finish_track(index, false)?;

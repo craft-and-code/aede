@@ -1,7 +1,61 @@
 use super::*;
 
-fn display() -> PlaybackLyrics {
-    PlaybackLyrics::new()
+use aede_dsp::PcmFormat;
+
+use super::super::timeline::{MAX_PENDING, PlaybackTimeline};
+
+struct Display {
+    lyrics: PlaybackLyrics,
+    clock: PlaybackTimeline,
+}
+
+impl Display {
+    fn enqueue(
+        &mut self,
+        token: usize,
+        words: Option<Lyrics>,
+        label: &str,
+        format: PcmFormat,
+        offset_ms: u64,
+    ) -> io::Result<()> {
+        self.clock.begin(token, format, offset_ms, None, label)?;
+        self.lyrics.enqueue(token, words);
+        Ok(())
+    }
+
+    fn submitted(&mut self, token: usize, count: usize, active_ms: u64) -> io::Result<()> {
+        self.clock.submitted(token, count, active_ms)
+    }
+
+    fn completed(&mut self, token: usize) -> io::Result<()> {
+        self.clock.completed(token)
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.clock.has_capacity()
+    }
+
+    fn reset_output(&mut self) {
+        self.clock.reset_output();
+        self.lyrics.reset_output();
+    }
+
+    fn updates(
+        &mut self,
+        consumed_frames: Option<u64>,
+        active_ms: u64,
+        columns: usize,
+    ) -> Vec<String> {
+        self.lyrics
+            .updates(self.clock.position(consumed_frames, active_ms), columns)
+    }
+}
+
+fn display() -> Display {
+    Display {
+        lyrics: PlaybackLyrics::new(),
+        clock: PlaybackTimeline::new(),
+    }
 }
 
 fn format() -> PcmFormat {
@@ -51,7 +105,7 @@ fn queued_next_track_waits_for_consumed_frames_and_preserves_seek_offset() {
     assert!(contains(&rows, "seek verse"));
     assert!(!contains(&rows, "intro"));
     assert!(display.updates(Some(144_000), 20_400, 80).is_empty());
-    assert!(display.visits.is_empty());
+    assert!(display.lyrics.visits.is_empty());
 }
 
 #[test]
@@ -97,7 +151,7 @@ fn manual_transport_discards_lookahead_and_restarts_the_timeline() {
     let rows = display.updates(Some(0), 0, 80);
     assert!(contains(&rows, "new opening"));
     assert!(!contains(&rows, "old"));
-    assert_eq!(display.visits.len(), 1);
+    assert_eq!(display.lyrics.visits.len(), 1);
 }
 
 #[test]
@@ -251,16 +305,18 @@ fn flushing_delayed_src_releases_full_lyric_lookahead_without_losing_occurrences
     let mut session = PcmSession::new(input, 48_000, ToneControls::FLAT).unwrap();
     let output_format = session.output_format();
     let mut clock = PlaybackClock::new();
-    clock.lyrics = Some(display());
+    clock.lyrics = Some(PlaybackLyrics::new());
+    clock.timeline = Some(PlaybackTimeline::new());
     let mut output = ImmediatelyConsumedOutput { bytes: Vec::new() };
     let mut completions = Vec::new();
     for token in 1..=MAX_PENDING {
         clock
-            .lyrics
+            .timeline
             .as_mut()
             .unwrap()
-            .enqueue(token, None, "short", output_format, 0)
+            .begin(token, output_format, 0, None, "short")
             .unwrap();
+        clock.lyrics.as_mut().unwrap().enqueue(token, None);
         session.begin_track(token, 0.0).unwrap();
         submit(
             session.push_source(&[0.125, -0.125]).unwrap(),
@@ -280,7 +336,7 @@ fn flushing_delayed_src_releases_full_lyric_lookahead_without_losing_occurrences
         "conversion still needs more source"
     );
     assert!(completions.is_empty(), "no source boundary has emerged yet");
-    assert!(!clock.lyrics.as_ref().unwrap().has_capacity());
+    assert!(!clock.timeline.as_ref().unwrap().has_capacity());
 
     submit(
         session.finish().unwrap(),
@@ -291,21 +347,19 @@ fn flushing_delayed_src_releases_full_lyric_lookahead_without_losing_occurrences
     let consumed = output.consumed_frames().unwrap();
     let expected_first_group = (MAX_PENDING as u64 * 48_000).div_ceil(44_100);
     assert_eq!(consumed, expected_first_group);
-    clock
-        .lyrics
-        .as_mut()
-        .unwrap()
-        .updates(Some(consumed), 0, 80);
-    assert!(clock.lyrics.as_ref().unwrap().has_capacity());
+    let position = clock.timeline.as_mut().unwrap().position(Some(consumed), 0);
+    clock.lyrics.as_mut().unwrap().updates(position, 80);
+    assert!(clock.timeline.as_ref().unwrap().has_capacity());
     assert!(clock.lyrics.as_ref().unwrap().visits.is_empty());
 
     let token = MAX_PENDING + 1;
     clock
-        .lyrics
+        .timeline
         .as_mut()
         .unwrap()
-        .enqueue(token, None, "after flush", output_format, 0)
+        .begin(token, output_format, 0, None, "after flush")
         .unwrap();
+    clock.lyrics.as_mut().unwrap().enqueue(token, None);
     let mut session = PcmSession::new(input, 48_000, ToneControls::FLAT).unwrap();
     session.begin_track(token, 0.0).unwrap();
     submit(
@@ -329,11 +383,8 @@ fn flushing_delayed_src_releases_full_lyric_lookahead_without_losing_occurrences
     let consumed = output.consumed_frames().unwrap();
     assert_eq!(consumed, expected_first_group + 48_000u64.div_ceil(44_100));
     assert_eq!(completions, (1..=token).collect::<Vec<_>>());
-    clock
-        .lyrics
-        .as_mut()
-        .unwrap()
-        .updates(Some(consumed), 0, 80);
+    let position = clock.timeline.as_mut().unwrap().position(Some(consumed), 0);
+    clock.lyrics.as_mut().unwrap().updates(position, 80);
     assert!(clock.lyrics.as_ref().unwrap().visits.is_empty());
     assert!(
         output

@@ -97,6 +97,24 @@ def playing():
     return re.findall(rb"Playing: [^\r\n]*", clean)
 
 
+def position():
+    matches = re.findall(
+        rb"Position: (~?)([0-9]+(?::[0-9]{2}){1,2}) / ([0-9]+(?::[0-9]{2}){1,2})",
+        bytes(transcript),
+    )
+    if not matches:
+        return None
+
+    def seconds(value):
+        result = 0
+        for component in value.split(b":"):
+            result = result * 60 + int(component)
+        return result
+
+    estimated, elapsed, duration = matches[-1]
+    return bool(estimated), seconds(elapsed), seconds(duration)
+
+
 def streams():
     path = directory / "streams"
     return path.read_text().splitlines() if path.exists() else []
@@ -142,11 +160,16 @@ try:
         expected = [b"first", b"second", b"first", b"second", b"first"]
         assert all(name in label for name, label in zip(expected, playing()[:5])), playing()
     elif scenario == "seek":
-        wait_for(lambda: stream_ready(1))
+        wait_for(lambda: stream_ready(1) and position() is not None and position()[1] >= 1)
+        initial_position = position()
+        assert initial_position[0], "ffplay progress must be marked as estimated"
+        assert initial_position[2] == 24, "progress must show the current track duration"
         os.write(master, b"]")
-        wait_for(lambda: stream_ready(2))
+        wait_for(lambda: stream_ready(2) and position()[1] >= initial_position[1] + 9)
+        forward_position = position()[1]
         os.write(master, b"[")
-        wait_for(lambda: stream_ready(3))
+        wait_for(lambda: stream_ready(3) and position()[1] <= forward_position - 8)
+        assert position()[2] == 24, "seeking retains the complete source duration"
     elif scenario == "seek-past-end":
         wait_for(lambda: stream_ready(1))
         os.write(master, b"]")
@@ -156,17 +179,21 @@ try:
         wait_for(lambda: bool(playing()))
         assert all(expected_name in label for label in playing()), "each preloaded Next must skip one source before playback"
     elif scenario == "paused-modes":
-        wait_for(lambda: stream_ready(1) and b"\x1b[K" in transcript)
+        wait_for(lambda: stream_ready(1) and position() is not None)
         os.write(master, b" ")
         output_paused = paused_probe()
-        wait_for(output_paused)
+        wait_for(lambda: b"Paused:" in transcript and output_paused())
+        paused_position = position()
+        pause_started = time.monotonic()
+        wait_for(lambda: time.monotonic() - pause_started >= 1.1)
+        assert position() == paused_position, "pause must freeze the displayed playback position"
         paused_output = directory / ("pcm." + streams()[0])
         paused_size = paused_output.stat().st_size
         mode_start = len(transcript)
         os.write(master, b"r")
         wait_for(lambda: b"Repeat: one" in transcript)
         repeat_message = bytes(transcript[mode_start:]).split(b"Repeat: one", 1)[0]
-        assert b"\x1b[10A\r\x1b[J" in repeat_message, "clear the spectrum before the transport diagnostic"
+        assert b"\x1b[12A\r\x1b[J" in repeat_message, "clear the spectrum and position before the transport diagnostic"
         os.write(master, b"z")
         wait_for(lambda: b"Shuffle: random (future entries)" in transcript)
         os.write(master, b"z")
@@ -178,6 +205,7 @@ try:
         os.write(master, b"z")
         wait_for(lambda: b"Shuffle: off (future entries)" in transcript)
         assert output_paused(), "changing modes must not resume the output"
+        assert position() == paused_position, "changing modes while paused must keep the position frozen"
         assert paused_output.stat().st_size == paused_size, "paused mode changes submit no new audio"
         assert len(streams()) == 1, "changing order must not reopen the current track"
         os.write(master, b" ")
@@ -216,12 +244,12 @@ try:
             raise AssertionError(f"q did not stop playback: {bytes(transcript)!r}")
     read_output()
     assert child.returncode == 0, bytes(transcript)
-    clear_drawing = b"\x1b[10A\r\x1b[J"
+    clear_drawing = b"\x1b[2A\r\x1b[J" if scenario.startswith("lyrics-") else b"\x1b[12A\r\x1b[J"
     for message in re.finditer(rb"Playing: ", bytes(transcript)):
         previous = bytes(transcript[:message.start()])
         last_row = previous.rfind(b"\x1b[K")
         if last_row >= 0:
-            assert previous.rfind(clear_drawing) > last_row, "clear the old spectrum before the next track header"
+            assert previous.rfind(clear_drawing) > last_row, "clear the old live display before the next track header"
     assert not re.search(rb"\x1b\[[0-9;]*m", bytes(transcript)), "NO_COLOR keeps the spectrum monochrome"
     if scenario == "flac-md5-stop":
         assert b"MD5" not in transcript, "an early stop cannot check the complete source MD5"

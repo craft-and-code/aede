@@ -116,6 +116,12 @@ Both modes use SplitMix64 and integer rejection sampling; Fisher–Yates builds 
 
 The graph is bounded and candidate work does not build an all-track pairwise distance matrix. The planner prepares metadata before audio and reuses it across cycles. Shortest paths can traverse genre nodes with no selected recordings; these nodes influence distance but never add tracks to the selection. Artist/album memory covers the current plan; a repeat boundary supplies only the previous cycle's final occurrence. The planner favors coherent neighborhoods rather than forcing a timed drift or finding an optimal route through every style. Custom or inconsistent tags, unavailable bridge recordings and bounded candidate/lookahead sampling limit what it can infer. It computes an order only; it does not alter files, tags or stored catalog metadata.
 
+## Playback position
+
+Terminal playback shows the current track, elapsed position and total duration, with a progress bar and percentage. The position includes the initial or runtime seek offset, freezes during pause and restarts for each new track or repeat. It remains visible with `--lyrics`; redirected output has no live progress display.
+
+Native output follows frames consumed by the CPAL callback, attributed to the current occurrence rather than the track being decoded ahead. With ffplay, `~` marks an estimate based on active playback time; buffering and output stalls can reduce its accuracy. Neither clock measures physical device latency. The total initially comes from file metadata and is corrected from the decoded source frame count at EOF, without predecoding the track. An unavailable duration is shown as `--:--`, without a percentage. An inaccurate short total clamps the bar, not the observed elapsed position.
+
 ## Terminal spectrum
 
 Terminal playback shows a Retro spectrum with twelve broad, segmented bands, ordered from low to high frequencies. It groups the existing 24 analysis bands for display; it does not change the analysis or the audio. Each column fills from the bottom, with green lower segments, yellow upper segments and red top segments. A separate peak marker falls more slowly after the current level drops.

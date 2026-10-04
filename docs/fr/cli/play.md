@@ -116,6 +116,12 @@ Les deux modes utilisent SplitMix64 et un tirage entier par rejet ; Fisher–Yat
 
 Le graphe est borné et le calcul des candidats ne construit pas de matrice de distances entre toutes les pistes. Le moteur prépare les métadonnées avant l’audio et les réutilise entre cycles. Les plus courts chemins peuvent traverser des genres sans enregistrement sélectionné : ces nœuds influencent la distance mais n’ajoutent jamais de morceaux. La mémoire des artistes/albums couvre le plan actuel ; une frontière de répétition ne fournit que la dernière occurrence du cycle précédent. Le moteur privilégie des voisinages cohérents sans imposer une dérive chronométrée ni trouver un trajet optimal entre tous les styles. Tags personnalisés ou incohérents, absence de morceaux intermédiaires et échantillonnage borné des candidats limitent ses déductions. Il ne calcule qu’un ordre ; il ne modifie ni fichiers, ni tags, ni métadonnées stockées du catalogue.
 
+## Position de lecture
+
+La lecture dans le Terminal affiche le morceau courant, la position écoulée et la durée totale, avec une barre de progression et un pourcentage. La position inclut le déplacement initial ou effectué pendant la lecture, reste figée pendant une pause et repart au début à chaque nouveau morceau ou répétition. Elle reste visible avec `--lyrics` ; une sortie redirigée n’affiche pas de progression animée.
+
+Avec la sortie native, la position suit les trames consommées par le callback CPAL, attribuées à l’occurrence courante plutôt qu’au morceau décodé en avance. Avec ffplay, `~` signale une estimation fondée sur le temps de lecture actif ; la mise en tampon et les blocages de sortie peuvent réduire sa précision. Aucune de ces horloges ne mesure la latence physique du périphérique. La durée totale vient d’abord des métadonnées du fichier, puis est corrigée à partir des trames source décodées à la fin, sans prédécoder le morceau. Une durée indisponible apparaît sous la forme `--:--`, sans pourcentage. Une durée totale trop courte limite la barre, sans masquer la position écoulée observée.
+
 ## Spectre dans le Terminal
 
 La lecture dans le Terminal affiche un spectre Rétro à douze bandes larges et segmentées, des basses fréquences à gauche aux hautes fréquences à droite. Il regroupe les 24 bandes d’analyse existantes pour l’affichage, sans changer l’analyse ni le son. Chaque colonne se remplit depuis le bas, avec des segments verts en bas, jaunes plus haut et rouges au sommet. Un repère de crête distinct retombe plus lentement après la baisse du niveau courant.
