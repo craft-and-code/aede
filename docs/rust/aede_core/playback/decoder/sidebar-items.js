@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Error"],"struct":["FileDecoder"]};
+window.SIDEBAR_ITEMS = {"enum":["Error"],"struct":["FileDecoder","SeekResult"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ALGORITHM_VERSION","MAX_STYLE_STEP","NEIGHBORHOOD_WINDOW"],"struct":["SmartOrder","SmartShuffle","SmartShuffleReport","StyleBreak"]};
