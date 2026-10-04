@@ -509,6 +509,7 @@ Complete guides to Aède's features and architecture:
 - [Current State](docs/coding/current-state.md) — Project status and active work
 - [Project Statistics](docs/manual/project-statistics.md) — Generated code measurements by crate and a rounded inventory of active unit tests
 - [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
+- [Gapless Measurement](docs/coding/gapless-measurement.md) — Whole/split probes, physical capture and bounded idle/load trials
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check

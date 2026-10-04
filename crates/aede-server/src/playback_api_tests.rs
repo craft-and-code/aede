@@ -1,124 +1,15 @@
 use super::*;
 use crate::accounts_test_support::{Fixture, http, login};
-use crate::playback_test_support::{install_wav, wav_bytes};
+use crate::playback_test_support::{
+    ServerFrame, Socket, assert_guarded_pcm, install_wav, upgrade, upgraded_socket, wav_bytes,
+};
 use crate::test_support::{start_server, test_runtime};
 use aede_core::clock;
 use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user;
-use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io::{ErrorKind, Read};
 use std::time::Duration;
-
-struct Socket {
-    stream: TcpStream,
-    buffered: Vec<u8>,
-}
-
-enum ServerFrame {
-    Text(serde_json::Value),
-    Binary(Vec<u8>),
-    Close,
-}
-
-fn upgraded_socket(address: SocketAddr, token: &str) -> Socket {
-    let (stream, response, buffered) = upgrade(address, token);
-    assert!(response.starts_with("HTTP/1.1 101"), "{response}");
-    Socket { stream, buffered }
-}
-
-fn upgrade(address: SocketAddr, token: &str) -> (TcpStream, String, Vec<u8>) {
-    let mut stream = TcpStream::connect(address).expect("local server");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("read timeout");
-    write!(
-        stream,
-        "GET /api/me/v1/playback HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
-    )
-    .expect("upgrade request");
-    let mut received = Vec::new();
-    let header_end = loop {
-        let mut chunk = [0_u8; 512];
-        let count = stream.read(&mut chunk).expect("upgrade response");
-        assert_ne!(count, 0, "connection closed before response headers");
-        received.extend_from_slice(&chunk[..count]);
-        if let Some(end) = received.windows(4).position(|part| part == b"\r\n\r\n") {
-            break end + 4;
-        }
-    };
-    (
-        stream,
-        String::from_utf8(received[..header_end].to_vec()).expect("HTTP headers"),
-        received[header_end..].to_vec(),
-    )
-}
-
-impl Socket {
-    fn send_text(&mut self, text: &str) {
-        self.send(1, text.as_bytes());
-    }
-
-    fn close(&mut self) {
-        self.send(8, &[]);
-    }
-
-    fn send(&mut self, opcode: u8, payload: &[u8]) {
-        let mut header = vec![0x80 | opcode];
-        match payload.len() {
-            0..=125 => header.push(0x80 | payload.len() as u8),
-            126..=65_535 => {
-                header.push(0x80 | 126);
-                header.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-            }
-            _ => {
-                header.push(0x80 | 127);
-                header.extend_from_slice(&(payload.len() as u64).to_be_bytes());
-            }
-        }
-        let mask = [0x4a_u8, 0x93, 0x11, 0xce];
-        header.extend_from_slice(&mask);
-        self.stream.write_all(&header).expect("client frame header");
-        let encoded: Vec<u8> = payload
-            .iter()
-            .enumerate()
-            .map(|(index, byte)| byte ^ mask[index % mask.len()])
-            .collect();
-        self.stream
-            .write_all(&encoded)
-            .expect("client frame payload");
-    }
-
-    fn next(&mut self) -> ServerFrame {
-        let header = self.read_exact(2);
-        assert_eq!(header[0] & 0x80, 0x80, "server uses final frames");
-        assert_eq!(header[1] & 0x80, 0, "server frames are unmasked");
-        let payload_size = match header[1] & 0x7f {
-            size @ 0..=125 => usize::from(size),
-            126 => usize::from(u16::from_be_bytes(self.read_exact(2).try_into().unwrap())),
-            127 => usize::try_from(u64::from_be_bytes(self.read_exact(8).try_into().unwrap()))
-                .expect("bounded server frame"),
-            _ => unreachable!("WebSocket payload-length marker is seven bits"),
-        };
-        let payload = self.read_exact(payload_size);
-        match header[0] & 0x0f {
-            1 => ServerFrame::Text(serde_json::from_slice(&payload).expect("JSON server frame")),
-            2 => ServerFrame::Binary(payload),
-            8 => ServerFrame::Close,
-            opcode => panic!("unexpected server WebSocket opcode {opcode}"),
-        }
-    }
-
-    fn read_exact(&mut self, length: usize) -> Vec<u8> {
-        while self.buffered.len() < length {
-            let mut chunk = [0_u8; 8 * 1024];
-            let count = self.stream.read(&mut chunk).expect("server frame");
-            assert_ne!(count, 0, "connection closed before server frame");
-            self.buffered.extend_from_slice(&chunk[..count]);
-        }
-        self.buffered.drain(..length).collect()
-    }
-}
 
 fn start(socket: &mut Socket, reference: &str) {
     socket.send_text(
@@ -150,17 +41,6 @@ async fn assert_no_saved_play(fixture: &Fixture) {
             .expect("read history")
             .is_none()
     );
-}
-
-fn assert_guarded_pcm(bytes: &[u8]) {
-    assert!(!bytes.is_empty());
-    assert!(bytes.len() <= MAX_AUDIO_BYTES);
-    assert_eq!(bytes.len() % 4, 0);
-    for sample in bytes.as_chunks::<4>().0 {
-        let value = f32::from_le_bytes(*sample);
-        assert!(value.is_finite());
-        assert!((-1.0..=1.0).contains(&value));
-    }
 }
 
 async fn replace_catalog_source(fixture: &Fixture) {
@@ -481,6 +361,13 @@ fn playback_start_refuses_unknown_duplicate_and_unusable_settings() {
         r#"{"type":"start","track":"track:x","treble":-12.1}"#,
         r#"{"type":"start","track":"track:x","bass":1e100}"#,
         r#"{"type":"start","track":"track:x","normalize":"automatic"}"#,
+        r#"{"type":"start"}"#,
+        r#"{"type":"start","tracks":[]}"#,
+        r#"{"type":"start","tracks":["release:x"]}"#,
+        r#"{"type":"start","track":"track:x","tracks":["track:x"]}"#,
+        r#"{"type":"start","tracks":["track:x"],"tracks":["track:y"]}"#,
+        r#"{"type":"start","track":null,"tracks":["track:x"]}"#,
+        r#"{"type":"start","track":"track:x","tracks":null}"#,
     ] {
         let failure = match Start::parse(input) {
             Ok(_) => panic!("unusable start was accepted: {input}"),
@@ -500,6 +387,55 @@ fn playback_start_refuses_unknown_duplicate_and_unusable_settings() {
         assert_eq!(parsed.output_rate, Some(rate));
         assert_eq!(parsed.normalize, Mode::Album);
     }
+}
+
+#[test]
+fn finite_queue_start_preserves_duplicates_and_bounds_occurrences() {
+    let accepted = Start::parse(
+        &serde_json::json!({
+            "type": "start", "tracks": vec!["track:x"; MAX_QUEUE_TRACKS],
+        })
+        .to_string(),
+    )
+    .expect("maximum finite queue");
+    assert!(accepted.queue);
+    assert_eq!(accepted.references.len(), MAX_QUEUE_TRACKS);
+    assert!(
+        accepted
+            .references
+            .iter()
+            .all(|reference| reference.to_token() == "track:x")
+    );
+    let over_limit = serde_json::json!({
+        "type": "start", "tracks": vec!["track:x"; MAX_QUEUE_TRACKS + 1],
+    })
+    .to_string();
+    assert!(Start::parse(&over_limit).is_err());
+    let legacy = Start::parse(r#"{"type":"start","track":"track:x"}"#).unwrap();
+    assert!(!legacy.queue);
+    assert_eq!(legacy.references.len(), 1);
+}
+
+#[test]
+fn playback_source_snapshots_preserve_identity_without_large_raw_tags() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 80).await;
+        let mut catalog = fixture.0.catalog.write().await;
+        let catalog = catalog.as_mut().unwrap();
+        catalog.files[0]
+            .tags
+            .insert("lyrics".into(), vec!["x".repeat(1024 * 1024)]);
+        let source = source_from_catalog(
+            catalog,
+            &EntityRef::parse_token(&installed.reference).unwrap(),
+        )
+        .unwrap();
+        assert!(source.file.tags.is_empty());
+        assert_eq!(source.file.path, catalog.files[0].path);
+        assert_eq!(source.file.properties.duration_ms, Some(10));
+        validate_source(&source).unwrap();
+    });
 }
 
 #[test]

@@ -6,7 +6,7 @@ Reviewed on 2026-09-30–2026-10-01; implementation status reconciled on 2026-10
 
 The architecture is suitable for a reliable music player: decoding, normalization policy, PCM processing and output transport are separate. The signal path uses established algorithms and existing Rust libraries rather than an unvalidated replacement for loudness analysis, equalization or resampling. This is a sound foundation, but implementation and passing software tests alone do not establish hardware gaplessness, absolute meter compliance, or a measured quality/performance budget on a NAS.
 
-The CLI and the [authenticated native PCM route](../server/playback.md) use the shared decoder/processing session. Native PCM v1 carries one track, reuses existing normalization data and records acknowledged client playback; it does not learn new loudness, choose a server audio device, expose output-meter snapshots, drive a server queue, seek or provide continuous remote joins. [Subsonic/OpenSubsonic](../server/subsonic.md) transfers original encoded audio without this DSP. Premium effects remain proposed work. A true-peak limiter, compression, convolution and parametric EQ are not supplied by the current free stages.
+The CLI and the [authenticated native PCM route](../server/playback.md) use the shared decoder/processing session. Native PCM v1 carries a single track or finite ordered queue, reuses existing normalization data and records acknowledged client playback per occurrence. Compatible natural joins retain the shared processing state; it does not learn new loudness, choose a server audio device, expose output-meter snapshots, seek or edit/persist a live queue. [Subsonic/OpenSubsonic](../server/subsonic.md) transfers original encoded audio without this DSP. Premium effects remain proposed work. A true-peak limiter, compression, convolution and parametric EQ are not supplied by the current free stages.
 
 ## Free functionality: implementation and actual limits
 
@@ -215,7 +215,7 @@ The CLI now pre-drains only when the selected output format actually requires re
 
 ### Deferred physical verification protocol
 
-No capture device is available for this session. The following is a repeatable acceptance procedure, not a completed measurement:
+No capture device is available for this session. The [measurement tool and capture guide](gapless-measurement.md) supply whole/split probes, bounded CPU/I/O load, diagnostic records and marker-delay analysis. The following is a repeatable acceptance procedure, not a completed measurement:
 
 1. Record the binary revision/hash, operating system, audio host, selected device, output rate/channel/sample format, queue capacity, gain/EQ settings and diagnostic logs. Use separate test music and Aède data. Generate low-level stereo signals with unique markers around each split and a final burst; retain source frame counts.
 2. Capture a whole signal and the same samples split at boundaries that do not align with processing blocks. Exercise matching-format WAV/FLAC and the decoded-PCM reference for lossy MP3/Vorbis joins, including EQ and 44.1/48/96 kHz conversion. A digital loopback checks the captured software path; it does not validate DAC/ADC behavior. An analog cable additionally includes those converters.
@@ -234,7 +234,7 @@ Two development-Mac observations illustrate these costs without setting a hardwa
 - The checked-in `large_selection_keeps_all_occurrences_and_remainder_can_use_sparse_indices` smart-planner case uses 10,000 occurrences from 400 synthetic catalog tracks. After metadata sharing and bounded release-label preparation, a debug run measured approximately 38 ms for metadata preparation and 623 ms for planning. Reproduce the workload with `cargo test -p aede-core playback::shuffle::tests::large_selection --lib -- --nocapture`; elapsed time depends on the build and host.
 - A separate temporary synthetic sixteen-minute stereo 48 kHz FLAC was read in three warm debug runs. Median seek times were 0.159 s to 30 s, 1.547 s to 300 s and 4.707 s to 900 s. This one-off observation supports the expected linear prefix cost; its temporary fixture/runner is not a permanent benchmark.
 
-These measurements do not include a cold real library, physical output or a NAS. No target latency, callback deadline or constant-time seek guarantee follows from them. Native PCM v1 remains one-track transport without this local queue/seek control; Subsonic clients independently use the existing original-file byte-range contract.
+These measurements do not include a cold real library, physical output or a NAS. No target latency, callback deadline or constant-time seek guarantee follows from them. Native PCM v1 accepts finite queues without these local seek/repeat/shuffle controls; Subsonic clients independently use the existing original-file byte-range contract.
 
 ## Remaining work in priority order
 
@@ -246,7 +246,7 @@ Native Vorbis trimming and control-aware drain are corrected and covered below. 
 
 Development-host release profiling establishes a repeatable baseline, not NAS acceptance. Measure representative real-library cold/warm startup, decode throughput, CPU/RSS, queue margin and underruns under load on the intended NAS and output device. Include uncommon-ratio sinc conversion, multichannel input and changing formats. Select budgets from that hardware and workload; software timing checks alone cannot establish a callback deadline or physical playback latency.
 
-Native PCM transport also needs real-client output/buffering acceptance. Its one-track v1 contract has no server queue/seek controls and does not establish remote gapless joins. Local queue integration, seeking, repeat and uniform/smart shuffle are implemented. Windows terminal controls, decoded FLAC MD5 and synchronized lyrics remain separate player work, described in [Playback](../design/playback.md).
+Native PCM transport also needs real-client output/buffering acceptance. Its finite-queue v1 extension establishes continuous compatible PCM joins in software, with cumulative acknowledgements and separate occurrence history. It has no seeking/live editing, and physical remote gaplessness still depends on the client buffer and output. Local queue integration, seeking, repeat and uniform/smart shuffle are implemented. Windows terminal controls, decoded FLAC MD5 and synchronized lyrics remain separate player work, described in [Playback](../design/playback.md).
 
 ### 3. Optional loudness preparation workflow
 

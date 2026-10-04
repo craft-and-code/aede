@@ -1,14 +1,14 @@
 //! Authenticated, bounded PCM playback for remote clients.
 //!
 //! This module transports processed PCM only. It deliberately does not own a
-//! device, a queue, seek state, or a second audio pipeline: decoding, stereo
+//! device, live queue editing, seek state, or a second audio pipeline: decoding, stereo
 //! downmix, normalization, tone controls, rate conversion, and the final
 //! output guard come from `aede-core` and `aede-dsp`, just as they do for local
 //! playback. The client acknowledges cumulative output frames, so listening
 //! history represents audio it consumed rather than audio the server merely
 //! wrote to a socket buffer.
 
-use std::convert::Infallible;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -18,12 +18,10 @@ use aede_core::clock;
 use aede_core::model::{AudioFile, EntityKind};
 use aede_core::playback::gain_plan::ReadyNormalization;
 use aede_core::playback::normalization::Mode;
-use aede_core::playback::session::PcmSession;
-use aede_core::playback::stream::PcmTrack;
 use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, Play, UserData};
-use aede_dsp::{ToneControls, gain_with_headroom_db};
+use aede_dsp::ToneControls;
 use axum::Router;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code};
 use axum::extract::{Request, State};
@@ -35,6 +33,7 @@ use tokio::sync::mpsc;
 use super::*;
 
 const MAX_CONTROL_MESSAGE_BYTES: usize = 4 * 1024;
+const MAX_QUEUE_TRACKS: usize = 64;
 const MAX_AUDIO_BYTES: usize = 32 * 1024;
 const PRODUCER_EVENTS: usize = 4;
 const MIN_SAMPLE_RATE: u32 = 8_000;
@@ -87,13 +86,24 @@ async fn playback(
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum InitialFrame {
     Start {
-        track: String,
+        #[serde(default, deserialize_with = "non_null_field")]
+        track: Option<String>,
+        #[serde(default, deserialize_with = "non_null_field")]
+        tracks: Option<Vec<String>>,
         #[serde(default)]
         normalize: Normalize,
         sample_rate: Option<u32>,
         bass: Option<f32>,
         treble: Option<f32>,
     },
+}
+
+fn non_null_field<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Clone, Copy, Default, Deserialize)]
@@ -122,7 +132,8 @@ enum ClientFrame {
 }
 
 struct Start {
-    reference: EntityRef,
+    references: Vec<EntityRef>,
+    queue: bool,
     normalize: Mode,
     output_rate: Option<u32>,
     tone: ToneControls,
@@ -132,14 +143,29 @@ impl Start {
     fn parse(input: &str) -> Result<Self, StreamFailure> {
         let InitialFrame::Start {
             track,
+            tracks,
             normalize,
             sample_rate,
             bass,
             treble,
         } = serde_json::from_str(input).map_err(|_| StreamFailure::INVALID_START)?;
-        let reference = EntityRef::parse_token(&track)
-            .filter(|reference| reference.kind == EntityKind::Track && !reference.key.is_empty())
-            .ok_or(StreamFailure::INVALID_START)?;
+        let (tracks, queue) = match (track, tracks) {
+            (Some(track), None) => (vec![track], false),
+            (None, Some(tracks)) if !tracks.is_empty() && tracks.len() <= MAX_QUEUE_TRACKS => {
+                (tracks, true)
+            }
+            _ => return Err(StreamFailure::INVALID_START),
+        };
+        let references = tracks
+            .iter()
+            .map(|track| {
+                EntityRef::parse_token(track)
+                    .filter(|reference| {
+                        reference.kind == EntityKind::Track && !reference.key.is_empty()
+                    })
+                    .ok_or(StreamFailure::INVALID_START)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if sample_rate.is_some_and(|rate| !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&rate)) {
             return Err(StreamFailure::INVALID_START);
         }
@@ -147,7 +173,8 @@ impl Start {
         let treble = treble.unwrap_or(0.0);
         let tone = ToneControls::new(bass, treble).map_err(|_| StreamFailure::INVALID_START)?;
         Ok(Self {
-            reference,
+            references,
+            queue,
             normalize: normalize.mode(),
             output_rate: sample_rate,
             tone,
@@ -191,31 +218,47 @@ pub(super) fn source_from_catalog(
     Ok(TrackSource {
         reference,
         path: PathBuf::from(&file.path),
-        file: file.clone(),
+        // Raw lyrics/tags can be large. Repeated queue references need only
+        // source identity and technical properties, never copies of those tags.
+        file: AudioFile {
+            id: file.id,
+            path: file.path.clone(),
+            size: file.size,
+            mtime: file.mtime,
+            properties: file.properties.clone(),
+            ..AudioFile::default()
+        },
         mtime_subseconds,
     })
 }
 
-async fn current_source(
+async fn current_sources(
     state: &ApiState,
-    requested: &EntityRef,
-) -> Result<(TrackSource, Catalog), StreamFailure> {
+    requested: &[EntityRef],
+) -> Result<(Vec<TrackSource>, Catalog), StreamFailure> {
     let catalog = state.catalog.read().await;
     let catalog = catalog.as_ref().ok_or(StreamFailure::CATALOG_UNAVAILABLE)?;
-    let source = source_from_catalog(catalog, requested)?;
-    // ReadyNormalization needs catalog analyses only for a one-track stream.
+    let sources = requested
+        .iter()
+        .map(|reference| source_from_catalog(catalog, reference))
+        .collect::<Result<Vec<_>, _>>()?;
+    let paths: BTreeSet<_> = sources
+        .iter()
+        .map(|source| source.file.path.as_str())
+        .collect();
+    // ReadyNormalization needs catalog analyses only for the selected files.
     // Retaining the full graph here would copy a potentially huge library per
     // active client, so keep just analyses that can describe this exact file.
     let normalization_catalog = Catalog {
         analyses: catalog
             .analyses
             .iter()
-            .filter(|analysis| analysis.path == source.file.path)
+            .filter(|analysis| paths.contains(analysis.path.as_str()))
             .cloned()
             .collect(),
         ..Catalog::default()
     };
-    Ok((source, normalization_catalog))
+    Ok((sources, normalization_catalog))
 }
 
 /// File identity is checked around opening and decoding. This cannot make a
@@ -242,6 +285,7 @@ pub(super) fn validate_source(source: &TrackSource) -> Result<(), StreamFailure>
 }
 
 struct ProducerSettings {
+    queue: bool,
     output_rate: Option<u32>,
     tone: ToneControls,
     normalize: Mode,
@@ -251,6 +295,7 @@ struct ProducerSettings {
 
 fn settings(normalization_catalog: Catalog, data_dir: PathBuf, start: &Start) -> ProducerSettings {
     ProducerSettings {
+        queue: start.queue,
         output_rate: start.output_rate,
         tone: start.tone,
         normalize: start.normalize,
@@ -330,6 +375,29 @@ struct FormatFrame {
     channels: u16,
     duration_ms: Option<u64>,
     max_unacknowledged_frames: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_frame: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct TrackFrame {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    index: usize,
+    track: String,
+    start_frame: u64,
+    duration_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct TrackEndFrame {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    index: usize,
+    track: String,
+    end_frame: u64,
 }
 
 #[derive(Serialize)]
@@ -353,10 +421,16 @@ struct RecordedFrame {
     kind: &'static str,
     ms_played: u64,
     completed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track: Option<String>,
 }
 
 enum ProducerEvent {
     Format(FormatFrame),
+    Track(TrackFrame),
+    TrackEnd(TrackEndFrame),
     Audio { bytes: Vec<u8>, frames: u64 },
     Eof { frames: u64 },
     Error(StreamFailure),
@@ -367,185 +441,13 @@ enum ProducerStop {
     Failed(StreamFailure),
 }
 
-fn emit(
-    sender: &mpsc::Sender<ProducerEvent>,
-    cancelled: &AtomicBool,
-    event: ProducerEvent,
-) -> Result<(), ProducerStop> {
-    if cancelled.load(AtomicOrdering::Acquire) {
-        return Err(ProducerStop::Cancelled);
-    }
-    sender
-        .blocking_send(event)
-        .map_err(|_| ProducerStop::Cancelled)
-}
+#[path = "playback_api_producer.rs"]
+mod producer;
+use producer::spawn_producer;
 
-fn emit_block(
-    sender: &mpsc::Sender<ProducerEvent>,
-    cancelled: &AtomicBool,
-    bytes: &[u8],
-    channels: u16,
-    max_pending: u64,
-    sent: &mut u64,
-) -> Result<(), ProducerStop> {
-    let frame_bytes = usize::from(channels)
-        .checked_mul(std::mem::size_of::<f32>())
-        .ok_or(ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-    if frame_bytes == 0 || !bytes.len().is_multiple_of(frame_bytes) {
-        return Err(ProducerStop::Failed(StreamFailure::PROCESSING_FAILED));
-    }
-    let max_frames = (MAX_AUDIO_BYTES / frame_bytes).min(
-        usize::try_from(max_pending)
-            .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?,
-    );
-    if max_frames == 0 {
-        return Err(ProducerStop::Failed(StreamFailure::PROCESSING_FAILED));
-    }
-    for chunk in bytes.chunks(max_frames * frame_bytes) {
-        if cancelled.load(AtomicOrdering::Acquire) {
-            return Err(ProducerStop::Cancelled);
-        }
-        let frames = u64::try_from(chunk.len() / frame_bytes)
-            .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-        *sent = sent
-            .checked_add(frames)
-            .ok_or(ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-        emit(
-            sender,
-            cancelled,
-            ProducerEvent::Audio {
-                bytes: chunk.to_vec(),
-                frames,
-            },
-        )?;
-    }
-    Ok(())
-}
-
-fn produce(
-    source: TrackSource,
-    settings: ProducerSettings,
-    sender: mpsc::Sender<ProducerEvent>,
-    cancelled: std::sync::Arc<AtomicBool>,
-) -> Result<(), ProducerStop> {
-    validate_source(&source).map_err(ProducerStop::Failed)?;
-    let mut track = PcmTrack::open_stereo(&source.path)
-        .map_err(|_| ProducerStop::Failed(StreamFailure::DECODE_FAILED))?;
-    validate_source(&source).map_err(ProducerStop::Failed)?;
-    // Reuse the local player's policy for tags, imported analyses and cached
-    // measurements. This server stream intentionally never observes or saves
-    // a new measurement: a single requested track is not a complete album
-    // programme and a disconnected client cannot prove full source playback.
-    let normalization_paths = vec![source.path.clone()];
-    let mut normalization = ReadyNormalization::new(
-        &normalization_paths,
-        false,
-        Some(&settings.normalization_catalog),
-        &settings.data_dir,
-        settings.normalize,
-    )
-    .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-    let selected_gain = normalization
-        .prepare(0)
-        .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-    validate_source(&source).map_err(ProducerStop::Failed)?;
-    let requested_gain =
-        selected_gain.map_or(0.0, |gain| gain.gain_db) + settings.tone.safe_preamp_db();
-    let gain_db = gain_with_headroom_db(
-        requested_gain,
-        selected_gain.and_then(|gain| gain.source_peak),
-    )
-    .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-    let output_rate = settings
-        .output_rate
-        .unwrap_or_else(|| track.format().sample_rate().min(MAX_SAMPLE_RATE));
-    let format = track.format();
-    let mut session = PcmSession::new(format, output_rate, settings.tone)
-        .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-    session
-        .begin_track(0, gain_db)
-        .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-    let output = session.output_format();
-    let max_unacknowledged_frames =
-        u64::from(output.sample_rate()).saturating_mul(MAX_UNACKNOWLEDGED_MILLISECONDS) / 1_000;
-    emit(
-        &sender,
-        &cancelled,
-        ProducerEvent::Format(FormatFrame {
-            kind: "format",
-            track: source.reference.to_token(),
-            encoding: "f32le",
-            sample_rate: output.sample_rate(),
-            channels: output.channels(),
-            duration_ms: source.file.properties.duration_ms,
-            max_unacknowledged_frames,
-        }),
-    )?;
-    let mut sent = 0_u64;
-    loop {
-        if cancelled.load(AtomicOrdering::Acquire) {
-            return Err(ProducerStop::Cancelled);
-        }
-        let raw = track
-            .read_block(|_| Ok::<(), Infallible>(()))
-            .map_err(|_| ProducerStop::Failed(StreamFailure::DECODE_FAILED))?;
-        let Some(raw) = raw else {
-            let ending = session
-                .end_track()
-                .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-            emit_block(
-                &sender,
-                &cancelled,
-                ending.f32le,
-                output.channels(),
-                max_unacknowledged_frames,
-                &mut sent,
-            )?;
-            let tail = session
-                .finish()
-                .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-            emit_block(
-                &sender,
-                &cancelled,
-                tail.f32le,
-                output.channels(),
-                max_unacknowledged_frames,
-                &mut sent,
-            )?;
-            validate_source(&source).map_err(ProducerStop::Failed)?;
-            emit(&sender, &cancelled, ProducerEvent::Eof { frames: sent })?;
-            return Ok(());
-        };
-        let processed = session
-            .push_source(raw.samples)
-            .map_err(|_| ProducerStop::Failed(StreamFailure::PROCESSING_FAILED))?;
-        emit_block(
-            &sender,
-            &cancelled,
-            processed.f32le,
-            output.channels(),
-            max_unacknowledged_frames,
-            &mut sent,
-        )?;
-    }
-}
-
-fn spawn_producer(
-    source: TrackSource,
-    settings: ProducerSettings,
-    cancelled: std::sync::Arc<AtomicBool>,
-) -> (mpsc::Receiver<ProducerEvent>, tokio::task::JoinHandle<()>) {
-    let (sender, receiver) = mpsc::channel(PRODUCER_EVENTS);
-    let worker = tokio::task::spawn_blocking(move || {
-        match produce(source, settings, sender.clone(), cancelled) {
-            Ok(()) | Err(ProducerStop::Cancelled) => {}
-            Err(ProducerStop::Failed(failure)) => {
-                let _ = sender.blocking_send(ProducerEvent::Error(failure));
-            }
-        }
-    });
-    (receiver, worker)
-}
+#[path = "playback_api_history.rs"]
+mod history;
+use history::ListeningTimeline;
 
 #[derive(Default)]
 struct Acknowledgements {
@@ -775,6 +677,9 @@ async fn drive(
     captured: &auth::Principal,
     receiver: &mut mpsc::Receiver<ProducerEvent>,
     shutdown: &mut broadcast::Receiver<()>,
+    sources: &[TrackSource],
+    queue: bool,
+    timeline: &mut ListeningTimeline,
 ) -> DriveEnd {
     let mut authorization = tokio::time::interval(AUTH_RECHECK_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -837,7 +742,7 @@ async fn drive(
             },
         }
     };
-    let format = match initial {
+    let mut format = match initial {
         ProducerEvent::Format(format) => format,
         ProducerEvent::Error(failure) => {
             return DriveEnd {
@@ -848,7 +753,10 @@ async fn drive(
                 notify: true,
             };
         }
-        ProducerEvent::Audio { .. } | ProducerEvent::Eof { .. } => {
+        ProducerEvent::Audio { .. }
+        | ProducerEvent::Eof { .. }
+        | ProducerEvent::Track(_)
+        | ProducerEvent::TrackEnd(_) => {
             return DriveEnd {
                 acknowledged_frames: 0,
                 sample_rate: None,
@@ -1000,13 +908,85 @@ async fn drive(
                     eof = Some(frames);
                     continue;
                 }
-                ProducerEvent::Format(_) => {
-                    return DriveEnd::stopped(
-                        &acknowledgements,
-                        Some(format.sample_rate),
-                        Some(StreamFailure::STREAM_FAILED),
-                        true,
-                    );
+                ProducerEvent::Format(next) => {
+                    if !queue
+                        || next.start_frame != Some(acknowledgements.sent)
+                        || next.sample_rate != format.sample_rate
+                    {
+                        return DriveEnd::stopped(
+                            &acknowledgements,
+                            Some(format.sample_rate),
+                            Some(StreamFailure::STREAM_FAILED),
+                            true,
+                        );
+                    }
+                    if acknowledgements.sent != acknowledgements.consumed {
+                        // Channel changes require the client to drain its old
+                        // device format before any differently laid out bytes.
+                        pending = Some(ProducerEvent::Format(next));
+                    } else {
+                        if !keep_authorized(state, captured, &mut last_authentication, false).await
+                        {
+                            return DriveEnd::stopped(
+                                &acknowledgements,
+                                Some(format.sample_rate),
+                                Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                                true,
+                            );
+                        }
+                        if send_json(socket, &next).await.is_err() {
+                            return DriveEnd::stopped(
+                                &acknowledgements,
+                                Some(format.sample_rate),
+                                None,
+                                false,
+                            );
+                        }
+                        acknowledgements.max_pending = next.max_unacknowledged_frames;
+                        format = next;
+                        producer_progress = Instant::now();
+                        continue;
+                    }
+                }
+                ProducerEvent::Track(track) => {
+                    if let Err(failure) =
+                        timeline.begin(&track, acknowledgements.sent, format.sample_rate, sources)
+                    {
+                        return DriveEnd::stopped(
+                            &acknowledgements,
+                            Some(format.sample_rate),
+                            Some(failure),
+                            true,
+                        );
+                    }
+                    if queue && send_json(socket, &track).await.is_err() {
+                        return DriveEnd::stopped(
+                            &acknowledgements,
+                            Some(format.sample_rate),
+                            None,
+                            false,
+                        );
+                    }
+                    continue;
+                }
+                ProducerEvent::TrackEnd(track) => {
+                    if let Err(failure) = timeline.end(&track, acknowledgements.sent) {
+                        return DriveEnd::stopped(
+                            &acknowledgements,
+                            Some(format.sample_rate),
+                            Some(failure),
+                            true,
+                        );
+                    }
+                    if queue && send_json(socket, &track).await.is_err() {
+                        return DriveEnd::stopped(
+                            &acknowledgements,
+                            Some(format.sample_rate),
+                            None,
+                            false,
+                        );
+                    }
+                    continue;
                 }
                 ProducerEvent::Error(failure) => {
                     return DriveEnd::stopped(
@@ -1169,77 +1149,71 @@ fn load_history(data_dir: &Path, catalog: &Catalog) -> Result<UserData, ApiError
     Ok(data)
 }
 
-fn persist_listen(
-    state: &ApiState,
-    captured: &auth::Principal,
-    original: &TrackSource,
-    started_at: u64,
-    ms_played: u64,
-    completed: bool,
-) -> Result<(), ApiError> {
-    let _guard = lock_for_history(&state.data_dir)?;
-    // Recheck under the writer lock. A disablement, role downgrade, session
-    // revocation, or unreadable credentials wins over a late history update.
-    let accounts = auth::load_accounts(state)?.ok_or_else(auth::unauthorized)?;
-    let principal = auth::principal(
-        state,
-        &accounts,
-        auth::session_token(captured),
-        false,
-        Instant::now(),
-    )?;
-    auth::require_mutation(&principal)?;
-    let catalog = store::load(&store::catalog_path(&state.data_dir))
-        .map_err(|failure| {
-            eprintln!("API playback catalog read failed: {failure}");
-            history_error()
-        })?
-        .ok_or_else(unavailable)?;
-    let current =
-        source_from_catalog(&catalog, &original.reference).map_err(|_| history_error())?;
-    if current.reference != original.reference
-        || current.path != original.path
-        || current.file.size != original.file.size
-        || current.file.mtime != original.file.mtime
-        || current.mtime_subseconds != original.mtime_subseconds
-    {
-        return Err(history_error());
-    }
-    validate_source(original).map_err(|_| history_error())?;
-    let mut data = load_history(&state.data_dir, &catalog)?;
-    data.record_play(Play {
-        owner: principal.owner,
-        track: original.reference.clone(),
-        at: started_at,
-        ms_played,
-        completed,
-    });
-    user::save(&data, &user::user_path(&state.data_dir)).map_err(|failure| {
-        eprintln!("API playback history write failed: {failure}");
-        history_error()
-    })
+#[derive(Default)]
+struct HistoryOutcome {
+    saved: Vec<usize>,
+    failed: bool,
 }
 
 #[derive(Clone)]
 struct ListenRecord {
     state: ApiState,
     captured: auth::Principal,
-    source: TrackSource,
-    started_at: u64,
-    ms_played: u64,
-    completed: bool,
+    listens: Vec<history::Listened>,
 }
 
 impl ListenRecord {
-    fn persist(&self) -> Result<(), ApiError> {
-        persist_listen(
+    fn persist(&self) -> Result<HistoryOutcome, ApiError> {
+        let _guard = lock_for_history(&self.state.data_dir)?;
+        // Revocation wins over every pending occurrence in the batch. Source
+        // invalidation is local to its occurrence and cannot erase another
+        // acknowledged listen.
+        let accounts = auth::load_accounts(&self.state)?.ok_or_else(auth::unauthorized)?;
+        let principal = auth::principal(
             &self.state,
-            &self.captured,
-            &self.source,
-            self.started_at,
-            self.ms_played,
-            self.completed,
-        )
+            &accounts,
+            auth::session_token(&self.captured),
+            false,
+            Instant::now(),
+        )?;
+        auth::require_mutation(&principal)?;
+        let catalog = store::load(&store::catalog_path(&self.state.data_dir))
+            .map_err(|failure| {
+                eprintln!("API playback catalog read failed: {failure}");
+                history_error()
+            })?
+            .ok_or_else(unavailable)?;
+        let mut data = load_history(&self.state.data_dir, &catalog)?;
+        let mut outcome = HistoryOutcome::default();
+        for listen in &self.listens {
+            let original = &listen.source;
+            let valid = source_from_catalog(&catalog, &original.reference).is_ok_and(|current| {
+                current.reference == original.reference
+                    && current.path == original.path
+                    && current.file.size == original.file.size
+                    && current.file.mtime == original.file.mtime
+                    && current.mtime_subseconds == original.mtime_subseconds
+            }) && validate_source(original).is_ok();
+            if !valid {
+                outcome.failed = true;
+                continue;
+            }
+            data.record_play(Play {
+                owner: principal.owner.clone(),
+                track: original.reference.clone(),
+                at: listen.started_at,
+                ms_played: listen.ms_played,
+                completed: listen.completed,
+            });
+            outcome.saved.push(listen.index);
+        }
+        if !outcome.saved.is_empty() {
+            user::save(&data, &user::user_path(&self.state.data_dir)).map_err(|failure| {
+                eprintln!("API playback history write failed: {failure}");
+                history_error()
+            })?;
+        }
+        Ok(outcome)
     }
 }
 
@@ -1247,13 +1221,13 @@ async fn record_listen(
     record: ListenRecord,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> (
-    Result<(), StreamFailure>,
+    Result<HistoryOutcome, StreamFailure>,
     Option<tokio::sync::OwnedSemaphorePermit>,
 ) {
     let mut task = tokio::task::spawn_blocking(move || record.persist());
     tokio::select! {
         outcome = &mut task => match outcome {
-            Ok(Ok(())) => (Ok(()), Some(permit)),
+            Ok(Ok(outcome)) => (Ok(outcome), Some(permit)),
             Ok(Err(failure)) => {
                 eprintln!("API playback history update failed: {}", failure.message);
                 (Err(StreamFailure::HISTORY_FAILED), Some(permit))
@@ -1264,14 +1238,10 @@ async fn record_listen(
             tokio::spawn(async move {
                 let _permit = permit;
                 match task.await {
-                    Ok(Err(failure)) => {
-                        eprintln!(
-                            "API playback deferred history update failed: {}",
-                            failure.code
-                        );
-                    }
+                    Ok(Err(failure)) => eprintln!("API playback deferred history update failed: {}", failure.code),
                     Err(_) => eprintln!("API playback deferred history task stopped"),
-                    Ok(Ok(())) => {}
+                    Ok(Ok(outcome)) if outcome.failed => eprintln!("API playback deferred history rejected changed sources"),
+                    Ok(Ok(_)) => {}
                 }
             });
             (Err(StreamFailure::HISTORY_FAILED), None)
@@ -1303,7 +1273,10 @@ fn retain_worker(
                     );
                 }
                 Err(_) => eprintln!("API playback deferred history task stopped"),
-                Ok(Ok(())) => {}
+                Ok(Ok(outcome)) if outcome.failed => {
+                    eprintln!("API playback deferred history rejected changed sources")
+                }
+                Ok(Ok(_)) => {}
             }
         }
     });
@@ -1328,42 +1301,56 @@ async fn playback_stream(
         send_failure(&mut socket, StreamFailure::AUTHENTICATION_EXPIRED).await;
         return;
     }
-    let (source, catalog) = match current_source(&state, &start.reference).await {
-        Ok(source) => source,
+    let (sources, catalog) = match current_sources(&state, &start.references).await {
+        Ok(sources) => sources,
         Err(failure) => {
             send_failure(&mut socket, failure).await;
             return;
         }
     };
     let settings = settings(catalog, state.data_dir.clone(), &start);
-    let started_at = clock::now_seconds();
     let cancelled = std::sync::Arc::new(AtomicBool::new(false));
-    let (mut receiver, mut worker) = spawn_producer(source.clone(), settings, cancelled.clone());
-    let end = drive(&mut socket, &state, &captured, &mut receiver, &mut shutdown).await;
+    let (mut receiver, mut worker) = spawn_producer(sources.clone(), settings, cancelled.clone());
+    let mut timeline = ListeningTimeline::default();
+    let end = drive(
+        &mut socket,
+        &state,
+        &captured,
+        &mut receiver,
+        &mut shutdown,
+        &sources,
+        start.queue,
+        &mut timeline,
+    )
+    .await;
     cancelled.store(true, AtomicOrdering::Release);
     // Closing the bounded receiver wakes a worker blocked on output. A
     // spawned blocking task cannot be forcibly cancelled, so its permit stays
     // reserved until it actually exits.
     drop(receiver);
-
-    let ms_played = end
-        .sample_rate
-        .map(|sample_rate| frames_to_milliseconds(end.acknowledged_frames, sample_rate))
-        .unwrap_or(0);
-    let record = (ms_played > 0).then(|| ListenRecord {
+    let mut listens = if end.sample_rate.is_some() {
+        timeline.listens(end.acknowledged_frames, &sources)
+    } else {
+        Vec::new()
+    };
+    if !start.queue && !end.completed {
+        // The original singleton contract completes only after the socket's
+        // EOF handshake; additive queue markers must not change that rule.
+        for listen in &mut listens {
+            listen.completed = false;
+        }
+    }
+    let record = (!listens.is_empty()).then(|| ListenRecord {
         state: state.clone(),
         captured: captured.clone(),
-        source: source.clone(),
-        started_at,
-        ms_played,
-        completed: end.completed,
+        listens: listens.clone(),
     });
     let needs_record = record.is_some();
     let worker_done = worker_finished(&mut worker).await;
     let (recorded, permit) = if worker_done {
         match record {
             Some(record) => record_listen(record, permit).await,
-            None => (Ok(()), Some(permit)),
+            None => (Ok(HistoryOutcome::default()), Some(permit)),
         }
     } else {
         retain_worker(permit, worker, record);
@@ -1371,29 +1358,40 @@ async fn playback_stream(
             if needs_record {
                 Err(StreamFailure::HISTORY_FAILED)
             } else {
-                Ok(())
+                Ok(HistoryOutcome::default())
             },
             None,
         )
     };
     if end.completed {
         match recorded {
-            Ok(()) if ms_played > 0 => {
-                if send_json(
-                    &mut socket,
-                    RecordedFrame {
-                        kind: "recorded",
-                        ms_played,
-                        completed: true,
-                    },
-                )
-                .await
-                .is_ok()
+            Ok(outcome) => {
+                for listen in listens
+                    .iter()
+                    .filter(|listen| outcome.saved.contains(&listen.index))
                 {
+                    if send_json(
+                        &mut socket,
+                        RecordedFrame {
+                            kind: "recorded",
+                            ms_played: listen.ms_played,
+                            completed: listen.completed,
+                            index: start.queue.then_some(listen.index),
+                            track: start.queue.then(|| listen.source.reference.to_token()),
+                        },
+                    )
+                    .await
+                    .is_err()
+                    {
+                        return;
+                    }
+                }
+                if outcome.failed {
+                    send_failure(&mut socket, StreamFailure::HISTORY_FAILED).await;
+                } else {
                     send_close(&mut socket).await;
                 }
             }
-            Ok(()) => send_close(&mut socket).await,
             Err(failure) => send_failure(&mut socket, failure).await,
         }
     } else if end.notify {
@@ -1411,3 +1409,7 @@ async fn playback_stream(
 #[cfg(test)]
 #[path = "playback_api_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "playback_queue_tests.rs"]
+mod queue_tests;
