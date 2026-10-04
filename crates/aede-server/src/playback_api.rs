@@ -1,7 +1,8 @@
 //! Authenticated, bounded PCM playback for remote clients.
 //!
 //! This module transports processed PCM only. It deliberately does not own a
-//! device, live queue editing, seek state, or a second audio pipeline: decoding, stereo
+//! device or a second audio pipeline. Opt-in controls manage source positioning,
+//! queue revisions and private checkpoints; decoding, stereo
 //! downmix, normalization, tone controls, rate conversion, and the final
 //! output guard come from `aede-core` and `aede-dsp`, just as they do for local
 //! playback. The client acknowledges cumulative output frames, so listening
@@ -95,6 +96,12 @@ enum InitialFrame {
         sample_rate: Option<u32>,
         bass: Option<f32>,
         treble: Option<f32>,
+        #[serde(default)]
+        interactive: bool,
+        profile: Option<String>,
+    },
+    Resume {
+        profile: String,
     },
 }
 
@@ -137,10 +144,14 @@ struct Start {
     normalize: Mode,
     output_rate: Option<u32>,
     tone: ToneControls,
+    interactive: bool,
+    profile: Option<String>,
+    resume: bool,
 }
 
 impl Start {
     fn parse(input: &str) -> Result<Self, StreamFailure> {
+        let initial = serde_json::from_str(input).map_err(|_| StreamFailure::INVALID_START)?;
         let InitialFrame::Start {
             track,
             tracks,
@@ -148,7 +159,27 @@ impl Start {
             sample_rate,
             bass,
             treble,
-        } = serde_json::from_str(input).map_err(|_| StreamFailure::INVALID_START)?;
+            interactive,
+            profile,
+        } = initial
+        else {
+            let InitialFrame::Resume { profile } = initial else {
+                return Err(StreamFailure::INVALID_START);
+            };
+            return Ok(Self {
+                references: Vec::new(),
+                queue: true,
+                normalize: Mode::Track,
+                output_rate: None,
+                tone: ToneControls::FLAT,
+                interactive: true,
+                profile: Some(profile),
+                resume: true,
+            });
+        };
+        if profile.is_some() && !interactive {
+            return Err(StreamFailure::INVALID_START);
+        }
         let (tracks, queue) = match (track, tracks) {
             (Some(track), None) => (vec![track], false),
             (None, Some(tracks)) if !tracks.is_empty() && tracks.len() <= MAX_QUEUE_TRACKS => {
@@ -178,6 +209,9 @@ impl Start {
             normalize: normalize.mode(),
             output_rate: sample_rate,
             tone,
+            interactive,
+            profile,
+            resume: false,
         })
     }
 }
@@ -273,12 +307,12 @@ pub(super) fn validate_source(source: &TrackSource) -> Result<(), StreamFailure>
             StreamFailure::SOURCE_CHANGED
         }
     })?;
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() != source.file.size
-        || clock::mtime_seconds(&metadata) != source.file.mtime
-        || clock::mtime_subseconds(&metadata) != source.mtime_subseconds
-    {
+    let identity = user::PlaybackSource {
+        size: source.file.size,
+        mtime: source.file.mtime,
+        mtime_ns: Some(source.mtime_subseconds),
+    };
+    if metadata.file_type().is_symlink() || !identity.matches_metadata(&metadata) {
         return Err(StreamFailure::SOURCE_CHANGED);
     }
     Ok(())
@@ -286,6 +320,8 @@ pub(super) fn validate_source(source: &TrackSource) -> Result<(), StreamFailure>
 
 struct ProducerSettings {
     queue: bool,
+    interactive: bool,
+    first_position_ms: u64,
     output_rate: Option<u32>,
     tone: ToneControls,
     normalize: Mode,
@@ -296,6 +332,8 @@ struct ProducerSettings {
 fn settings(normalization_catalog: Catalog, data_dir: PathBuf, start: &Start) -> ProducerSettings {
     ProducerSettings {
         queue: start.queue,
+        interactive: start.interactive,
+        first_position_ms: 0,
         output_rate: start.output_rate,
         tone: start.tone,
         normalize: start.normalize,
@@ -314,6 +352,22 @@ impl StreamFailure {
     const INVALID_START: Self = Self {
         code: "invalid_start",
         message: "the first message must be a valid playback start request",
+    };
+    const INVALID_SEEK: Self = Self {
+        code: "invalid_seek",
+        message: "the requested source position is outside this track",
+    };
+    const INVALID_CONTROL: Self = Self {
+        code: "invalid_control",
+        message: "the interactive control, epoch or queue revision is invalid",
+    };
+    const STATE_FAILED: Self = Self {
+        code: "state_failed",
+        message: "the private playback checkpoint could not be saved or restored",
+    };
+    const STATE_CONFLICT: Self = Self {
+        code: "state_conflict",
+        message: "another playback session owns this saved profile",
     };
     const INVALID_ACK: Self = Self {
         code: "invalid_ack",
@@ -374,6 +428,8 @@ struct FormatFrame {
     sample_rate: u32,
     channels: u16,
     duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position_ms: Option<u64>,
     max_unacknowledged_frames: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     index: Option<usize>,
@@ -389,6 +445,8 @@ struct TrackFrame {
     track: String,
     start_frame: u64,
     duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -504,6 +562,7 @@ struct DriveEnd {
     completed: bool,
     failure: Option<StreamFailure>,
     notify: bool,
+    control: Option<interactive::Control>,
 }
 
 impl DriveEnd {
@@ -519,6 +578,7 @@ impl DriveEnd {
             completed: false,
             failure,
             notify,
+            control: None,
         }
     }
 }
@@ -671,6 +731,11 @@ async fn receive_ack(
     }
 }
 
+struct DriveMode<'a> {
+    queue: bool,
+    interactive: Option<&'a interactive::Epoch>,
+}
+
 async fn drive(
     socket: &mut WebSocket,
     state: &ApiState,
@@ -678,9 +743,10 @@ async fn drive(
     receiver: &mut mpsc::Receiver<ProducerEvent>,
     shutdown: &mut broadcast::Receiver<()>,
     sources: &[TrackSource],
-    queue: bool,
+    mode: DriveMode<'_>,
     timeline: &mut ListeningTimeline,
 ) -> DriveEnd {
+    let DriveMode { queue, interactive } = mode;
     let mut authorization = tokio::time::interval(AUTH_RECHECK_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_authentication = Instant::now();
@@ -696,6 +762,7 @@ async fn drive(
                     completed: false,
                     failure: Some(StreamFailure::STREAM_FAILED),
                     notify: true,
+                    control: None,
                 },
             },
             _ = authorization.tick() => {
@@ -706,6 +773,7 @@ async fn drive(
                         completed: false,
                         failure: Some(StreamFailure::AUTHENTICATION_EXPIRED),
                         notify: true,
+                        control: None,
                     };
                 }
             }
@@ -715,6 +783,7 @@ async fn drive(
                 completed: false,
                 failure: Some(StreamFailure::SERVER_SHUTDOWN),
                 notify: true,
+                control: None,
             },
             incoming = wait_for_format(socket) => match incoming {
                 Ok(true) => {}
@@ -724,6 +793,7 @@ async fn drive(
                     completed: false,
                     failure: None,
                     notify: false,
+                    control: None,
                 },
                 Err(failure) => return DriveEnd {
                     acknowledged_frames: 0,
@@ -731,6 +801,7 @@ async fn drive(
                     completed: false,
                     failure: Some(failure),
                     notify: true,
+                    control: None,
                 },
             },
             _ = &mut source_deadline => return DriveEnd {
@@ -739,6 +810,7 @@ async fn drive(
                 completed: false,
                 failure: Some(StreamFailure::SOURCE_UNAVAILABLE),
                 notify: true,
+                control: None,
             },
         }
     };
@@ -751,6 +823,7 @@ async fn drive(
                 completed: false,
                 failure: Some(failure),
                 notify: true,
+                control: None,
             };
         }
         ProducerEvent::Audio { .. }
@@ -763,6 +836,7 @@ async fn drive(
                 completed: false,
                 failure: Some(StreamFailure::STREAM_FAILED),
                 notify: true,
+                control: None,
             };
         }
     };
@@ -775,13 +849,25 @@ async fn drive(
             true,
         );
     }
-    if send_json(socket, &format).await.is_err() {
+    if interactive::send_stream_json(socket, &format, interactive)
+        .await
+        .is_err()
+    {
         return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate), None, false);
     }
     let mut pending = None;
     let mut eof = None;
     let mut producer_progress = Instant::now();
+    let mut checkpoint_at = Instant::now();
     loop {
+        if interactive.is_some_and(|epoch| epoch.checkpoint_failed()) {
+            return DriveEnd::stopped(
+                &acknowledgements,
+                Some(format.sample_rate),
+                Some(StreamFailure::STATE_FAILED),
+                true,
+            );
+        }
         if let Some(event) = pending.take() {
             match event {
                 ProducerEvent::Audio {
@@ -888,12 +974,13 @@ async fn drive(
                             true,
                         );
                     }
-                    if send_json(
+                    if interactive::send_stream_json(
                         socket,
-                        EofFrame {
+                        &EofFrame {
                             kind: "eof",
                             frames,
                         },
+                        interactive,
                     )
                     .await
                     .is_err()
@@ -934,7 +1021,10 @@ async fn drive(
                                 true,
                             );
                         }
-                        if send_json(socket, &next).await.is_err() {
+                        if interactive::send_stream_json(socket, &next, interactive)
+                            .await
+                            .is_err()
+                        {
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
@@ -959,7 +1049,11 @@ async fn drive(
                             true,
                         );
                     }
-                    if queue && send_json(socket, &track).await.is_err() {
+                    if queue
+                        && interactive::send_stream_json(socket, &track, interactive)
+                            .await
+                            .is_err()
+                    {
                         return DriveEnd::stopped(
                             &acknowledgements,
                             Some(format.sample_rate),
@@ -978,7 +1072,11 @@ async fn drive(
                             true,
                         );
                     }
-                    if queue && send_json(socket, &track).await.is_err() {
+                    if queue
+                        && interactive::send_stream_json(socket, &track, interactive)
+                            .await
+                            .is_err()
+                    {
                         return DriveEnd::stopped(
                             &acknowledgements,
                             Some(format.sample_rate),
@@ -1005,6 +1103,7 @@ async fn drive(
                 completed: true,
                 failure: None,
                 notify: false,
+                control: None,
             };
         }
         let deadline = acknowledgements
@@ -1057,8 +1156,17 @@ async fn drive(
                     true,
                 );
             }
-            incoming = receive_ack(socket, &mut acknowledgements) => match incoming {
-                Ok(true) => {
+            incoming = interactive::receive(socket, &mut acknowledgements, interactive) => match incoming {
+                Ok(interactive::Incoming::Control(control)) => {
+                    if !authorized(state, captured, true).await {
+                        return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
+                            Some(StreamFailure::AUTHENTICATION_EXPIRED), true);
+                    }
+                    let mut end = DriveEnd::stopped(&acknowledgements, Some(format.sample_rate), None, false);
+                    end.control = Some(control);
+                    return end;
+                }
+                Ok(interactive::Incoming::Continue) => {
                     // A growing ACK can reopen a fresh producer wait after a
                     // long client pause. Pings and duplicate ACKs leave this
                     // deadline untouched.
@@ -1075,10 +1183,16 @@ async fn drive(
                                 true,
                             );
                         }
+                        if checkpoint_at.elapsed() >= Duration::from_secs(5) {
+                            if let Some(epoch) = interactive {
+                                epoch.checkpoint(timeline, acknowledgements.consumed);
+                            }
+                            checkpoint_at = Instant::now();
+                        }
                         producer_progress = Instant::now();
                     }
                 }
-                Ok(false) => return DriveEnd::stopped(
+                Ok(interactive::Incoming::Closed) => return DriveEnd::stopped(
                     &acknowledgements,
                     Some(format.sample_rate),
                     None,
@@ -1301,6 +1415,10 @@ async fn playback_stream(
         send_failure(&mut socket, StreamFailure::AUTHENTICATION_EXPIRED).await;
         return;
     }
+    if start.interactive {
+        interactive::run(socket, state, captured, permit, shutdown, start).await;
+        return;
+    }
     let (sources, catalog) = match current_sources(&state, &start.references).await {
         Ok(sources) => sources,
         Err(failure) => {
@@ -1319,7 +1437,10 @@ async fn playback_stream(
         &mut receiver,
         &mut shutdown,
         &sources,
-        start.queue,
+        DriveMode {
+            queue: start.queue,
+            interactive: None,
+        },
         &mut timeline,
     )
     .await;
@@ -1405,6 +1526,9 @@ async fn playback_stream(
     // has been attempted. A timed-out worker/history reaper owns it instead.
     drop(permit);
 }
+
+#[path = "playback_interactive.rs"]
+mod interactive;
 
 #[cfg(test)]
 #[path = "playback_api_tests.rs"]

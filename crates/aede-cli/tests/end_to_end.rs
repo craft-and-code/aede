@@ -4173,6 +4173,23 @@ fn resetting_asks_before_removing_the_catalog() {
     let sandbox = Sandbox::new("reset");
     let (_, _, ok) = sandbox.run(&["scan", library().to_str().unwrap()]);
     assert!(ok);
+    let mut personal = aede_core::user::UserData::default();
+    personal
+        .set_playback_state(aede_core::user::PlaybackState {
+            owner: "local".into(),
+            profile: "desktop".into(),
+            session_id: "stopped-session".into(),
+            revision: 1,
+            entries: Vec::new(),
+            current_occurrence: None,
+            position_ms: 0,
+            settings: Default::default(),
+            updated_at: 10,
+        })
+        .unwrap();
+    let personal_path = aede_core::user::user_path(&sandbox.dir);
+    aede_core::user::save(&personal, &personal_path).unwrap();
+    let checkpoint_bytes = std::fs::read(&personal_path).unwrap();
 
     // With no terminal to ask on, the command refuses rather than guessing.
     let (out, err, ok) = sandbox.run(&["reset"]);
@@ -4194,6 +4211,11 @@ fn resetting_asks_before_removing_the_catalog() {
     assert!(
         !sandbox.dir.join("catalog.json").exists(),
         "the file is gone"
+    );
+    assert_eq!(
+        std::fs::read(&personal_path).unwrap(),
+        checkpoint_bytes,
+        "reset must preserve native player profiles without starting audio"
     );
 
     // The library is unreachable again, as after a fresh install.

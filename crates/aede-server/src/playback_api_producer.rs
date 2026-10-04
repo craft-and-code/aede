@@ -28,9 +28,19 @@ struct Output<'a> {
     sources: &'a [TrackSource],
     started: Vec<bool>,
     sent: u64,
+    interactive: bool,
+    first_position_ms: u64,
 }
 
 impl Output<'_> {
+    fn position(&self, index: usize) -> Option<u64> {
+        self.interactive.then_some(if index == 0 {
+            self.first_position_ms
+        } else {
+            0
+        })
+    }
+
     fn format(&self, format: PcmFormat, index: usize, queue: bool) -> Result<(), ProducerStop> {
         let source = self
             .sources
@@ -51,6 +61,7 @@ impl Output<'_> {
                     / 1_000,
                 index: queue.then_some(index),
                 start_frame: queue.then_some(self.sent),
+                position_ms: self.position(index),
             }),
         )
     }
@@ -66,6 +77,7 @@ impl Output<'_> {
             return Err(ProducerStop::Failed(StreamFailure::PROCESSING_FAILED));
         }
         for span in block.spans {
+            let position_ms = self.position(span.token);
             let source = self
                 .sources
                 .get(span.token)
@@ -84,6 +96,7 @@ impl Output<'_> {
                         track: source.reference.to_token(),
                         start_frame: self.sent,
                         duration_ms: source.file.properties.duration_ms,
+                        position_ms,
                     }),
                 )?;
                 *started = true;
@@ -208,6 +221,8 @@ fn produce(
         sources: &sources,
         started: vec![false; sources.len()],
         sent: 0,
+        interactive: settings.interactive,
+        first_position_ms: 0,
     };
     let mut session: Option<PcmSession> = None;
     let mut fixed_rate = settings.output_rate;
@@ -232,6 +247,25 @@ fn produce(
                 return Err(failure);
             }
         };
+        if index == 0 && settings.first_position_ms > 0 {
+            let seek = track
+                .seek_from_start(Duration::from_millis(settings.first_position_ms), || {
+                    cancelled.load(AtomicOrdering::Acquire)
+                })
+                .map_err(|failure| match failure {
+                    aede_core::playback::decoder::Error::SeekCancelled => ProducerStop::Cancelled,
+                    aede_core::playback::decoder::Error::InvalidPosition => {
+                        ProducerStop::Failed(StreamFailure::INVALID_SEEK)
+                    }
+                    _ => ProducerStop::Failed(StreamFailure::DECODE_FAILED),
+                })?;
+            if seek.reached_eof {
+                return Err(ProducerStop::Failed(StreamFailure::INVALID_SEEK));
+            }
+            validate_source(source).map_err(ProducerStop::Failed)?;
+            output.first_position_ms =
+                frames_to_milliseconds(seek.frames, track.source_format().sample_rate());
+        }
         let rate = *fixed_rate.get_or_insert(track.format().sample_rate().min(MAX_SAMPLE_RATE));
         if session
             .as_ref()

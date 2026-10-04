@@ -21,6 +21,7 @@ fn begin(timeline: &mut ListeningTimeline, sources: &[TrackSource], index: usize
                 track: sources[index].reference.to_token(),
                 start_frame: frames,
                 duration_ms: None,
+                position_ms: None,
             },
             frames,
             8_000,
@@ -119,6 +120,7 @@ fn malformed_track_boundaries_cannot_change_the_attribution() {
         track: sources[1].reference.to_token(),
         start_frame: 79,
         duration_ms: None,
+        position_ms: None,
     };
     assert!(timeline.begin(&wrong_start, 80, 8_000, &sources).is_err());
     begin(&mut timeline, &sources, 1, 80);

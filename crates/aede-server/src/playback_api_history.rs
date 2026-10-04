@@ -9,6 +9,7 @@ struct Occurrence {
     end: Option<u64>,
     sample_rate: u32,
     started_at: u64,
+    position_ms: u64,
 }
 
 #[derive(Default)]
@@ -53,6 +54,7 @@ impl ListeningTimeline {
             end: None,
             sample_rate,
             started_at: clock::now_seconds(),
+            position_ms: frame.position_ms.unwrap_or(0),
         });
         Ok(())
     }
@@ -74,7 +76,42 @@ impl ListeningTimeline {
         Ok(())
     }
 
+    pub(super) fn output_rate(&self) -> Option<u32> {
+        self.occurrences.first().map(|entry| entry.sample_rate)
+    }
+
+    pub(super) fn cursor(&self, consumed: u64) -> Option<(usize, u64, bool)> {
+        let occurrence = self
+            .occurrences
+            .iter()
+            .rev()
+            .find(|entry| entry.start <= consumed)?;
+        let at_end = occurrence.end.is_some_and(|end| end <= consumed);
+        let frames = consumed
+            .min(occurrence.end.unwrap_or(consumed))
+            .saturating_sub(occurrence.start);
+        Some((
+            occurrence.index,
+            occurrence
+                .position_ms
+                .saturating_add(frames_to_milliseconds(frames, occurrence.sample_rate)),
+            at_end,
+        ))
+    }
+
     pub(super) fn listens(&self, consumed: u64, sources: &[TrackSource]) -> Vec<Listened> {
+        self.acknowledged(consumed, sources)
+            .into_iter()
+            .map(|(listen, _, _)| listen)
+            .filter(|listen| listen.ms_played > 0)
+            .collect()
+    }
+
+    pub(super) fn acknowledged(
+        &self,
+        consumed: u64,
+        sources: &[TrackSource],
+    ) -> Vec<(Listened, u64, u32)> {
         self.occurrences
             .iter()
             .filter_map(|occurrence| {
@@ -82,12 +119,18 @@ impl ListeningTimeline {
                 let frames = consumed.saturating_sub(occurrence.start);
                 let ms_played = frames_to_milliseconds(frames, occurrence.sample_rate);
                 let source = sources.get(occurrence.index)?;
-                (ms_played > 0).then(|| Listened {
-                    index: occurrence.index,
-                    source: source.clone(),
-                    started_at: occurrence.started_at,
-                    ms_played,
-                    completed: occurrence.end.is_some_and(|end| consumed == end),
+                (frames > 0).then(|| {
+                    (
+                        Listened {
+                            index: occurrence.index,
+                            source: source.clone(),
+                            started_at: occurrence.started_at,
+                            ms_played,
+                            completed: occurrence.end.is_some_and(|end| consumed == end),
+                        },
+                        frames,
+                        occurrence.sample_rate,
+                    )
                 })
             })
             .collect()

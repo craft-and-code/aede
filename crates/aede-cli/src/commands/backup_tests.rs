@@ -109,6 +109,28 @@ fn a_restore_writes_only_what_the_backup_holds_and_deletes_nothing() {
 }
 
 #[test]
+fn a_checkpoint_only_backup_is_described_as_personal_data_to_restore() {
+    let mut data = UserData::default();
+    data.set_playback_state(aede_core::user::PlaybackState {
+        owner: "owner-one".into(),
+        profile: "desktop".into(),
+        session_id: "stopped-session".into(),
+        revision: 1,
+        entries: Vec::new(),
+        current_occurrence: None,
+        position_ms: 0,
+        settings: Default::default(),
+        updated_at: 10,
+    })
+    .unwrap();
+    assert_eq!(user_of(&data), "1 playback profile");
+    match state(&Part::Held(data), user_of, "not in this backup") {
+        Doing::Write(description) => assert_eq!(description, "1 playback profile"),
+        Doing::Skip(why) => panic!("checkpoint must be restorable: {why}"),
+    }
+}
+
+#[test]
 fn both_commands_describe_one_store_in_one_set_of_words() {
     // Written twice, the two lists would have drifted the first time a field
     // was added to one of the stores — the same reason the role vocabulary is

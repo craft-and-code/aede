@@ -27,11 +27,17 @@ use crate::text;
 
 #[path = "user_identity.rs"]
 mod identity;
+#[path = "user_playback.rs"]
+mod playback;
 #[path = "user_playlists.rs"]
 mod playlists;
 #[path = "user_relink.rs"]
 mod relink;
 pub use identity::{Attachment, TrackIdentity, reconcile};
+pub use playback::{
+    PLAYBACK_ENTRY_LIMIT, PLAYBACK_PROFILE_LIMIT, PLAYBACK_STATE_LIMIT, PlaybackEntry,
+    PlaybackSettings, PlaybackSource, PlaybackState, valid_playback_profile,
+};
 pub use playlists::{
     PLAYLIST_LIMIT, PLAYLIST_OWNER_LIMIT, PLAYLIST_TRACK_LIMIT, Playlist, Scrobble,
 };
@@ -459,6 +465,8 @@ pub struct UserData {
     pub playlists: Vec<Playlist>,
     /// Client-declared listens with unknown duration/completion, oldest first.
     pub scrobbles: Vec<Scrobble>,
+    /// Optional named native-player checkpoints, private to their immutable owner.
+    pub playback_states: Vec<PlaybackState>,
     /// Records taken off the `missing` report — see [`SetAside`].
     pub set_aside: Vec<SetAside>,
     /// Spellings the owner says are one artist — see [`SameArtist`].
@@ -740,6 +748,7 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
     playlists::validate(data)?;
+    playback::validate(data)?;
     crate::atomic_file::write(path, to_json(data).to_string_pretty().as_bytes())?;
     Ok(())
 }
@@ -877,6 +886,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         .collect();
     root.set("collections", Json::Arr(collections));
     playlists::write_tables(data, &mut root);
+    playback::write_table(data, &mut root);
 
     let set_aside: Vec<Json> = data
         .set_aside
@@ -952,6 +962,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         ("collections", "user collections must be an array"),
         ("playlists", "user playlists must be an array"),
         ("scrobbles", "user scrobbles must be an array"),
+        ("playback_states", "user playback states must be an array"),
         ("set_aside", "user set-aside decisions must be an array"),
         ("same_artist", "user artist decisions must be an array"),
         ("track_identities", "user track identities must be an array"),
@@ -967,6 +978,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
     let mut data = UserData {
         playlists: playlists::read_playlists(value)?,
         scrobbles: playlists::read_scrobbles(value)?,
+        playback_states: playback::read_states(value)?,
         track_identities: value
             .get("track_identities")
             .and_then(crate::json::Json::as_arr)
@@ -1186,9 +1198,12 @@ pub struct Merge {
 /// simultaneous identical events keep their multiplicity, and reimporting a
 /// backup does not append them again. Relink history remains an audit trail;
 /// importing it never replays reattachment or undo commands.
+/// Native-player profiles are imported only when absent locally: an import
+/// never rewinds an existing device checkpoint, even if its timestamp is older.
 pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
     let mut report = Merge::default();
     playlists::merge(into, incoming.playlists, incoming.scrobbles, &mut report);
+    playback::merge(into, incoming.playback_states, &mut report);
 
     // These are evidence and an audit trail, not commands to replay. Preserve
     // local evidence on conflict; imported history never moves current data.

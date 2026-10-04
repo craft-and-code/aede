@@ -122,6 +122,7 @@ pub(crate) fn sample_state() -> ApiState {
         remote_request_slots: Arc::new(Semaphore::new(MAX_REMOTE_REQUESTS)),
         websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
         playback_slots: Arc::new(Semaphore::new(MAX_PLAYBACKS)),
+        player_profiles: Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new())),
         inspection_slots: Arc::new(Semaphore::new(2)),
         jobs: Arc::new(jobs::JobRegistry::default()),
         #[cfg(unix)]

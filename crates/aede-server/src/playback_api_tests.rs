@@ -555,3 +555,28 @@ fn accepting_an_acknowledgement_cannot_be_cancelled_by_a_pending_account_read() 
         assert_eq!(acknowledgements.consumed, 4);
     });
 }
+
+#[cfg(unix)]
+#[test]
+fn unavailable_precise_source_time_is_not_accepted_as_a_zero_timestamp() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let reference = EntityRef::parse_token(&installed.reference).unwrap();
+        let (mut sources, _) = current_sources(&fixture.0, &[reference]).await.unwrap();
+        let source = &mut sources[0];
+        std::fs::File::options()
+            .write(true)
+            .open(&installed.path)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(std::time::UNIX_EPOCH - Duration::from_secs(1)),
+            )
+            .unwrap();
+        let metadata = std::fs::metadata(&installed.path).unwrap();
+        source.file.mtime = clock::mtime_seconds(&metadata);
+        source.mtime_subseconds = clock::mtime_subseconds(&metadata);
+        assert_eq!(validate_source(source).unwrap_err().code, "source_changed");
+    });
+}

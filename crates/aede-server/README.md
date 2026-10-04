@@ -32,7 +32,7 @@ Account routes are additive and use the same error envelope as the catalog. The 
 | `/api/me/v1/history` | GET/POST own history and counts |
 | `/api/me/v1/collection` | GET/PUT/DELETE own collection by `name` |
 | `/api/me/v1/collections` | GET own paginated collections |
-| `/api/me/v1/playback` | GET WebSocket; one catalogued track, user/admin session, processed f32le and playback acknowledgements |
+| `/api/me/v1/playback` | GET WebSocket; user/admin session, processed f32le and consumption acknowledgements; one track, finite queue or optional interactive seek/edit/checkpoint resume |
 
 ## Read routes
 
@@ -244,6 +244,7 @@ The native HTTP routes leave static-playlist creation/export, relation annotatio
 - `security.rs`, `auth.rs`, `accounts_api.rs`, `tls.rs`: Host/Origin checks, account authentication, account routes and HTTPS configuration.
 - `events.rs`: WebSocket notifications.
 - `playback_api.rs`: authenticated PCM transport and client acknowledgements.
+- `playback_interactive.rs`: opt-in epoch/reset controls and private queue/settings/position checkpoint publication. These checkpoints are resumable cursors, not extra listening events; the [wire guide](../../docs/server/playback.md#interactive-queues-seeking-and-persistent-resume) defines source validation, client buffer discard, explicit resume and durability limits.
 - `admin.rs`, `jobs.rs`, `personal.rs`: compatibility scan, asynchronous HTTP work and owner-scoped personal data.
 - `delegation.rs`: the Unix-only local CLI channel, separate from HTTP tasks.
 - `subsonic/`: compatibility parsing/envelopes, API-key checks, ID3/private-data projection, bounded original audio/artwork and temporary owner-scoped now-playing reports.

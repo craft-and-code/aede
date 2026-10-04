@@ -435,6 +435,7 @@ fn user_of(data: &aede_core::user::UserData) -> String {
         (data.counts.len(), "play counter"),
         (data.playlists.len(), "playlist"),
         (data.scrobbles.len(), "client listen"),
+        (data.playback_states.len(), "playback profile"),
     ];
     let said: Vec<String> = counts
         .iter()

@@ -481,3 +481,37 @@ CREATE TABLE user_scrobble (
 );
 
 CREATE INDEX user_scrobble_owner_idx ON user_scrobble (owner, at_ms);
+
+-- Optional native-player checkpoints in user.json format 2. One profile is one
+-- explicit device/session choice; loading/restoring it never starts audio or
+-- records a listen. Size/timestamp evidence must match before explicit resume.
+-- Queue occurrence IDs distinguish intentional duplicate tracks and remain
+-- stable while entries are reordered. Completed queues have no current cursor.
+CREATE TABLE user_playback_state (
+    owner TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision BETWEEN 1 AND 9007199254740991),
+    current_occurrence INTEGER,
+    position_ms INTEGER NOT NULL,
+    normalize TEXT NOT NULL CHECK (normalize IN ('off', 'track', 'album')),
+    sample_rate INTEGER,
+    bass_db REAL NOT NULL,
+    treble_db REAL NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (owner, profile)
+) WITHOUT ROWID;
+
+CREATE TABLE user_playback_entry (
+    owner TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    occurrence INTEGER NOT NULL CHECK (occurrence BETWEEN 1 AND 9007199254740991),
+    track_reference TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,
+    mtime_ns INTEGER,
+    PRIMARY KEY (owner, profile, position),
+    UNIQUE (owner, profile, occurrence),
+    FOREIGN KEY (owner, profile) REFERENCES user_playback_state (owner, profile)
+) WITHOUT ROWID;

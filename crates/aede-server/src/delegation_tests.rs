@@ -117,6 +117,7 @@ fn command_test_state() -> ApiState {
         remote_request_slots: Arc::new(tokio::sync::Semaphore::new(MAX_REMOTE_REQUESTS)),
         websocket_slots: Arc::new(tokio::sync::Semaphore::new(64)),
         playback_slots: Arc::new(tokio::sync::Semaphore::new(MAX_PLAYBACKS)),
+        player_profiles: Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new())),
         inspection_slots: Arc::new(tokio::sync::Semaphore::new(2)),
         jobs: Arc::new(crate::jobs::JobRegistry::default()),
     }
