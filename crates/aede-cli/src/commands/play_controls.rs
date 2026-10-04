@@ -104,9 +104,33 @@ impl Controls {
         let terminal_mode =
             TerminalMode::start(&["-icanon", "-echo", "-isig", "min", "1", "time", "0"])?;
         let (sender, actions) = mpsc::sync_channel(64);
+        let mut parser = KeyParser::default();
+        {
+            // Already queued keys belong before the first source starts. Do
+            // not leave their ordering to the reader thread's scheduling.
+            let mut pending_mode = TerminalMode::start(&["min", "0", "time", "0"])?;
+            let mut input = io::stdin().lock();
+            let mut byte = [0];
+            // At most one action per byte fits the still-unconsumed channel.
+            // A larger paste remains available to the blocking reader below.
+            for _ in 0..64 {
+                match input.read(&mut byte) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if let Some(action) = parser.feed(byte[0]) {
+                            sender.send(action).map_err(|_| {
+                                io::Error::other("playback keyboard controls stopped")
+                            })?;
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            pending_mode.restore()?;
+        }
         std::thread::spawn(move || {
             let mut input = io::stdin().lock();
-            let mut parser = KeyParser::default();
             let mut byte = [0];
             loop {
                 match input.read(&mut byte) {

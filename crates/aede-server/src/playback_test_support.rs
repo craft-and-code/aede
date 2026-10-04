@@ -63,8 +63,7 @@ pub(super) async fn additional_flac(
     name: &str,
     wrong_audio_md5: bool,
 ) -> InstalledTrack {
-    let source =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../aede-core/tests/fixtures/track.flac");
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ack-window.flac");
     let path = fixture.0.data_dir.join(name);
     let mut bytes = std::fs::read(source).expect("real FLAC fixture");
     assert_eq!(&bytes[..4], b"fLaC");
@@ -191,14 +190,18 @@ pub(super) fn upgrade(address: SocketAddr, token: &str) -> (TcpStream, String, V
 
 impl Socket {
     pub(super) fn send_text(&mut self, text: &str) {
-        self.send(1, text.as_bytes());
+        self.try_send_text(text).expect("client text frame");
+    }
+
+    pub(super) fn try_send_text(&mut self, text: &str) -> std::io::Result<()> {
+        self.send(1, text.as_bytes())
     }
 
     pub(super) fn close(&mut self) {
-        self.send(8, &[]);
+        self.send(8, &[]).expect("client close frame");
     }
 
-    fn send(&mut self, opcode: u8, payload: &[u8]) {
+    fn send(&mut self, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
         let mut header = vec![0x80 | opcode];
         match payload.len() {
             0..=125 => header.push(0x80 | payload.len() as u8),
@@ -213,15 +216,13 @@ impl Socket {
         }
         let mask = [0x4a_u8, 0x93, 0x11, 0xce];
         header.extend_from_slice(&mask);
-        self.stream.write_all(&header).expect("client frame header");
+        self.stream.write_all(&header)?;
         let encoded: Vec<u8> = payload
             .iter()
             .enumerate()
             .map(|(index, byte)| byte ^ mask[index % mask.len()])
             .collect();
-        self.stream
-            .write_all(&encoded)
-            .expect("client frame payload");
+        self.stream.write_all(&encoded)
     }
 
     pub(super) fn next(&mut self) -> ServerFrame {

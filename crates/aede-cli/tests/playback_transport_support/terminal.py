@@ -25,11 +25,17 @@ sink.write_text(
     "#!/usr/bin/env python3\n"
     "import os, pathlib, threading, time\n"
     "root = pathlib.Path(os.environ['AEDE_TEST_RUN'])\n"
+    "heartbeat_file = root / ('heartbeat.' + str(os.getpid()))\n"
+    "def publish_heartbeat(counter):\n"
+    "    pending = heartbeat_file.with_name(heartbeat_file.name + '.pending')\n"
+    "    pending.write_text(str(counter))\n"
+    "    pending.replace(heartbeat_file)\n"
+    "publish_heartbeat(0)\n"
     "def heartbeat():\n"
     "    counter = 0\n"
     "    while True:\n"
     "        counter += 1\n"
-    "        (root / ('heartbeat.' + str(os.getpid()))).write_text(str(counter))\n"
+    "        publish_heartbeat(counter)\n"
     "        time.sleep(0.005)\n"
     "threading.Thread(target=heartbeat, daemon=True).start()\n"
     "with (root / 'streams').open('a') as starts:\n"
@@ -131,6 +137,8 @@ def stream_ready(count):
 def paused_probe():
     # A heartbeat runs independently of pipe reads, so starving the PCM pipe
     # alone cannot satisfy the check that the output process itself is paused.
+    # Its initial value precedes stream readiness and updates use replacement:
+    # SIGSTOP cannot strand a missing or temporarily truncated heartbeat.
     previous = None
     last_change = time.monotonic()
 
@@ -177,7 +185,7 @@ try:
     elif scenario.startswith("initial-seek-next"):
         expected_name = b"third" if scenario.endswith("-twice") else b"second"
         wait_for(lambda: bool(playing()))
-        assert all(expected_name in label for label in playing()), "each preloaded Next must skip one source before playback"
+        assert all(expected_name in label for label in playing()), ("each preloaded Next must skip one source before playback", playing())
     elif scenario == "paused-modes":
         wait_for(lambda: stream_ready(1) and position() is not None)
         os.write(master, b" ")

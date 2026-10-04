@@ -36,6 +36,9 @@ fn media_preserves_duplicate_occurrences_and_refuses_source_replacement() {
     assert!(prepare(vec![fixture.path.clone(); 65]).is_err());
     let sources = prepare(vec![fixture.path.clone(), fixture.path.clone()]).unwrap();
     assert_eq!(sources.len(), 2);
+    assert!(fixture.path.is_absolute());
+    assert_eq!(sources[0].track.path, fixture.path);
+    assert_eq!(sources[1].track.path, fixture.path);
     assert!(sources[0].open().is_ok());
     fs::write(&fixture.path, b"changed").unwrap();
     assert!(sources[0].open().is_err());

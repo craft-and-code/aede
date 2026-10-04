@@ -35,6 +35,11 @@ fn validate_path(path: &Path) -> Result<Metadata, String> {
     let mut prefix = PathBuf::new();
     for part in path.components() {
         prefix.push(part);
+        // A Windows drive/verbatim prefix is not a filesystem path until its
+        // root has been appended. Inspect that root and every descendant.
+        if matches!(part, Component::Prefix(_)) {
+            continue;
+        }
         let metadata = fs::symlink_metadata(&prefix).map_err(|error| error.to_string())?;
         if metadata.file_type().is_symlink() {
             return Err("device media source changed to a symbolic link".into());

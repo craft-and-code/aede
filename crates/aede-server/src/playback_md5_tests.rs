@@ -5,8 +5,24 @@ use crate::playback_test_support::{
 };
 use crate::test_support::{start_server, test_runtime};
 
-fn acknowledge(socket: &mut Socket, frames: u64) {
-    socket.send_text(&serde_json::json!({"type": "ack", "frames": frames}).to_string());
+fn acknowledge(socket: &mut Socket, frames: u64) -> bool {
+    match socket.try_send_text(&serde_json::json!({"type": "ack", "frames": frames}).to_string()) {
+        Ok(()) => true,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::NotConnected
+            ) =>
+        {
+            // Failure can close the socket while earlier PCM is still buffered
+            // at the client. Such a late ACK cannot become listening history.
+            false
+        }
+        Err(error) => panic!("unexpected acknowledgement failure: {error}"),
+    }
 }
 
 async fn saved_history(fixture: &Fixture) -> UserData {
@@ -35,18 +51,27 @@ fn flac_md5_failure_has_no_successful_eof_and_acknowledged_audio_stays_incomplet
             .to_string(),
         );
         let mut frames = 0_u64;
+        let mut sent_acknowledgement = 0_u64;
+        let mut acknowledgements_closed = false;
         let mut channels = 0_u64;
         loop {
             match socket.next() {
                 ServerFrame::Binary(bytes) => {
                     assert_guarded_pcm(&bytes);
                     frames += bytes.len() as u64 / (channels * 4);
-                    acknowledge(&mut socket, frames);
+                    if !acknowledgements_closed {
+                        if acknowledge(&mut socket, frames) {
+                            sent_acknowledgement = frames;
+                        } else {
+                            acknowledgements_closed = true;
+                        }
+                    }
                 }
                 ServerFrame::Text(frame) if frame["type"] == "format" => {
                     assert_eq!(frame["sample_rate"], 192_000);
                     channels = frame["channels"].as_u64().unwrap();
                     assert_eq!(channels, 1);
+                    assert_eq!(frame["max_unacknowledged_frames"], 192_000);
                 }
                 ServerFrame::Text(frame) if frame["type"] == "error" => {
                     assert_eq!(frame["code"], "decode_failed");
@@ -58,13 +83,16 @@ fn flac_md5_failure_has_no_successful_eof_and_acknowledged_audio_stays_incomplet
                 ServerFrame::Close => panic!("closed before decode failure"),
             }
         }
-        assert!(frames > 0, "MD5 failure occurs after decoded audio");
+        assert!(
+            frames > 192_000,
+            "the source exceeds the window and forces an accepted ACK before failure"
+        );
         let history = saved_history(&fixture).await;
         assert_eq!(history.plays.len(), 1);
         let play = &history.plays[0];
         assert_eq!(play.track.to_token(), invalid.reference);
         assert!(!play.completed);
-        assert!(play.ms_played > 0 && play.ms_played <= frames * 1000 / 192_000);
+        assert!(play.ms_played > 0 && play.ms_played <= sent_acknowledgement * 1000 / 192_000);
         // An ACK can still be in flight when decoding fails. Only acknowledgements
         // accepted by the server, rather than every received byte, enter history.
         assert_eq!(history.counts[0].count, 1);
@@ -90,6 +118,8 @@ fn a_flac_md5_failure_keeps_the_consumed_preceding_track_and_never_starts_later_
             .to_string(),
         );
         let mut frames = 0_u64;
+        let mut sent_acknowledgement = 0_u64;
+        let mut acknowledgements_closed = false;
         let mut channels = 0_u64;
         let mut starts = Vec::new();
         let mut ends = Vec::new();
@@ -98,7 +128,13 @@ fn a_flac_md5_failure_keeps_the_consumed_preceding_track_and_never_starts_later_
                 ServerFrame::Binary(bytes) => {
                     assert_guarded_pcm(&bytes);
                     frames += bytes.len() as u64 / (channels * 4);
-                    acknowledge(&mut socket, frames);
+                    if !acknowledgements_closed {
+                        if acknowledge(&mut socket, frames) {
+                            sent_acknowledgement = frames;
+                        } else {
+                            acknowledgements_closed = true;
+                        }
+                    }
                 }
                 ServerFrame::Text(frame) => match frame["type"].as_str().unwrap() {
                     "format" => channels = frame["channels"].as_u64().unwrap(),
@@ -122,7 +158,11 @@ fn a_flac_md5_failure_keeps_the_consumed_preceding_track_and_never_starts_later_
         assert_eq!(history.plays[0].ms_played, 2000);
         assert_eq!(history.plays[1].track.to_token(), invalid.reference);
         assert!(!history.plays[1].completed);
-        assert!(history.plays[1].ms_played > 0 && history.plays[1].ms_played <= 1000);
+        assert!(history.plays[1].ms_played > 0 && history.plays[1].ms_played <= 2000);
+        assert!(
+            history.plays.iter().map(|play| play.ms_played).sum::<u64>()
+                <= sent_acknowledgement * 1000 / 192_000
+        );
         assert_eq!(history.counts.len(), 2);
         assert!(
             history
