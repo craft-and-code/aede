@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/aede-server/src/devices/media.rs`."><title>media.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-84e720fa.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="aede_server" data-themes="" data-resource-suffix="" data-rustdoc-version="1.89.0 (29483883e 2025-08-04)" data-channel="1.89.0" data-search-js="search-92309212.js" data-settings-js="settings-5514c975.js" ><script src="../../../static.files/storage-4e99c027.js"></script><script defer src="../../../static.files/src-script-813739b1.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-fd3af306.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">aede_server/devices/</div>media.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Short-lived, peer-pinned original-file HTTP, without catalog/admin routes.
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/aede-devices/src/media.rs`."><title>media.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-84e720fa.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="aede_devices" data-themes="" data-resource-suffix="" data-rustdoc-version="1.89.0 (29483883e 2025-08-04)" data-channel="1.89.0" data-search-js="search-92309212.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-fd3af306.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">aede_devices/</div>media.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Short-lived, peer-pinned original-file HTTP, without catalog/admin routes.
 <a href=#2 id=2 data-nosnippet>2</a>
 <a href=#3 id=3 data-nosnippet>3</a></span><span class="kw">use </span>std::fs::{<span class="self">self</span>, File, Metadata, OpenOptions};
 <a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>std::io::{Read, Seek, SeekFrom};
@@ -8,14 +8,14 @@
 <a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span>std::sync::atomic::{AtomicBool, Ordering};
 <a href=#9 id=9 data-nosnippet>9</a><span class="kw">use </span>std::time::{Duration, Instant};
 <a href=#10 id=10 data-nosnippet>10</a>
-<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span>axum::http::{HeaderMap, HeaderName, HeaderValue};
+<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span>hyper::http::{HeaderMap, HeaderName, HeaderValue};
 <a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span>tokio::io::{AsyncReadExt, AsyncWriteExt};
 <a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span>tokio::net::{TcpListener, TcpStream};
 <a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span>tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>tokio::task::{JoinHandle, JoinSet};
 <a href=#16 id=16 data-nosnippet>16</a>
 <a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span><span class="kw">super</span>::DeviceTrack;
-<a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span><span class="kw">crate</span>::subsonic::media::{content_type, requested_range};
+<a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span><span class="kw">crate</span>::original::{content_type, requested_range};
 <a href=#19 id=19 data-nosnippet>19</a>
 <a href=#20 id=20 data-nosnippet>20</a><span class="kw">const </span>MAX_TRACKS: usize = <span class="number">64</span>;
 <a href=#21 id=21 data-nosnippet>21</a><span class="kw">const </span>MAX_HEADER: usize = <span class="number">8192</span>;
@@ -314,205 +314,236 @@
 <a href=#314 id=314 data-nosnippet>314</a><span class="kw">struct </span>MediaRequest {
 <a href=#315 id=315 data-nosnippet>315</a>    index: usize,
 <a href=#316 id=316 data-nosnippet>316</a>    head: bool,
-<a href=#317 id=317 data-nosnippet>317</a>    headers: HeaderMap,
-<a href=#318 id=318 data-nosnippet>318</a>}
-<a href=#319 id=319 data-nosnippet>319</a>
-<a href=#320 id=320 data-nosnippet>320</a><span class="kw">fn </span>parse_request(raw: <span class="kw-2">&amp;</span>[u8], token: <span class="kw-2">&amp;</span>str, count: usize) -&gt; <span class="prelude-ty">Result</span>&lt;MediaRequest, u16&gt; {
-<a href=#321 id=321 data-nosnippet>321</a>    <span class="kw">let </span>text = std::str::from_utf8(raw).map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
-<a href=#322 id=322 data-nosnippet>322</a>    <span class="kw">let </span><span class="kw-2">mut </span>lines = text.strip_suffix(<span class="string">"\r\n\r\n"</span>).ok_or(<span class="number">400_u16</span>)<span class="question-mark">?</span>.split(<span class="string">"\r\n"</span>);
-<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw">let </span>words = lines.next().ok_or(<span class="number">400_u16</span>)<span class="question-mark">?</span>.split(<span class="string">' '</span>).collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-<a href=#324 id=324 data-nosnippet>324</a>    <span class="kw">if </span>words.len() != <span class="number">3 </span>|| !<span class="macro">matches!</span>(words[<span class="number">2</span>], <span class="string">"HTTP/1.0" </span>| <span class="string">"HTTP/1.1"</span>) {
-<a href=#325 id=325 data-nosnippet>325</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
-<a href=#326 id=326 data-nosnippet>326</a>    }
-<a href=#327 id=327 data-nosnippet>327</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(words[<span class="number">0</span>], <span class="string">"GET" </span>| <span class="string">"HEAD"</span>) {
-<a href=#328 id=328 data-nosnippet>328</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">405</span>);
-<a href=#329 id=329 data-nosnippet>329</a>    }
-<a href=#330 id=330 data-nosnippet>330</a>    <span class="kw">let </span>parts = words[<span class="number">1</span>]
-<a href=#331 id=331 data-nosnippet>331</a>        .strip_prefix(<span class="string">'/'</span>)
-<a href=#332 id=332 data-nosnippet>332</a>        .ok_or(<span class="number">404_u16</span>)<span class="question-mark">?
-<a href=#333 id=333 data-nosnippet>333</a>        </span>.split(<span class="string">'/'</span>)
-<a href=#334 id=334 data-nosnippet>334</a>        .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-<a href=#335 id=335 data-nosnippet>335</a>    <span class="kw">if </span>parts.len() != <span class="number">2 </span>|| parts[<span class="number">0</span>] != token {
-<a href=#336 id=336 data-nosnippet>336</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">404</span>);
-<a href=#337 id=337 data-nosnippet>337</a>    }
-<a href=#338 id=338 data-nosnippet>338</a>    <span class="kw">let </span>index = parts[<span class="number">1</span>].parse::&lt;usize&gt;().map_err(|<span class="kw">_</span>| <span class="number">404_u16</span>)<span class="question-mark">?</span>;
-<a href=#339 id=339 data-nosnippet>339</a>    <span class="kw">if </span>index &gt;= count || index.to_string() != parts[<span class="number">1</span>] {
-<a href=#340 id=340 data-nosnippet>340</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">404</span>);
-<a href=#341 id=341 data-nosnippet>341</a>    }
-<a href=#342 id=342 data-nosnippet>342</a>    <span class="kw">let </span><span class="kw-2">mut </span>headers = HeaderMap::new();
-<a href=#343 id=343 data-nosnippet>343</a>    <span class="kw">for </span>(index, line) <span class="kw">in </span>lines.enumerate() {
-<a href=#344 id=344 data-nosnippet>344</a>        <span class="kw">if </span>index &gt;= <span class="number">32 </span>{
-<a href=#345 id=345 data-nosnippet>345</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
-<a href=#346 id=346 data-nosnippet>346</a>        }
-<a href=#347 id=347 data-nosnippet>347</a>        <span class="kw">let </span>(name, value) = line.split_once(<span class="string">':'</span>).ok_or(<span class="number">400_u16</span>)<span class="question-mark">?</span>;
-<a href=#348 id=348 data-nosnippet>348</a>        <span class="kw">let </span>name = HeaderName::from_bytes(name.as_bytes()).map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
-<a href=#349 id=349 data-nosnippet>349</a>        <span class="kw">let </span>value = HeaderValue::from_str(value.trim()).map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
-<a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">if </span>headers.contains_key(<span class="kw-2">&amp;</span>name) {
-<a href=#351 id=351 data-nosnippet>351</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
-<a href=#352 id=352 data-nosnippet>352</a>        }
-<a href=#353 id=353 data-nosnippet>353</a>        headers.insert(name, value);
-<a href=#354 id=354 data-nosnippet>354</a>    }
-<a href=#355 id=355 data-nosnippet>355</a>    <span class="kw">if </span>headers.contains_key(<span class="string">"transfer-encoding"</span>)
-<a href=#356 id=356 data-nosnippet>356</a>        || headers
-<a href=#357 id=357 data-nosnippet>357</a>            .get(<span class="string">"content-length"</span>)
-<a href=#358 id=358 data-nosnippet>358</a>            .is_some_and(|length| length != <span class="string">"0"</span>)
-<a href=#359 id=359 data-nosnippet>359</a>        || (words[<span class="number">2</span>] == <span class="string">"HTTP/1.1" </span>&amp;&amp; !headers.contains_key(<span class="string">"host"</span>))
-<a href=#360 id=360 data-nosnippet>360</a>    {
-<a href=#361 id=361 data-nosnippet>361</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
-<a href=#362 id=362 data-nosnippet>362</a>    }
-<a href=#363 id=363 data-nosnippet>363</a>    <span class="prelude-val">Ok</span>(MediaRequest {
-<a href=#364 id=364 data-nosnippet>364</a>        index,
-<a href=#365 id=365 data-nosnippet>365</a>        head: words[<span class="number">0</span>] == <span class="string">"HEAD"</span>,
-<a href=#366 id=366 data-nosnippet>366</a>        headers,
-<a href=#367 id=367 data-nosnippet>367</a>    })
-<a href=#368 id=368 data-nosnippet>368</a>}
-<a href=#369 id=369 data-nosnippet>369</a>
-<a href=#370 id=370 data-nosnippet>370</a><span class="kw">async fn </span>read_request(stream: <span class="kw-2">&amp;mut </span>TcpStream) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;, String&gt; {
-<a href=#371 id=371 data-nosnippet>371</a>    <span class="kw">let </span><span class="kw-2">mut </span>raw = Vec::with_capacity(<span class="number">1024</span>);
-<a href=#372 id=372 data-nosnippet>372</a>    <span class="kw">loop </span>{
-<a href=#373 id=373 data-nosnippet>373</a>        <span class="kw">if </span>raw.len() &gt;= MAX_HEADER {
-<a href=#374 id=374 data-nosnippet>374</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"device HTTP header is too large"</span>.into());
-<a href=#375 id=375 data-nosnippet>375</a>        }
-<a href=#376 id=376 data-nosnippet>376</a>        <span class="kw">let </span><span class="kw-2">mut </span>bytes = [<span class="number">0</span>; <span class="number">1024</span>];
-<a href=#377 id=377 data-nosnippet>377</a>        <span class="kw">let </span>size = (MAX_HEADER - raw.len()).min(bytes.len());
-<a href=#378 id=378 data-nosnippet>378</a>        <span class="kw">let </span>count = stream
-<a href=#379 id=379 data-nosnippet>379</a>            .read(<span class="kw-2">&amp;mut </span>bytes[..size])
-<a href=#380 id=380 data-nosnippet>380</a>            .<span class="kw">await
-<a href=#381 id=381 data-nosnippet>381</a>            </span>.map_err(|error| error.to_string())<span class="question-mark">?</span>;
-<a href=#382 id=382 data-nosnippet>382</a>        <span class="kw">if </span>count == <span class="number">0 </span>{
-<a href=#383 id=383 data-nosnippet>383</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"device HTTP header ended early"</span>.into());
-<a href=#384 id=384 data-nosnippet>384</a>        }
-<a href=#385 id=385 data-nosnippet>385</a>        raw.extend_from_slice(<span class="kw-2">&amp;</span>bytes[..count]);
-<a href=#386 id=386 data-nosnippet>386</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(end) = raw.windows(<span class="number">4</span>).position(|bytes| bytes == <span class="string">b"\r\n\r\n"</span>) {
-<a href=#387 id=387 data-nosnippet>387</a>            <span class="kw">if </span>end + <span class="number">4 </span>!= raw.len() {
-<a href=#388 id=388 data-nosnippet>388</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"device HTTP requests must have no body or pipeline"</span>.into());
-<a href=#389 id=389 data-nosnippet>389</a>            }
-<a href=#390 id=390 data-nosnippet>390</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(raw);
-<a href=#391 id=391 data-nosnippet>391</a>        }
-<a href=#392 id=392 data-nosnippet>392</a>    }
-<a href=#393 id=393 data-nosnippet>393</a>}
-<a href=#394 id=394 data-nosnippet>394</a>
-<a href=#395 id=395 data-nosnippet>395</a><span class="kw">async fn </span>write(stream: <span class="kw-2">&amp;mut </span>TcpStream, bytes: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
-<a href=#396 id=396 data-nosnippet>396</a>    tokio::time::timeout(PROGRESS_TIMEOUT, stream.write_all(bytes))
-<a href=#397 id=397 data-nosnippet>397</a>        .<span class="kw">await
-<a href=#398 id=398 data-nosnippet>398</a>        </span>.map_err(|<span class="kw">_</span>| <span class="string">"device HTTP output stopped making progress"</span>.to_string())<span class="question-mark">?
-<a href=#399 id=399 data-nosnippet>399</a>        </span>.map_err(|error| error.to_string())
-<a href=#400 id=400 data-nosnippet>400</a>}
-<a href=#401 id=401 data-nosnippet>401</a>
-<a href=#402 id=402 data-nosnippet>402</a><span class="kw">async fn </span>failure(stream: <span class="kw-2">&amp;mut </span>TcpStream, status: u16, extra: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
-<a href=#403 id=403 data-nosnippet>403</a>    write(stream, <span class="macro">format!</span>(<span class="string">"HTTP/1.1 {status} Refused\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\n{extra}\r\n"</span>).as_bytes()).<span class="kw">await
-<a href=#404 id=404 data-nosnippet>404</a></span>}
-<a href=#405 id=405 data-nosnippet>405</a>
-<a href=#406 id=406 data-nosnippet>406</a><span class="kw">struct </span>Cancelled(Arc&lt;AtomicBool&gt;);
-<a href=#407 id=407 data-nosnippet>407</a><span class="kw">impl </span>Drop <span class="kw">for </span>Cancelled {
-<a href=#408 id=408 data-nosnippet>408</a>    <span class="kw">fn </span>drop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#409 id=409 data-nosnippet>409</a>        <span class="self">self</span>.<span class="number">0</span>.store(<span class="bool-val">true</span>, Ordering::Release);
-<a href=#410 id=410 data-nosnippet>410</a>    }
-<a href=#411 id=411 data-nosnippet>411</a>}
-<a href=#412 id=412 data-nosnippet>412</a>
-<a href=#413 id=413 data-nosnippet>413</a><span class="kw">async fn </span>response(
-<a href=#414 id=414 data-nosnippet>414</a>    <span class="kw-2">mut </span>stream: TcpStream,
-<a href=#415 id=415 data-nosnippet>415</a>    sources: Arc&lt;Vec&lt;Source&gt;&gt;,
-<a href=#416 id=416 data-nosnippet>416</a>    token: <span class="kw-2">&amp;</span>str,
-<a href=#417 id=417 data-nosnippet>417</a>    permit: OwnedSemaphorePermit,
-<a href=#418 id=418 data-nosnippet>418</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
-<a href=#419 id=419 data-nosnippet>419</a>    <span class="kw">let </span>raw = <span class="kw">match </span>tokio::time::timeout(PROGRESS_TIMEOUT, read_request(<span class="kw-2">&amp;mut </span>stream)).<span class="kw">await </span>{
-<a href=#420 id=420 data-nosnippet>420</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(raw)) =&gt; raw,
-<a href=#421 id=421 data-nosnippet>421</a>        <span class="kw">_ </span>=&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, <span class="number">400</span>, <span class="string">""</span>).<span class="kw">await</span>,
-<a href=#422 id=422 data-nosnippet>422</a>    };
-<a href=#423 id=423 data-nosnippet>423</a>    <span class="kw">let </span>request = <span class="kw">match </span>parse_request(<span class="kw-2">&amp;</span>raw, token, sources.len()) {
-<a href=#424 id=424 data-nosnippet>424</a>        <span class="prelude-val">Ok</span>(request) =&gt; request,
-<a href=#425 id=425 data-nosnippet>425</a>        <span class="prelude-val">Err</span>(status) =&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, status, <span class="string">""</span>).<span class="kw">await</span>,
-<a href=#426 id=426 data-nosnippet>426</a>    };
-<a href=#427 id=427 data-nosnippet>427</a>    <span class="kw">let </span>permit = Arc::new(permit);
-<a href=#428 id=428 data-nosnippet>428</a>    <span class="kw">let </span>opening_sources = sources.clone();
-<a href=#429 id=429 data-nosnippet>429</a>    <span class="kw">let </span>worker_permit = permit.clone();
-<a href=#430 id=430 data-nosnippet>430</a>    <span class="kw">let </span>opened = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
-<a href=#431 id=431 data-nosnippet>431</a>        <span class="kw">let </span>_permit = worker_permit;
-<a href=#432 id=432 data-nosnippet>432</a>        opening_sources[request.index].open()
-<a href=#433 id=433 data-nosnippet>433</a>    });
-<a href=#434 id=434 data-nosnippet>434</a>    <span class="kw">let </span>file = <span class="kw">match </span>tokio::time::timeout(PROGRESS_TIMEOUT, opened).<span class="kw">await </span>{
-<a href=#435 id=435 data-nosnippet>435</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(file))) =&gt; file,
-<a href=#436 id=436 data-nosnippet>436</a>        <span class="kw">_ </span>=&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, <span class="number">409</span>, <span class="string">""</span>).<span class="kw">await</span>,
-<a href=#437 id=437 data-nosnippet>437</a>    };
-<a href=#438 id=438 data-nosnippet>438</a>    <span class="kw">let </span>source = <span class="kw-2">&amp;</span>sources[request.index];
-<a href=#439 id=439 data-nosnippet>439</a>    <span class="kw">let </span>range_headers = <span class="kw">if </span>request.head {
-<a href=#440 id=440 data-nosnippet>440</a>        HeaderMap::new()
-<a href=#441 id=441 data-nosnippet>441</a>    } <span class="kw">else </span>{
-<a href=#442 id=442 data-nosnippet>442</a>        request.headers
-<a href=#443 id=443 data-nosnippet>443</a>    };
-<a href=#444 id=444 data-nosnippet>444</a>    <span class="kw">let </span>range = <span class="kw">match </span>requested_range(<span class="kw-2">&amp;</span>range_headers, source.metadata.len()) {
-<a href=#445 id=445 data-nosnippet>445</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(range)) =&gt; range,
-<a href=#446 id=446 data-nosnippet>446</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; {
-<a href=#447 id=447 data-nosnippet>447</a>            <span class="kw">return </span>failure(
-<a href=#448 id=448 data-nosnippet>448</a>                <span class="kw-2">&amp;mut </span>stream,
-<a href=#449 id=449 data-nosnippet>449</a>                <span class="number">416</span>,
-<a href=#450 id=450 data-nosnippet>450</a>                <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"Content-Range: bytes */{}\r\n"</span>, source.metadata.len()),
-<a href=#451 id=451 data-nosnippet>451</a>            )
-<a href=#452 id=452 data-nosnippet>452</a>            .<span class="kw">await</span>;
-<a href=#453 id=453 data-nosnippet>453</a>        }
-<a href=#454 id=454 data-nosnippet>454</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, <span class="number">400</span>, <span class="string">""</span>).<span class="kw">await</span>,
-<a href=#455 id=455 data-nosnippet>455</a>    };
-<a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">let </span><span class="kw-2">mut </span>header = <span class="macro">format!</span>(
-<a href=#457 id=457 data-nosnippet>457</a>        <span class="string">"HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"</span>,
-<a href=#458 id=458 data-nosnippet>458</a>        <span class="kw">if </span>range.partial { <span class="number">206 </span>} <span class="kw">else </span>{ <span class="number">200 </span>},
-<a href=#459 id=459 data-nosnippet>459</a>        source.track.mime,
-<a href=#460 id=460 data-nosnippet>460</a>        range.length
-<a href=#461 id=461 data-nosnippet>461</a>    );
-<a href=#462 id=462 data-nosnippet>462</a>    <span class="kw">if </span>range.partial {
-<a href=#463 id=463 data-nosnippet>463</a>        header.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
-<a href=#464 id=464 data-nosnippet>464</a>            <span class="string">"Content-Range: bytes {}-{}/{}\r\n"</span>,
-<a href=#465 id=465 data-nosnippet>465</a>            range.start,
-<a href=#466 id=466 data-nosnippet>466</a>            range.start + range.length - <span class="number">1</span>,
-<a href=#467 id=467 data-nosnippet>467</a>            source.metadata.len()
-<a href=#468 id=468 data-nosnippet>468</a>        ));
-<a href=#469 id=469 data-nosnippet>469</a>    }
-<a href=#470 id=470 data-nosnippet>470</a>    header.push_str(<span class="string">"\r\n"</span>);
-<a href=#471 id=471 data-nosnippet>471</a>    write(<span class="kw-2">&amp;mut </span>stream, header.as_bytes()).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#472 id=472 data-nosnippet>472</a>    <span class="kw">if </span>request.head {
-<a href=#473 id=473 data-nosnippet>473</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#474 id=474 data-nosnippet>474</a>    }
-<a href=#475 id=475 data-nosnippet>475</a>    <span class="kw">let </span>cancelled = Cancelled(Arc::new(AtomicBool::new(<span class="bool-val">false</span>)));
-<a href=#476 id=476 data-nosnippet>476</a>    <span class="kw">let </span>worker_cancelled = cancelled.<span class="number">0</span>.clone();
-<a href=#477 id=477 data-nosnippet>477</a>    <span class="kw">let </span>(sender, <span class="kw-2">mut </span>chunks) = mpsc::channel(<span class="number">2</span>);
-<a href=#478 id=478 data-nosnippet>478</a>    tokio::task::spawn_blocking(<span class="kw">move </span>|| {
-<a href=#479 id=479 data-nosnippet>479</a>        <span class="kw">let </span>_permit = permit;
-<a href=#480 id=480 data-nosnippet>480</a>        <span class="kw">let </span>source = <span class="kw-2">&amp;</span>sources[request.index];
-<a href=#481 id=481 data-nosnippet>481</a>        <span class="kw">let </span><span class="kw-2">mut </span>file = file;
-<a href=#482 id=482 data-nosnippet>482</a>        <span class="kw">let </span>result = (|| -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
-<a href=#483 id=483 data-nosnippet>483</a>            file.seek(SeekFrom::Start(range.start))
-<a href=#484 id=484 data-nosnippet>484</a>                .map_err(|error| error.to_string())<span class="question-mark">?</span>;
-<a href=#485 id=485 data-nosnippet>485</a>            <span class="kw">let </span><span class="kw-2">mut </span>remaining = range.length;
-<a href=#486 id=486 data-nosnippet>486</a>            <span class="kw">let </span><span class="kw-2">mut </span>path_checked = Instant::now();
-<a href=#487 id=487 data-nosnippet>487</a>            <span class="kw">while </span>remaining &gt; <span class="number">0 </span>&amp;&amp; !worker_cancelled.load(Ordering::Acquire) {
-<a href=#488 id=488 data-nosnippet>488</a>                <span class="kw">let </span><span class="kw-2">mut </span>bytes = <span class="macro">vec!</span>[<span class="number">0</span>; remaining.min(CHUNK_BYTES <span class="kw">as </span>u64) <span class="kw">as </span>usize];
-<a href=#489 id=489 data-nosnippet>489</a>                file.read_exact(<span class="kw-2">&amp;mut </span>bytes)
-<a href=#490 id=490 data-nosnippet>490</a>                    .map_err(|error| error.to_string())<span class="question-mark">?</span>;
-<a href=#491 id=491 data-nosnippet>491</a>                remaining -= bytes.len() <span class="kw">as </span>u64;
-<a href=#492 id=492 data-nosnippet>492</a>                source.check_descriptor(<span class="kw-2">&amp;</span>file)<span class="question-mark">?</span>;
-<a href=#493 id=493 data-nosnippet>493</a>                <span class="kw">if </span>remaining == <span class="number">0 </span>|| path_checked.elapsed() &gt;= PATH_CHECK_INTERVAL {
-<a href=#494 id=494 data-nosnippet>494</a>                    source.check(<span class="kw-2">&amp;</span>file)<span class="question-mark">?</span>;
-<a href=#495 id=495 data-nosnippet>495</a>                    path_checked = Instant::now();
-<a href=#496 id=496 data-nosnippet>496</a>                }
-<a href=#497 id=497 data-nosnippet>497</a>                <span class="kw">if </span>sender.blocking_send(<span class="prelude-val">Ok</span>(bytes)).is_err() {
-<a href=#498 id=498 data-nosnippet>498</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#499 id=499 data-nosnippet>499</a>                }
-<a href=#500 id=500 data-nosnippet>500</a>            }
-<a href=#501 id=501 data-nosnippet>501</a>            <span class="prelude-val">Ok</span>(())
-<a href=#502 id=502 data-nosnippet>502</a>        })();
-<a href=#503 id=503 data-nosnippet>503</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(error) = result {
-<a href=#504 id=504 data-nosnippet>504</a>            <span class="kw">let _ </span>= sender.blocking_send(<span class="prelude-val">Err</span>(error));
-<a href=#505 id=505 data-nosnippet>505</a>        }
-<a href=#506 id=506 data-nosnippet>506</a>    });
-<a href=#507 id=507 data-nosnippet>507</a>    <span class="kw">while let </span><span class="prelude-val">Some</span>(chunk) = tokio::time::timeout(PROGRESS_TIMEOUT, chunks.recv())
-<a href=#508 id=508 data-nosnippet>508</a>        .<span class="kw">await
-<a href=#509 id=509 data-nosnippet>509</a>        </span>.map_err(|<span class="kw">_</span>| <span class="string">"device media read stopped making progress"</span>)<span class="question-mark">?
-<a href=#510 id=510 data-nosnippet>510</a>    </span>{
-<a href=#511 id=511 data-nosnippet>511</a>        write(<span class="kw-2">&amp;mut </span>stream, <span class="kw-2">&amp;</span>chunk<span class="question-mark">?</span>).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#512 id=512 data-nosnippet>512</a>    }
-<a href=#513 id=513 data-nosnippet>513</a>    <span class="prelude-val">Ok</span>(())
-<a href=#514 id=514 data-nosnippet>514</a>}
-<a href=#515 id=515 data-nosnippet>515</a>
-<a href=#516 id=516 data-nosnippet>516</a><span class="attr">#[cfg(test)]
-<a href=#517 id=517 data-nosnippet>517</a>#[path = <span class="string">"media_tests.rs"</span>]
-<a href=#518 id=518 data-nosnippet>518</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#317 id=317 data-nosnippet>317</a>    preflight: bool,
+<a href=#318 id=318 data-nosnippet>318</a>    headers: HeaderMap,
+<a href=#319 id=319 data-nosnippet>319</a>}
+<a href=#320 id=320 data-nosnippet>320</a>
+<a href=#321 id=321 data-nosnippet>321</a><span class="kw">fn </span>parse_request(raw: <span class="kw-2">&amp;</span>[u8], token: <span class="kw-2">&amp;</span>str, count: usize) -&gt; <span class="prelude-ty">Result</span>&lt;MediaRequest, u16&gt; {
+<a href=#322 id=322 data-nosnippet>322</a>    <span class="kw">let </span>text = std::str::from_utf8(raw).map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
+<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw">let </span><span class="kw-2">mut </span>lines = text.strip_suffix(<span class="string">"\r\n\r\n"</span>).ok_or(<span class="number">400_u16</span>)<span class="question-mark">?</span>.split(<span class="string">"\r\n"</span>);
+<a href=#324 id=324 data-nosnippet>324</a>    <span class="kw">let </span>words = lines.next().ok_or(<span class="number">400_u16</span>)<span class="question-mark">?</span>.split(<span class="string">' '</span>).collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#325 id=325 data-nosnippet>325</a>    <span class="kw">if </span>words.len() != <span class="number">3 </span>|| !<span class="macro">matches!</span>(words[<span class="number">2</span>], <span class="string">"HTTP/1.0" </span>| <span class="string">"HTTP/1.1"</span>) {
+<a href=#326 id=326 data-nosnippet>326</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
+<a href=#327 id=327 data-nosnippet>327</a>    }
+<a href=#328 id=328 data-nosnippet>328</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(words[<span class="number">0</span>], <span class="string">"GET" </span>| <span class="string">"HEAD" </span>| <span class="string">"OPTIONS"</span>) {
+<a href=#329 id=329 data-nosnippet>329</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">405</span>);
+<a href=#330 id=330 data-nosnippet>330</a>    }
+<a href=#331 id=331 data-nosnippet>331</a>    <span class="kw">let </span>parts = words[<span class="number">1</span>]
+<a href=#332 id=332 data-nosnippet>332</a>        .strip_prefix(<span class="string">'/'</span>)
+<a href=#333 id=333 data-nosnippet>333</a>        .ok_or(<span class="number">404_u16</span>)<span class="question-mark">?
+<a href=#334 id=334 data-nosnippet>334</a>        </span>.split(<span class="string">'/'</span>)
+<a href=#335 id=335 data-nosnippet>335</a>        .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#336 id=336 data-nosnippet>336</a>    <span class="kw">if </span>parts.len() != <span class="number">2 </span>|| parts[<span class="number">0</span>] != token {
+<a href=#337 id=337 data-nosnippet>337</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">404</span>);
+<a href=#338 id=338 data-nosnippet>338</a>    }
+<a href=#339 id=339 data-nosnippet>339</a>    <span class="kw">let </span>index = parts[<span class="number">1</span>].parse::&lt;usize&gt;().map_err(|<span class="kw">_</span>| <span class="number">404_u16</span>)<span class="question-mark">?</span>;
+<a href=#340 id=340 data-nosnippet>340</a>    <span class="kw">if </span>index &gt;= count || index.to_string() != parts[<span class="number">1</span>] {
+<a href=#341 id=341 data-nosnippet>341</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">404</span>);
+<a href=#342 id=342 data-nosnippet>342</a>    }
+<a href=#343 id=343 data-nosnippet>343</a>    <span class="kw">let </span><span class="kw-2">mut </span>headers = HeaderMap::new();
+<a href=#344 id=344 data-nosnippet>344</a>    <span class="kw">for </span>(index, line) <span class="kw">in </span>lines.enumerate() {
+<a href=#345 id=345 data-nosnippet>345</a>        <span class="kw">if </span>index &gt;= <span class="number">32 </span>{
+<a href=#346 id=346 data-nosnippet>346</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
+<a href=#347 id=347 data-nosnippet>347</a>        }
+<a href=#348 id=348 data-nosnippet>348</a>        <span class="kw">let </span>(name, value) = line.split_once(<span class="string">':'</span>).ok_or(<span class="number">400_u16</span>)<span class="question-mark">?</span>;
+<a href=#349 id=349 data-nosnippet>349</a>        <span class="kw">let </span>name = HeaderName::from_bytes(name.as_bytes()).map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
+<a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">let </span>value = HeaderValue::from_str(value.trim()).map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
+<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">if </span>headers.contains_key(<span class="kw-2">&amp;</span>name) {
+<a href=#352 id=352 data-nosnippet>352</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
+<a href=#353 id=353 data-nosnippet>353</a>        }
+<a href=#354 id=354 data-nosnippet>354</a>        headers.insert(name, value);
+<a href=#355 id=355 data-nosnippet>355</a>    }
+<a href=#356 id=356 data-nosnippet>356</a>    <span class="kw">if </span>headers.contains_key(<span class="string">"transfer-encoding"</span>)
+<a href=#357 id=357 data-nosnippet>357</a>        || headers
+<a href=#358 id=358 data-nosnippet>358</a>            .get(<span class="string">"content-length"</span>)
+<a href=#359 id=359 data-nosnippet>359</a>            .is_some_and(|length| length != <span class="string">"0"</span>)
+<a href=#360 id=360 data-nosnippet>360</a>        || (words[<span class="number">2</span>] == <span class="string">"HTTP/1.1" </span>&amp;&amp; !headers.contains_key(<span class="string">"host"</span>))
+<a href=#361 id=361 data-nosnippet>361</a>    {
+<a href=#362 id=362 data-nosnippet>362</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
+<a href=#363 id=363 data-nosnippet>363</a>    }
+<a href=#364 id=364 data-nosnippet>364</a>    <span class="kw">if </span>words[<span class="number">0</span>] == <span class="string">"OPTIONS" </span>{
+<a href=#365 id=365 data-nosnippet>365</a>        <span class="kw">if </span>headers
+<a href=#366 id=366 data-nosnippet>366</a>            .get(<span class="string">"access-control-request-private-network"</span>)
+<a href=#367 id=367 data-nosnippet>367</a>            .is_some_and(|value| value != <span class="string">"true"</span>)
+<a href=#368 id=368 data-nosnippet>368</a>        {
+<a href=#369 id=369 data-nosnippet>369</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
+<a href=#370 id=370 data-nosnippet>370</a>        }
+<a href=#371 id=371 data-nosnippet>371</a>        <span class="kw">if </span>headers
+<a href=#372 id=372 data-nosnippet>372</a>            .get(<span class="string">"access-control-request-method"</span>)
+<a href=#373 id=373 data-nosnippet>373</a>            .is_some_and(|method| method != <span class="string">"GET" </span>&amp;&amp; method != <span class="string">"HEAD"</span>)
+<a href=#374 id=374 data-nosnippet>374</a>        {
+<a href=#375 id=375 data-nosnippet>375</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">405</span>);
+<a href=#376 id=376 data-nosnippet>376</a>        }
+<a href=#377 id=377 data-nosnippet>377</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(value) = headers.get(<span class="string">"access-control-request-headers"</span>) {
+<a href=#378 id=378 data-nosnippet>378</a>            <span class="kw">let </span>names = value.to_str().map_err(|<span class="kw">_</span>| <span class="number">400_u16</span>)<span class="question-mark">?</span>;
+<a href=#379 id=379 data-nosnippet>379</a>            <span class="kw">if </span>names.split(<span class="string">','</span>).any(|name| {
+<a href=#380 id=380 data-nosnippet>380</a>                ![<span class="string">"range"</span>, <span class="string">"if-range"</span>, <span class="string">"content-type"</span>]
+<a href=#381 id=381 data-nosnippet>381</a>                    .iter()
+<a href=#382 id=382 data-nosnippet>382</a>                    .any(|allowed| name.trim().eq_ignore_ascii_case(allowed))
+<a href=#383 id=383 data-nosnippet>383</a>            }) {
+<a href=#384 id=384 data-nosnippet>384</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="number">400</span>);
+<a href=#385 id=385 data-nosnippet>385</a>            }
+<a href=#386 id=386 data-nosnippet>386</a>        }
+<a href=#387 id=387 data-nosnippet>387</a>    }
+<a href=#388 id=388 data-nosnippet>388</a>    <span class="prelude-val">Ok</span>(MediaRequest {
+<a href=#389 id=389 data-nosnippet>389</a>        index,
+<a href=#390 id=390 data-nosnippet>390</a>        head: words[<span class="number">0</span>] == <span class="string">"HEAD"</span>,
+<a href=#391 id=391 data-nosnippet>391</a>        preflight: words[<span class="number">0</span>] == <span class="string">"OPTIONS"</span>,
+<a href=#392 id=392 data-nosnippet>392</a>        headers,
+<a href=#393 id=393 data-nosnippet>393</a>    })
+<a href=#394 id=394 data-nosnippet>394</a>}
+<a href=#395 id=395 data-nosnippet>395</a>
+<a href=#396 id=396 data-nosnippet>396</a><span class="kw">async fn </span>read_request(stream: <span class="kw-2">&amp;mut </span>TcpStream) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;, String&gt; {
+<a href=#397 id=397 data-nosnippet>397</a>    <span class="kw">let </span><span class="kw-2">mut </span>raw = Vec::with_capacity(<span class="number">1024</span>);
+<a href=#398 id=398 data-nosnippet>398</a>    <span class="kw">loop </span>{
+<a href=#399 id=399 data-nosnippet>399</a>        <span class="kw">if </span>raw.len() &gt;= MAX_HEADER {
+<a href=#400 id=400 data-nosnippet>400</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"device HTTP header is too large"</span>.into());
+<a href=#401 id=401 data-nosnippet>401</a>        }
+<a href=#402 id=402 data-nosnippet>402</a>        <span class="kw">let </span><span class="kw-2">mut </span>bytes = [<span class="number">0</span>; <span class="number">1024</span>];
+<a href=#403 id=403 data-nosnippet>403</a>        <span class="kw">let </span>size = (MAX_HEADER - raw.len()).min(bytes.len());
+<a href=#404 id=404 data-nosnippet>404</a>        <span class="kw">let </span>count = stream
+<a href=#405 id=405 data-nosnippet>405</a>            .read(<span class="kw-2">&amp;mut </span>bytes[..size])
+<a href=#406 id=406 data-nosnippet>406</a>            .<span class="kw">await
+<a href=#407 id=407 data-nosnippet>407</a>            </span>.map_err(|error| error.to_string())<span class="question-mark">?</span>;
+<a href=#408 id=408 data-nosnippet>408</a>        <span class="kw">if </span>count == <span class="number">0 </span>{
+<a href=#409 id=409 data-nosnippet>409</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"device HTTP header ended early"</span>.into());
+<a href=#410 id=410 data-nosnippet>410</a>        }
+<a href=#411 id=411 data-nosnippet>411</a>        raw.extend_from_slice(<span class="kw-2">&amp;</span>bytes[..count]);
+<a href=#412 id=412 data-nosnippet>412</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(end) = raw.windows(<span class="number">4</span>).position(|bytes| bytes == <span class="string">b"\r\n\r\n"</span>) {
+<a href=#413 id=413 data-nosnippet>413</a>            <span class="kw">if </span>end + <span class="number">4 </span>!= raw.len() {
+<a href=#414 id=414 data-nosnippet>414</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"device HTTP requests must have no body or pipeline"</span>.into());
+<a href=#415 id=415 data-nosnippet>415</a>            }
+<a href=#416 id=416 data-nosnippet>416</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(raw);
+<a href=#417 id=417 data-nosnippet>417</a>        }
+<a href=#418 id=418 data-nosnippet>418</a>    }
+<a href=#419 id=419 data-nosnippet>419</a>}
+<a href=#420 id=420 data-nosnippet>420</a>
+<a href=#421 id=421 data-nosnippet>421</a><span class="kw">async fn </span>write(stream: <span class="kw-2">&amp;mut </span>TcpStream, bytes: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#422 id=422 data-nosnippet>422</a>    tokio::time::timeout(PROGRESS_TIMEOUT, stream.write_all(bytes))
+<a href=#423 id=423 data-nosnippet>423</a>        .<span class="kw">await
+<a href=#424 id=424 data-nosnippet>424</a>        </span>.map_err(|<span class="kw">_</span>| <span class="string">"device HTTP output stopped making progress"</span>.to_string())<span class="question-mark">?
+<a href=#425 id=425 data-nosnippet>425</a>        </span>.map_err(|error| error.to_string())
+<a href=#426 id=426 data-nosnippet>426</a>}
+<a href=#427 id=427 data-nosnippet>427</a>
+<a href=#428 id=428 data-nosnippet>428</a><span class="kw">async fn </span>failure(stream: <span class="kw-2">&amp;mut </span>TcpStream, status: u16, extra: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#429 id=429 data-nosnippet>429</a>    write(stream, <span class="macro">format!</span>(<span class="string">"HTTP/1.1 {status} Refused\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\n{extra}\r\n"</span>).as_bytes()).<span class="kw">await
+<a href=#430 id=430 data-nosnippet>430</a></span>}
+<a href=#431 id=431 data-nosnippet>431</a>
+<a href=#432 id=432 data-nosnippet>432</a><span class="kw">struct </span>Cancelled(Arc&lt;AtomicBool&gt;);
+<a href=#433 id=433 data-nosnippet>433</a><span class="kw">impl </span>Drop <span class="kw">for </span>Cancelled {
+<a href=#434 id=434 data-nosnippet>434</a>    <span class="kw">fn </span>drop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#435 id=435 data-nosnippet>435</a>        <span class="self">self</span>.<span class="number">0</span>.store(<span class="bool-val">true</span>, Ordering::Release);
+<a href=#436 id=436 data-nosnippet>436</a>    }
+<a href=#437 id=437 data-nosnippet>437</a>}
+<a href=#438 id=438 data-nosnippet>438</a>
+<a href=#439 id=439 data-nosnippet>439</a><span class="kw">async fn </span>response(
+<a href=#440 id=440 data-nosnippet>440</a>    <span class="kw-2">mut </span>stream: TcpStream,
+<a href=#441 id=441 data-nosnippet>441</a>    sources: Arc&lt;Vec&lt;Source&gt;&gt;,
+<a href=#442 id=442 data-nosnippet>442</a>    token: <span class="kw-2">&amp;</span>str,
+<a href=#443 id=443 data-nosnippet>443</a>    permit: OwnedSemaphorePermit,
+<a href=#444 id=444 data-nosnippet>444</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#445 id=445 data-nosnippet>445</a>    <span class="kw">let </span>raw = <span class="kw">match </span>tokio::time::timeout(PROGRESS_TIMEOUT, read_request(<span class="kw-2">&amp;mut </span>stream)).<span class="kw">await </span>{
+<a href=#446 id=446 data-nosnippet>446</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(raw)) =&gt; raw,
+<a href=#447 id=447 data-nosnippet>447</a>        <span class="kw">_ </span>=&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, <span class="number">400</span>, <span class="string">""</span>).<span class="kw">await</span>,
+<a href=#448 id=448 data-nosnippet>448</a>    };
+<a href=#449 id=449 data-nosnippet>449</a>    <span class="kw">let </span>request = <span class="kw">match </span>parse_request(<span class="kw-2">&amp;</span>raw, token, sources.len()) {
+<a href=#450 id=450 data-nosnippet>450</a>        <span class="prelude-val">Ok</span>(request) =&gt; request,
+<a href=#451 id=451 data-nosnippet>451</a>        <span class="prelude-val">Err</span>(status) =&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, status, <span class="string">""</span>).<span class="kw">await</span>,
+<a href=#452 id=452 data-nosnippet>452</a>    };
+<a href=#453 id=453 data-nosnippet>453</a>    <span class="kw">if </span>request.preflight {
+<a href=#454 id=454 data-nosnippet>454</a>        <span class="comment">// Only the already capability/peer-authorized selection is accessible;
+<a href=#455 id=455 data-nosnippet>455</a>        // no cookies, accounts or catalog routes exist on this listener.
+<a href=#456 id=456 data-nosnippet>456</a>        </span><span class="kw">return </span>write(<span class="kw-2">&amp;mut </span>stream, <span class="string">b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD\r\nAccess-Control-Allow-Headers: Range, If-Range, Content-Type\r\nAccess-Control-Allow-Private-Network: true\r\n\r\n"</span>).<span class="kw">await</span>;
+<a href=#457 id=457 data-nosnippet>457</a>    }
+<a href=#458 id=458 data-nosnippet>458</a>    <span class="kw">let </span>permit = Arc::new(permit);
+<a href=#459 id=459 data-nosnippet>459</a>    <span class="kw">let </span>opening_sources = sources.clone();
+<a href=#460 id=460 data-nosnippet>460</a>    <span class="kw">let </span>worker_permit = permit.clone();
+<a href=#461 id=461 data-nosnippet>461</a>    <span class="kw">let </span>opened = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+<a href=#462 id=462 data-nosnippet>462</a>        <span class="kw">let </span>_permit = worker_permit;
+<a href=#463 id=463 data-nosnippet>463</a>        opening_sources[request.index].open()
+<a href=#464 id=464 data-nosnippet>464</a>    });
+<a href=#465 id=465 data-nosnippet>465</a>    <span class="kw">let </span>file = <span class="kw">match </span>tokio::time::timeout(PROGRESS_TIMEOUT, opened).<span class="kw">await </span>{
+<a href=#466 id=466 data-nosnippet>466</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(file))) =&gt; file,
+<a href=#467 id=467 data-nosnippet>467</a>        <span class="kw">_ </span>=&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, <span class="number">409</span>, <span class="string">""</span>).<span class="kw">await</span>,
+<a href=#468 id=468 data-nosnippet>468</a>    };
+<a href=#469 id=469 data-nosnippet>469</a>    <span class="kw">let </span>source = <span class="kw-2">&amp;</span>sources[request.index];
+<a href=#470 id=470 data-nosnippet>470</a>    <span class="kw">let </span>range_headers = <span class="kw">if </span>request.head {
+<a href=#471 id=471 data-nosnippet>471</a>        HeaderMap::new()
+<a href=#472 id=472 data-nosnippet>472</a>    } <span class="kw">else </span>{
+<a href=#473 id=473 data-nosnippet>473</a>        request.headers
+<a href=#474 id=474 data-nosnippet>474</a>    };
+<a href=#475 id=475 data-nosnippet>475</a>    <span class="kw">let </span>range = <span class="kw">match </span>requested_range(<span class="kw-2">&amp;</span>range_headers, source.metadata.len()) {
+<a href=#476 id=476 data-nosnippet>476</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(range)) =&gt; range,
+<a href=#477 id=477 data-nosnippet>477</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; {
+<a href=#478 id=478 data-nosnippet>478</a>            <span class="kw">return </span>failure(
+<a href=#479 id=479 data-nosnippet>479</a>                <span class="kw-2">&amp;mut </span>stream,
+<a href=#480 id=480 data-nosnippet>480</a>                <span class="number">416</span>,
+<a href=#481 id=481 data-nosnippet>481</a>                <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"Content-Range: bytes */{}\r\n"</span>, source.metadata.len()),
+<a href=#482 id=482 data-nosnippet>482</a>            )
+<a href=#483 id=483 data-nosnippet>483</a>            .<span class="kw">await</span>;
+<a href=#484 id=484 data-nosnippet>484</a>        }
+<a href=#485 id=485 data-nosnippet>485</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return </span>failure(<span class="kw-2">&amp;mut </span>stream, <span class="number">400</span>, <span class="string">""</span>).<span class="kw">await</span>,
+<a href=#486 id=486 data-nosnippet>486</a>    };
+<a href=#487 id=487 data-nosnippet>487</a>    <span class="kw">let </span><span class="kw-2">mut </span>header = <span class="macro">format!</span>(
+<a href=#488 id=488 data-nosnippet>488</a>        <span class="string">"HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n"</span>,
+<a href=#489 id=489 data-nosnippet>489</a>        <span class="kw">if </span>range.partial { <span class="number">206 </span>} <span class="kw">else </span>{ <span class="number">200 </span>},
+<a href=#490 id=490 data-nosnippet>490</a>        source.track.mime,
+<a href=#491 id=491 data-nosnippet>491</a>        range.length
+<a href=#492 id=492 data-nosnippet>492</a>    );
+<a href=#493 id=493 data-nosnippet>493</a>    <span class="kw">if </span>range.partial {
+<a href=#494 id=494 data-nosnippet>494</a>        header.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
+<a href=#495 id=495 data-nosnippet>495</a>            <span class="string">"Content-Range: bytes {}-{}/{}\r\n"</span>,
+<a href=#496 id=496 data-nosnippet>496</a>            range.start,
+<a href=#497 id=497 data-nosnippet>497</a>            range.start + range.length - <span class="number">1</span>,
+<a href=#498 id=498 data-nosnippet>498</a>            source.metadata.len()
+<a href=#499 id=499 data-nosnippet>499</a>        ));
+<a href=#500 id=500 data-nosnippet>500</a>    }
+<a href=#501 id=501 data-nosnippet>501</a>    header.push_str(<span class="string">"\r\n"</span>);
+<a href=#502 id=502 data-nosnippet>502</a>    write(<span class="kw-2">&amp;mut </span>stream, header.as_bytes()).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#503 id=503 data-nosnippet>503</a>    <span class="kw">if </span>request.head {
+<a href=#504 id=504 data-nosnippet>504</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#505 id=505 data-nosnippet>505</a>    }
+<a href=#506 id=506 data-nosnippet>506</a>    <span class="kw">let </span>cancelled = Cancelled(Arc::new(AtomicBool::new(<span class="bool-val">false</span>)));
+<a href=#507 id=507 data-nosnippet>507</a>    <span class="kw">let </span>worker_cancelled = cancelled.<span class="number">0</span>.clone();
+<a href=#508 id=508 data-nosnippet>508</a>    <span class="kw">let </span>(sender, <span class="kw-2">mut </span>chunks) = mpsc::channel(<span class="number">2</span>);
+<a href=#509 id=509 data-nosnippet>509</a>    tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+<a href=#510 id=510 data-nosnippet>510</a>        <span class="kw">let </span>_permit = permit;
+<a href=#511 id=511 data-nosnippet>511</a>        <span class="kw">let </span>source = <span class="kw-2">&amp;</span>sources[request.index];
+<a href=#512 id=512 data-nosnippet>512</a>        <span class="kw">let </span><span class="kw-2">mut </span>file = file;
+<a href=#513 id=513 data-nosnippet>513</a>        <span class="kw">let </span>result = (|| -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#514 id=514 data-nosnippet>514</a>            file.seek(SeekFrom::Start(range.start))
+<a href=#515 id=515 data-nosnippet>515</a>                .map_err(|error| error.to_string())<span class="question-mark">?</span>;
+<a href=#516 id=516 data-nosnippet>516</a>            <span class="kw">let </span><span class="kw-2">mut </span>remaining = range.length;
+<a href=#517 id=517 data-nosnippet>517</a>            <span class="kw">let </span><span class="kw-2">mut </span>path_checked = Instant::now();
+<a href=#518 id=518 data-nosnippet>518</a>            <span class="kw">while </span>remaining &gt; <span class="number">0 </span>&amp;&amp; !worker_cancelled.load(Ordering::Acquire) {
+<a href=#519 id=519 data-nosnippet>519</a>                <span class="kw">let </span><span class="kw-2">mut </span>bytes = <span class="macro">vec!</span>[<span class="number">0</span>; remaining.min(CHUNK_BYTES <span class="kw">as </span>u64) <span class="kw">as </span>usize];
+<a href=#520 id=520 data-nosnippet>520</a>                file.read_exact(<span class="kw-2">&amp;mut </span>bytes)
+<a href=#521 id=521 data-nosnippet>521</a>                    .map_err(|error| error.to_string())<span class="question-mark">?</span>;
+<a href=#522 id=522 data-nosnippet>522</a>                remaining -= bytes.len() <span class="kw">as </span>u64;
+<a href=#523 id=523 data-nosnippet>523</a>                source.check_descriptor(<span class="kw-2">&amp;</span>file)<span class="question-mark">?</span>;
+<a href=#524 id=524 data-nosnippet>524</a>                <span class="kw">if </span>remaining == <span class="number">0 </span>|| path_checked.elapsed() &gt;= PATH_CHECK_INTERVAL {
+<a href=#525 id=525 data-nosnippet>525</a>                    source.check(<span class="kw-2">&amp;</span>file)<span class="question-mark">?</span>;
+<a href=#526 id=526 data-nosnippet>526</a>                    path_checked = Instant::now();
+<a href=#527 id=527 data-nosnippet>527</a>                }
+<a href=#528 id=528 data-nosnippet>528</a>                <span class="kw">if </span>sender.blocking_send(<span class="prelude-val">Ok</span>(bytes)).is_err() {
+<a href=#529 id=529 data-nosnippet>529</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#530 id=530 data-nosnippet>530</a>                }
+<a href=#531 id=531 data-nosnippet>531</a>            }
+<a href=#532 id=532 data-nosnippet>532</a>            <span class="prelude-val">Ok</span>(())
+<a href=#533 id=533 data-nosnippet>533</a>        })();
+<a href=#534 id=534 data-nosnippet>534</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(error) = result {
+<a href=#535 id=535 data-nosnippet>535</a>            <span class="kw">let _ </span>= sender.blocking_send(<span class="prelude-val">Err</span>(error));
+<a href=#536 id=536 data-nosnippet>536</a>        }
+<a href=#537 id=537 data-nosnippet>537</a>    });
+<a href=#538 id=538 data-nosnippet>538</a>    <span class="kw">while let </span><span class="prelude-val">Some</span>(chunk) = tokio::time::timeout(PROGRESS_TIMEOUT, chunks.recv())
+<a href=#539 id=539 data-nosnippet>539</a>        .<span class="kw">await
+<a href=#540 id=540 data-nosnippet>540</a>        </span>.map_err(|<span class="kw">_</span>| <span class="string">"device media read stopped making progress"</span>)<span class="question-mark">?
+<a href=#541 id=541 data-nosnippet>541</a>    </span>{
+<a href=#542 id=542 data-nosnippet>542</a>        write(<span class="kw-2">&amp;mut </span>stream, <span class="kw-2">&amp;</span>chunk<span class="question-mark">?</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#543 id=543 data-nosnippet>543</a>    }
+<a href=#544 id=544 data-nosnippet>544</a>    <span class="prelude-val">Ok</span>(())
+<a href=#545 id=545 data-nosnippet>545</a>}
+<a href=#546 id=546 data-nosnippet>546</a>
+<a href=#547 id=547 data-nosnippet>547</a><span class="attr">#[cfg(test)]
+<a href=#548 id=548 data-nosnippet>548</a>#[path = <span class="string">"media_tests.rs"</span>]
+<a href=#549 id=549 data-nosnippet>549</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
