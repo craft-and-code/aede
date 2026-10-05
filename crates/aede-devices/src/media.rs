@@ -314,6 +314,7 @@ async fn run(
 struct MediaRequest {
     index: usize,
     head: bool,
+    preflight: bool,
     headers: HeaderMap,
 }
 
@@ -324,7 +325,7 @@ fn parse_request(raw: &[u8], token: &str, count: usize) -> Result<MediaRequest, 
     if words.len() != 3 || !matches!(words[2], "HTTP/1.0" | "HTTP/1.1") {
         return Err(400);
     }
-    if !matches!(words[0], "GET" | "HEAD") {
+    if !matches!(words[0], "GET" | "HEAD" | "OPTIONS") {
         return Err(405);
     }
     let parts = words[1]
@@ -360,9 +361,34 @@ fn parse_request(raw: &[u8], token: &str, count: usize) -> Result<MediaRequest, 
     {
         return Err(400);
     }
+    if words[0] == "OPTIONS" {
+        if headers
+            .get("access-control-request-private-network")
+            .is_some_and(|value| value != "true")
+        {
+            return Err(400);
+        }
+        if headers
+            .get("access-control-request-method")
+            .is_some_and(|method| method != "GET" && method != "HEAD")
+        {
+            return Err(405);
+        }
+        if let Some(value) = headers.get("access-control-request-headers") {
+            let names = value.to_str().map_err(|_| 400_u16)?;
+            if names.split(',').any(|name| {
+                !["range", "if-range", "content-type"]
+                    .iter()
+                    .any(|allowed| name.trim().eq_ignore_ascii_case(allowed))
+            }) {
+                return Err(400);
+            }
+        }
+    }
     Ok(MediaRequest {
         index,
         head: words[0] == "HEAD",
+        preflight: words[0] == "OPTIONS",
         headers,
     })
 }
@@ -424,6 +450,11 @@ async fn response(
         Ok(request) => request,
         Err(status) => return failure(&mut stream, status, "").await,
     };
+    if request.preflight {
+        // Only the already capability/peer-authorized selection is accessible;
+        // no cookies, accounts or catalog routes exist on this listener.
+        return write(&mut stream, b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD\r\nAccess-Control-Allow-Headers: Range, If-Range, Content-Type\r\nAccess-Control-Allow-Private-Network: true\r\n\r\n").await;
+    }
     let permit = Arc::new(permit);
     let opening_sources = sources.clone();
     let worker_permit = permit.clone();
@@ -454,7 +485,7 @@ async fn response(
         Err(_) => return failure(&mut stream, 400, "").await,
     };
     let mut header = format!(
-        "HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n",
+        "HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n",
         if range.partial { 206 } else { 200 },
         source.track.mime,
         range.length

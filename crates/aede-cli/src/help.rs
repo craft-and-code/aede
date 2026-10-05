@@ -78,12 +78,12 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Play local audio, an M3U, a saved collection or a catalogued name, with an initial seek position, repeat modes and seeded random or smart order. Shows album and numbered filename with keyboard controls, elapsed/total playback position and a progress bar, a Retro spectrum with 12 segmented bars grouped from 24 analysis bands, and listening history. --lyrics replaces the terminal spectrum with local timed lyric cues or a short untimed preview; it never downloads lyrics. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
         },
         "devices" => CommandPage {
-            usage: "aede devices --bind IPV4",
-            summary: "Discover UPnP AV and OpenHome renderers on one explicitly selected LAN interface. SlimProto players connect directly instead of appearing in this SSDP list.",
+            usage: "aede devices --bind IPV4 [--protocol googlecast [--device IP:PORT]]",
+            summary: "Discover UPnP AV and OpenHome renderers by SSDP, or Google Cast endpoints by explicit --protocol googlecast mDNS discovery. With --device, observe that Cast endpoint's TLS certificate SHA-256 without pairing, casting or sending application data; verify it on a trusted LAN before trusting the pin. SlimProto players connect directly instead of appearing in these lists.",
         },
         "cast" => CommandPage {
-            usage: "aede cast <selection> --protocol slimproto|upnp|openhome --bind IPV4 --device IP|DESCRIPTION_URL [--port N] [--device-volume 0..100] [--replace]",
-            summary: "Send 1 to 64 original audio occurrences to one LAN device. SlimProto listens on TCP 3483 for the chosen peer; UPnP/OpenHome use its description URL. The device decodes unchanged files; no server DSP, transcoding or listening history is applied. Keep this process running; Ctrl-C requests Stop and closes the private temporary media listener. --port and --device-volume are SlimProto-only; explicit gain uses 0..100 percent and default preserves device gain. --replace explicitly permits OpenHome playlist replacement. See docs/server/devices.md for compatibility and acceptance limits.",
+            usage: "aede cast <selection> --protocol slimproto|upnp|openhome|googlecast --bind IPV4 --device IP|IP:PORT|DESCRIPTION_URL [--device-certificate SHA256] [--port N] [--device-volume 0..100] [--replace]",
+            summary: "Send 1 to 64 original audio occurrences to one LAN device. SlimProto listens on TCP 3483 for the chosen peer; UPnP/OpenHome use its description URL. Google Cast connects to the chosen IP (default TCP 8009), requires --device-certificate with a trusted 64-digit SHA-256 leaf-certificate pin, and uses the Default Media Receiver. Cast originals are preflighted against a conservative mono/stereo format profile; no silent conversion occurs. The device decodes unchanged files; no server DSP, transcoding or listening history is applied. Keep this process running; Ctrl-C requests Stop and closes the private temporary media listener. --port and --device-volume are SlimProto-only; default preserves device gain. --replace explicitly permits OpenHome playlist or active Cast session replacement. See docs/server/devices.md for compatibility and acceptance limits.",
         },
         "reset" => CommandPage {
             usage: "aede reset",
@@ -301,8 +301,9 @@ pub fn print_index() {
                        Run aede help serve for setup and access limits
   cancel <task-id>     Stop a delegated scan or fetch on the local server
   accounts            Manage logins, roles and sessions; run aede help accounts
-  devices --bind IP    Discover UPnP/OpenHome players on the chosen LAN interface
-  cast <selection>     Play originals on one SlimProto, UPnP or OpenHome device;
+  devices --bind IP    Discover UPnP/OpenHome players; --protocol googlecast
+                       discovers Cast endpoints or inspects --device's certificate
+  cast <selection>     Play originals on one SlimProto, UPnP, OpenHome or Cast device;
                        run aede help cast for explicit interface/target options
   roots                List the watched folders and the ones never read
                        (--remove <folder> drops a watched folder;

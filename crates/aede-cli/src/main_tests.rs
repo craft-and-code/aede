@@ -159,9 +159,10 @@ fn network_options_are_known_and_limited_to_their_commands() {
         ("tls-cert", &["serve"][..]),
         ("tls-key", &["serve"][..]),
         ("authority", &["serve"][..]),
-        ("protocol", &["cast"][..]),
-        ("device", &["cast"][..]),
+        ("protocol", &["devices", "cast"][..]),
+        ("device", &["devices", "cast"][..]),
         ("device-volume", &["cast"][..]),
+        ("device-certificate", &["cast"][..]),
     ] {
         assert!(OPTIONS.contains(&option), "--{option} must be known");
         let (_, commands, _) = OPTION_SCOPE

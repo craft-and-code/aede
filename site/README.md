@@ -70,6 +70,8 @@ Official assets are stored unchanged under `assets/compatibility/`:
 
 The browser loads the logos from Aède's own site, without contacting those projects.
 
+Google Cast currently has a factual experimental-profile note and trademark attribution, without an official logo or badge. Before adding a badge, validate a real receiver and review Google's [app/badge guidelines](https://developers.google.com/cast/docs/ux_guidelines) and [brand approval requirements](https://partnermarketinghub.withgoogle.com/brands/google-cast/legal-and-trademarks/legal-requirements/). An official Cast badge must remain unchanged, have the required spacing/size/link and attribution, and must not be replaced by the UI Cast button. Do not invent a Google logo or imply certification. The first Rust controller is not the official Sender SDK; SDK/design-checklist compliance cannot be assumed from software protocol tests.
+
 ## Navigation behaviour
 
 `guide.js` stores the sidebar's scroll position and expanded groups in session storage before navigation and restores them after layout. It opens the active page's group without resetting the menu to its top, making only the smallest scroll adjustment if the active item would otherwise fall outside the visible menu (on a first visit or after changing language). Ordinary menu links retain the exact saved position. Searching filters command/topic labels without losing the pre-search expanded-group state. The mobile menu supports keyboard focus and Escape. Fragment navigation opens any enclosing `details` elements before scrolling. Code blocks offer clipboard copying when the browser permits it, with a terminal header for shell examples.

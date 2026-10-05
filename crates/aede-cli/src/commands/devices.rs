@@ -20,7 +20,8 @@ fn options(args: &Args) -> Result<CastOptions, String> {
         Some("slimproto") => DeviceProtocol::Slimproto,
         Some("upnp") => DeviceProtocol::Upnp,
         Some("openhome") => DeviceProtocol::Openhome,
-        _ => return Err("--protocol must be slimproto, upnp or openhome".into()),
+        Some("googlecast") => DeviceProtocol::Googlecast,
+        _ => return Err("--protocol must be slimproto, upnp, openhome or googlecast".into()),
     };
     let port = if args.has("port") {
         Some(
@@ -51,6 +52,15 @@ fn options(args: &Args) -> Result<CastOptions, String> {
         } else {
             None
         },
+        certificate_sha256: if args.has("device-certificate") {
+            Some(
+                args.value("device-certificate")
+                    .ok_or("--device-certificate needs a SHA-256 value")?
+                    .to_owned(),
+            )
+        } else {
+            None
+        },
     };
     options.validate()?;
     Ok(options)
@@ -60,12 +70,41 @@ pub fn devices(args: &Args) -> Res {
     if !args.positionals.is_empty() {
         return Err("aede devices only lists discovered LAN audio devices".into());
     }
-    let devices = aede_devices::discover(bind(args)?)?;
+    let bind = bind(args)?;
+    for option in ["protocol", "device"] {
+        if args.has(option) && args.value(option).is_none() {
+            return Err(format!("--{option} needs a value").into());
+        }
+    }
+    let devices = match args.value("protocol") {
+        Some("googlecast") => {
+            if let Some(device) = args.value("device") {
+                let pin = aede_devices::inspect_cast_certificate(bind, device)?;
+                println!("Observed receiver certificate SHA-256: {pin}");
+                println!(
+                    "Verify this endpoint on a trusted LAN before using --device-certificate; this does not pair or trust it automatically."
+                );
+                return Ok(());
+            }
+            aede_devices::discover_cast(bind)?
+        }
+        None => {
+            if args.has("device") {
+                return Err("--device on discovery requires --protocol googlecast for certificate inspection".into());
+            }
+            aede_devices::discover(bind)?
+        }
+        _ => {
+            return Err(
+                "discovery --protocol only accepts googlecast; omit it for UPnP/OpenHome".into(),
+            );
+        }
+    };
     println!("{}", ui::section("Network audio devices"));
     if devices.is_empty() {
-        println!("  no UPnP/OpenHome audio device answered on this interface");
+        println!("  no selected-protocol audio device answered on this interface");
     } else {
-        let mut table = Table::new(&["Device", "Protocols", "Description URL"]);
+        let mut table = Table::new(&["Device", "Protocols", "Endpoint"]);
         for device in devices {
             table.push(vec![
                 ui::literal(&device.name),

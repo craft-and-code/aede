@@ -10,5 +10,8 @@ rust-version.workspace = true
 [dependencies]
 aede-core = { path = "../aede-core", default-features = false }
 serde = { workspace = true }
+serde_json = { workspace = true }
 hyper = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }

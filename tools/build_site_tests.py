@@ -171,6 +171,10 @@ class HomeTests(unittest.TestCase):
                     images = re.findall(r'<img\b[^>]*>', section)
                     self.assertLessEqual({"Subsonic", "OpenSubsonic", "SlimProto", "UPnP", "OpenHome"}, {re.search(r'\balt="([^"]+)"', tag)[1] for tag in images})
                     self.assertIn("validation sur appareils réels à compléter" if language == "fr" else "real-device validation pending", section)
+                    self.assertIn("Google Cast™", section)
+                    self.assertIn("profil expérimental" if language == "fr" else "experimental Aède sender", section)
+                    self.assertIn("Google Cast est une marque de Google LLC." if language == "fr" else "Google Cast is a trademark of Google LLC.", section)
+                    self.assertNotIn('alt="Google Cast"', section)
                     for tag in images:
                         src = re.search(r'\bsrc="([^"]+)"', tag)[1]
                         self.assertTrue((destination / home).parent.joinpath(src).is_file(), src)

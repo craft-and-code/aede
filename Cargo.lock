@@ -51,8 +51,11 @@ version = "0.4.0"
 dependencies = [
  "aede-core",
  "hyper",
+ "rustls",
  "serde",
+ "serde_json",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]

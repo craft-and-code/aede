@@ -97,6 +97,10 @@ fn original_http_supports_ranges_head_and_capability_refusal() {
             .unwrap()
             + 4;
         assert!(complete.starts_with(b"HTTP/1.1 200"));
+        assert!(
+            String::from_utf8_lossy(&complete[..complete_header])
+                .contains("Access-Control-Allow-Origin: *\r\n")
+        );
         assert_eq!(
             &complete[complete_header..],
             original,
@@ -147,6 +151,62 @@ fn original_http_supports_ranges_head_and_capability_refusal() {
         media.stop().await;
         assert!(TcpStream::connect(address).await.is_err());
     });
+}
+
+#[tokio::test]
+async fn receiver_cors_preflight_still_requires_the_selected_capability() {
+    let fixture = Fixture::new();
+    let media = MediaServer::start(Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST, fixture.sources())
+        .await
+        .unwrap();
+    let reply = get(&media.urls()[0], "OPTIONS", "Origin: https://www.gstatic.com\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: Range\r\n").await;
+    assert!(reply.starts_with(b"HTTP/1.1 204"));
+    let header = String::from_utf8(reply).unwrap();
+    assert!(header.contains("Access-Control-Allow-Headers: Range, If-Range, Content-Type"));
+    assert!(!header.contains("Access-Control-Allow-Credentials"));
+    assert!(
+        get(
+            &media.urls()[0],
+            "OPTIONS",
+            "Access-Control-Request-Private-Network: true\r\n"
+        )
+        .await
+        .starts_with(b"HTTP/1.1 204")
+    );
+    assert!(
+        get(
+            &media.urls()[0],
+            "OPTIONS",
+            "Access-Control-Request-Private-Network: false\r\n"
+        )
+        .await
+        .starts_with(b"HTTP/1.1 400")
+    );
+    let wrong = format!("http://{}/wrong/0", media.address());
+    assert!(
+        get(&wrong, "OPTIONS", "")
+            .await
+            .starts_with(b"HTTP/1.1 404")
+    );
+    assert!(
+        get(
+            &media.urls()[0],
+            "OPTIONS",
+            "Access-Control-Request-Method: POST\r\n"
+        )
+        .await
+        .starts_with(b"HTTP/1.1 405")
+    );
+    assert!(
+        get(
+            &media.urls()[0],
+            "OPTIONS",
+            "Access-Control-Request-Headers: Authorization\r\n"
+        )
+        .await
+        .starts_with(b"HTTP/1.1 400")
+    );
+    media.stop().await;
 }
 
 #[test]

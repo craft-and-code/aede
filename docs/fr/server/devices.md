@@ -1,6 +1,6 @@
 # Appareils audio réseau
 
-M4 commence par une lecture explicite et finie depuis le Terminal : SlimProto d’abord, puis UPnP AVTransport et OpenHome Playlist. Ce sont de premiers profils de contrôle, pas un serveur Lyrion complet, une certification DLNA ni une garantie pour tous les appareils. La validation sur du matériel réel reste à faire.
+M4 commence par une lecture explicite et finie depuis le Terminal : SlimProto d’abord, puis UPnP AVTransport, OpenHome Playlist et un émetteur Google Cast expérimental. Ce sont de premiers profils de contrôle, pas un serveur Lyrion complet, une certification DLNA ni une garantie pour tous les appareils. La validation sur du matériel réel reste à faire.
 
 ## Où se fait la lecture
 
@@ -42,7 +42,7 @@ Découvrir les lecteurs annoncés sur une interface :
 aede devices --bind 192.168.1.10
 ```
 
-Reprendre la **Description URL** affichée, sans inventer une adresse de contrôle :
+Reprendre l’URL HTTP de description affichée dans la colonne **Endpoint**, sans inventer une adresse de contrôle :
 
 ```sh
 aede cast /chemin/vers/album --protocol upnp --bind 192.168.1.10 --device http://192.168.1.20:49152/device.xml
@@ -59,6 +59,40 @@ Un type MIME compatible `http-get` doit être annoncé. Cette déclaration ne ga
 
 Les entrées OpenHome terminées restent sur l’appareil, mais leurs URL temporaires expirent quand Aède se ferme. Les rejouer demande une nouvelle session : cette file ne constitue pas une bibliothèque persistante accessible depuis l’appareil.
 
+## Google Cast
+
+Ce premier émetteur relie Aède au port TLS Cast V2 du récepteur choisi, puis fournit les URL des originaux au Default Media Receiver de Google (`CC1AD845`). Il réutilise JSON, Tokio et Rustls déjà présents, sans nouveau paquet tiers ni code unsafe. C'est un profil d'interopérabilité expérimental, distinct du SDK Sender officiel et sans certification Google. Un essai sur Chromecast, Nest ou un récepteur tiers réel reste nécessaire.
+
+Découvrir explicitement les appareils :
+
+```sh
+aede devices --bind 192.168.1.10 --protocol googlecast
+```
+
+Cette recherche DNS-SD interroge `_googlecast._tcp.local` avec réponse mDNS unicast. Elle accepte les associations PTR/SRV/TXT/A complètes dont l'adresse correspond à l'émetteur local, pendant trois secondes au maximum, avec une limite de 256 paquets et 32 appareils. Elle ne contacte pas de nom DNS annoncé. Annonces fragmentées entre plusieurs paquets, IPv6, groupes Cast, réseaux routés et authentification du récepteur restent hors de ce premier profil. Une adresse IPv4 connue peut être donnée directement si la découverte ne trouve rien ; route multicast du système et pare-feu doivent permettre d'atteindre ce réseau.
+
+Les certificats Cast ne sont pas des certificats HTTPS publics ordinaires. Observer celui de l'appareil choisi, sans lecture ni connexion TLS déclarée de confiance :
+
+```sh
+aede devices --bind 192.168.1.10 --protocol googlecast --device 192.168.1.20
+```
+
+La commande affiche seulement l'empreinte SHA-256 du certificat présenté. Au premier usage, identifier indépendamment le récepteur sur un réseau de confiance, puis fournir explicitement ces **64 chiffres hexadécimaux**, sans deux-points :
+
+```sh
+aede cast /chemin/vers/album --protocol googlecast --bind 192.168.1.10 --device 192.168.1.20 --device-certificate EMPREINTE_SHA256_DU_RECEPTEUR_VERIFIE
+```
+
+`EMPREINTE_SHA256_DU_RECEPTEUR_VERIFIE` est un emplacement à remplacer, pas une empreinte valide. Le port de contrôle est 8009 par défaut ; `IP:PORT` permet d'en préciser un autre. `--port` et `--device-volume` restent propres à SlimProto. Cast conserve le volume du récepteur. Un certificat différent bloque la lecture : réidentifier l'appareil avant de changer l'empreinte, notamment après réinitialisation ou renouvellement du certificat. Découverte et inspection ne mémorisent aucune confiance. L'empreinte exacte et les signatures TLS vérifiées prouvent la possession de la clé épinglée ; elles ne vérifient pas la chaîne d'authentification fabricant Google, les dates du certificat ou le nom d'hôte selon la PKI Web. Aucun mode de lecture n'accepte tous les certificats. Le flux média temporaire reste HTTP sur le réseau local de confiance.
+
+Une session d'application existante est refusée sans **`--replace`**, qui autorise explicitement son remplacement. L'ordre et les occurrences répétées sont conservés. LOAD/GET_STATUS et les heartbeats sont bornés. Le suivant attend `IDLE`/`FINISHED` pour la session média courante ; annulation, interruption, état inconnu et erreur de chargement ne sont jamais une fin normale. Un changement d'application, de session ou d'identité média fournie termine le contrôleur sans arrêter une session étrangère. Ctrl-C demande Stop pour la session possédée et signale une confirmation absente ou échouée. Un chargement annulé/déconnecté sans identifiant de session peut avoir commencé sur l'appareil : Aède ferme son serveur média et indique qu'il n'a pas pu confirmer Stop. Un fichier déjà mis en tampon par le récepteur ne peut pas être rappelé.
+
+Le profil prudent accepte FLAC, MP3, Ogg Vorbis/Opus, AAC en MP4 ou ADTS et WAV PCM entier, avec canaux mono/stéréo et fréquence connus. Les formats sans perte demandent une résolution connue jusqu'à 24 bits et une fréquence jusqu'à 96 kHz ; les formats avec perte sont limités à 48 kHz. ALAC, AIFF, WAV flottant/32 bits, conteneur non pris en charge et paramètres manquants sont refusés sans transcodage. Cette vérification de profil ne négocie pas les codecs avec chaque récepteur : décodage réel et firmware restent à tester, et un échec LOAD arrête la file. Aucun DSP, normalisation, réduction de qualité ou événement d'historique n'est appliqué. Des LOAD successifs ne garantissent ni gapless ni multiroom synchronisé. Pause/déplacement sur l'appareil peuvent être observés ; commandes interactives du Terminal, reconnexion et file Cast persistante restent à développer.
+
+Le serveur média, limité au secret de session et à l'IP choisie, fournit GET/HEAD, byte ranges et réponses OPTIONS/CORS bornées au lecteur Web du récepteur. Seuls URL des médias sélectionnés et titres sont fournis, sans identifiants de comptes, chemins de fichiers ni accès au catalogue. Le Default Media Receiver peut dépendre des services Google ; ce protocole ne promet pas un fonctionnement entièrement hors ligne.
+
+Références : [architecture Cast](https://developers.google.com/cast/docs/web_receiver), [messages média](https://developers.google.com/cast/docs/media/messages), [formats pris en charge](https://developers.google.com/cast/docs/media) et [schéma CastMessage de Chromium](https://github.com/thibauts/node-castv2/blob/master/lib/cast_channel.proto). Google Cast est une marque de Google LLC.
+
 ## Limites réseau et fichiers
 
 `--bind` et le lecteur utilisent des adresses IPv4 précises, privées, de lien local ou de boucle locale. Écoute sur toutes les interfaces, adresses publiques, DNS et IPv6 ne font pas partie de ce premier profil. Les descriptions/contrôles utilisent HTTP, sans identifiants ni fragments. Une description découverte doit correspondre à l’émetteur SSDP ; URLBase et contrôles gardent son hôte et son port. Redirections, traversées de chemin, DTD/entités XML personnalisées et messages surdimensionnés sont refusés.
@@ -69,7 +103,7 @@ Les originaux sont ouverts en lecture seule. Taille, date précise, statut de fi
 
 ## Validation et suite de M4
 
-Tester de vrais Squeezelite/Squeezebox et lecteurs UPnP/OpenHome : FLAC/MP3/WAV, déplacement effectué par le lecteur, pause/reprise et déconnexion/reconnexion. Capturer la sortie sous charge avant toute garantie gapless ou multiroom. Ensuite : enchaînements continus, contrôles/métadonnées plus riches, registre d’appareils, API authentifiée et politique explicite de preuve d’écoute. Parcourir Aède depuis un autre contrôleur DLNA demande aussi MediaServer/ContentDirectory ; contrôler un lecteur ne fournit pas ce rôle serveur.
+Tester de vrais Squeezelite/Squeezebox, lecteurs UPnP/OpenHome et récepteurs Cast : FLAC/MP3/WAV, déplacement effectué par le lecteur, pause/reprise et déconnexion/reconnexion. Capturer la sortie sous charge avant toute garantie gapless ou multiroom. Ensuite : enchaînements continus, contrôles/métadonnées plus riches, registre d’appareils, API authentifiée et politique explicite de preuve d’écoute. Parcourir Aède depuis un autre contrôleur DLNA demande aussi MediaServer/ContentDirectory ; contrôler un lecteur ne fournit pas ce rôle serveur.
 
 La [roadmap](../../design/roadmap.md) distingue ces premiers profils des protocoles optionnels. Références primaires : [Squeezelite](https://github.com/ralph-irving/squeezelite), [spécifications UPnP AV](https://openconnectivity.org/developer/specifications/upnp-resources/upnp/mediaserver4-and-mediarenderer3/) et [service OpenHome Playlist](https://github.com/openhome/ohNet/blob/master/OpenHome/Net/Service/Upnp/OpenHome/Playlist1.xml).
 

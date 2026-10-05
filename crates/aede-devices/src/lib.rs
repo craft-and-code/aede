@@ -1,4 +1,4 @@
-//! Explicit, finite LAN playback on SlimProto, UPnP AV and OpenHome devices.
+//! Explicit, finite LAN playback on SlimProto, UPnP AV, OpenHome and Cast devices.
 //!
 //! This controller is separate from the authenticated catalog API. A local
 //! caller selects up to 64 original files and exactly one private IPv4 device.
@@ -18,6 +18,10 @@ use std::path::PathBuf;
 use aede_core::tags::AudioProperties;
 use tokio::sync::watch;
 
+mod cast_discovery;
+mod cast_tls;
+mod cast_wire;
+mod googlecast;
 mod media;
 /// Shared original-file MIME and HTTP byte-range policy, without API routes.
 pub mod original;
@@ -35,6 +39,8 @@ pub enum DeviceProtocol {
     Upnp,
     /// Aède supplies a finite queue to an OpenHome Playlist renderer.
     Openhome,
+    /// Aède supplies original-file URLs to a certificate-pinned Cast receiver.
+    Googlecast,
 }
 
 /// An original local audio file offered for this one casting session.
@@ -53,15 +59,18 @@ pub struct CastOptions {
     pub bind: Ipv4Addr,
     /// The chosen transport.
     pub protocol: DeviceProtocol,
-    /// SlimProto peer IP, or an HTTP device-description URL for UPnP/OpenHome.
+    /// SlimProto peer IP, Cast `IP[:port]`, or UPnP/OpenHome HTTP description URL.
     pub device: String,
     /// SlimProto listener port; use 3483 normally. Other protocols require None.
     pub port: Option<u16>,
-    /// Explicit permission to replace an existing OpenHome device playlist.
+    /// Explicit permission to replace an OpenHome playlist or active Cast session.
     pub replace: bool,
     /// Optional explicit SlimProto linear digital gain percentage, 0 to 100.
     /// None preserves device gain; fresh software players may be muted.
     pub volume: Option<u8>,
+    /// Exact trusted receiver leaf-certificate SHA-256, for Google Cast only.
+    /// This explicit pin replaces CA/hostname trust; no insecure TLS mode exists.
+    pub certificate_sha256: Option<String>,
 }
 
 pub(crate) fn validate_ip(ip: Ipv4Addr) -> Result<(), String> {
@@ -83,6 +92,9 @@ impl CastOptions {
         validate_ip(self.bind)?;
         if self.volume.is_some_and(|volume| volume > 100) {
             return Err("--device-volume must be between 0 and 100".into());
+        }
+        if self.protocol != DeviceProtocol::Googlecast && self.certificate_sha256.is_some() {
+            return Err("--device-certificate is only supported by Google Cast".into());
         }
         match self.protocol {
             DeviceProtocol::Slimproto => {
@@ -112,6 +124,14 @@ impl CastOptions {
                 let peer = upnp::device_ip(&self.device)?;
                 validate_ip(peer)?;
                 Ok(peer)
+            }
+            DeviceProtocol::Googlecast => {
+                if self.port.is_some() || self.volume.is_some() {
+                    return Err("Google Cast uses IP:PORT in --device and preserves volume; --port and --device-volume are SlimProto-only".into());
+                }
+                cast_tls::parse_pin(self.certificate_sha256.as_deref().ok_or(
+                    "Google Cast requires --device-certificate SHA256; inspect it with aede devices --protocol googlecast --bind IP --device IP and verify it on a trusted LAN")?)?;
+                Ok(*googlecast::endpoint(&self.device)?.ip())
             }
         }
     }
@@ -151,18 +171,46 @@ pub fn discover(bind: Ipv4Addr) -> Result<Vec<DeviceDescription>, String> {
     runtime()?.block_on(upnp::discover(bind))
 }
 
+/// Perform one bounded mDNS discovery of Google Cast endpoints on this interface.
+///
+/// Discovery is unauthenticated and never grants trust to an advertised device.
+/// Complete responses must bind their SRV/A records to the responding LAN IP.
+pub fn discover_cast(bind: Ipv4Addr) -> Result<Vec<DeviceDescription>, String> {
+    validate_ip(bind)?;
+    runtime()?.block_on(cast_discovery::discover(bind))
+}
+
+/// Observe a Google Cast endpoint's leaf-certificate SHA-256 without casting.
+///
+/// The TLS handshake is deliberately rejected before application data. This is
+/// an unauthenticated observation, not automatic pairing or manufacturer trust;
+/// verify the endpoint on a trusted LAN before using this value as a cast pin.
+pub fn inspect_cast_certificate(bind: Ipv4Addr, device: &str) -> Result<String, String> {
+    validate_ip(bind)?;
+    let peer = googlecast::endpoint(device)?;
+    runtime()?.block_on(cast_tls::inspect(bind, *peer.ip(), peer.port()))
+}
+
 /// Play a finite selection on exactly one LAN device until completion or Ctrl-C.
 ///
 /// Files are opened read-only and sent unchanged, without normalization or
-/// transcoding. Each adapter preflights advertised format support. This method
+/// transcoding. Adapters preflight advertised or conservatively allowed formats. This method
 /// does not create listening history: transport/device status is not a native
 /// PCM consumption acknowledgement. A request to stop is sent on Ctrl-C;
 /// a powered-off or disconnected device cannot acknowledge that request.
 pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
     let peer = options.validate()?;
     let sources = media::prepare(paths)?;
+    let tracks = sources
+        .iter()
+        .map(|source| source.track.clone())
+        .collect::<Vec<_>>();
+    if options.protocol == DeviceProtocol::Googlecast {
+        googlecast::preflight(&tracks)?;
+    }
     let runtime = runtime()?;
     let result = runtime.block_on(async move {
+        let media = media::MediaServer::start(options.bind, peer, sources).await?;
         let (shutdown, signal) = watch::channel(false);
         let signal_task = tokio::spawn(async move {
             let result = tokio::signal::ctrl_c()
@@ -171,11 +219,6 @@ pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
             let _ = shutdown.send(true);
             result
         });
-        let tracks = sources
-            .iter()
-            .map(|source| source.track.clone())
-            .collect::<Vec<_>>();
-        let media = media::MediaServer::start(options.bind, peer, sources).await?;
         println!(
             "Device media: {} (selected originals only; Ctrl-C stops playback)",
             media.address()
@@ -205,6 +248,21 @@ pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
                     }
                     Err(error) => Err(format!("cannot open the SlimProto listener: {error}")),
                 }
+            }
+            DeviceProtocol::Googlecast => {
+                googlecast::run(
+                    options.bind,
+                    &options.device,
+                    options
+                        .certificate_sha256
+                        .as_deref()
+                        .ok_or("missing Cast certificate pin")?,
+                    &tracks,
+                    media.urls(),
+                    options.replace,
+                    signal,
+                )
+                .await
             }
             protocol => {
                 upnp::run(

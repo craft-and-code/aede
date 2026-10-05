@@ -1,13 +1,15 @@
 # Aède devices
 
 Explicit LAN discovery and finite original-audio playback for SlimProto,
-UPnP AVTransport and OpenHome Playlist. The [device guide](../../docs/server/devices.md)
+UPnP AVTransport, OpenHome Playlist and experimental Google Cast. The [device guide](../../docs/server/devices.md)
 defines the supported profiles, security boundaries and community trials.
-Real-device acceptance remains pending; the extraction does not add protocols.
+Real-device acceptance remains pending for the initial protocol profiles.
 
 ## Responsibility and dependencies
 
 - `discover(bind)` performs one bounded SSDP discovery on the chosen interface.
+- `discover_cast(bind)` performs one explicit bounded mDNS Cast discovery.
+- `inspect_cast_certificate(bind, device)` observes a receiver certificate without trusting it or sending application data; casting requires an explicitly verified SHA-256 pin.
 - `cast(options, paths)` supplies 1–64 ordered occurrences to one selected LAN
   player. Duplicate paths remain duplicate occurrences; original bytes are
   transferred unchanged and the player owns decoding and output.
@@ -18,7 +20,7 @@ Real-device acceptance remains pending; the extraction does not add protocols.
   policy; each caller maps errors and implements its own HEAD behavior.
 
 The crate uses `aede-core` for tag inspection, format properties and secure
-session tokens, plus the already approved Tokio, Serde and Hyper stack. It
+session tokens, plus the already approved Tokio, Serde/JSON, Hyper and Rustls stack. It
 does not depend on `aede-server` or add any third-party package to the lockfile.
 The CLI calls it directly. `aede_server::devices` remains a compatibility
 reexport; there is only one implementation of each protocol and media policy.
@@ -35,14 +37,12 @@ The entry points are blocking and own a bounded Tokio runtime. `cast` monitors
 Ctrl-C, prints listener addresses, requests device Stop and closes its temporary
 media listener when finished. An async API integration must provide a deliberate
 worker/lifecycle/cancellation design rather than call them on a Tokio worker.
-This first extraction retains the existing Terminal behavior.
+The authenticated server-control API and persistent device registry remain future work.
 
 Only specific private, link-local or loopback IPv4 addresses are accepted.
 Selected originals are read-only and checked before/opening/during transfers;
 changed paths or link replacements stop playback. A fresh capability and exact
-peer-IP admission protect the temporary selection-only HTTP listener. This
-requires a trusted LAN and does not provide encrypted transport or authenticated
-device identity.
+peer-IP admission protect the temporary selection-only HTTP listener. The original-file HTTP transport requires a trusted LAN. Cast controls use TLS with an exact user-trusted leaf-certificate pin and verified handshake signatures; discovery is unauthenticated and manufacturer authentication remains outside the first profile. Other profiles retain their existing unencrypted LAN controls.
 
 No normalization, EQ, transcoding, listening-history write or background
 discovery is performed. The initial profiles retain their existing finite queue,

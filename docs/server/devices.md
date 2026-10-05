@@ -1,6 +1,6 @@
 # Network audio devices
 
-M4 begins with explicit, finite playback from the Terminal: SlimProto first, followed by UPnP AVTransport and OpenHome Playlist. These are initial control profiles, not a complete Lyrion server, a DLNA-certified MediaServer, or a promise that every renderer works. Real-device acceptance is pending.
+M4 begins with explicit, finite playback from the Terminal: SlimProto first, followed by UPnP AVTransport, OpenHome Playlist and an experimental Google Cast sender. These are initial control profiles, not a complete Lyrion server, a DLNA-certified MediaServer, or a promise that every renderer works. Real-device acceptance is pending.
 
 ## What runs where
 
@@ -42,7 +42,7 @@ Discover advertised renderers on one chosen interface:
 aede devices --bind 192.168.1.10
 ```
 
-Use the **Description URL** returned by that command, rather than an invented control endpoint:
+Use the HTTP description URL shown in the **Endpoint** column, rather than an invented control endpoint:
 
 ```sh
 aede cast /path/to/album --protocol upnp --bind 192.168.1.10 --device http://192.168.1.20:49152/device.xml
@@ -59,6 +59,40 @@ Devices must advertise a compatible `http-get` MIME entry. This is a format decl
 
 Completed OpenHome entries remain on the device, but their temporary capability URLs expire when Aède exits. Replaying those entries requires a new casting session; they are not a persistent playable device library.
 
+## Google Cast
+
+This initial sender connects from Aède to a selected receiver's Cast V2 TLS endpoint and supplies original-file URLs to Google's Default Media Receiver (`CC1AD845`). It reuses the existing JSON/Tokio/Rustls stack; no new third-party package or unsafe code is introduced. It is an experimental interoperability profile, not Google's official Sender SDK or a certified integration. A real Chromecast/Nest/third-party receiver trial is still required.
+
+Discover endpoints with a separate explicit DNS-SD pass:
+
+```sh
+aede devices --bind 192.168.1.10 --protocol googlecast
+```
+
+Discovery queries `_googlecast._tcp.local`, requests unicast mDNS responses and accepts complete PTR/SRV/TXT/A associations whose address matches the responding LAN peer. It runs for at most three seconds, processes at most 256 packets/32 endpoints and does not connect to advertised hostnames. Segmented announcements, IPv6, Cast groups, discovery across routed networks and receiver authentication are outside this first discovery profile. If a receiver is absent from the list, its known literal IPv4 endpoint may still be selected explicitly; the operating system's multicast route/firewall must reach the chosen LAN.
+
+Cast certificates are not ordinary public HTTPS certificates. Inspect the chosen endpoint without casting or completing a trusted TLS session:
+
+```sh
+aede devices --bind 192.168.1.10 --protocol googlecast --device 192.168.1.20
+```
+
+This prints the observed leaf-certificate SHA-256 only. On first use, independently identify the receiver on a trusted LAN, then explicitly supply those **64 hexadecimal digits**, without colons:
+
+```sh
+aede cast /path/to/album --protocol googlecast --bind 192.168.1.10 --device 192.168.1.20 --device-certificate SHA256_FROM_THE_VERIFIED_RECEIVER
+```
+
+`SHA256_FROM_THE_VERIFIED_RECEIVER` is a placeholder, not a valid pin. The default control port is 8009; an explicit `IP:PORT` endpoint is supported. `--port` and `--device-volume` remain SlimProto-only. Cast preserves the receiver's volume. A changed certificate refuses casting; re-identify the receiver before changing its pin, including after a reset or certificate rotation. Discovery/inspection do not persist trust. Exact leaf pinning and verified TLS handshake signatures authenticate possession of that pinned key; they do not verify Google's manufacturer/device-authentication chain, certificate dates or Web-PKI hostname rules. There is no accept-any-certificate or insecure casting mode. The temporary media stream remains HTTP on the trusted LAN.
+
+An existing application session is refused unless **`--replace`** explicitly authorizes replacement. The finite selection keeps order and repeated occurrences. LOAD/GET_STATUS and heartbeat messages are bounded; the next original starts only after `IDLE`/`FINISHED` for the current media session. Cancellation, interruptions, unknown states and load errors are not successful completion. A changed application, session or supplied media identity ends the controller; it does not Stop a foreign session. Ctrl-C requests Stop for the owned media session and reports missing/failed Stop confirmation. A cancelled or disconnected load without an assigned session may already have started on the receiver; Aède closes its media listener and reports that Stop could not be confirmed. Local file/network operations cannot guarantee that a device has discarded bytes it already buffered.
+
+The conservative original-audio profile accepts FLAC, MP3, Ogg Vorbis/Opus, AAC in MP4 or ADTS, and integer PCM WAV, with known mono/stereo channels and sample rate. Lossless formats require known precision of at most 24 bits and rate at most 96 kHz; lossy formats are limited to 48 kHz. ALAC, AIFF, floating/32-bit WAV, unsupported containers and missing parameters are refused rather than transcoded. This is a profile preflight, not per-receiver codec negotiation: actual model/firmware decoding still needs validation, and LOAD failure stops the queue. No DSP, normalization, quality reduction or listening-history event is performed. Sequential LOAD does not establish gapless or synchronized multiroom. Pause/seek on the receiver may be observed, but CLI live controls, reconnection and a persistent Cast queue remain future work.
+
+The capability/peer-restricted media listener provides GET/HEAD byte ranges and bounded OPTIONS/CORS responses for the receiver's web player. No account credentials, filesystem paths or catalog access are sent to Google or the receiver; only selected media URLs and track titles are supplied. Default Media Receiver availability may involve Google's services; no fully offline operation is promised for this protocol.
+
+References: [Cast receiver architecture](https://developers.google.com/cast/docs/web_receiver), [media messages](https://developers.google.com/cast/docs/media/messages), [supported media](https://developers.google.com/cast/docs/media), [Chromium CastMessage schema](https://github.com/thibauts/node-castv2/blob/master/lib/cast_channel.proto). Google Cast is a trademark of Google LLC.
+
 ## LAN and file boundaries
 
 Both `--bind` and the device must use specific private, link-local or loopback IPv4 addresses. Wildcard listeners, public addresses, DNS names and IPv6 are outside this first profile. Device description/control URLs are HTTP, without credentials or fragments. Discovered descriptions must match the SSDP response peer; control URLs and URLBase must keep the same host and port. Redirects, path traversal, DTDs/custom XML entities and oversized descriptions/messages are refused.
@@ -69,7 +103,7 @@ Each original is read-only. Source size, precise modification time, regular-file
 
 ## Next acceptance and M4 work
 
-Test real Squeezelite/Squeezebox and UPnP/OpenHome renderers, original FLAC/MP3/WAV, seeking performed by the renderer, pause/resume and disconnect/reconnect behavior. Capture device output under load before claiming gapless or synchronized multiroom. Then add continuous joins, richer transport/metadata controls, a device registry, authenticated API operations and an explicit history-evidence policy. Browsing Aède directly from another DLNA control point additionally needs MediaServer/ContentDirectory; controlling a renderer alone does not provide that server role.
+Test real Squeezelite/Squeezebox, UPnP/OpenHome and Cast receivers, original FLAC/MP3/WAV, seeking performed by the renderer, pause/resume and disconnect/reconnect behavior. Capture device output under load before claiming gapless or synchronized multiroom. Then add continuous joins, richer transport/metadata controls, a device registry, authenticated API operations and an explicit history-evidence policy. Browsing Aède directly from another DLNA control point additionally needs MediaServer/ContentDirectory; controlling a renderer alone does not provide that server role.
 
 The [roadmap](../design/roadmap.md) distinguishes these delivered profiles from optional later protocols. Primary wire references: [Squeezelite](https://github.com/ralph-irving/squeezelite), [UPnP AV specifications](https://openconnectivity.org/developer/specifications/upnp-resources/upnp/mediaserver4-and-mediarenderer3/) and [OpenHome Playlist service](https://github.com/openhome/ohNet/blob/master/OpenHome/Net/Service/Upnp/OpenHome/Playlist1.xml).
 

@@ -82,6 +82,7 @@ const VALUED_WORD: &[&str] = &[
     "protocol",
     "device",
     "device-volume",
+    "device-certificate",
     "tls-cert",
     "tls-key",
     "authority",

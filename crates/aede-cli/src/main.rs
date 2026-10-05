@@ -375,6 +375,7 @@ const OPTIONS: &[&str] = &[
     "protocol",
     "device",
     "device-volume",
+    "device-certificate",
     "password-stdin",
     "data",
     "port",
@@ -504,6 +505,11 @@ const OPTIONS: &[&str] = &[
 /// option nobody can type, and only something comparing the two can notice.
 const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     (
+        "device-certificate",
+        &["cast"],
+        "pin the Google Cast receiver leaf-certificate SHA-256",
+    ),
+    (
         "device-volume",
         &["cast"],
         "explicitly set SlimProto digital gain from 0 to 100 percent",
@@ -529,10 +535,14 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         &["serve", "devices", "cast"],
         "choose a literal listener IP address",
     ),
-    ("protocol", &["cast"], "select slimproto, upnp or openhome"),
+    (
+        "protocol",
+        &["devices", "cast"],
+        "select a casting protocol or Google Cast discovery",
+    ),
     (
         "device",
-        &["cast"],
+        &["devices", "cast"],
         "select the player IP or device-description URL",
     ),
     (
@@ -748,7 +758,7 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     (
         "replace",
         &["scan", "copy", "cast"],
-        "replace watched folders, destination files or the OpenHome playlist",
+        "replace watched folders, destination files, OpenHome playlist or Cast session",
     ),
     (
         "exclude",

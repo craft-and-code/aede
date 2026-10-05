@@ -24,12 +24,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 const POLL: Duration = Duration::from_millis(500);
 const START_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// One LAN renderer's name, validated description URL and advertised controls.
+/// One LAN renderer's name, validated endpoint and advertised controls.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DeviceDescription {
     /// Device-supplied friendly name.
     pub name: String,
-    /// Same-peer, literal IPv4 HTTP description URL.
+    /// Same-peer IPv4 HTTP description URL, or a Cast IPv4:port endpoint.
     pub location: String,
     /// Implemented control adapters advertised by the device.
     pub protocols: Vec<String>,
@@ -718,7 +718,9 @@ pub(super) async fn run(
             .services
             .iter()
             .find(|service| service.kind == OPENHOME_PLAYLIST),
-        DeviceProtocol::Slimproto => return Err("Slimproto does not use UPnP control".into()),
+        DeviceProtocol::Slimproto | DeviceProtocol::Googlecast => {
+            return Err("requested protocol does not use UPnP control".into());
+        }
     }
     .ok_or("device does not advertise the requested protocol")?;
     let controlled = AtomicBool::new(false);
@@ -731,7 +733,9 @@ pub(super) async fn run(
                 DeviceProtocol::Openhome => {
                     openhome_play(service, tracks, urls, replace, &controlled).await
                 }
-                DeviceProtocol::Slimproto => Err("invalid device protocol".into()),
+                DeviceProtocol::Slimproto | DeviceProtocol::Googlecast => {
+                    Err("invalid device protocol".into())
+                }
             }
         };
         tokio::pin!(playback);

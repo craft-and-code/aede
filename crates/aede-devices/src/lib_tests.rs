@@ -36,6 +36,7 @@ fn device_addresses_and_protocol_options_are_explicit_and_local() {
         port: Some(3483),
         replace: false,
         volume: None,
+        certificate_sha256: None,
     };
     assert_eq!(options.validate().unwrap(), Ipv4Addr::LOCALHOST);
     options.port = Some(0);
