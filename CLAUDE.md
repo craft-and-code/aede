@@ -41,13 +41,14 @@ These are fundamental properties of Aède:
 - `crates/aede-core` — domain model, catalog, storage and library logic.
 - `crates/aede-accounts` — account identities, credential policy, roles and client keys.
 - `crates/aede-dsp` — decoded audio sample processing, independent of the catalog.
+- `crates/aede-devices` — explicit discovery, control and original-audio transport for LAN players.
 - `crates/aede-server` — local HTTP/JSON/WebSocket API over the core.
 - `crates/aede-cli` — command-line interface and user-facing behaviour.
 - `docs/` — architecture, design decisions, milestone plans and behavioural documentation.
 - `tools/` — development and verification scripts.
 - `site/` — project website.
 
-Keep catalog domain logic and protected file persistence in `aede-core`. Keep account and credential rules in `aede-accounts`, without a dependency on the catalog or HTTP. Keep HTTP transport and process-local sessions in `aede-server`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
+Keep catalog domain logic and protected file persistence in `aede-core`. Keep account and credential rules in `aede-accounts`, without a dependency on the catalog or HTTP. Keep network-player protocols and selected-original media transport in `aede-devices`, without a dependency on `aede-server`. Keep catalog HTTP routes, authorization and process-local sessions in `aede-server`. The CLI should orchestrate commands and presentation, not duplicate domain rules.
 
 ### Domain model
 

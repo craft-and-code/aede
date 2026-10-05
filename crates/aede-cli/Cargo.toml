@@ -23,6 +23,7 @@ fetch = ["aede-core/fetch"]
 # really does leave the library with no network code compiled in.
 aede-core = { path = "../aede-core", default-features = false }
 aede-dsp = { path = "../aede-dsp" }
+aede-devices = { path = "../aede-devices" }
 aede-server = { path = "../aede-server" }
 flaccompagnon-core = { workspace = true }
 

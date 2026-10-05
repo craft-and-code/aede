@@ -8,14 +8,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use axum::http::{HeaderMap, HeaderName, HeaderValue};
+use hyper::http::{HeaderMap, HeaderName, HeaderValue};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use super::DeviceTrack;
-use crate::subsonic::media::{content_type, requested_range};
+use crate::original::{content_type, requested_range};
 
 const MAX_TRACKS: usize = 64;
 const MAX_HEADER: usize = 8192;

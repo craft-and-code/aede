@@ -10,8 +10,9 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use aede_core::clock;
-use aede_core::tags::AudioProperties;
 use aede_core::user::EntityRef;
+use aede_devices::original::ByteRange;
+pub(super) use aede_devices::original::{content_type, suffix};
 use axum::body::Body;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
@@ -30,119 +31,9 @@ const AUTH_INTERVAL: Duration = Duration::from_secs(1);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 const SOURCE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The MIME type of original audio, independent of its private filesystem path.
-pub(crate) fn content_type(properties: &AudioProperties) -> &'static str {
-    match suffix(properties) {
-        "flac" => "audio/flac",
-        "mp3" => "audio/mpeg",
-        "ogg" | "opus" => "audio/ogg",
-        "wav" => "audio/wav",
-        "aiff" => "audio/aiff",
-        "m4a" => "audio/mp4",
-        "aac" => "audio/aac",
-        "wv" => "audio/wavpack",
-        _ => "application/octet-stream",
-    }
-}
-
-/// A conservative original-container suffix for the public song projection.
-pub(super) fn suffix(properties: &AudioProperties) -> &'static str {
-    let container = if properties.container.is_empty() {
-        properties.codec.as_str()
-    } else {
-        properties.container.as_str()
-    };
-    match container {
-        "flac" => "flac",
-        "mp3" => "mp3",
-        "ogg" => "ogg",
-        "opus" => "opus",
-        "wav" | "wave" => "wav",
-        "aiff" | "aif" => "aiff",
-        "mp4" | "m4a" | "m4b" => "m4a",
-        "aac" | "adts" => "aac",
-        "wavpack" | "wv" => "wv",
-        "ape" => "ape",
-        "dsf" => "dsf",
-        "dff" => "dff",
-        _ => "bin",
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ByteRange {
-    pub(crate) start: u64,
-    pub(crate) length: u64,
-    pub(crate) partial: bool,
-}
-
-pub(crate) fn requested_range(
-    headers: &HeaderMap,
-    size: u64,
-) -> Result<Option<ByteRange>, ProtocolError> {
-    let mut ranges = headers.get_all(header::RANGE).iter();
-    let range = ranges.next();
-    if ranges.next().is_some() {
-        return Err(ProtocolError::new(10, "Only one Range header is supported"));
-    }
-    let mut conditions = headers.get_all(header::IF_RANGE).iter();
-    let conditional = conditions.next().is_some();
-    if conditions.next().is_some() {
-        return Err(ProtocolError::new(
-            10,
-            "Only one If-Range header is supported",
-        ));
-    }
-    // No strong entity validator is published. An unrecognized If-Range
-    // cannot authorize appending bytes to a previously downloaded entity.
-    if conditional || range.is_none() {
-        return Ok(Some(ByteRange {
-            start: 0,
-            length: size,
-            partial: false,
-        }));
-    }
-    let value = range.and_then(|range| range.to_str().ok()).unwrap_or("");
-    Ok(parse_range(value, size))
-}
-
-fn parse_range(value: &str, size: u64) -> Option<ByteRange> {
-    let value = value.strip_prefix("bytes=")?;
-    let (start, end) = value.split_once('-')?;
-    if size == 0 || value.contains(',') {
-        return None;
-    }
-    let decimal = |value: &str| {
-        (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| value.parse::<u64>().ok())
-            .flatten()
-    };
-    let (start, end) = if start.is_empty() {
-        let suffix = decimal(end)?.min(size);
-        if suffix == 0 {
-            return None;
-        }
-        (size - suffix, size - 1)
-    } else {
-        let start = decimal(start)?;
-        if start >= size {
-            return None;
-        }
-        let end = if end.is_empty() {
-            size - 1
-        } else {
-            decimal(end)?.min(size - 1)
-        };
-        if end < start {
-            return None;
-        }
-        (start, end)
-    };
-    Some(ByteRange {
-        start,
-        length: end.checked_sub(start)?.checked_add(1)?,
-        partial: true,
-    })
+fn requested_range(headers: &HeaderMap, size: u64) -> Result<Option<ByteRange>, ProtocolError> {
+    aede_devices::original::requested_range(headers, size)
+        .map_err(|message| ProtocolError::new(10, message))
 }
 
 fn unavailable() -> ProtocolError {

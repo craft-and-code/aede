@@ -5,6 +5,12 @@
 //! The temporary media listener exposes only that selection, with a random
 //! session capability and a matching peer address. No transfer creates a listen
 //! or applies server DSP. Physical device compatibility needs real acceptance.
+//!
+//! [`discover`] and [`cast`] are blocking, explicit operations. They use their
+//! own bounded Tokio runtime; [`cast`] monitors Ctrl-C and reports listener
+//! addresses on standard output. This crate has no server API dependency or
+//! catalog/account mutation. See the crate README and device guide for LAN
+//! restrictions and the initial protocol profiles.
 
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
@@ -13,6 +19,8 @@ use aede_core::tags::AudioProperties;
 use tokio::sync::watch;
 
 mod media;
+/// Shared original-file MIME and HTTP byte-range policy, without API routes.
+pub mod original;
 mod slimproto;
 mod upnp;
 
@@ -31,7 +39,7 @@ pub enum DeviceProtocol {
 
 /// An original local audio file offered for this one casting session.
 #[derive(Clone, Debug)]
-pub(super) struct DeviceTrack {
+pub(crate) struct DeviceTrack {
     pub path: PathBuf,
     pub title: String,
     pub mime: &'static str,
@@ -56,7 +64,7 @@ pub struct CastOptions {
     pub volume: Option<u8>,
 }
 
-pub(super) fn validate_ip(ip: Ipv4Addr) -> Result<(), String> {
+pub(crate) fn validate_ip(ip: Ipv4Addr) -> Result<(), String> {
     if ip.is_unspecified()
         || ip.is_broadcast()
         || !(ip.is_private() || ip.is_loopback() || ip.is_link_local())
@@ -220,5 +228,9 @@ pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "mod_tests.rs"]
+#[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "test_support.rs"]
+mod test_support;

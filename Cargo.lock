@@ -21,6 +21,7 @@ name = "aede-cli"
 version = "0.4.0"
 dependencies = [
  "aede-core",
+ "aede-devices",
  "aede-dsp",
  "aede-server",
  "cpal",
@@ -45,6 +46,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aede-devices"
+version = "0.4.0"
+dependencies = [
+ "aede-core",
+ "hyper",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "aede-dsp"
 version = "0.4.0"
 dependencies = [
@@ -58,6 +69,7 @@ name = "aede-server"
 version = "0.4.0"
 dependencies = [
  "aede-core",
+ "aede-devices",
  "aede-dsp",
  "axum",
  "hyper",

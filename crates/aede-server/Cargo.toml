@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 aede-core = { path = "../aede-core", default-features = false }
 aede-dsp = { path = "../aede-dsp" }
+aede-devices = { path = "../aede-devices" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 axum = { workspace = true }

@@ -2,7 +2,7 @@
 
 use std::net::Ipv4Addr;
 
-use aede_server::devices::{CastOptions, DeviceProtocol};
+use aede_devices::{CastOptions, DeviceProtocol};
 
 use super::Res;
 use crate::args::Args;
@@ -60,7 +60,7 @@ pub fn devices(args: &Args) -> Res {
     if !args.positionals.is_empty() {
         return Err("aede devices only lists discovered LAN audio devices".into());
     }
-    let devices = aede_server::devices::discover(bind(args)?)?;
+    let devices = aede_devices::discover(bind(args)?)?;
     println!("{}", ui::section("Network audio devices"));
     if devices.is_empty() {
         println!("  no UPnP/OpenHome audio device answered on this interface");
@@ -85,7 +85,7 @@ pub fn cast(args: &Args) -> Res {
         "Casting {} selection occurrence(s); original audio, device decoding",
         paths.len()
     );
-    aede_server::devices::cast(options, paths).map_err(Into::into)
+    aede_devices::cast(options, paths).map_err(Into::into)
 }
 
 #[cfg(test)]

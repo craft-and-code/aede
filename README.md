@@ -32,6 +32,8 @@
 
 Account identities, roles and credentials live in the standalone [`aede-accounts`](crates/aede-accounts/README.md) crate. `aede-core` owns the music catalog, personal data and protected file persistence; `aede-server` exposes them through authenticated HTTP and audio routes. The separate `aede-dsp` library provides shared processing for decoded audio samples.
 
+[`aede-devices`](crates/aede-devices/README.md) owns explicit LAN discovery and the SlimProto, UPnP AVTransport and OpenHome Playlist controllers. The CLI calls it directly for `devices` and `cast`; it has no dependency on the server API. Subsonic/OpenSubsonic remains an authenticated client adapter in `aede-server`.
+
 Aède uses a two-tier parsing architecture. Mainstream, high-fidelity containers are parsed natively by custom, zero-panic Rust engines. Niche and legacy archival formats fall back gracefully to the audited `lofty` crate.
 
 | Container          | Codecs                    | Tag Standards                   | Duration Source               | Parser Tier          |

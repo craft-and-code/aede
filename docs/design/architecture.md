@@ -28,6 +28,12 @@ crates/
     src/clock.rs      the one unit of time the catalog stores
     schema.sql        a relational mirror of the model, kept as documentation
   aede-dsp/         reusable processing of decoded audio samples
+  aede-devices/     explicit LAN discovery and original-audio device controllers
+    src/lib.rs       public discovery/casting entry points and option validation
+    src/slimproto.rs SlimProto framing, format negotiation and finite playback
+    src/upnp.rs      SSDP, UPnP AVTransport and OpenHome Playlist control
+    src/media.rs     bounded, capability/peer-restricted original-file HTTP
+    src/original.rs  shared MIME, suffix and single-byte-range policy
   aede-server/      local HTTP/JSON/WebSocket API over aede-core
     src/lib.rs        module wiring and public entry points
     src/routing.rs    route registration
@@ -148,6 +154,8 @@ Two facts settle the shape of it when the time comes. `rusqlite` is not Rust: it
 `aede-core` uses `lofty` for tag formats whose parsers are not worth writing twice and `ureq` behind its `fetch` feature. [`aede-accounts`](../../crates/aede-accounts/README.md) owns account, role, password and API-key rules, using the already approved Argon2 and `serde_json` dependencies. It does not depend on `aede-core`: the core's account adapter retains protected filesystem access, atomic publication and backup integration, and bridges its existing JSON representation without changing persisted formats. The legacy personal owner is defined once by the account crate and reexported by the core.
 
 `aede-server` owns the HTTP/JSON/WebSocket dependencies (`axum`, `tokio`, `serde`, and `serde_json`) and process-local bearer sessions; `aede-cli` calls it to serve the catalog. `aede-dsp` is a separate crate for decoded sample processing, independent of the catalog and user interface. `tools/check.sh` builds with `--offline` so that a step which suddenly needs the network means a dependency was added without being discussed.
+
+[`aede-devices`](../../crates/aede-devices/README.md) owns LAN-player discovery, protocol/capability negotiation and the temporary selected-original media listener. The CLI calls this crate directly. It uses core tag inspection and the already approved Tokio/Serde/Hyper dependencies, without server routes, account sessions, catalog mutation or DSP. `aede-server` depends on its shared original-media policy for Subsonic MIME/range handling and reexports it as `aede_server::devices` for existing Rust callers; the device crate never depends on the server. Catalog selection and personal history remain in the core/CLI, while future authenticated device commands will authorize requests in the server before invoking the controller. A network transfer is not evidence of listening.
 
 Where an optional program can do the job instead of a crate, the program wins: **ffmpeg is driven as an external process** (`core/ffmpeg.rs`, `find()` and `missing(what)`), never linked. Operations that need it report its absence; local metadata browsing and image publication remain independent of it.
 

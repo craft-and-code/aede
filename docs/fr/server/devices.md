@@ -12,6 +12,8 @@ La sélection reprend celle de la lecture locale : fichier, dossier, M3U/M3U8, c
 
 Ce contrôleur temporaire est distinct de `aede serve` : il ne demande pas d’API déjà lancée et n’expose ni catalogue, comptes ni administration. Le registre permanent d’appareils et leur contrôle authentifié par une interface graphique viendront dans une étape suivante.
 
+Le crate autonome [`aede-devices`](../../../crates/aede-devices/README.md) implémente ces protocoles et leur distribution HTTP des originaux sélectionnés. Le Terminal l’appelle directement ; Subsonic/OpenSubsonic et les autorisations de comptes restent dans `aede-server`. Les deux transports partagent les mêmes règles de types MIME et de plages d’octets. Le chemin Rust existant `aede_server::devices` réexporte le nouveau crate, sans seconde implémentation.
+
 ## SlimProto
 
 Sur le serveur, choisir son interface et l’adresse du lecteur attendu :

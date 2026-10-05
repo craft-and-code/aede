@@ -12,6 +12,8 @@ The command reuses local playback selection: a file, folder, M3U/M3U8, collectio
 
 This temporary controller is separate from `aede serve`; it neither requires a running API nor exposes catalog, accounts or administration. Long-running authenticated device administration and graphical control will build on a later shared device registry.
 
+The standalone [`aede-devices`](../../crates/aede-devices/README.md) crate implements these protocols and their selected-original HTTP transport. The CLI calls it directly; Subsonic/OpenSubsonic and account authorization stay in `aede-server`. Both transports reuse one original-media MIME/range policy. The existing `aede_server::devices` Rust path remains a reexport of the new crate, without a second implementation.
+
 ## SlimProto
 
 On the server, explicitly choose its interface and the expected player's address:
