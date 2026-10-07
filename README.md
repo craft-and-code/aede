@@ -496,6 +496,7 @@ Complete guides to Aède's features and architecture:
 - [Querying Design](docs/design/querying.md) — Query engine architecture
 - [Lyrics Handling](docs/design/lyrics.md) — Lyrics ingestion and formatting
 - [Playback & Gapless Audio](docs/design/playback.md) — Precise sample-accurate playback
+- [Transparent Playback & Bit-Perfect Contract](docs/design/bit-perfect.md) — Integer source decoding, future playback policies and separate digital-output acceptance
 - [DSP Product Proposal](docs/design/dsp-product-proposal.md) — Free and Premium processing priorities and research sources
 - [Release Identification](docs/design/identification.md) — Matching releases to recordings
 - [Annotations Design](docs/design/annotations.md) — User metadata model

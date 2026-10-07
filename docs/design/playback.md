@@ -1,5 +1,7 @@
 # Playback (M3)
 
+The [transparent playback and bit-perfect contract](bit-perfect.md) defines the next local-output design and initial acceptance scope. Its separate integer source API is implemented, but it is not connected to the player/output and changes none of the current behavior described below.
+
 ## Code ownership
 
 | Crate | Responsibility |
@@ -102,6 +104,18 @@ Track genres take precedence. Release genres supply fallback only for non-compil
 The planner draws from bounded candidate pools near the current genres and applies soft penalties for recently played artists, albums and repeated track identities. Limited lookahead favors an available onward step. Every occurrence remains eligible and is played once per cycle. Missing, exhausted or unavailable bridge tracks can force a stylistic break; the report distinguishes such planned breaks from transitions whose tags are unknown. With no usable genres, smart reports the lack of evidence and uses uniform order.
 
 There is no promise that every transition stays below a fixed distance, no timed widening or forced drift, and no global route-optimality guarantee. The bounded graph and candidates avoid a full all-track distance matrix; prepared metadata is reused across cycles. The [play manual's Expert section](../cli/play.md) is the single reference for smart version 1's graph bounds, evidence rules, weighting, seeded sampling and reproducibility limits.
+
+## Decision: keep direct CPAL output rather than introduce Rodio
+
+Aède uses Symphonia for decoding and CPAL for native local output; it does not depend on Rodio. Keep that separation and the shared `aede-dsp`/`PcmSession` processing path rather than replacing playback orchestration with Rodio at this stage.
+
+Rodio is a higher-level playback library over CPAL, with source adapters, queues, transport controls, mixing and optional decoding through Symphonia. It could simplify a general-purpose player, but Aède already owns these responsibilities where it needs explicit contracts: exact playable-frame bounds, FLAC verification before float conversion, continuous processing across compatible tracks, cancellation/seeking, bounded callback work, diagnostics and occurrence-aware listening history. The native server PCM route also needs the same processing independently of a local output device. Rodio would not replace the catalog, normalization policy or remote acknowledgement rules. See [Rodio's documentation](https://docs.rs/rodio/0.22.2/rodio/).
+
+The existing DSP already delegates its main algorithms to specialized libraries: Rubato for bandlimited rate conversion, biquad for tone filters and ebur128 for loudness/true-peak measurements. Rodio's documented 0.22.2 `SampleRateConverter` uses linear interpolation for upsampling and sample dropping for downsampling, and warns of possible distortion. Replacing Rubato with that converter would not meet our existing rate-quality contract. This is a version-specific comparison, not a claim about all future Rodio implementations; see its [converter documentation](https://docs.rs/rodio/0.22.2/rodio/conversions/struct.SampleRateConverter.html).
+
+Direct CPAL use is not itself a bit-perfect guarantee. The current `f32` decoding contract, float-first output negotiation, integer dither and possible system/device processing still require a separate transparent-output design and validation. Adding Rodio would not remove those requirements. No measured performance advantage is claimed for either architecture without a matched benchmark.
+
+Reconsider Rodio only if a focused prototype demonstrates a material maintenance or portability benefit while preserving these behavioral contracts, shared local/server processing, numerical quality and bounded real-time work. Evaluate the selected version's conversions, dependency tree and minimum Rust version before any migration. This decision adds no dependency and changes no current playback defaults.
 
 ## Volume, and position
 

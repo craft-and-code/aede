@@ -11,8 +11,9 @@ use std::path::Path;
 
 use aede_dsp::ChannelLayout;
 use flaccompagnon_core::AnalysisError;
-use symphonia::core::audio::{SampleBuffer, SignalSpec};
+use symphonia::core::audio::{AudioBufferRef, SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{CODEC_TYPE_FLAC, Decoder, DecoderOptions};
+use symphonia::core::conv::ConvertibleSample;
 use symphonia::core::errors::Error as SymError;
 use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::{MediaSource, MediaSourceStream};
@@ -21,16 +22,20 @@ use symphonia::core::probe::Hint;
 
 use super::{Error, FlacMd5Status};
 
-pub(super) struct FlacStream {
+pub(super) type FlacStream = FlacDecoder<f32>;
+pub(super) type IntegerFlacStream = FlacDecoder<i32>;
+
+pub(super) struct FlacDecoder<S: ConvertibleSample> {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
     track_id: u32,
     spec: SignalSpec,
-    buffer: Option<SampleBuffer<f32>>,
+    buffer: Option<SampleBuffer<S>>,
     declared_frames: Option<u64>,
     decoded_frames: u64,
     bits_per_sample: u32,
     native_container: bool,
+    integer_output: bool,
     status: FlacMd5Status,
     finished: bool,
     failure: Option<String>,
@@ -39,14 +44,18 @@ pub(super) struct FlacStream {
     pub layout: ChannelLayout,
 }
 
-impl FlacStream {
+impl<S: ConvertibleSample> FlacDecoder<S> {
     pub fn open(path: &Path) -> Result<Option<Self>, Error> {
         catch_unwind(AssertUnwindSafe(|| Self::open_inner(path)))
             .unwrap_or_else(|_| Err(decode_error("FLAC decoder rejected a malformed header")))
     }
 
     fn open_inner(path: &Path) -> Result<Option<Self>, Error> {
-        let mut file = File::open(path).map_err(decode_error)?;
+        let file = File::open(path).map_err(decode_error)?;
+        Self::open_file_inner(file, path.extension().and_then(|value| value.to_str()))
+    }
+
+    fn open_file_inner(mut file: File, extension: Option<&str>) -> Result<Option<Self>, Error> {
         let mut magic = [0; 4];
         match file.read_exact(&mut magic) {
             Ok(()) => {}
@@ -68,7 +77,7 @@ impl FlacStream {
         };
         let source = MediaSourceStream::new(input, Default::default());
         let mut hint = Hint::new();
-        if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
+        if let Some(extension) = extension {
             hint.with_extension(extension);
         }
         let probed = match symphonia::default::get_probe().format(
@@ -126,6 +135,7 @@ impl FlacStream {
             decoded_frames: 0,
             bits_per_sample,
             native_container,
+            integer_output: false,
             status: if has_signature {
                 FlacMd5Status::Pending
             } else {
@@ -143,7 +153,7 @@ impl FlacStream {
         self.status
     }
 
-    pub fn next_chunk(&mut self) -> Result<Option<Vec<f32>>, Error> {
+    pub fn next_chunk(&mut self) -> Result<Option<Vec<S>>, Error> {
         if self.status == FlacMd5Status::Mismatch {
             return Err(Error::FlacMd5Mismatch);
         }
@@ -168,7 +178,7 @@ impl FlacStream {
         result
     }
 
-    fn next_chunk_inner(&mut self) -> Result<Option<Vec<f32>>, Error> {
+    fn next_chunk_inner(&mut self) -> Result<Option<Vec<S>>, Error> {
         let packet = match self.format.next_packet() {
             Ok(packet) => packet,
             Err(SymError::IoError(error)) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
@@ -218,6 +228,24 @@ impl FlacStream {
         if *decoded.spec() != self.spec {
             return Err(Error::InvalidFormat);
         }
+        // The pinned FLAC codec emits S32 with valid bits left-aligned. Never
+        // let its integer adapter silently quantize a future floating result.
+        if self.integer_output {
+            let AudioBufferRef::S32(samples) = &decoded else {
+                return Err(Error::InvalidFormat);
+            };
+            use symphonia::core::audio::Signal;
+            let padding_mask = (1_u32 << (32 - self.bits_per_sample)) - 1;
+            for channel in 0..usize::from(self.channels) {
+                if samples
+                    .chan(channel)
+                    .iter()
+                    .any(|sample| (*sample as u32) & padding_mask != 0)
+                {
+                    return Err(Error::InvalidFormat);
+                }
+            }
+        }
         let frames = decoded.frames() as u64;
         if frames == 0 || packet.dur != frames || packet.trim_start != 0 || packet.trim_end != 0 {
             return Err(decode_error(
@@ -247,7 +275,7 @@ impl FlacStream {
         Ok(Some(buffer.samples().to_vec()))
     }
 
-    fn finish(&mut self) -> Result<Option<Vec<f32>>, Error> {
+    fn finish(&mut self) -> Result<Option<Vec<S>>, Error> {
         if self
             .declared_frames
             .is_some_and(|expected| self.decoded_frames != expected)
@@ -272,6 +300,31 @@ impl FlacStream {
         }
         self.finished = true;
         Ok(None)
+    }
+}
+
+impl IntegerFlacStream {
+    /// Reuse native FLAC validation on the same descriptor used for admission.
+    pub(super) fn open_integer(file: File) -> Result<Self, Error> {
+        let stream = catch_unwind(AssertUnwindSafe(|| Self::open_file_inner(file, None)))
+            .unwrap_or_else(|_| Err(decode_error("FLAC decoder rejected a malformed header")))?;
+        let mut stream = stream.ok_or(Error::UnsupportedIntegerSource(
+            "integer playback requires native FLAC or PCM WAV",
+        ))?;
+        if !stream.native_container
+            || !matches!(stream.bits_per_sample, 16 | 24)
+            || !matches!(stream.layout, ChannelLayout::MONO | ChannelLayout::STEREO)
+        {
+            return Err(Error::UnsupportedIntegerSource(
+                "integer FLAC playback requires native 16/24-bit mono or stereo",
+            ));
+        }
+        stream.integer_output = true;
+        Ok(stream)
+    }
+
+    pub(super) fn bits_per_sample(&self) -> u32 {
+        self.bits_per_sample
     }
 }
 

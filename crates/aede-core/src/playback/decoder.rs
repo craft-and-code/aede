@@ -2,6 +2,8 @@
 //!
 //! The decoder yields complete, finite, interleaved `f32` frames in the
 //! source sample rate and channel layout. It does not own an audio device.
+//! [`IntegerFileDecoder`] separately preserves source-depth integer PCM for
+//! native 16/24-bit mono/stereo FLAC and WAV, without changing that float API.
 
 use std::fmt;
 use std::io::Read;
@@ -19,7 +21,11 @@ use symphonia::core::probe::Hint;
 
 mod flac;
 mod flac_source;
+mod integer;
+mod integer_wav;
 mod vorbis;
+
+pub use integer::IntegerFileDecoder;
 
 /// Verification of a FLAC's original integer PCM against its stored MD5.
 ///
@@ -61,6 +67,8 @@ pub enum Error {
     SeekCancelled,
     /// The completely decoded FLAC audio disagrees with its STREAMINFO MD5.
     FlacMd5Mismatch,
+    /// The source lies outside the initial exact integer PCM profile.
+    UnsupportedIntegerSource(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -79,6 +87,7 @@ impl fmt::Display for Error {
             Self::FlacMd5Mismatch => {
                 f.write_str("decoded FLAC audio does not match its STREAMINFO MD5")
             }
+            Self::UnsupportedIntegerSource(reason) => f.write_str(reason),
         }
     }
 }

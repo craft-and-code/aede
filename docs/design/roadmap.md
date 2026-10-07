@@ -66,6 +66,8 @@ RAAT and "Roon Ready" certification remain out of scope: no supported integratio
 
 ## Notes towards what comes next
 
+The [transparent playback and bit-perfect contract](bit-perfect.md) defines a local native FLAC/WAV integer 16/24-bit mono/stereo baseline, three playback policies and separate software/digital-output acceptance. Step 2 implements typed source decoding and its metadata/validation; integration, strict output eligibility and the proposed without-effects default remain work. Current playback defaults and native PCM v1 stay unchanged.
+
 The remaining player designs are in [Playback](playback.md); missing adapter surfaces are in the [Subsonic/OpenSubsonic guide](../server/subsonic.md#remaining-compatibility-work). Target-device and physical signal acceptance are tracked in the [DSP review](../coding/dsp-review.md#remaining-work-in-priority-order).
 
 Listening-time limits and administrator-controlled album visibility are discussed extensions, without an implemented policy yet. They must be enforced by the server if adopted. Browser/mobile interfaces and external-service sign-in remain separate design work. The [DSP product proposal](dsp-product-proposal.md) retains optional Premium effects as research, with no approved pricing, release date or implementation promise.
