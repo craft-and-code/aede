@@ -496,7 +496,7 @@ Complete guides to Aède's features and architecture:
 - [Querying Design](docs/design/querying.md) — Query engine architecture
 - [Lyrics Handling](docs/design/lyrics.md) — Lyrics ingestion and formatting
 - [Playback & Gapless Audio](docs/design/playback.md) — Precise sample-accurate playback
-- [Transparent Playback & Bit-Perfect Contract](docs/design/bit-perfect.md) — Integer source decoding, future playback policies and separate digital-output acceptance
+- [Transparent Playback & Bit-Perfect Contract](docs/design/bit-perfect.md) — Integer source decoding, local playback policies and separate digital-output acceptance
 - [DSP Product Proposal](docs/design/dsp-product-proposal.md) — Free and Premium processing priorities and research sources
 - [Release Identification](docs/design/identification.md) — Matching releases to recordings
 - [Annotations Design](docs/design/annotations.md) — User metadata model
@@ -516,6 +516,7 @@ Complete guides to Aède's features and architecture:
 - [Audio DSP Comparison](docs/coding/dsp-comparison.md) — Aède/FlacCompagnon responsibilities, measured differences and safe sharing candidates
 - [Network Audio Devices](docs/server/devices.md) — Initial SlimProto, UPnP AV, OpenHome and Google Cast profiles and acceptance limits
 - [Gapless Measurement](docs/coding/gapless-measurement.md) — Whole/split probes, physical capture and bounded idle/load trials
+- [Bit-Perfect Acceptance](docs/coding/bit-perfect-acceptance.md) — Independent PCM references, native ALSA trials and exact digital-capture comparison
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check

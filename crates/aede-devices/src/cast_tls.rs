@@ -17,7 +17,7 @@ pub(super) fn parse_pin(value: &str) -> Result<[u8; 32], String> {
         return Err("--device-certificate needs exactly 64 SHA-256 hexadecimal digits".into());
     }
     let mut pin = [0; 32];
-    for (pair, output) in value.as_bytes().chunks_exact(2).zip(&mut pin) {
+    for (pair, output) in value.as_bytes().as_chunks::<2>().0.iter().zip(&mut pin) {
         let high = (pair[0] as char)
             .to_digit(16)
             .ok_or("invalid certificate pin")?;

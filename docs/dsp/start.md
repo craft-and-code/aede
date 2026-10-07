@@ -2,6 +2,20 @@
 
 DSP means **digital signal processing**: calculations on the sound during playback. Aède's current DSP changes the playback stream, never the original file or its tags. It does not replace the listening-volume control. Local `aede play` defaults to without-effects; `--playback=dsp` or explicit non-neutral effects selects shared processing. Its strict bit-perfect policy instead uses typed source samples and an exact bypass. The authenticated native PCM route keeps its separate processed-PCM contract.
 
+## Three local playback modes
+
+The diagrams show synthetic PCM samples, not a measurement of a device. They describe local `aede play`; network clients retain their separate playback contracts.
+
+| Mode | Signal illustration | Behavior |
+| --- | --- | --- |
+| **Without effects** — default, `without-effects` | ![Uncorrected samples; output adaptation remains possible.](../../site/assets/audio/without-effects.svg) | No selected normalization or tone correction. Prefer the source rate and exact samples; report necessary rate, channel or precision adaptation. This is not a strict bit-perfect guarantee. |
+| **Strict bit-perfect** — `bit-perfect` | ![Identical PCM values, rate and channel order on the strict software path.](../../site/assets/audio/bit-perfect.svg) | Preserve the admitted source samples without modifying stages. Refuse incompatible sources or outputs; require an explicit output device. |
+| **DSP** — `dsp` | ![Level and tone processing intentionally change the PCM samples.](../../site/assets/audio/dsp.svg) | Apply normalization and chosen tone settings, with headroom, output protection and conversion as needed. Leave original files untouched. |
+
+The initial strict profile accepts native FLAC and integer PCM WAV, 16/24-bit mono/stereo, through direct ALSA on glibc Linux. macOS and Windows are currently refused in strict mode. The software path is implemented and tested; native Linux build/runtime checks and a real digital-return comparison remain pending. See [playback policies and strict output](../cli/play.md#playback-policies-and-strict-output) for commands, discovery and limitations.
+
+Present FLAC audio MD5 is checked in **all three modes**, on original decoded integers before any DSP. Its verdict requires complete decoding and does not certify the device output; follow [the MD5 diagram and verification states](../integrity.md#flac-audio-md5-during-playback).
+
 ## Follow a sample from file to output
 
 1. The decoder turns compressed/file audio into PCM: a sequence of numerical samples. Each frame contains one sample per channel; stereo has left and right together.

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 496" fill="none">
+  <rect width="360" height="496" rx="16" fill="#171b20"/>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="m1 1 7 4-7 4" fill="none" stroke="#8b9aa5" stroke-width="1.5"/></marker></defs>
+  <g stroke="#8b9aa5" stroke-width="2" marker-end="url(#arrow)"><path d="M148 61h64M83 98v110M278 98v110M278 134H160v74M98 308v92M278 282v118"/></g>
+  <g fill="#1e252b" stroke="#3a4852"><rect x="18" y="24" width="130" height="74" rx="12"/><rect x="214" y="24" width="128" height="74" rx="12"/><rect x="18" y="208" width="160" height="100" rx="12"/><rect x="214" y="208" width="128" height="74" rx="12"/><rect x="18" y="400" width="160" height="74" rx="12"/><rect x="214" y="400" width="128" height="74" rx="12"/></g>
+  <g font-family="monospace" text-anchor="middle" fill="#f1f0eb" font-size="19"><text x="83" y="68">FLAC</text><text x="278" y="56">PCM</text><text x="98" y="242">MD5</text><text x="278" y="252">DSP / ∅</text><text x="98" y="458">EOF</text><text x="278" y="444">→ DAC</text></g>
+  <g font-family="monospace" text-anchor="middle" fill="#49d9ff" font-size="13"><text x="278" y="79">i16 / i24 / …</text><text x="80" y="185">STREAMINFO</text><text x="98" y="281">a83c… / a83c…</text></g>
+  <path d="M86 421h24m-24 10h24" stroke="#49d9ff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="83" cy="145" r="5" fill="#d8f36a"/><circle cx="160" cy="170" r="5" fill="#49d9ff"/>
+</svg>

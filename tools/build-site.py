@@ -376,6 +376,9 @@ def rewrite_link(href: str, source: str, output: str, language: str, pages: list
         return relative(output, destination) + ("?" + parsed.query if parsed.query else "") + ("#" + fragment if fragment else "")
     if file.endswith(".md") or target.startswith(("docs/design/", "docs/coding/", "crates/")) or target in ("README.md", "CLAUDE.md", "LICENSE", "schema.sql"):
         return REPOSITORY + f"/blob/{REPOSITORY_BRANCH}/" + quote(target, safe="/") + ("#" + parsed.fragment if parsed.fragment else "")
+    if target.startswith("site/assets/") and (root / target).is_file():
+        # These assets are already published with the home template; guides share them.
+        return relative(output, target.removeprefix("site/")) + ("#" + parsed.fragment if parsed.fragment else "")
     if (root / target).is_file():
         return relative(output, "source-assets/" + target) + ("#" + parsed.fragment if parsed.fragment else "")
     return href
@@ -496,7 +499,7 @@ def localize_home(source: str, translations: dict, language: str) -> str:
             def attr(match):
                 raw = html.unescape(match[2])
                 return match[1] + '="' + esc(values.get(raw, raw)) + '"'
-            piece = re.sub(r'\b(title|aria-label|placeholder|content)="([^"]*)"', attr, piece)
+            piece = re.sub(r'\b(title|aria-label|alt|placeholder|content)="([^"]*)"', attr, piece)
             pieces[index] = piece
         elif skipped == "script" and json_script:
             try:

@@ -284,9 +284,16 @@ def io_load(stop, deadline, directory):
                         return
 
 
-def run(directory, binary, whole=False, workers=0, io=False, timeout=30, bass=0, treble=0):
+def run(directory, binary, whole=False, workers=0, io=False, timeout=30, bass=0, treble=0,
+        policy=None, device=None):
     if not 0 <= workers <= 8 or not 5 <= timeout <= 90 or not -12 <= bass <= 12 or not -12 <= treble <= 12:
         raise ValueError("use 0..8 CPU workers, timeout 5..90 seconds and tone -12..12 dB")
+    if policy not in (None, "without-effects", "bit-perfect", "dsp"):
+        raise ValueError("unknown playback policy")
+    if policy in ("without-effects", "bit-perfect") and (bass or treble):
+        raise ValueError("the selected playback policy requires flat tone")
+    if policy == "bit-perfect" and not device:
+        raise ValueError("strict measurement requires an explicit output device")
     directory, binary = Path(directory).resolve(), Path(binary).resolve()
     if not binary.is_file() or not (directory / "manifest.json").is_file():
         raise ValueError("a prepared directory and built Aède binary are required")
@@ -302,6 +309,10 @@ def run(directory, binary, whole=False, workers=0, io=False, timeout=30, bass=0,
     deadline = started + timeout + 2
     command = [str(binary), "--data", str(directory / f"data-{label}"), "--no-color", "play",
                str(source), "--normalize", "off", "--bass", str(bass), "--treble", str(treble)]
+    if policy is not None:
+        command += ["--playback", policy]
+    if device is not None:
+        command += ["--output-device", device]
     # A delegated CLI child's forced directory outranks --data. Do not inherit it
     # (or delegated terminal flags) into a measurement's isolated history store.
     environment = {key: value for key, value in os.environ.items() if not key.startswith("AEDE_DELEGATED_")}
@@ -310,6 +321,8 @@ def run(directory, binary, whole=False, workers=0, io=False, timeout=30, bass=0,
                "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                "cpu_workers": workers, "io_load": io, "timeout_seconds": timeout,
                "selection": "whole" if whole else "split", "bass_db": bass, "treble_db": treble,
+               "playback_policy": policy or ("dsp" if bass or treble else "without-effects"),
+               "output_device": device,
                "backend": "native", "physical_capture": "external; not established by this runner"}
     load_files = tempfile.TemporaryDirectory(prefix="aede-gapless-load-")
     try:
@@ -379,6 +392,8 @@ def main():
     exercise.add_argument("--timeout", type=float, default=30)
     exercise.add_argument("--bass", type=float, default=0)
     exercise.add_argument("--treble", type=float, default=0)
+    exercise.add_argument("--playback", choices=("without-effects", "bit-perfect", "dsp"))
+    exercise.add_argument("--output-device", help="explicit host-qualified native device ID")
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -396,7 +411,7 @@ def main():
                                                           "all_joins_within_tolerance")}, indent=2))
             return 0 if result["all_joins_within_tolerance"] else 1
         result = run(args.directory, args.binary, args.whole, args.cpu_workers, args.io_load,
-                     args.timeout, args.bass, args.treble)
+                     args.timeout, args.bass, args.treble, args.playback, args.output_device)
         print(json.dumps(result, indent=2))
         return 0 if result.get("returncode") == 0 else 1
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, wave.Error) as error:

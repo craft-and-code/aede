@@ -36,3 +36,14 @@ Strict output treats programme underruns, route changes and unknown output error
 Final drain and output-format changes keep transport controls usable. Native drain treats five seconds without consumed-frame progress as an error. Ordinary CPAL adds an approximately 100 ms host allowance in active time, not while paused; direct ALSA uses reported hardware delay and successful nonblocking drain instead. Neither is physical proof that a sample emerged from the DAC. These limits do not certify latency, seamless joins or NAS performance.
 
 If playback fails, keep its diagnostic message, verify backend dependencies and file/layout compatibility, and compare with flat tone/normalization off. Do not delete original files or data stores to repair an audio-device error. [Continuity](continuity.md) separates tested PCM joins from unmeasured physical playback.
+
+## Bit-perfect acceptance evidence
+
+| Check | Evidence and current scope |
+| --- | --- |
+| FLAC source MD5 and independent PCM reference | A present FLAC audio digest is compared at complete source EOF. An independent PCM reference supplies the source oracle for FLAC/WAV tests; WAV has no FLAC digest. Neither alone validates downstream output. |
+| Exact adapters, queue and transport tests | Establish software sample/frame behavior for the implemented scope. Simulations and synthetic captures do not establish native Linux or hardware behavior. |
+| Native Linux compile, link and playback | Must run on the actual GNU/Linux host and direct ALSA device. Synthetic Linux-configuration API checks are insufficient; native acceptance remains pending. |
+| Complete digital capture comparison | Requires exact programme samples after documented packing/widening and one fixed latency offset, with route/format/load records. Actual hardware capture acceptance remains pending. |
+
+The [strict acceptance protocol](../coding/bit-perfect-acceptance.md) defines the reference, capture provenance, trial matrix and retained evidence. A software loopback validates its observed software path; a hardware digital return validates only its recorded boundary. Do not use analogue correlation, gain fitting, resampling, drift correction or a sample-error tolerance to turn a difference into an identity pass. Accept only the route/settings and format cells actually measured.

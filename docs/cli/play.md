@@ -63,6 +63,8 @@ Strict Pause requires hardware pause without discarding programme frames. If the
 
 A present FLAC audio MD5 is checked during decoding in all three policies, independently of the sink. Its verdict becomes final only at complete source EOF, before a successful source completion. A missing digest remains unknown; the check is not a continuous comparison with the DAC. See [playback integrity](../integrity.md#flac-audio-md5-during-playback).
 
+To validate a route, follow the [strict acceptance protocol](../coding/bit-perfect-acceptance.md) and retain its source, native-platform and digital-capture evidence separately. The [output guide](../dsp/output.md#bit-perfect-acceptance-evidence) summarizes what each check establishes. A synthetic comparison or a software loopback is not a hardware DAC verdict.
+
 ## Examples
 
 ```sh

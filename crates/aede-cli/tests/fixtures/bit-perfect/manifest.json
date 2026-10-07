@@ -1,0 +1,222 @@
+{
+  "reference_encoder": "flac 1.5.0",
+  "frames": 4233,
+  "sources": [
+    {
+      "file": "pcm-16-1-44100.flac",
+      "bits": 16,
+      "channels": 1,
+      "rate": 44100,
+      "pcm_sha256": "cae1b90ad427db540b43658b739a405072655d5f8ea009f6387bcf6fad248ad7",
+      "pcm_md5": "0f72bb50d38ebff666b7430a026613a5",
+      "file_sha256": "0b9b7257fb4ada5ed5ba1e072510bf8ceb59c640b42d7aa3e834603a62a55755"
+    },
+    {
+      "file": "pcm-16-1-48000.flac",
+      "bits": 16,
+      "channels": 1,
+      "rate": 48000,
+      "pcm_sha256": "cae1b90ad427db540b43658b739a405072655d5f8ea009f6387bcf6fad248ad7",
+      "pcm_md5": "0f72bb50d38ebff666b7430a026613a5",
+      "file_sha256": "b305d82e4a0bb721b60a56639bcae40b65c90db607ebb1ab79b65efac04ab8a1"
+    },
+    {
+      "file": "pcm-16-1-88200.flac",
+      "bits": 16,
+      "channels": 1,
+      "rate": 88200,
+      "pcm_sha256": "cae1b90ad427db540b43658b739a405072655d5f8ea009f6387bcf6fad248ad7",
+      "pcm_md5": "0f72bb50d38ebff666b7430a026613a5",
+      "file_sha256": "56e74b1a60bc731bbb325152d3cde21c63d1a44b92a5d975a949ecaacbcd9049"
+    },
+    {
+      "file": "pcm-16-1-96000.flac",
+      "bits": 16,
+      "channels": 1,
+      "rate": 96000,
+      "pcm_sha256": "cae1b90ad427db540b43658b739a405072655d5f8ea009f6387bcf6fad248ad7",
+      "pcm_md5": "0f72bb50d38ebff666b7430a026613a5",
+      "file_sha256": "16a77ae2e90b61ccf97701d0081ba3fb2cbf76268532088261db28e2e68745c3"
+    },
+    {
+      "file": "pcm-16-1-176400.flac",
+      "bits": 16,
+      "channels": 1,
+      "rate": 176400,
+      "pcm_sha256": "cae1b90ad427db540b43658b739a405072655d5f8ea009f6387bcf6fad248ad7",
+      "pcm_md5": "0f72bb50d38ebff666b7430a026613a5",
+      "file_sha256": "35b6a2d67fb548e44cc0c058b5fb5a156f66ff345f19e4153b59d510f1256ec7"
+    },
+    {
+      "file": "pcm-16-1-192000.flac",
+      "bits": 16,
+      "channels": 1,
+      "rate": 192000,
+      "pcm_sha256": "cae1b90ad427db540b43658b739a405072655d5f8ea009f6387bcf6fad248ad7",
+      "pcm_md5": "0f72bb50d38ebff666b7430a026613a5",
+      "file_sha256": "f24fc390fae657cdc8b17a44b9780f2cb73c594ac231d4ce98fc0c41919ba1a6"
+    },
+    {
+      "file": "pcm-16-2-44100.flac",
+      "bits": 16,
+      "channels": 2,
+      "rate": 44100,
+      "pcm_sha256": "31bf0c9b6da3ec3dd2bb9218a0ebd87f4db42bcaf7b97018270977f29f2e1c53",
+      "pcm_md5": "403b8ada211ec285492f6adb86370a5a",
+      "file_sha256": "a9a85c9ad57cc75f269350b226089de706b253af12c62227dca99b25c82601d4"
+    },
+    {
+      "file": "pcm-16-2-48000.flac",
+      "bits": 16,
+      "channels": 2,
+      "rate": 48000,
+      "pcm_sha256": "31bf0c9b6da3ec3dd2bb9218a0ebd87f4db42bcaf7b97018270977f29f2e1c53",
+      "pcm_md5": "403b8ada211ec285492f6adb86370a5a",
+      "file_sha256": "09124e7a040b077d725cd48ec14791f94adbdb6f5645e30582c11eb4a2445552"
+    },
+    {
+      "file": "pcm-16-2-88200.flac",
+      "bits": 16,
+      "channels": 2,
+      "rate": 88200,
+      "pcm_sha256": "31bf0c9b6da3ec3dd2bb9218a0ebd87f4db42bcaf7b97018270977f29f2e1c53",
+      "pcm_md5": "403b8ada211ec285492f6adb86370a5a",
+      "file_sha256": "d016bab425dbf65548aa5838f90c9948df4a969e1b72ed8b6f56136f2cad2ba3"
+    },
+    {
+      "file": "pcm-16-2-96000.flac",
+      "bits": 16,
+      "channels": 2,
+      "rate": 96000,
+      "pcm_sha256": "31bf0c9b6da3ec3dd2bb9218a0ebd87f4db42bcaf7b97018270977f29f2e1c53",
+      "pcm_md5": "403b8ada211ec285492f6adb86370a5a",
+      "file_sha256": "5d35b70a085b63a1128dc330549d5d7c626d5475aa0e70ab5b9715765f7188fa"
+    },
+    {
+      "file": "pcm-16-2-176400.flac",
+      "bits": 16,
+      "channels": 2,
+      "rate": 176400,
+      "pcm_sha256": "31bf0c9b6da3ec3dd2bb9218a0ebd87f4db42bcaf7b97018270977f29f2e1c53",
+      "pcm_md5": "403b8ada211ec285492f6adb86370a5a",
+      "file_sha256": "e158ff76a9c0a382523741316f184e396ee8e0783ebea2c3a7fce70810c6e679"
+    },
+    {
+      "file": "pcm-16-2-192000.flac",
+      "bits": 16,
+      "channels": 2,
+      "rate": 192000,
+      "pcm_sha256": "31bf0c9b6da3ec3dd2bb9218a0ebd87f4db42bcaf7b97018270977f29f2e1c53",
+      "pcm_md5": "403b8ada211ec285492f6adb86370a5a",
+      "file_sha256": "74db64206a4b0a969dcb72b7f9d44197bb4592107404b58cb61b42d99769e031"
+    },
+    {
+      "file": "pcm-24-1-44100.flac",
+      "bits": 24,
+      "channels": 1,
+      "rate": 44100,
+      "pcm_sha256": "e368ef63314f03085e592832ef1c09e71aec612019525422ff877153f7de95aa",
+      "pcm_md5": "cac657c3aacfd2ae23b6563da42ff1ca",
+      "file_sha256": "cec5cce5ec93d4ca6019a5a3ac79cb7a8bdfe59e3f7c3028f84e6aae3410f0d4"
+    },
+    {
+      "file": "pcm-24-1-48000.flac",
+      "bits": 24,
+      "channels": 1,
+      "rate": 48000,
+      "pcm_sha256": "e368ef63314f03085e592832ef1c09e71aec612019525422ff877153f7de95aa",
+      "pcm_md5": "cac657c3aacfd2ae23b6563da42ff1ca",
+      "file_sha256": "899988757753fd3af534953e4fddf2e7e684081cd1f148f04b3488f71f50cae7"
+    },
+    {
+      "file": "pcm-24-1-88200.flac",
+      "bits": 24,
+      "channels": 1,
+      "rate": 88200,
+      "pcm_sha256": "e368ef63314f03085e592832ef1c09e71aec612019525422ff877153f7de95aa",
+      "pcm_md5": "cac657c3aacfd2ae23b6563da42ff1ca",
+      "file_sha256": "9e5e1ada0fe14299c92b3ae4890f203df625f35741499996335a8dea43e4d666"
+    },
+    {
+      "file": "pcm-24-1-96000.flac",
+      "bits": 24,
+      "channels": 1,
+      "rate": 96000,
+      "pcm_sha256": "e368ef63314f03085e592832ef1c09e71aec612019525422ff877153f7de95aa",
+      "pcm_md5": "cac657c3aacfd2ae23b6563da42ff1ca",
+      "file_sha256": "9d435c5fce413e22d94401d0e5237ccb57eb5ecb1b8dade04ab571a2d92717ed"
+    },
+    {
+      "file": "pcm-24-1-176400.flac",
+      "bits": 24,
+      "channels": 1,
+      "rate": 176400,
+      "pcm_sha256": "e368ef63314f03085e592832ef1c09e71aec612019525422ff877153f7de95aa",
+      "pcm_md5": "cac657c3aacfd2ae23b6563da42ff1ca",
+      "file_sha256": "d6d9abcdf736094ef191f49a5c19de145d101b1b9961cc9e11f0259609f22822"
+    },
+    {
+      "file": "pcm-24-1-192000.flac",
+      "bits": 24,
+      "channels": 1,
+      "rate": 192000,
+      "pcm_sha256": "e368ef63314f03085e592832ef1c09e71aec612019525422ff877153f7de95aa",
+      "pcm_md5": "cac657c3aacfd2ae23b6563da42ff1ca",
+      "file_sha256": "cf19dc9f1ffb655ddbb397056cfb72760ee3ad883e757577e65d8bef2a19a66a"
+    },
+    {
+      "file": "pcm-24-2-44100.flac",
+      "bits": 24,
+      "channels": 2,
+      "rate": 44100,
+      "pcm_sha256": "21f63f5e2b662dc8987ca1b1246505b0c4664e56fc3899cc37073d09bb7c6d77",
+      "pcm_md5": "ade3b80b3c775e90d1487e0720b6a3de",
+      "file_sha256": "eb8f5e82b938275c57cbe0adebe0fd2d47e53bed66020bfdc35ba27d723bb883"
+    },
+    {
+      "file": "pcm-24-2-48000.flac",
+      "bits": 24,
+      "channels": 2,
+      "rate": 48000,
+      "pcm_sha256": "21f63f5e2b662dc8987ca1b1246505b0c4664e56fc3899cc37073d09bb7c6d77",
+      "pcm_md5": "ade3b80b3c775e90d1487e0720b6a3de",
+      "file_sha256": "3863407d6ec00beed2e5cca435e1118ec28bcb0dce8ab568d767c209341cee71"
+    },
+    {
+      "file": "pcm-24-2-88200.flac",
+      "bits": 24,
+      "channels": 2,
+      "rate": 88200,
+      "pcm_sha256": "21f63f5e2b662dc8987ca1b1246505b0c4664e56fc3899cc37073d09bb7c6d77",
+      "pcm_md5": "ade3b80b3c775e90d1487e0720b6a3de",
+      "file_sha256": "c7f67ea7b471f303bc83886ca585f0fea4e03bc13de1b1b80139e9a56ff06a8b"
+    },
+    {
+      "file": "pcm-24-2-96000.flac",
+      "bits": 24,
+      "channels": 2,
+      "rate": 96000,
+      "pcm_sha256": "21f63f5e2b662dc8987ca1b1246505b0c4664e56fc3899cc37073d09bb7c6d77",
+      "pcm_md5": "ade3b80b3c775e90d1487e0720b6a3de",
+      "file_sha256": "d9f73904f94f455c37b89f7d62d161b59e701819db153d836a756d3a0beffdb6"
+    },
+    {
+      "file": "pcm-24-2-176400.flac",
+      "bits": 24,
+      "channels": 2,
+      "rate": 176400,
+      "pcm_sha256": "21f63f5e2b662dc8987ca1b1246505b0c4664e56fc3899cc37073d09bb7c6d77",
+      "pcm_md5": "ade3b80b3c775e90d1487e0720b6a3de",
+      "file_sha256": "a2430bc1642c55b46adfe27e9d1bcd8b45013fbb7436875c3345b714d9eefb99"
+    },
+    {
+      "file": "pcm-24-2-192000.flac",
+      "bits": 24,
+      "channels": 2,
+      "rate": 192000,
+      "pcm_sha256": "21f63f5e2b662dc8987ca1b1246505b0c4664e56fc3899cc37073d09bb7c6d77",
+      "pcm_md5": "ade3b80b3c775e90d1487e0720b6a3de",
+      "file_sha256": "89ca161c88dcdecc4f47898059c3ca1325e91b5d7a9fd087beff806492f42624"
+    }
+  ]
+}

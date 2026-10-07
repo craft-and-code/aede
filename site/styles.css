@@ -223,6 +223,46 @@ html{scroll-behavior:smooth;scroll-padding-top:var(--ae-header-height,100px);bac
   #aede-motion-concepts .ae-section-more article>small{font-size:14px;line-height:1.7;color:var(--ae-muted);display:block;margin-top:12px}
   #aede-motion-concepts .ae-section-more code{font:14px var(--ae-mono);color:var(--ae-fg);background:none}
   #aede-motion-concepts .ae-dsp-depth{display:block}
+  #aede-motion-concepts .ae-playback-intro{font-size:18px;line-height:1.7;color:var(--ae-muted);max-width:760px;margin:18px 0 0}
+  #aede-motion-concepts #ae-playback{scroll-margin-top:calc(var(--ae-header-height) + 24px)}
+  #aede-motion-concepts .ae-playback-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+  #aede-motion-concepts .ae-playback-card{--ae-fg:#f1f0eb;--ae-muted:#bcc1c6;--ae-line:#35404a;--policy-color:#d8f36a;display:flex;flex-direction:column;min-width:0;background:#171b20;color:var(--ae-fg);border-radius:14px;padding:24px;border-top:3px solid var(--policy-color)}
+  #aede-motion-concepts .ae-policy-strict{--policy-color:#49d9ff}#aede-motion-concepts .ae-policy-dsp{--policy-color:#ff7c9f}
+  #aede-motion-concepts .ae-policy-heading{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:48px;font:12px var(--ae-mono);line-height:1.5;color:var(--policy-color)}
+  #aede-motion-concepts .ae-policy-badge{padding:4px 7px;border:1px solid currentColor;border-radius:4px;font-size:11px}
+  #aede-motion-concepts .ae-audio-visual{margin:20px -10px 24px}
+  #aede-motion-concepts .ae-audio-visual img{display:block;width:100%;height:auto}
+  #aede-motion-concepts .ae-audio-visual figcaption{font-size:14px;line-height:1.6;color:var(--ae-muted);margin:10px 10px 0}
+  #aede-motion-concepts .ae-audio-packet{position:absolute;top:50%;transform:translateY(-50%);left:40%;width:6px;height:6px;border-radius:50%;background:var(--policy-color);opacity:0;animation:ae-pcm-transfer 3.5s linear infinite;animation-play-state:paused;pointer-events:none}
+  #aede-motion-concepts .ae-illustrating .ae-audio-packet{animation-play-state:running}
+  #aede-motion-concepts .ae-policy-strict .ae-audio-packet{animation-delay:.7s}#aede-motion-concepts .ae-policy-dsp .ae-audio-packet{animation-delay:1.4s}
+  @keyframes ae-pcm-transfer{0%,15%{left:38%;opacity:0}20%{opacity:1}75%{left:62%;opacity:1}80%,100%{left:62%;opacity:0}}
+  #aede-motion-concepts .ae-playback-card h3{font-size:24px;line-height:1.2}
+  #aede-motion-concepts .ae-playback-card>p.ae-policy-detail{font-size:16px;line-height:1.7;margin:18px 0 24px}
+  #aede-motion-concepts .ae-playback-card>code{font-size:14px;display:block;margin-top:auto;padding-top:18px;border-top:1px solid var(--ae-line);color:var(--policy-color);overflow-wrap:anywhere}
+  #aede-motion-concepts .ae-playback-status{font-size:16px;line-height:1.8;padding:20px 24px;border:1px solid var(--ae-line);border-radius:8px;margin:24px 0 12px}
+  #aede-motion-concepts .ae-visual-note{font-size:15px;line-height:1.7;color:var(--ae-muted);margin:0 0 22px}
+  #aede-motion-concepts .ae-policy-guide{margin-bottom:55px}
+  #aede-motion-concepts .ae-integrity-panel{--ae-fg:#f1f0eb;--ae-muted:#bcc1c6;--ae-accent:#49d9ff;--ae-line:#35404a;color:var(--ae-fg);background:#171b20;border-radius:14px;padding:36px;margin-top:55px;border-top:3px solid #49d9ff;scroll-margin-top:calc(var(--ae-header-height) + 24px)}
+  #aede-motion-concepts .ae-integrity-panel .ae-mini-label{color:#49d9ff}
+  #aede-motion-concepts .ae-integrity-panel .ae-depth-heading>p{font-size:18px;line-height:1.8;color:var(--ae-muted);max-width:820px;margin:20px 0 0}
+  #aede-motion-concepts .ae-md5-visual{margin:25px 0}
+  #aede-motion-concepts .ae-md5-visual img{width:100%;height:auto;display:block}
+  #aede-motion-concepts .ae-md5-visual img.ae-md5-mobile{display:none}
+  #aede-motion-concepts .ae-md5-visual figcaption{font-size:15px;line-height:1.7;color:var(--ae-muted);margin-top:12px}
+  #aede-motion-concepts .ae-md5-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px;list-style:none;counter-reset:md5-step;padding:0;margin:32px 0}
+  #aede-motion-concepts .ae-md5-steps li{counter-increment:md5-step}
+  #aede-motion-concepts .ae-md5-steps li::before{content:"0" counter(md5-step);font:15px var(--ae-mono);color:#49d9ff;display:block;margin-bottom:12px}
+  #aede-motion-concepts .ae-md5-steps strong{font-size:20px;font-weight:400;display:block;margin-bottom:12px}
+  #aede-motion-concepts .ae-md5-steps span{font-size:17px;line-height:1.8;color:var(--ae-muted)}
+  #aede-motion-concepts .ae-md5-statuses{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px;padding:24px 0;border-top:1px solid var(--ae-line);border-bottom:1px solid var(--ae-line)}
+  #aede-motion-concepts .ae-md5-statuses strong{font-size:16px;font-weight:500;display:block;margin-bottom:10px}
+  #aede-motion-concepts .ae-md5-statuses>div:nth-child(2) strong{color:#d8f36a}#aede-motion-concepts .ae-md5-statuses>div:last-child strong{color:#ff7c9f}
+  #aede-motion-concepts .ae-md5-statuses span{font-size:16px;line-height:1.7;color:var(--ae-muted)}
+  #aede-motion-concepts .ae-md5-boundary,#aede-motion-concepts .ae-md5-check{font-size:17px;line-height:1.8;color:var(--ae-muted);margin:24px 0}
+  @media(max-width:980px){#aede-motion-concepts .ae-playback-grid{grid-template-columns:1fr}#aede-motion-concepts .ae-audio-visual{max-width:480px;margin:20px 0 24px}#aede-motion-concepts .ae-md5-statuses{grid-template-columns:1fr 1fr}}
+  @media(max-width:700px){#aede-motion-concepts .ae-integrity-panel{padding:24px 20px}#aede-motion-concepts .ae-md5-steps{grid-template-columns:1fr;gap:24px}#aede-motion-concepts .ae-md5-statuses{grid-template-columns:1fr}#aede-motion-concepts .ae-integrity-panel .ae-depth-heading h3{font-size:27px}#aede-motion-concepts .ae-md5-visual img.ae-md5-desktop{display:none}#aede-motion-concepts .ae-md5-visual img.ae-md5-mobile{display:block;max-width:360px;margin-inline:auto}}
+  @media(prefers-reduced-motion:reduce){#aede-motion-concepts .ae-audio-packet{animation:none;display:none}}
   #aede-motion-concepts .ae-depth-heading{margin-bottom:25px}
   #aede-motion-concepts .ae-depth-heading h3{font-size:30px;letter-spacing:-1px;margin:0}
   #aede-motion-concepts .ae-signal-chain{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;align-items:center;gap:12px;border-top:1px solid var(--ae-line);border-bottom:1px solid var(--ae-line);padding:23px 0;margin:25px 0 35px;font-size:16px;line-height:1.5}
@@ -275,3 +315,5 @@ html{scroll-behavior:smooth;scroll-padding-top:var(--ae-header-height,100px);bac
 
 #aede-motion-concepts a.ae-inline-link{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}#aede-motion-concepts a.ae-inline-link:hover{text-decoration-thickness:2px}
 @media(max-width:360px){html{scroll-padding-top:124px}#aede-motion-concepts .ae-header{flex-wrap:wrap}#aede-motion-concepts .ae-header nav{width:100%;justify-content:space-between}}
+
+#aede-motion-concepts .ae-audio-trace{position:relative}

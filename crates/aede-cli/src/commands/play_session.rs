@@ -144,6 +144,7 @@ struct PlaybackRecords<'a> {
     pending: BTreeMap<usize, PendingTrack>,
     sender: &'a mpsc::SyncSender<PlaybackRecord>,
     next_offset_ms: u64,
+    next_had_seek: bool,
     resume: Option<ResumeListen>,
     last_position: Option<(usize, u64)>,
     strict: bool,
@@ -157,6 +158,7 @@ impl<'a> PlaybackRecords<'a> {
             pending: BTreeMap::new(),
             sender,
             next_offset_ms: 0,
+            next_had_seek: false,
             resume: None,
             last_position: None,
             strict: false,
@@ -190,6 +192,7 @@ impl<'a> PlaybackRecords<'a> {
         let resumed = self.resume.take();
         let offset_ms = self.next_offset_ms;
         self.next_offset_ms = 0;
+        let had_seek = std::mem::take(&mut self.next_had_seek);
         self.pending.insert(
             token,
             PendingTrack {
@@ -209,7 +212,7 @@ impl<'a> PlaybackRecords<'a> {
                 played_before: resumed
                     .as_ref()
                     .map_or(Duration::ZERO, |listen| listen.played),
-                had_seek: resumed.is_some() || offset_ms > 0,
+                had_seek: resumed.is_some() || had_seek || offset_ms > 0,
                 start_frame: self.stream_submitted_bytes / (u64::from(format.channels()) * 4),
             },
         );
@@ -834,6 +837,7 @@ fn play_selection_with<O: SessionOutput>(
                         return Ok(end);
                     }
                 };
+                let mut skipped_source = false;
                 if seek_ms > 0 {
                     seeking = true;
                     if !exact {
@@ -854,6 +858,9 @@ fn play_selection_with<O: SessionOutput>(
                             .ok_or_else(|| "seek interruption has no action".into());
                     }
                     let seek = seek?;
+                    // Whole-source eligibility follows actual frames, even
+                    // when the displayed millisecond position rounds to zero.
+                    skipped_source = seek.frames > 0;
                     seek_ms = seek.frames.saturating_mul(1000)
                         / u64::from(track.source_format().sample_rate());
                     println!("Position: {}.{:03} s", seek_ms / 1000, seek_ms % 1000);
@@ -975,6 +982,7 @@ fn play_selection_with<O: SessionOutput>(
                 cursor = index;
                 records.publish_completed()?;
                 records.next_offset_ms = seek_ms;
+                records.next_had_seek = skipped_source;
                 records.begin(token, index, path, format, &playback_clock)?;
                 if let Some(timeline) = &mut playback_clock.timeline {
                     let duration_ms =
@@ -1039,13 +1047,13 @@ fn play_selection_with<O: SessionOutput>(
                         )?
                     } else {
                         order.sync(&playback_clock, catalog, paths)?;
-                        if source_frames == 0 && seek_ms == 0 && order.repeats() {
+                        if source_frames == 0 && !skipped_source && order.repeats() {
                             return Err("cannot repeat an empty audio track".into());
                         }
                         let update = if exact {
                             None
                         } else {
-                            match normalization.finish_track(index, seek_ms == 0) {
+                            match normalization.finish_track(index, !skipped_source) {
                                 Ok(update) => update,
                                 Err(error) => {
                                     playback_clock.clear_visualizer();
@@ -1348,3 +1356,7 @@ mod drain_tests;
 #[cfg(test)]
 #[path = "play_exact_driver_tests.rs"]
 mod exact_driver_tests;
+
+#[cfg(test)]
+#[path = "play_exact_acceptance_tests.rs"]
+mod exact_acceptance_tests;

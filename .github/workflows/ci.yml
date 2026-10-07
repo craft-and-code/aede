@@ -79,6 +79,10 @@ jobs:
         if: runner.os == 'Windows'
         run: python tools/gapless_tests.py
 
+      - name: Integer digital-capture comparison tests (Windows, offline)
+        if: runner.os == 'Windows'
+        run: python tools/bit_perfect_tests.py
+
       - name: Tests (Windows)
         if: runner.os == 'Windows'
         run: cargo test --locked

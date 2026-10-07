@@ -65,6 +65,8 @@ La pause stricte exige une pause matérielle sans abandon de trames du programme
 
 Un MD5 audio FLAC présent est vérifié pendant le décodage dans les trois modes, indépendamment de la sortie. Son verdict devient définitif uniquement à la fin complète de la source, avant une fin normale réussie. Une somme absente reste inconnue ; ce contrôle ne compare pas continuellement le signal au DAC. Voir [l’intégrité pendant la lecture](../integrity.md#flac-audio-md5-during-playback).
 
+Pour valider une route, suivre le [protocole technique d’acceptation stricte](../../coding/bit-perfect-acceptance.md), en conservant séparément les preuves de source, plateforme native et capture numérique. Le [guide de sortie](../dsp/output.md#bit-perfect-acceptance-evidence) résume ce qu’établit chaque contrôle. Une comparaison synthétique ou un retour logiciel n’est pas un verdict sur un DAC matériel.
+
 ## Exemples
 
 ```sh

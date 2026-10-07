@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" fill="none">
+  <rect width="480" height="240" rx="16" fill="#171b20"/>
+  <g stroke="#303941"><path d="M24 120h160M296 120h160"/><path d="M24 60h160M24 180h160M296 60h160M296 180h160" stroke-dasharray="2 8"/></g>
+  <g stroke="#b69aff" stroke-width="3" stroke-linecap="round"><path d="M36 120v-18m16 18v-39m16 39v-53m16 53v-41m16 41v-14m16 14v21m16-21v45m16-45v51m16-51v30"/></g>
+  <g stroke="#ff7c9f" stroke-width="3" stroke-linecap="round"><path d="M308 120v-9m16 9v-19m16 19v-27m16 27v-20m16 20v-7m16 7v10m16-10v23m16-23v25m16-25v15"/></g>
+  <path d="M180 120h29m62 0h29" stroke="#68777f" stroke-width="2"/><rect x="210" y="91" width="60" height="58" rx="12" stroke="#b69aff" stroke-width="1.5"/>
+  <path d="M222 127c7 0 7-20 14-20s7 26 14 26 7-12 9-12" stroke="#ff7c9f" stroke-width="2"/>
+  <g fill="#a8b4bc" font-family="monospace" font-size="13"><text x="24" y="31">PCM</text><text x="296" y="31">PCM</text><text x="25" y="215">0 · 1024 · 2048</text><text x="297" y="215">0 · 512 · 1024</text></g>
+</svg>

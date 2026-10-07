@@ -31,15 +31,15 @@ fn reference(path: &Path) -> Vec<i32> {
 }
 
 #[derive(Default)]
-struct EligibleSink {
-    source: Option<IntegerPcmFormat>,
-    samples: Vec<i32>,
+pub(super) struct EligibleSink {
+    pub(super) source: Option<IntegerPcmFormat>,
+    pub(super) samples: Vec<i32>,
     stream_frames: u64,
     consumed: Cell<u64>,
-    opens: usize,
+    pub(super) opens: usize,
     closed: bool,
-    finished: usize,
-    aborted: bool,
+    pub(super) finished: usize,
+    pub(super) aborted: bool,
     fail_drain: bool,
     consume_before_failure: u64,
     maximum_frames: usize,
@@ -47,7 +47,16 @@ struct EligibleSink {
     route_checks: usize,
     fail_route_check: Option<usize>,
     refuse_bits: Option<u32>,
-    consume_writes: bool,
+    pub(super) consume_writes: bool,
+}
+
+impl EligibleSink {
+    pub(super) fn with_maximum_frames(maximum_frames: usize) -> Self {
+        Self {
+            maximum_frames,
+            ..Default::default()
+        }
+    }
 }
 
 impl Write for EligibleSink {
@@ -171,9 +180,9 @@ impl SessionOutput for EligibleSink {
     }
 }
 
-fn drive(
+pub(super) fn drive<O: SessionOutput>(
     paths: &[PathBuf],
-    sink: &mut EligibleSink,
+    sink: &mut O,
     options: crate::args::PlaybackOptions,
 ) -> (Res, Vec<HistoryItem>) {
     let directory = Path::new("unused-strict-normalization-cache");

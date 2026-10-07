@@ -54,6 +54,10 @@ FLAC decoder computes it from original integer samples before conversion to
 `f32`, downmix, gain, sample-rate conversion or other DSP. There is no extra
 full-file preflight decode and no change to music or tags.
 
+![FLAC STREAMINFO supplies a reference; decoded integer PCM feeds MD5 before DSP and output. Comparison happens at complete EOF, with no returned DAC signal hashed.](../site/assets/audio/flac-md5.svg)
+
+*Synthetic flow diagram: STREAMINFO reference and the original PCM checksum meet at EOF (end of file). The DSP/output branch is separate; this is not a checksum of the signal received by the DAC.*
+
 This source check is independent of the local playback policy. Playback without
 effects and playback with DSP use the float decoder's verified FLAC path;
 strict playback uses the integer decoder's same FLAC validator. Choosing an

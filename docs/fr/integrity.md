@@ -61,6 +61,10 @@ CRC valide et MD5 décodé divergent parfois : ils interrogent des propriétés 
 
 `aede play` et la lecture PCM native vérifient le MD5 audio présent dans le bloc STREAMINFO du FLAC pendant le décodage progressif qui fournit le son. Le décodeur FLAC Symphonia déjà utilisé le calcule sur les échantillons entiers originaux, avant conversion en `f32`, réduction des canaux, gain, conversion de fréquence ou autre traitement DSP. Aucun décodage préalable supplémentaire du fichier entier n’est effectué ; musique et tags restent inchangés.
 
+![Le FLAC fournit une référence STREAMINFO ; le PCM entier décodé alimente le MD5 avant DSP et sortie. Comparaison en fin de décodage, sans hacher de retour du DAC.](../../site/assets/audio/flac-md5.svg)
+
+*Schéma synthétique : référence STREAMINFO et somme du PCM original se rejoignent à EOF (fin du fichier). La branche DSP/sortie est distincte ; ce n’est pas une somme du signal reçu par le DAC.*
+
 Ce contrôle de la source est indépendant du mode de lecture local. La lecture sans effets et la lecture avec DSP utilisent le chemin FLAC vérifié du décodeur flottant ; la lecture stricte utilise le même vérificateur dans le décodeur entier. Choisir une sortie audio ne désactive pas le contrôle : ffplay reçoit du PCM déjà décodé par Aède. Le décodage de secours FFmpeg est limité aux sources Opus/AAC/ALAC prises en charge ; il ne retente pas un FLAC après une erreur d’intégrité. L’admission stricte reste limitée au FLAC natif mono/stéréo sur 16/24 bits ; la lecture ordinaire vérifie également les sources Ogg FLAC prises en charge.
 
 La somme porte sur tous les canaux et échantillons décodés ; une somme nulle signifie que sa valeur est inconnue, conformément à la [RFC 9639, section 8.2](https://www.rfc-editor.org/rfc/rfc9639.html#section-8.2). Elle peut révéler une incohérence audio même lorsque les contrôles du conteneur réussissent. Le MD5 sert ici à contrôler la cohérence, sans constituer une preuve cryptographique d’origine ou d’authenticité ; voir la [RFC 6151](https://www.rfc-editor.org/rfc/rfc6151.html).

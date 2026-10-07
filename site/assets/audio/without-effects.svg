@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" fill="none">
+  <rect width="480" height="240" rx="16" fill="#171b20"/>
+  <g stroke="#303941"><path d="M24 120h160M296 120h160"/><path d="M24 60h160M24 180h160M296 60h160M296 180h160" stroke-dasharray="2 8"/></g>
+  <g stroke="#d8f36a" stroke-width="3" stroke-linecap="round"><path d="M36 120v-18m16 18v-39m16 39v-53m16 53v-41m16 41v-14m16 14v21m16-21v45m16-45v51m16-51v30"/></g>
+  <g stroke="#d8f36a" stroke-width="3" stroke-linecap="round"><path d="M308 120v-18m16 18v-39m16 39v-53m16 53v-41m16 41v-14m16 14v21m16-21v45m16-45v51m16-51v30"/></g>
+  <path d="M180 120h29m62 0h29" stroke="#68777f" stroke-width="2"/><rect x="210" y="91" width="60" height="58" rx="12" stroke="#d8f36a" stroke-width="1.5"/>
+  <path d="M224 109h31m-31 12h31m-31 12h31" stroke="#d8f36a" stroke-width="2"/><circle cx="233" cy="109" r="4" fill="#171b20" stroke="#d8f36a"/><circle cx="248" cy="121" r="4" fill="#171b20" stroke="#d8f36a"/><circle cx="236" cy="133" r="4" fill="#171b20" stroke="#d8f36a"/>
+  <g fill="#a8b4bc" font-family="monospace" font-size="13"><text x="24" y="31">PCM</text><text x="296" y="31">PCM</text><text x="25" y="215">0 · 1024 · 2048</text><text x="297" y="215">0 · 1024 · 2048</text></g>
+</svg>

@@ -36,3 +36,16 @@ La sortie stricte traite les interruptions du programme, changements de route et
 Vidange finale et changements de format gardent les commandes utilisables. La vidange native considère cinq secondes sans progression consommée comme une erreur. CPAL ordinaire ajoute une tolérance hôte d’environ 100 ms en temps actif, hors pause ; ALSA direct utilise le retard matériel déclaré et une vidange non bloquante réussie. Aucun ne prouve physiquement qu’un échantillon est sorti du DAC. Ces limites ne certifient ni latence, ni jonctions parfaites, ni performances NAS.
 
 En cas d’échec, conservez le message, vérifiez dépendances/formats/canaux et comparez avec tonalité plate et normalisation off. Ne supprimez ni originaux ni données pour réparer une erreur de périphérique. [Continuité](continuity.md) distingue jonctions PCM testées et sortie physique non mesurée.
+
+<div id="bit-perfect-acceptance-evidence" data-legacy-anchor></div>
+
+## Preuves d’acceptation bit-perfect
+
+| Contrôle | Preuve et portée actuelle |
+| --- | --- |
+| MD5 source FLAC et référence PCM indépendante | Une somme audio FLAC présente est comparée à la fin complète de la source. Une référence PCM indépendante fournit les valeurs attendues pour les tests FLAC/WAV ; un WAV n’a pas de somme FLAC. Aucun de ces contrôles ne valide seul la sortie en aval. |
+| Tests des adaptateurs exacts, file et transport | Établissent le comportement logiciel des échantillons/trames dans le périmètre implémenté. Simulations et captures synthétiques ne valident ni Linux natif ni le matériel. |
+| Compilation, édition des liens et lecture Linux natives | Doivent être exécutées sur l’hôte GNU/Linux réel et l’appareil ALSA direct. Les contrôles d’API sous configuration Linux simulée ne suffisent pas ; l’acceptation native reste à faire. |
+| Comparaison d’une capture numérique complète | Demande des échantillons identiques après rangement/élargissement documenté et un seul décalage de latence fixe, avec relevé route/formats/charge. L’acceptation de captures matérielles réelles reste à faire. |
+
+Le [protocole technique d’acceptation stricte](../../coding/bit-perfect-acceptance.md) définit référence, provenance de capture, grille d’essais et preuves conservées. Un retour logiciel valide le parcours logiciel observé ; un retour numérique matériel ne valide que sa frontière enregistrée. Ne pas utiliser corrélation analogique, ajustement de gain, rééchantillonnage, correction de dérive ou tolérance d’erreur pour transformer une différence en identité. N’accepter que les routes/réglages et formats réellement mesurés.

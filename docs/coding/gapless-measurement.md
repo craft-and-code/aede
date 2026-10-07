@@ -4,6 +4,8 @@ An uninterrupted PCM stream is necessary for gapless playback, but it does not e
 
 The dependency-free [`tools/gapless.py`](../../tools/gapless.py) prepares a quiet continuous test signal, exercises native local output with bounded optional load, and measures track-join timing in a separately recorded capture. It neither installs software nor starts recording. Only its explicit `run` command starts playback. It uses synthetic files and separate data folders, never a music library or account store.
 
+This protocol measures continuity within timing uncertainty. For strict sample identity, an explicitly selected ALSA route and exact integer capture comparison, use the separate [bit-perfect acceptance protocol](bit-perfect-acceptance.md); do not apply this timing analyzer's gain/drift fitting or tolerance to an identity claim.
+
 ## Evidence levels
 
 | Evidence | What it establishes | What it does not establish |
@@ -17,7 +19,7 @@ A built-in microphone records the room as well as the loudspeaker. It is unsuita
 
 ## Prepare the route and fixture
 
-Use a suitable audio interface with a line-output-to-line-input cable, or an already installed digital loopback route. Aède uses the system default output device; select the intended interface as the default before each trial, and choose its corresponding capture input explicitly. Choose a quiet output level and disable system effects, automatic input gain, noise suppression and unrelated audio. Avoid feedback by disabling live input monitoring. Record the audio host, output/input models, route, selected rates, channel mapping and device sample format in a small record beside the captures. Do not save account names, private music paths or credentials.
+Use a suitable audio interface with a line-output-to-line-input cable, or an already installed digital loopback route. The ordinary gapless examples below use the system default output device; select the intended interface as the default before each trial, and choose its corresponding capture input explicitly. Strict trials instead require the named route from the bit-perfect protocol. Choose a quiet output level and disable system effects, automatic input gain, noise suppression and unrelated audio. Avoid feedback by disabling live input monitoring. Record the audio host, output/input models, route, selected rates, channel mapping and device sample format in a small record beside the captures. Do not save account names, private music paths or credentials.
 
 On macOS, the following inventory does not play or record audio:
 

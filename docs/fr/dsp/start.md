@@ -2,6 +2,20 @@
 
 DSP signifie **traitement numérique du signal** : des calculs sur le son pendant la lecture. Le DSP actuel change le flux de lecture, jamais le fichier original ni ses tags. Il ne remplace pas le volume d’écoute. La commande locale `aede play` démarre sans effets ; `--playback=dsp` ou des effets explicites non neutres choisissent le traitement partagé. Son mode bit-perfect strict utilise plutôt des échantillons source typés et un chemin exact sans traitement. La route PCM native authentifiée garde son contrat distinct de PCM traité.
 
+## Trois modes de lecture locale
+
+Ces schémas représentent des échantillons PCM synthétiques, pas une mesure du périphérique. Ils décrivent `aede play` en local ; les clients réseau gardent leurs contrats de lecture distincts.
+
+| Mode | Illustration du signal | Comportement |
+| --- | --- | --- |
+| **Sans effets** — par défaut, `without-effects` | ![Échantillons sans correction choisie ; une adaptation à la sortie reste possible.](../../../site/assets/audio/without-effects.svg) | Normalisation et tonalité choisies désactivées. Privilégier la fréquence source et des échantillons exacts ; signaler les adaptations nécessaires de fréquence, canaux ou précision. Ce n’est pas une garantie bit-perfect stricte. |
+| **Bit-perfect strict** — `bit-perfect` | ![Valeurs PCM, fréquence et ordre des canaux identiques dans le chemin logiciel strict.](../../../site/assets/audio/bit-perfect.svg) | Préserver les échantillons des sources admises sans étape de modification. Refuser les sources ou sorties incompatibles ; exiger un périphérique explicitement choisi. |
+| **DSP** — `dsp` | ![Les corrections de niveau et de tonalité modifient volontairement les échantillons PCM.](../../../site/assets/audio/dsp.svg) | Appliquer la normalisation et la tonalité choisies, avec marge, protection de sortie et conversion si nécessaire. Conserver les fichiers originaux intacts. |
+
+Le premier profil strict accepte le FLAC natif et le WAV PCM entier, 16/24 bits mono/stéréo, via ALSA directe sur Linux glibc. macOS et Windows sont actuellement refusés en mode strict. Le chemin logiciel est implémenté et testé ; compilation/exécution sur Linux réel et comparaison d’un retour numérique restent à valider. Voir [modes de lecture et sortie stricte](../cli/play.md#playback-policies-and-strict-output) pour les commandes, la découverte des sorties et les limites.
+
+Le MD5 audio FLAC présent est contrôlé dans **les trois modes**, sur les entiers originaux décodés avant tout DSP. Son verdict nécessite un décodage complet et ne certifie pas la sortie du périphérique ; suivre [le schéma MD5 et les états de vérification](../integrity.md#flac-audio-md5-during-playback).
+
 ## Suivre un échantillon jusqu’à la sortie
 
 1. Le décodeur transforme l’audio du fichier en PCM : une suite de nombres appelés échantillons. Une trame contient un échantillon par canal ; en stéréo, gauche et droite avancent ensemble.

@@ -1177,5 +1177,13 @@ impl Drop for AlsaOutput {
 }
 
 #[cfg(test)]
+#[path = "play_alsa_acceptance_fixtures.rs"]
+mod acceptance_fixtures;
+
+#[cfg(all(test, target_os = "linux", target_env = "gnu"))]
+#[path = "play_alsa_acceptance_tests.rs"]
+mod acceptance;
+
+#[cfg(test)]
 #[path = "play_alsa_output_tests.rs"]
 mod tests;

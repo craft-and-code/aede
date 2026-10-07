@@ -78,6 +78,10 @@ Google Cast currently has a factual experimental-profile note and trademark attr
 
 ## DSP illustrations
 
+The homepage presents the three **local CLI** playback policies with authored, language-independent SVG images under `assets/audio/`. Captions and alt text are translated through the home dictionary. The same images appear in the Markdown DSP introduction and decoded-FLAC integrity reference; the publisher resolves and copies their source assets. The strict card distinguishes implemented software from pending native Linux and digital-return acceptance. The MD5 diagram branches at original decoded integer PCM and compares only at complete EOF; it never claims a DAC-return checksum or a WAV/MP3 FLAC signature.
+
+The small sample-transfer animations enhance static images, stop outside the viewport or when the document is hidden, and disappear with reduced motion. The homepage MD5 diagram switches to a vertical image on small screens so its complete path remains visible. The diagrams use synthetic values, do not play audio and do not control the Rust player.
+
 `explainers.js` provides synthetic interactive models for the PCM path, normalization/headroom, source intersample peaks, broad shelves, stereo downmix, rate conversion, integer dither, compatible or reset track joins and peak/spectrum observation. Controls update explanatory values and accessible readouts. The illustrations never play audio, access user files or claim to reproduce every internal detail of the Rust engine. They animate only while visible, stop when the document is hidden, and become static under `prefers-reduced-motion` while retaining interactive controls.
 
 ## Verification and GitHub Pages

@@ -150,6 +150,33 @@ class LinkTests(unittest.TestCase):
 
 
 class HomeTests(unittest.TestCase):
+    def test_playback_and_md5_images_are_shared_with_bilingual_guides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "publication"
+            builder.build(destination=destination)
+            for language, home, default, pending, boundary in (
+                ("fr", "index.html", "Sans effets est le mode par défaut", "restent à réaliser", "Aucun signal de retour du DAC n’est haché"),
+                ("en", "en/index.html", "Without effects is the default", "remain pending", "No returned DAC signal is hashed"),
+            ):
+                with self.subTest(language=language):
+                    source = (destination / home).read_text(encoding="utf-8")
+                    section = re.search(r'<section id="ae-dsp"\s.*?</section>', source, re.S)[0]
+                    for text in (default, pending, boundary, "--playback=without-effects", "--playback=bit-perfect", "--playback=dsp"):
+                        self.assertIn(text, section)
+                    self.assertEqual(5, len(re.findall(r'<img\b', section)))
+                    for page in (home, f"docs/{language}/dsp/start.html", f"docs/{language}/cli/reference/integrity.html"):
+                        content = (destination / page).read_text(encoding="utf-8")
+                        for image in re.findall(r'<img\b[^>]*>', content):
+                            src = re.search(r'\bsrc="([^"]+)"', image)[1]
+                            self.assertTrue((destination / page).parent.joinpath(src).is_file(), src)
+                    if language == "en":
+                        self.assertNotIn("Trois modes", section)
+                        self.assertNotIn("Comparer à la fin", section)
+                        self.assertIn('alt="Without effects:', section)
+                        self.assertIn('alt="Strict bit-perfect:', section)
+                        self.assertIn('alt="FLAC supplies a STREAMINFO reference;', section)
+            self.assertEqual([], checker.check(destination))
+
     def test_home_publishes_compatibility_logos_and_verified_client_scope_in_both_languages(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "publication"
