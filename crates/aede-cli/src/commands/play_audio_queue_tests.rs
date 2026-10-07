@@ -13,7 +13,7 @@ fn f32le(samples: &[f32]) -> Vec<u8> {
 
 #[test]
 fn frame_aligned_prefixes_preserve_channel_order_through_wrap_and_retry() {
-    let (mut producer, mut consumer) = pcm_queue(2, 3).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 3, false).expect("queue");
     let source = [0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4, 0.5, -0.5];
     assert_eq!(producer.write_samples(&source).expect("prefix"), 6);
     assert_eq!(producer.snapshot().queued_frames, 3);
@@ -42,7 +42,7 @@ fn frame_aligned_prefixes_preserve_channel_order_through_wrap_and_retry() {
 
 #[test]
 fn f32le_prefixes_report_bytes_and_keep_exact_pcm() {
-    let (mut producer, mut consumer) = pcm_queue(2, 2).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 2, false).expect("queue");
     let source = [0.1, -0.2, 0.3, -0.4, 0.5, -0.6];
     let bytes = f32le(&source);
     assert_eq!(producer.write_f32le(&bytes).expect("prefix bytes"), 16);
@@ -61,7 +61,7 @@ fn f32le_prefixes_report_bytes_and_keep_exact_pcm() {
 
 #[test]
 fn whole_input_is_validated_before_a_prefix_can_be_published() {
-    let (mut producer, mut consumer) = pcm_queue(2, 1).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 1, false).expect("queue");
     for bad in [
         vec![0.1],
         vec![0.1, -0.1, f32::NAN, 0.0],
@@ -109,7 +109,7 @@ fn whole_input_is_validated_before_a_prefix_can_be_published() {
 
 #[test]
 fn partial_callback_frames_are_silent_and_never_shift_channels() {
-    let (mut producer, mut consumer) = pcm_queue(2, 3).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 3, false).expect("queue");
     producer
         .write_samples(&[0.1, -0.1, 0.2, -0.2])
         .expect("two frames");
@@ -139,7 +139,7 @@ fn partial_callback_frames_are_silent_and_never_shift_channels() {
 
 #[test]
 fn startup_empty_output_and_closed_tail_silence_are_not_underruns() {
-    let (mut producer, mut consumer) = pcm_queue(2, 2).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 2, false).expect("queue");
     let mut calls = 0;
     let mut startup = [7u16; 8];
     consumer.render_mapped(&mut startup, 32_768, |_| {
@@ -180,7 +180,7 @@ fn startup_empty_output_and_closed_tail_silence_are_not_underruns() {
 
 #[test]
 fn underruns_count_missing_complete_frames_and_resume_after_refill() {
-    let (mut producer, mut consumer) = pcm_queue(2, 3).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 3, false).expect("queue");
     producer
         .write_samples(&[0.1, -0.1, 0.2, -0.2, 0.3, -0.3])
         .expect("three frames");
@@ -207,7 +207,7 @@ fn underruns_count_missing_complete_frames_and_resume_after_refill() {
 
 #[test]
 fn eof_is_sampled_before_the_callback_for_underrun_accounting() {
-    let (mut producer, mut consumer) = pcm_queue(1, 2).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(1, 2, false).expect("queue");
     producer.write_samples(&[0.1, 0.2]).expect("source");
     let mut output = [0.0; 4];
     consumer.render_mapped(&mut output, 0.0, |sample| {
@@ -224,10 +224,10 @@ fn eof_is_sampled_before_the_callback_for_underrun_accounting() {
 
 #[test]
 fn unusable_capacity_and_an_abandoned_consumer_are_rejected() {
-    assert!(pcm_queue(0, 1).is_err());
-    assert!(pcm_queue(2, 0).is_err());
-    assert!(pcm_queue(2, usize::MAX).is_err());
-    let (mut producer, consumer) = pcm_queue(2, 1).expect("queue");
+    assert!(pcm_queue::<f32>(0, 1, false).is_err());
+    assert!(pcm_queue::<f32>(2, 0, false).is_err());
+    assert!(pcm_queue::<f32>(2, usize::MAX, false).is_err());
+    let (mut producer, consumer) = pcm_queue::<f32>(2, 1, false).expect("queue");
     drop(consumer);
     assert_eq!(
         producer
@@ -248,7 +248,7 @@ fn concurrent_handoff_keeps_exact_frame_order_without_losing_partial_writes() {
         })
         .collect::<Vec<_>>();
     let sent = source.clone();
-    let (mut producer, mut consumer) = pcm_queue(2, 127).expect("queue");
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 127, false).expect("queue");
     let worker = thread::spawn(move || {
         for chunk in sent.chunks(373 * 2) {
             let mut pending = chunk;
@@ -297,4 +297,256 @@ fn concurrent_handoff_keeps_exact_frame_order_without_losing_partial_writes() {
         producer.snapshot().underrun_callbacks,
         finished.underrun_callbacks
     );
+}
+
+#[test]
+fn integer_frames_keep_source_values_and_channel_order_through_backpressure() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(2, 3, true).expect("queue");
+    let source = [
+        -8_388_608, 8_388_607, -32_768, 32_767, -1, 1, 256, -256, 0, 7,
+    ];
+    assert_eq!(producer.write_samples(&source).expect("prefix"), 6);
+    assert_eq!(producer.snapshot().queued_frames, 3);
+    assert_eq!(
+        producer
+            .write_samples(&source[6..])
+            .expect_err("full")
+            .kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        producer
+            .write_samples(&[1])
+            .expect_err("partial frame")
+            .kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert_eq!(producer.snapshot().queued_frames, 3);
+    let mut first = [9; 4];
+    consumer.render_mapped(&mut first, 0, |sample| sample);
+    assert_eq!(first, [-8_388_608, 8_388_607, -32_768, 32_767]);
+    assert_eq!(producer.write_samples(&source[6..]).expect("wrap"), 4);
+    producer.close_input();
+    let mut last = [9; 8];
+    consumer.render_mapped(&mut last, 0, |sample| sample);
+    assert_eq!(last, [-1, 1, 256, -256, 0, 7, 0, 0]);
+    assert_eq!(producer.snapshot().consumed_frames, 5);
+    assert!(!producer.snapshot().failed);
+    assert!(producer.drained());
+}
+
+#[test]
+fn strict_integer_startup_and_closed_tail_are_silent_without_failure() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(2, 2, true).expect("queue");
+    let mut output = [9; 6];
+    let mut calls = 0;
+    consumer.render_mapped(&mut output, 0, |sample| {
+        calls += 1;
+        sample
+    });
+    assert_eq!(output, [0; 6]);
+    assert_eq!(calls, 0);
+    assert!(!producer.snapshot().failed);
+    assert_eq!(producer.snapshot().underrun_callbacks, 0);
+    producer.write_samples(&[-1, 1]).expect("source");
+    consumer.render_mapped(&mut output[..0], 0, |sample| {
+        calls += 1;
+        sample
+    });
+    assert_eq!(calls, 0);
+    assert_eq!(producer.snapshot().queued_frames, 1);
+    producer.close_input();
+    consumer.render_mapped(&mut output, 0, |sample| sample);
+    assert_eq!(output, [-1, 1, 0, 0, 0, 0]);
+    consumer.render_mapped(&mut output, 0, |sample| sample);
+    assert_eq!(output, [0; 6]);
+    assert!(producer.drained());
+    assert!(!producer.snapshot().failed);
+    assert_eq!(producer.snapshot().underrun_frames, 0);
+}
+
+#[test]
+fn strict_callbacks_refuse_partial_frames_before_consuming_any_source() {
+    for requested_samples in [1, 3] {
+        let (mut producer, mut consumer) = pcm_queue::<i32>(2, 2, true).expect("queue");
+        producer.write_samples(&[-1, 1, -2, 2]).expect("source");
+        let mut output = [9; 4];
+        let mut calls = 0;
+        consumer.render_mapped(&mut output[..requested_samples], 0, |sample| {
+            calls += 1;
+            sample
+        });
+        assert_eq!(output[..requested_samples], vec![0; requested_samples]);
+        assert_eq!(calls, 0);
+        let failed = producer.snapshot();
+        assert!(failed.failed);
+        assert_eq!(failed.queued_frames, 2);
+        assert_eq!(failed.consumed_frames, 0);
+        assert_eq!(failed.underrun_frames, 0);
+        assert_eq!(failed.underrun_callbacks, 0);
+        assert_eq!(
+            producer
+                .write_samples(&[3, -3])
+                .expect_err("failed queue")
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        producer.close_input();
+        consumer.render_mapped(&mut output, 0, |sample| {
+            calls += 1;
+            sample
+        });
+        assert_eq!(output, [0; 4]);
+        assert_eq!(calls, 0);
+        assert_eq!(producer.snapshot(), failed);
+    }
+}
+
+#[test]
+fn strict_underrun_is_latched_and_prevents_automatic_resume() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(1, 3, true).expect("queue");
+    producer.write_samples(&[-1, 1]).expect("source");
+    let mut output = [9; 3];
+    consumer.render_mapped(&mut output, 0, |sample| sample);
+    assert_eq!(output, [-1, 1, 0]);
+    let failed = producer.snapshot();
+    assert!(failed.failed);
+    assert_eq!(failed.consumed_frames, 2);
+    assert_eq!(failed.underrun_frames, 1);
+    assert_eq!(failed.underrun_callbacks, 1);
+    assert_eq!(
+        producer
+            .write_samples(&[7])
+            .expect_err("failed stream")
+            .kind(),
+        io::ErrorKind::BrokenPipe
+    );
+    assert_eq!(
+        producer
+            .write_samples(&[])
+            .expect_err("failed empty write")
+            .kind(),
+        io::ErrorKind::BrokenPipe
+    );
+    producer.close_input();
+    let mut calls = 0;
+    consumer.render_mapped(&mut output, 0, |sample| {
+        calls += 1;
+        sample
+    });
+    assert_eq!(output, [0; 3]);
+    assert_eq!(calls, 0);
+    assert_eq!(producer.snapshot(), failed);
+}
+
+#[test]
+fn strict_final_callback_accepts_a_producer_closing_during_copy() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(1, 2, true).expect("queue");
+    producer.write_samples(&[-32_768, 32_767]).expect("source");
+    let mut output = [9; 4];
+    consumer.render_mapped(&mut output, 0, |sample| {
+        producer.close_input();
+        sample
+    });
+    assert_eq!(output, [-32_768, 32_767, 0, 0]);
+    assert!(producer.drained());
+    assert!(!producer.snapshot().failed);
+    assert_eq!(producer.snapshot().underrun_callbacks, 0);
+    assert_eq!(producer.snapshot().underrun_frames, 0);
+}
+
+#[test]
+fn strict_close_does_not_excuse_missing_frames_when_source_remains_queued() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(1, 3, true).expect("queue");
+    producer.write_samples(&[1]).expect("first source frame");
+    let mut output = [9; 3];
+    consumer.render_mapped(&mut output, 0, |sample| {
+        producer.write_samples(&[2, 3]).expect("last source frames");
+        producer.close_input();
+        sample
+    });
+    assert_eq!(output, [1, 0, 0]);
+    let failed = producer.snapshot();
+    assert!(failed.failed);
+    assert_eq!(failed.consumed_frames, 1);
+    assert_eq!(failed.queued_frames, 2);
+    assert_eq!(failed.underrun_frames, 2);
+    assert!(!producer.drained());
+    let mut calls = 0;
+    consumer.render_mapped(&mut output, 0, |sample| {
+        calls += 1;
+        sample
+    });
+    assert_eq!(output, [0; 3]);
+    assert_eq!(calls, 0);
+    assert_eq!(producer.snapshot(), failed);
+}
+
+#[test]
+fn a_first_frame_published_before_its_counter_still_starts_strict_accounting() {
+    use std::sync::atomic::Ordering;
+
+    let (mut producer, mut consumer) = pcm_queue::<i32>(1, 2, true).expect("queue");
+    // A real producer publishes its ring chunk immediately before updating
+    // submitted_samples; the callback may observe this publication window.
+    producer.ring.push(1).expect("published source");
+    let mut output = [9; 2];
+    consumer.render_mapped(&mut output, 0, |sample| sample);
+    producer
+        .counters
+        .submitted_samples
+        .fetch_add(1, Ordering::Release);
+    assert_eq!(output, [1, 0]);
+    let failed = producer.snapshot();
+    assert!(failed.failed);
+    assert_eq!(failed.consumed_frames, 1);
+    assert_eq!(failed.underrun_frames, 1);
+    assert_eq!(failed.underrun_callbacks, 1);
+}
+
+#[test]
+fn concurrent_integer_handoff_preserves_low_bits_and_every_source_frame() {
+    let frames = 8_193;
+    let source = (0..frames)
+        .flat_map(|index| [index, -index - 1])
+        .collect::<Vec<i32>>();
+    let sent = source.clone();
+    let (mut producer, mut consumer) = pcm_queue::<i32>(2, 127, false).expect("queue");
+    let worker = thread::spawn(move || {
+        for chunk in sent.chunks(373 * 2) {
+            let mut pending = chunk;
+            while !pending.is_empty() {
+                match producer.write_samples(pending) {
+                    Ok(count) => pending = &pending[count..],
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => thread::yield_now(),
+                    Err(error) => panic!("producer: {error}"),
+                }
+            }
+        }
+        producer.close_input();
+        producer
+    });
+    let mut output = [0; 134];
+    let mut received = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut iteration = 0;
+    while received.len() < source.len() {
+        assert!(Instant::now() < deadline, "handoff stalled");
+        let samples = (iteration % 67 + 1) * 2;
+        consumer.render_mapped(&mut output[..samples], i32::MAX, |sample| sample);
+        for frame in output[..samples].as_chunks::<2>().0 {
+            if frame[0] == i32::MAX {
+                assert_eq!(frame[1], i32::MAX);
+            } else {
+                received.extend_from_slice(frame);
+            }
+        }
+        iteration += 1;
+        thread::yield_now();
+    }
+    let producer = worker.join().expect("producer finishes");
+    assert_eq!(received, source);
+    assert!(producer.drained());
+    assert_eq!(producer.snapshot().consumed_frames, frames as u64);
+    assert!(!producer.snapshot().failed);
 }

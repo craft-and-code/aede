@@ -148,7 +148,7 @@ mod native {
             let capacity_frames =
                 (u64::from(format.sample_rate()) * QUEUE_MILLISECONDS).div_ceil(1000) as usize;
             let (producer, mut pending) =
-                pcm_queue(usize::from(format.channels()), capacity_frames)
+                pcm_queue(usize::from(format.channels()), capacity_frames, false)
                     .map_err(|error| format!("cannot prepare audio queue: {error}"))?;
             let status = Arc::new(DeviceStatus::default());
             let status_callback = Arc::clone(&status);

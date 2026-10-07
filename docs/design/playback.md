@@ -1,6 +1,6 @@
 # Playback (M3)
 
-The [transparent playback and bit-perfect contract](bit-perfect.md) defines the next local-output design and initial acceptance scope. Its separate integer source API is implemented, but it is not connected to the player/output and changes none of the current behavior described below.
+The [transparent playback and bit-perfect contract](bit-perfect.md) defines the next local-output design and initial acceptance scope. Its integer decoder, unmodified session, exact software adapters and strict typed-queue foundation are implemented. They are not selected by the player or connected to an eligible native route, and change none of the current behavior described below.
 
 ## Code ownership
 

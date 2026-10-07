@@ -7,6 +7,8 @@
 use crate::model::Id;
 
 pub mod decoder;
+pub mod exact_output;
+pub mod exact_session;
 pub mod format;
 pub mod gain_plan;
 pub mod loudness;

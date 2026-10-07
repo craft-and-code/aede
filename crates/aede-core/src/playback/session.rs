@@ -68,16 +68,19 @@ impl From<RateError> for SessionError {
     }
 }
 
-/// A track's contiguous region of one processed output block.
+/// A track's contiguous region of one processed or exact output block.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrackSpan {
     /// Driver-supplied identity for the source track or queue entry.
     pub token: usize,
-    /// Interleaved sample indices in [`SessionBlock::samples`].
+    /// Interleaved sample indices in [`SessionBlock::samples`] or
+    /// [`super::exact_session::ExactSessionBlock::samples`].
     pub samples: Range<usize>,
-    /// Peak and guard intervention count for this span before the guard.
+    /// Observed normalized peak and guard interventions. Exact spans observe
+    /// the source peak without modifying samples and have zero interventions.
     pub stats: ProcessStats,
-    /// This span ends the track's complete output, including delayed SRC frames.
+    /// This span ends the track's produced output, including delayed SRC frames
+    /// in a processed session. It does not acknowledge device consumption.
     /// An empty range may deliver completion without additional PCM.
     pub complete: bool,
 }

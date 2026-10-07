@@ -5,7 +5,7 @@
 ))]
 #[test]
 fn native_callback_preserves_samples_across_buffer_boundaries() {
-    let (mut producer, mut pending) = super::queue::pcm_queue(1, 5).unwrap();
+    let (mut producer, mut pending) = super::queue::pcm_queue::<f32>(1, 5, false).unwrap();
     assert_eq!(producer.write_samples(&[0.1, 0.2, 0.3]).unwrap(), 3);
     assert_eq!(producer.write_samples(&[0.4, 0.5]).unwrap(), 2);
     let mut first = [0.0; 2];
@@ -87,7 +87,7 @@ fn native_output_prefers_float_and_uses_integer_when_needed() {
 ))]
 #[test]
 fn integer_callback_dithers_audio_but_keeps_underrun_silence_exact() {
-    let (mut producer, mut pending) = super::queue::pcm_queue(1, 2).unwrap();
+    let (mut producer, mut pending) = super::queue::pcm_queue::<f32>(1, 2, false).unwrap();
     assert_eq!(producer.write_samples(&[0.5, 0.0]).unwrap(), 2);
     let mut quantizer = aede_dsp::TpdfQuantizer::new();
     let mut output = [0_i16; 4];
@@ -104,7 +104,7 @@ fn integer_callback_dithers_audio_but_keeps_underrun_silence_exact() {
 ))]
 #[test]
 fn native_integer_path_rejects_non_finite_and_overfull_pcm() {
-    let (mut producer, _consumer) = super::queue::pcm_queue(1, 4).unwrap();
+    let (mut producer, _consumer) = super::queue::pcm_queue::<f32>(1, 4, false).unwrap();
     let sample = |value: f32| value.to_le_bytes();
     assert!(producer.write_f32le(&sample(0.5)).is_ok());
     assert!(producer.write_f32le(&sample(f32::NAN)).is_err());
@@ -125,7 +125,8 @@ fn a_slow_next_file_counts_only_the_silence_beyond_buffered_audio_and_recovers_i
     let callback_frames = 480;
     let next_frames = 4_096;
     for delay_ms in [200, 600] {
-        let (mut producer, mut pending) = super::queue::pcm_queue(2, capacity_frames).unwrap();
+        let (mut producer, mut pending) =
+            super::queue::pcm_queue::<f32>(2, capacity_frames, false).unwrap();
         let first = [0.125, -0.25].repeat(capacity_frames);
         let next = [0.375, -0.5].repeat(next_frames);
         assert_eq!(producer.write_samples(&first).unwrap(), first.len());
