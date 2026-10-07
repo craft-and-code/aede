@@ -74,8 +74,8 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
             summary: "Write portable playlists in album and artist folders.",
         },
         "play" => CommandPage {
-            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]",
-            summary: "Play local audio, an M3U, a saved collection or a catalogued name, with an initial seek position, repeat modes and seeded random or smart order. Shows album and numbered filename with keyboard controls, elapsed/total playback position and a progress bar, a Retro spectrum with 12 segmented bars grouped from 24 analysis bands, and listening history. --lyrics replaces the terminal spectrum with local timed lyric cues or a short untimed preview; it never downloads lyrics. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
+            usage: "aede play <file|folder|m3u|collection|artist|album|track> [--playback without-effects|bit-perfect|dsp] [--output-device ID] [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB] | aede play --list-devices",
+            summary: "Play local audio, an M3U, a saved collection or a catalogued name. The default without-effects policy disables normalization and tone effects, prefers the original rate and reports required conversions; it does not promise bit-perfect output. The bit-perfect policy requires an explicitly selected validated native route and the initial native FLAC/PCM WAV 16/24-bit mono/stereo profile. It preserves source samples, refuses incompatible files/routes/effects and never falls back to ffplay. DSP applies selected effects; normalization defaults to album gain for catalogued album selections and track gain otherwise, using current tags, FlacCompagnon analyses or fresh measurements. Explicit normalization or non-flat tone selects DSP when --playback is omitted; active effects conflict with explicit without-effects or bit-perfect. Bass/treble shelves accept -12 to +12 dB. Repeat, seeking and seeded shuffle share keyboard controls, lyrics, terminal progress and listening history. --lyrics uses local lyric cues and never downloads them. --list-devices lists local output names and host-qualified IDs without playing music. Named devices never silently fall back to another device. Physical bit identity needs separate digital-capture acceptance.",
         },
         "devices" => CommandPage {
             usage: "aede devices --bind IPV4 [--protocol googlecast [--device IP:PORT]]",
@@ -1092,6 +1092,25 @@ fn print_play_help() {
     println!("\n{}", ui::cyan("SELECTIONS"));
     println!("  aede play ~/Music/album.m3u     Playlist paths resolve beside the M3U");
     println!("  aede play collection:Favorites   Select a saved collection explicitly");
+    println!("\n{}", ui::cyan("PLAYBACK POLICY AND OUTPUT"));
+    println!("  --playback without-effects|bit-perfect|dsp");
+    println!("    without-effects  Default: no normalization or tone; report required conversions");
+    println!("    bit-perfect      Preserve eligible integer PCM; refuse modifying effects/routes");
+    println!("    dsp              Apply loudness normalization and selected bass/treble shelves");
+    println!(
+        "  --normalize off|track|album  DSP defaults to album gain for albums, track otherwise"
+    );
+    println!("  --bass DB / --treble DB      Broad shelves from -12 to +12 dB; zero is flat");
+    println!("                    Active effects imply DSP unless an explicit policy conflicts");
+    println!("  --output-device ID  Select a host-qualified ID, e.g. alsa:hw:CARD=0,DEV=0");
+    println!(
+        "                    Required for bit-perfect; unavailable/unknown routes are refused"
+    );
+    println!("  aede play --list-devices     List local output IDs; do not give a music selection");
+    println!("                    Strict playback never falls back or changes system volume");
+    println!(
+        "                    Digital-capture acceptance is separate from software preservation"
+    );
     println!("\n{}", ui::cyan("POSITION AND ORDER"));
     println!("  --seek TIME       Start the first played track at seconds, mm:ss or hh:mm:ss");
     println!("                    Seconds accept up to three decimal places, such as 1:30.250");

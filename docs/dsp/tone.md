@@ -12,6 +12,8 @@ aede play "An Album" --bass 0 --treble 0
 
 Each value is a finite number from −12 to +12 dB; both default to zero. Negative values are accepted as separate arguments or with `--bass=-6`. Positive raises that region, negative lowers it. Zero removes the corresponding filter; both zero are an **exact flat filter bypass**. This bypass concerns EQ only: normalization, channel/rate conversion and output protection can still run.
 
+Local playback defaults to without-effects. A nonzero tone value selects DSP when `--playback` is omitted; it is refused with explicit without-effects or bit-perfect. In DSP, choose `--normalize=off` if only tone correction is wanted rather than automatic loudness normalization.
+
 The ordinary shelf midpoints are **120 Hz** for bass and **4 kHz** for treble. A midpoint is the transition region, not a brick-wall cutoff. At unusually low sample rates these midpoints are reduced to remain below Nyquist (half the sample rate). Frequencies/slope/Q are not user-configurable in this version. Coefficients follow the Audio EQ Cookbook shelves through the `biquad` implementation; state is separate for each channel.
 
 ## Why boost also reduces the preamp

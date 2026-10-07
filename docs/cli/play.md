@@ -4,14 +4,17 @@ play accepts an existing file, recursively ordered folder, M3U/M3U8, saved colle
 
 In macOS/Linux terminals and the native Windows console, playback accepts the keys below without Enter. With redirected standard input, interactive controls are disabled and the selection advances automatically using the requested repeat and shuffle modes. Listening history is recorded in personal data. Windows console input is implemented; acceptance on an actual Windows console and audio device remains pending.
 
-Album normalization is the default for a catalogued album; other selections use track normalization toward -18 LUFS. Current FlacCompagnon LUFS/true-peak results, tags or cached measurements can supply gain. Missing loudness is measured during playback, without changing the current track’s level midway. Bass/treble boosts reserve headroom. CPAL uses a compatible native output where available, otherwise ffplay; Opus/AAC/ALAC decoding can need ffmpeg. Linux release archives require ffplay. The meter and output guard report sample overloads; there is no dynamic limiter or guarantee of a true-peak ceiling. Hardware gapless behavior remains unmeasured.
+Playback without effects is the default: normalization is off and bass/treble are flat. Aède prefers the source rate but can make necessary output adaptations; this convenience mode is not a bit-perfect guarantee. Choose `--playback=dsp` for automatic album normalization on a catalogued album, or track normalization on other selections, toward -18 LUFS. Explicit non-neutral normalization or tone settings also select DSP when no policy is supplied. Current FlacCompagnon LUFS/true-peak results, tags or cached measurements can supply gain; missing loudness is measured without changing the current track's level midway. Bass/treble boosts reserve headroom.
 
-AEDE_AUDIO_BACKEND chooses local output: unset tries native then ffplay; native requires native output and refuses instead of falling back; ffplay explicitly selects that program. Other values are refused. For example, on macOS/Linux: `AEDE_AUDIO_BACKEND=ffplay aede play "/path/to/track.flac"`. On PowerShell, set `$env:AEDE_AUDIO_BACKEND = "ffplay"` before running play. This selects the output backend, not the decoder or DSP quality.
+Ordinary native output uses CPAL where available, otherwise ffplay; Opus/AAC/ALAC decoding can need ffmpeg. Static Linux release archives require ffplay and do not include the direct ALSA strict backend. The meter and ordinary output guard report sample overloads; there is no dynamic limiter or guarantee of a true-peak ceiling. Strict playback bypasses modifying protection. Hardware gapless behavior and digital-output identity remain unmeasured.
+
+AEDE_AUDIO_BACKEND chooses local output: unset tries native then ffplay; native requires native output and refuses instead of falling back; ffplay explicitly selects that program. Other values are refused. For example, on macOS/Linux: `AEDE_AUDIO_BACKEND=ffplay aede play "/path/to/track.flac"`. On PowerShell, set `$env:AEDE_AUDIO_BACKEND = "ffplay"` before running play. This selects the output backend, not the decoder or DSP quality. An explicit `--output-device` must be honored and disables fallback. Strict playback always requires a named eligible native route and refuses forced ffplay.
 
 ## Syntax and arguments
 
 ```text
-aede play <file|folder|m3u|collection|artist|album|track> [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]
+aede play <file|folder|m3u|collection|artist|album|track> [--playback without-effects|bit-perfect|dsp] [--output-device ID] [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]
+aede play --list-devices
 ```
 
 One selection; quote names/paths containing spaces. Prefix a saved collection with collection:.
@@ -20,21 +23,53 @@ One selection; quote names/paths containing spaces. Prefix a saved collection wi
 
 | Option | Meaning |
 | --- | --- |
+| `--playback without-effects\|bit-perfect\|dsp` | Choose the local playback policy. Default without-effects unless non-neutral effects explicitly request DSP. Strict bit-perfect requires an eligible `--output-device`. |
+| `--output-device ID` | Choose the exact host-qualified native device ID reported by `--list-devices`. A missing or unsupported device is an error; no default substitution or ffplay fallback. |
+| `--list-devices` | List local native device names and IDs without playing audio. Use on its own, without a selection or playback options. |
 | `--seek TIME` | Start the first played occurrence at seconds, `mm:ss` or `hh:mm:ss`, with up to three decimal places. Default zero. |
 | `--repeat off\|one\|all` | Stop at selection end, repeat the current track, or repeat the selection. Default off. |
 | `--shuffle off\|random\|smart` | Keep selection order, use uniform random order, or prefer progressive genre transitions. Default off. Smart mode needs a catalog. |
 | `--seed U64` | Reproduce a shuffled order with an unsigned 64-bit seed. Requires random or smart mode. Otherwise a seed is generated and displayed. |
 | `--lyrics` | Replace the spectrum with local lyric cues or a four-line untimed preview. Requires terminal output; never downloads lyrics. |
-| `--normalize off\|track\|album` | Choose off, track or album loudness normalization. Default album for a catalogued album selection, track for other selections. |
+| `--normalize off\|track\|album` | Choose loudness normalization. Off outside DSP; in DSP, default album for a catalogued album and track otherwise. Explicit track/album requests DSP when policy is omitted; conflicts with explicit without-effects/bit-perfect. |
 | `--bass DB` | Broad bass shelf, -12 to +12 dB. 0 is flat; positive boosts reserve headroom. |
 | `--treble DB` | Broad treble shelf, -12 to +12 dB. 0 is flat; positive boosts reserve headroom. |
 
 The shared [options reference](options.md) explains `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, option values and output/pagination rules. These shared presentation/data options do not make every command support CSV/JSON or pagination.
 
+## Playback policies and strict output
+
+| Policy | Signal and incompatibilities |
+| --- | --- |
+| `without-effects` | No selected loudness or tone correction. Prefer the source rate; supported conversion, downmix and ordinary output protection may still apply and are reported. |
+| `bit-perfect` | Keep original integer samples, rate and mono/stereo channel order. No gain, EQ, resampling, downmix, limiter, guard or dither; exact container widening is allowed. An unsupported source, route or format is refused. |
+| `dsp` | Apply selected normalization and tone, with supported rate/channel adaptation, headroom and output protection. |
+
+Neutral options (`--normalize=off --bass=0 --treble=0`) are accepted in every policy. When `--playback` is omitted, `--normalize=track`, `--normalize=album` or a nonzero bass/treble value selects DSP; specifying a no-effects or strict policy with those active effects is an error. An explicit DSP policy keeps the existing automatic normalization unless overridden with `--normalize=off`. The policy and device are per-command choices; no saved per-device configuration is introduced. Native PCM v1 and client-controlled original-file streaming keep their separate contracts.
+
+For a 96 kHz FLAC on an output limited to 48 kHz, without-effects can convert and report it, while strict playback refuses. If all representations and route conditions are compatible, no-effects may preserve the samples, but only strict mode enforces refusal instead of adapting.
+
+Without-effects native integer output avoids dither for exactly representable values. A necessary precision-reducing conversion still uses the existing quantizer and reports its count; see [integer output](../dsp/dither.md). Strict playback never makes that compromise.
+
+The first strict backend is Linux with glibc and direct ALSA hardware output. Use `aede play --list-devices`, then copy a hardware ID such as `alsa:hw:CARD=0,DEV=0` into `--output-device`. The source must be native FLAC or little-endian PCM WAV, integer 16/24 bits, mono/stereo. The opened route must establish the original rate, sufficient effective precision, channel association and neutral supported controls; plugin/mixer routes and unknown facts are refused. macOS, Windows and static musl builds currently refuse strict playback because they have no admitted direct backend. A glibc Linux source build requires the ALSA development headers and pkg-config used by native output.
+
+The selected ALSA hardware must expose a readable playback channel-map control matching the opened PCM mapping. A missing map is refused even for a stereo device; a configured ALSA mapping alone does not establish the hardware order.
+
+The direct ALSA implementation has software simulation and API-signature checks. Native Linux compilation, linking and runtime acceptance for this backend remain unverified; synthetic Linux configuration checks on another host do not establish them. Digital capture on the intended device is a further, separate acceptance step.
+
+Strict errors, underruns and route changes stop preservation rather than silently enabling conversion or recovery. This is an implemented preservation policy with software checks, not a claim that every DAC is physically bit-perfect: digital capture acceptance for specific hardware/driver/settings remains pending. Aède does not change system volume to satisfy the route. Choose a suitable listening level on the DAC or amplifier before playback; sample preservation and true-peak limiting do not guarantee equipment protection.
+
+Strict Pause requires hardware pause without discarding programme frames. If the selected hardware cannot provide it, Pause fails the strict stream instead of fading, restarting or skipping audio.
+
+A present FLAC audio MD5 is checked during decoding in all three policies, independently of the sink. Its verdict becomes final only at complete source EOF, before a successful source completion. A missing digest remains unknown; the check is not a continuous comparison with the DAC. See [playback integrity](../integrity.md#flac-audio-md5-during-playback).
+
 ## Examples
 
 ```sh
 aede play "$HOME/Music/album/01.flac"
+aede play --list-devices
+aede play "$HOME/Music/album/01.flac" --playback bit-perfect --output-device alsa:hw:CARD=0,DEV=0
+aede play "Kind of Blue" --playback dsp
 aede play "Kind of Blue" --normalize album
 aede play collection:Road --bass 2 --treble -1
 aede play "$HOME/Music/album/album.m3u" --normalize off
@@ -70,7 +105,7 @@ Repeat and shuffle can be changed while paused. Changing shuffle retains the cur
 
 The decoder reopens the source and progressively discards the prefix, with bounded working memory. It does not send skipped audio through the DSP, output or listening history. This is sample-based positioning, rounded down to a source frame; the displayed position uses milliseconds. It is not an indexed instant seek: work grows with the target position and slow file/decoder reads can delay a control between cancellation checks. Moving resets queued audio and DSP state.
 
-Multiple moves during one visit create one incomplete listening record, counting only the estimated submitted-and-active audio duration, excluding pauses and skipped prefixes. Submillisecond segments accumulate before the final millisecond rounding. A partial-track visit never publishes a full-track loudness measurement. Local history reflects submitted playback and active time, not a physical device acknowledgement; it can precede native consumption by the pending output buffer (up to 500 ms). The remote native transport separately counts client-acknowledged frames.
+Multiple moves during one visit create one incomplete listening record, excluding pauses and skipped prefixes. Submillisecond segments accumulate before the final millisecond rounding. A partial-track visit never publishes a full-track loudness measurement. Ordinary local history estimates submitted-and-active audio duration and can precede native consumption by the pending output buffer (up to 500 ms). Strict history instead counts native-consumed source frames; source EOF and output consumption are both required for completion. Neither establishes physical DAC playback. The remote native transport separately counts client-acknowledged frames.
 
 ## Repetition
 
@@ -120,7 +155,7 @@ The graph is bounded and candidate work does not build an all-track pairwise dis
 
 Terminal playback shows the current track, elapsed position and total duration, with a progress bar and percentage. The position includes the initial or runtime seek offset, freezes during pause and restarts for each new track or repeat. It remains visible with `--lyrics`; redirected output has no live progress display.
 
-Native output follows frames consumed by the CPAL callback, attributed to the current occurrence rather than the track being decoded ahead. With ffplay, `~` marks an estimate based on active playback time; buffering and output stalls can reduce its accuracy. Neither clock measures physical device latency. The total initially comes from file metadata and is corrected from the decoded source frame count at EOF, without predecoding the track. An unavailable duration is shown as `--:--`, without a percentage. An inaccurate short total clamps the bar, not the observed elapsed position.
+Native output follows its consumed-frame counters, attributed to the current occurrence rather than the track being decoded ahead. With ffplay, `~` marks an estimate based on active playback time; buffering and output stalls can reduce its accuracy. Neither clock measures physical device latency. The total initially comes from file metadata and is corrected from the decoded source frame count at EOF, without predecoding the track. An unavailable duration is shown as `--:--`, without a percentage. An inaccurate short total clamps the bar, not the observed elapsed position.
 
 ## Terminal spectrum
 
@@ -138,7 +173,7 @@ The colors describe display height, not clipping or a calibrated level threshold
 
 A nonempty lyrics tag takes precedence over an adjacent `.lrc`. Reads are bounded to 256 KiB of source text and 1 MiB after timestamp expansion. Existing catalog evidence must still match the audio; files played directly are read afresh. No request to LRCLIB or other service occurs. Use [fetch --lyrics](fetch.md) separately to retrieve missing words, or [track --lyrics](track.md) for a complete static listing. Redirected output refuses `play --lyrics`; playback without this option remains available.
 
-With native output, cues follow frames consumed by the CPAL callback, including the current seek offset. They stay frozen during pause and reset when restarting, seeking or skipping. Compatible joins and natural repeats retain the output clock while starting a new lyric occurrence. This avoids showing the next track simply because its decoder has started preparing it. Lyric lookahead holds at most 64 occurrences; if very short tracks reach that bound before the resampler emits them, Aède flushes the processing group and waits for output consumption. The output stream stays open, but filter tails and rate-conversion rounding restart at that exceptional boundary. Device/host latency is not measured, so this does not promise alignment with the physical sound at the DAC. With ffplay, elapsed active playback supplies an explicitly announced estimate; buffering and output stalls can reduce its accuracy.
+With native output, cues follow the consumed-frame counters, including the current seek offset. They stay frozen during pause and reset when restarting, seeking or skipping. Compatible joins and natural repeats retain the output clock while starting a new lyric occurrence. This avoids showing the next track simply because its decoder has started preparing it. Lyric lookahead holds at most 64 occurrences; if very short tracks reach that bound before the resampler emits them, Aède flushes the processing group and waits for output consumption. The output stream stays open, but filter tails and rate-conversion rounding restart at that exceptional boundary. Device/host latency is not measured, so this does not promise alignment with the physical sound at the DAC. With ffplay, elapsed active playback supplies an explicitly announced estimate; buffering and output stalls can reduce its accuracy.
 
 The [native lyrics API](../server/playback.md#lyrics-and-the-client-clock) gives Phémios or another authorized client a separate timed text resource. The client follows its own audio presentation position, pauses and seeks. Lyrics are not embedded in the PCM packets; this API does not enable the separate Subsonic lyrics methods.
 
@@ -162,6 +197,6 @@ Detailed existing guide: [design/playback.md](../design/playback.md).
 
 ## Local output and network devices
 
-CPAL is already the default on macOS, Windows and glibc Linux when a compatible device can open. ffplay is the explicit/automatic fallback and the static-musl output path. `AEDE_AUDIO_BACKEND=native aede play /path/to/song.flac` requires CPAL and reports why it cannot open instead of falling back. Native visual timing uses callback-consumed frames; local history still follows submitted audio. CPAL hands audio to the host and does not prove physical DAC audibility.
+Ordinary playback prefers CPAL on macOS, Windows and glibc Linux when a compatible device can open. ffplay is the explicit/automatic fallback and the static-musl output path. `AEDE_AUDIO_BACKEND=native aede play /path/to/song.flac` requires native output and reports why it cannot open instead of falling back. Strict mode uses the direct Linux ALSA route described above. Native counters follow software output consumption; strict history uses them while ordinary history estimates submitted audio. None of these counters establishes physical DAC audibility.
 
 For SlimProto, UPnP AV or OpenHome equipment, use [device casting](../server/devices.md). These first profiles send original encoded files for device-side decoding; local CPAL output and server DSP are separate from that transport.

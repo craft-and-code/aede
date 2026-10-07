@@ -19,7 +19,8 @@ echo "-> Website renderer and bilingual documentation"
 python3 tools/build_site_tests.py
 
 echo "-> Formatting"
-cargo fmt --all -- --check
+# Format every authored workspace member, preserving vendored upstream style.
+cargo fmt -- --check
 
 echo "-> Lint (no warning tolerated)"
 cargo clippy --locked --offline --all-targets -- -D warnings

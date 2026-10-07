@@ -4,7 +4,7 @@ The sound you hear includes Aède's processing, the output backend, the operatin
 
 ## Native output and fallback
 
-`aede play` uses native CPAL when a compatible channel/sample format is available, preferring floating point. Otherwise it uses ffplay. Opus and M4A decoding also require FFmpeg. To explicitly choose a backend for a command:
+Ordinary `aede play` uses native CPAL when a compatible channel/sample format is available, otherwise ffplay. Without-effects is the local default and prefers the source rate; DSP keeps floating-format preference. Strict bit-perfect uses the separate direct ALSA backend on glibc Linux and requires an explicit eligible hardware device; other current platform routes are refused. Opus and M4A can require FFmpeg decoding fallback. To explicitly choose an ordinary backend for a command:
 
 ```sh
 AEDE_AUDIO_BACKEND=native aede play /path/to/song.flac
@@ -13,9 +13,13 @@ AEDE_AUDIO_BACKEND=ffplay aede play /path/to/song.flac
 
 `native` requires that route rather than silently falling back; ffplay must be installed for its route. Aède sends processed `f32le` blocks to ffplay. The native path receives processed samples through a preallocated frame-aligned ring; its Aède callback does not allocate, lock or log. It can still have queue shortages or host errors. Aède records listens asynchronously so history writes do not block the decode loop.
 
+`aede play --list-devices` lists native names and IDs without opening playback. An explicit `--output-device` disables automatic substitution/fallback; strict mode also refuses forced ffplay. See [playback policies](../cli/play.md#playback-policies-and-strict-output) for admission and static Linux archive limits. Neither a listed device nor successful software route admission proves physical digital identity.
+
+Direct ALSA has software simulation and synthetic Linux-configuration API checks; native Linux compilation, linking, runtime and digital-capture acceptance remain unverified. Those checks must succeed on the target platform before its hardware output can be advertised as validated.
+
 ## Read the stage report
 
-Look for source/output sample rate and channel information, backend/format, normalization source and selected gain, the normalization headroom reserve, optional tone stage/reserve and rate conversion where active. A disabled stage differs from a stage unavailable because the format/path does not support it. The CLI reports that dynamic gain reduction is unavailable without a limiter; it does not invent a limiter meter from the hard guard.
+Look for the playback policy, device/backend and format, source/output rate and channels, normalization source and gain, normalization/tone reserves, and any required conversion. Without-effects reports adaptations and any precision-reducing integer conversion rather than claiming strict output. Strict reports source preservation separately from unmeasured physical capture. A disabled stage differs from an unavailable one. Dynamic gain reduction remains unavailable without a limiter; the CLI does not invent a limiter meter from the hard guard.
 
 ## Output peak snapshot
 
@@ -27,6 +31,8 @@ At 192 kHz and above, true peak is unknown because the current meter no longer o
 
 Consumed-frame counters, bounded queue occupancy, queue shortages and host xruns distinguish late decoded data from driver scheduling/output problems. An **underrun** means the output needs samples before they arrive; exact silence may be emitted. Not every recoverable route/scheduling notification is a fatal error, but it remains visible as a warning.
 
-Final drain and output-format changes keep transport controls usable. Native drain treats five seconds without consumed-frame progress as an error. The approximately 100 ms host allowance is counted in active time, not while paused, and is not a physical playback acknowledgement. These limits do not certify latency, seamless joins or NAS performance.
+Strict output treats programme underruns, route changes and unknown output errors as terminal preservation failures, with no automatic recovery. Its history counts native-consumed source frames and requires successful source EOF before completion. The ordinary submitted/active-time history and remote client acknowledgements remain separate evidence; none is a physical DAC acknowledgement.
+
+Final drain and output-format changes keep transport controls usable. Native drain treats five seconds without consumed-frame progress as an error. Ordinary CPAL adds an approximately 100 ms host allowance in active time, not while paused; direct ALSA uses reported hardware delay and successful nonblocking drain instead. Neither is physical proof that a sample emerged from the DAC. These limits do not certify latency, seamless joins or NAS performance.
 
 If playback fails, keep its diagnostic message, verify backend dependencies and file/layout compatibility, and compare with flat tone/normalization off. Do not delete original files or data stores to repair an audio-device error. [Continuity](continuity.md) separates tested PCM joins from unmeasured physical playback.

@@ -86,6 +86,49 @@ fn native_output_prefers_float_and_uses_integer_when_needed() {
     all(target_os = "linux", target_env = "gnu")
 ))]
 #[test]
+fn without_effects_prefers_the_source_rate_before_sample_format() {
+    use cpal::SampleFormat;
+    let ranges = [
+        (SampleFormat::F32, 48_000, 48_000),
+        (SampleFormat::I24, 44_100, 44_100),
+        (SampleFormat::I16, 44_100, 44_100),
+    ];
+    assert_eq!(
+        super::native::select_config_without_effects(44_100, &ranges),
+        Some((1, 44_100))
+    );
+    assert_eq!(
+        super::native::select_config(44_100, &ranges),
+        Some((0, 48_000))
+    );
+    let ranges = [
+        (SampleFormat::F32, 96_000, 96_000),
+        (SampleFormat::I32, 48_000, 48_000),
+        (SampleFormat::F32, 44_100, 44_100),
+    ];
+    assert_eq!(
+        super::native::select_config_without_effects(44_100, &ranges),
+        Some((2, 44_100))
+    );
+    assert_eq!(
+        super::native::select_config_without_effects(48_000, &ranges),
+        Some((1, 48_000))
+    );
+    assert_eq!(
+        super::native::select_config_without_effects(
+            48_000,
+            &[(SampleFormat::F32, 96_000, 48_000)]
+        ),
+        None
+    );
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[test]
 fn integer_callback_dithers_audio_but_keeps_underrun_silence_exact() {
     let (mut producer, mut pending) = super::queue::pcm_queue::<f32>(1, 2, false).unwrap();
     assert_eq!(producer.write_samples(&[0.5, 0.0]).unwrap(), 2);
@@ -322,6 +365,7 @@ fn strict_selection_refuses_ffplay_and_survives_abort_without_fallback() {
     let strict = NativeSelection {
         device: None,
         strict: true,
+        ..Default::default()
     };
     assert!(LocalOutput::with_selection(BackendChoice::Ffplay, strict.clone()).is_err());
     let mut output = LocalOutput::with_selection(BackendChoice::Auto, strict).unwrap();

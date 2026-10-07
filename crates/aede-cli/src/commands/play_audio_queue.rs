@@ -250,6 +250,21 @@ impl PcmProducer<f32> {
 }
 
 impl<S: QueueSample> PcmConsumer<S> {
+    #[cfg(any(test, all(target_os = "linux", target_env = "gnu")))]
+    pub(super) fn available_frames(&self) -> usize {
+        self.ring.slots() / self.channels
+    }
+
+    #[cfg(any(test, all(target_os = "linux", target_env = "gnu")))]
+    pub(super) fn input_closed(&self) -> bool {
+        self.counters.closed.load(Ordering::Acquire)
+    }
+
+    #[cfg(any(test, all(target_os = "linux", target_env = "gnu")))]
+    pub(super) fn has_failed(&self) -> bool {
+        self.counters.failed.load(Ordering::Acquire)
+    }
+
     /// Render available whole frames, then exact digital silence. The callback
     /// performs bounded copying and atomic counter updates; it does not allocate,
     /// deallocate, lock, log or wait. Ordinary playback silences an incomplete

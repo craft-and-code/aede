@@ -16,6 +16,7 @@ use cpal::{Device, DeviceId, HostId, SampleFormat, SupportedStreamConfig};
 pub(super) struct NativeRequest {
     pub(super) device: Option<DeviceId>,
     pub(super) strict: bool,
+    pub(super) without_effects: bool,
 }
 
 pub(super) struct SelectedDevice {

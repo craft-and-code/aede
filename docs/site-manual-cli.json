@@ -348,8 +348,8 @@
       "fr": "play — Écouter la musique"
     },
     "description": {
-      "en": "Play local audio or an M3U in order, or a saved collection or catalogued name. Shows album and numbered filename with keyboard controls, a 24-band visualizer, and listening history. Normalization defaults to album gain for catalogued album selections and track gain otherwise; --normalize overrides it. Current FlacCompagnon analyses or fresh loudness measurements supply gain when matching tags are absent. Optional broad bass/treble shelves each accept -12 to +12 dB; zero is flat. Positive tone boosts reserve headroom. Unexpected over-full-scale samples are reported and hard-clamped. Known multichannel layouts are safely downmixed to stereo, omitting LFE; unknown layouts are refused. CPAL provides native output when available, with ffplay fallback.",
-      "fr": "Écouter la musique."
+      "en": "Play local files, folders, M3U playlists, saved collections or catalogued names. Choose without-effects (the local default), strict bit-perfect or DSP, with native device discovery and selection. DSP supports album/track normalization, FlacCompagnon measurements and broad bass/treble controls. Strict native FLAC/WAV integer 16/24-bit mono/stereo uses eligible direct ALSA hardware output on glibc Linux; other strict routes are refused, and native Linux build/runtime plus physical capture acceptance remain pending. All policies retain present FLAC audio MD5 verification during decoding. Terminal transport, spectrum, lyrics and private listening history share the existing queue.",
+      "fr": "Écouter fichiers, dossiers, playlists, collections ou noms du catalogue. Sans effets par défaut ; modes bit-perfect strict et DSP, découverte et choix de sortie native. Le mode strict FLAC/WAV entier 16/24 bits mono/stéréo exige une route ALSA matérielle admissible sous Linux glibc ; les autres routes sont refusées ; compilation native Linux, fonctionnement réel et validation physique restent à faire. Le MD5 audio FLAC présent reste vérifié au décodage dans les trois modes."
     },
     "source": {
       "en": "docs/cli/play.md",

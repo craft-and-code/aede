@@ -131,6 +131,8 @@ fn missing_loudness_on_later_tracks_does_not_delay_or_prevent_the_first_output()
         .args([
             "play",
             &music.to_string_lossy(),
+            "--playback",
+            "dsp",
             "--data",
             &root.join("data").to_string_lossy(),
         ])
@@ -153,6 +155,13 @@ fn missing_loudness_on_later_tracks_does_not_delay_or_prevent_the_first_output()
 }
 
 fn played_pcm(fixture: &str, normalization: Option<&str>) -> (Vec<f32>, user::UserData, String) {
+    match normalization {
+        Some(mode) => played_pcm_options(fixture, &["--normalize", mode]),
+        None => played_pcm_options(fixture, &[]),
+    }
+}
+
+fn played_pcm_options(fixture: &str, options: &[&str]) -> (Vec<f32>, user::UserData, String) {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let root = std::env::temp_dir().join(format!(
         "aede_normalization_{}_{}",
@@ -180,9 +189,7 @@ fn played_pcm(fixture: &str, normalization: Option<&str>) -> (Vec<f32>, user::Us
         .arg(&data_dir)
         .env("PATH", path)
         .env("AEDE_AUDIO_BACKEND", "ffplay");
-    if let Some(mode) = normalization {
-        command.arg("--normalize").arg(mode);
-    }
+    command.args(options);
     let result = command.output().unwrap();
     assert!(
         result.status.success(),
@@ -213,14 +220,23 @@ fn assert_scaled(reference: &[f32], actual: &[f32], gain_db: f32) {
 
 #[test]
 fn metadata_normalization_applies_track_and_album_gain_without_changing_history() {
-    let (track_by_default, default_history, _) = played_pcm("normalization.flac", None);
+    let (without_effects_default, default_history, _) = played_pcm("normalization.flac", None);
+    let (dsp_automatic, dsp_history, _) =
+        played_pcm_options("normalization.flac", &["--playback", "dsp"]);
     let (off, off_history, _) = played_pcm("normalization.flac", Some("off"));
     let (track, track_history, _) = played_pcm("normalization.flac", Some("track"));
     let (album, album_history, _) = played_pcm("normalization.flac", Some("album"));
-    assert_eq!(track_by_default, track);
+    assert_eq!(without_effects_default, off);
+    assert_eq!(dsp_automatic, track);
     assert_scaled(&off, &track, -6.0206);
     assert_scaled(&off, &album, -12.0412);
-    for history in [default_history, off_history, track_history, album_history] {
+    for history in [
+        default_history,
+        dsp_history,
+        off_history,
+        track_history,
+        album_history,
+    ] {
         assert_eq!(history.plays.len(), 1);
         assert!(history.plays[0].completed);
         assert_eq!(history.counts.len(), 1);

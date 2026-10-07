@@ -84,6 +84,7 @@ fn strict_selection_without_a_device_refuses_before_querying_a_default_host() {
     let request = NativeRequest {
         device: None,
         strict: true,
+        ..Default::default()
     };
     match resolve_output(&request) {
         Ok(_) => panic!("strict selection admitted an implicit device"),

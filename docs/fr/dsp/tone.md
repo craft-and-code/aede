@@ -12,6 +12,8 @@ aede play "Un Album" --bass 0 --treble 0
 
 Chaque valeur est un nombre fini entre −12 et +12 dB ; défaut zéro. Un nombre négatif fonctionne séparément ou avec `--bass=-6`. Positif augmente la zone, négatif la diminue. Zéro retire le filtre concerné ; deux zéros contournent **exactement les filtres de tonalité**. Normalisation, conversion de canaux/fréquence et protection peuvent cependant rester actives.
 
+La lecture locale démarre sans effets. Une valeur de tonalité non nulle choisit DSP si `--playback` est omis ; elle est refusée avec without-effects ou bit-perfect explicite. En DSP, choisir `--normalize=off` pour appliquer seulement la tonalité, sans normalisation automatique de sonie.
+
 Les points centraux habituels sont **120 Hz** pour les graves et **4 kHz** pour les aigus. Un centre situe la transition, pas une coupure brutale. Aux fréquences d’échantillonnage très faibles, ils sont abaissés sous Nyquist (moitié de cette fréquence). Fréquence/pente/Q ne sont pas réglables dans cette version. Les coefficients suivent les plateaux de l’Audio EQ Cookbook via `biquad`, avec un état par canal.
 
 ## Une hausse réduit aussi le préampli

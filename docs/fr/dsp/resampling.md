@@ -4,7 +4,7 @@ La **fréquence d’échantillonnage** est le nombre de trames PCM par seconde, 
 
 ## Choix natif automatique
 
-Le lecteur natif choisit format, canaux et fréquence compatibles. Il préfère les formats flottants avant de comparer les distances de fréquence : un flottant à autre fréquence peut donc passer avant un entier plus proche. Consultez fréquences source/sortie affichées ; un fichier 96 kHz ne signifie pas que le périphérique reçoit 96 kHz.
+Le lecteur natif choisit format, canaux et fréquence compatibles. Sans effets privilégie la fréquence source avant le format ; si elle n’est pas prise en charge, une adaptation peut encore être choisie et signalée. DSP conserve la priorité au flottant avant la distance de fréquence. Bit-perfect strict n’autorise que la fréquence originale et refuse une route incompatible au lieu de rééchantillonner. Consultez mode et fréquences source/sortie affichés ; un fichier 96 kHz ne signifie pas qu’une sortie ordinaire reçoit 96 kHz.
 
 ```sh
 aede play /chemin/vers/morceau-96k.flac

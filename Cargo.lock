@@ -24,6 +24,7 @@ dependencies = [
  "aede-devices",
  "aede-dsp",
  "aede-server",
+ "alsa",
  "cpal",
  "flaccompagnon-core",
  "rtrb",
@@ -89,8 +90,6 @@ dependencies = [
 [[package]]
 name = "alsa"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812947049edcd670a82cd5c73c3661d2e58468577ba8489de58e1a73c04cbd5d"
 dependencies = [
  "alsa-sys",
  "bitflags 2.13.2",

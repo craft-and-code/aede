@@ -123,7 +123,7 @@ Useful individual commands:
 
 ```sh
 cargo test
-cargo fmt --all
+cargo fmt
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 ```

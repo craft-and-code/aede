@@ -4,7 +4,7 @@ A **channel** is one signal intended for a speaker position. A channel count alo
 
 ## Local playback mapping
 
-Mono and stereo retain their ordinary channel meaning. Known multichannel sources are downmixed to stereo before shared gain/tone/output protection. Supported conventional masks cover 2.1, 3.0, 3.1, quad, 4.0, 5.0, 5.1, 7.0 and 7.1. A recognized count with an unrecognized mask is still refused.
+Mono and stereo retain their ordinary channel meaning. Without-effects and DSP downmix known multichannel sources to stereo before shared processing/output protection. The initial strict bit-perfect profile accepts mono/stereo only and refuses multichannel rather than downmixing it. Supported conventional downmix masks cover 2.1, 3.0, 3.1, quad, 4.0, 5.0, 5.1, 7.0 and 7.1. A recognized count with an unrecognized mask is still refused.
 
 **Downmix** means combining channels, not simply discarding every channel except left/right. Center contributes to both sides; surrounding channels contribute to their relevant side. Ordinary center/surround coefficients are −3 dB (about 0.707), inspired by ITU-R BS.775. In 7.1 the side/rear pairs each use −6 dB before final scaling. Each stereo row is conservatively scaled so coherent full-scale contributors cannot overload the resulting sum.
 

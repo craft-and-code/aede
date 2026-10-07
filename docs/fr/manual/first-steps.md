@@ -30,7 +30,7 @@ Les pluriels listent ; les singuliers ouvrent. Les commandes `Open`/`Continue` c
 aede play "Kind of Blue"
 ```
 
-Dans les terminaux macOS/Linux et la console native Windows : Espace pause/reprise, `n` suivant, `p` précédent/recommencer, `q` arrêt, sans Entrée. Une entrée redirigée désactive ces commandes. La validation sur console/périphérique Windows reste à faire. FFmpeg/ffplay peut être requis selon format/compilation. Un album utilise la normalisation album par défaut, gardant les différences de niveau entre pistes. [Référence de lecture](../cli/play.md) : toutes les touches, gain, outils, limites.
+Dans les terminaux macOS/Linux et la console native Windows : Espace pause/reprise, `n` suivant, `p` précédent/recommencer, `q` arrêt, sans Entrée. Une entrée redirigée désactive ces commandes. La validation sur console/périphérique Windows reste à faire. FFmpeg/ffplay peut être requis selon format/compilation. La lecture démarre sans effets, avec normalisation désactivée et tonalité neutre. Ajouter `--playback=dsp` pour la normalisation automatique album/piste, ou consulter la [référence de lecture](../cli/play.md) pour le mode strict, les sorties, touches et limites actuelles.
 
 ## 4. Ajouter vos informations
 

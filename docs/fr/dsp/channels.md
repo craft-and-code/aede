@@ -4,7 +4,7 @@ Un **canal** est un signal destiné à une position de haut-parleur. Leur nombre
 
 ## Mélange de lecture local
 
-Mono/stéréo conservent leur sens ordinaire. Les sources multicanales connues sont ramenées en stéréo avant gain/tonalité/protection communs. Les masques classiques reconnus couvrent 2.1, 3.0, 3.1, quad, 4.0, 5.0, 5.1, 7.0 et 7.1. Un nombre connu avec masque inconnu reste refusé.
+Mono/stéréo conservent leur sens ordinaire. Sans effets et DSP ramènent les sources multicanales connues en stéréo avant traitement/protection communs. Le profil bit-perfect strict initial accepte uniquement mono/stéréo et refuse le multicanal au lieu de le mélanger. Les masques classiques de downmix couvrent 2.1, 3.0, 3.1, quad, 4.0, 5.0, 5.1, 7.0 et 7.1. Un nombre connu avec masque inconnu reste refusé.
 
 Le **downmix** combine les canaux au lieu de supprimer tout sauf gauche/droite. Le centre contribue aux deux côtés ; les ambiances à leur côté. Les coefficients habituels centre/ambiance sont −3 dB (environ 0,707), inspirés d’ITU-R BS.775. En 7.1, côtés/arrière utilisent chacun −6 dB avant réduction finale. Chaque ligne stéréo est réduite prudemment pour qu’une somme de signaux cohérents à pleine échelle ne sature pas.
 

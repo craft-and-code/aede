@@ -58,6 +58,10 @@ elif scenario.startswith("lyrics-"):
     arguments += ["--normalize", "off", "--lyrics"]
     if scenario == "lyrics-repeat":
         arguments += ["--repeat", "one"]
+elif scenario in {"seek", "seek-past-end", "paused-modes", "flac-md5-stop"}:
+    # Keep exercising lazy loudness collection and refusal to cache fragments;
+    # the ordinary default intentionally performs no loudness measurement.
+    arguments += ["--playback", "dsp"]
 environment = {
     **os.environ,
     "PATH": str(bin_directory) + os.pathsep + os.environ.get("PATH", ""),

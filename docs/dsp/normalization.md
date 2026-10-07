@@ -10,7 +10,7 @@ aede play /path/to/playlist.m3u --normalize track
 aede play /path/to/song.flac --normalize off
 ```
 
-Album mode preserves the programme's relative quiet/loud passages and tracks; track mode aims to align separate tracks' average loudness. A catalogued album name defaults to album mode. Other selections default to track mode, including a folder that happens to contain an album. Explicit `--normalize album` selects album semantics for your selection rather than guessing from the path. Off skips normalization gain; it does not disable EQ, device conversion or output safety.
+Album mode preserves the programme's relative quiet/loud passages and tracks; track mode aims to align separate tracks' average loudness. Local playback defaults to without-effects and normalization off. With `--playback=dsp`, a catalogued album defaults to album normalization and other selections to track, including a folder that happens to contain an album. Explicit `--normalize album` selects album semantics rather than guessing from the path and implies DSP when no playback policy was supplied. Active track/album normalization conflicts with explicit without-effects or bit-perfect. Off skips normalization gain; it does not disable selected EQ, device conversion or ordinary output protection.
 
 The current target is **−18 LUFS**, a loudness reference, not a peak ceiling. If a measured track is −23 LUFS, the requested gain is +5 dB; a −13 LUFS track requests −5 dB. [Headroom](headroom.md) can reduce a positive request, so achieving exactly −18 LUFS is not guaranteed. LUFS uses a perceptually weighted programme measurement; it cannot predict your room's sound-pressure level.
 

@@ -54,6 +54,15 @@ FLAC decoder computes it from original integer samples before conversion to
 `f32`, downmix, gain, sample-rate conversion or other DSP. There is no extra
 full-file preflight decode and no change to music or tags.
 
+This source check is independent of the local playback policy. Playback without
+effects and playback with DSP use the float decoder's verified FLAC path;
+strict playback uses the integer decoder's same FLAC validator. Choosing an
+audio sink does not turn verification off: ffplay receives PCM already decoded
+by Aède. FFmpeg decoding fallback is limited to supported Opus/AAC/ALAC sources,
+not a way to retry FLAC after an integrity error. Strict source admission
+remains limited to native 16/24-bit mono/stereo FLAC; ordinary verified playback
+also handles supported Ogg FLAC.
+
 The checksum covers all decoded channels and samples; a zero checksum means
 the value is unknown, as specified in [RFC 9639, section
 8.2](https://www.rfc-editor.org/rfc/rfc9639.html#section-8.2). It can expose an
@@ -79,7 +88,10 @@ This runtime status does not write an integrity verdict or analysis to
 `conclusions.json`. Existing Aède or FlacCompagnon conclusions do not bypass the
 current decode's comparison. Other codecs retain their existing behavior.
 Subsonic/OpenSubsonic streams original encoded bytes without this decode, so
-decoded-audio verification there belongs to the client.
+decoded-audio verification there belongs to the client. The same limitation
+applies to selected-original device casting. PCM WAV does not carry the FLAC
+STREAMINFO audio digest; it must not be labelled MD5-verified simply because
+strict playback accepts its integer samples.
 
 Native and Ogg FLAC sources use the same integer-sample validator. Source frame
 counts and frame format declarations are checked; missing, repeated or reordered
@@ -95,5 +107,14 @@ including zero-length blocks, to bound opening work. No source bytes are rewritt
 This is not a certificate for all container bytes. Optional metadata content,
 trailing non-audio data and every Ogg page/link are outside the decoded MD5
 verdict. Keep the separate container check when investigating structural errors.
+
+The digest is accumulated during decoding and compared with STREAMINFO once
+the complete source reaches EOF. It is not a continuous comparison between
+Aède and the audio sink, and it does not hash a returned signal from the DAC.
+A DSP output intentionally differs from the source reference. Exact adapters,
+frame accounting and output-error checks establish separate software facts;
+digital loopback capture is required to validate a physical route's sample
+identity. A verified source MD5 does not establish that an operating-system
+mixer, driver, receiver or DAC left the submitted audio unchanged.
 
 For command syntax, threads, stored verdicts and practical limits see [check](cli/check.md). For read-back of newly copied destination files see [copy](cli/copy.md); it has different verification semantics.

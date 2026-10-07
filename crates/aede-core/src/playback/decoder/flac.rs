@@ -87,8 +87,9 @@ impl<S: ConvertibleSample> FlacDecoder<S> {
             &MetadataOptions::default(),
         ) {
             Ok(probed) => probed,
-            // Other ID3/Ogg codecs retain their existing playback path.
-            Err(error) if &magic == b"fLaC" => return Err(decode_error(error)),
+            // The bounded source already established native FLAC, including
+            // after ID3. Never retry that recognized source without verification.
+            Err(error) if native_container => return Err(decode_error(error)),
             Err(_) => return Ok(None),
         };
         let track = probed.format.default_track().ok_or(Error::InvalidFormat)?;

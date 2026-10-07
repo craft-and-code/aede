@@ -18,7 +18,7 @@ use aede_core::{clock, model::EntityKind, query, tags};
 use aede_dsp::{OutputMeter, OutputMeterError, ToneControls, gain_with_headroom_db};
 
 use super::{Res, data_dir};
-use crate::args::{Args, PlaybackShuffle};
+use crate::args::{Args, PlaybackPolicy, PlaybackShuffle};
 
 #[path = "play_visualizer.rs"]
 mod visualizer;
@@ -46,6 +46,10 @@ mod order;
 use order::PlaybackOrder;
 
 pub fn play(args: &Args) -> Res {
+    if args.lists_playback_devices()? {
+        return output::list_devices();
+    }
+    let policy = args.playback_policy()?;
     let options = args.playback_options()?;
     if options.lyrics && !crate::ui::is_interactive() {
         return Err(
@@ -53,8 +57,13 @@ pub fn play(args: &Args) -> Res {
                 .into(),
         );
     }
-    let requested_normalization = normalization_mode(args)?;
+    let requested_normalization = normalization_request(args, policy)?;
     let tone = tone_controls(args)?;
+    let mut output = LocalOutput::new(output::NativeSelection {
+        device: args.playback_device()?.map(str::to_owned),
+        strict: policy == PlaybackPolicy::BitPerfect,
+        without_effects: policy == PlaybackPolicy::WithoutEffects,
+    })?;
     let raw = args.positionals.join(" ");
     if raw.trim().is_empty() {
         return Err(
@@ -80,7 +89,7 @@ pub fn play(args: &Args) -> Res {
             "Controls: Space pause/resume · n/→ next · p/← previous · [/] seek 10s · r repeat · z shuffle · q/Ctrl-C stop"
         );
     }
-    let mut output = LocalOutput::new()?;
+    println!("Playback policy: {}", policy.as_str());
     // Repeat may run indefinitely. Slow storage must back-pressure the producer
     // rather than accumulate an unbounded number of private listening events.
     let (history_send, history_receive) = mpsc::sync_channel::<PlaybackRecord>(64);
@@ -128,30 +137,23 @@ pub fn play(args: &Args) -> Res {
 }
 
 fn normalization_mode(args: &Args) -> Result<Option<NormalizationMode>, Box<dyn Error>> {
-    match args.value("normalize") {
-        None => Ok(None),
-        Some("off") => Ok(Some(NormalizationMode::Off)),
-        Some("track") => Ok(Some(NormalizationMode::Track)),
-        Some("album") => Ok(Some(NormalizationMode::Album)),
-        other => Err(format!("normalization must be off, track or album; got {other:?}").into()),
-    }
+    Ok(args.playback_normalization()?)
+}
+
+fn normalization_request(
+    args: &Args,
+    policy: PlaybackPolicy,
+) -> Result<Option<NormalizationMode>, Box<dyn Error>> {
+    let requested = normalization_mode(args)?;
+    Ok(if policy == PlaybackPolicy::Dsp {
+        requested
+    } else {
+        Some(NormalizationMode::Off)
+    })
 }
 
 fn tone_controls(args: &Args) -> Result<ToneControls, Box<dyn Error>> {
-    fn level(args: &Args, name: &str) -> Result<f32, Box<dyn Error>> {
-        if !args.has(name) {
-            return Ok(0.0);
-        }
-        let raw = args
-            .value(name)
-            .ok_or_else(|| format!("--{name} needs a dB value"))?;
-        Ok(raw
-            .parse::<f32>()
-            .map_err(|_| format!("--{name} needs a numeric dB value"))?)
-    }
-    let bass = level(args, "bass")?;
-    let treble = level(args, "treble")?;
-    ToneControls::new(bass, treble).map_err(|error| error.into())
+    Ok(args.playback_tone()?)
 }
 
 struct PlaybackSelection {

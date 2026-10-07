@@ -47,6 +47,7 @@ struct EligibleSink {
     route_checks: usize,
     fail_route_check: Option<usize>,
     refuse_bits: Option<u32>,
+    consume_writes: bool,
 }
 
 impl Write for EligibleSink {
@@ -80,6 +81,9 @@ impl PlaybackOutput for EligibleSink {
         };
         self.samples.extend_from_slice(&remaining[..count]);
         self.stream_frames += (count / channels) as u64;
+        if self.consume_writes {
+            self.consumed.set(self.stream_frames);
+        }
         Ok(count * 4)
     }
     fn pause(&self) -> Res {
@@ -353,6 +357,7 @@ fn strict_lookahead_starts_buffered_output_without_restarting_compatible_tracks(
 
 #[derive(Default)]
 struct ProcessedSink {
+    write_delay: Duration,
     bytes: Vec<u8>,
     format: Option<PcmFormat>,
     closed: bool,
@@ -361,6 +366,9 @@ struct ProcessedSink {
 impl Write for ProcessedSink {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.bytes.extend_from_slice(bytes);
+        if !self.write_delay.is_zero() {
+            std::thread::sleep(self.write_delay);
+        }
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -528,4 +536,159 @@ fn strict_failure_retains_an_earlier_completed_visit_and_only_the_later_consumed
     assert!(records[0].completed);
     assert_eq!(records[1].played_ms, 100);
     assert!(!records[1].completed);
+}
+
+struct DigestFiles {
+    root: PathBuf,
+    good: PathBuf,
+    bad: PathBuf,
+    later: PathBuf,
+    data: PathBuf,
+}
+
+impl DigestFiles {
+    fn new() -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "aede_policy_digest_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let good = root.join("good.flac");
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/normalization.flac"),
+            &good,
+        )
+        .unwrap();
+        let mut bytes = std::fs::read(&good).unwrap();
+        assert_eq!(&bytes[..4], b"fLaC");
+        assert_eq!(bytes[4] & 0x7f, 0);
+        assert_eq!(&bytes[5..8], &[0, 0, 34]);
+        assert!(bytes[26..42].iter().any(|&byte| byte != 0));
+        // Preserve every encoded frame and its CRC; only the reference digest
+        // changes. DSP and gain must never obscure this source verification.
+        bytes[26] ^= 1;
+        let bad = root.join("bad.flac");
+        std::fs::write(&bad, bytes).unwrap();
+        let later = root.join("later.flac");
+        std::fs::copy(&good, &later).unwrap();
+        let data = root.join("data");
+        Self {
+            root,
+            good,
+            bad,
+            later,
+            data,
+        }
+    }
+}
+
+impl Drop for DigestFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn assert_digest_failure<O: SessionOutput>(
+    files: &DigestFiles,
+    sink: &mut O,
+    normalization_mode: NormalizationMode,
+    tone: ToneControls,
+) {
+    let paths = [files.good.clone(), files.bad.clone(), files.later.clone()];
+    let options = crate::args::PlaybackOptions::default();
+    let mut normalization =
+        ReadyNormalization::new(&paths, false, None, &files.data, normalization_mode).unwrap();
+    let mut order = PlaybackOrder::new(&paths, None, &options).unwrap();
+    let (sender, receiver) = mpsc::sync_channel(64);
+    let result = play_selection_with(
+        &paths,
+        None,
+        &mut normalization,
+        None,
+        sink,
+        &sender,
+        SelectionSettings {
+            normalization_mode,
+            tone,
+            order: &mut order,
+            options,
+        },
+    );
+    assert!(result.unwrap_err().to_string().contains("MD5"));
+    drop(sender);
+    let histories = receiver
+        .into_iter()
+        .map(|record| match record {
+            PlaybackRecord::History(history) => history,
+            PlaybackRecord::Loudness(_) => panic!(
+                "matching gain tags and an invalid source must not produce loudness captures"
+            ),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(histories.len(), 2);
+    assert_eq!(histories[0].path, files.good);
+    assert!(histories[0].completed);
+    assert_eq!(histories[0].played_ms, 250);
+    assert_eq!(histories[1].path, files.bad);
+    assert!(!histories[1].completed);
+    assert!(histories[1].played_ms > 0 && histories[1].played_ms <= 250);
+    assert_eq!(
+        order.current(),
+        Some(1),
+        "the later source was never visited"
+    );
+    assert!(
+        aede_core::conclusions::load(&aede_core::conclusions::conclusions_path(&files.data))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn all_three_driver_paths_verify_original_flac_md5_before_accepting_source_completion() {
+    let files = DigestFiles::new();
+    let mut without_effects = ProcessedSink {
+        write_delay: Duration::from_millis(1),
+        ..Default::default()
+    };
+    assert_digest_failure(
+        &files,
+        &mut without_effects,
+        NormalizationMode::Off,
+        ToneControls::FLAT,
+    );
+    let mut dsp = ProcessedSink {
+        write_delay: Duration::from_millis(1),
+        ..Default::default()
+    };
+    assert_digest_failure(
+        &files,
+        &mut dsp,
+        NormalizationMode::Track,
+        ToneControls::new(3.0, -2.0).unwrap(),
+    );
+    assert!(!without_effects.bytes.is_empty());
+    assert!(!dsp.bytes.is_empty());
+    assert_ne!(
+        without_effects.bytes, dsp.bytes,
+        "nonzero metadata gain and tone actually ran"
+    );
+    let mut strict = EligibleSink {
+        consume_writes: true,
+        ..Default::default()
+    };
+    assert_digest_failure(
+        &files,
+        &mut strict,
+        NormalizationMode::Off,
+        ToneControls::FLAT,
+    );
+    assert!(strict.aborted);
+    let expected = reference(&files.good);
+    assert_eq!(&strict.samples[..expected.len()], expected);
+    assert!(strict.samples.len() > expected.len());
+    assert!(strict.samples.len() <= expected.len() * 2);
 }

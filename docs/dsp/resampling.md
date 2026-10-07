@@ -4,7 +4,7 @@ The **sample rate** is the number of PCM frames per second, for example 44100 Hz
 
 ## Automatic native negotiation
 
-The native player chooses a compatible device format/channel count and rate. It prefers floating-point formats before comparing rate distance, so a supported floating format at a different rate can be chosen ahead of a closer integer format. Read the reported source/output rates; a source marked 96 kHz does not imply that the device receives 96 kHz.
+The native player chooses a compatible device format/channel count and rate. Without-effects prefers the source rate before sample format; if that rate is unsupported, an adaptation may still be selected and reported. DSP retains floating-format preference before rate distance. Strict bit-perfect permits only the original rate and refuses an incompatible route instead of resampling. Read the policy and source/output rates; a source marked 96 kHz does not imply that an ordinary output receives 96 kHz.
 
 ```sh
 aede play /path/to/96k-song.flac

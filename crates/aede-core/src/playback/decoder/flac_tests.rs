@@ -122,6 +122,79 @@ fn native_playback_verifies_audio_without_parsing_unneeded_nested_metadata() {
 }
 
 #[test]
+fn a_recognized_native_flac_probe_error_is_terminal_even_after_leading_id3() {
+    for leading_id3 in [false, true] {
+        let mut bytes = std::fs::read(fixture("track.flac")).unwrap();
+        // A complete native STREAMINFO with a forbidden minimum block size
+        // must be rejected instead of retried by an unverified decode path.
+        bytes[8..10].fill(0);
+        if leading_id3 {
+            bytes.splice(0..0, *b"ID3\x04\0\0\0\0\0\x04junk");
+        }
+        let source = TemporaryFlac::new(&bytes);
+        assert!(
+            super::FlacStream::open(&source.0).is_err(),
+            "recognized FLAC must keep its probe failure; leading ID3: {leading_id3}"
+        );
+        assert!(FileDecoder::open(&source.0).is_err());
+        assert_eq!(std::fs::read(&source.0).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn source_md5_verification_is_independent_of_playback_processing_and_resampling() {
+    use crate::playback::stream::{PcmTrack, StreamError};
+
+    for changed_output in [false, true] {
+        for wrong_digest in [false, true] {
+            let mut bytes = std::fs::read(fixture("playback-stereo.flac")).unwrap();
+            if wrong_digest {
+                bytes[26] ^= 1;
+            }
+            let source = TemporaryFlac::new(&bytes);
+            let mut track = PcmTrack::open(&source.0).unwrap();
+            if changed_output {
+                track.set_output_rate(48_000).unwrap();
+            }
+            let mut delivered_frames = 0;
+            loop {
+                let result = track.read_block(|samples| {
+                    if changed_output {
+                        samples.fill(0.0);
+                    }
+                    Ok::<(), std::convert::Infallible>(())
+                });
+                match result {
+                    Ok(Some(block)) => {
+                        delivered_frames += block.frames;
+                        if changed_output {
+                            assert!(block.samples.iter().all(|sample| *sample == 0.0));
+                        }
+                    }
+                    Ok(None) => {
+                        assert!(!wrong_digest, "invalid source cannot complete normally");
+                        assert_eq!(track.flac_md5_status(), Some(FlacMd5Status::Verified));
+                        break;
+                    }
+                    Err(StreamError::Decode(Error::FlacMd5Mismatch)) => {
+                        assert!(wrong_digest);
+                        assert_eq!(track.flac_md5_status(), Some(FlacMd5Status::Mismatch));
+                        assert!(matches!(
+                            track.read_block(|_| Ok::<(), std::convert::Infallible>(())),
+                            Err(StreamError::Decode(Error::FlacMd5Mismatch))
+                        ));
+                        break;
+                    }
+                    Err(error) => panic!("unexpected playback error: {error}"),
+                }
+            }
+            assert!(delivered_frames > 0);
+            assert_eq!(std::fs::read(&source.0).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
 fn reading_a_prefix_or_cancelling_a_seek_does_not_verify_the_complete_source() {
     let mut decoder = FileDecoder::open(&fixture("track.flac")).unwrap();
     let mut buffer = [0.0];

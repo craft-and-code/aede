@@ -10,7 +10,7 @@ aede play /chemin/vers/playlist.m3u --normalize track
 aede play /chemin/vers/morceau.flac --normalize off
 ```
 
-Le mode album préserve les différences relatives entre passages/pistes ; le mode piste rapproche leurs niveaux moyens indépendants. Un nom d’album catalogué utilise album par défaut. Les autres sélections utilisent track, y compris un dossier qui contient un album. `--normalize album` demande explicitement ce périmètre sans le déduire du chemin. Off contourne le gain de normalisation, pas l’égalisation, la conversion du périphérique ni la protection.
+Le mode album préserve les différences relatives entre passages/pistes ; le mode piste rapproche leurs niveaux moyens indépendants. La lecture locale démarre sans effets, avec normalisation off. Avec `--playback=dsp`, un album catalogué utilise la normalisation album par défaut ; les autres sélections utilisent track, y compris un dossier contenant un album. `--normalize album` demande explicitement ce périmètre sans le déduire du chemin et implique DSP lorsqu’aucun mode de lecture n’était précisé. Track/album actif est incompatible avec without-effects ou bit-perfect explicite. Off contourne le gain de normalisation, pas la tonalité choisie, la conversion du périphérique ni la protection ordinaire.
 
 La cible actuelle est **−18 LUFS**, une référence de volume perçu, pas un plafond de crête. Une piste mesurée à −23 LUFS demande +5 dB ; à −13 LUFS elle demande −5 dB. La [marge de niveau](headroom.md) peut réduire une hausse : atteindre précisément −18 LUFS n’est pas garanti. LUFS pondère perceptuellement le programme ; il ne prédit pas le niveau acoustique de votre pièce.
 

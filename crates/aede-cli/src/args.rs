@@ -7,6 +7,30 @@
 use std::collections::BTreeMap;
 
 use aede_core::playback::Repeat;
+use aede_core::playback::normalization::Mode as NormalizationMode;
+use aede_dsp::ToneControls;
+
+/// Requested processing contract for local playback.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum PlaybackPolicy {
+    /// Prefer unchanged playback while reporting required output adaptations.
+    #[default]
+    WithoutEffects,
+    /// Refuse any route that cannot preserve the initial integer PCM profile.
+    BitPerfect,
+    /// Apply selected loudness normalization and tone controls.
+    Dsp,
+}
+
+impl PlaybackPolicy {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::WithoutEffects => "without-effects",
+            Self::BitPerfect => "bit-perfect",
+            Self::Dsp => "dsp",
+        }
+    }
+}
 
 /// The requested order for a local playback selection.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -110,6 +134,8 @@ const VALUED_WORD: &[&str] = &[
     "undo",
     "artist-id",
     "normalize",
+    "playback",
+    "output-device",
     "bass",
     "treble",
     "seek",
@@ -285,6 +311,120 @@ impl Args {
 
     pub fn value(&self, name: &str) -> Option<&str> {
         self.flags.get(name).and_then(|v| v.as_deref())
+    }
+
+    fn playback_value(&self, name: &str) -> Result<Option<&str>, String> {
+        match self.flags.get(name) {
+            None => Ok(None),
+            Some(Some(value)) if !value.is_empty() => Ok(Some(value)),
+            Some(_) => Err(format!("--{name} expects a nonempty value")),
+        }
+    }
+
+    /// Resolve the policy once; explicit effects retain the previous CLI intent.
+    pub(crate) fn playback_policy(&self) -> Result<PlaybackPolicy, String> {
+        let requested = match self.playback_value("playback")? {
+            None => None,
+            Some("without-effects") => Some(PlaybackPolicy::WithoutEffects),
+            Some("bit-perfect") => Some(PlaybackPolicy::BitPerfect),
+            Some("dsp") => Some(PlaybackPolicy::Dsp),
+            _ => return Err("--playback expects without-effects, bit-perfect or dsp".into()),
+        };
+        let normalization = self.playback_normalization()?;
+        let tone = self.playback_tone()?;
+        let effects =
+            normalization.is_some_and(|mode| mode != NormalizationMode::Off) || !tone.is_flat();
+        let policy = requested.unwrap_or(if effects {
+            PlaybackPolicy::Dsp
+        } else {
+            PlaybackPolicy::WithoutEffects
+        });
+        if policy != PlaybackPolicy::Dsp && effects {
+            return Err(format!(
+                "--playback={} requires --normalize=off and flat bass/treble; select --playback=dsp to apply effects",
+                policy.as_str(),
+            ));
+        }
+        let device = self.playback_device()?;
+        if policy == PlaybackPolicy::BitPerfect && device.is_none() {
+            return Err("--playback=bit-perfect requires an explicit --output-device; use aede play --list-devices".into());
+        }
+        Ok(policy)
+    }
+
+    /// Explicit normalization, before the selected policy supplies its default.
+    pub(crate) fn playback_normalization(&self) -> Result<Option<NormalizationMode>, String> {
+        match self.playback_value("normalize")? {
+            None => Ok(None),
+            Some("off") => Ok(Some(NormalizationMode::Off)),
+            Some("track") => Ok(Some(NormalizationMode::Track)),
+            Some("album") => Ok(Some(NormalizationMode::Album)),
+            _ => Err("normalization must be off, track or album".into()),
+        }
+    }
+
+    /// Validate tone values with the same domain rules used by processing.
+    pub(crate) fn playback_tone(&self) -> Result<ToneControls, String> {
+        let level = |name| -> Result<f32, String> {
+            self.playback_value(name)?
+                .map(|raw| {
+                    raw.parse::<f32>()
+                        .map_err(|_| format!("--{name} needs a numeric dB value"))
+                })
+                .transpose()
+                .map(|level| level.unwrap_or(0.0))
+        };
+        ToneControls::new(level("bass")?, level("treble")?).map_err(|error| error.to_string())
+    }
+
+    /// Keep the host-qualified ID literal; the selected backend resolves it.
+    pub(crate) fn playback_device(&self) -> Result<Option<&str>, String> {
+        let Some(raw) = self.playback_value("output-device")? else {
+            return Ok(None);
+        };
+        let valid = raw.split_once(':').is_some_and(|(host, device)| {
+            !host.is_empty()
+                && host
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
+                && !device.is_empty()
+                && raw.trim() == raw
+                && !raw.chars().any(char::is_control)
+        });
+        if !valid {
+            return Err("--output-device expects a host-qualified device ID, such as alsa:hw:CARD=0,DEV=0; use aede play --list-devices".into());
+        }
+        Ok(Some(raw))
+    }
+
+    /// Local device discovery never starts playback or ignores playback options.
+    pub(crate) fn lists_playback_devices(&self) -> Result<bool, String> {
+        if !self.has("list-devices") {
+            return Ok(false);
+        }
+        if self.value("list-devices").is_some() {
+            return Err("--list-devices does not accept a value".into());
+        }
+        if !self.positionals.is_empty() {
+            return Err("play --list-devices does not accept a music selection".into());
+        }
+        for name in [
+            "playback",
+            "output-device",
+            "normalize",
+            "bass",
+            "treble",
+            "seek",
+            "repeat",
+            "shuffle",
+            "seed",
+            "lyrics",
+        ] {
+            if self.has(name) {
+                return Err(format!("--{name} does not apply to play --list-devices"));
+            }
+        }
+        Ok(true)
     }
 
     /// Parse local transport options without silently ignoring invalid input.

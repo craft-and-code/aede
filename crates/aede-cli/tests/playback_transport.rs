@@ -71,7 +71,7 @@ fn a_flac_md5_mismatch_after_initial_seek_is_a_decode_failure_not_a_complete_suf
     let mut library = Library::new();
     let valid = library.copy_core_fixture("track.flac");
     let invalid = library.flac_with_wrong_audio_md5(&valid);
-    let result = library.play(&[&invalid], &["--seek", "0.1"], false);
+    let result = library.play(&[&invalid], &["--playback", "dsp", "--seek", "0.1"], false);
     assert!(!result.output.status.success());
     assert!(String::from_utf8_lossy(&result.output.stderr).contains("MD5"));
     let history = result
@@ -88,7 +88,7 @@ fn seeking_past_flac_eof_checks_all_discarded_audio_md5_without_creating_a_liste
     let mut library = Library::new();
     let valid = library.copy_core_fixture("track.flac");
     let invalid = library.flac_with_wrong_audio_md5(&valid);
-    let result = library.play(&[&invalid], &["--seek", "10"], false);
+    let result = library.play(&[&invalid], &["--playback", "dsp", "--seek", "10"], false);
     assert!(!result.output.status.success());
     assert!(String::from_utf8_lossy(&result.output.stderr).contains("MD5"));
     assert!(result.pcm.is_empty());
@@ -202,7 +202,7 @@ fn seeking_into_a_track_never_publishes_suffix_loudness_as_a_whole_track_measure
     let mut library = Library::new();
     let track = library.copy_core_fixture("playback-stereo.flac");
     let original = pcm(&track);
-    let result = library.play(&[&track], &["--seek", "0.1"], false);
+    let result = library.play(&[&track], &["--playback", "dsp", "--seek", "0.1"], false);
     result.assert_success();
     assert_eq!(result.pcm, original[4_410 * 2 * 4..]);
     result.assert_no_loudness_cache();
@@ -219,7 +219,7 @@ fn seeking_into_a_track_never_publishes_suffix_loudness_as_a_whole_track_measure
 fn initial_seek_past_actual_eof_produces_no_audio_listen_or_loudness_cache() {
     let mut library = Library::new();
     let track = library.copy_core_fixture("playback-stereo.flac");
-    let result = library.play(&[&track], &["--seek", "10"], false);
+    let result = library.play(&[&track], &["--playback", "dsp", "--seek", "10"], false);
     result.assert_success();
     assert!(result.pcm.is_empty());
     assert!(

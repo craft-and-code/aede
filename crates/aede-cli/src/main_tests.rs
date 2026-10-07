@@ -187,6 +187,47 @@ fn playback_transport_options_are_known_and_limited_to_play() {
     }
 }
 
+#[test]
+fn local_playback_policy_and_device_options_have_explicit_play_only_scope() {
+    for option in ["playback", "output-device", "list-devices"] {
+        assert!(OPTIONS.contains(&option), "--{option} must be known");
+        let (_, commands, _) = OPTION_SCOPE
+            .iter()
+            .find(|(candidate, _, _)| *candidate == option)
+            .unwrap();
+        assert_eq!(*commands, ["play"]);
+        let args = args::Args::parse(["play".into(), format!("--{option}")]);
+        if option == "list-devices" {
+            assert!(args.options_missing_a_value().is_empty());
+        } else {
+            assert_eq!(args.options_missing_a_value(), [option]);
+        }
+    }
+}
+
+#[test]
+fn playback_help_explains_the_three_policies_and_device_discovery() {
+    let page = help::command_page("play");
+    for option in ["--playback", "--output-device", "--list-devices"] {
+        assert!(page.usage.contains(option), "missing {option}");
+    }
+    for detail in [
+        "default without-effects",
+        "bit-perfect",
+        "DSP",
+        "refuses",
+        "never falls back to ffplay",
+        "digital-capture",
+    ] {
+        assert!(page.summary.contains(detail), "missing {detail}");
+    }
+    assert!(
+        !page
+            .summary
+            .contains("Normalization defaults to album gain")
+    );
+}
+
 /// Every `.rs` file of this crate's `src`, as text.
 fn sources() -> Vec<(String, String)> {
     fn walk(dir: &std::path::Path, found: &mut Vec<(String, String)>) {

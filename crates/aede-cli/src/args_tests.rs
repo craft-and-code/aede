@@ -11,6 +11,202 @@ fn parse(items: &[&str]) -> Args {
 }
 
 #[test]
+fn playback_policy_defaults_to_without_effects_and_retains_neutral_options() {
+    for options in [
+        vec![],
+        vec!["--normalize=off"],
+        vec!["--bass=0", "--treble=-0"],
+        vec!["--playback=without-effects", "--normalize=off", "--bass=0"],
+    ] {
+        let mut words = vec!["play", "album"];
+        words.extend(options);
+        let args = parse(&words);
+        assert_eq!(
+            args.playback_policy().unwrap(),
+            PlaybackPolicy::WithoutEffects
+        );
+        assert!(args.playback_tone().unwrap().is_flat());
+    }
+    assert_eq!(
+        parse(&["play", "album"]).playback_normalization().unwrap(),
+        None
+    );
+    assert_eq!(
+        parse(&["play", "album", "--normalize=off"])
+            .playback_normalization()
+            .unwrap(),
+        Some(NormalizationMode::Off)
+    );
+}
+
+#[test]
+fn explicit_effects_select_dsp_without_overriding_an_explicit_policy() {
+    for effect in [
+        "--normalize=track",
+        "--normalize=album",
+        "--bass=12",
+        "--treble=-12",
+    ] {
+        assert_eq!(
+            parse(&["play", "album", effect]).playback_policy().unwrap(),
+            PlaybackPolicy::Dsp
+        );
+        for policy in ["without-effects", "bit-perfect"] {
+            let args = parse(&[
+                "play",
+                "album",
+                &format!("--playback={policy}"),
+                "--output-device=alsa:hw:0,0",
+                effect,
+            ]);
+            assert!(
+                args.playback_policy()
+                    .unwrap_err()
+                    .contains("select --playback=dsp")
+            );
+        }
+    }
+    assert_eq!(
+        parse(&[
+            "play",
+            "album",
+            "--playback=dsp",
+            "--normalize=off",
+            "--bass=0"
+        ])
+        .playback_policy()
+        .unwrap(),
+        PlaybackPolicy::Dsp
+    );
+}
+
+#[test]
+fn strict_playback_requires_a_named_device_and_accepts_only_neutral_effects() {
+    assert!(
+        parse(&["play", "album", "--playback=bit-perfect"])
+            .playback_policy()
+            .unwrap_err()
+            .contains("requires an explicit --output-device")
+    );
+    let args = parse(&[
+        "play",
+        "--playback",
+        "bit-perfect",
+        "--output-device",
+        "alsa:hw:CARD=0,DEV=0",
+        "--normalize",
+        "off",
+        "--bass",
+        "-0",
+        "--treble",
+        "0",
+        "album",
+    ]);
+    assert_eq!(args.positionals, ["album"]);
+    assert_eq!(args.playback_policy().unwrap(), PlaybackPolicy::BitPerfect);
+    assert_eq!(
+        args.playback_device().unwrap(),
+        Some("alsa:hw:CARD=0,DEV=0")
+    );
+}
+
+#[test]
+fn playback_policy_and_effect_values_are_strict_even_without_an_explicit_policy() {
+    for option in [
+        "--playback",
+        "--playback=",
+        "--playback=transparent",
+        "--playback=off",
+        "--normalize",
+        "--normalize=",
+        "--normalize=loud",
+        "--bass",
+        "--bass=quiet",
+        "--bass=NaN",
+        "--bass=inf",
+        "--bass=12.1",
+        "--treble=-12.1",
+        "--output-device",
+        "--output-device=",
+    ] {
+        assert!(
+            parse(&["play", "album", option]).playback_policy().is_err(),
+            "{option}"
+        );
+    }
+}
+
+#[test]
+fn named_output_ids_keep_backend_specific_colons_and_reject_missing_parts() {
+    for value in [
+        "alsa:hw:0,0",
+        "ALSA:hw:CARD=0,DEV=0",
+        "coreaudio:BuiltInOutputDevice",
+        "wasapi:{device-guid}",
+    ] {
+        let args = parse(&["play", "--output-device", value, "album"]);
+        assert_eq!(args.positionals, ["album"]);
+        assert_eq!(args.playback_device().unwrap(), Some(value));
+    }
+    for value in [
+        "",
+        "default",
+        ":hw:0,0",
+        "alsa:",
+        "alsa:hw:0,0\n",
+        "alsa:hw:0,0\0",
+        " alsa:hw:0,0",
+        "alsa:hw:0,0 ",
+    ] {
+        assert!(
+            parse(&["play", "album", &format!("--output-device={value}")])
+                .playback_device()
+                .is_err(),
+            "{value:?}"
+        );
+    }
+}
+
+#[test]
+fn local_device_listing_refuses_a_selection_values_or_playback_options() {
+    assert!(
+        parse(&["play", "--list-devices"])
+            .lists_playback_devices()
+            .unwrap()
+    );
+    assert!(!parse(&["play", "album"]).lists_playback_devices().unwrap());
+    assert!(
+        parse(&["play", "album", "--list-devices"])
+            .lists_playback_devices()
+            .is_err()
+    );
+    assert!(
+        parse(&["play", "--list-devices=true"])
+            .lists_playback_devices()
+            .is_err()
+    );
+    for option in [
+        "--playback=dsp",
+        "--output-device=alsa:hw:0,0",
+        "--normalize=off",
+        "--bass=0",
+        "--treble=0",
+        "--seek=0",
+        "--repeat=off",
+        "--shuffle=off",
+        "--seed=1",
+        "--lyrics",
+    ] {
+        assert!(
+            parse(&["play", "--list-devices", option])
+                .lists_playback_devices()
+                .is_err(),
+            "{option}"
+        );
+    }
+}
+
+#[test]
 fn a_valued_option_takes_the_next_word() {
     // `--album` used to be missing from the valued list: the title and the
     // album ended up glued together into one search string.
