@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["FormatError"],"struct":["PcmStreamFormat"]};
+window.SIDEBAR_ITEMS = {"enum":["FormatError"],"struct":["IntegerPcmFormat","PcmStreamFormat"]};

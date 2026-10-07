@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["BackendChoice","LocalOutput"],"fn":["signal_player"],"mod":["native","queue","status"],"struct":["DrainProgress"]};
+window.SIDEBAR_ITEMS = {"enum":["BackendChoice","LocalOutput"],"fn":["list_devices","signal_player"],"mod":["alsa","conversion","native","queue","route","status"],"struct":["DrainProgress","NativeSelection"]};

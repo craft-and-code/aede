@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Transparency"],"fn":["admit_candidate","backend_refusal","choose_device","plan_candidates","representation","representation_rank","resolve_output","strict_plan"],"struct":["Candidate","NativePlan","NativeRequest","SelectedDevice"]};

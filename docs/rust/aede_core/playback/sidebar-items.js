@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Repeat","Transport"],"mod":["decoder","format","gain_plan","loudness","normalization","output","session","shuffle","stream"],"struct":["Queue"]};
+window.SIDEBAR_ITEMS = {"enum":["Repeat","Transport"],"mod":["decoder","exact_output","exact_session","format","gain_plan","loudness","normalization","output","session","shuffle","stream"],"struct":["Queue"]};

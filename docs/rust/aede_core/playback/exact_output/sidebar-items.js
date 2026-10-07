@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_EXACT_BLOCK_FRAMES"],"enum":["ExactOutputError","ExactSampleRepresentation"],"struct":["ExactOutputFormat","ExactPcmAdapter"]};

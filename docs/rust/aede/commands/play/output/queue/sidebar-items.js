@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["pcm_queue","valid_sample"],"struct":["Counters","PcmConsumer","PcmProducer","QueueSnapshot"]};
+window.SIDEBAR_ITEMS = {"fn":["pcm_queue"],"struct":["Counters","PcmConsumer","PcmProducer","QueueFailure","QueueSnapshot"],"trait":["QueueSample"]};

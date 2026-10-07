@@ -145,6 +145,12 @@
   root.querySelectorAll('[data-app-nav]').forEach(b=>b.addEventListener('click',()=>setAppNav(b.dataset.appNav)));
   root.querySelector('#ph-favorite').addEventListener('click',()=>{favorite=!favorite;root.querySelector('#ph-favorite').setAttribute('aria-pressed',String(favorite));root.querySelector('#ph-favorite>span').textContent=favorite?'Favori ajouté':'Favori';});
   root.querySelector('.ph-back').addEventListener('click',()=>setAppNav('collection'));setAppTab('tracks');
+  // Illustrative sample transfers run only in view, with the same motion preference as the other diagrams.
+  const audioVisuals=new Map([...root.querySelectorAll('.ae-audio-visual')].map(el=>[el,false]));
+  const syncAudioVisuals=()=>audioVisuals.forEach((visible,el)=>el.classList.toggle('ae-illustrating',visible&&!document.hidden&&!reduce.matches&&settings.motion));
+  const audioObserver=new IntersectionObserver(entries=>{entries.forEach(entry=>audioVisuals.set(entry.target,entry.isIntersecting));syncAudioVisuals();},{threshold:.15});
+  audioVisuals.forEach((_,el)=>audioObserver.observe(el));
+  document.addEventListener('visibilitychange',syncAudioVisuals);
   // Keep full-width colour surfaces stationary and opaque so scrolling cannot expose dark seams.
   const revealObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{
     if(!entry.isIntersecting)return;
@@ -154,7 +160,7 @@
     revealObserver.unobserve(entry.target);
   }),{threshold:0,rootMargin:'0px 0px -64px 0px'});
   root.querySelectorAll('.ae-reveal').forEach(el=>revealObserver.observe(el));
-  reduce.addEventListener('change',()=>{root.getAnimations({subtree:true}).forEach(a=>a.cancel());serverAnimations=[];syncServerMotion();syncSoundMotion();drawSound();drawGraph();drawEq();});
+  reduce.addEventListener('change',()=>{root.getAnimations({subtree:true}).forEach(a=>a.cancel());serverAnimations=[];syncServerMotion();syncSoundMotion();syncAudioVisuals();drawSound();drawGraph();drawEq();});
   window.aedeLocalize?.(root);
   new MutationObserver(records=>{for(const record of records){if(record.type==='characterData')window.aedeLocalize?.(record.target.parentElement);else for(const node of record.addedNodes)if(node.nodeType===1)window.aedeLocalize?.(node);else if(node.nodeType===3)window.aedeLocalize?.(node.parentElement);}}).observe(root,{childList:true,characterData:true,subtree:true});
   resize();

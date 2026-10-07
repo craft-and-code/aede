@@ -17,7 +17,7 @@
 <a href=#17 id=17 data-nosnippet>17</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"--device-certificate needs exactly 64 SHA-256 hexadecimal digits"</span>.into());
 <a href=#18 id=18 data-nosnippet>18</a>    }
 <a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">let </span><span class="kw-2">mut </span>pin = [<span class="number">0</span>; <span class="number">32</span>];
-<a href=#20 id=20 data-nosnippet>20</a>    <span class="kw">for </span>(pair, output) <span class="kw">in </span>value.as_bytes().chunks_exact(<span class="number">2</span>).zip(<span class="kw-2">&amp;mut </span>pin) {
+<a href=#20 id=20 data-nosnippet>20</a>    <span class="kw">for </span>(pair, output) <span class="kw">in </span>value.as_bytes().as_chunks::&lt;<span class="number">2</span>&gt;().<span class="number">0</span>.iter().zip(<span class="kw-2">&amp;mut </span>pin) {
 <a href=#21 id=21 data-nosnippet>21</a>        <span class="kw">let </span>high = (pair[<span class="number">0</span>] <span class="kw">as </span>char)
 <a href=#22 id=22 data-nosnippet>22</a>            .to_digit(<span class="number">16</span>)
 <a href=#23 id=23 data-nosnippet>23</a>            .ok_or(<span class="string">"invalid certificate pin"</span>)<span class="question-mark">?</span>;
