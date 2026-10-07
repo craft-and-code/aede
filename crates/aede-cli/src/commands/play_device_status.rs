@@ -10,6 +10,7 @@ const REALTIME_DENIED: u8 = 2;
 /// Records only fixed-size atomic state on CPAL's error callback thread.
 #[derive(Default)]
 pub(super) struct DeviceStatus {
+    strict: bool,
     seen_warnings: AtomicU8,
     pending_warnings: AtomicU8,
     first_fatal: AtomicU8,
@@ -17,7 +18,25 @@ pub(super) struct DeviceStatus {
 }
 
 impl DeviceStatus {
+    pub(super) fn with_policy(strict: bool) -> Self {
+        Self {
+            strict,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn is_failed(&self) -> bool {
+        self.first_fatal.load(Ordering::Acquire) != 0
+    }
+
     pub(super) fn record(&self, kind: ErrorKind) {
+        if self.strict {
+            if kind == ErrorKind::Xrun {
+                self.xruns.fetch_add(1, Ordering::Relaxed);
+            }
+            self.record_fatal(FatalReason::from_kind(kind));
+            return;
+        }
         match kind {
             ErrorKind::DeviceChanged => self.record_warning(DEVICE_CHANGED),
             ErrorKind::RealtimeDenied => self.record_warning(REALTIME_DENIED),
@@ -25,15 +44,19 @@ impl DeviceStatus {
                 self.xruns.fetch_add(1, Ordering::Relaxed);
             }
             _ => {
-                // Preserve the first cause even when later callbacks also fail.
-                let _ = self.first_fatal.compare_exchange(
-                    0,
-                    FatalReason::from_kind(kind) as u8,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                );
+                self.record_fatal(FatalReason::from_kind(kind));
             }
         }
+    }
+
+    fn record_fatal(&self, reason: FatalReason) {
+        // Preserve the first cause even when later callbacks also fail.
+        let _ = self.first_fatal.compare_exchange(
+            0,
+            reason as u8,
+            Ordering::Release,
+            Ordering::Relaxed,
+        );
     }
 
     fn record_warning(&self, flag: u8) {
@@ -80,11 +103,17 @@ enum FatalReason {
     UnsupportedOperation,
     BackendError,
     Unclassified,
+    RouteChanged,
+    Xrun,
+    RealtimeDenied,
 }
 
 impl FatalReason {
     fn from_kind(kind: ErrorKind) -> Self {
         match kind {
+            ErrorKind::DeviceChanged => Self::RouteChanged,
+            ErrorKind::Xrun => Self::Xrun,
+            ErrorKind::RealtimeDenied => Self::RealtimeDenied,
             ErrorKind::DeviceBusy => Self::DeviceBusy,
             ErrorKind::DeviceNotAvailable => Self::DeviceNotAvailable,
             ErrorKind::HostUnavailable => Self::HostUnavailable,
@@ -101,6 +130,9 @@ impl FatalReason {
 
     fn message(code: u8) -> &'static str {
         match code {
+            value if value == Self::RouteChanged as u8 => "strict audio route changed",
+            value if value == Self::Xrun as u8 => "strict audio host reported an xrun",
+            value if value == Self::RealtimeDenied as u8 => "strict audio scheduling was denied",
             value if value == Self::DeviceBusy as u8 => "device is busy",
             value if value == Self::DeviceNotAvailable as u8 => "device is no longer available",
             value if value == Self::HostUnavailable as u8 => "audio host is unavailable",

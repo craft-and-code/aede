@@ -3,6 +3,108 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::pcm_queue;
+use aede_core::playback::format::IntegerPcmFormat;
+use aede_dsp::ChannelLayout;
+
+#[test]
+fn host_failure_stops_queued_source_without_consumption_or_conversion() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(2, 3, true).expect("queue");
+    producer.write_samples(&[-1, 1, -2, 2]).expect("source");
+    let mut output = [9; 2];
+    consumer.render_mapped(&mut output, 0, |sample| sample);
+    assert_eq!(output, [-1, 1]);
+    producer.failure_handle().fail();
+    let failed = producer.snapshot();
+    assert!(failed.failed);
+    assert_eq!(failed.queued_frames, 1);
+    assert_eq!(failed.consumed_frames, 1);
+    assert_eq!(
+        producer
+            .write_samples(&[3, -3])
+            .expect_err("host failed")
+            .kind(),
+        io::ErrorKind::BrokenPipe
+    );
+    producer.close_input();
+    let mut calls = 0;
+    consumer.render_mapped(&mut output, 0, |sample| {
+        calls += 1;
+        sample
+    });
+    assert_eq!(output, [0; 2]);
+    assert_eq!(calls, 0);
+    assert_eq!(producer.snapshot(), failed);
+}
+
+#[test]
+fn host_failure_before_startup_cannot_be_cleared_by_publication_or_closure() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(1, 1, true).expect("queue");
+    let failure = producer.failure_handle();
+    failure.clone().fail();
+    assert_eq!(
+        producer
+            .write_samples(&[1])
+            .expect_err("failed before startup")
+            .kind(),
+        io::ErrorKind::BrokenPipe
+    );
+    producer.close_input();
+    let mut output = [9];
+    consumer.render_mapped(&mut output, 0, |_| {
+        panic!("failed callback must not convert")
+    });
+    assert_eq!(output, [0]);
+    let state = producer.snapshot();
+    assert!(state.failed);
+    assert_eq!(state.consumed_frames, 0);
+    assert_eq!(state.underrun_callbacks, 0);
+}
+
+#[test]
+fn integer_source_depth_and_layout_are_checked_before_any_prefix_is_published() {
+    for bits in [16, 24] {
+        let source = IntegerPcmFormat::new(48_000, ChannelLayout::STEREO, bits).expect("source");
+        let wrong_channels =
+            IntegerPcmFormat::new(48_000, ChannelLayout::MONO, bits).expect("mono");
+        let limit = 1_i32 << (bits - 1);
+        let (mut producer, mut consumer) = pcm_queue::<i32>(2, 1, true).expect("queue");
+        for invalid in [vec![0, 1, limit, 0], vec![0, 1, -limit - 1, 0], vec![0]] {
+            assert_eq!(
+                producer
+                    .write_integer(&invalid, source)
+                    .expect_err("invalid whole block")
+                    .kind(),
+                io::ErrorKind::InvalidInput
+            );
+            assert_eq!(producer.snapshot().queued_frames, 0);
+        }
+        assert_eq!(
+            producer
+                .write_integer(&[0, 1], wrong_channels)
+                .expect_err("layout mismatch")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            producer
+                .write_integer(&[-limit, limit - 1], source)
+                .expect("endpoints"),
+            2
+        );
+        assert_eq!(
+            producer
+                .write_integer(&[0, limit], source)
+                .expect_err("invalid even when full")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        producer.close_input();
+        let mut output = [9; 2];
+        consumer.render_mapped(&mut output, 0, |sample| sample);
+        assert_eq!(output, [-limit, limit - 1]);
+        assert!(!producer.snapshot().failed);
+    }
+}
 
 fn f32le(samples: &[f32]) -> Vec<u8> {
     samples

@@ -177,3 +177,166 @@ fn a_slow_next_file_counts_only_the_silence_beyond_buffered_audio_and_recovers_i
         );
     }
 }
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[test]
+fn exact_native_callbacks_keep_integer_values_across_queue_boundaries() {
+    use aede_core::playback::format::IntegerPcmFormat;
+    use aede_dsp::ChannelLayout;
+    for bits in [16, 24] {
+        let format = IntegerPcmFormat::new(44_100, ChannelLayout::STEREO, bits).unwrap();
+        let edge = 1 << (bits - 1);
+        let samples = [-edge, edge - 1, -1, 1, 0, 127, -128, 129];
+        let (mut producer, mut pending) = super::queue::pcm_queue::<i32>(2, 4, true).unwrap();
+        assert_eq!(producer.write_integer(&samples[..4], format).unwrap(), 4);
+        assert_eq!(producer.write_integer(&samples[4..], format).unwrap(), 4);
+        producer.close_input();
+        let mapping = super::native::ExactMapping(bits);
+        let mut first = [0_i32; 2];
+        let mut second = [0_i32; 6];
+        pending.render_mapped(&mut first, 0, |s| mapping.i32(s));
+        pending.render_mapped(&mut second, 0, |s| mapping.i32(s));
+        let values = first.into_iter().chain(second).collect::<Vec<_>>();
+        assert_eq!(values, samples.map(|s| s << (32 - bits)));
+        assert_eq!(producer.snapshot().consumed_frames, 4);
+        assert!(!producer.snapshot().failed);
+    }
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[test]
+fn exact_callback_representations_preserve_low_bits_and_signed_endpoints() {
+    for bits in [16, 24] {
+        let edge = 1_i32 << (bits - 1);
+        let mapping = super::native::ExactMapping(bits);
+        for sample in [
+            -edge,
+            -edge + 1,
+            -129,
+            -128,
+            -1,
+            0,
+            1,
+            127,
+            128,
+            edge - 2,
+            edge - 1,
+        ] {
+            assert_eq!(mapping.i24(sample).inner(), sample << (24 - bits));
+            assert_eq!(mapping.i32(sample), sample << (32 - bits));
+            assert_eq!(
+                f64::from(mapping.f32(sample)),
+                f64::from(sample) / f64::from(edge)
+            );
+            assert_eq!(mapping.f64(sample), f64::from(sample) / f64::from(edge));
+            if bits == 16 {
+                assert_eq!(i32::from(mapping.i16(sample)), sample);
+            }
+        }
+    }
+    let mapping = super::native::ExactMapping(16);
+    for sample in i32::from(i16::MIN)..=i32::from(i16::MAX) {
+        assert_eq!(i32::from(mapping.i16(sample)), sample);
+        assert_eq!(mapping.i24(sample).inner() >> 8, sample);
+    }
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[test]
+fn strict_output_remembers_pause_before_device_start() {
+    use std::cell::Cell;
+    let state = super::native::StartState::default();
+    let plays = Cell::new(0);
+    state
+        .pause(|| panic!("an unopened stream must not be paused"))
+        .unwrap();
+    state
+        .ensure(true, || {
+            plays.set(plays.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(plays.get(), 0);
+    state
+        .resume(|| panic!("resume must not start an unprepared stream"))
+        .unwrap();
+    state
+        .ensure(true, || {
+            plays.set(plays.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+    state
+        .ensure(true, || {
+            panic!("an active stream must not be started twice")
+        })
+        .unwrap();
+    assert_eq!(plays.get(), 1);
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
+#[test]
+fn strict_prefill_preserves_accepted_progress_before_a_failed_device_start() {
+    let format = aede_core::playback::format::IntegerPcmFormat::new(
+        44_100,
+        aede_dsp::ChannelLayout::MONO,
+        24,
+    )
+    .unwrap();
+    let (mut producer, mut pending) = super::queue::pcm_queue::<i32>(1, 2, true).unwrap();
+    let state = super::native::StartState::default();
+    state
+        .ensure(false, || panic!("partial prefill must not start output"))
+        .unwrap();
+    let accepted = producer.write_integer(&[1, 2], format).unwrap();
+    assert_eq!(accepted, 2);
+    let result = state.ensure(true, || Err(std::io::Error::other("device start failed")));
+    assert!(result.is_err());
+    producer.failure_handle().fail();
+    let mut output = [99; 2];
+    pending.render_mapped(&mut output, 0, |s| s);
+    assert_eq!(output, [0; 2]);
+    assert_eq!(producer.snapshot().queued_frames, 2);
+    assert_eq!(producer.snapshot().consumed_frames, 0);
+    assert!(producer.write_integer(&[3], format).is_err());
+}
+
+#[test]
+fn strict_selection_refuses_ffplay_and_survives_abort_without_fallback() {
+    use super::{BackendChoice, LocalOutput, NativeSelection};
+    let strict = NativeSelection {
+        device: None,
+        strict: true,
+    };
+    assert!(LocalOutput::with_selection(BackendChoice::Ffplay, strict.clone()).is_err());
+    let mut output = LocalOutput::with_selection(BackendChoice::Auto, strict).unwrap();
+    assert!(output.requires_exact());
+    output.abort().unwrap();
+    assert!(output.requires_exact());
+    let source = aede_core::playback::format::IntegerPcmFormat::new(
+        44_100,
+        aede_dsp::ChannelLayout::MONO,
+        16,
+    )
+    .unwrap();
+    assert!(output.prepare_exact(source).is_err());
+    assert_eq!(output.stage_description(), "unopened");
+    assert!(output.write_exact(&[1], &[1, 0, 0, 0], 0).is_err());
+    assert!(output.write_exact(&[1], &[1, 0, 0, 0], 1).is_err());
+    assert!(output.write_exact(&[1], &[], 0).is_err());
+}

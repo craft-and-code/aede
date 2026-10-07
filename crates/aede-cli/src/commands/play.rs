@@ -11,7 +11,6 @@ use aede_core::model::{Catalog, Id, TitleMatch};
 use aede_core::playback::Repeat;
 use aede_core::playback::gain_plan::{self, GainPlan, ReadyNormalization};
 use aede_core::playback::normalization::Mode as NormalizationMode;
-use aede_core::playback::stream::PcmTrack;
 use aede_core::store;
 use aede_core::store_lock::StoreLock;
 use aede_core::user::{self, EntityRef, LOCAL_USER, Play};
@@ -382,6 +381,9 @@ fn control_action(
 }
 
 trait PlaybackOutput: Write {
+    fn requires_exact(&self) -> bool {
+        false
+    }
     /// Frames handed to the native device callback, when this output can report them.
     fn consumed_frames(&self) -> Option<u64> {
         None
@@ -397,11 +399,35 @@ trait PlaybackOutput: Write {
         self.write(&f32le[byte_offset..])
     }
 
+    fn write_exact(
+        &mut self,
+        _samples: &[i32],
+        _canonical32: &[u8],
+        _byte_offset: usize,
+    ) -> std::io::Result<usize> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "output does not accept exact integer PCM",
+        ))
+    }
+
     fn pause(&self) -> Res;
     fn resume(&self) -> Res;
 }
 
 impl PlaybackOutput for LocalOutput {
+    fn requires_exact(&self) -> bool {
+        self.requires_exact()
+    }
+
+    fn write_exact(
+        &mut self,
+        samples: &[i32],
+        canonical32: &[u8],
+        byte_offset: usize,
+    ) -> std::io::Result<usize> {
+        self.write_exact(samples, canonical32, byte_offset)
+    }
     fn consumed_frames(&self) -> Option<u64> {
         self.consumed_frames()
     }

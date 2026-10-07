@@ -8,6 +8,7 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use aede_core::playback::format::IntegerPcmFormat;
 use rtrb::{Consumer, Producer, RingBuffer};
 
 /// A concurrent observation of the bounded queue, expressed in PCM frames.
@@ -28,6 +29,16 @@ struct Counters {
     underrun_callbacks: AtomicU64,
     closed: AtomicBool,
     failed: AtomicBool,
+}
+
+/// Shared callback-safe stop signal for host errors, without queue ownership.
+#[derive(Clone)]
+pub(super) struct QueueFailure(Arc<Counters>);
+
+impl QueueFailure {
+    pub(super) fn fail(&self) {
+        self.0.failed.store(true, Ordering::Release);
+    }
 }
 
 /// Queue admission, separate from any device representation conversion.
@@ -105,6 +116,9 @@ pub(super) fn pcm_queue<T: QueueSample>(
 }
 
 impl<T: QueueSample> PcmProducer<T> {
+    pub(super) fn failure_handle(&self) -> QueueFailure {
+        QueueFailure(Arc::clone(&self.counters))
+    }
     /// Validate the entire input, then publish the largest complete-frame
     /// prefix that fits. Return samples written, or `WouldBlock` if no frame
     /// fits. Invalid PCM never publishes even a preceding valid prefix.
@@ -185,6 +199,28 @@ impl<T: QueueSample> PcmProducer<T> {
             underrun_callbacks: self.counters.underrun_callbacks.load(Ordering::Acquire),
             failed: self.counters.failed.load(Ordering::Acquire),
         }
+    }
+}
+
+impl PcmProducer<i32> {
+    /// Refuse invalid source-depth samples before any prefix enters the ring.
+    pub(super) fn write_integer(
+        &mut self,
+        samples: &[i32],
+        format: IntegerPcmFormat,
+    ) -> io::Result<usize> {
+        let limit = 1_i32 << (format.bits_per_sample() - 1);
+        if usize::from(format.channels()) != self.channels
+            || samples
+                .iter()
+                .any(|sample| !(-limit..limit).contains(sample))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "integer PCM disagrees with source format",
+            ));
+        }
+        self.write_samples(samples)
     }
 }
 

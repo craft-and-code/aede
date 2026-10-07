@@ -1,6 +1,6 @@
 # Playback (M3)
 
-The [transparent playback and bit-perfect contract](bit-perfect.md) defines the next local-output design and initial acceptance scope. Its integer decoder, unmodified session, exact software adapters and strict typed-queue foundation are implemented. They are not selected by the player or connected to an eligible native route, and change none of the current behavior described below.
+The [transparent playback and bit-perfect contract](bit-perfect.md) defines the next local-output design and initial acceptance scope. Typed sources, exact sessions/adapters and the strict queue are integrated internally with the one local transport driver and consumption-based exact history. Explicit device selection and rate-first admission refuse unknown route facts; every current CPAL physical route remains ineligible. A usable direct/exclusive backend and public policy selection remain work. This internal path changes none of the ordinary behavior described below.
 
 ## Code ownership
 

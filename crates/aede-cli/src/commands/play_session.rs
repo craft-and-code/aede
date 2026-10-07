@@ -2,12 +2,44 @@
 
 use std::collections::BTreeMap;
 
-use aede_core::playback::session::{PcmSession, SessionBlock, TrackSpan};
+use aede_core::playback::exact_output::ExactOutputFormat;
+use aede_core::playback::format::IntegerPcmFormat;
+use aede_core::playback::session::TrackSpan;
+#[cfg(test)]
+use aede_core::playback::session::{PcmSession, SessionBlock};
+
+#[path = "play_pcm_path.rs"]
+mod pcm_path;
 use aede_dsp::PcmFormat;
+use pcm_path::{DriverBlock, Processing, SourceTrack};
 
 use super::*;
 
-trait SessionOutput: PlaybackOutput {
+pub(super) trait SessionOutput: PlaybackOutput {
+    fn exact_needs_reopen(&mut self, _format: IntegerPcmFormat) -> Result<bool, Box<dyn Error>> {
+        Err("exact native output is unavailable".into())
+    }
+    fn prepare_exact(
+        &mut self,
+        _format: IntegerPcmFormat,
+    ) -> Result<ExactOutputFormat, Box<dyn Error>> {
+        Err("exact native output is unavailable".into())
+    }
+    fn ensure_started(&mut self) -> Res {
+        Ok(())
+    }
+    fn stopped_early(&mut self) -> Result<bool, Box<dyn Error>> {
+        Ok(false)
+    }
+    fn abort(&mut self) -> Res {
+        Ok(())
+    }
+    fn stage_description(&self) -> &'static str {
+        "test output"
+    }
+    fn integer_description(&self) -> Option<&'static str> {
+        None
+    }
     fn needs_reopen(&mut self, format: PcmFormat) -> Result<bool, Box<dyn Error>>;
     fn prepare(&mut self, format: PcmFormat) -> Result<PcmFormat, Box<dyn Error>>;
     fn close_input(&mut self);
@@ -17,6 +49,30 @@ trait SessionOutput: PlaybackOutput {
 }
 
 impl SessionOutput for LocalOutput {
+    fn exact_needs_reopen(&mut self, format: IntegerPcmFormat) -> Result<bool, Box<dyn Error>> {
+        self.exact_needs_reopen(format)
+    }
+    fn prepare_exact(
+        &mut self,
+        format: IntegerPcmFormat,
+    ) -> Result<ExactOutputFormat, Box<dyn Error>> {
+        self.prepare_exact(format)
+    }
+    fn ensure_started(&mut self) -> Res {
+        self.ensure_started()
+    }
+    fn stopped_early(&mut self) -> Result<bool, Box<dyn Error>> {
+        self.stopped_early()
+    }
+    fn abort(&mut self) -> Res {
+        self.abort()
+    }
+    fn stage_description(&self) -> &'static str {
+        self.stage_description()
+    }
+    fn integer_description(&self) -> Option<&'static str> {
+        self.integer_description()
+    }
     fn needs_reopen(&mut self, format: PcmFormat) -> Result<bool, Box<dyn Error>> {
         self.needs_reopen(format)
     }
@@ -56,6 +112,7 @@ struct PendingTrack {
     offset_ms: u64,
     played_before: Duration,
     had_seek: bool,
+    start_frame: u64,
 }
 
 impl PendingTrack {
@@ -69,10 +126,6 @@ impl PendingTrack {
         self.submitted_duration().min(Duration::from_millis(
             clock.active_ms().saturating_sub(self.active_started_ms),
         ))
-    }
-
-    fn interrupted_ms(&self, clock: &PlaybackClock) -> u64 {
-        milliseconds(self.interrupted_duration(clock))
     }
 }
 
@@ -93,6 +146,9 @@ struct PlaybackRecords<'a> {
     next_offset_ms: u64,
     resume: Option<ResumeListen>,
     last_position: Option<(usize, u64)>,
+    strict: bool,
+    stream_submitted_bytes: u64,
+    consumed_frames: u64,
 }
 
 impl<'a> PlaybackRecords<'a> {
@@ -103,6 +159,9 @@ impl<'a> PlaybackRecords<'a> {
             next_offset_ms: 0,
             resume: None,
             last_position: None,
+            strict: false,
+            stream_submitted_bytes: 0,
+            consumed_frames: 0,
         }
     }
 
@@ -151,6 +210,7 @@ impl<'a> PlaybackRecords<'a> {
                     .as_ref()
                     .map_or(Duration::ZERO, |listen| listen.played),
                 had_seek: resumed.is_some() || offset_ms > 0,
+                start_frame: self.stream_submitted_bytes / (u64::from(format.channels()) * 4),
             },
         );
         Ok(())
@@ -171,6 +231,10 @@ impl<'a> PlaybackRecords<'a> {
                     .pending
                     .get_mut(&token)
                     .ok_or("output refers to an unknown playback track")?;
+                self.stream_submitted_bytes = self
+                    .stream_submitted_bytes
+                    .checked_add(count as u64)
+                    .ok_or("playback output counter exhausted")?;
                 record.submitted_bytes = record.submitted_bytes.saturating_add(count as u64);
                 record.frames = record.submitted_bytes / (u64::from(record.format.channels()) * 4);
                 Ok(())
@@ -196,7 +260,10 @@ impl<'a> PlaybackRecords<'a> {
         record.complete |= span.complete;
         // The last listen stays pending until the output has actually drained,
         // preserving Stop/Next's incomplete-history behavior at the final tail.
-        if record.complete && self.pending.keys().next_back().copied() != Some(span.token) {
+        if !self.strict
+            && record.complete
+            && self.pending.keys().next_back().copied() != Some(span.token)
+        {
             self.publish(span.token, true, None)?;
         }
         Ok(())
@@ -210,7 +277,7 @@ impl<'a> PlaybackRecords<'a> {
             .map(|record| {
                 record
                     .offset_ms
-                    .saturating_add(record.interrupted_ms(clock))
+                    .saturating_add(milliseconds(self.listen_duration(record, clock)))
             })
             .or_else(|| {
                 self.last_position
@@ -225,16 +292,23 @@ impl<'a> PlaybackRecords<'a> {
             .pending
             .remove(&token)
             .ok_or("playback track record is missing")?;
-        let played = clock.map_or_else(
-            || record.submitted_duration(),
-            |clock| record.interrupted_duration(clock),
-        );
+        let played = if self.strict {
+            self.consumed_duration(&record)
+        } else {
+            clock.map_or_else(
+                || record.submitted_duration(),
+                |clock| record.interrupted_duration(clock),
+            )
+        };
         self.last_position = Some((
             record.index,
             record.offset_ms.saturating_add(milliseconds(played)),
         ));
         let played_ms = milliseconds(played.saturating_add(record.played_before));
-        let completed = completed && !record.had_seek;
+        let completed = completed
+            && !record.had_seek
+            && (!self.strict
+                || self.consumed_frames.saturating_sub(record.start_frame) >= record.frames);
         let measured_frames = record.meter.sample_peak_snapshot().frames;
         report_meter(&mut record.meter);
         if measured_frames < record.frames {
@@ -265,7 +339,13 @@ impl<'a> PlaybackRecords<'a> {
         let tokens = self
             .pending
             .iter()
-            .filter_map(|(&token, record)| record.complete.then_some(token))
+            .filter_map(|(&token, record)| {
+                let consumed = !self.strict
+                    || self.consumed_frames.saturating_sub(record.start_frame) >= record.frames;
+                let final_pending =
+                    self.strict && self.pending.keys().next_back().copied() == Some(token);
+                (record.complete && consumed && !final_pending).then_some(token)
+            })
             .collect::<Vec<_>>();
         for token in tokens {
             self.publish(token, true, None)?;
@@ -287,12 +367,12 @@ impl<'a> PlaybackRecords<'a> {
             report_meter(&mut record.meter);
             let played = record
                 .played_before
-                .saturating_add(record.interrupted_duration(clock));
+                .saturating_add(self.listen_duration(&record, clock));
             self.last_position = Some((
                 index,
                 record
                     .offset_ms
-                    .saturating_add(record.interrupted_ms(clock)),
+                    .saturating_add(milliseconds(self.listen_duration(&record, clock))),
             ));
             self.resume = Some(ResumeListen {
                 index,
@@ -303,10 +383,11 @@ impl<'a> PlaybackRecords<'a> {
         }
         let tokens = self.pending.keys().copied().collect::<Vec<_>>();
         for token in tokens {
-            let complete = self
-                .pending
-                .get(&token)
-                .is_some_and(|record| record.complete);
+            let complete = self.pending.get(&token).is_some_and(|record| {
+                record.complete
+                    && (!self.strict
+                        || self.consumed_frames.saturating_sub(record.start_frame) >= record.frames)
+            });
             self.publish(token, complete, (!complete).then_some(clock))?;
         }
         Ok(())
@@ -315,7 +396,9 @@ impl<'a> PlaybackRecords<'a> {
     fn finish(&mut self, completed: bool, clock: &PlaybackClock) -> Res {
         let tokens = self.pending.keys().copied().collect::<Vec<_>>();
         for token in tokens {
-            let natural = completed
+            let earlier_strict =
+                self.strict && self.pending.keys().next_back().copied() != Some(token);
+            let natural = (completed || earlier_strict)
                 && self
                     .pending
                     .get(&token)
@@ -323,6 +406,38 @@ impl<'a> PlaybackRecords<'a> {
             self.publish(token, natural, (!natural).then_some(clock))?;
         }
         self.finish_resume()
+    }
+
+    fn consumed_duration(&self, record: &PendingTrack) -> Duration {
+        let frames = self
+            .consumed_frames
+            .saturating_sub(record.start_frame)
+            .min(record.frames);
+        let rate = u64::from(record.format.sample_rate());
+        Duration::from_secs(frames / rate)
+            + Duration::from_nanos((frames % rate) * 1_000_000_000 / rate)
+    }
+
+    fn listen_duration(&self, record: &PendingTrack, clock: &PlaybackClock) -> Duration {
+        if self.strict {
+            self.consumed_duration(record)
+        } else {
+            record.interrupted_duration(clock)
+        }
+    }
+
+    fn observe_consumption(&mut self, output: &impl PlaybackOutput) -> Res {
+        if self.strict && !self.pending.is_empty() {
+            self.consumed_frames = output
+                .consumed_frames()
+                .ok_or("exact output cannot report consumed frames")?;
+        }
+        Ok(())
+    }
+
+    fn reset_output(&mut self) {
+        self.stream_submitted_bytes = 0;
+        self.consumed_frames = 0;
     }
 
     fn finish_resume(&mut self) -> Res {
@@ -357,24 +472,36 @@ pub(super) enum Submitted<'a> {
 
 /// Submit attributed portions, reporting byte progress immediately and only
 /// publishing a span's aggregate meter statistics once it is fully accepted.
-pub(super) fn submit_block(
-    block: SessionBlock<'_>,
+pub(super) fn submit_block<'a>(
+    block: impl Into<DriverBlock<'a>>,
     output: &mut impl PlaybackOutput,
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
     mut submitted: impl FnMut(Submitted<'_>) -> Res,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
+    let block = block.into();
     for span in block.spans {
         let samples = &block.samples[span.samples.clone()];
-        let bytes = &block.f32le[span.samples.start * 4..span.samples.end * 4];
+        let bytes = &block.bytes[span.samples.start * 4..span.samples.end * 4];
+        let integers = block.integers.map(|values| &values[span.samples.clone()]);
         let mut byte_offset = 0;
         while byte_offset < bytes.len() {
             if let Some(action) = control_action(controls, output, clock)? {
                 return Ok(action);
             }
-            match output.write_pcm(samples, bytes, byte_offset) {
+            let write = match integers {
+                Some(values) => output.write_exact(values, bytes, byte_offset),
+                None => output.write_pcm(samples, bytes, byte_offset),
+            };
+            match write {
                 Ok(0) => return Err("audio output closed before accepting PCM".into()),
                 Ok(count) if count <= bytes.len() - byte_offset => {
+                    if block
+                        .exact_frame_bytes
+                        .is_some_and(|frame_bytes| !count.is_multiple_of(frame_bytes))
+                    {
+                        return Err("exact output accepted an incomplete frame".into());
+                    }
                     let active_ms = clock.active_ms();
                     if let Some(timeline) = &mut clock.timeline {
                         timeline.submitted(span.token, count, active_ms)?;
@@ -410,7 +537,7 @@ pub(super) fn submit_block(
 }
 
 fn flush_group(
-    processing: &mut Option<PcmSession>,
+    processing: &mut Option<Processing>,
     records: &mut PlaybackRecords<'_>,
     output: &mut impl PlaybackOutput,
     controls: Option<&Controls>,
@@ -427,7 +554,7 @@ fn flush_group(
 }
 
 fn drain_output(
-    output: &mut LocalOutput,
+    output: &mut impl SessionOutput,
     controls: Option<&Controls>,
     clock: &mut PlaybackClock,
 ) -> Result<PlaybackEnd, Box<dyn Error>> {
@@ -552,14 +679,39 @@ pub(super) fn play_selection(
     sender: &mpsc::SyncSender<PlaybackRecord>,
     settings: SelectionSettings<'_>,
 ) -> Res {
+    play_selection_with(
+        paths,
+        catalog,
+        normalization,
+        controls,
+        output,
+        sender,
+        settings,
+    )
+}
+
+fn play_selection_with<O: SessionOutput>(
+    paths: &[PathBuf],
+    catalog: Option<&Catalog>,
+    normalization: &mut ReadyNormalization<'_>,
+    controls: Option<&Controls>,
+    output: &mut O,
+    sender: &mpsc::SyncSender<PlaybackRecord>,
+    settings: SelectionSettings<'_>,
+) -> Res {
     let SelectionSettings {
         normalization_mode,
         tone,
         order,
         options,
     } = settings;
+    let exact = output.requires_exact();
+    if exact && (normalization_mode != NormalizationMode::Off || !tone.is_flat()) {
+        return Err("exact playback requires normalization off and flat tone controls".into());
+    }
     let mut records = PlaybackRecords::new(sender);
-    let mut processing: Option<PcmSession> = None;
+    records.strict = exact;
+    let mut processing: Option<Processing> = None;
     let mut playback_clock = PlaybackClock::new();
     playback_clock.repeat = options.repeat;
     playback_clock.shuffle = options.shuffle;
@@ -593,6 +745,8 @@ pub(super) fn play_selection(
     let mut token = 0usize;
     let result = (|| -> Res {
         while let Some(index) = order.current() {
+            records.observe_consumption(output)?;
+            records.publish_completed()?;
             playback_clock.clear_visualizer();
             order.sync(&playback_clock, catalog, paths)?;
             let path = &paths[index];
@@ -621,19 +775,35 @@ pub(super) fn play_selection(
                         return Ok(end);
                     }
                 }
-                while playback_clock
-                    .timeline
-                    .as_ref()
-                    .is_some_and(|timeline| !timeline.has_capacity())
+                if exact
+                    && (records.pending.len() >= timeline::MAX_PENDING
+                        || playback_clock
+                            .timeline
+                            .as_ref()
+                            .is_some_and(|timeline| !timeline.has_capacity()))
                 {
+                    output.ensure_started()?;
+                }
+                while (exact && records.pending.len() >= timeline::MAX_PENDING)
+                    || playback_clock
+                        .timeline
+                        .as_ref()
+                        .is_some_and(|timeline| !timeline.has_capacity())
+                {
+                    records.observe_consumption(output)?;
+                    records.publish_completed()?;
                     if let Some(action) = control_action(controls, output, &mut playback_clock)? {
                         return Ok(action);
                     }
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 let prepared = (|| -> Result<_, Box<dyn Error>> {
-                    let gain = normalization.prepare(index)?;
-                    let track = PcmTrack::open_stereo(path)?;
+                    let gain = if exact {
+                        None
+                    } else {
+                        normalization.prepare(index)?
+                    };
+                    let track = SourceTrack::open(path, exact)?;
                     Ok((gain, track))
                 })();
                 let (selected_gain, mut track) = match prepared {
@@ -655,6 +825,7 @@ pub(super) fn play_selection(
                         };
                         if end == PlaybackEnd::Natural {
                             playback_clock.clear_visualizer();
+                            records.observe_consumption(output)?;
                             records.finish(true, &playback_clock)?;
                             return Err(error);
                         }
@@ -665,7 +836,9 @@ pub(super) fn play_selection(
                 };
                 if seek_ms > 0 {
                     seeking = true;
-                    normalization.finish_track(index, false)?;
+                    if !exact {
+                        normalization.finish_track(index, false)?;
+                    }
                     let mut interrupted = None;
                     let seek = track.seek_from_start(Duration::from_millis(seek_ms), || {
                         match control_action(controls, output, &mut playback_clock) {
@@ -695,9 +868,17 @@ pub(super) fn play_selection(
                 }
                 seeking = false;
                 let input_format = track.format();
+                if let Some(integer) = track.integer_format()
+                    && processing
+                        .as_ref()
+                        .is_some_and(|session| session.compatible(&track))
+                    && output.exact_needs_reopen(integer)?
+                {
+                    return Err("strict native route changed during compatible playback".into());
+                }
                 if processing
                     .as_ref()
-                    .is_some_and(|session| session.input_format() != input_format)
+                    .is_some_and(|session| !session.compatible(&track))
                 {
                     let end = flush_group(
                         &mut processing,
@@ -713,19 +894,62 @@ pub(super) fn play_selection(
                 let format = if let Some(session) = &processing {
                     session.output_format()
                 } else {
-                    let format = match prepare_output_with(
-                        output,
-                        input_format,
-                        &mut playback_clock,
-                        |output, clock| control_action(controls, output, clock),
-                        PlaybackClock::active_ms,
-                        || std::thread::sleep(Duration::from_millis(25)),
-                    )? {
-                        PreparedOutput::Ready(format) => format,
-                        PreparedOutput::Interrupted(end) => return Ok(end),
-                    };
-                    processing = Some(PcmSession::new(input_format, format.sample_rate(), tone)?);
-                    format
+                    if let Some(integer) = track.integer_format() {
+                        let reopen = match output.exact_needs_reopen(integer) {
+                            Ok(reopen) => reopen,
+                            Err(error) => {
+                                let end = drain_output(output, controls, &mut playback_clock)?;
+                                records.observe_consumption(output)?;
+                                if end != PlaybackEnd::Natural {
+                                    return Ok(end);
+                                }
+                                records.finish(true, &playback_clock)?;
+                                return Err(error);
+                            }
+                        };
+                        if reopen {
+                            let end = drain_output(output, controls, &mut playback_clock)?;
+                            records.observe_consumption(output)?;
+                            if end != PlaybackEnd::Natural {
+                                return Ok(end);
+                            }
+                            records.finish(true, &playback_clock)?;
+                            records.reset_output();
+                            reset_display(&mut playback_clock);
+                        }
+                        let route = match output.prepare_exact(integer) {
+                            Ok(route) => route,
+                            Err(error) => {
+                                let end = drain_output(output, controls, &mut playback_clock)?;
+                                records.observe_consumption(output)?;
+                                if end != PlaybackEnd::Natural {
+                                    return Ok(end);
+                                }
+                                records.finish(true, &playback_clock)?;
+                                return Err(error);
+                            }
+                        };
+                        processing = Some(Processing::exact(integer, route)?);
+                        input_format
+                    } else {
+                        let format = match prepare_output_with(
+                            output,
+                            input_format,
+                            &mut playback_clock,
+                            |output, clock| control_action(controls, output, clock),
+                            PlaybackClock::active_ms,
+                            || std::thread::sleep(Duration::from_millis(25)),
+                        )? {
+                            PreparedOutput::Ready(format) => format,
+                            PreparedOutput::Interrupted(end) => return Ok(end),
+                        };
+                        processing = Some(Processing::processed(
+                            input_format,
+                            format.sample_rate(),
+                            tone,
+                        )?);
+                        format
+                    }
                 };
                 playback_clock.clear_visualizer();
                 if playback_clock.visualizer.is_none() {
@@ -793,22 +1017,21 @@ pub(super) fn play_selection(
                 session.begin_track(token, gain_db)?;
                 let mut source_frames = 0u64;
                 loop {
+                    records.observe_consumption(output)?;
+                    records.publish_completed()?;
                     if let Some(action) = control_action(controls, output, &mut playback_clock)? {
                         return Ok(action);
                     }
-                    let raw = track.read_block_observed(
-                        |format, samples| {
-                            if let Err(error) = normalization.observe_source(format, samples) {
-                                playback_clock.clear_visualizer();
-                                eprintln!("Source loudness meter stopped: {error}");
-                            }
-                        },
-                        |_| Ok::<(), std::convert::Infallible>(()),
-                    )?;
+                    let raw = track.read_block_observed(|format, samples| {
+                        if let Err(error) = normalization.observe_source(format, samples) {
+                            playback_clock.clear_visualizer();
+                            eprintln!("Source loudness meter stopped: {error}");
+                        }
+                    })?;
                     let end = if let Some(raw) = raw {
-                        source_frames = source_frames.saturating_add(raw.frames as u64);
+                        source_frames = source_frames.saturating_add(raw.frames() as u64);
                         submit_block(
-                            session.push_source(raw.samples)?,
+                            session.push_source(raw)?,
                             output,
                             controls,
                             &mut playback_clock,
@@ -819,12 +1042,16 @@ pub(super) fn play_selection(
                         if source_frames == 0 && seek_ms == 0 && order.repeats() {
                             return Err("cannot repeat an empty audio track".into());
                         }
-                        let update = match normalization.finish_track(index, seek_ms == 0) {
-                            Ok(update) => update,
-                            Err(error) => {
-                                playback_clock.clear_visualizer();
-                                eprintln!("Warning: source loudness was not cached: {error}");
-                                None
+                        let update = if exact {
+                            None
+                        } else {
+                            match normalization.finish_track(index, seek_ms == 0) {
+                                Ok(update) => update,
+                                Err(error) => {
+                                    playback_clock.clear_visualizer();
+                                    eprintln!("Warning: source loudness was not cached: {error}");
+                                    None
+                                }
                             }
                         };
                         records.source_finished(token, update)?;
@@ -887,6 +1114,7 @@ pub(super) fn play_selection(
                 if end == PlaybackEnd::Natural {
                     playback_clock.clear_visualizer();
                     if order.continues() {
+                        records.observe_consumption(output)?;
                         records.finish(true, &playback_clock)?;
                         order.advance(end, 0)?;
                         seek_ms = 0;
@@ -897,9 +1125,11 @@ pub(super) fn play_selection(
                             timeline.reset_output();
                         }
                         playback_clock.visualizer = None;
+                        records.reset_output();
                         playback_clock.reset_elapsed();
                         continue;
                     }
+                    records.observe_consumption(output)?;
                     records.finish(true, &playback_clock)?;
                     order.advance(end, 0)?;
                     return Ok(());
@@ -908,6 +1138,7 @@ pub(super) fn play_selection(
             } else {
                 end
             };
+            records.observe_consumption(output)?;
             let position_ms = if seeking {
                 seek_ms
             } else {
@@ -923,7 +1154,9 @@ pub(super) fn play_selection(
             }
             processing = None;
             playback_clock.visualizer = None;
-            normalization.finish_track(index, false)?;
+            if !exact {
+                normalization.finish_track(index, false)?;
+            }
             order.focus(cursor)?;
             if let PlaybackEnd::SeekRelative(delta) = end {
                 initial_seek_pending = false;
@@ -946,16 +1179,19 @@ pub(super) fn play_selection(
                     0
                 };
             }
+            records.reset_output();
             playback_clock.reset_elapsed();
         }
         Ok(())
     })();
     if result.is_err() {
         playback_clock.clear_visualizer();
+        records.observe_consumption(output)?;
         if let Err(error) = output.abort() {
             eprintln!("Warning: could not stop output: {error}");
         }
-        if let Some(index) = order.current()
+        if !exact
+            && let Some(index) = order.current()
             && let Err(error) = normalization.finish_track(index, false)
         {
             eprintln!("Warning: could not discard loudness capture: {error}");
@@ -963,6 +1199,16 @@ pub(super) fn play_selection(
         records.finish(false, &playback_clock)?;
     }
     result
+}
+
+fn reset_display(clock: &mut PlaybackClock) {
+    if let Some(lyrics) = &mut clock.lyrics {
+        lyrics.reset_output();
+    }
+    if let Some(timeline) = &mut clock.timeline {
+        timeline.reset_output();
+    }
+    clock.visualizer = None;
 }
 
 fn report_meter(meter: &mut OutputMeter) {
@@ -994,14 +1240,25 @@ fn report_meter(meter: &mut OutputMeter) {
 }
 
 fn describe_track(
-    track: &PcmTrack,
+    track: &SourceTrack,
     format: PcmFormat,
-    output: &LocalOutput,
+    output: &impl SessionOutput,
     settings: &PlaybackSettings,
     measuring: bool,
     label: &str,
     spectrum: bool,
 ) -> Result<f32, Box<dyn Error>> {
+    if let Some(integer) = track.integer_format() {
+        println!("Playing: {label}");
+        println!(
+            "Exact source: {}-bit {} Hz {}; modifying DSP bypassed; native route {}",
+            integer.bits_per_sample(),
+            integer.sample_rate(),
+            integer.layout().name(),
+            output.stage_description()
+        );
+        return Ok(0.0);
+    }
     if track.source_format().channels() > 2 {
         println!(
             "Channels: {} → stereo (LFE omitted, peak-safe downmix)",
@@ -1087,3 +1344,7 @@ mod tests;
 #[cfg(test)]
 #[path = "play_drain_tests.rs"]
 mod drain_tests;
+
+#[cfg(test)]
+#[path = "play_exact_driver_tests.rs"]
+mod exact_driver_tests;

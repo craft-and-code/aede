@@ -9,6 +9,54 @@ fn a_new_device_has_no_errors_or_xruns() {
     let status = DeviceStatus::default();
     assert!(status.check().is_ok());
     assert_eq!(status.snapshot_xruns(), 0);
+    assert!(!status.is_failed());
+}
+
+#[test]
+fn strict_route_changes_xruns_and_scheduling_failures_are_terminal() {
+    for (kind, reason) in [
+        (ErrorKind::DeviceChanged, "strict audio route changed"),
+        (ErrorKind::Xrun, "strict audio host reported an xrun"),
+        (
+            ErrorKind::RealtimeDenied,
+            "strict audio scheduling was denied",
+        ),
+    ] {
+        let status = DeviceStatus::with_policy(true);
+        assert!(!status.is_failed());
+        status.record(kind);
+        assert!(status.is_failed());
+        let first = status
+            .check()
+            .expect_err("strict host notification is fatal");
+        assert!(first.contains(reason));
+        status.record(ErrorKind::BackendError);
+        assert_eq!(status.check().expect_err("failure remains latched"), first);
+        assert_eq!(status.pending_warnings.load(Ordering::Acquire), 0);
+        assert_eq!(status.snapshot_xruns(), u64::from(kind == ErrorKind::Xrun));
+    }
+}
+
+#[test]
+fn strict_concurrent_notifications_keep_the_first_failure_and_count_xruns() {
+    let status = DeviceStatus::with_policy(true);
+    status.record(ErrorKind::Other);
+    let first = status.check().expect_err("unknown host error is terminal");
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            for _ in 0..100 {
+                status.record(ErrorKind::Xrun);
+            }
+        });
+        scope.spawn(|| {
+            status.record(ErrorKind::DeviceChanged);
+            status.record(ErrorKind::RealtimeDenied);
+        });
+    });
+    assert!(status.is_failed());
+    assert_eq!(status.check().expect_err("first cause survives"), first);
+    assert_eq!(status.snapshot_xruns(), 100);
+    assert_eq!(status.pending_warnings.load(Ordering::Acquire), 0);
 }
 
 #[test]

@@ -5,7 +5,8 @@ use std::io::{self, Write};
 #[cfg(unix)]
 use std::process::Command;
 
-use aede_core::playback::format::PcmStreamFormat;
+use aede_core::playback::exact_output::ExactOutputFormat;
+use aede_core::playback::format::{IntegerPcmFormat, PcmStreamFormat};
 use aede_core::playback::output::OutputSession;
 
 #[derive(Clone, Copy)]
@@ -35,18 +36,28 @@ mod status;
     target_os = "windows",
     all(target_os = "linux", target_env = "gnu")
 ))]
+#[path = "play_exact_route.rs"]
+mod route;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_env = "gnu")
+))]
 mod native {
+    use std::cell::Cell;
     use std::io::{self, Write};
     use std::sync::Arc;
     use std::time::Duration;
 
     use aede_dsp::TpdfQuantizer;
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use cpal::traits::{DeviceTrait, StreamTrait};
     use cpal::{SampleFormat, Stream, StreamConfig};
 
-    use super::PcmStreamFormat;
-    use super::queue::{PcmProducer, pcm_queue};
+    use super::queue::{PcmProducer, QueueFailure, QueueSnapshot, pcm_queue};
+    use super::route::{NativeRequest, resolve_output, strict_plan};
     use super::status::DeviceStatus;
+    use super::{ExactOutputFormat, IntegerPcmFormat, PcmStreamFormat};
 
     // Bound decode lead by time rather than decoder-dependent block sizes.
     const QUEUE_MILLISECONDS: u64 = 500;
@@ -89,10 +100,19 @@ mod native {
 
     fn matching_output(
         input: PcmStreamFormat,
-    ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, PcmStreamFormat), String> {
-        let device = cpal::default_host()
-            .default_output_device()
-            .ok_or("no default audio output device")?;
+        request: &NativeRequest,
+    ) -> Result<
+        (
+            cpal::Device,
+            cpal::SupportedStreamConfig,
+            PcmStreamFormat,
+            cpal::DeviceId,
+        ),
+        String,
+    > {
+        let selected = resolve_output(request)?;
+        let id = selected.id;
+        let device = selected.device;
         let mut configs = device
             .supported_output_configs()
             .map_err(|error| format!("cannot query audio device: {error}"))?
@@ -120,11 +140,81 @@ mod native {
             device,
             configs.swap_remove(index).with_sample_rate(rate),
             format,
+            id,
         ))
     }
 
-    pub(super) fn negotiated_format(input: PcmStreamFormat) -> Result<PcmStreamFormat, String> {
-        matching_output(input).map(|(_, _, format)| format)
+    pub(super) fn negotiated_format(
+        input: PcmStreamFormat,
+        request: &NativeRequest,
+    ) -> Result<PcmStreamFormat, String> {
+        matching_output(input, request).map(|(_, _, format, _)| format)
+    }
+
+    enum Producer {
+        Float(PcmProducer<f32>),
+        Integer(PcmProducer<i32>),
+    }
+
+    impl Producer {
+        fn snapshot(&self) -> QueueSnapshot {
+            match self {
+                Self::Float(p) => p.snapshot(),
+                Self::Integer(p) => p.snapshot(),
+            }
+        }
+        fn drained(&self) -> bool {
+            match self {
+                Self::Float(p) => p.drained(),
+                Self::Integer(p) => p.drained(),
+            }
+        }
+        fn close_input(&self) {
+            match self {
+                Self::Float(p) => p.close_input(),
+                Self::Integer(p) => p.close_input(),
+            }
+        }
+        fn failure_handle(&self) -> QueueFailure {
+            match self {
+                Self::Float(p) => p.failure_handle(),
+                Self::Integer(p) => p.failure_handle(),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    pub(super) struct StartState {
+        started: Cell<bool>,
+        paused: Cell<bool>,
+    }
+
+    impl StartState {
+        pub(super) fn ensure(
+            &self,
+            ready: bool,
+            play: impl FnOnce() -> io::Result<()>,
+        ) -> io::Result<()> {
+            if ready && !self.started.get() && !self.paused.get() {
+                play()?;
+                self.started.set(true);
+            }
+            Ok(())
+        }
+        pub(super) fn pause(&self, pause: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+            if self.started.get() {
+                pause()?;
+            }
+            self.paused.set(true);
+            Ok(())
+        }
+        pub(super) fn resume(&self, play: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+            if self.started.get() {
+                play()?;
+            }
+            self.paused.set(false);
+            Ok(())
+        }
     }
 
     /// Device output backed by a preallocated single-producer/single-consumer
@@ -133,16 +223,23 @@ mod native {
         format: PcmStreamFormat,
         sample_format: SampleFormat,
         stream: Stream,
-        producer: PcmProducer,
+        producer: Producer,
         status: Arc<DeviceStatus>,
-        started: bool,
+        start: StartState,
+        source: Option<IntegerPcmFormat>,
+        exact_format: Option<ExactOutputFormat>,
+        request: NativeRequest,
+        device_id: cpal::DeviceId,
         closed: bool,
         reported: bool,
     }
 
     impl NativeOutput {
-        pub(super) fn open(format: PcmStreamFormat) -> Result<Self, String> {
-            let (device, supported, format) = matching_output(format)?;
+        pub(super) fn open(
+            format: PcmStreamFormat,
+            request: NativeRequest,
+        ) -> Result<Self, String> {
+            let (device, supported, format, device_id) = matching_output(format, &request)?;
             let sample_format = supported.sample_format();
             let config: StreamConfig = supported.into();
             let capacity_frames =
@@ -213,12 +310,110 @@ mod native {
                 format,
                 sample_format,
                 stream,
-                producer,
+                producer: Producer::Float(producer),
                 status,
-                started: false,
+                start: StartState::default(),
+                source: None,
+                exact_format: None,
+                request,
+                device_id,
                 closed: false,
                 reported: false,
             })
+        }
+
+        pub(super) fn open_exact(
+            source: IntegerPcmFormat,
+            request: NativeRequest,
+        ) -> Result<Self, String> {
+            let selected = resolve_output(&request)?;
+            let plan = strict_plan(source, &selected)?;
+            let sample_format = plan.config.sample_format();
+            let config: StreamConfig = plan.config.into();
+            let format = PcmStreamFormat::with_layout(source.sample_rate(), source.layout())
+                .map_err(|error| error.to_string())?;
+            let capacity_frames =
+                (u64::from(source.sample_rate()) * QUEUE_MILLISECONDS).div_ceil(1000) as usize;
+            let (producer, mut pending) =
+                pcm_queue::<i32>(usize::from(source.channels()), capacity_frames, true)
+                    .map_err(|error| format!("cannot prepare strict audio queue: {error}"))?;
+            let status = Arc::new(DeviceStatus::with_policy(true));
+            let status_callback = Arc::clone(&status);
+            let status_render = Arc::clone(&status);
+            let failure = producer.failure_handle();
+            let failure_render = failure.clone();
+            let mapping = ExactMapping(source.bits_per_sample());
+            macro_rules! build_exact_stream {
+                ($sample:ty, $silence:expr, $convert:expr) => {{
+                    let mut convert = $convert;
+                    selected.device.build_output_stream(
+                        config,
+                        move |output: &mut [$sample], _| {
+                            if status_render.is_failed() {
+                                failure_render.fail();
+                            }
+                            pending.render_mapped(output, $silence, &mut convert);
+                        },
+                        move |error| {
+                            status_callback.record(error.kind());
+                            failure.fail();
+                        },
+                        None,
+                    )
+                }};
+            }
+            let stream = match sample_format {
+                SampleFormat::I16 => build_exact_stream!(i16, 0, move |s| mapping.i16(s)),
+                SampleFormat::I24 => {
+                    build_exact_stream!(cpal::I24, cpal::I24::from(0), move |s| mapping.i24(s))
+                }
+                SampleFormat::I32 => build_exact_stream!(i32, 0, move |s| mapping.i32(s)),
+                SampleFormat::F32 => build_exact_stream!(f32, 0.0, move |s| mapping.f32(s)),
+                SampleFormat::F64 => build_exact_stream!(f64, 0.0, move |s| mapping.f64(s)),
+                _ => {
+                    return Err(format!(
+                        "unsupported exact native representation: {sample_format}"
+                    ));
+                }
+            }
+            .map_err(|error| format!("cannot open strict audio device: {error}"))?;
+            Ok(Self {
+                format,
+                sample_format,
+                stream,
+                producer: Producer::Integer(producer),
+                status,
+                start: StartState::default(),
+                source: Some(source),
+                exact_format: Some(plan.output),
+                request,
+                device_id: selected.id,
+                closed: false,
+                reported: false,
+            })
+        }
+
+        pub(super) fn request(&self) -> &NativeRequest {
+            &self.request
+        }
+
+        pub(super) fn exact_needs_reopen(&self, source: IntegerPcmFormat) -> Result<bool, String> {
+            self.check()?;
+            let selected = resolve_output(&self.request)?;
+            if selected.id != self.device_id {
+                return Err("selected native device ID changed".to_owned());
+            }
+            let plan = strict_plan(source, &selected)?;
+            Ok(
+                self.closed
+                    || self.source != Some(source)
+                    || self.exact_format != Some(plan.output),
+            )
+        }
+
+        pub(super) fn exact_format(&self) -> Result<ExactOutputFormat, String> {
+            self.exact_format
+                .ok_or_else(|| "native output is not strict integer PCM".to_owned())
         }
 
         pub(super) fn format(&self) -> PcmStreamFormat {
@@ -226,7 +421,7 @@ mod native {
         }
 
         pub(super) fn can_reuse(&self, format: PcmStreamFormat) -> bool {
-            !self.closed && self.format == format
+            !self.closed && self.source.is_none() && self.format == format
         }
 
         pub(super) fn input_closed(&self) -> bool {
@@ -234,7 +429,10 @@ mod native {
         }
 
         pub(super) fn drain_progress(&self) -> Result<super::DrainProgress, String> {
-            self.status.check()?;
+            self.check()?;
+            if self.source.is_some() && self.closed {
+                self.ensure_started()?;
+            }
             Ok(super::DrainProgress {
                 drained: self.producer.drained(),
                 consumed_frames: Some(self.producer.snapshot().consumed_frames),
@@ -246,7 +444,7 @@ mod native {
         }
 
         pub(super) fn host_tail(&self) -> Duration {
-            if self.started {
+            if self.start.started.get() {
                 Duration::from_millis(100)
             } else {
                 Duration::ZERO
@@ -268,6 +466,9 @@ mod native {
         }
 
         pub(super) fn stage_description(&self) -> &'static str {
+            if self.source.is_some() {
+                return "native exact PCM; no DSP or dither";
+            }
             match self.sample_format {
                 SampleFormat::F32 => "native f32",
                 SampleFormat::F64 => "native f64",
@@ -276,21 +477,31 @@ mod native {
         }
 
         pub(super) fn check(&self) -> Result<(), String> {
-            self.status.check()
+            self.status.check()?;
+            if self.producer.snapshot().failed {
+                return Err("strict audio queue failed; source playback is incomplete".to_owned());
+            }
+            Ok(())
         }
 
         pub(super) fn pause(&self) -> Result<(), String> {
-            self.status.check()?;
-            self.stream
-                .pause()
-                .map_err(|error| format!("cannot pause audio device: {error}"))
+            self.check()?;
+            self.start
+                .pause(|| self.stream.pause().map_err(io::Error::other))
+                .map_err(|error| {
+                    self.fail_exact();
+                    format!("cannot pause audio device: {error}")
+                })
         }
 
         pub(super) fn resume(&self) -> Result<(), String> {
-            self.status.check()?;
-            self.stream
-                .play()
-                .map_err(|error| format!("cannot resume audio device: {error}"))
+            self.check()?;
+            self.start
+                .resume(|| self.stream.play().map_err(io::Error::other))
+                .map_err(|error| {
+                    self.fail_exact();
+                    format!("cannot resume audio device: {error}")
+                })
         }
 
         pub(super) fn close_input(&mut self) {
@@ -310,7 +521,7 @@ mod native {
         }
 
         fn report_diagnostics(&mut self) {
-            if self.reported || !self.started {
+            if self.reported || !self.start.started.get() {
                 return;
             }
             self.reported = true;
@@ -322,20 +533,20 @@ mod native {
                 stream,
                 producer,
                 status,
-                started,
+                start,
                 reported,
                 ..
             } = self;
             // Stop the device before terminal I/O: reporting must not prolong
             // delivery of the queued track after a transport change.
             drop(stream);
-            if started && !reported {
+            if start.started.get() && !reported {
                 report_queue(&producer, &status);
             }
         }
 
         fn start_if_needed(&mut self, nonempty: bool) -> io::Result<()> {
-            self.status.check().map_err(io::Error::other)?;
+            self.check().map_err(io::Error::other)?;
             if self.closed {
                 return Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
@@ -344,20 +555,95 @@ mod native {
             }
             // Start before publication so a failed stream start cannot hide
             // accepted frames from the caller's progress accounting.
-            if !self.started && nonempty {
-                self.stream.play().map_err(io::Error::other)?;
-                self.started = true;
-            }
+            self.start
+                .ensure(nonempty, || self.stream.play().map_err(io::Error::other))?;
             Ok(())
         }
 
         pub(super) fn write_samples(&mut self, samples: &[f32]) -> io::Result<usize> {
+            if self.source.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "strict output refuses floating-point source PCM",
+                ));
+            }
             self.start_if_needed(!samples.is_empty())?;
-            self.producer.write_samples(samples)
+            match &mut self.producer {
+                Producer::Float(p) => p.write_samples(samples),
+                Producer::Integer(_) => Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "strict output refuses floating-point source PCM",
+                )),
+            }
+        }
+
+        fn fail_exact(&self) {
+            if self.source.is_some() {
+                self.producer.failure_handle().fail();
+            }
+        }
+
+        pub(super) fn ensure_started(&self) -> Result<(), String> {
+            self.check()?;
+            let ready = self.producer.snapshot().queued_frames > 0;
+            self.start
+                .ensure(ready, || self.stream.play().map_err(io::Error::other))
+                .map_err(|error| {
+                    self.fail_exact();
+                    format!("cannot start audio device: {error}")
+                })
+        }
+
+        pub(super) fn write_exact(&mut self, samples: &[i32]) -> io::Result<usize> {
+            self.check().map_err(io::Error::other)?;
+            if self.closed {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "strict audio output is closed",
+                ));
+            }
+            let source = self.source.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "output is not strict integer PCM",
+                )
+            })?;
+            let occupancy = self.producer.snapshot();
+            if occupancy.queued_frames == occupancy.capacity_frames {
+                self.ensure_started().map_err(io::Error::other)?;
+            }
+            match &mut self.producer {
+                Producer::Integer(p) => p.write_integer(samples, source),
+                Producer::Float(_) => Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "output is not strict integer PCM",
+                )),
+            }
         }
     }
 
-    fn report_queue(producer: &PcmProducer, status: &DeviceStatus) {
+    #[derive(Clone, Copy)]
+    pub(super) struct ExactMapping(pub(super) u32);
+
+    impl ExactMapping {
+        pub(super) fn i16(self, sample: i32) -> i16 {
+            sample as i16
+        }
+        pub(super) fn i24(self, sample: i32) -> cpal::I24 {
+            cpal::I24::from(sample << (24 - self.0))
+        }
+        pub(super) fn i32(self, sample: i32) -> i32 {
+            sample << (32 - self.0)
+        }
+        pub(super) fn f32(self, sample: i32) -> f32 {
+            sample as f32 / (1_u32 << (self.0 - 1)) as f32
+        }
+        pub(super) fn f64(self, sample: i32) -> f64 {
+            f64::from(sample) / f64::from(1_u32 << (self.0 - 1))
+        }
+    }
+
+    fn report_queue(producer: &Producer, status: &DeviceStatus) {
         let queue = producer.snapshot();
         println!(
             "Native output: {} consumed frames; queue {}/{} frames; {} missing frames in {} callbacks; {} host xruns",
@@ -377,8 +663,20 @@ mod native {
 
     impl Write for NativeOutput {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.source.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "strict output refuses untyped PCM bytes",
+                ));
+            }
             self.start_if_needed(!bytes.is_empty())?;
-            self.producer.write_f32le(bytes)
+            match &mut self.producer {
+                Producer::Float(p) => p.write_f32le(bytes),
+                Producer::Integer(_) => Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "strict output refuses untyped PCM bytes",
+                )),
+            }
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -394,9 +692,30 @@ pub(super) enum BackendChoice {
     Ffplay,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct NativeSelection {
+    pub(super) device: Option<String>,
+    pub(super) strict: bool,
+}
+
+impl NativeSelection {
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", target_env = "gnu")
+    ))]
+    fn request(&self) -> Result<route::NativeRequest, Box<dyn Error>> {
+        Ok(route::NativeRequest {
+            device: self.device.as_deref().map(str::parse).transpose()?,
+            strict: self.strict,
+        })
+    }
+}
+
 pub(super) enum LocalOutput {
     Unopened {
         choice: BackendChoice,
+        selection: NativeSelection,
     },
     Ffplay(OutputSession),
     #[cfg(any(
@@ -407,10 +726,172 @@ pub(super) enum LocalOutput {
     Native {
         output: native::NativeOutput,
         required: bool,
+        selection: NativeSelection,
     },
 }
 
 impl LocalOutput {
+    pub(super) fn requires_exact(&self) -> bool {
+        match self {
+            Self::Unopened { selection, .. } => selection.strict,
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { selection, .. } => selection.strict,
+            Self::Ffplay(_) => false,
+        }
+    }
+
+    pub(super) fn with_selection(
+        choice: BackendChoice,
+        selection: NativeSelection,
+    ) -> Result<Self, Box<dyn Error>> {
+        let named_or_strict = selection.device.is_some() || selection.strict;
+        if named_or_strict && matches!(choice, BackendChoice::Ffplay) {
+            return Err("named or strict native output cannot use ffplay fallback".into());
+        }
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", target_env = "gnu")
+        ))]
+        {
+            selection.request()?;
+        }
+        Ok(Self::Unopened {
+            choice: if named_or_strict {
+                BackendChoice::Native
+            } else {
+                choice
+            },
+            selection,
+        })
+    }
+
+    pub(super) fn write_exact(
+        &mut self,
+        samples: &[i32],
+        canonical32: &[u8],
+        byte_offset: usize,
+    ) -> io::Result<usize> {
+        if canonical32.len() != samples.len().saturating_mul(4)
+            || byte_offset > canonical32.len()
+            || !byte_offset.is_multiple_of(4)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid exact PCM block or offset",
+            ));
+        }
+        match self {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => output
+                .write_exact(&samples[byte_offset / 4..])
+                .map(|count| count * 4),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "exact PCM requires validated native output",
+            )),
+        }
+    }
+
+    pub(super) fn ensure_started(&mut self) -> Result<(), Box<dyn Error>> {
+        match self {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => Ok(output.ensure_started()?),
+            _ => Ok(()),
+        }
+    }
+
+    pub(super) fn exact_needs_reopen(
+        &mut self,
+        format: IntegerPcmFormat,
+    ) -> Result<bool, Box<dyn Error>> {
+        if !self.requires_exact() {
+            return Err("output policy does not permit exact integer PCM".into());
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", target_env = "gnu")
+        )))]
+        let _ = format;
+        match self {
+            Self::Unopened { .. } => Ok(false),
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(target_os = "linux", target_env = "gnu")
+            ))]
+            Self::Native { output, .. } => Ok(output.exact_needs_reopen(format)?),
+            Self::Ffplay(_) => Err("strict output cannot use ffplay".into()),
+        }
+    }
+
+    pub(super) fn prepare_exact(
+        &mut self,
+        format: IntegerPcmFormat,
+    ) -> Result<ExactOutputFormat, Box<dyn Error>> {
+        if !self.requires_exact() {
+            return Err("output policy does not permit exact integer PCM".into());
+        }
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", target_env = "gnu")
+        ))]
+        {
+            if let Self::Native { output, .. } = self {
+                if !output.exact_needs_reopen(format)? {
+                    return Ok(output.exact_format()?);
+                }
+                if !output.input_closed() {
+                    return Err("strict output must be drained before a format change".into());
+                }
+                output.finish()?;
+            }
+            let selection = match self {
+                Self::Unopened { selection, .. } | Self::Native { selection, .. } => {
+                    selection.clone()
+                }
+                Self::Ffplay(_) => return Err("strict output cannot use ffplay".into()),
+            };
+            // Release the drained stream before a fresh exclusive/direct open.
+            // Keep the explicit request even if preparation of the next route fails.
+            *self = Self::Unopened {
+                choice: BackendChoice::Native,
+                selection: selection.clone(),
+            };
+            let output = native::NativeOutput::open_exact(format, selection.request()?)?;
+            let exact_format = output.exact_format()?;
+            *self = Self::Native {
+                output,
+                required: true,
+                selection,
+            };
+            Ok(exact_format)
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", target_env = "gnu")
+        )))]
+        {
+            let _ = format;
+            Err("strict native audio output is unavailable on this build".into())
+        }
+    }
+
     pub(super) fn write_pcm(
         &mut self,
         samples: &[f32],
@@ -497,13 +978,16 @@ impl LocalOutput {
             Err(std::env::VarError::NotPresent) => BackendChoice::Auto,
             Err(error) => return Err(error.into()),
         };
-        Ok(Self::Unopened { choice })
+        Self::with_selection(choice, NativeSelection::default())
     }
 
     pub(super) fn prepare(
         &mut self,
         format: PcmStreamFormat,
     ) -> Result<PcmStreamFormat, Box<dyn Error>> {
+        if self.requires_exact() {
+            return Err("strict output requires typed integer source preparation".into());
+        }
         match self {
             Self::Ffplay(output) => {
                 if output.format().is_some_and(|held| held != format) && !output.poll_finished()? {
@@ -518,7 +1002,7 @@ impl LocalOutput {
                 all(target_os = "linux", target_env = "gnu")
             ))]
             Self::Native { output, .. }
-                if native::negotiated_format(format)
+                if native::negotiated_format(format, output.request())
                     .is_ok_and(|chosen| output.can_reuse(chosen)) =>
             {
                 return Ok(output.format());
@@ -528,7 +1012,11 @@ impl LocalOutput {
                 target_os = "windows",
                 all(target_os = "linux", target_env = "gnu")
             ))]
-            Self::Native { output, required } => {
+            Self::Native {
+                output,
+                required,
+                selection,
+            } => {
                 if !output.input_closed() {
                     return Err("native output must be drained before a format change".into());
                 }
@@ -539,13 +1027,14 @@ impl LocalOutput {
                     } else {
                         BackendChoice::Auto
                     },
+                    selection: selection.clone(),
                 };
             }
             Self::Unopened { .. } => {}
         }
-        let choice = match self {
-            Self::Unopened { choice } => *choice,
-            _ => BackendChoice::Auto,
+        let (choice, selection) = match self {
+            Self::Unopened { choice, selection } => (*choice, selection.clone()),
+            _ => (BackendChoice::Auto, NativeSelection::default()),
         };
         if !matches!(choice, BackendChoice::Ffplay) {
             #[cfg(any(
@@ -553,12 +1042,13 @@ impl LocalOutput {
                 target_os = "windows",
                 all(target_os = "linux", target_env = "gnu")
             ))]
-            match native::NativeOutput::open(format) {
+            match native::NativeOutput::open(format, selection.request()?) {
                 Ok(output) => {
                     let selected = output.format();
                     *self = Self::Native {
                         output,
                         required: matches!(choice, BackendChoice::Native),
+                        selection,
                     };
                     return Ok(selected);
                 }
@@ -592,10 +1082,8 @@ impl LocalOutput {
                 target_os = "windows",
                 all(target_os = "linux", target_env = "gnu")
             ))]
-            Self::Native { output, .. } => {
-                Ok(native::negotiated_format(format)
-                    .map_or(true, |chosen| !output.can_reuse(chosen)))
-            }
+            Self::Native { output, .. } => Ok(native::negotiated_format(format, output.request())
+                .map_or(true, |chosen| !output.can_reuse(chosen))),
         }
     }
 
@@ -684,6 +1172,7 @@ impl LocalOutput {
             self,
             Self::Unopened {
                 choice: BackendChoice::Auto,
+                selection: NativeSelection::default(),
             },
         );
         match previous {
@@ -691,13 +1180,17 @@ impl LocalOutput {
                 output.abort()?;
                 *self = Self::Ffplay(OutputSession::new());
             }
-            Self::Unopened { choice } => *self = Self::Unopened { choice },
+            Self::Unopened { choice, selection } => *self = Self::Unopened { choice, selection },
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
                 all(target_os = "linux", target_env = "gnu")
             ))]
-            Self::Native { required, output } => {
+            Self::Native {
+                required,
+                output,
+                selection,
+            } => {
                 output.abort();
                 *self = Self::Unopened {
                     choice: if required {
@@ -705,6 +1198,7 @@ impl LocalOutput {
                     } else {
                         BackendChoice::Auto
                     },
+                    selection,
                 };
             }
         }
