@@ -287,3 +287,5 @@ Saved collections also accept the versioned `browse-v1:` JSON expression describ
 Status advertises `dynamic_browse_collections` and `album_track_pages` in its additive `capabilities` array. See [lightweight album tracks](../../docs/server/presentation.md#lightweight-album-tracks-and-capability-negotiation) for paging fields and the requirement to restart an older running server.
 
 Track detail adds file properties, raw tags and attributed credits. Album presentation adds nullable first-observed `added_at`; legacy unknown dates are not guessed. Complete track pages support optional `q`; status advertises `track_catalog_pages` and `catalog_added_dates`. See [native presentation](../../docs/server/presentation.md#complete-track-catalog-and-entry-dates).
+
+Explicit `library:true` on private M3U creation publishes catalog-derived album/artist M3U sidecars using the shared CLI folder plan. This requires a local administrator, advertises `library_m3u_publication`, confirms `library_files`, and never changes audio/tags. Repeated identical selections restore the same private export without consuming additional playlist slots.

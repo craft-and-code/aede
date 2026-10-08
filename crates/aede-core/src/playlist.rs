@@ -8,6 +8,9 @@
 //! machine. One renderer for both, because two would agree about `#EXTINF`
 //! today and disagree about it in six months.
 
+/// Shared catalog-derived folder destinations and rendering.
+pub mod folders;
+
 use std::path::Path;
 
 use crate::model::{Catalog, EntityKind, Id};

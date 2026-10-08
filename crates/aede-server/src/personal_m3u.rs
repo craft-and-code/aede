@@ -1,5 +1,8 @@
 //! Native private M3U publication, using canonical playlist rendering and storage.
 use super::*;
+#[path = "personal_m3u_library.rs"]
+mod library;
+use library::publish_library;
 
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
@@ -11,6 +14,8 @@ pub(super) fn routes() -> Router<ApiState> {
 struct Selection {
     release: String,
     name: String,
+    #[serde(default)]
+    library: bool,
 }
 #[derive(Serialize)]
 struct Published {
@@ -18,6 +23,8 @@ struct Published {
     name: String,
     filename: String,
     content: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    library_files: Vec<String>,
 }
 fn target_path(data_dir: &Path, owner: &str, id: &str) -> Result<PathBuf, ApiError> {
     if owner.is_empty()
@@ -72,6 +79,7 @@ fn published(catalog: &Catalog, playlist: &user::Playlist) -> Result<Published, 
         name: playlist.name.clone(),
         filename: format!("{}.m3u", playlist.id),
         content,
+        library_files: Vec::new(),
     })
 }
 async fn save(
@@ -81,7 +89,11 @@ async fn save(
     no_query(&request)?;
     let owner = PersonalOwner::from_request(&state, &request)?;
     owner.require_mutation()?;
+    let publication_admin = require_admin(&state, &request).map(|_| ());
     let input: Selection = json_body(request).await?;
+    if input.library {
+        publication_admin?;
+    }
     validate_collection_name(&input.name)?;
     if input.release.len() > MAX_REFERENCE_BYTES {
         return Err(invalid_query("release reference is too long"));
@@ -97,39 +109,93 @@ async fn save(
             .iter()
             .map(|id| EntityRef::of(&catalog, EntityKind::Track, *id).ok_or_else(unavailable))
             .collect::<Result<_, _>>()?;
-        let id = data
-            .create_playlist(&owner.id, &input.name, tracks, clock::now_seconds())
-            .map_err(|message| error(StatusCode::BAD_REQUEST, "playlist_refused", message))?;
-        let playlist = data.playlist(&owner.id, &id).ok_or_else(unavailable)?;
-        let answer = published(&catalog, playlist)?;
-        let path = target_path(&data_dir, &owner.id, &id)?;
-        let folder = path.parent().ok_or_else(unavailable)?;
-        std::fs::create_dir_all(folder).map_err(|_| unavailable())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
-                .map_err(|_| unavailable())?;
-        }
-        if !store::write_new_atomic(&path, answer.content.as_bytes()).map_err(|_| unavailable())? {
-            return Err(error(
-                StatusCode::CONFLICT,
-                "playlist_exists",
-                "playlist file already exists",
-            ));
-        }
-        if user::save(&data, &user::user_path(&data_dir)).is_err() {
-            let _ = std::fs::remove_file(path);
-            return Err(error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "store_error",
-                "private playlist could not be saved",
-            ));
+        let mut answer = save_selection(
+            &catalog,
+            &mut data,
+            &data_dir,
+            &owner.id,
+            &input.name,
+            tracks,
+        )?;
+        if input.library {
+            answer.library_files = publish_library(&catalog, id)?;
         }
         Ok(Json(answer))
     })?
     .await
     .map_err(|_| unavailable())?
+}
+// Repeated explicit saves restore the same retained selection instead of consuming playlist slots.
+fn save_selection(
+    catalog: &Catalog,
+    data: &mut UserData,
+    data_dir: &Path,
+    owner: &str,
+    name: &str,
+    tracks: Vec<EntityRef>,
+) -> Result<Published, ApiError> {
+    let retained = data
+        .playlists
+        .iter()
+        .rev()
+        .find(|p| p.owner == owner && p.name == name && p.tracks == tracks)
+        .map(|p| p.id.clone());
+    let existing = retained.is_some();
+    let id = match retained {
+        Some(id) => id,
+        None => data
+            .create_playlist(owner, name, tracks, clock::now_seconds())
+            .map_err(|message| error(StatusCode::BAD_REQUEST, "playlist_refused", message))?,
+    };
+    let answer = published(catalog, data.playlist(owner, &id).ok_or_else(unavailable)?)?;
+    let path = target_path(data_dir, owner, &id)?;
+    let folder = path.parent().ok_or_else(unavailable)?;
+    std::fs::create_dir_all(folder).map_err(|_| unavailable())?;
+    if !std::fs::symlink_metadata(folder).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink()) {
+        return Err(unavailable());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
+            .map_err(|_| unavailable())?;
+    }
+    let created =
+        store::write_new_atomic(&path, answer.content.as_bytes()).map_err(|_| unavailable())?;
+    if !created {
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| unavailable())?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() != answer.content.len() as u64
+            || {
+                use std::io::Read;
+                let mut held = Vec::new();
+                std::fs::File::open(&path)
+                    .map_err(|_| unavailable())?
+                    .take(8 * 1024 * 1024 + 1)
+                    .read_to_end(&mut held)
+                    .map_err(|_| unavailable())?;
+                held != answer.content.as_bytes()
+            }
+        {
+            return Err(error(
+                StatusCode::CONFLICT,
+                "playlist_exists",
+                "existing playlist file differs; it has not been overwritten",
+            ));
+        }
+    }
+    if !existing && user::save(data, &user::user_path(data_dir)).is_err() {
+        if created {
+            let _ = std::fs::remove_file(path);
+        }
+        return Err(error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "store_error",
+            "private playlist could not be saved",
+        ));
+    }
+    Ok(answer)
 }
 async fn list(
     State(state): State<ApiState>,

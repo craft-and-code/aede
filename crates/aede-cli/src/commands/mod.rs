@@ -280,18 +280,6 @@ pub fn in_scope(path: &str, scope: &[String]) -> bool {
     scope.is_empty() || scope.iter().any(|root| text::is_under(path, root))
 }
 
-/// The deepest folder holding every one of these releases, or `None`.
-///
-/// Not a thing the catalog holds — an artist folder is inferred, not scanned
-/// — so this is the one place that infers it, shared by `playlist`'s
-/// `--discography` mode and the artist artwork passes. Each writes a file into
-/// it. When albums do not share one folder, there is no destination to infer;
-/// callers also reject a watched root, so a flat library does not get a stray
-/// file in its root for every artist.
-pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
-    aede_core::coverart::shared_artist_folder(releases)
-}
-
 fn releases_by_album_artist(catalog: &Catalog) -> BTreeMap<Id, Vec<&Release>> {
     let mut releases_by_artist: BTreeMap<Id, Vec<&Release>> = BTreeMap::new();
     for release in &catalog.releases {

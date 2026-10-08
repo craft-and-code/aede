@@ -52,16 +52,20 @@ pub(super) fn release_item(
 }
 
 pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
+    let mut capabilities = vec![
+        "dynamic_browse_collections",
+        "album_track_pages",
+        "track_catalog_pages",
+        "catalog_added_dates",
+    ];
+    if state.admin.is_some() {
+        capabilities.push("library_m3u_publication");
+    }
     Json(Status {
         status: "ok",
         api_version: 1,
         catalog_loaded: state.catalog.read().await.is_some(),
-        capabilities: vec![
-            "dynamic_browse_collections",
-            "album_track_pages",
-            "track_catalog_pages",
-            "catalog_added_dates",
-        ],
+        capabilities,
     })
 }
 
