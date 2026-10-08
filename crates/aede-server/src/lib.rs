@@ -82,6 +82,7 @@ mod catalog_commands;
 /// Network-device controllers; prefer the standalone `aede-devices` crate.
 /// This reexport preserves the original Rust API without duplicating it.
 pub use aede_devices as devices;
+mod analysis_report;
 mod artwork;
 mod errors;
 mod events;

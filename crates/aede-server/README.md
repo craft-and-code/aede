@@ -271,3 +271,5 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 | `GET /api/me/v1/m3u/{id}` | Complete current-owner M3U download |
 | `POST /api/admin/v1/analyze` | Catalog-scoped asynchronous FlacCompagnon analysis |
 | `POST /api/admin/v1/spectrum` | Catalog-scoped asynchronous spectrogram generation |
+
+`GET /api/v1/analysis/report?ref=TOKEN` (and read-only `HEAD`) exports an original-format FlacCompagnon JSON for one catalog track or album. It extracts/combines retained source entries without re-analysis, refuses incomplete/stale reports, and is bounded to 2048 tracks/16 MiB. See [native presentation](../../docs/server/presentation.md#flaccompagnon-report-downloads).

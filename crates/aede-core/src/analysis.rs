@@ -16,6 +16,8 @@
 //! catalog unable to say where the number came from, and unable to notice that
 //! the two disagree. Noticing is the point.
 
+pub mod export;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::Path;
