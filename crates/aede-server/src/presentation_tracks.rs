@@ -43,7 +43,12 @@ pub(super) fn page(
 ) -> Result<Value, ApiError> {
     listing(catalog, Some(token), offset, limit, None)
 }
-fn searchable(c: &Catalog, track: &aede_core::model::Track, query: &str) -> bool {
+fn searchable(
+    c: &Catalog,
+    track: &aede_core::model::Track,
+    query: &str,
+    credited: &std::collections::HashSet<Id>,
+) -> bool {
     let has = |value: &str| aede_core::text::normalize(value).contains(query);
     has(&track.title)
         || c.file(track.file_id).is_some_and(|f| {
@@ -60,9 +65,7 @@ fn searchable(c: &Catalog, track: &aede_core::model::Track, query: &str) -> bool
                         .and_then(|id| c.artist(id))
                         .is_some_and(|a| has(&a.name))
             })
-        || c.credits_on(EntityKind::Track, track.id)
-            .iter()
-            .any(|(a, credit)| has(&a.name) || has(credit))
+        || credited.contains(&track.id)
 }
 pub(super) fn listing(
     c: &Catalog,
@@ -83,11 +86,32 @@ pub(super) fn listing(
     let query = query
         .map(aede_core::text::normalize)
         .filter(|q| !q.is_empty());
+    // A search visits each credit once rather than rescanning the credit table per track.
+    let mut credited = std::collections::HashSet::new();
+    if let Some(query) = &query {
+        let artists: std::collections::HashSet<_> = c
+            .artists
+            .iter()
+            .filter(|a| aede_core::text::normalize(&a.name).contains(query))
+            .map(|a| a.id)
+            .collect();
+        for credit in &c.credits {
+            if credit.entity_kind == EntityKind::Track
+                && (artists.contains(&credit.artist_id)
+                    || aede_core::text::normalize(&credit.role).contains(query))
+            {
+                credited.insert(credit.entity_id);
+            }
+        }
+    }
     let rows: Vec<_> = ids
         .into_iter()
         .filter(|id| {
-            c.track(*id)
-                .is_some_and(|t| query.as_ref().is_none_or(|q| searchable(c, t, q)))
+            c.track(*id).is_some_and(|t| {
+                query
+                    .as_ref()
+                    .is_none_or(|q| searchable(c, t, q, &credited))
+            })
         })
         .collect();
     let items = rows.iter().skip(offset).take(limit).map(|id| {

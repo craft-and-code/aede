@@ -203,6 +203,28 @@ fn complete_track_pages_search_tags_and_preserve_albumless_rows() {
     assert!(page["items"][0]["release"].is_null());
     assert!(page["items"][0]["album_position"].is_null());
     assert!(page["items"][0].get("analyses").is_none());
+    c.credits.push(aede_core::model::Credit {
+        artist_id: 0,
+        entity_kind: EntityKind::Track,
+        entity_id: 0,
+        role: "theremin".into(),
+        source: "tags".into(),
+        attributes: Vec::new(),
+        credited_as: None,
+        began: None,
+        ended: None,
+        order: None,
+        source_id: None,
+    });
+    assert_eq!(
+        track_pages::listing(&c, None, 0, 50, Some("theremin")).unwrap()["total"],
+        1
+    );
+    c.credits[0].entity_kind = EntityKind::Release;
+    assert_eq!(
+        track_pages::listing(&c, None, 0, 50, Some("theremin")).unwrap()["total"],
+        0
+    );
     let empty = track_pages::listing(&c, None, 0, 50, Some("missing-metadata")).unwrap();
     assert_eq!(empty["total"], 0);
 }
