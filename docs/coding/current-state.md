@@ -289,3 +289,5 @@ The additive native desktop presentation routes provide paged public library pro
 Native cover presence now checks the local confined regular file before advertising availability. A real-library smoke probe exposed stale cover metadata; a regression test reproduces that case before the fix. The shared Subsonic cover ID remains a pure catalog projection.
 
 Read-only `/api/v1/analysis/report` reconstructs FlacCompagnon JSON for one catalog track or album from complete retained source entries, independent of the original report layout. Unknown fields and source paths remain attributed; missing, stale, legacy-incomplete, unsupported or oversized exports fail explicitly. No original sidecar, audio or tags are written. See [native presentation](../server/presentation.md#flaccompagnon-report-downloads).
+
+Personal CLI marks use a filled text heart (`❤`) for loved artist/album/track annotations and no heart when the flag is absent. Machine exports retain their boolean contract; this is presentation only.

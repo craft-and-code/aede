@@ -116,3 +116,42 @@ fn collection_edits_refuse_listing_options_instead_of_silently_ignoring_them() {
         matches!(json::parse(&String::from_utf8(result.stdout).unwrap()), Ok(Json::Arr(rows)) if rows.len() == 1)
     );
 }
+
+#[test]
+fn favourites_show_a_filled_heart_and_removed_favourites_show_no_heart() {
+    let library = PersonalLibrary::new();
+    for (kind, command, name) in [
+        (EntityKind::Artist, "artist", "Artist"),
+        (EntityKind::Release, "album", "Album"),
+        (EntityKind::Track, "track", "Song"),
+    ] {
+        let reference = EntityRef::of(&library.catalog, kind, 0).unwrap().to_token();
+        let added = library.run(&["love", &reference]);
+        assert!(added.status.success());
+        assert!(String::from_utf8_lossy(&added.stdout).contains('❤'));
+        let shown = library.run(&[command, name]);
+        assert!(shown.status.success());
+        assert!(String::from_utf8_lossy(&shown.stdout).contains('❤'));
+        let listed = library.run(&["favourites"]);
+        assert!(listed.status.success());
+        assert!(String::from_utf8_lossy(&listed.stdout).contains('❤'));
+        assert!(
+            library
+                .run(&["love", &reference, "--remove"])
+                .status
+                .success()
+        );
+        let removed = library.run(&[command, name]);
+        assert!(removed.status.success());
+        assert!(!String::from_utf8_lossy(&removed.stdout).contains('❤'));
+        assert_eq!(
+            library
+                .data()
+                .find(LOCAL_USER, &library.track)
+                .unwrap()
+                .note
+                .as_deref(),
+            Some("preserve this note")
+        );
+    }
+}

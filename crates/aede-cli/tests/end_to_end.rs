@@ -1133,7 +1133,7 @@ fn a_rating_given_is_a_rating_shown() {
     assert!(ok);
     assert!(out.contains("Yours"), "output: {out}");
     assert!(out.contains('★'), "the rating: {out}");
-    assert!(out.contains('♥'), "the favourite: {out}");
+    assert!(out.contains('❤'), "the favourite: {out}");
     assert!(out.contains("the quintet"), "the note: {out}");
 
     // And reading a note back is what `note` does with nothing to write.
@@ -1191,7 +1191,7 @@ fn track_listening_counts_are_visible_without_an_annotation() {
         "listening alone is visible: {output}"
     );
     assert!(output.contains("played 2 times"), "{output}");
-    assert!(!output.contains('★') && !output.contains('♥'), "{output}");
+    assert!(!output.contains('★') && !output.contains('❤'), "{output}");
     assert_eq!(std::fs::read(&path).unwrap(), before);
 
     let (_, error, ok) = sandbox.run(&["rate", "track", "Take Five", "--stars", "4"]);
