@@ -29,7 +29,10 @@ pub(super) fn routes() -> Router<ApiState> {
             "/api/admin/v1/annotation",
             get(annotation).put(update_annotation),
         )
-        .route("/api/admin/v1/history", get(history).post(record_history))
+        .route(
+            "/api/admin/v1/history",
+            get(history).post(record_history).delete(reset_history),
+        )
         .route(
             "/api/admin/v1/collection",
             get(collection)
@@ -45,7 +48,10 @@ pub(super) fn account_routes() -> Router<ApiState> {
             "/api/me/v1/annotation",
             get(annotation).put(update_annotation),
         )
-        .route("/api/me/v1/history", get(history).post(record_history))
+        .route(
+            "/api/me/v1/history",
+            get(history).post(record_history).delete(reset_history),
+        )
         .route(
             "/api/me/v1/collection",
             get(collection)
@@ -53,6 +59,7 @@ pub(super) fn account_routes() -> Router<ApiState> {
                 .delete(delete_collection),
         )
         .route("/api/me/v1/collections", get(collections))
+        .route("/api/me/v1/collection/albums", get(collection_albums))
         .route("/api/me/v1/annotations", get(annotations))
         .merge(m3u::routes())
 }
@@ -248,6 +255,8 @@ impl PlayRequest {
 #[serde(deny_unknown_fields)]
 struct CollectionRequest {
     expression: String,
+    #[serde(default)]
+    create_only: bool,
 }
 
 fn parsed_query<T>(input: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
@@ -642,6 +651,38 @@ async fn record_history(
     })?
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResetHistory {
+    confirm: bool,
+}
+#[derive(Serialize)]
+struct ResetHistoryResult {
+    events: usize,
+    counters: usize,
+}
+async fn reset_history(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Json<ResetHistoryResult>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
+    no_query(&request)?;
+    let input: ResetHistory = json_body(request).await?;
+    if !input.confirm {
+        return Err(invalid_query("explicit confirmation is required"));
+    }
+    let data_dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        locked_update(&data_dir, &state, &owner, |_, data| {
+            let (events, counters) = data.forget_history(&owner.id);
+            Ok(Json(ResetHistoryResult { events, counters }))
+        })
+    })?
+    .await
+    .map_err(|_| unavailable())?
+}
+
 #[derive(Serialize)]
 struct CollectionView {
     name: String,
@@ -703,11 +744,11 @@ async fn save_collection(
     let query = parsed_query(input)?;
     validate_collection_name(&query.name)?;
     let input: CollectionRequest = json_body(request).await?;
-    if input.expression.trim().is_empty() || input.expression.len() > 2048 {
+    if input.expression.trim().is_empty() || input.expression.len() > 8192 {
         return Err(error(
             StatusCode::BAD_REQUEST,
             "invalid_parameters",
-            "expression must contain 1 to 2048 bytes",
+            "expression must contain 1 to 8192 bytes",
         ));
     }
     aede_core::query::parse(&input.expression).map_err(|failure| {
@@ -721,6 +762,13 @@ async fn save_collection(
     spawn_personal(state.inspection_slots.clone(), move || {
         let now = clock::now_seconds();
         locked_update(&data_dir, &state, &owner, |_, data| {
+            if input.create_only && data.collection(&owner.id, &query.name).is_some() {
+                return Err(error(
+                    StatusCode::CONFLICT,
+                    "collection_exists",
+                    "a collection already has this name",
+                ));
+            }
             data.save_collection(&owner.id, &query.name, &input.expression, now);
             data.collection(&owner.id, &query.name)
                 .map(collection_view)
@@ -776,6 +824,51 @@ async fn delete_collection(
             "collection update could not finish",
         )
     })?
+}
+
+async fn collection_albums(
+    State(state): State<ApiState>,
+    input: Result<Query<NameQuery>, QueryRejection>,
+    request: Request,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    empty_body(&body(request).await?)?;
+    let query = parsed_query(input)?;
+    validate_collection_name(&query.name)?;
+    let data_dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        owner.recheck(&state)?;
+        let saved = data.collection(&owner.id, &query.name).ok_or_else(|| {
+            error(
+                StatusCode::NOT_FOUND,
+                "collection_not_found",
+                "collection is unavailable",
+            )
+        })?;
+        let parsed = aede_core::query::parse(&saved.expression)
+            .map_err(|failure| invalid_query(failure.to_string()))?;
+        let sources = inspection::held_sources(&data_dir)?;
+        let context =
+            aede_core::query::Context::new(&catalog, &data, &owner.id).with_sources(&sources);
+        let releases: BTreeSet<_> = aede_core::query::run(&parsed, &context)
+            .into_iter()
+            .filter_map(|id| catalog.track(id).and_then(|t| t.release_id))
+            .collect();
+        let items = releases
+            .into_iter()
+            .map(|id| {
+                EntityRef::of(&catalog, EntityKind::Release, id)
+                    .map(|r| r.to_token())
+                    .ok_or_else(unavailable)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Json(
+            serde_json::json!({"items":items,"scanned_at":catalog.scanned_at}),
+        ))
+    })?
+    .await
+    .map_err(|_| unavailable())?
 }
 
 #[derive(Serialize)]

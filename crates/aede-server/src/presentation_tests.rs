@@ -82,3 +82,19 @@ fn stale_cover_metadata_does_not_advertise_an_available_image() {
     let album = album_row(&catalog, &catalog.releases[0]).unwrap();
     assert_eq!(album["cover"], false);
 }
+
+#[test]
+fn playback_selection_keeps_album_track_positions_and_rejects_wrong_reference_kinds() {
+    let state = sample_state();
+    let c = state.catalog.blocking_read();
+    let c = c.as_ref().unwrap();
+    let token = reference_of(c, EntityKind::Release, 0).unwrap();
+    let rows = playback_rows(c, &token).unwrap();
+    assert_eq!(rows.len(), c.releases[0].track_ids.len());
+    for (index, row) in rows.iter().enumerate() {
+        assert_eq!(row["number"], index + 1);
+        assert_eq!(row["album_total"], rows.len());
+        assert_eq!(row["release"], token);
+    }
+    assert!(playback_rows(c, &reference_of(c, EntityKind::Track, 0).unwrap()).is_err());
+}

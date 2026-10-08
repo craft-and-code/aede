@@ -473,3 +473,20 @@ fn genres_attached_to_track_and_album() {
     assert_eq!(genres.len(), 1);
     assert_eq!(genres[0].name, "Thrash Metal");
 }
+
+#[test]
+fn playback_release_order_keeps_unknown_years_last_and_track_order_intact() {
+    let mut c = Catalog {
+        releases: vec![Release {
+            id: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut early = c.releases[0].clone();
+    early.id = c.releases.len() as u32;
+    early.year = Some(1950);
+    c.releases[0].year = None;
+    c.releases.push(early);
+    assert_eq!(c.playback_release_order(vec![0, 1]), vec![1, 0]);
+}

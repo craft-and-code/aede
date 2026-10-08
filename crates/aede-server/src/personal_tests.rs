@@ -660,3 +660,51 @@ fn annotation_index_is_owner_private_and_keeps_unknown_targets_out_of_results() 
     assert_eq!(rows[0].note.as_deref(), Some("alice private note"));
     assert!(own_annotations(&data, &catalog, "nobody").is_empty());
 }
+
+#[test]
+fn history_reset_requires_confirmation_and_preserves_other_owners_and_annotations() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let reference = EntityRef::parse_token(&track(&state).await).unwrap();
+        let mut data = UserData::default();
+        for owner in [LOCAL_USER, "other"] {
+            data.record_play(Play {
+                owner: owner.into(),
+                track: reference.clone(),
+                at: 1,
+                ms_played: 5,
+                completed: false,
+            });
+            data.entry(owner, &reference, 1).note = Some("preserve".into());
+        }
+        let path = user::user_path(&state.data_dir);
+        user::save(&data, &path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(
+            reset_history(
+                State(state.clone()),
+                request("/api/admin/v1/history", r#"{"confirm":false}"#)
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let answer = reset_history(
+            State(state.clone()),
+            request("/api/admin/v1/history", r#"{"confirm":true}"#),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(answer.events, 1);
+        assert_eq!(answer.counters, 1);
+        let saved = user::load(&path).unwrap().unwrap();
+        assert_eq!(saved.play_count("other", &reference), 1);
+        assert_eq!(saved.play_count(LOCAL_USER, &reference), 0);
+        assert_eq!(
+            saved.find(LOCAL_USER, &reference).unwrap().note.as_deref(),
+            Some("preserve")
+        );
+        cleanup(&state);
+    });
+}

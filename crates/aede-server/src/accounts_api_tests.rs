@@ -403,3 +403,28 @@ fn account_administrator_works_without_a_legacy_token_and_password_workers_are_b
         server.abort();
     });
 }
+
+#[test]
+fn dynamic_collections_and_confirmed_history_reset_are_owner_scoped() {
+    test_runtime().block_on(async {
+        let fixture=Fixture::new();
+        let (address,server)=start_server(fixture.0.clone()).await;
+        let alice=login(address,"alice");let bob=login(address,"bob");let auditor=login(address,"auditor");
+        let catalog=fixture.0.catalog.read().await;
+        let reference=EntityRef::of(catalog.as_ref().unwrap(),EntityKind::Track,0).unwrap().to_token();
+        drop(catalog);
+        let expression=r#"browse-v1:{"view":"albums","mode":"none","years":[0,9999],"alphabet":[0,26],"includeUnknownYear":true,"query":""}"#;
+        let body=serde_json::json!({"expression":expression,"create_only":true}).to_string();
+        assert_eq!(http(address,"PUT","/api/me/v1/collection?name=dynamic",Some(&alice),&body).0,200);
+        assert_eq!(http(address,"PUT","/api/me/v1/collection?name=dynamic",Some(&alice),&body).0,409);
+        assert!(!http(address,"GET","/api/me/v1/collection/albums?name=dynamic",Some(&alice),"").1["items"].as_array().unwrap().is_empty());
+        assert_eq!(http(address,"GET","/api/me/v1/collection/albums?name=dynamic",Some(&bob),"").0,404);
+        for token in [&alice,&bob] {assert_eq!(http(address,"POST","/api/me/v1/history",Some(token),&format!(r#"{{"track":"{reference}","ms_played":10,"completed":false}}"#)).0,201);}
+        assert_eq!(http(address,"DELETE","/api/me/v1/history",Some(&alice),r#"{"confirm":false}"#).0,400);
+        assert_eq!(http(address,"DELETE","/api/me/v1/history",Some(&auditor),r#"{"confirm":true}"#).0,403);
+        assert_eq!(http(address,"DELETE","/api/me/v1/history",Some(&alice),r#"{"confirm":true}"#).0,200);
+        assert_eq!(http(address,"GET","/api/me/v1/history",Some(&alice),"").1["total"],0);
+        assert_eq!(http(address,"GET","/api/me/v1/history",Some(&bob),"").1["total"],1);
+        server.abort();
+    });
+}

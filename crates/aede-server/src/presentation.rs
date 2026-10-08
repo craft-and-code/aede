@@ -9,6 +9,7 @@ pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/v1/presentation/artists", get(artists))
         .route("/api/v1/presentation/albums", get(albums))
+        .route("/api/v1/presentation/playback", get(playback_selection))
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -159,6 +160,56 @@ async fn albums(
         ))
     })
     .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlaybackQuery {
+    #[serde(rename = "ref")]
+    reference: String,
+}
+fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>, ApiError> {
+    if token.len() > MAX_REFERENCE_BYTES {
+        return Err(invalid_query("reference is too long"));
+    }
+    let entity = EntityRef::parse_token(token)
+        .ok_or_else(|| invalid_query("invalid selection reference"))?;
+    let id = entity.resolve(catalog).ok_or_else(|| {
+        error(
+            StatusCode::NOT_FOUND,
+            "entity_not_found",
+            "selection is no longer available",
+        )
+    })?;
+    let ids = match entity.kind {
+        EntityKind::Release => vec![id],
+        EntityKind::Artist => catalog.playback_release_order(catalog.releases_as_album_artist(id)),
+        _ => return Err(invalid_query("selection must be an artist or album")),
+    };
+    let mut rows = Vec::new();
+    for id in ids {
+        let release = catalog.release(id).ok_or_else(unavailable)?;
+        let reference = reference_of(catalog, EntityKind::Release, id)?;
+        for (index, id) in release.track_ids.iter().enumerate() {
+            if rows.len() >= 4096 {
+                return Err(invalid_query("selection exceeds 4096 tracks"));
+            }
+            let track = catalog.track(*id).ok_or_else(unavailable)?;
+            rows.push(json!({"reference": reference_of(catalog, EntityKind::Track, *id)?, "title": track.title, "release": reference, "number": index + 1, "album_total": release.track_ids.len()}));
+        }
+    }
+    Ok(rows)
+}
+async fn playback_selection(
+    State(state): State<ApiState>,
+    query: Result<Query<PlaybackQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Query(query) = query.map_err(|failure| invalid_query(failure.body_text()))?;
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        Ok(json!({"items": playback_rows(catalog, &query.reference)?, "scanned_at": catalog.scanned_at}))
+    }).await
 }
 
 #[cfg(test)]

@@ -291,3 +291,5 @@ Native cover presence now checks the local confined regular file before advertis
 Read-only `/api/v1/analysis/report` reconstructs FlacCompagnon JSON for one catalog track or album from complete retained source entries, independent of the original report layout. Unknown fields and source paths remain attributed; missing, stale, legacy-incomplete, unsupported or oversized exports fail explicitly. No original sidecar, audio or tags are written. See [native presentation](../server/presentation.md#flaccompagnon-report-downloads).
 
 Personal CLI marks use a filled text heart (`❤`) for loved artist/album/track annotations and no heart when the flag is absent. Machine exports retain their boolean contract; this is presentation only.
+
+Desktop follow-up adds confirmed owner-scoped history reset, evaluated dynamic browsing collections in the compatible saved-query store, create-only refusal of name collisions, and server-owned chronological discography selections with per-album track positions. Public query refuses private browsing expressions. Source audio, account stores and unrelated owners remain unchanged; see native presentation and the route README.

@@ -29,9 +29,10 @@ Account routes are additive and use the same error envelope as the catalog. The 
 | `/api/admin/v1/accounts/{username}` | GET metadata; PATCH name/role/status/password; administrator required |
 | `/api/admin/v1/accounts/{username}/sessions` | DELETE all sessions; administrator required |
 | `/api/me/v1/annotation` | GET/PUT own annotations by `ref` |
-| `/api/me/v1/history` | GET/POST own history and counts |
+| `/api/me/v1/history` | GET/POST/DELETE own history and counts |
 | `/api/me/v1/collection` | GET/PUT/DELETE own collection by `name` |
 | `/api/me/v1/collections` | GET own paginated collections |
+| `/api/me/v1/collection/albums` | GET current-owner evaluated collection album references |
 | `/api/me/v1/playback` | GET WebSocket; user/admin session, processed f32le and consumption acknowledgements; one track, finite queue or optional interactive seek/edit/checkpoint resume |
 
 ## Read routes
@@ -224,7 +225,7 @@ The reference must name a current catalog entity and contain at most 16384 UTF-8
 
 `POST /history` accepts `{track,at?,ms_played,completed}`. `track` is a current track reference; `at` defaults to the server time and cannot be over one day in the future; `ms_played` is capped at 24 hours. Each accepted event updates the bounded recent-history log and the all-time per-track count together. Delayed events are ordered by `at`, not receipt time: the log retains the newest events by date, while every accepted event still increments its all-time count. Existing arrival-ordered history is sorted when loaded without dropping events or changing counts. `GET /history?offset=&limit=` returns `{items,total,offset,limit,scanned_at}` with each item containing `track,at,ms_played,completed,play_count,last_played`. Sorting happens before pagination, newest first; equal-time events remain distinct and the last received appears first.
 
-A collection stores a **query expression**, not a static list of tracks: its result evolves with the catalog. `PUT /collection?name=<name>` validates the current Aède query grammar before saving a non-empty expression of up to 2048 bytes. Names are matched case/accent-insensitively, like the CLI, and must contain non-whitespace text within 256 UTF-8 bytes for GET, PUT and DELETE. `GET /collections` uses normal `offset`/`limit` pagination.
+A collection stores a **query expression**, not a static list of tracks: its result evolves with the catalog. `PUT /collection?name=<name>` validates the current Aède query grammar before saving a non-empty expression of up to 8192 bytes. Optional `create_only: true` refuses a same-name collection with `409 collection_exists` rather than replacing it. Names are matched case/accent-insensitively, like the CLI, and must contain non-whitespace text within 256 UTF-8 bytes for GET, PUT and DELETE. `GET /collections` uses normal `offset`/`limit` pagination.
 
 Every personal read and write obtains the same data-directory lock as the CLI and loads both the current on-disk catalog and `user.json` while holding it. Target validation and reconciliation therefore use the same completed catalog version, even before the public catalog cache refreshes after a scan. The lock remains held through an update's atomic save to `user.json`; a competing request receives `409 store_busy` and can retry. An absent catalog returns `503 catalog_unavailable`, an unreadable catalog returns `500 store_error`, and failed/corrupt user-data reads return `500 user_unavailable`; no personal data is saved on these failures. Unexpected background failures return `500 personal_failed`.
 
@@ -273,3 +274,11 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 | `POST /api/admin/v1/spectrum` | Catalog-scoped asynchronous spectrogram generation |
 
 `GET /api/v1/analysis/report?ref=TOKEN` (and read-only `HEAD`) exports an original-format FlacCompagnon JSON for one catalog track or album. It extracts/combines retained source entries without re-analysis, refuses incomplete/stale reports, and is bounded to 2048 tracks/16 MiB. See [native presentation](../../docs/server/presentation.md#flaccompagnon-report-downloads).
+
+### Desktop selection and dynamic browsing collections
+
+`GET /api/v1/presentation/playback?ref=<artist-or-release-reference>` returns `{items,scanned_at}` with each track's `reference,title,release,number,album_total`. Artist selection uses principal discography and the shared CLI oldest-first release order (unknown years last, folder/title tie breakers); release track order stays intact. At most 4096 items are returned, otherwise an explicit error. This read does not start audio or write history; the client sends bounded individual PCM starts.
+
+Saved collections also accept the versioned `browse-v1:` JSON expression described in [native presentation](../../docs/server/presentation.md#dynamic-browsing-collections). `GET /api/me/v1/collection/albums?name=<name>` evaluates an ordinary or browsing rule against the current disk catalog, trusted sources and authenticated owner's annotations, returning `{items,scanned_at}` with deduplicated release references. Other owners' collection names never resolve.
+
+`DELETE /api/me/v1/history` requires the JSON body `{ "confirm": true }` and no query. It returns `{events,counters}` and reuses `UserData::forget_history`: retained native events, declared scrobbles and lifetime counters for that owner are removed together. Annotations, collections, other owners and playback checkpoints are preserved. Active playback can subsequently publish a new listen. Auditors are refused and authentication is rechecked under the writer lock. The transitional local-admin history route has the same confirmed reset contract.

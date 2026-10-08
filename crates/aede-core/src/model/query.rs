@@ -21,6 +21,21 @@ use super::{
 };
 
 impl Catalog {
+    /// Order selected releases for playback: oldest first, unknown dates last.
+    /// Equal years retain the CLI folder/title tie breakers; track order is untouched.
+    pub fn playback_release_order(&self, mut ids: Vec<Id>) -> Vec<Id> {
+        ids.sort_by(|a, b| {
+            self.release(*a)
+                .map(|r| (r.year.unwrap_or(u32::MAX), &r.folder, &r.title))
+                .cmp(
+                    &self
+                        .release(*b)
+                        .map(|r| (r.year.unwrap_or(u32::MAX), &r.folder, &r.title)),
+                )
+        });
+        ids
+    }
+
     /// The artist an id designates, or `None` when the id is out of range.
     pub fn artist(&self, id: Id) -> Option<&Artist> {
         self.artists.get(id as usize)

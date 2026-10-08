@@ -720,6 +720,11 @@ fn public_query(expression: &str) -> Result<query::Query, ApiError> {
                 | query::Field::Collaborator
                 | query::Field::Anything => {}
             },
+            query::Query::Browse(_) => {
+                return Err(invalid_query(
+                    "browse collections require the current-owner endpoint",
+                ));
+            }
             query::Query::All => {}
         }
     }

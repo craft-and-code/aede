@@ -33,6 +33,8 @@ use crate::user::{EntityRef, UserData};
 /// A parsed query, ready to be run against any catalog.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Query {
+    /// Versioned catalog browsing filters saved as a dynamic collection.
+    Browse(Box<browse::Filter>),
     /// Matches everything, which is what an empty expression means.
     All,
     /// Every part must match.
@@ -336,6 +338,7 @@ fn is_flag(field: &Field) -> bool {
 /// `genre:metal rating` is rescoped only where rescoping means something.
 pub fn rescoped(query: &Query, scope: Scope) -> Query {
     match query {
+        Query::Browse(filter) => Query::Browse(filter.clone()),
         Query::All => Query::All,
         Query::And(parts) => Query::And(parts.iter().map(|p| rescoped(p, scope)).collect()),
         Query::Or(parts) => Query::Or(parts.iter().map(|p| rescoped(p, scope)).collect()),
@@ -357,6 +360,7 @@ pub fn rescoped(query: &Query, scope: Scope) -> Query {
 /// track's own scope — the case where [`rescoped`] has anything to offer.
 pub fn asks_about_the_track_itself(query: &Query) -> bool {
     match query {
+        Query::Browse(_) => false,
         Query::All => false,
         Query::And(parts) | Query::Or(parts) => parts.iter().any(asks_about_the_track_itself),
         Query::Not(inner) => asks_about_the_track_itself(inner),
@@ -428,7 +432,7 @@ pub fn unknown_values(query: &Query, context: &Context) -> Vec<(String, String)>
 
 fn collect_unknown(query: &Query, context: &Context, out: &mut Vec<(String, String)>) {
     match query {
-        Query::All => {}
+        Query::Browse(_) | Query::All => {}
         Query::And(parts) | Query::Or(parts) => {
             for part in parts {
                 collect_unknown(part, context, out);
@@ -510,6 +514,7 @@ pub fn field_names() -> Vec<&'static str> {
 // Running a query
 // --------------------------------------------------------------------------
 
+pub mod browse;
 mod indexes;
 mod sorting;
 pub use sorting::{Sort, SortKey, sort, sort_key_names};
@@ -524,6 +529,7 @@ pub struct Context<'a> {
     pub owner: &'a str,
     /// Certain external relationships, indexed once for this evaluation.
     sourced: SourcedRelations,
+    browse_claims: browse::Claims,
     local: indexes::LocalIndexes<'a>,
 }
 
@@ -535,6 +541,7 @@ impl<'a> Context<'a> {
             data,
             owner,
             sourced: SourcedRelations::default(),
+            browse_claims: browse::Claims::default(),
             local: indexes::LocalIndexes::new(catalog, data, owner),
         }
     }
@@ -544,6 +551,7 @@ impl<'a> Context<'a> {
     /// query results.
     pub fn with_sources(mut self, sources: &crate::sources::Sources) -> Context<'a> {
         self.sourced = SourcedRelations::new(self.catalog, sources);
+        self.browse_claims = browse::Claims::new(self.catalog, sources);
         self
     }
 }
@@ -610,6 +618,9 @@ impl SourcedRelations {
 /// Order matters because everything downstream pages through it, and paging is
 /// only meaningful while the order is the same on every run.
 pub fn run(query: &Query, context: &Context) -> Vec<Id> {
+    if let Query::Browse(filter) = query {
+        return browse::tracks(filter, context);
+    }
     context
         .catalog
         .tracks
@@ -622,6 +633,7 @@ pub fn run(query: &Query, context: &Context) -> Vec<Id> {
 /// Whether one track satisfies a query.
 pub fn matches(query: &Query, context: &Context, track: Id) -> bool {
     match query {
+        Query::Browse(filter) => browse::tracks(filter, context).contains(&track),
         Query::All => true,
         Query::And(parts) => parts.iter().all(|p| matches(p, context, track)),
         Query::Or(parts) => parts.iter().any(|p| matches(p, context, track)),

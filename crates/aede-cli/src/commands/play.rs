@@ -714,15 +714,10 @@ fn paths_for_tracks(
 
 fn paths_for_releases(
     catalog: &Catalog,
-    mut ids: Vec<Id>,
+    ids: Vec<Id>,
     name: &str,
 ) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    ids.sort_by(|a, b| {
-        let left = catalog.release(*a);
-        let right = catalog.release(*b);
-        left.map(|r| (r.year.unwrap_or(u32::MAX), &r.folder, &r.title))
-            .cmp(&right.map(|r| (r.year.unwrap_or(u32::MAX), &r.folder, &r.title)))
-    });
+    let ids = catalog.playback_release_order(ids);
     let mut paths = Vec::new();
     for id in ids {
         if let Some(release) = catalog.release(id) {
