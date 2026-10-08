@@ -490,3 +490,25 @@ fn playback_release_order_keeps_unknown_years_last_and_track_order_intact() {
     c.releases.push(early);
     assert_eq!(c.playback_release_order(vec![0, 1]), vec![1, 0]);
 }
+
+#[test]
+fn release_added_date_uses_earliest_known_path_and_keeps_legacy_unknown() {
+    let mut catalog = example_catalog();
+    let release = catalog.releases[0].id;
+    assert_eq!(catalog.release_added_at(release), None);
+    let ids = catalog.releases[0].track_ids.clone();
+    for (i, id) in ids.iter().enumerate() {
+        let path = catalog
+            .file(catalog.track(*id).unwrap().file_id)
+            .unwrap()
+            .path
+            .clone();
+        catalog.file_added_at.insert(path, 100 + i as u64);
+    }
+    assert_eq!(catalog.release_added_at(release), Some(100));
+    let first = catalog.files[0].path.clone();
+    catalog.file_added_at.remove(&first);
+    assert_eq!(catalog.release_added_at(release), None);
+    catalog.file_added_at.clear();
+    assert_eq!(catalog.release_added_at(release), None);
+}

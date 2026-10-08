@@ -449,3 +449,45 @@ fn cover_choice_is_deterministic_when_preference_ranks_tie() {
     let actual = catalog.releases[0].cover_path.as_deref().map(Path::new);
     assert_eq!(actual, Some(expected.as_path()));
 }
+
+#[test]
+fn first_catalog_dates_survive_rescans_and_never_backfill_legacy_files() {
+    let directory = Sandbox::new();
+    directory.track("one.flac");
+    let (first, _) = scan(
+        std::slice::from_ref(&directory.0),
+        None,
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    let path = first.files[0].path.clone();
+    assert_eq!(first.file_added_at[&path], first.scanned_at);
+    let mut dated = first.clone();
+    dated.file_added_at.insert(path.clone(), 123);
+    let (again, _) = scan(
+        std::slice::from_ref(&directory.0),
+        Some(&dated),
+        &ScanOptions {
+            force_read: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(again.file_added_at[&path], 123);
+    let mut legacy = first;
+    legacy.file_added_at.clear();
+    directory.track("two.flac");
+    let (changed, _) = scan(
+        std::slice::from_ref(&directory.0),
+        Some(&legacy),
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(!changed.file_added_at.contains_key(&path));
+    assert_eq!(changed.file_added_at.len(), 1);
+    let decoded = crate::store::from_json(&crate::store::to_json(&changed)).unwrap();
+    assert_eq!(decoded.file_added_at, changed.file_added_at);
+}

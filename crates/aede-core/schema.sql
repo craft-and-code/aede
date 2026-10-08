@@ -47,6 +47,7 @@ CREATE TABLE file (
     -- Unix epoch in seconds, with a separately stored nanosecond fraction.
     -- Both parts and `size` must match before the scanner reuses tags.
     mtime             INTEGER NOT NULL,
+    added_at          INTEGER CHECK (added_at >= 0), -- first catalog observation; legacy unknown
     mtime_subseconds  INTEGER CHECK (mtime_subseconds BETWEEN 0 AND 999999999),
     container         TEXT,           -- flac, mp3, mp4, ogg, wav, aiff
     codec             TEXT,           -- flac, mp3, alac, aac, vorbis, opus, pcm

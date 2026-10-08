@@ -381,6 +381,21 @@ pub fn scan(
     // --- 4. Building the graph ---------------------------------------------
     let mut catalog = model::build(scanned, roots_str, now_seconds(), &options.same_artist);
     catalog.file_mtime_subseconds = fractions;
+    let previous_paths: HashSet<&str> = previous
+        .into_iter()
+        .flat_map(|c| c.files.iter().map(|f| f.path.as_str()))
+        .collect();
+    for file in &catalog.files {
+        let added = previous
+            .and_then(|c| c.file_added_at.get(&file.path))
+            .copied()
+            .or_else(|| {
+                (!previous_paths.contains(file.path.as_str())).then_some(catalog.scanned_at)
+            });
+        if let Some(added) = added {
+            catalog.file_added_at.insert(file.path.clone(), added);
+        }
+    }
     let current_paths: HashSet<&str> = catalog
         .files
         .iter()

@@ -96,7 +96,20 @@ fn playback_selection_keeps_album_track_positions_and_rejects_wrong_reference_ki
         assert_eq!(row["album_total"], rows.len());
         assert_eq!(row["release"], token);
     }
-    assert!(playback_rows(c, &reference_of(c, EntityKind::Track, 0).unwrap()).is_err());
+    let single = playback_rows(c, &reference_of(c, EntityKind::Track, 0).unwrap()).unwrap();
+    assert_eq!(single.len(), 1);
+    assert_eq!(single[0]["number"], 1);
+    assert_eq!(single[0]["release"], token);
+    let mut detached = c.clone();
+    detached.tracks[0].release_id = None;
+    let single = playback_rows(
+        &detached,
+        &reference_of(&detached, EntityKind::Track, 0).unwrap(),
+    )
+    .unwrap();
+    assert!(single[0]["release"].is_null());
+    assert_eq!(single[0]["album_total"], 1);
+    assert!(playback_rows(c, &reference_of(c, EntityKind::Recording, 0).unwrap()).is_err());
 }
 
 #[test]
@@ -175,4 +188,21 @@ fn status_advertises_dynamic_collection_and_album_page_contracts() {
                 .any(|v| v == "album_track_pages")
         );
     });
+}
+
+#[test]
+fn complete_track_pages_search_tags_and_preserve_albumless_rows() {
+    let state = sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    c.files[0]
+        .tags
+        .insert("mood".into(), vec!["Électricité".into()]);
+    c.tracks[0].release_id = None;
+    let page = track_pages::listing(&c, None, 0, 50, Some("electricite")).unwrap();
+    assert_eq!(page["total"], 1);
+    assert!(page["items"][0]["release"].is_null());
+    assert!(page["items"][0]["album_position"].is_null());
+    assert!(page["items"][0].get("analyses").is_none());
+    let empty = track_pages::listing(&c, None, 0, 50, Some("missing-metadata")).unwrap();
+    assert_eq!(empty["total"], 0);
 }

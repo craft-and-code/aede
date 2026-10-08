@@ -690,3 +690,25 @@ fn atomic_save() {
     assert!(!path.with_extension("json.tmp").exists());
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+#[test]
+fn catalog_entry_dates_are_optional_but_reject_malformed_values() {
+    let mut original = example_catalog();
+    let path = original.files[0].path.clone();
+    original.file_added_at.insert(path.clone(), 123);
+    let mut value = to_json(&original);
+    assert_eq!(
+        from_json(&value).unwrap().file_added_at.get(&path),
+        Some(&123)
+    );
+    let mut files = value.get("file").unwrap().as_arr().unwrap().to_vec();
+    files[0].set("added_at", "unknown".into());
+    value.set("file", Json::Arr(files));
+    assert!(from_json(&value).is_err());
+    assert!(
+        from_json(&to_json(&example_catalog()))
+            .unwrap()
+            .file_added_at
+            .is_empty()
+    );
+}

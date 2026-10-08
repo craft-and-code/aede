@@ -95,6 +95,11 @@ pub(super) enum EntityDetail {
         size: u64,
         analyses: Vec<serde_json::Value>,
         spectrum_available: bool,
+        disc_no: Option<u32>,
+        track_no: Option<u32>,
+        properties: serde_json::Value,
+        tags: std::collections::BTreeMap<String, Vec<String>>,
+        credits: Vec<serde_json::Value>,
     },
     Recording {
         reference: String,

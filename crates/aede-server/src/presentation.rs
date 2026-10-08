@@ -110,7 +110,7 @@ fn album_row(catalog: &Catalog, release: &aede_core::model::Release) -> Result<V
         .map(|genre| genre.name.clone())
         .collect();
     Ok(
-        json!({"reference":reference,"artist":release.album_artist_id.and_then(|id|crate::catalog::reference(catalog,EntityKind::Artist,id)),"title":release.title,"year":release.year,"compilation":release.is_compilation,"tags":genres,"contributors":contributors.into_iter().map(|id|reference_of(catalog,EntityKind::Artist,id)).collect::<Result<Vec<_>,_>>()?,"cover":crate::subsonic::artwork::candidate(release).is_some_and(|source|crate::subsonic::artwork::available(&source)),"track_count":release.track_ids.len(),"search_fields":search}),
+        json!({"reference":reference,"artist":release.album_artist_id.and_then(|id|crate::catalog::reference(catalog,EntityKind::Artist,id)),"title":release.title,"year":release.year,"compilation":release.is_compilation,"tags":genres,"contributors":contributors.into_iter().map(|id|reference_of(catalog,EntityKind::Artist,id)).collect::<Result<Vec<_>,_>>()?,"cover":crate::subsonic::artwork::candidate(release).is_some_and(|source|crate::subsonic::artwork::available(&source)),"track_count":release.track_ids.len(),"added_at":catalog.release_added_at(release.id),"search_fields":search}),
     )
 }
 async fn artists(
@@ -184,10 +184,20 @@ fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>, ApiError>
             "selection is no longer available",
         )
     })?;
+    if entity.kind == EntityKind::Track {
+        let track = catalog.track(id).ok_or_else(unavailable)?;
+        let release = track.release_id.and_then(|id| catalog.release(id));
+        let position = release.and_then(|r| r.track_ids.iter().position(|p| *p == id));
+        return Ok(vec![
+            json!({"reference":reference_of(catalog,EntityKind::Track,id)?,"title":track.title,
+            "release":release.map(|r| reference_of(catalog,EntityKind::Release,r.id)).transpose()?,
+            "number":position.map_or(1, |p| p+1), "album_total":release.map_or(1, |r| r.track_ids.len())}),
+        ]);
+    }
     let ids = match entity.kind {
         EntityKind::Release => vec![id],
         EntityKind::Artist => catalog.playback_release_order(catalog.releases_as_album_artist(id)),
-        _ => return Err(invalid_query("selection must be an artist or album")),
+        _ => return Err(invalid_query("selection must be an artist, album or track")),
     };
     let mut rows = Vec::new();
     for id in ids {
