@@ -31,6 +31,21 @@ fn arguments(request: &JobRequest) -> Vec<String> {
             }
             &scan.folders
         }
+        JobRequest::Analyze(media) | JobRequest::Spectrum(media) => {
+            let spectrum = matches!(request, JobRequest::Spectrum(_));
+            args.push(if spectrum { "spectrum" } else { "analyze" }.into());
+            if media.force {
+                args.push(if spectrum { "--full" } else { "--force" }.into());
+            }
+            if !spectrum {
+                args.push("--json-layout=album".into());
+                args.push("--show-results".into());
+            }
+            if let Some(threads) = media.threads {
+                args.push(format!("--threads={threads}"));
+            }
+            &media.targets
+        }
         JobRequest::Fetch(fetch) => {
             args.push("fetch".into());
             for (enabled, flag) in [

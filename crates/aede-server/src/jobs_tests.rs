@@ -395,7 +395,9 @@ fn authenticated_cancellation_is_visible_until_a_terminal_result() {
 fn callback_failure_and_panic_finish_the_task_and_release_capacity() {
     runtime().block_on(async {
         let state = state(|request, _| match request {
-            JobRequest::Scan(_) => Err("mock failure".into()),
+            JobRequest::Scan(_) | JobRequest::Analyze(_) | JobRequest::Spectrum(_) => {
+                Err("mock failure".into())
+            }
             JobRequest::Fetch(_) => panic!("mock worker panic"),
         });
         let mut events = state.events.subscribe();
@@ -570,5 +572,32 @@ fn job_routes_are_opt_in_and_round_trip_through_the_http_router() {
             assert_eq!(result["result"]["stdout"], "dry-run result");
         }
         server.abort();
+    });
+}
+
+#[test]
+fn media_jobs_resolve_catalog_references_and_refuse_arbitrary_paths() {
+    runtime().block_on(async {
+        let state = state(|_, _| Ok(JobOutput::default()));
+        for body in [
+            r#"{"release":"/music/album"}"#,
+            r#"{"release":"../private","threads":99}"#,
+            r#"{"release":"invalid","path":"/private"}"#,
+        ] {
+            let response = media_route(
+                State(state.clone()),
+                request("POST", "/api/admin/v1/analyze", body),
+                false,
+            )
+            .await;
+            assert!(response.is_err());
+        }
+        let media = MediaJobRequest {
+            targets: vec!["/music/album".into()],
+            force: false,
+            threads: Some(65),
+        };
+        assert!(JobRequest::Analyze(media.clone()).validate().is_err());
+        assert!(JobRequest::Spectrum(media).validate().is_err());
     });
 }

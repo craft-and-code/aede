@@ -15,6 +15,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::*;
+#[path = "personal_m3u.rs"]
+mod m3u;
 
 const MAX_BODY: usize = 16 * 1024;
 const MAX_TAGS: usize = 100;
@@ -51,6 +53,8 @@ pub(super) fn account_routes() -> Router<ApiState> {
                 .delete(delete_collection),
         )
         .route("/api/me/v1/collections", get(collections))
+        .route("/api/me/v1/annotations", get(annotations))
+        .merge(m3u::routes())
 }
 
 struct PersonalOwner {
@@ -821,6 +825,44 @@ async fn collections(
             "collections read could not finish",
         )
     })?
+}
+
+fn own_annotations(data: &UserData, catalog: &Catalog, owner: &str) -> Vec<AnnotationView> {
+    let mut rows: Vec<_> = data
+        .annotations
+        .iter()
+        .filter(|annotation| {
+            annotation.owner == owner && annotation.target.resolve(catalog).is_some()
+        })
+        .map(annotation_view)
+        .collect();
+    rows.sort_by(|left, right| left.reference.cmp(&right.reference));
+    rows
+}
+async fn annotations(
+    State(state): State<ApiState>,
+    input: Result<Query<PageQuery>, QueryRejection>,
+    request: Request,
+) -> Result<Json<Page<AnnotationView>>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    empty_body(&body(request).await?)?;
+    let (offset, limit) = page(parsed_query(input)?)?;
+    let data_dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        owner.recheck(&state)?;
+        let rows = own_annotations(&data, &catalog, &owner.id);
+        let total = rows.len();
+        Ok(Json(Page::new(
+            rows.into_iter().skip(offset).take(limit).collect(),
+            total,
+            offset,
+            limit,
+            catalog.scanned_at,
+        )))
+    })?
+    .await
+    .map_err(|_| unavailable())?
 }
 
 fn validate_tags(tags: &[String]) -> Result<(), ApiError> {

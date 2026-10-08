@@ -283,3 +283,5 @@ At the beginning of a new session:
 Do not reconstruct project history from previous conversations.
 
 The repository and documentation are the source of truth.
+
+The additive native desktop presentation routes provide paged public library projections, trusted attributed artist origin/prose, local images and spectrum availability. Own annotation indexes and private M3U publication reuse personal storage; catalog-scoped analysis/spectrum jobs reuse the ordinary CLI callback and administrative task lifecycle. See [native presentation](../server/presentation.md). These routes do not imply physical desktop playback/copy acceptance.

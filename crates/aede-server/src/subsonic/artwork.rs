@@ -22,12 +22,12 @@ const WORKER_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
-struct Source {
-    path: PathBuf,
-    folder: PathBuf,
+pub(crate) struct Source {
+    pub(crate) path: PathBuf,
+    pub(crate) folder: PathBuf,
 }
 
-fn candidate(release: &Release) -> Option<Source> {
+pub(crate) fn candidate(release: &Release) -> Option<Source> {
     let path = PathBuf::from(release.cover_path.as_deref()?);
     let folder = PathBuf::from(&release.folder);
     let extension = path.extension()?.to_str()?;
@@ -109,7 +109,10 @@ fn confined(source: &Source) -> Result<(), ProtocolError> {
     Ok(())
 }
 
-fn read_image(source: Source, size: Option<u32>) -> Result<coverart::RenderedImage, ProtocolError> {
+pub(crate) fn read_image(
+    source: Source,
+    size: Option<u32>,
+) -> Result<coverart::RenderedImage, ProtocolError> {
     confined(&source)?;
     let before = fs::symlink_metadata(&source.path).map_err(|_| unavailable())?;
     if !regular(&before) {

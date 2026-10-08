@@ -639,3 +639,24 @@ fn personal_routes_enforce_authentication_and_strict_query_contracts() {
         let _ = std::fs::remove_dir_all(data_dir);
     });
 }
+
+#[test]
+fn annotation_index_is_owner_private_and_keeps_unknown_targets_out_of_results() {
+    let state = crate::test_support::sample_state();
+    let catalog = state.catalog.blocking_read().clone().unwrap();
+    let target = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    let mut data = UserData::default();
+    for owner in ["alice", "bob"] {
+        data.annotations.push(Annotation {
+            owner: owner.into(),
+            target: target.clone(),
+            loved: true,
+            note: Some(format!("{owner} private note")),
+            ..Default::default()
+        });
+    }
+    let rows = own_annotations(&data, &catalog, "alice");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].note.as_deref(), Some("alice private note"));
+    assert!(own_annotations(&data, &catalog, "nobody").is_empty());
+}

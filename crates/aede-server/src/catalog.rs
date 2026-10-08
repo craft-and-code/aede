@@ -421,6 +421,8 @@ pub(super) fn entity_detail(
                 path: file.path.clone(),
                 size: file.size,
                 analyses,
+                spectrum_available: aede_core::spectrum::picture_for(Path::new(&file.path))
+                    .is_file(),
             }
         }
         EntityKind::Recording => {

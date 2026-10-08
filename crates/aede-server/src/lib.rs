@@ -82,6 +82,7 @@ mod catalog_commands;
 /// Network-device controllers; prefer the standalone `aede-devices` crate.
 /// This reexport preserves the original Rust API without duplicating it.
 pub use aede_devices as devices;
+mod artwork;
 mod errors;
 mod events;
 mod inspection;
@@ -90,6 +91,7 @@ mod lyrics;
 mod models;
 mod personal;
 mod playback_api;
+mod presentation;
 mod query;
 mod routing;
 mod runtime;
@@ -98,7 +100,7 @@ mod state;
 mod subsonic;
 mod tls;
 
-pub use jobs::{FetchRequest, JobOutput, JobRequest, ScanRequest};
+pub use jobs::{FetchRequest, JobOutput, JobRequest, MediaJobRequest, ScanRequest};
 
 use admin::*;
 use catalog::*;

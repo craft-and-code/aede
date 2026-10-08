@@ -20,6 +20,8 @@ Every HTTP request and WebSocket handshake must have one `Host` matching the lis
 
 ## Transport and representations
 
+The additive [native desktop presentation](server/presentation.md) routes expose attributed projections, local artwork, own annotation indexes/M3U and catalog-scoped media jobs. Artwork is binary JPEG/PNG; its errors keep the ordinary JSON envelope.
+
 HTTP responses from successful API requests and application errors are UTF-8 JSON with `Content-Type: application/json`. `GET` is defined; ordinary JSON routes also answer `HEAD` with the same status and headers but no body. Unknown paths return JSON 404; other methods on known paths return JSON 405. The WebSocket handshake is the exception: HTTP upgrade failures are transport errors and do not promise the JSON error envelope. No write method is defined under `/api/v1`.
 
 All field names use `snake_case`. Times named `scanned_at` are Unix seconds; durations are milliseconds; file sizes are bytes. Optional scalar values are `null`, not absent. Collections are arrays, including when empty. Names and titles preserve the spelling read from files. Relations between entities use stable `reference` tokens from `EntityRef`, never catalog vector indexes. A track reference is path-based and changes if the file moves. Clients must URL-encode a token when passing it as a query value.

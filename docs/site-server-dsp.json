@@ -1,5 +1,12 @@
 [
   {
+    "slug": "server/presentation",
+    "section": "server",
+    "title": { "en": "Native desktop presentation", "fr": "Interface desktop native" },
+    "description": { "en": "Read attributed library projections and local artwork, publish private M3U lists and run catalog-scoped media jobs.", "fr": "Afficher le catalogue et les images locales, enregistrer les M3U privés et lancer les analyses ciblées." },
+    "source": { "en": "docs/server/presentation.md", "fr": "docs/fr/server/presentation.md" }
+  },
+  {
     "slug": "server/devices",
     "section": "server",
     "title": { "en": "Network audio devices", "fr": "Appareils audio réseau" },

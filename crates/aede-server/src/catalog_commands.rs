@@ -42,10 +42,10 @@ struct NavigationDetail {
 }
 
 #[derive(Serialize)]
-struct ArtistOrigin {
+pub(super) struct ArtistOrigin {
     status: &'static str,
-    country_code: Option<String>,
-    area: Option<String>,
+    pub(super) country_code: Option<String>,
+    pub(super) area: Option<String>,
     message: Option<&'static str>,
     attribution: Option<OriginAttribution>,
 }
@@ -323,7 +323,11 @@ fn resolve_selection(
     }
 }
 
-fn artist_origin(catalog: &Catalog, requested: &EntityRef, sources: &Sources) -> ArtistOrigin {
+pub(super) fn artist_origin(
+    catalog: &Catalog,
+    requested: &EntityRef,
+    sources: &Sources,
+) -> ArtistOrigin {
     let mut origin = ArtistOrigin {
         status: "unknown",
         country_code: None,

@@ -255,3 +255,19 @@ The CLI adapter in `aede-cli/src/commands/server_jobs.rs` maps typed requests to
 ## M4 device controller
 
 The public `devices` path reexports the standalone [`aede-devices`](../aede-devices/README.md) crate for existing Rust callers. The CLI calls that crate directly for explicit finite SlimProto, UPnP AVTransport, OpenHome Playlist and experimental Google Cast control. It does not add a route to the authenticated catalog API. A capability/peer restricted temporary media listener serves only selected unchanged originals. Subsonic and the device transport share MIME/suffix/byte-range policy through `aede_devices::original`, while account authentication and revocation stay here. See [Network audio devices](../../docs/server/devices.md) for protocol profiles, LAN restrictions and outstanding hardware acceptance.
+
+## Native desktop projections and media jobs
+
+See [native presentation](../../docs/server/presentation.md) for complete contracts and limitations.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/presentation/artists` | Paged attributed artist presentation and contributions |
+| `GET /api/v1/presentation/albums` | Paged editions, compilations and broad tag search |
+| `GET /api/v1/artwork` | Bounded catalog-selected local images and spectra |
+| `GET /api/me/v1/annotations` | Current-owner annotation index |
+| `POST /api/me/v1/m3u` | Private static playlist and server-side M3U publication |
+| `GET /api/me/v1/m3u` | Private playlist summaries |
+| `GET /api/me/v1/m3u/{id}` | Complete current-owner M3U download |
+| `POST /api/admin/v1/analyze` | Catalog-scoped asynchronous FlacCompagnon analysis |
+| `POST /api/admin/v1/spectrum` | Catalog-scoped asynchronous spectrogram generation |

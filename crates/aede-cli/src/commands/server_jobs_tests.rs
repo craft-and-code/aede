@@ -169,3 +169,36 @@ fn cancelled_execution_returns_130_and_preserves_prior_output() {
     assert_eq!(output.exit_code, 130);
     assert_eq!(output.stdout, "saved result");
 }
+
+#[test]
+fn media_jobs_keep_catalog_folder_in_one_literal_argument() {
+    let media = aede_server::MediaJobRequest {
+        targets: vec!["/music/album with spaces".into()],
+        force: true,
+        threads: Some(2),
+    };
+    let analysis = arguments(&JobRequest::Analyze(media.clone()));
+    assert_eq!(
+        analysis,
+        vec![
+            "analyze",
+            "--force",
+            "--json-layout=album",
+            "--show-results",
+            "--threads=2",
+            "--",
+            "/music/album with spaces"
+        ]
+    );
+    let spectrum = arguments(&JobRequest::Spectrum(media));
+    assert_eq!(
+        spectrum,
+        vec![
+            "spectrum",
+            "--full",
+            "--threads=2",
+            "--",
+            "/music/album with spaces"
+        ]
+    );
+}

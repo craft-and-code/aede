@@ -517,3 +517,41 @@ fn at_size(image: &Json, size: Size) -> Option<Front> {
 #[cfg(test)]
 #[path = "coverart_tests.rs"]
 mod tests;
+
+/// Parent shared by every local edition, absent when editions span folders.
+pub fn shared_artist_folder(releases: &[&crate::model::Release]) -> Option<std::path::PathBuf> {
+    let mut shared = None;
+    for release in releases {
+        let parent = std::path::Path::new(&release.folder)
+            .parent()?
+            .to_path_buf();
+        shared = Some(match shared {
+            None => parent,
+            Some(previous) if previous == parent => previous,
+            Some(_) => return None,
+        });
+    }
+    shared
+}
+
+/// Existing artist artwork location; watched roots are never artist folders.
+/// The fallback identifier must already be validated by the caller.
+pub fn artist_destination(
+    catalog: &crate::model::Catalog,
+    releases: &[&crate::model::Release],
+    data_dir: &std::path::Path,
+    mbid: &str,
+) -> std::path::PathBuf {
+    shared_artist_folder(releases)
+        .filter(|folder| {
+            !catalog
+                .roots
+                .iter()
+                .any(|root| root == folder.to_string_lossy().as_ref())
+        })
+        .unwrap_or_else(|| {
+            crate::store::assets_dir(data_dir)
+                .join("artists")
+                .join(mbid)
+        })
+}

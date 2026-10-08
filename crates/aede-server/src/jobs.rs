@@ -108,6 +108,26 @@ pub struct FetchRequest {
     pub lang: Option<String>,
 }
 
+/// Catalog-resolved local media work; HTTP accepts release references instead of paths.
+#[derive(Clone, Debug)]
+pub struct MediaJobRequest {
+    /// Exact catalog folders resolved by the server before admission.
+    pub targets: Vec<String>,
+    /// Explicitly repeat cached work (force analysis, full spectrum redraw).
+    pub force: bool,
+    /// Bounded worker concurrency, zero selecting the ordinary automatic policy.
+    pub threads: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MediaSelection {
+    release: String,
+    #[serde(default)]
+    force: bool,
+    threads: Option<usize>,
+}
+
 /// A typed operation; HTTP clients cannot provide arbitrary executable arguments.
 #[derive(Clone, Debug)]
 pub enum JobRequest {
@@ -115,6 +135,10 @@ pub enum JobRequest {
     Scan(ScanRequest),
     /// An explicitly requested online pass, or an offline `dry_run` preview.
     Fetch(FetchRequest),
+    /// Explicit local acoustic analysis, with ordinary CLI persistence.
+    Analyze(MediaJobRequest),
+    /// Explicit local spectrogram generation, with ordinary CLI caching.
+    Spectrum(MediaJobRequest),
 }
 
 impl JobRequest {
@@ -122,6 +146,8 @@ impl JobRequest {
         match self {
             Self::Scan(_) => "scan",
             Self::Fetch(_) => "identification",
+            Self::Analyze(_) => "analysis",
+            Self::Spectrum(_) => "spectrum",
         }
     }
 
@@ -145,6 +171,20 @@ impl JobRequest {
                 }
                 if scan.threads.is_some_and(|threads| threads > 64) {
                     return Err(invalid("threads must be between 0 and 64"));
+                }
+            }
+            Self::Analyze(media) | Self::Spectrum(media) => {
+                if media.targets.len() != 1
+                    || media.targets.iter().any(|target| {
+                        target.len() > 4096
+                            || target.contains('\0')
+                            || !std::path::Path::new(target).is_absolute()
+                    })
+                    || media.threads.is_some_and(|threads| threads > 64)
+                {
+                    return Err(invalid(
+                        "media work needs one catalog folder and 0 to 64 threads",
+                    ));
                 }
             }
             Self::Fetch(fetch) => {
@@ -416,6 +456,8 @@ fn registry_error() -> ApiError {
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/admin/v1/fetch", post(fetch_route))
+        .route("/api/admin/v1/analyze", post(analyze_route))
+        .route("/api/admin/v1/spectrum", post(spectrum_route))
         .route("/api/admin/v1/tasks/:id", get(task_route))
         .route("/api/admin/v1/tasks/:id/cancel", post(cancel_route))
 }
@@ -495,6 +537,57 @@ async fn fetch_route(
     check_request(&state, &request)?;
     let bytes = body(request, MAX_BODY).await?;
     enqueue(state, JobRequest::Fetch(decode(&bytes)?))
+}
+
+async fn analyze_route(state: State<ApiState>, request: Request) -> Result<Response, ApiError> {
+    media_route(state, request, false).await
+}
+async fn spectrum_route(state: State<ApiState>, request: Request) -> Result<Response, ApiError> {
+    media_route(state, request, true).await
+}
+async fn media_route(
+    State(state): State<ApiState>,
+    request: Request,
+    spectrum: bool,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let bytes = body(request, MAX_BODY).await?;
+    let selected: MediaSelection = decode(&bytes)?;
+    if selected.release.len() > super::MAX_REFERENCE_BYTES {
+        return Err(super::invalid_query("release reference is too long"));
+    }
+    let request = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        let id = super::catalog::filter_reference(
+            catalog,
+            &selected.release,
+            aede_core::model::EntityKind::Release,
+        )?;
+        let release = catalog.release(id).ok_or_else(super::unavailable)?;
+        if let Some(principal) = principal.as_ref() {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(MediaJobRequest {
+            targets: vec![release.folder.clone()],
+            force: selected.force,
+            threads: selected.threads,
+        })
+    })
+    .await?
+    .0;
+    enqueue(
+        state,
+        if spectrum {
+            JobRequest::Spectrum(request)
+        } else {
+            JobRequest::Analyze(request)
+        },
+    )
 }
 
 #[derive(Serialize)]

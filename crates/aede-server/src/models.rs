@@ -93,6 +93,7 @@ pub(super) enum EntityDetail {
         path: String,
         size: u64,
         analyses: Vec<serde_json::Value>,
+        spectrum_available: bool,
     },
     Recording {
         reference: String,

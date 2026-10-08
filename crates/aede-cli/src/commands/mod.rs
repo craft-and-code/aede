@@ -289,16 +289,7 @@ pub fn in_scope(path: &str, scope: &[String]) -> bool {
 /// callers also reject a watched root, so a flat library does not get a stray
 /// file in its root for every artist.
 pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
-    let mut shared: Option<PathBuf> = None;
-    for release in releases {
-        let parent = Path::new(&release.folder).parent()?.to_path_buf();
-        shared = Some(match shared {
-            None => parent,
-            Some(so_far) if so_far == parent => so_far,
-            Some(_) => return None,
-        });
-    }
-    shared
+    aede_core::coverart::shared_artist_folder(releases)
 }
 
 fn releases_by_album_artist(catalog: &Catalog) -> BTreeMap<Id, Vec<&Release>> {
@@ -317,14 +308,7 @@ fn artist_artwork_destination(
     data_dir: &Path,
     mbid: &str,
 ) -> PathBuf {
-    shared_folder(releases)
-        .filter(|folder| {
-            // A watched root is not an artist folder, even when every album
-            // happens to sit directly beneath it.
-            let name = folder.to_string_lossy();
-            !catalog.roots.iter().any(|root| root == name.as_ref())
-        })
-        .unwrap_or_else(|| store::assets_dir(data_dir).join("artists").join(mbid))
+    aede_core::coverart::artist_destination(catalog, releases, data_dir, mbid)
 }
 
 /// Where the catalog lives: what `--data` names, or the default location.

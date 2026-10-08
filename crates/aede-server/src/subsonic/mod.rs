@@ -9,7 +9,7 @@ use super::*;
 use axum::extract::Path as RoutePath;
 use serde_json::{Value, json};
 
-mod artwork;
+pub(crate) mod artwork;
 pub(crate) mod authentication;
 mod catalog;
 pub(crate) mod media;
