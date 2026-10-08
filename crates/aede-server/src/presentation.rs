@@ -106,7 +106,7 @@ fn album_row(catalog: &Catalog, release: &aede_core::model::Release) -> Result<V
         .map(|genre| genre.name.clone())
         .collect();
     Ok(
-        json!({"reference":reference,"artist":release.album_artist_id.and_then(|id|crate::catalog::reference(catalog,EntityKind::Artist,id)),"title":release.title,"year":release.year,"compilation":release.is_compilation,"tags":genres,"contributors":contributors.into_iter().map(|id|reference_of(catalog,EntityKind::Artist,id)).collect::<Result<Vec<_>,_>>()?,"cover":crate::subsonic::artwork::candidate(release).is_some(),"track_count":release.track_ids.len(),"search_fields":search}),
+        json!({"reference":reference,"artist":release.album_artist_id.and_then(|id|crate::catalog::reference(catalog,EntityKind::Artist,id)),"title":release.title,"year":release.year,"compilation":release.is_compilation,"tags":genres,"contributors":contributors.into_iter().map(|id|reference_of(catalog,EntityKind::Artist,id)).collect::<Result<Vec<_>,_>>()?,"cover":crate::subsonic::artwork::candidate(release).is_some_and(|source|crate::subsonic::artwork::available(&source)),"track_count":release.track_ids.len(),"search_fields":search}),
     )
 }
 async fn artists(

@@ -71,3 +71,14 @@ fn presentation_pagination_is_bounded_and_rejects_unknown_parameters() {
         (0, DEFAULT_LIMIT)
     );
 }
+
+#[test]
+fn stale_cover_metadata_does_not_advertise_an_available_image() {
+    let state = sample_state();
+    let mut catalog = state.catalog.blocking_read().clone().unwrap();
+    catalog.releases[0].folder = "/definitely-missing-phemios-library/album".into();
+    catalog.releases[0].cover_path =
+        Some("/definitely-missing-phemios-library/album/cover.jpg".into());
+    let album = album_row(&catalog, &catalog.releases[0]).unwrap();
+    assert_eq!(album["cover"], false);
+}

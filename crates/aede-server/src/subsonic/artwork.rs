@@ -109,6 +109,12 @@ fn confined(source: &Source) -> Result<(), ProtocolError> {
     Ok(())
 }
 
+/// Local presence is checked separately from the immutable catalog cover ID.
+pub(crate) fn available(source: &Source) -> bool {
+    confined(source).is_ok()
+        && fs::symlink_metadata(&source.path).is_ok_and(|metadata| regular(&metadata))
+}
+
 pub(crate) fn read_image(
     source: Source,
     size: Option<u32>,

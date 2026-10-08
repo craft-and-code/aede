@@ -1,6 +1,6 @@
 //! Native bearer artwork uses the same bounded descriptor checks as Subsonic.
 use super::*;
-use crate::subsonic::artwork::{Source, candidate, read_image};
+use crate::subsonic::artwork::{Source, available, candidate, read_image};
 use aede_core::coverart::{self, Kind};
 
 pub(super) fn routes() -> Router<ApiState> {
@@ -48,8 +48,13 @@ pub(super) fn beside(folder: PathBuf, kind: Kind) -> Option<Source> {
     ["jpg", "png"]
         .into_iter()
         .map(|format| folder.join(coverart::image_name(kind, format, 0, 1)))
-        .find(|path| path.is_file())
-        .map(|path| Source { path, folder })
+        .find_map(|path| {
+            let source = Source {
+                path,
+                folder: folder.clone(),
+            };
+            available(&source).then_some(source)
+        })
 }
 
 fn select(catalog: &Catalog, data_dir: &Path, parameters: &Parameters) -> Result<Source, ApiError> {
