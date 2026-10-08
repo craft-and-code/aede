@@ -7,6 +7,7 @@ pub(super) struct Status {
     pub(super) status: &'static str,
     pub(super) api_version: u32,
     pub(super) catalog_loaded: bool,
+    pub(super) capabilities: Vec<&'static str>,
 }
 
 #[derive(Serialize)]

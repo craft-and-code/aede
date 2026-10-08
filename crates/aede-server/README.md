@@ -265,6 +265,7 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 | --- | --- |
 | `GET /api/v1/presentation/artists` | Paged attributed artist presentation and contributions |
 | `GET /api/v1/presentation/albums` | Paged editions, compilations and broad tag search |
+| `GET /api/v1/presentation/tracks` | Lightweight ordered disc/track pages for one release |
 | `GET /api/v1/artwork` | Bounded catalog-selected local images and spectra |
 | `GET /api/me/v1/annotations` | Current-owner annotation index |
 | `POST /api/me/v1/m3u` | Private static playlist and server-side M3U publication |
@@ -282,3 +283,5 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 Saved collections also accept the versioned `browse-v1:` JSON expression described in [native presentation](../../docs/server/presentation.md#dynamic-browsing-collections). `GET /api/me/v1/collection/albums?name=<name>` evaluates an ordinary or browsing rule against the current disk catalog, trusted sources and authenticated owner's annotations, returning `{items,scanned_at}` with deduplicated release references. Other owners' collection names never resolve.
 
 `DELETE /api/me/v1/history` requires the JSON body `{ "confirm": true }` and no query. It returns `{events,counters}` and reuses `UserData::forget_history`: retained native events, declared scrobbles and lifetime counters for that owner are removed together. Annotations, collections, other owners and playback checkpoints are preserved. Active playback can subsequently publish a new listen. Auditors are refused and authentication is rechecked under the writer lock. The transitional local-admin history route has the same confirmed reset contract.
+
+Status advertises `dynamic_browse_collections` and `album_track_pages` in its additive `capabilities` array. See [lightweight album tracks](../../docs/server/presentation.md#lightweight-album-tracks-and-capability-negotiation) for paging fields and the requirement to restart an older running server.

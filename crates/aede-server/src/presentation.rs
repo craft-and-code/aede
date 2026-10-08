@@ -4,12 +4,15 @@ use aede_core::coverart::Kind;
 use aede_core::sources::{Facts, Sources};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
+#[path = "presentation_tracks.rs"]
+mod track_pages;
 
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/v1/presentation/artists", get(artists))
         .route("/api/v1/presentation/albums", get(albums))
         .route("/api/v1/presentation/playback", get(playback_selection))
+        .route("/api/v1/presentation/tracks", get(track_pages::list))
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]

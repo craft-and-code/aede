@@ -37,3 +37,10 @@ The expression remains in the existing saved-query store; evaluation evolves wit
 `GET /api/v1/presentation/playback?ref=…` exposes server-selected chronological principal discography or one album, including per-album track number and total (4096-item bound). It shares the CLI ordering function and does not start playback. See the route README for authenticated evaluation and confirmed history reset.
 
 `GET /api/me/v1/collection/albums?name=…` evaluates the saved rule for the authenticated owner and returns current release references. `DELETE /api/me/v1/history` requires `{ "confirm": true }` to clear that owner’s events, scrobbles and counters together, preserving annotations and other owners.
+
+
+## Lightweight album tracks and capability negotiation
+
+Authenticated `GET /api/v1/status` retains API version 1 and advertises `capabilities`, including `dynamic_browse_collections` and `album_track_pages`. An older running process may expose neither even after its executable has been rebuilt; restart the server to load new code. Clients can refuse unsupported browsing writes before sending a newer saved-query expression.
+
+`GET /api/v1/presentation/tracks?ref=RELEASE&offset=0&limit=50` returns `{items,total,offset,limit,scanned_at}` with 1–200 rows per page in the release's complete catalog track order. Each row contains `reference,title,disc_no,track_no,album_position,duration_ms,analysis_available,spectrum_available`. `album_position` is one-based within the complete edition; nullable disc/track numbers preserve unknown metadata. Same-title tracks on different CDs retain distinct references. The endpoint never serializes retained analysis bodies or opens audio, performs no mutations, and shares bounded authenticated inspection. Explicit expansion reads the existing `/api/v1/track` detail and original-format report download. Invalid/non-release references and unsupported paging parameters fail explicitly.

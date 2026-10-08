@@ -56,6 +56,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         status: "ok",
         api_version: 1,
         catalog_loaded: state.catalog.read().await.is_some(),
+        capabilities: vec!["dynamic_browse_collections", "album_track_pages"],
     })
 }
 

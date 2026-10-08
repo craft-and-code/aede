@@ -27,3 +27,10 @@ Ces critères restent dans le stockage existant des règles de collection. Leur 
 `DELETE /api/me/v1/history` exige le corps `{ "confirm": true }` : écoutes, scrobbles et compteurs du seul compte courant sont effacés ensemble. Annotations, collections, curseurs de lecture et autres comptes sont préservés. Une lecture active peut ensuite publier une nouvelle écoute. Un auditeur ne peut pas effectuer cette action.
 
 `GET /api/v1/presentation/playback?ref=…` renvoie la discographie principale dans l’ordre chronologique partagé avec le CLI, ou les pistes d’un album, avec numéro et nombre total de pistes par album (limite de 4096 pistes). Les années inconnues viennent en dernier ; les pistes gardent leur ordre. Cette consultation ne lance pas de lecture.
+
+
+## Pistes d’album légères et capacités
+
+`GET /api/v1/status`, authentifié, conserve la version d’API 1 et annonce `capabilities`, dont `dynamic_browse_collections` et `album_track_pages`. Un processus ancien peut ne pas les annoncer même si son exécutable a été reconstruit : redémarrer Aède charge le nouveau code. Le client peut alors refuser clairement une création depuis les filtres avant d’envoyer une règle non prise en charge.
+
+`GET /api/v1/presentation/tracks?ref=RELEASE&offset=0&limit=50` renvoie `{items,total,offset,limit,scanned_at}`, avec 1 à 200 pistes par page dans l’ordre complet de l’édition. Chaque ligne contient `reference,title,disc_no,track_no,album_position,duration_ms,analysis_available,spectrum_available`. La position globale commence à 1 ; les numéros de disque/piste absents restent nuls. Les titres identiques sur des CD différents conservent des références distinctes. Cette lecture ne transporte aucun corps d’analyse, n’ouvre pas l’audio et ne réalise aucune mutation. L’ouverture explicite d’un résultat lit le détail `/api/v1/track` existant ; les exports JSON gardent leur contrat. Les références invalides ou ne désignant pas un album et les paramètres de pagination non pris en charge sont refusés.
