@@ -601,3 +601,50 @@ fn media_jobs_resolve_catalog_references_and_refuse_arbitrary_paths() {
         assert!(JobRequest::Spectrum(media).validate().is_err());
     });
 }
+
+#[test]
+fn explicit_service_keys_reach_the_trusted_worker_without_entering_task_metadata() {
+    runtime().block_on(async {
+        let (sent, received) = std::sync::mpsc::channel();
+        let state = state(move |request, _| {
+            let JobRequest::Fetch(fetch) = request else {
+                panic!("expected fetch")
+            };
+            let keys = fetch.service_keys.unwrap();
+            sent.send(keys.fanarttv).unwrap();
+            Ok(JobOutput::default())
+        });
+        let reply = fetch_route(
+            State(state.clone()),
+            request(
+                "POST",
+                "/api/admin/v1/fetch",
+                r#"{"dry_run":true,"service_keys":{"fanarttv":"fictional-test-key"}}"#,
+            ),
+        )
+        .await
+        .unwrap();
+        let bytes = to_bytes(reply.into_body(), MAX_BODY).await.unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("fictional-test-key"));
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Some("fictional-test-key".into())
+        );
+        for payload in [
+            r#"{"service_keys":{"fanarttv":""}}"#,
+            r#"{"service_keys":{"acoustid":"unsafe\nvalue"}}"#,
+            r#"{"service_keys":{"AEDE_ADMIN_TOKEN":"injection"}}"#,
+        ] {
+            assert_eq!(
+                fetch_route(
+                    State(state.clone()),
+                    request("POST", "/api/admin/v1/fetch", payload)
+                )
+                .await
+                .unwrap_err()
+                .status,
+                StatusCode::BAD_REQUEST
+            );
+        }
+    });
+}

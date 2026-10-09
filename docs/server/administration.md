@@ -33,6 +33,6 @@ Reads use no body. Task routes accept no query parameters; personal routes only 
 
 `401 unauthorized` means a missing/incorrect/duplicate Bearer header, or an Origin with the legacy token. A `user` or `auditor` account receives `403 forbidden`. Without accounts or a token, administration returns `404 not_found`. Jobs use the server's OS permissions: scan/fetch paths belong to that host and require a trusted administrator.
 
-The server reads music and tags without changing them. Images, lyrics and analysis sidecars are derivatives that may require destination write access. Service keys come from the server environment, never HTTP overrides. Administrative personal routes retain `local`; `/api/me/v1` uses the session's owner. Requests cannot choose a different owner.
+The server reads music and tags without changing them. Images, lyrics and analysis sidecars are derivatives that may require destination write access. Service keys default to the server environment; trusted loopback fetch jobs may use bounded client-owned keys for that job only, without changing the installation configuration (see [fetch jobs](jobs.md)). Administrative personal routes retain `local`; `/api/me/v1` uses the session's owner. Requests cannot choose a different owner.
 
 Continue with [Scan/fetch jobs and cancellation](jobs.md) or [Personal-data routes](personal.md). The [operating guide](../operating.md) covers long-running service permissions and backups.

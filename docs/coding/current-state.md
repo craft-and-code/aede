@@ -10,6 +10,8 @@ Do not turn this file into a development diary.
 
 ## Project status
 
+Trusted loopback fetch jobs optionally accept bounded per-job Fanart.tv/AcoustID keys, advertised by `fetch_service_keys`, so a desktop client can reuse one private configuration across its libraries. Server defaults remain unchanged; typed/debug/task/output handling never publishes the keys, and the CLI passes overrides only to its child environment. HTTPS administrative exposure remains disabled.
+
 The [parent-owned desktop profile](../server/desktop.md) supports an isolated embedded Aède with bounded stdin bootstrap, retained administrator validation, structured ephemeral-loopback readiness and EOF-triggered graceful shutdown. Explicit unavailable scan roots retain entries when an unmounted volume leaves an empty mountpoint; exclusions and remount scans preserve their existing rules. Ordinary serve options and existing installations are unchanged.
 
 **Current milestone:** M4 — initial network audio devices

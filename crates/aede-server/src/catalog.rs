@@ -61,6 +61,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
     ];
     if state.admin.is_some() {
         capabilities.push("library_m3u_publication");
+        capabilities.push("fetch_service_keys");
     }
     Json(Status {
         status: "ok",

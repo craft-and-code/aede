@@ -124,12 +124,32 @@ pub(super) fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let secrets: Vec<String> = ["AEDE_ACOUSTID_KEY", "AEDE_FANARTTV_KEY", "AEDE_ADMIN_TOKEN"]
+    let mut secrets: Vec<String> = ["AEDE_ACOUSTID_KEY", "AEDE_FANARTTV_KEY", "AEDE_ADMIN_TOKEN"]
         .into_iter()
         .filter_map(|key| std::env::var(key).ok())
         .filter(|value| !value.is_empty())
         .collect();
+    secrets.extend(service_environment(&mut command, &request));
     execute(command, cancellation, &secrets)
+}
+
+/// Set only the two supported service variables for this child, preserving the parent environment.
+fn service_environment(command: &mut Command, request: &JobRequest) -> Vec<String> {
+    let mut secrets = Vec::new();
+    if let JobRequest::Fetch(fetch) = request
+        && let Some(keys) = &fetch.service_keys
+    {
+        for (name, key) in [
+            ("AEDE_FANARTTV_KEY", &keys.fanarttv),
+            ("AEDE_ACOUSTID_KEY", &keys.acoustid),
+        ] {
+            if let Some(secret) = key {
+                command.env(name, secret);
+                secrets.push(secret.clone());
+            }
+        }
+    }
+    secrets
 }
 
 fn execute(

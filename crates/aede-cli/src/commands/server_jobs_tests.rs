@@ -5,6 +5,7 @@ use aede_server::{FetchRequest, ScanRequest};
 #[test]
 fn every_fetch_option_reaches_the_existing_parser_without_option_injection() {
     let job = JobRequest::Fetch(FetchRequest {
+        service_keys: None,
         targets: vec![
             "Miles Davis".into(),
             "--data=/unwanted".into(),
@@ -202,4 +203,35 @@ fn media_jobs_keep_catalog_folder_in_one_literal_argument() {
             "/music/album with spaces"
         ]
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn client_service_keys_are_child_only_and_redacted_from_captured_output() {
+    let job = JobRequest::Fetch(FetchRequest {
+        service_keys: Some(aede_server::FetchServiceKeys {
+            fanarttv: Some("client-fictional-key".into()),
+            acoustid: None,
+        }),
+        dry_run: true,
+        ..Default::default()
+    });
+    assert!(
+        !arguments(&job)
+            .iter()
+            .any(|arg| arg.contains("client-fictional-key"))
+    );
+    assert!(!format!("{job:?}").contains("client-fictional-key"));
+    let mut command = Command::new("sh");
+    command
+        .args(["-c", "printf '%s' \"$AEDE_FANARTTV_KEY\""])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let before = std::env::var("AEDE_FANARTTV_KEY").ok();
+    let secrets = service_environment(&mut command, &job);
+    let output = execute(command, Arc::new(AtomicBool::new(false)), &secrets).unwrap();
+    assert_eq!(output.exit_code, 0);
+    assert_eq!(output.stdout, "[redacted]");
+    assert_eq!(std::env::var("AEDE_FANARTTV_KEY").ok(), before);
 }

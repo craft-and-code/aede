@@ -161,7 +161,7 @@ Other fields: `full: bool`, `threads: integer` (0–64; 0 chooses automatically)
 
 ### Fetch parameters
 
-All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server's environment supplies external-service keys; a request cannot override keys, the data folder or executable arguments.
+All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server environment supplies default external-service keys. Trusted loopback administrators can provide bounded `service_keys: {fanarttv?: string, acoustid?: string}` for one fetch job; these keys are neither persisted nor included in task metadata. The CLI callback passes them in the child environment and redacts captured output. A request cannot select other environment variables, the data folder or executable arguments. Status advertises `fetch_service_keys` only with the administrative profile; HTTPS administration remains disabled.
 
 Pass flags: `summaries,discography,covers,lyrics,identify,credits,recordings,portraits,logos,labels,fanart`. With no pass flags, `{}` runs the ordinary CLI MusicBrainz identification pass; it is **not** a no-op. Selection and dependencies follow [fetch help](../../docs/sources.md).
 

@@ -48,11 +48,13 @@ pub struct ScanRequest {
 ///
 /// Missing booleans default to false. No pass flags selects ordinary MusicBrainz
 /// identification, so a default request is not a no-op. HTTP validates option
-/// dependencies before the callback; service keys come from the server's
-/// environment, not this request. Full details are in `docs/server/jobs.md`.
+/// dependencies before the callback; optional bounded client keys apply only
+/// to this job. Full details are in `docs/server/jobs.md`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FetchRequest {
+    /// Optional client-owned keys, confined to the existing trusted admin endpoint.
+    pub service_keys: Option<super::FetchServiceKeys>,
     /// Up to 64 nonempty names or server-folder paths, 4096 bytes each, no NUL.
     /// Empty selects the CLI's ordinary all-catalog scope for the chosen passes.
     pub targets: Vec<String>,
@@ -195,6 +197,15 @@ impl JobRequest {
                 }
             }
             Self::Fetch(fetch) => {
+                if fetch
+                    .service_keys
+                    .as_ref()
+                    .is_some_and(|keys| !keys.valid())
+                {
+                    return Err(invalid(
+                        "service keys must be nonempty, at most 1024 bytes and without control characters",
+                    ));
+                }
                 if fetch.targets.len() > 64
                     || fetch.targets.iter().any(|target| {
                         target.trim().is_empty() || target.len() > 4096 || target.contains('\0')
