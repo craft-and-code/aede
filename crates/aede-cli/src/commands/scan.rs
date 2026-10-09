@@ -91,6 +91,7 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
         // a statement that only held until the next scan would be forgotten
         // exactly when the shelf was rebuilt around it.
         same_artist: super::merge::stated(&dir),
+        unavailable_roots: unavailable_roots()?,
     };
 
     let machine = args.has("json");
@@ -445,5 +446,25 @@ fn tracks_under(catalog: &Catalog, root: &str) -> Vec<Id> {
                 .is_some_and(|f| aede_core::text::is_under(&f.path, root))
         })
         .map(|t| t.id)
+        .collect()
+}
+
+fn unavailable_roots() -> Result<Vec<PathBuf>, String> {
+    if std::env::var("AEDE_DELEGATED_CHILD").as_deref() != Ok("1") {
+        return Ok(Vec::new());
+    }
+    let Ok(input) = std::env::var("AEDE_UNAVAILABLE_ROOTS") else {
+        return Ok(Vec::new());
+    };
+    let value = aede_core::json::parse(&input).map_err(|_| "invalid unavailable roots")?;
+    let aede_core::json::Json::Arr(rows) = value else {
+        return Err("invalid unavailable roots".into());
+    };
+    rows.iter()
+        .map(|row| {
+            row.as_str()
+                .map(PathBuf::from)
+                .ok_or_else(|| "invalid unavailable root".into())
+        })
         .collect()
 }

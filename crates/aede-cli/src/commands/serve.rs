@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use super::Res;
 use crate::args::Args;
 
+mod desktop;
 #[path = "server_jobs.rs"]
 mod server_jobs;
 
@@ -76,12 +77,21 @@ pub fn serve(args: &Args) -> Res {
             return Err("AEDE_ADMIN_TOKEN must be valid ASCII".into());
         }
     };
+    let owner_lease = if std::env::var("AEDE_DESKTOP_LEASE").as_deref() == Ok("1") {
+        if options.tls.is_some() || options.bind.port() != 0 || !options.bind.ip().is_loopback() {
+            return Err("desktop hosting requires an ephemeral loopback HTTP listener".into());
+        }
+        Some(desktop::prepare(&super::data_dir(args))?)
+    } else {
+        None
+    };
+    let desktop_ready = owner_lease.is_some();
     let scan_args = args.clone();
     let data_dir = super::data_dir(args);
     let job_data = data_dir.clone();
     let tls_authority = options.tls.as_ref().map(|tls| tls.authority.clone());
     let local_administration = tls_authority.is_none() && admin_token.is_some();
-    aede_server::serve_with_options(
+    aede_server::serve_with_owner_lease(
         &data_dir,
         options,
         admin_token,
@@ -92,6 +102,10 @@ pub fn serve(args: &Args) -> Res {
         crate::delegation::allowed,
         move |request, cancellation| server_jobs::run(&job_data, request, cancellation),
         |address| {
+            if desktop_ready {
+                println!("{{\"desktopProtocol\":1,\"address\":\"http://{address}\"}}");
+                return;
+            }
             if let Some(authority) = tls_authority {
                 println!("Aède API: https://{authority}/api/v1/status");
                 println!("Server route guide: crates/aede-server/README.md");
@@ -103,6 +117,7 @@ pub fn serve(args: &Args) -> Res {
                 println!("Server route guide: crates/aede-server/README.md");
             }
         },
+        owner_lease,
     )
 }
 

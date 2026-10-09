@@ -643,6 +643,33 @@ pub fn serve_with_options(
     + 'static,
     on_ready: impl FnOnce(SocketAddr),
 ) -> Result<(), Box<dyn Error>> {
+    serve_with_owner_lease(
+        data_dir,
+        options,
+        admin_token,
+        on_scan,
+        on_command,
+        on_job,
+        on_ready,
+        None,
+    )
+}
+
+/// Host-owned loopback process: a released stdin lease requests normal graceful shutdown.
+/// The optional flag is process-local and never changes authentication or listener policy.
+pub fn serve_with_owner_lease(
+    data_dir: &Path,
+    options: ServerOptions,
+    admin_token: Option<String>,
+    on_scan: impl Fn(&mut (dyn FnMut(Progress) + Send)) -> Result<(), String> + Send + Sync + 'static,
+    on_command: impl Fn(&[String], &str) -> bool + Send + Sync + 'static,
+    on_job: impl Fn(JobRequest, Arc<std::sync::atomic::AtomicBool>) -> Result<JobOutput, String>
+    + Send
+    + Sync
+    + 'static,
+    on_ready: impl FnOnce(SocketAddr),
+    owner_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<(), Box<dyn Error>> {
     #[cfg(not(unix))]
     let _ = on_command;
     #[cfg(unix)]
@@ -719,7 +746,7 @@ pub fn serve_with_options(
                     command_socket,
                     #[cfg(unix)]
                     Arc::new(on_command),
-                    shutdown_signal(),
+                    owner_shutdown(owner_closed),
                 )
                 .await?;
             }
@@ -734,7 +761,7 @@ pub fn serve_with_options(
                     command_socket,
                     #[cfg(unix)]
                     Arc::new(on_command),
-                    shutdown_signal(),
+                    owner_shutdown(owner_closed),
                 )
                 .await?;
             }
@@ -748,3 +775,15 @@ pub fn serve_with_options(
 #[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod tests;
+
+async fn owner_shutdown(closed: Option<Arc<std::sync::atomic::AtomicBool>>) {
+    let lease = async {
+        let Some(closed) = closed else {
+            return std::future::pending::<()>().await;
+        };
+        while !closed.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    tokio::select! { _ = shutdown_signal() => {}, _ = lease => {} }
+}

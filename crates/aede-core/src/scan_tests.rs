@@ -491,3 +491,33 @@ fn first_catalog_dates_survive_rescans_and_never_backfill_legacy_files() {
     let decoded = crate::store::from_json(&crate::store::to_json(&changed)).unwrap();
     assert_eq!(decoded.file_added_at, changed.file_added_at);
 }
+
+#[test]
+fn unmounted_empty_directory_keeps_tracks_until_volume_returns() {
+    let sandbox = Sandbox::new();
+    let path = sandbox.track("mounted/01.flac");
+    let root = path.parent().unwrap().to_path_buf();
+    let (first, _) = scan(
+        std::slice::from_ref(&root),
+        None,
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let options = ScanOptions {
+        unavailable_roots: vec![root.clone()],
+        ..Default::default()
+    };
+    let (retained, report) =
+        scan(std::slice::from_ref(&root), Some(&first), &options, |_| {}).unwrap();
+    assert_eq!(retained.files.len(), 1);
+    assert_eq!(report.removed, 0);
+    assert_eq!(report.preserved, 1);
+    let (mounted_empty, _) =
+        scan(&[root], Some(&retained), &ScanOptions::default(), |_| {}).unwrap();
+    assert!(
+        mounted_empty.files.is_empty(),
+        "an available empty volume is actually empty"
+    );
+}

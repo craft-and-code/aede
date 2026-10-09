@@ -113,7 +113,7 @@ use routing::*;
 #[cfg(test)]
 use runtime::run_http;
 use runtime::{refresh_catalog, stamp};
-pub use runtime::{serve, serve_with_options};
+pub use runtime::{serve, serve_with_options, serve_with_owner_lease};
 use security::*;
 use state::*;
 use tls::*;

@@ -101,6 +101,19 @@ pub(super) fn run(
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut command = Command::new(exe);
     command
+        .env_remove("AEDE_DESKTOP_LEASE")
+        .env_remove("AEDE_UNAVAILABLE_ROOTS");
+    if let JobRequest::Scan(scan) = &request {
+        let value = aede_core::json::Json::Arr(
+            scan.unavailable_folders
+                .iter()
+                .map(|folder| aede_core::json::Json::Str(folder.clone()))
+                .collect(),
+        );
+        command.env("AEDE_UNAVAILABLE_ROOTS", value.to_string_compact());
+    }
+
+    command
         .args(arguments(&request))
         .env("AEDE_DELEGATED_CHILD", "1")
         .env("AEDE_DELEGATED_DATA_DIR", data_dir)

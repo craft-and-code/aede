@@ -514,6 +514,7 @@ Complete guides to Aède's features and architecture:
 - [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
 - [M3 Hardening](docs/coding/m3-review.md) — Player/DSP security, source identity, spectrum timing, performance measurements and verification limits
 - [Audio DSP Comparison](docs/coding/dsp-comparison.md) — Aède/FlacCompagnon responsibilities, measured differences and safe sharing candidates
+- [Parent-owned Desktop Engine](docs/server/desktop.md) — Isolated desktop bootstrap, readiness, lifetime lease and unavailable mounts
 - [Network Audio Devices](docs/server/devices.md) — Initial SlimProto, UPnP AV, OpenHome and Google Cast profiles and acceptance limits
 - [Gapless Measurement](docs/coding/gapless-measurement.md) — Whole/split probes, physical capture and bounded idle/load trials
 - [Bit-Perfect Acceptance](docs/coding/bit-perfect-acceptance.md) — Independent PCM references, native ALSA trials and exact digital-capture comparison

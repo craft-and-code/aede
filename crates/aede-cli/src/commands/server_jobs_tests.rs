@@ -78,6 +78,7 @@ fn every_fetch_option_reaches_the_existing_parser_without_option_injection() {
 fn scan_parameters_preserve_cli_roots_and_read_options() {
     let args = Args::parse(arguments(&JobRequest::Scan(ScanRequest {
         folders: vec!["/music/New Shelf".into()],
+        unavailable_folders: Vec::new(),
         replace: true,
         full: true,
         threads: Some(2),

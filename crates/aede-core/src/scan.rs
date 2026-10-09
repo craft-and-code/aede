@@ -46,6 +46,8 @@ pub struct ScanOptions {
     /// plain `aede scan` re-reads every watched root: an exclusion that had to
     /// be retyped would be forgotten exactly when it mattered.
     pub excluded: Vec<PathBuf>,
+    /// Roots explicitly known to be unmounted, even when an empty mountpoint remains.
+    pub unavailable_roots: Vec<PathBuf>,
     /// Spellings the owner of the disk has said are one artist.
     ///
     /// The half of artist identity no identifier can settle, and the reason it
@@ -69,6 +71,7 @@ impl Default for ScanOptions {
             follow_symlinks: false,
             skip_hidden: true,
             excluded: Vec::new(),
+            unavailable_roots: Vec::new(),
             same_artist: Vec::new(),
         }
     }
@@ -172,7 +175,11 @@ pub fn scan(
     // --- 1. Traversal ------------------------------------------------------
     let mut walker = Walker::new(options);
     for root in traversal_roots {
-        walker.walk(root)?;
+        if options.unavailable_roots.contains(root) {
+            walker.failure(root, "watched volume is not mounted");
+        } else {
+            walker.walk(root)?;
+        }
     }
     let Walker {
         mut audio_files,

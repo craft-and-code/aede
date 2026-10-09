@@ -30,6 +30,8 @@ pub struct ScanRequest {
     /// Up to 64 absolute server-side folders, 4096 bytes each and without NUL.
     /// Empty means rescan the already watched roots.
     pub folders: Vec<String>,
+    /// Explicitly unavailable mount roots; preserve retained catalog entries without traversal.
+    pub unavailable_folders: Vec<String>,
     /// Replace watched roots instead of adding; requires nonempty `folders`.
     pub replace: bool,
     /// Reread tags rather than reusing unchanged files; keep saved conclusions.
@@ -156,11 +158,16 @@ impl JobRequest {
         match self {
             Self::Scan(scan) => {
                 if scan.folders.len() > 64
-                    || scan.folders.iter().any(|folder| {
-                        folder.len() > 4096
-                            || folder.contains('\0')
-                            || !std::path::Path::new(folder).is_absolute()
-                    })
+                    || scan.unavailable_folders.len() > 64
+                    || scan
+                        .folders
+                        .iter()
+                        .chain(&scan.unavailable_folders)
+                        .any(|folder| {
+                            folder.len() > 4096
+                                || folder.contains('\0')
+                                || !std::path::Path::new(folder).is_absolute()
+                        })
                 {
                     return Err(invalid(
                         "folders must contain at most 64 absolute server paths of at most 4096 bytes without NUL",
