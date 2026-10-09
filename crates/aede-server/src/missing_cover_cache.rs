@@ -47,6 +47,9 @@ pub(super) fn cached(data: &Path, group: &str) -> Result<Option<RenderedImage>, 
     Ok(None)
 }
 trait Archive {
+    fn direct_front(&mut self, _group: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
+    }
     fn index(&mut self, group: &str) -> Result<Option<Json>, String>;
     fn image(&mut self, url: &str) -> Result<Vec<u8>, String>;
 }
@@ -70,17 +73,27 @@ fn obtain(
     if let Some(image) = cached(data, group)? {
         return Ok(Some(image));
     }
-    let Some(index) = archive.index(group)? else {
-        return Ok(None);
+    let bytes = match archive.direct_front(group)? {
+        Some(bytes) => bytes,
+        None => {
+            let Some(index) = archive.index(group)? else {
+                return Ok(None);
+            };
+            coverart::validate_index(&index)?;
+            let Some(front) = coverart::front(&index, Size::Thumbnail(500)) else {
+                return Ok(None);
+            };
+            let url = front
+                .url
+                .strip_prefix("http://")
+                .map(|rest| format!("https://{rest}"))
+                .unwrap_or(front.url);
+            if !archive_image(&url) {
+                return Err("unsupported archive image authority".into());
+            }
+            archive.image(&url)?
+        }
     };
-    coverart::validate_index(&index)?;
-    let Some(front) = coverart::front(&index, Size::Thumbnail(500)) else {
-        return Ok(None);
-    };
-    if !archive_image(&front.url) {
-        return Err("unsupported archive image authority".into());
-    }
-    let bytes = archive.image(&front.url)?;
     let rendered = coverart::render_image(&bytes, Some(512))?;
     let target = folder(data, group)?;
     std::fs::create_dir_all(&target).map_err(|_| "archive cache cannot be created")?;
@@ -94,20 +107,50 @@ struct Network {
     client: Option<aede_core::http::Client>,
     absent: std::collections::BTreeMap<String, u64>,
 }
+impl Network {
+    #[cfg(feature = "fetch")]
+    fn client(&mut self) -> &mut aede_core::http::Client {
+        self.client.get_or_insert_with(|| {
+            aede_core::http::Client::new(
+                aede_core::http::Client::identify(
+                    "aede",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_REPOSITORY"),
+                ),
+                std::time::Duration::from_secs(1),
+            )
+        })
+    }
+}
 impl Archive for Network {
+    fn direct_front(&mut self, group: &str) -> Result<Option<Vec<u8>>, String> {
+        #[cfg(feature = "fetch")]
+        {
+            let base = coverart::index_url(group);
+            // Curated front endpoints avoid an extra JSON dependency; absent thumbnails may use the original.
+            for suffix in ["/front-500", "/front"] {
+                match self.client().get_bytes(&format!("{base}{suffix}")) {
+                    Ok(bytes) => return Ok(Some(bytes)),
+                    Err(aede_core::http::Error::Status(404 | 500)) if suffix == "/front-500" => {
+                        continue;
+                    }
+                    Err(aede_core::http::Error::Status(404)) => return Ok(None),
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+            Ok(None)
+        }
+        #[cfg(not(feature = "fetch"))]
+        {
+            let _ = group;
+            Err("archive fetching is disabled in this build".into())
+        }
+    }
+
     fn index(&mut self, group: &str) -> Result<Option<Json>, String> {
         #[cfg(feature = "fetch")]
         {
-            let client = self.client.get_or_insert_with(|| {
-                aede_core::http::Client::new(
-                    aede_core::http::Client::identify(
-                        "aede",
-                        env!("CARGO_PKG_VERSION"),
-                        env!("CARGO_PKG_REPOSITORY"),
-                    ),
-                    std::time::Duration::from_secs(1),
-                )
-            });
+            let client = self.client();
             match client.get_json(&coverart::index_url(group)) {
                 Ok(value) => Ok(Some(value)),
                 Err(aede_core::http::Error::Status(404)) => Ok(None),

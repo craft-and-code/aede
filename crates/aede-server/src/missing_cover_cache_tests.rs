@@ -18,10 +18,58 @@ impl Archive for Fake {
             .unwrap(),
         ))
     }
-    fn image(&mut self, _: &str) -> Result<Vec<u8>, String> {
+    fn image(&mut self, url: &str) -> Result<Vec<u8>, String> {
+        assert!(url.starts_with("https://"));
         self.calls += 1;
         Ok(self.bytes.to_vec())
     }
+}
+#[test]
+fn archive_http_addresses_are_upgraded_without_allowing_foreign_authorities() {
+    let fixture = Fixture::new();
+    let mut archive = Fake {
+        calls: 0,
+        url: "http://coverartarchive.org/release/example/front-500",
+        bytes: include_bytes!("../../aede-core/tests/fixtures/images/rgba.png"),
+    };
+    assert!(
+        obtain(&fixture.0.data_dir, GROUP, &mut archive)
+            .unwrap()
+            .is_some()
+    );
+    archive.url = "http://localhost/private";
+    assert!(
+        obtain(
+            &fixture.0.data_dir,
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            &mut archive
+        )
+        .is_err()
+    );
+}
+#[test]
+fn curated_front_bytes_do_not_depend_on_an_archive_json_index() {
+    struct Direct;
+    impl Archive for Direct {
+        fn direct_front(&mut self, _: &str) -> Result<Option<Vec<u8>>, String> {
+            Ok(Some(
+                include_bytes!("../../aede-core/tests/fixtures/images/rgba.png").to_vec(),
+            ))
+        }
+        fn index(&mut self, _: &str) -> Result<Option<Json>, String> {
+            panic!("the index must not be needed")
+        }
+        fn image(&mut self, _: &str) -> Result<Vec<u8>, String> {
+            panic!("the front has already been fetched")
+        }
+    }
+    let fixture = Fixture::new();
+    assert!(
+        obtain(&fixture.0.data_dir, GROUP, &mut Direct)
+            .unwrap()
+            .is_some()
+    );
+    assert!(cached(&fixture.0.data_dir, GROUP).unwrap().is_some());
 }
 #[test]
 fn missing_covers_cache_validated_images_and_refuse_invalid_targets_without_touching_music() {
