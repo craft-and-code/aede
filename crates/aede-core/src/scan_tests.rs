@@ -187,6 +187,13 @@ fn root_order_does_not_change_followed_aliases_or_the_persisted_catalog() {
     let (first, _) = scan(&[target.clone(), alias.clone()], None, &options, |_| {}).unwrap();
     let (mut second, _) = scan(&[alias, target], None, &options, |_| {}).unwrap();
     second.scanned_at = first.scanned_at;
+    // Independent scans can cross a clock second; compare root ordering,
+    // preserving every file/path assertion while excluding wall-clock facts.
+    for (path, added_at) in &mut second.file_added_at {
+        if let Some(previous) = first.file_added_at.get(path) {
+            *added_at = *previous;
+        }
+    }
     assert_eq!(
         crate::store::to_json(&first),
         crate::store::to_json(&second)
