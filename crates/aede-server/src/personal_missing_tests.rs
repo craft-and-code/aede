@@ -30,6 +30,14 @@ fn missing_routes_keep_owner_decisions_reversible_without_changing_sources() {
     let path = aede_core::sources::sources_path(&fixture.0.data_dir);
     aede_core::sources::save(&sources, &path).unwrap();
     let original = std::fs::read(&path).unwrap();
+    let cover_query = format!(
+        "/api/me/v1/missing/cover?artist={}&release_group=12345678-1234-1234-1234-123456789abc",
+        crate::test_support::encoded(
+            rows(&catalog, &sources, &UserData::default(), "local", true).unwrap()[0]["artist"]
+                .as_str()
+                .unwrap()
+        )
+    );
     let (address, server) = runtime.block_on(start_server(fixture.0.clone()));
     let alice = login(address, "alice");
     let bob = login(address, "bob");
@@ -38,6 +46,23 @@ fn missing_routes_keep_owner_decisions_reversible_without_changing_sources() {
     assert_eq!(status, 200, "{page}");
     assert_eq!(page["total"], 1);
     assert_eq!(page["items"][0]["year"], 2001);
+    assert_eq!(http(address, "GET", &cover_query, Some(&alice), "").0, 204);
+    assert_eq!(
+        http(address, "POST", &cover_query, Some(&auditor), "").0,
+        403
+    );
+    assert_eq!(http(address,"GET","/api/me/v1/missing/cover?artist=artist:unknown&release_group=12345678-1234-1234-1234-123456789abc",Some(&alice),"").0,404);
+    assert_eq!(
+        http(
+            address,
+            "GET",
+            "/api/me/v1/missing/cover?artist=artist:unknown&release_group=../private",
+            Some(&alice),
+            ""
+        )
+        .0,
+        400
+    );
     let body = r#"{"release_group":"12345678-1234-1234-1234-123456789abc","set_aside":true}"#;
     assert_eq!(
         http(address, "PUT", "/api/me/v1/missing", Some(&auditor), body).0,

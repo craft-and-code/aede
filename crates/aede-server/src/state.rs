@@ -45,6 +45,7 @@ pub(super) struct ApiState {
     pub(super) websocket_slots: Arc<Semaphore>,
     pub(super) playback_slots: Arc<Semaphore>,
     pub(super) player_profiles: Arc<std::sync::Mutex<std::collections::BTreeSet<(String, String)>>>,
+    pub(super) missing_covers: Arc<crate::missing_cover_cache::CoverService>,
     pub(super) inspection_slots: Arc<Semaphore>,
     pub(super) jobs: Arc<jobs::JobRegistry>,
     #[cfg(unix)]

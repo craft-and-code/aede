@@ -89,6 +89,7 @@ mod events;
 mod fetch_service_keys;
 mod inspection;
 mod jobs;
+mod missing_cover_cache;
 pub use fetch_service_keys::FetchServiceKeys;
 mod lyrics;
 mod models;

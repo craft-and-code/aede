@@ -3,8 +3,12 @@ use super::*;
 use aede_core::missing;
 use aede_core::sources::Sources;
 use serde_json::{Value, json};
+#[path = "personal_missing_cover.rs"]
+mod cover;
 pub(super) fn routes() -> Router<ApiState> {
-    Router::new().route("/api/me/v1/missing", get(list).put(update))
+    Router::new()
+        .route("/api/me/v1/missing", get(list).put(update))
+        .merge(cover::routes())
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]

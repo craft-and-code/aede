@@ -717,6 +717,7 @@ pub fn serve_with_owner_lease(
             websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
             playback_slots: Arc::new(Semaphore::new(MAX_PLAYBACKS)),
             player_profiles: Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new())),
+            missing_covers: Arc::new(crate::missing_cover_cache::CoverService::default()),
             inspection_slots: Arc::new(Semaphore::new(2)),
             jobs: Arc::new(jobs::JobRegistry::default()),
             #[cfg(unix)]

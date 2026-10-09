@@ -10,7 +10,7 @@ Do not turn this file into a development diary.
 
 ## Project status
 
-Native missing-album browsing now shares the CLI’s derived policy in `aede-core::missing`. Owner-private paged reads and reversible set-aside writes retain MusicBrainz evidence, account isolation and corrupt-store refusal. Label navigation includes cached trusted prose with source/language/licence. These additive contracts are advertised by `missing_studio_albums` and `label_biography`; no GET performs enrichment. See [missing albums](../server/missing-albums.md).
+Native missing-album browsing now shares the CLI’s derived policy in `aede-core::missing`. Owner-private paged reads and reversible set-aside writes retain MusicBrainz evidence, account isolation and corrupt-store refusal. Label navigation includes cached trusted prose with source/language/licence. These additive contracts are advertised by `missing_studio_albums` and `label_biography`; no GET performs enrichment. Optional-fetch missing-cover POST acquires bounded validated Cover Art Archive images into a separate data cache; cache-only GET, account/artist/group validation and source-audio preservation remain enforced. See [missing albums](../server/missing-albums.md).
 
 Trusted loopback fetch jobs optionally accept bounded per-job Fanart.tv/AcoustID keys, advertised by `fetch_service_keys`, so a desktop client can reuse one private configuration across its libraries. Server defaults remain unchanged; typed/debug/task/output handling never publishes the keys, and the CLI passes overrides only to its child environment. HTTPS administrative exposure remains disabled.
 

@@ -293,3 +293,5 @@ Explicit `library:true` on private M3U creation publishes catalog-derived album/
 ## Missing studio albums
 
 The owner-private `/api/me/v1/missing` GET/PUT contract exposes the shared CLI missing-discography policy and reversible owner decisions without modifying sources or audio. See [missing albums](../../docs/server/missing-albums.md). Status advertises `missing_studio_albums` and `label_biography`; label detail includes only already-retained trusted prose, never an implicit external fetch.
+
+Missing-album cover art: `GET /api/me/v1/missing/cover` is cache-only, while `POST` with `artist` and `release_group` selectors and no body explicitly acquires archive art. Optional `fetch` builds advertise `missing_album_covers`; the [missing-album contract](../../docs/server/missing-albums.md) defines identity, cache, roles, bounds and failures.
