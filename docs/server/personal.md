@@ -129,3 +129,7 @@ All these reads/writes obtain the data-folder lock. Another writer gives `409 st
 Static playlists have no native `/api/me/v1` route yet, but the [Subsonic/OpenSubsonic adapter](subsonic.md) reads and writes private ordered playlists in the same personal store. That adapter also serves catalogued JPEG/PNG sidecar artwork and original audio, and records client-declared scrobbles separately from `Play` events: no played duration or completion is invented. Both kinds contribute to all-time track counts; the native history page lists `Play` events only. An ephemeral, owner-private now-playing declaration does not increment counts or create history.
 
 Relation annotations, source review, check/analyze/fingerprint, copy, backup/restore, reset, merge, arbitrary files and shell commands have no current HTTP routes. Lyrics/prose remain outside the HTTP contracts. Their CLI availability does not imply API availability.
+
+## Repeated private M3U saves
+
+The M3U summary endpoint groups historical saves only when owner, exact name and ordered track references all agree. It exposes the newest matching playlist ID and a `duplicates` count; different names, orders, repeated track occurrences or owners remain distinct. All existing records and export files remain stored. Repeated publication already reuses an identical selection and recreates a missing export; the list view does not silently delete history. The `grouped_m3u_exports` capability advertises these summary semantics.

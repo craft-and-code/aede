@@ -1,5 +1,32 @@
 use super::*;
 #[test]
+fn summaries_group_exact_legacy_duplicates_without_erasing_or_merging_different_lists() {
+    let state = crate::test_support::sample_state();
+    let catalog = state.catalog.blocking_read().clone().unwrap();
+    let track = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+    let mut data = UserData::default();
+    for now in 1..=4 {
+        data.create_playlist("alice", "Fixture", vec![track.clone()], now)
+            .unwrap();
+    }
+    data.create_playlist("alice", "Fixture", vec![track.clone(), track.clone()], 5)
+        .unwrap();
+    data.create_playlist("alice", "Other", vec![track.clone()], 6)
+        .unwrap();
+    data.create_playlist("bob", "Fixture", vec![track], 7)
+        .unwrap();
+    let rows = unique_summaries(&data, "alice");
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.name == "Fixture" && r.track_count == 1)
+            .unwrap()
+            .duplicates,
+        4
+    );
+    assert_eq!(data.playlists.len(), 7);
+}
+#[test]
 fn private_m3u_paths_cannot_be_selected_by_names_or_escape_the_store() {
     let root = Path::new("/private/test-data");
     assert!(target_path(root, "../other", "playlist-test").is_err());

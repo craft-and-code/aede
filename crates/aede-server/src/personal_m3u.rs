@@ -209,21 +209,8 @@ async fn list(
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
         owner.recheck(&state)?;
-        let own: Vec<_> = data
-            .playlists
-            .iter()
-            .filter(|playlist| playlist.owner == owner.id)
-            .collect();
-        let items = own
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .map(|playlist| Summary {
-                id: playlist.id.clone(),
-                name: playlist.name.clone(),
-                track_count: playlist.tracks.len(),
-            })
-            .collect();
+        let own = unique_summaries(&data, &owner.id);
+        let items = own.iter().skip(offset).take(limit).cloned().collect();
         Ok(Json(Page::new(
             items,
             own.len(),
@@ -235,11 +222,40 @@ async fn list(
     .await
     .map_err(|_| unavailable())?
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct Summary {
     id: String,
     name: String,
     track_count: usize,
+    duplicates: usize,
+}
+// Legacy repeated saves remain stored; only exact ordered selections with the same name share one row.
+fn unique_summaries(data: &UserData, owner: &str) -> Vec<Summary> {
+    let mut rows: Vec<Summary> = Vec::new();
+    let mut keys = BTreeMap::new();
+    for playlist in data.playlists.iter().rev().filter(|p| p.owner == owner) {
+        let key = (
+            playlist.name.clone(),
+            playlist
+                .tracks
+                .iter()
+                .map(EntityRef::to_token)
+                .collect::<Vec<_>>(),
+        );
+        if let Some(index) = keys.get(&key).copied() {
+            let row: &mut Summary = &mut rows[index];
+            row.duplicates += 1;
+        } else {
+            keys.insert(key, rows.len());
+            rows.push(Summary {
+                id: playlist.id.clone(),
+                name: playlist.name.clone(),
+                track_count: playlist.tracks.len(),
+                duplicates: 1,
+            });
+        }
+    }
+    rows
 }
 async fn download(
     State(state): State<ApiState>,
