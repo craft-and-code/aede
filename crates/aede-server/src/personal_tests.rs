@@ -708,3 +708,75 @@ fn history_reset_requires_confirmation_and_preserves_other_owners_and_annotation
         cleanup(&state);
     });
 }
+
+#[test]
+fn collection_rename_keeps_rule_and_creation_time_and_refuses_collisions() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let path = user::user_path(&state.data_dir);
+        let mut data = UserData::default();
+        data.save_collection(LOCAL_USER, "Original", "loved", 10);
+        data.save_collection(LOCAL_USER, "Taken", "rating>=2", 11);
+        data.save_collection("other", "Other owner", "loved", 12);
+        user::save(&data, &path).unwrap();
+        let rename = collection_updates::rename(
+            State(state.clone()),
+            Ok(Query(NameQuery {
+                name: "Original".into(),
+            })),
+            request("/api/admin/v1/collection", r#"{"name":"Renamed"}"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(rename.0.name, "Renamed");
+        assert_eq!(rename.0.expression, "loved");
+        assert_eq!(rename.0.created_at, 10);
+        let saved = user::load(&path).unwrap().unwrap();
+        assert!(saved.collection(LOCAL_USER, "Original").is_none());
+        assert_eq!(saved.collections.len(), 3);
+        for (old, new, status) in [
+            ("Renamed", "taken", StatusCode::CONFLICT),
+            ("Other owner", "Unsafe", StatusCode::NOT_FOUND),
+            ("Renamed", " ", StatusCode::BAD_REQUEST),
+        ] {
+            let failure = collection_updates::rename(
+                State(state.clone()),
+                Ok(Query(NameQuery { name: old.into() })),
+                request(
+                    "/api/admin/v1/collection",
+                    &serde_json::json!({"name":new}).to_string(),
+                ),
+            )
+            .await
+            .err()
+            .unwrap();
+            assert_eq!(failure.status, status);
+        }
+        assert_eq!(
+            user::load(&path)
+                .unwrap()
+                .unwrap()
+                .collections
+                .iter()
+                .map(|c| (&c.name, &c.expression, c.created_at))
+                .collect::<Vec<_>>(),
+            saved
+                .collections
+                .iter()
+                .map(|c| (&c.name, &c.expression, c.created_at))
+                .collect::<Vec<_>>()
+        );
+        let casing = collection_updates::rename(
+            State(state.clone()),
+            Ok(Query(NameQuery {
+                name: "renamed".into(),
+            })),
+            request("/api/admin/v1/collection", r#"{"name":"RENAMED"}"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(casing.0.name, "RENAMED");
+        assert_eq!(casing.0.created_at, 10);
+        cleanup(&state);
+    });
+}

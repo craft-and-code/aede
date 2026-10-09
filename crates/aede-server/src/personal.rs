@@ -15,6 +15,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::*;
+#[path = "personal_collections.rs"]
+mod collection_updates;
 #[path = "personal_m3u.rs"]
 mod m3u;
 #[path = "personal_missing.rs"]
@@ -39,6 +41,7 @@ pub(super) fn routes() -> Router<ApiState> {
             "/api/admin/v1/collection",
             get(collection)
                 .put(save_collection)
+                .patch(collection_updates::rename)
                 .delete(delete_collection),
         )
         .route("/api/admin/v1/collections", get(collections))
@@ -58,6 +61,7 @@ pub(super) fn account_routes() -> Router<ApiState> {
             "/api/me/v1/collection",
             get(collection)
                 .put(save_collection)
+                .patch(collection_updates::rename)
                 .delete(delete_collection),
         )
         .route("/api/me/v1/collections", get(collections))

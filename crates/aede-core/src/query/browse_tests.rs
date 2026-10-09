@@ -180,3 +180,86 @@ fn genre_union_includes_each_matching_artist_and_still_intersects_countries() {
     value["countries"] = json!(["FR"]);
     assert!(tracks(&parse(&value.to_string()).unwrap(), &context).is_empty());
 }
+
+#[test]
+fn personal_browsing_uses_principal_ratings_and_owner_favourites_dynamically() {
+    let c = Catalog {
+        artists: vec![
+            Artist {
+                id: 0,
+                name: "Ensemble".into(),
+                key: "ensemble".into(),
+                ..Default::default()
+            },
+            Artist {
+                id: 1,
+                name: "Guest".into(),
+                key: "guest".into(),
+                ..Default::default()
+            },
+        ],
+        releases: (0..3)
+            .map(|id| Release {
+                id,
+                title: format!("Edition {id}"),
+                year: Some(1995),
+                album_artist_id: Some(if id == 2 { 1 } else { 0 }),
+                track_ids: vec![id],
+                ..Default::default()
+            })
+            .collect(),
+        tracks: (0..3)
+            .map(|id| Track {
+                id,
+                release_id: Some(id),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let mut data = UserData::default();
+    let artist = EntityRef::of(&c, EntityKind::Artist, 0).unwrap();
+    let release = EntityRef::of(&c, EntityKind::Release, 2).unwrap();
+    data.entry("owner", &artist, 1).rating = Some(4);
+    data.entry("other", &release, 1).rating = Some(3);
+    let mut value = filters();
+    value["view"] = json!("rated");
+    value["ratings"] = json!([2, 4]);
+    let f = parse(&value.to_string()).unwrap();
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![0, 1]);
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "other")), vec![2]);
+    data.entry("owner", &release, 2).rating = Some(3);
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![0, 1, 2]);
+    data.entry("owner", &artist, 3).rating = Some(5);
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![2]);
+    value["view"] = json!("favourites");
+    value.as_object_mut().unwrap().remove("ratings");
+    let f = parse(&value.to_string()).unwrap();
+    assert!(tracks(&f, &Context::new(&c, &data, "owner")).is_empty());
+    data.entry("owner", &artist, 4).loved = true;
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![0, 1]);
+    data.entry("owner", &release, 5).loved = true;
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![0, 1, 2]);
+}
+#[test]
+fn rating_collection_bounds_are_strict_and_never_ignored() {
+    for bounds in [
+        json!([0, 5]),
+        json!([2, 6]),
+        json!([4, 2]),
+        json!([2]),
+        json!([2.5, 4]),
+        Value::Null,
+    ] {
+        let mut v = filters();
+        v["view"] = json!("rated");
+        v["ratings"] = bounds;
+        assert!(parse(&v.to_string()).is_err());
+    }
+    let mut v = filters();
+    v["view"] = json!("rated");
+    assert!(parse(&v.to_string()).is_err());
+    v["view"] = json!("albums");
+    v["ratings"] = json!([1, 5]);
+    assert!(parse(&v.to_string()).is_err());
+}

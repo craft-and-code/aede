@@ -55,6 +55,8 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
     let mut capabilities = vec![
         "dynamic_browse_collections",
         "dynamic_browse_genres",
+        "dynamic_browse_personal",
+        "collection_rename",
         "album_track_pages",
         "track_catalog_pages",
         "catalog_added_dates",

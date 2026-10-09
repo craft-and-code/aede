@@ -86,7 +86,7 @@ Same name/token validation and status, no collection body.
 
 ## PUT /api/admin/v1/collection
 
-Required `name` (1–256 bytes); JSON `{expression:"…"}` with 1–2048 bytes of nonempty expression. The grammar is validated before saving. Existing normalized names are replaced; new names are created. A smart collection evolves as library/personal values change, unlike a static playlist.
+Required `name` (1–256 bytes); JSON `{expression:"…"}` with 1–8192 bytes of nonempty expression. The grammar is validated before saving. Existing normalized names are replaced; new names are created. A smart collection evolves as library/personal values change, unlike a static playlist.
 
 ```sh
 curl -X PUT 'http://127.0.0.1:8787/api/admin/v1/collection?name=Favourites' \
@@ -95,6 +95,10 @@ curl -X PUT 'http://127.0.0.1:8787/api/admin/v1/collection?name=Favourites' \
 ```
 
 Returns HTTP 200 `{name,expression,created_at,updated_at}`. Invalid expression/size gives `400 invalid_parameters`, invalid name `invalid_query`, wrong/unknown body fields `invalid_body`. Personal clauses are allowed in this owner's stored expression; public `/query` still refuses them. Saving does not export M3U or create a playback task.
+
+## PATCH /api/me/v1/collection
+
+Required existing `name` query; JSON `{ "name": "New name" }` changes only that collection’s display name, retaining its expression and creation time. The transitional `/api/admin/v1/collection` route supports the same method for the local owner. Names retain the existing 1–256-byte, case/accent-insensitive matching policy. `collection_rename` advertises this capability. Another collection under the requested name gives `409 collection_exists`; a missing original gives `404 collection_not_found`. Invalid names/body fields are refused. Auditors cannot rename, other owners remain inaccessible and revocation is rechecked under the single writer lock. One atomic personal-store save publishes the new name; no create/delete sequence can leave duplicates or lose the rule on a failed second write.
 
 ## DELETE /api/admin/v1/collection
 

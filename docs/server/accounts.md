@@ -31,7 +31,7 @@ Use the [personal routes](personal.md) with `/api/me/v1` replacing `/api/admin/v
 | --- | --- |
 | `/api/me/v1/annotation` | GET/HEAD/PUT by `ref` |
 | `/api/me/v1/history` | GET/HEAD paginated events; POST a listen |
-| `/api/me/v1/collection` | GET/HEAD/PUT/DELETE by `name` |
+| `/api/me/v1/collection` | GET/HEAD/PUT/PATCH/DELETE by `name` |
 | `/api/me/v1/collections` | GET/HEAD paginated collections |
 | `/api/me/v1/playback` | GET WebSocket upgrade; [audio contract](playback.md), user/admin only |
 

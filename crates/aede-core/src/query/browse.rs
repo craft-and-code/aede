@@ -17,6 +17,7 @@ pub struct Filter {
     query: String,
     countries: Vec<Option<String>>,
     genres: Vec<String>,
+    ratings: Option<[u64; 2]>,
 }
 /// Parse the bounded JSON payload following `browse-v1:`. Unknown keys are errors.
 pub fn parse(input: &str) -> Result<Filter, QueryError> {
@@ -38,6 +39,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             "countries",
             "genre",
             "genres",
+            "ratings",
         ]
         .contains(&k.as_str())
     }) {
@@ -65,11 +67,32 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
     };
     let view = string("view")?;
     let mode = string("mode")?;
-    if !["artists", "albums", "compilations", "countries", "genres"].contains(&view.as_str())
+    if ![
+        "artists",
+        "albums",
+        "compilations",
+        "countries",
+        "genres",
+        "rated",
+        "favourites",
+    ]
+    .contains(&view.as_str())
         || !["none", "years", "alphabet", "both"].contains(&mode.as_str())
     {
         return Err(error("invalid browse view or mode"));
     }
+    let ratings = if view == "rated" {
+        let bounds = interval("ratings", 5)?;
+        if bounds[0] == 0 {
+            return Err(error("minimum rating must be at least one"));
+        }
+        Some(bounds)
+    } else {
+        if o.contains_key("ratings") {
+            return Err(error("ratings require the rated view"));
+        }
+        None
+    };
     let countries = match v.get("countries") {
         None => Vec::new(),
         Some(value) => value
@@ -135,6 +158,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         query,
         countries,
         genres,
+        ratings,
     })
 }
 #[derive(Default)]
@@ -268,6 +292,26 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     let term = folded(&f.query);
     let mut tracks = Vec::new();
     for release in &c.releases {
+        if f.view == "rated" || f.view == "favourites" {
+            let own = EntityRef::of(c, EntityKind::Release, release.id)
+                .and_then(|r| context.data.find(context.owner, &r));
+            let principal = release
+                .album_artist_id
+                .and_then(|id| EntityRef::of(c, EntityKind::Artist, id))
+                .and_then(|r| context.data.find(context.owner, &r));
+            let rating = own
+                .and_then(|a| a.rating)
+                .unwrap_or(0)
+                .max(principal.and_then(|a| a.rating).unwrap_or(0));
+            if f.ratings
+                .is_some_and(|r| !(r[0]..=r[1]).contains(&u64::from(rating)))
+                || (f.view == "favourites"
+                    && !own.is_some_and(|a| a.loved)
+                    && !principal.is_some_and(|a| a.loved))
+            {
+                continue;
+            }
+        }
         if f.view == "compilations" && !release.is_compilation {
             continue;
         }
