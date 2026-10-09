@@ -38,6 +38,7 @@ pub mod graph;
 #[cfg(feature = "fetch")]
 pub mod http;
 mod image;
+pub mod missing;
 pub mod model;
 pub mod musicbrainz;
 pub mod places;

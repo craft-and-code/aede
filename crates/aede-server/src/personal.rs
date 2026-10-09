@@ -17,6 +17,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::*;
 #[path = "personal_m3u.rs"]
 mod m3u;
+#[path = "personal_missing.rs"]
+mod missing;
 
 const MAX_BODY: usize = 16 * 1024;
 const MAX_TAGS: usize = 100;
@@ -62,6 +64,7 @@ pub(super) fn account_routes() -> Router<ApiState> {
         .route("/api/me/v1/collection/albums", get(collection_albums))
         .route("/api/me/v1/annotations", get(annotations))
         .merge(m3u::routes())
+        .merge(missing::routes())
 }
 
 struct PersonalOwner {

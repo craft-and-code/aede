@@ -472,6 +472,7 @@ Complete guides to Aède's features and architecture:
 - [Local API](docs/api.md) — HTTP/JSON endpoints, catalog change events and task activity
 - [Compatible Aède](docs/server/compatible-aede.md) — Client profiles, integration requirements and acceptance checks for native and Subsonic readers
 - [Accounts and sessions](docs/server/accounts.md) — Local authentication, roles and private personal data; [CLI management](docs/cli/accounts.md)
+- [Missing studio albums](docs/server/missing-albums.md) — Cached discography gaps and reversible owner-private decisions
 - [Account design](docs/design/accounts.md) — Stable owners, credential policy, session limits and backup compatibility
 - [Server route reference](crates/aede-server/README.md) — All available routes, parameters, scan/fetch jobs and examples
 - [Operating the Local Server](docs/operating.md) — Startup, backups, CLI coexistence and NAS security limits

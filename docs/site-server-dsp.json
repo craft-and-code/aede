@@ -202,6 +202,22 @@
     }
   },
   {
+    "slug": "server/missing-albums",
+    "section": "server",
+    "title": {
+      "en": "Missing studio albums",
+      "fr": "Albums studio manquants"
+    },
+    "description": {
+      "en": "Cached discography gaps and reversible owner-private decisions.",
+      "fr": "Lacunes des discographies enregistrées et décisions personnelles réversibles."
+    },
+    "source": {
+      "en": "docs/server/missing-albums.md",
+      "fr": "docs/fr/server/missing-albums.md"
+    }
+  },
+  {
     "slug": "dsp/start",
     "section": "dsp",
     "title": {

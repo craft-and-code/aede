@@ -447,3 +447,52 @@ fn catalog_navigation_bounds_search_text_before_lookup() {
         server.abort();
     });
 }
+
+#[test]
+fn label_prose_keeps_source_language_and_licence_without_fetching() {
+    use aede_core::sources::{LabelFacts, Prose};
+    let state = sample_state();
+    let catalog = state.catalog.blocking_read();
+    let catalog = catalog.as_ref().unwrap();
+    let reference = EntityRef::of(catalog, EntityKind::Label, 0).unwrap();
+    let mut sources = Sources::default();
+    assert!(label_biography(catalog, &reference, &sources).is_none());
+    sources.set(SourceRecord {
+        key: reference.key.clone(),
+        source: "discogs".into(),
+        source_id: Some("42".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: "Independent label.".into(),
+                url: "https://example.org/label".into(),
+                lang: "en".into(),
+                licence: "Attributed terms".into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    let prose = label_biography(catalog, &reference, &sources).unwrap();
+    assert_eq!(prose["text"], "Independent label.");
+    assert_eq!(prose["source"], "discogs");
+    assert_eq!(prose["lang"], "en");
+    assert_eq!(prose["licence"], "Attributed terms");
+    runtime().block_on(async {
+        let state = fixture().await;
+        let directory = state.data_dir.clone();
+        sources.records[0].key = "atlantic".into();
+        sources.records[0].fetched_at = aede_core::clock::now_seconds();
+        std::fs::create_dir_all(&directory).unwrap();
+        aede_core::sources::save(&sources, &aede_core::sources::sources_path(&directory)).unwrap();
+        let (address, server) = start(state).await;
+        let detail = json_response(address, "/api/v1/label?name=Atlantic");
+        assert_eq!(detail["biography"], prose);
+        assert_eq!(detail["releases"].as_array().unwrap().len(), 2);
+        sources.records[0].fetched_at = 1;
+        aede_core::sources::save(&sources, &aede_core::sources::sources_path(&directory)).unwrap();
+        assert!(json_response(address, "/api/v1/label?name=Atlantic")["biography"].is_null());
+        server.abort();
+        std::fs::remove_dir_all(directory).unwrap();
+    });
+}

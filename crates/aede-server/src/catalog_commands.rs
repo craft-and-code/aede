@@ -39,6 +39,8 @@ struct NavigationDetail {
     entity: EntityDetail,
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<ArtistOrigin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    biography: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -378,6 +380,18 @@ pub(super) fn artist_origin(
     origin
 }
 
+fn label_biography(
+    catalog: &Catalog,
+    requested: &EntityRef,
+    sources: &Sources,
+) -> Option<serde_json::Value> {
+    sources.about(requested).filter(|record| sources.is_trusted(catalog, record)).find_map(|record| {
+        let Facts::Label(facts) = &record.facts else { return None; };
+        let prose = facts.summary.as_ref()?;
+        Some(serde_json::json!({"text":prose.text,"url":prose.url,"lang":prose.lang,"licence":prose.licence,"source":record.source}))
+    })
+}
+
 async fn detail(
     State(state): State<ApiState>,
     query: Result<Query<SelectionQuery>, QueryRejection>,
@@ -388,7 +402,7 @@ async fn detail(
         let guard = state.catalog.blocking_read();
         let catalog = guard.as_ref().ok_or_else(unavailable)?;
         let requested = resolve_selection(catalog, &query, kind)?;
-        let sources = if kind == EntityKind::Artist {
+        let sources = if matches!(kind, EntityKind::Artist | EntityKind::Label) {
             Some(crate::inspection::held_sources(&state.data_dir)?)
         } else {
             None
@@ -397,7 +411,12 @@ async fn detail(
             entity: entity_detail(catalog, &requested)?,
             origin: sources
                 .as_ref()
+                .filter(|_| kind == EntityKind::Artist)
                 .map(|sources| artist_origin(catalog, &requested, sources)),
+            biography: sources
+                .as_ref()
+                .filter(|_| kind == EntityKind::Label)
+                .and_then(|sources| label_biography(catalog, &requested, sources)),
         })
     })
     .await

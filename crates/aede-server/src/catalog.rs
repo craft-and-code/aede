@@ -58,6 +58,8 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "album_track_pages",
         "track_catalog_pages",
         "catalog_added_dates",
+        "missing_studio_albums",
+        "label_biography",
     ];
     if state.admin.is_some() {
         capabilities.push("library_m3u_publication");
