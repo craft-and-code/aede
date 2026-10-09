@@ -1,6 +1,50 @@
 use super::*;
 use crate::test_support::sample_state;
 #[test]
+fn analysis_coverage_partitions_retained_results_and_pages_albums_without_running_jobs() {
+    let state = sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    for id in 1..4 {
+        let mut f = c.files[0].clone();
+        f.id = id;
+        f.path = format!("/music/album/{id}.flac");
+        c.files.push(f);
+        let mut t = c.tracks[0].clone();
+        t.id = id;
+        t.file_id = id;
+        c.tracks.push(t);
+        c.releases[0].track_ids.push(id);
+    }
+    for id in 0..3 {
+        let f = &c.files[id];
+        c.analyses.push(aede_core::analysis::FileAnalysis {
+            path: f.path.clone(),
+            source: "flaccompagnon".into(),
+            size_bytes: if id == 1 { f.size + 1 } else { f.size },
+            modified_unix: f.mtime,
+            error: (id == 2).then(|| "decoding failed".into()),
+            ..Default::default()
+        });
+    }
+    let result = analysis_coverage::page(&c, 0, 50, None).unwrap();
+    for key in ["current", "stale", "failed", "missing"] {
+        assert_eq!(result["items"][0][key], 1);
+        assert_eq!(result["summary"][key], 1);
+    }
+    assert_eq!(result["items"][0]["tracks"], 4);
+    assert_eq!(
+        analysis_coverage::page(&c, 0, 50, Some("not present")).unwrap()["total"],
+        0
+    );
+    assert_eq!(
+        analysis_coverage::page(&c, 1, 50, None).unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+#[test]
 fn presentation_preserves_compilations_and_contributor_only_artists() {
     let state = sample_state();
     let mut catalog = state.catalog.blocking_read().clone().unwrap();

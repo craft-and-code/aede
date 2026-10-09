@@ -266,6 +266,7 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 | `GET /api/v1/presentation/artists` | Paged attributed artist presentation and contributions |
 | `GET /api/v1/presentation/albums` | Paged editions, compilations and broad tag search |
 | `GET /api/v1/presentation/tracks` | Lightweight track pages for a release or the complete catalog |
+| `GET /api/v1/presentation/analysis` | Retained per-album analysis coverage and catalog file totals |
 | `GET /api/v1/artwork` | Bounded catalog-selected local images and spectra |
 | `GET /api/me/v1/annotations` | Current-owner annotation index |
 | `POST /api/me/v1/m3u` | Private static playlist and server-side M3U publication |
