@@ -16,7 +16,7 @@ pub struct Filter {
     unknown: bool,
     query: String,
     countries: Vec<Option<String>>,
-    genre: Option<String>,
+    genres: Vec<String>,
 }
 /// Parse the bounded JSON payload following `browse-v1:`. Unknown keys are errors.
 pub fn parse(input: &str) -> Result<Filter, QueryError> {
@@ -37,6 +37,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             "query",
             "countries",
             "genre",
+            "genres",
         ]
         .contains(&k.as_str())
     }) {
@@ -88,6 +89,22 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             })
             .collect::<Result<_, _>>()?,
     };
+    let mut genres = match v.get("genres") {
+        None => Vec::new(),
+        Some(value) => value
+            .as_array()
+            .filter(|a| a.len() <= 256)
+            .ok_or_else(|| error("invalid browse genres"))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|s| !s.trim().is_empty() && s.len() <= 256)
+                    .map(str::to_owned)
+                    .ok_or_else(|| error("invalid browse genre"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    };
     let genre = match v.get("genre") {
         None => None,
         Some(value) => Some(
@@ -98,6 +115,11 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
                 .to_owned(),
         ),
     };
+    if let Some(genre) = genre {
+        genres.push(genre);
+    }
+    genres.sort();
+    genres.dedup();
     let query = string("query")?;
     if query.len() > 2048 {
         return Err(error("browse search exceeds 2048 bytes"));
@@ -112,7 +134,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             .ok_or_else(|| error("invalid unknown-year choice"))?,
         query,
         countries,
-        genre,
+        genres,
     })
 }
 #[derive(Default)]
@@ -219,7 +241,7 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
             .flatten();
         let valid = (!artist_view || (principal.contains(&artist.id) && alphabet(&artist.name, f)))
             && (f.countries.is_empty() || f.countries.contains(&country))
-            && f.genre.as_ref().is_none_or(|g| genres.contains(g.as_str()));
+            && (f.genres.is_empty() || f.genres.iter().any(|g| genres.contains(g.as_str())));
         if valid {
             eligible.insert(artist.id);
         }
@@ -297,7 +319,7 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
         }) || (!artist_view
             && related.is_empty()
             && f.countries.is_empty()
-            && f.genre.is_none()
+            && f.genres.is_empty()
             && (term.is_empty() || text.contains(&term)));
         if matches {
             tracks.extend(&release.track_ids);

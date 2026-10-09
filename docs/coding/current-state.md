@@ -299,3 +299,5 @@ Desktop album browsing now has lightweight ordered track pages with nullable dis
 Desktop catalog navigation now includes authenticated bounded all-track search pages, richer attributed track details, single-track playback selections (including albumless titles), and optional persisted first-observed catalog dates for genuinely recent additions. Legacy dates remain unknown; forced rereads do not backfill them. See [native presentation](../server/presentation.md#complete-track-catalog-and-entry-dates).
 
 Explicit administrative native M3U publication can regenerate relative-path album and complete artist sidecars inside catalog roots, reusing the CLI's extracted folder planner. Ordinary private exports remain owner-scoped and repeat saves restore missing files without duplicate playlist rows. Source audio/tags are unchanged; see native presentation for authorization, partial failures and destinations.
+
+Dynamic browsing collections accept a bounded union of selected genres, preserving the legacy single-genre field. Status advertises this additive capability so clients can refuse incompatible writes to an older running server.
