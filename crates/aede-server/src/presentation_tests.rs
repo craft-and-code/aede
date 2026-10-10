@@ -392,3 +392,45 @@ fn track_pages_expose_lyrics_presence_without_lyrics_payloads() {
     assert_eq!(page["items"][0]["lyrics_available"], true);
     assert!(page["items"][0].get("lyrics").is_none());
 }
+
+#[test]
+fn coverage_integrity_distinguishes_md5_crc_absent_unverified_and_unsupported() {
+    use aede_core::analysis::FileAnalysis;
+    let state = crate::test_support::sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    let file = &mut c.files[0];
+    file.properties.codec = "flac".into();
+    let report = FileAnalysis {
+        source: "flaccompagnon".into(),
+        path: file.path.clone(),
+        size_bytes: file.size,
+        modified_unix: file.mtime,
+        md5_state: Some("Match".into()),
+        ..Default::default()
+    };
+    c.analyses = vec![report];
+    assert_eq!(
+        analysis_coverage::page(&c, 0, 50, None).unwrap()["items"][0]["integrity"]["ok"],
+        1
+    );
+    c.analyses[0].md5_state = Some("Mismatch".into());
+    assert_eq!(
+        analysis_coverage::page(&c, 0, 50, None).unwrap()["items"][0]["integrity"]["ko"],
+        1
+    );
+    c.analyses[0].md5_state = Some("NoSignature".into());
+    assert_eq!(
+        analysis_coverage::page(&c, 0, 50, None).unwrap()["items"][0]["integrity"]["no_hash"],
+        1
+    );
+    c.analyses.clear();
+    assert_eq!(
+        analysis_coverage::page(&c, 0, 50, None).unwrap()["items"][0]["integrity"]["unchecked"],
+        1
+    );
+    c.files[0].properties.codec = "mp3".into();
+    assert_eq!(
+        analysis_coverage::page(&c, 0, 50, None).unwrap()["items"][0]["integrity"]["unsupported"],
+        1
+    );
+}

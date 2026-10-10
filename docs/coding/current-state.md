@@ -10,6 +10,8 @@ Do not turn this file into a development diary.
 
 ## Project status
 
+Current-owner advanced search reuses the saved-query evaluator with declared bit depth, channels, container and stable track-reference clauses. Ordered queue M3U publication preserves repeated occurrences. Analysis coverage distinguishes applicable FLAC MD5, Ogg CRC, absent signatures, stale evidence and unverified/unsupported files without decoding. See personal and presentation documentation.
+
 Desktop enrichment can explicitly identify newly added artists/albums before secondary services within one server-owned task (`musicbrainz:true`, capability `fetch_musicbrainz_first`). Completed unavailable Discogs label batches no longer skip later artwork passes; the final partial failure remains visible. Provider throttling and identification failures still stop their chain. Existing scan exclusions remain independent of replacing watched roots. See fetch and administrative jobs documentation.
 
 Latest playback/settings/lyrics verification (2026-10-10): the complete `tools/check.sh` passes with 2203 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.

@@ -173,3 +173,19 @@ fn explicit_library_publication_recreates_album_and_complete_artist_files() {
     assert!(publish_library(&catalog, 0).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn arbitrary_m3u_selection_preserves_occurrences_and_refuses_ambiguous_or_missing_tracks() {
+    let state = crate::test_support::sample_state();
+    let catalog = state.catalog.blocking_read().clone().unwrap();
+    let token = EntityRef::of(&catalog, EntityKind::Track, 0)
+        .unwrap()
+        .to_token();
+    let tokens = vec![token.clone(), token];
+    let (_, selected) = selection(&catalog, None, Some(&tokens)).unwrap();
+    assert_eq!(selected.len(), 2);
+    assert_eq!(selected[0], selected[1]);
+    assert!(selection(&catalog, Some("release:album"), Some(&tokens)).is_err());
+    assert!(selection(&catalog, None, Some(&[])).is_err());
+    assert!(selection(&catalog, None, Some(&["track:missing".into()])).is_err());
+}

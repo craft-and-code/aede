@@ -703,12 +703,16 @@ fn public_query(expression: &str) -> Result<query::Query, ApiError> {
                 | query::Field::Label
                 | query::Field::Comment
                 | query::Field::Path
+                | query::Field::Container
                 | query::Field::Codec
                 | query::Field::Year
                 | query::Field::Duration
                 | query::Field::Size
                 | query::Field::Bitrate
                 | query::Field::SampleRate
+                | query::Field::BitDepth
+                | query::Field::Channels
+                | query::Field::Reference
                 | query::Field::Lossless
                 | query::Field::Compilation
                 | query::Field::Performing

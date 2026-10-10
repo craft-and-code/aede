@@ -114,6 +114,15 @@ pub(super) fn listing(
             })
         })
         .collect();
+    render_rows(c, &rows, offset, limit)
+}
+
+pub(crate) fn render_rows(
+    c: &Catalog,
+    rows: &[Id],
+    offset: usize,
+    limit: usize,
+) -> Result<Value, ApiError> {
     let items = rows.iter().skip(offset).take(limit).map(|id| {
         let track = c.track(*id).ok_or_else(unavailable)?;
         let file = c.file(track.file_id).ok_or_else(unavailable)?;

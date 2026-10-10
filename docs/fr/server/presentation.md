@@ -59,3 +59,7 @@ Si l’administration fetch est disponible avec le réseau activé, `fetch_disco
 
 
 Les pages de labels acceptent également `sort=albums` et `order=asc|desc` pour trier tous les labels filtrés par nombre d’albums avant pagination. Les égalités utilisent le nom et la clé de manière déterministe. Ce tri est refusé pour les autres listes du catalogue. La capacité `label_album_sort` l’annonce. La lecture d’un label et sa discographie chronologique partagent la règle d’ordre des albums du serveur.
+
+### Intégrité conservée
+
+Chaque ligne de couverture expose `integrity:{ok,ko,no_hash,unchecked,unsupported,stale,md5,crc}`. Les six premiers compteurs répartissent toutes les pistes de l’album. Pour FLAC, seuls les résultats FlacCompagnon applicables donnent un MD5 OK, KO ou une signature absente. Un résultat manquant, non vérifié ou une erreur ne prouve pas l’intégrité ; un rapport ancien reste périmé. Ogg utilise séparément le CRC des pages enregistré par Aède, pas un MD5 audio. Les autres formats affichent une absence de contrôle disponible, jamais un succès inventé. La consultation ne décode pas l’audio et ne lance aucun contrôle.

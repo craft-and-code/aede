@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 #[path = "analysis_coverage.rs"]
 mod analysis_coverage;
 #[path = "presentation_tracks.rs"]
-mod track_pages;
+pub(crate) mod track_pages;
 
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()

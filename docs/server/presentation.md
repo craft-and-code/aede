@@ -75,3 +75,7 @@ When administrative fetch is available in a network-enabled build, `fetch_discog
 
 
 Label pages additionally accept `sort=albums` with `order=asc|desc`, ordering the complete filtered label set by associated release count before pagination. Name/key ties remain deterministic. Other catalog entity lists refuse this sort. `label_album_sort` advertises it. Label playback and the chronological discography view share the existing server release-order policy.
+
+### Cached integrity coverage
+
+Analysis coverage rows include `integrity:{ok,ko,no_hash,unchecked,unsupported,stale,md5,crc}`. The first six counts partition album tracks. `md5` counts FLAC tracks and reads only applicable retained FlacCompagnon MD5 evidence: Match, Mismatch and NoSignature retain different outcomes. Present/Error/absent verdicts are unverified, and obsolete reports are stale. Ogg tracks use stored `ogg-page-crc` evidence, counted separately in `crc`; this is not a decoded-audio MD5. Other formats are unsupported by this projection, rather than healthy by default. Listing never launches a check or opens source audio.

@@ -309,3 +309,5 @@ Missing-album cover art: `GET /api/me/v1/missing/cover` is cache-only, while `PO
 | `POST /api/admin/v1/lyrics` | Explicit trusted-loopback exact-track LRCLIB acquisition through the existing task worker. |
 
 See [personal contracts](../../docs/server/personal.md#account-presentation-preferences-and-atmospheres), [waveforms](../../docs/server/playback.md#complete-track-waveforms) and [lyrics jobs](../../docs/server/jobs.md#post-apiadminv1lyrics). Status advertises `account_preferences`, `track_waveform`, `mood_rules`, `fetch_track_lyrics` and label-specific `label_album_sort`. Label `sort=albums` orders the complete filtered set before pagination. No atmosphere read launches an analysis or derives emotion from integrity measurements.
+
+| `GET /api/me/v1/search` | Current-owner advanced query; standard bounded track page, no mutation. See [personal search](../../docs/server/personal.md#owner-scoped-advanced-search-and-queue-publication). |

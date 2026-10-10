@@ -126,6 +126,8 @@ pub enum Field {
     Path,
     /// The codec: flac, mp3, opus…
     Codec,
+    /// File container, independently of the contained codec.
+    Container,
     /// Year of the album.
     Year,
     /// Playing time, in milliseconds.
@@ -136,6 +138,12 @@ pub enum Field {
     Bitrate,
     /// Sample rate in Hz.
     SampleRate,
+    /// Declared bits per sample, when the format provides it.
+    BitDepth,
+    /// Declared source channel count.
+    Channels,
+    /// Stable catalog track reference, independent of display titles.
+    Reference,
     /// `true` for a lossless codec.
     Lossless,
     /// `true` when the album is one several artists share.
@@ -241,12 +249,16 @@ const FIELD_NAMES: &[(&str, Field)] = &[
     ("path", Field::Path),
     ("codec", Field::Codec),
     ("format", Field::Codec),
+    ("container", Field::Container),
     ("year", Field::Year),
     ("duration", Field::Duration),
     ("length", Field::Duration),
     ("size", Field::Size),
     ("bitrate", Field::Bitrate),
     ("samplerate", Field::SampleRate),
+    ("bitdepth", Field::BitDepth),
+    ("channels", Field::Channels),
+    ("ref", Field::Reference),
     ("lossless", Field::Lossless),
     ("compilation", Field::Compilation),
     ("played", Field::Played),
@@ -306,6 +318,8 @@ fn is_numeric(field: &Field) -> bool {
             | Field::Size
             | Field::Bitrate
             | Field::SampleRate
+            | Field::BitDepth
+            | Field::Channels
             | Field::Played
             | Field::Rating(_)
     )
@@ -772,6 +786,8 @@ fn number_of(field: &Field, context: &Context, track: Id) -> Option<f64> {
         Field::Size => file.map(|f| f.size as f64),
         Field::Bitrate => file.and_then(|f| f.properties.bitrate_kbps).map(f64::from),
         Field::SampleRate => file.and_then(|f| f.properties.sample_rate).map(f64::from),
+        Field::BitDepth => file.and_then(|f| f.properties.bit_depth).map(f64::from),
+        Field::Channels => file.and_then(|f| f.properties.channels).map(f64::from),
         Field::Played => {
             let reference = scoped(Scope::Track, context, track)?;
             Some(f64::from(context.local.play_count(
@@ -936,6 +952,12 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
         Field::Lyrics => catalog
             .lyrics_of_track(track)
             .map(|lyrics| vec![lyrics.text()])
+            .unwrap_or_default(),
+        Field::Reference => EntityRef::of(catalog, EntityKind::Track, track)
+            .map(|r| vec![r.to_token()])
+            .unwrap_or_default(),
+        Field::Container => file
+            .map(|f| vec![f.properties.container.clone()])
             .unwrap_or_default(),
         Field::Path => file.map(|f| vec![f.path.clone()]).unwrap_or_default(),
         Field::Codec => file

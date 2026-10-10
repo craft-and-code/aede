@@ -1,5 +1,7 @@
 //! Lightweight retained-result coverage, with no decoding, enrichment or source-file reads.
 use super::*;
+#[path = "analysis_integrity.rs"]
+mod integrity;
 use aede_core::analysis::FileAnalysis;
 use aede_core::model::AudioFile;
 use std::collections::HashMap;
@@ -22,6 +24,7 @@ pub(super) enum SortColumn {
     Stale,
     Failed,
     Spectra,
+    Integrity,
 }
 #[derive(Clone, Copy, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -161,7 +164,19 @@ pub(super) fn sorted_page(
                     );
                 }
             }
-            Ok((r, counts, spectra, aede_core::text::normalize(&r.title)))
+            let mut integrity = integrity::Counts::default();
+            for id in &r.track_ids {
+                let track = c.track(*id).ok_or_else(unavailable)?;
+                let file = c.file(track.file_id).ok_or_else(unavailable)?;
+                integrity.add(file, records.get(file.path.as_str()));
+            }
+            Ok((
+                r,
+                counts,
+                spectra,
+                aede_core::text::normalize(&r.title),
+                integrity,
+            ))
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     albums.sort_by(|a, b| {
@@ -172,6 +187,11 @@ pub(super) fn sorted_page(
             SortColumn::Stale => a.1.stale.cmp(&b.1.stale),
             SortColumn::Failed => a.1.failed.cmp(&b.1.failed),
             SortColumn::Spectra => a.2.cmp(&b.2),
+            SortColumn::Integrity => {
+                a.4.ko
+                    .cmp(&b.4.ko)
+                    .then_with(|| (a.4.unchecked + a.4.stale).cmp(&(b.4.unchecked + b.4.stale)))
+            }
         };
         let order = match direction {
             Direction::Asc => order,
@@ -183,7 +203,7 @@ pub(super) fn sorted_page(
             .then_with(|| a.0.key.cmp(&b.0.key))
             .then_with(|| a.0.id.cmp(&b.0.id))
     });
-    let items = albums.iter().skip(offset).take(limit).map(|(r, counts, stored_spectra, _)| {
+    let items = albums.iter().skip(offset).take(limit).map(|(r, counts, stored_spectra, _, integrity)| {
         let spectra = if sort == SortColumn::Spectra { *stored_spectra } else {
             let mut count = 0;
             for id in &r.track_ids {
@@ -193,7 +213,7 @@ pub(super) fn sorted_page(
             }
             count
         };
-        Ok(json!({"reference":reference_of(c,EntityKind::Release,r.id)?,"title":r.title,"artist":r.album_artist_id.and_then(|id|c.artist(id)).map(|a|a.name.as_str()),"tracks":r.track_ids.len(),"current":counts.current,"stale":counts.stale,"failed":counts.failed,"missing":counts.missing,"spectra":spectra}))
+        Ok(json!({"integrity":integrity,"reference":reference_of(c,EntityKind::Release,r.id)?,"title":r.title,"artist":r.album_artist_id.and_then(|id|c.artist(id)).map(|a|a.name.as_str()),"tracks":r.track_ids.len(),"current":counts.current,"stale":counts.stale,"failed":counts.failed,"missing":counts.missing,"spectra":spectra}))
     }).collect::<Result<Vec<_>,ApiError>>()?;
     Ok(
         json!({"items":items,"total":albums.len(),"offset":offset,"limit":limit,"scanned_at":c.scanned_at,"summary":{"files":c.files.len(),"current":summary.current,"stale":summary.stale,"failed":summary.failed,"missing":summary.missing}}),

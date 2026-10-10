@@ -12,7 +12,8 @@ pub(super) fn routes() -> Router<ApiState> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
-    release: String,
+    release: Option<String>,
+    tracks: Option<Vec<String>>,
     name: String,
     #[serde(default)]
     library: bool,
@@ -95,20 +96,15 @@ async fn save(
         publication_admin?;
     }
     validate_collection_name(&input.name)?;
-    if input.release.len() > MAX_REFERENCE_BYTES {
-        return Err(invalid_query("release reference is too long"));
+    if input.library && input.release.is_none() {
+        return Err(invalid_query("library publication requires an album"));
     }
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, mut data) = locked_personal(&data_dir)?;
         owner.recheck(&state)?;
-        let id = crate::catalog::filter_reference(&catalog, &input.release, EntityKind::Release)?;
-        let release = catalog.release(id).ok_or_else(unavailable)?;
-        let tracks = release
-            .track_ids
-            .iter()
-            .map(|id| EntityRef::of(&catalog, EntityKind::Track, *id).ok_or_else(unavailable))
-            .collect::<Result<_, _>>()?;
+        let (album, tracks) =
+            selection(&catalog, input.release.as_deref(), input.tracks.as_deref())?;
         let mut answer = save_selection(
             &catalog,
             &mut data,
@@ -118,12 +114,50 @@ async fn save(
             tracks,
         )?;
         if input.library {
-            answer.library_files = publish_library(&catalog, id)?;
+            answer.library_files = publish_library(
+                &catalog,
+                album.ok_or_else(|| invalid_query("album required"))?,
+            )?;
         }
         Ok(Json(answer))
     })?
     .await
     .map_err(|_| unavailable())?
+}
+fn selection(
+    catalog: &Catalog,
+    release: Option<&str>,
+    tracks: Option<&[String]>,
+) -> Result<(Option<Id>, Vec<EntityRef>), ApiError> {
+    match (release, tracks) {
+        (Some(token), None) if token.len() <= MAX_REFERENCE_BYTES => {
+            let id = crate::catalog::filter_reference(catalog, token, EntityKind::Release)?;
+            let tracks = catalog
+                .release(id)
+                .ok_or_else(unavailable)?
+                .track_ids
+                .iter()
+                .map(|id| EntityRef::of(catalog, EntityKind::Track, *id).ok_or_else(unavailable))
+                .collect::<Result<_, _>>()?;
+            Ok((Some(id), tracks))
+        }
+        (None, Some(tracks)) if !tracks.is_empty() && tracks.len() <= 4096 => {
+            let tracks = tracks
+                .iter()
+                .map(|token| {
+                    if token.len() > MAX_REFERENCE_BYTES {
+                        return Err(invalid_query("track reference too long"));
+                    }
+                    let id = crate::catalog::filter_reference(catalog, token, EntityKind::Track)?;
+                    EntityRef::of(catalog, EntityKind::Track, id).ok_or_else(unavailable)
+                })
+                .collect::<Result<_, _>>()?;
+            Ok((None, tracks))
+        }
+        _ => Err(invalid_query(
+            "select exactly one album or a nonempty ordered track list",
+        )),
+    }
 }
 // Repeated explicit saves restore the same retained selection instead of consuming playlist slots.
 fn save_selection(
