@@ -161,6 +161,30 @@ fn confined(audio: &Path, sidecar: &Path) -> Result<(), ReadError> {
     Ok(())
 }
 
+/// Lightweight presence hint for catalog presentation, without opening audio or sidecar text.
+///
+/// Bounded cached tag words or a nonempty regular adjacent LRC are sufficient.
+/// Sidecar content and current audio identity are validated only by `read_current`;
+/// a hint may become stale or refer to metadata-only text. No acquisition is performed.
+/// A catalogued sidecar takes precedence over discovering a newly downloaded one.
+pub fn has_source(path: &Path, tag: Option<&str>, sidecar: Option<&Path>) -> bool {
+    if tag.is_some_and(|text| {
+        text.len() as u64 <= MAX_INPUT_BYTES
+            && super::from_tag(&path.to_string_lossy(), text).is_some()
+    }) {
+        return true;
+    }
+    let adjacent = super::sidecar_of(path);
+    let sidecar = sidecar.unwrap_or(&adjacent);
+    fs::symlink_metadata(sidecar).is_ok_and(|metadata| {
+        metadata.is_file()
+            && !metadata.file_type().is_symlink()
+            && metadata.len() > 0
+            && metadata.len() <= MAX_INPUT_BYTES
+            && confined(path, sidecar).is_ok()
+    })
+}
+
 fn complete(origin: &Path, text: &str, source: Source) -> Result<Option<Lyrics>, ReadError> {
     if text.len() > MAX_TEXT_BYTES {
         return Err(ReadError::TooLarge);

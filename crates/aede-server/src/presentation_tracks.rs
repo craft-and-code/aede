@@ -126,6 +126,7 @@ pub(super) fn listing(
             "album_position":release.and_then(|r| r.track_ids.iter().position(|id| *id == track.id)).map(|p| p+1),
             "duration_ms":track.duration_ms,
             "analysis_available":c.analyses_of(file).next().is_some(),
+            "lyrics_available":aede_core::lyrics::has_source(Path::new(&file.path), file.first_tag("lyrics"), file.lyrics_path.as_deref().map(Path::new)),
             "spectrum_available":aede_core::spectrum::picture_for(Path::new(&file.path)).is_file()
         }))
     }).collect::<Result<Vec<_>,ApiError>>()?;

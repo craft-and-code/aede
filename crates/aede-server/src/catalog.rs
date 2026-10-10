@@ -462,6 +462,11 @@ pub(super) fn entity_detail(
                 path: file.path.clone(),
                 size: file.size,
                 analyses,
+                lyrics_available: aede_core::lyrics::has_source(
+                    Path::new(&file.path),
+                    file.first_tag("lyrics"),
+                    file.lyrics_path.as_deref().map(Path::new),
+                ),
                 spectrum_available: aede_core::spectrum::picture_for(Path::new(&file.path))
                     .is_file(),
             }

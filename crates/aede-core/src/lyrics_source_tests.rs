@@ -270,3 +270,41 @@ fn local_uncatalogued_lyrics_use_existing_audio_parsers_and_report_malformed_aud
     fs::write(&fixture.audio, "not an audio container").unwrap();
     assert_eq!(read_local(&fixture.audio), Err(ReadError::TagsUnavailable));
 }
+
+#[test]
+fn source_hint_uses_cached_words_or_confined_sidecar_metadata_only() {
+    let fixture = Fixture::new();
+    assert!(!has_source(&fixture.audio, None, None));
+    assert!(has_source(
+        &fixture.audio,
+        Some("original control words"),
+        None
+    ));
+    assert!(!has_source(
+        &fixture.audio,
+        Some("[ar:metadata only]"),
+        None
+    ));
+    assert!(!has_source(
+        &fixture.audio,
+        Some(&"x".repeat(256 * 1024 + 1)),
+        None
+    ));
+    fs::write(&fixture.sidecar, "control sidecar").unwrap();
+    assert!(has_source(&fixture.audio, None, None));
+    let other = fixture.dir.join("other.lrc");
+    fs::write(&other, "other words").unwrap();
+    assert!(!has_source(&fixture.audio, None, Some(&other)));
+    fs::write(&fixture.sidecar, "").unwrap();
+    assert!(!has_source(&fixture.audio, None, None));
+}
+
+#[cfg(unix)]
+#[test]
+fn source_hint_refuses_symlinked_sidecars() {
+    let fixture = Fixture::new();
+    let other = fixture.dir.join("other.lrc");
+    fs::write(&other, "other words").unwrap();
+    std::os::unix::fs::symlink(&other, &fixture.sidecar).unwrap();
+    assert!(!has_source(&fixture.audio, None, None));
+}

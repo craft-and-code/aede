@@ -129,6 +129,7 @@ fn track_detail_exposes_complete_attributed_analysis() {
             let catalog = guard.as_mut().unwrap();
             catalog.files[0].properties.codec = "flac".into();
             catalog.files[0].tags.insert("mood".into(), vec!["electric".into()]);
+            catalog.files[0].tags.insert("lyrics".into(), vec!["original control words".into()]);
             catalog.tracks[0].track_no = Some(1);
             let file = &catalog.files[0];
             catalog.analyses.push(aede_core::analysis::FileAnalysis {
@@ -146,6 +147,7 @@ fn track_detail_exposes_complete_attributed_analysis() {
         assert_eq!(detail["tags"]["mood"][0], "electric");
         assert!(detail["credits"].is_array());
         assert_eq!(detail["track_no"], 1);
+        assert_eq!(detail["lyrics_available"], true);
         assert_eq!(detail["analyses"][0]["source"], "flaccompagnon");
         assert_eq!(detail["analyses"][0]["stale"], false);
         assert_eq!(detail["analyses"][0]["source_data"]["local_phase"]["bands"][0]["correlation"], 0.82);

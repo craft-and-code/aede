@@ -378,3 +378,17 @@ fn label_playback_starts_with_oldest_album_and_preserves_disc_positions() {
         reference_of(&c, EntityKind::Release, 0).unwrap()
     );
 }
+
+#[test]
+fn track_pages_expose_lyrics_presence_without_lyrics_payloads() {
+    let state = sample_state();
+    let mut catalog = state.catalog.blocking_read().clone().unwrap();
+    let page = track_pages::listing(&catalog, None, 0, 50, None).unwrap();
+    assert_eq!(page["items"][0]["lyrics_available"], false);
+    catalog.files[0]
+        .tags
+        .insert("lyrics".into(), vec!["original control words".into()]);
+    let page = track_pages::listing(&catalog, None, 0, 50, None).unwrap();
+    assert_eq!(page["items"][0]["lyrics_available"], true);
+    assert!(page["items"][0].get("lyrics").is_none());
+}
