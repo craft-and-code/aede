@@ -272,3 +272,50 @@ fn complete_track_pages_search_tags_and_preserve_albumless_rows() {
     let empty = track_pages::listing(&c, None, 0, 50, Some("missing-metadata")).unwrap();
     assert_eq!(empty["total"], 0);
 }
+#[test]
+fn coverage_sort_precedes_paging_and_preserves_stable_title_ties() {
+    let state = sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    let base = c.releases[0].clone();
+    c.releases.clear();
+    for (id, title, count) in [
+        (0, "Z missing", 3),
+        (1, "A complete", 0),
+        (2, "B missing", 3),
+    ] {
+        let mut release = base.clone();
+        release.id = id;
+        release.title = title.into();
+        release.key = title.into();
+        release.track_ids = vec![0; count];
+        c.releases.push(release);
+    }
+    use analysis_coverage::{Direction, SortColumn};
+    let first =
+        analysis_coverage::sorted_page(&c, 0, 1, None, SortColumn::Missing, Direction::Desc)
+            .unwrap();
+    assert_eq!(first["items"][0]["title"], "B missing");
+    let next = analysis_coverage::sorted_page(&c, 1, 1, None, SortColumn::Missing, Direction::Desc)
+        .unwrap();
+    assert_eq!(next["items"][0]["title"], "Z missing");
+    let asc = analysis_coverage::sorted_page(&c, 0, 1, None, SortColumn::Missing, Direction::Asc)
+        .unwrap();
+    assert_eq!(asc["items"][0]["title"], "A complete");
+    let title =
+        analysis_coverage::sorted_page(&c, 0, 1, None, SortColumn::Title, Direction::Desc).unwrap();
+    assert_eq!(title["items"][0]["title"], "Z missing");
+    assert_eq!(first["total"], 3);
+    assert_eq!(first["summary"], asc["summary"]);
+}
+#[test]
+fn coverage_sort_rejects_unknown_columns_and_directions() {
+    assert!(
+        serde_json::from_value::<analysis_coverage::Parameters>(json!({"sort":"unknown"})).is_err()
+    );
+    assert!(
+        serde_json::from_value::<analysis_coverage::Parameters>(
+            json!({"sort":"missing","direction":"sideways"})
+        )
+        .is_err()
+    );
+}

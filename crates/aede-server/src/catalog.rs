@@ -63,6 +63,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "missing_studio_albums",
         "label_biography",
         "analysis_coverage",
+        "analysis_coverage_sort",
         "grouped_m3u_exports",
     ];
     if cfg!(feature = "fetch") {

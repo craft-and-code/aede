@@ -10,7 +10,9 @@ Do not turn this file into a development diary.
 
 ## Project status
 
-Latest native-review verification (2026-10-09): the complete `tools/check.sh` passes with 2179 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
+Latest native-review verification (2026-10-10): the complete `tools/check.sh` passes with 2181 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
+
+Retained analysis coverage supports full-catalog column ordering before pagination, with missing counts descending by default and deterministic ties. `analysis_coverage_sort` advertises the additive sort/direction query; unknown values are refused. Sorting spectra inspects matching retained spectrum sidecars; other columns inspect only the visible page's spectra. No analysis job is launched.
 
 Personal collection browsing now retains inclusive rating intervals and favourite principal discographies, re-evaluated for the authenticated owner as annotations change. `dynamic_browse_personal` advertises these criteria. Atomic `PATCH` collection renaming retains the expression/creation date and refuses normalized-name collisions under the writer lock; `collection_rename` advertises it. No music file or annotation is rewritten.
 
