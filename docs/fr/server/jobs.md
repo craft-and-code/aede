@@ -113,3 +113,7 @@ Renvoie HTTP 202 `{task_id,status:"cancel_requested",status_url}`. C’est une d
 Maximum quatre tâches HTTP actives et 64 dossiers conservés ; les plus anciennes tâches terminées sont évincées. Les tâches attendent le verrou partagé et survivent à la déconnexion du client. L’arrêt propre du serveur les attend : annulez d’abord un long fetch à interrompre. ID/résultats vivent seulement en mémoire et disparaissent au redémarrage.
 
 Un POST dont la réponse a été perdue peut déjà avoir démarré. Les soumissions ne sont pas idempotentes : ne les répétez pas aveuglément. Reconnectez-vous/suivez un ID conservé et examinez activité/journaux avant une nouvelle soumission. La récupération ne rembobine ni requêtes externes ni résultats partiels sauvegardés.
+
+## POST /api/admin/v1/lyrics
+
+Un administrateur de confiance en boucle locale peut envoyer `{track:"track:..."}`. Le serveur valide le fichier actuel de cette piste et transmet uniquement celui-ci au worker d'enrichissement annulable existant avec `lyrics:true,yes:true`. La capacité `fetch_track_lyrics` annonce cette route. Aucun chemin arbitraire fourni par le client n'est accepté ; les références d'album ou d'artiste sont refusées. LRCLIB ne demande aucune clé API dans le fonctionnement actuel d'Aède. Les erreurs du fournisseur et absences de correspondance restent dans le résultat de la tâche. Les paroles existantes, fichiers audio et tags sont conservés. `/api/v1/lyrics` découvre un nouveau LRC adjacent sans rescanner le catalogue. Les restrictions administratives HTTPS sont inchangées.

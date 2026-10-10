@@ -37,6 +37,7 @@ fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
         .merge(catalog_commands::routes())
         .merge(inspection::routes())
         .merge(lyrics::routes())
+        .merge(waveform::routes())
         .merge(presentation::routes())
         .merge(artwork::routes())
         .merge(analysis_report::routes());

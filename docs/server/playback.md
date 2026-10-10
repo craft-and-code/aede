@@ -194,3 +194,9 @@ After upgrade, failures send `{"type":"error","code":"…","message":"…"}` whe
 | `server_shutdown` | Server is stopping. |
 
 Transport and closed-client failures cannot guarantee a JSON error or final confirmation. The shared [account](accounts.md) and [HTTPS](remote.md) restrictions apply to the handshake and the live stream. These automated PCM/transport checks do not establish physical gapless playback, client-device quality or target-NAS capacity.
+
+## Complete-track waveforms
+
+Authenticated `GET /api/v1/waveform?ref=track:...` returns `{reference,duration_ms,sample_rate,bucket_frames,peaks}`. The entire current source is decoded locally, without playback DSP or normalization; each peak is the maximum absolute channel sample in its bucket, clamped to 0–1. At most 2048 buckets are retained, with adaptive pair coalescing and a final partial bucket. Duration follows decoded source frames, not played time. The worker has a 60-second decode budget and a 24-hour source-frame bound; failure is explicit rather than substituting synthetic peaks.
+
+The derived cache is confined to the data directory's `waveforms/` folder, keyed by track/source path, size and precise modification time. Reads are bounded and validate the current source before and after work, plus the captured account before publication. Source audio/tags remain unchanged. Corrupt cached data is not published; it is decoded again without overwriting that retained file. `track_waveform` advertises the route. Waveform extraction may run alongside playback through the existing bounded inspection pool; this is a visualization cache, not a listening-history event or integrity verdict.

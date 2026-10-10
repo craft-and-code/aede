@@ -113,3 +113,7 @@ Returns HTTP 202 `{task_id,status:"cancel_requested",status_url}`. Cancellation 
 At most four HTTP jobs are active and 64 records retained; oldest finished records are evicted. Jobs wait for the shared writer lock and survive client disconnection. Graceful shutdown waits for accepted jobs, so cancel first if a long fetch should stop. IDs/results are in memory only and disappear after restart.
 
 A POST whose response was lost may already have started. Submissions are not idempotent; do not blindly repeat them. Reconnect/poll a saved ID and inspect activity/logs before deciding to submit again. Recovery does not rewind external requests or saved partial results.
+
+## POST /api/admin/v1/lyrics
+
+A trusted loopback administrator can submit `{track:"track:..."}`. The server validates the exact current track source and forwards only that file to the existing cancellable fetch worker with `lyrics:true,yes:true`. `fetch_track_lyrics` advertises the route. No arbitrary client filesystem path is accepted; album/artist references are refused. LRCLIB requires no API key in the existing Aède profile. Provider failures and missing matches remain task output, not invented words. Existing sidecars are preserved, audio/tags are untouched, and `/api/v1/lyrics` discovers a newly written adjacent LRC without requiring a catalog rescan. HTTPS administrative restrictions remain unchanged.

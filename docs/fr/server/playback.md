@@ -194,3 +194,9 @@ Après passage en WebSocket, un échec envoie `{"type":"error","code":"…","mes
 | `server_shutdown` | Arrêt du serveur. |
 
 Une panne de transport ou un client fermé ne garantit ni erreur JSON ni confirmation finale. Les restrictions communes des [comptes](accounts.md) et de [HTTPS](remote.md) concernent négociation et flux actif. Les contrôles automatisés PCM/transport ne valident ni gapless physique, qualité du périphérique client ni capacité du NAS cible.
+
+## Forme d'onde du morceau complet
+
+`GET /api/v1/waveform?ref=track:...`, authentifié, renvoie `{reference,duration_ms,sample_rate,bucket_frames,peaks}`. Le fichier actuel est entièrement décodé localement, sans DSP ni normalisation. Chaque valeur représente le maximum absolu des canaux dans une fenêtre, borné entre 0 et 1. Au maximum 2048 fenêtres sont conservées, par regroupement adaptatif ; la dernière fenêtre partielle reste présente. La durée vient des frames décodées, et non du temps écouté. Le budget est de 60 secondes de décodage et 24 heures de frames source ; les échecs restent explicites.
+
+Le cache dérivé reste dans `waveforms/` du dossier de données et dépend de la piste, du chemin, de la taille et de la date précise du fichier. Les lectures sont bornées ; le fichier est validé avant et après le travail, et le compte revérifié avant la réponse. Les données corrompues du cache ne sont pas servies : elles entraînent un nouveau décodage, sans remplacement du fichier conservé. La capacité `track_waveform` annonce cette route. Ce cache visuel ne modifie ni audio ni tags, n'ajoute pas d'historique d'écoute et ne constitue pas un verdict d'intégrité.

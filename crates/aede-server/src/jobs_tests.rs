@@ -648,3 +648,49 @@ fn explicit_service_keys_reach_the_trusted_worker_without_entering_task_metadata
         }
     });
 }
+
+#[test]
+fn track_lyrics_acquisition_passes_only_the_validated_file_to_the_existing_fetch_worker() {
+    runtime().block_on(async {
+        let mut fixture = crate::accounts_test_support::Fixture::new();
+        let track = crate::playback_test_support::install_wav(&fixture, 8000).await;
+        let original = std::fs::read(&track.path).unwrap();
+        let (sent, received) = std::sync::mpsc::channel();
+        let admin = fixture.0.admin.as_mut().unwrap();
+        admin.token = TOKEN.into();
+        admin.job = Arc::new(move |job, _| {
+            sent.send(job).unwrap();
+            Ok(JobOutput::default())
+        });
+        let body = serde_json::json!({"track":track.reference}).to_string();
+        let reply = lyrics_route(
+            State(fixture.0.clone()),
+            request("POST", "/api/admin/v1/lyrics", body),
+        )
+        .await
+        .unwrap();
+        accepted_id(reply).await;
+        let job = received.recv_timeout(Duration::from_secs(3)).unwrap();
+        let JobRequest::Fetch(fetch) = job else {
+            panic!("expected fetch")
+        };
+        assert!(fetch.lyrics && fetch.yes);
+        assert!(!fetch.covers && !fetch.images && !fetch.full && !fetch.identify);
+        assert_eq!(
+            fetch.targets,
+            vec![track.path.to_string_lossy().into_owned()]
+        );
+        assert_eq!(std::fs::read(&track.path).unwrap(), original);
+        let invalid = lyrics_route(
+            State(fixture.0.clone()),
+            request(
+                "POST",
+                "/api/admin/v1/lyrics",
+                r#"{"track":"artist:ac/dc"}"#,
+            ),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+    });
+}

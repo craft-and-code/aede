@@ -476,6 +476,7 @@ fn registry_error() -> ApiError {
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/admin/v1/fetch", post(fetch_route))
+        .route("/api/admin/v1/lyrics", post(lyrics_route))
         .route("/api/admin/v1/analyze", post(analyze_route))
         .route("/api/admin/v1/spectrum", post(spectrum_route))
         .route("/api/admin/v1/tasks/:id", get(task_route))
@@ -557,6 +558,51 @@ async fn fetch_route(
     check_request(&state, &request)?;
     let bytes = body(request, MAX_BODY).await?;
     enqueue(state, JobRequest::Fetch(decode(&bytes)?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LyricsSelection {
+    track: String,
+}
+async fn lyrics_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let selected: LyricsSelection = decode(&body(request, MAX_BODY).await?)?;
+    if selected.track.len() > super::MAX_REFERENCE_BYTES {
+        return Err(super::invalid_query("track reference too long"));
+    }
+    let target = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        let requested = super::EntityRef::parse_token(&selected.track)
+            .ok_or_else(|| super::invalid_query("invalid track"))?;
+        let source = super::playback_api::source_from_catalog(catalog, &requested)
+            .map_err(|_| super::invalid_query("current track source unavailable"))?;
+        super::playback_api::validate_source(&source)
+            .map_err(|_| super::invalid_query("track source changed; rescan first"))?;
+        if let Some(principal) = &principal {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(source.file.path)
+    })
+    .await?
+    .0;
+    enqueue(
+        state,
+        JobRequest::Fetch(FetchRequest {
+            lyrics: true,
+            targets: vec![target],
+            yes: true,
+            ..Default::default()
+        }),
+    )
 }
 
 async fn analyze_route(state: State<ApiState>, request: Request) -> Result<Response, ApiError> {

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aede-accounts", "crates/aede-core", "crates/aede-devices", "crates/aede-server", "crates/aede-cli", "crates/aede-dsp"]
+members = ["crates/aede-moods", "crates/aede-accounts", "crates/aede-core", "crates/aede-devices", "crates/aede-server", "crates/aede-cli", "crates/aede-dsp"]
 exclude = ["vendor/alsa-0.11.0"]
 
 [workspace.package]

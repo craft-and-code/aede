@@ -1,0 +1,242 @@
+//! Owner-private explainable atmosphere projections; ordinary reads stay offline.
+use super::*;
+use aede_moods::Rule;
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Parameters {
+    mood: Option<String>,
+    offset: Option<String>,
+    limit: Option<String>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RuleView {
+    id: String,
+    name: String,
+    tags: Vec<String>,
+    genres: Vec<String>,
+}
+impl From<Rule> for RuleView {
+    fn from(rule: Rule) -> Self {
+        Self {
+            id: rule.id,
+            name: rule.name,
+            tags: rule.tags,
+            genres: rule.genres,
+        }
+    }
+}
+fn domain(row: &RuleView) -> Rule {
+    Rule {
+        id: row.id.clone(),
+        name: row.name.clone(),
+        tags: row.tags.clone(),
+        genres: row.genres.clone(),
+    }
+}
+pub(super) fn routes() -> Router<ApiState> {
+    Router::new().route("/api/me/v1/moods", get(read).put(write))
+}
+fn rules(data: &UserData, owner: &str) -> Result<Vec<RuleView>, ApiError> {
+    let mut result: Vec<RuleView> = aede_moods::presets()
+        .into_iter()
+        .map(RuleView::from)
+        .collect();
+    if let Some(entry) = data
+        .client_preferences
+        .iter()
+        .find(|row| row.owner == owner && row.key == "phemios.moods")
+    {
+        let custom: Vec<RuleView> = serde_json::from_str(&entry.value)
+            .map_err(|_| invalid_query("stored mood rules are invalid"))?;
+        if custom.len() > 32 || custom.iter().any(|row| !domain(row).valid()) {
+            return Err(invalid_query("stored mood rules are invalid"));
+        }
+        for row in custom {
+            if let Some(existing) = result.iter_mut().find(|known| known.id == row.id) {
+                *existing = row;
+            } else {
+                result.push(row);
+            }
+        }
+    }
+    Ok(result)
+}
+struct Evidence {
+    reference: EntityRef,
+    tags: Vec<String>,
+    genres: Vec<String>,
+}
+// Build shared indexes once, and expand presentation rows only for the visible page.
+fn evidence(catalog: &Catalog, data: &UserData, owner: &str) -> Result<Vec<Evidence>, ApiError> {
+    let mut tags = BTreeMap::<String, Vec<String>>::new();
+    for annotation in data.annotations.iter().filter(|row| row.owner == owner) {
+        tags.insert(
+            annotation.target.to_token(),
+            annotation
+                .tags
+                .iter()
+                .map(|tag| text::normalize(tag))
+                .collect(),
+        );
+    }
+    let mut genres = BTreeMap::<String, Vec<String>>::new();
+    for link in &catalog.genre_links {
+        if let Some(genre) = catalog.genre(link.genre_id)
+            && let Some(reference) = EntityRef::of(catalog, link.entity_kind, link.entity_id)
+        {
+            genres
+                .entry(reference.to_token())
+                .or_default()
+                .push(text::normalize(&genre.name));
+        }
+    }
+    let releases =
+        catalog.playback_release_order(catalog.releases.iter().map(|row| row.id).collect());
+    let ids: Vec<Id> = releases
+        .into_iter()
+        .filter_map(|id| catalog.release(id))
+        .flat_map(|release| release.track_ids.iter().copied())
+        .chain(
+            catalog
+                .tracks
+                .iter()
+                .filter(|track| track.release_id.is_none())
+                .map(|track| track.id),
+        )
+        .collect();
+    let mut rows = Vec::with_capacity(ids.len());
+    for id in ids {
+        let track = catalog.track(id).ok_or_else(unavailable)?;
+        let reference = EntityRef::of(catalog, EntityKind::Track, id).ok_or_else(unavailable)?;
+        let release = track.release_id.and_then(|id| catalog.release(id));
+        let artist = release.and_then(|release| release.album_artist_id);
+        let refs = std::iter::once(reference.clone())
+            .chain(release.and_then(|row| EntityRef::of(catalog, EntityKind::Release, row.id)))
+            .chain(artist.and_then(|id| EntityRef::of(catalog, EntityKind::Artist, id)));
+        let mut own_tags = Vec::new();
+        let mut own_genres = Vec::new();
+        for key in refs.map(|reference| reference.to_token()) {
+            own_tags.extend(tags.get(&key).into_iter().flatten().cloned());
+            own_genres.extend(genres.get(&key).into_iter().flatten().cloned());
+        }
+        rows.push(Evidence {
+            reference,
+            tags: own_tags,
+            genres: own_genres,
+        });
+    }
+    Ok(rows)
+}
+fn matches(rows: &[Evidence], rule: &Rule) -> Vec<(EntityRef, aede_moods::Match)> {
+    rows.iter()
+        .filter_map(|row| {
+            rule.matches(&row.tags, &row.genres)
+                .map(|reason| (row.reference.clone(), reason))
+        })
+        .collect()
+}
+async fn read(
+    State(state): State<ApiState>,
+    input: Result<Query<Parameters>, QueryRejection>,
+    request: Request,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    let query = parsed_query(input)?;
+    let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
+    let dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        let (_lock, catalog, data) = locked_personal(&dir)?;
+        owner.recheck(&state)?;
+        let rules = rules(&data, &owner.id)?;
+        if query.mood.as_ref().is_some_and(|id| !rules.iter().any(|row| &row.id == id)) {
+            return Err(invalid_query("unknown atmosphere"));
+        }
+        let evidence = evidence(&catalog, &data, &owner.id)?;
+        let mut summaries = Vec::new();
+        let mut items = Vec::new();
+        let mut total = 0;
+        for rule in rules {
+            let selected = matches(&evidence, &domain(&rule));
+            summaries.push(serde_json::json!({"rule":rule,"count":selected.len()}));
+            if query.mood.as_deref() == Some(rule.id.as_str()) {
+                total = selected.len();
+                for (reference, reason) in selected.into_iter().skip(offset).take(limit) {
+                    let mut row = super::super::presentation::playback_rows(&catalog, &reference.to_token())?.remove(0);
+                    row["reason"] = serde_json::json!({"tag":reason.tag,"genre":reason.genre});
+                    items.push(row);
+                }
+            }
+        }
+        Ok(Json(serde_json::json!({"moods":summaries,"items":items,"total":total,"offset":offset,"scanned_at":catalog.scanned_at})))
+    })?.await.map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"personal_failed","atmosphere worker failed"))?
+}
+async fn write(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Json<RuleView>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
+    let mut row: RuleView = json_body(request).await?;
+    row.tags = row
+        .tags
+        .iter()
+        .map(|value| text::normalize(value))
+        .collect();
+    row.genres = row
+        .genres
+        .iter()
+        .map(|value| text::normalize(value))
+        .collect();
+    if !domain(&row).valid() {
+        return Err(invalid_query("invalid atmosphere criteria"));
+    }
+    let dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        locked_update(&dir, &state, &owner, |_, data| {
+            let mut custom: Vec<RuleView> = data
+                .client_preferences
+                .iter()
+                .find(|entry| entry.owner == owner.id && entry.key == "phemios.moods")
+                .map(|entry| serde_json::from_str(&entry.value))
+                .transpose()
+                .map_err(|_| invalid_query("invalid stored atmospheres"))?
+                .unwrap_or_default();
+            if let Some(known) = custom.iter_mut().find(|known| known.id == row.id) {
+                *known = row.clone();
+            } else {
+                custom.push(row.clone());
+            }
+            let value =
+                serde_json::to_string(&custom).map_err(|_| invalid_query("invalid atmospheres"))?;
+            if custom.len() > 32 || !user::valid_preference("phemios.moods", &value) {
+                return Err(invalid_query("too many atmospheres"));
+            }
+            if let Some(entry) = data
+                .client_preferences
+                .iter_mut()
+                .find(|entry| entry.owner == owner.id && entry.key == "phemios.moods")
+            {
+                entry.value = value;
+            } else {
+                data.client_preferences.push(user::ClientPreference {
+                    owner: owner.id.clone(),
+                    key: "phemios.moods".into(),
+                    value,
+                });
+            }
+            Ok(Json(row))
+        })
+    })?
+    .await
+    .map_err(|_| {
+        error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "personal_failed",
+            "atmosphere save failed",
+        )
+    })?
+}
+#[cfg(test)]
+#[path = "personal_moods_tests.rs"]
+mod tests;

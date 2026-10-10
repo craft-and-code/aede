@@ -69,12 +69,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aede-moods"
+version = "0.4.0"
+
+[[package]]
 name = "aede-server"
 version = "0.4.0"
 dependencies = [
  "aede-core",
  "aede-devices",
  "aede-dsp",
+ "aede-moods",
  "axum",
  "hyper",
  "hyper-util",

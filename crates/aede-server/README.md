@@ -296,3 +296,16 @@ Explicit `library:true` on private M3U creation publishes catalog-derived album/
 The owner-private `/api/me/v1/missing` GET/PUT contract exposes the shared CLI missing-discography policy and reversible owner decisions without modifying sources or audio. See [missing albums](../../docs/server/missing-albums.md). Status advertises `missing_studio_albums` and `label_biography`; label detail includes only already-retained trusted prose, never an implicit external fetch.
 
 Missing-album cover art: `GET /api/me/v1/missing/cover` is cache-only, while `POST` with `artist` and `release_group` selectors and no body explicitly acquires archive art. Optional `fetch` builds advertise `missing_album_covers`; the [missing-album contract](../../docs/server/missing-albums.md) defines identity, cache, roles, bounds and failures.
+
+## Desktop playback preferences and discovery
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/v1/waveform` | Source-guarded complete-track adaptive peak envelope; required track `ref`, derived cache only. |
+| `GET /api/me/v1/preferences` | Owner-private non-secret JSON settings, including before the first scan. |
+| `PATCH /api/me/v1/preferences` | Merge bounded `phemios.*` values; auditors are read-only. |
+| `GET /api/me/v1/moods` | Explainable tag/genre rule counts and paged playback selections for one owner. |
+| `PUT /api/me/v1/moods` | Create or override an owner-private atmosphere rule. |
+| `POST /api/admin/v1/lyrics` | Explicit trusted-loopback exact-track LRCLIB acquisition through the existing task worker. |
+
+See [personal contracts](../../docs/server/personal.md#account-presentation-preferences-and-atmospheres), [waveforms](../../docs/server/playback.md#complete-track-waveforms) and [lyrics jobs](../../docs/server/jobs.md#post-apiadminv1lyrics). Status advertises `account_preferences`, `track_waveform`, `mood_rules`, `fetch_track_lyrics` and label-specific `label_album_sort`. Label `sort=albums` orders the complete filtered set before pagination. No atmosphere read launches an analysis or derives emotion from integrity measurements.

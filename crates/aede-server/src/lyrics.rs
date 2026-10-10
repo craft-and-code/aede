@@ -54,7 +54,10 @@ fn select(catalog: &Catalog, requested: &EntityRef) -> Result<Selected, ApiError
         mtime: file.mtime,
         mtime_subseconds,
         tag: tag.map(str::to_owned),
-        sidecar: file.lyrics_path.as_ref().map(PathBuf::from),
+        sidecar: file.lyrics_path.as_ref().map(PathBuf::from).or_else(|| {
+            let candidate = lyrics::sidecar_of(Path::new(&file.path));
+            candidate.is_file().then_some(candidate)
+        }),
     })
 }
 

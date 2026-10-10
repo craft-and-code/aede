@@ -103,6 +103,7 @@ mod security;
 mod state;
 mod subsonic;
 mod tls;
+mod waveform;
 
 pub use jobs::{FetchRequest, JobOutput, JobRequest, MediaJobRequest, ScanRequest};
 

@@ -177,7 +177,7 @@ struct PlaybackQuery {
     #[serde(rename = "ref")]
     reference: String,
 }
-fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>, ApiError> {
+pub(super) fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>, ApiError> {
     if token.len() > MAX_REFERENCE_BYTES {
         return Err(invalid_query("reference is too long"));
     }

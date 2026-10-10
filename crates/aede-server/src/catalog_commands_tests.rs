@@ -496,3 +496,21 @@ fn label_prose_keeps_source_language_and_licence_without_fetching() {
         std::fs::remove_dir_all(directory).unwrap();
     });
 }
+
+#[test]
+fn label_album_count_order_is_applied_before_pagination_and_refuses_other_kinds() {
+    runtime().block_on(async {
+        let state = fixture().await;
+        let (address, server) = start(state).await;
+        for (order, expected) in [("asc", "Roadrunner"), ("desc", "Atlantic")] {
+            let page = json_response(
+                address,
+                &format!("/api/v1/labels?sort=albums&order={order}&limit=1"),
+            );
+            assert_eq!(page["items"][0]["name"], expected);
+            assert_eq!(page["total"], 2);
+        }
+        assert!(request(address, "/api/v1/genres?sort=albums").starts_with("HTTP/1.1 400"));
+        server.abort();
+    });
+}

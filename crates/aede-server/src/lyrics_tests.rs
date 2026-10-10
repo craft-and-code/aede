@@ -369,3 +369,29 @@ fn native_lyrics_share_bounded_workers_and_recheck_revocation_and_account_activa
         );
     });
 }
+
+#[test]
+fn newly_fetched_adjacent_lyrics_are_visible_without_a_catalog_rescan() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let track = install_wav(&fixture, 8000).await;
+        set_words(&fixture, None, None).await;
+        let original = std::fs::read(&track.path).unwrap();
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let token = login(address, "alice");
+        assert!(
+            http(address, "GET", &path(&track.reference), Some(&token), "").1["lyrics"].is_null()
+        );
+        std::fs::write(
+            aede_core::lyrics::sidecar_of(&track.path),
+            "[00:01]Fetched words",
+        )
+        .unwrap();
+        let (status, body, _) = http(address, "GET", &path(&track.reference), Some(&token), "");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["lyrics"]["source"], "sidecar");
+        assert_eq!(body["lyrics"]["lines"][0]["text"], "Fetched words");
+        assert_eq!(std::fs::read(&track.path).unwrap(), original);
+        server.abort();
+    });
+}

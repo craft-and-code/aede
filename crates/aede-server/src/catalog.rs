@@ -59,6 +59,10 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "dynamic_browse_tags",
         "dynamic_browse_label",
         "label_playback",
+        "label_album_sort",
+        "account_preferences",
+        "track_waveform",
+        "mood_rules",
         "collection_rename",
         "album_track_pages",
         "track_catalog_pages",
@@ -77,6 +81,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         capabilities.push("fetch_service_keys");
         if cfg!(feature = "fetch") {
             capabilities.push("fetch_discogs");
+            capabilities.push("fetch_track_lyrics");
         }
     }
     Json(Status {

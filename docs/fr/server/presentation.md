@@ -56,3 +56,6 @@ La sélection de lecture accepte aussi une référence de label : seules ses éd
 Une règle `browse-v1:` avec `view: "label"` exige une référence stable originale `label` de type Label. Les filtres d’années, d’initiales des titres et de recherche s’appliquent aux éditions de ce label. Les autres vues refusent ce champ ; une référence absente ou d’un autre type est refusée ; un label valide retiré donne une sélection vide. Les futures éditions correspondantes rejoignent la collection à son évaluation, sans enregistrer d’identifiant numérique de catalogue. `dynamic_browse_label` annonce cette extension. Le client conserve séparément la bibliothèque et le compte d’origine, sans enregistrer son espace de noms dans la règle.
 
 Si l’administration fetch est disponible avec le réseau activé, `fetch_discogs` annonce le champ explicite `discogs` des tâches. Le GET d’un label reste local et ne lance jamais d’enrichissement.
+
+
+Les pages de labels acceptent également `sort=albums` et `order=asc|desc` pour trier tous les labels filtrés par nombre d’albums avant pagination. Les égalités utilisent le nom et la clé de manière déterministe. Ce tri est refusé pour les autres listes du catalogue. La capacité `label_album_sort` l’annonce. La lecture d’un label et sa discographie chronologique partagent la règle d’ordre des albums du serveur.

@@ -27,6 +27,9 @@ use crate::text;
 
 #[path = "user_identity.rs"]
 mod identity;
+#[path = "user_preferences.rs"]
+mod preferences;
+pub use preferences::{ClientPreference, valid_preference};
 #[path = "user_playback.rs"]
 mod playback;
 #[path = "user_playlists.rs"]
@@ -451,6 +454,8 @@ pub struct SameArtist {
 /// Everything the user wrote, as it sits on disk.
 #[derive(Debug, Clone, Default)]
 pub struct UserData {
+    /// Optional owner-private application preferences; retained across scans and exports.
+    pub client_preferences: Vec<ClientPreference>,
     /// One record per owner and target.
     pub annotations: Vec<Annotation>,
     /// Notes and labels attached to graph relationships.
@@ -886,6 +891,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
     root.set("collections", Json::Arr(collections));
     playlists::write_tables(data, &mut root);
     playback::write_table(data, &mut root);
+    preferences::write(data, &mut root);
 
     let set_aside: Vec<Json> = data
         .set_aside
@@ -975,6 +981,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         }
     }
     let mut data = UserData {
+        client_preferences: preferences::read(value)?,
         playlists: playlists::read_playlists(value)?,
         scrobbles: playlists::read_scrobbles(value)?,
         playback_states: playback::read_states(value)?,
@@ -1201,6 +1208,15 @@ pub struct Merge {
 /// never rewinds an existing device checkpoint, even if its timestamp is older.
 pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
     let mut report = Merge::default();
+    for entry in incoming.client_preferences {
+        if !into
+            .client_preferences
+            .iter()
+            .any(|known| known.owner == entry.owner && known.key == entry.key)
+        {
+            into.client_preferences.push(entry);
+        }
+    }
     playlists::merge(into, incoming.playlists, incoming.scrobbles, &mut report);
     playback::merge(into, incoming.playback_states, &mut report);
 

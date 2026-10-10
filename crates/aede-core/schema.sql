@@ -518,3 +518,11 @@ CREATE TABLE user_playback_entry (
     UNIQUE (owner, profile, occurrence),
     FOREIGN KEY (owner, profile) REFERENCES user_playback_state (owner, profile)
 ) WITHOUT ROWID;
+
+-- Optional application-owned preferences; credentials belong to accounts.
+CREATE TABLE user_client_preference (
+    owner TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (owner, key)
+) WITHOUT ROWID;

@@ -70,3 +70,6 @@ Playback selection also accepts a label reference, selecting only its current as
 A `browse-v1:` payload with `view: "label"` requires an original stable `label` reference of kind Label. Year, title-initial and search filters apply to that label's editions. Other views refuse the field, missing/wrong-kind references fail validation, and a valid removed label evaluates to an empty selection. Future matching editions join on evaluation; no numeric catalog ID is persisted. `dynamic_browse_label` advertises this extension. Clients capture the originating library/account separately, never persisting application namespaces in the expression.
 
 When administrative fetch is available in a network-enabled build, `fetch_discogs` advertises the explicit `discogs` job flag. Ordinary label GET remains local and never launches enrichment.
+
+
+Label pages additionally accept `sort=albums` with `order=asc|desc`, ordering the complete filtered label set by associated release count before pagination. Name/key ties remain deterministic. Other catalog entity lists refuse this sort. `label_album_sort` advertises it. Label playback and the chronological discography view share the existing server release-order policy.

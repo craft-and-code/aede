@@ -10,7 +10,9 @@ Do not turn this file into a development diary.
 
 ## Project status
 
-Latest native-review verification (2026-10-10): the complete `tools/check.sh` passes with 2183 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
+Latest playback/settings verification (2026-10-10): the complete `tools/check.sh` passes with 2200 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
+
+Desktop playback follow-up adds source-guarded complete-track waveform caches, owner-private presentation preferences, explicit exact-track LRCLIB acquisition and explainable tag/genre atmosphere rules in the dependency-free `aede-moods` crate. Label count ordering applies before pagination. These are additive contracts; no source audio/tags are changed and no ordinary mood/catalog read contacts a provider. See personal, jobs, presentation and playback documentation.
 
 Owner-private dynamic tag collections retain a normalized tag union and tag-name search. Artist tags contribute principal discographies, album tags whole editions, and track tags only selected placements, including albumless tracks. Guest credits and other owners remain excluded. `dynamic_browse_tags` advertises the additive validated payload.
 

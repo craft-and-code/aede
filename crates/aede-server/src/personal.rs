@@ -21,6 +21,10 @@ mod collection_updates;
 mod m3u;
 #[path = "personal_missing.rs"]
 mod missing;
+#[path = "personal_moods.rs"]
+mod moods;
+#[path = "personal_preferences.rs"]
+mod preferences;
 
 const MAX_BODY: usize = 16 * 1024;
 const MAX_TAGS: usize = 100;
@@ -67,6 +71,8 @@ pub(super) fn account_routes() -> Router<ApiState> {
         .route("/api/me/v1/collections", get(collections))
         .route("/api/me/v1/collection/albums", get(collection_albums))
         .route("/api/me/v1/annotations", get(annotations))
+        .merge(preferences::routes())
+        .merge(moods::routes())
         .merge(m3u::routes())
         .merge(missing::routes())
 }
