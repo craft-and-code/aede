@@ -117,3 +117,23 @@ fn preference_http_writes_are_private_role_checked_and_patch_fields_independentl
         server.abort();
     });
 }
+
+#[test]
+fn private_engine_state_never_leaks_through_client_preferences() {
+    let mut data = UserData::default();
+    data.client_preferences.push(user::ClientPreference {
+        owner: "one".into(),
+        key: "aede.achievements.v1".into(),
+        value: r#"{"version":1,"unlocked":{},"search":false}"#.into(),
+    });
+    data.client_preferences.push(user::ClientPreference {
+        owner: "one".into(),
+        key: "phemios.duration".into(),
+        value: "true".into(),
+    });
+    assert_eq!(snapshot(&data, "one").unwrap().values.len(), 1);
+    assert_eq!(
+        snapshot(&data, "one").unwrap().values["phemios.duration"],
+        true
+    );
+}

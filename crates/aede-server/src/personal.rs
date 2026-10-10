@@ -15,6 +15,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::*;
+#[path = "personal_achievements.rs"]
+mod achievements;
 #[path = "personal_collections.rs"]
 mod collection_updates;
 #[path = "personal_m3u.rs"]
@@ -74,6 +76,7 @@ pub(super) fn account_routes() -> Router<ApiState> {
         .route("/api/me/v1/collection/albums", get(collection_albums))
         .route("/api/me/v1/annotations", get(annotations))
         .merge(search::routes())
+        .merge(achievements::routes())
         .merge(preferences::routes())
         .merge(moods::routes())
         .merge(m3u::routes())
@@ -419,6 +422,15 @@ fn locked_update<T>(
     let (_guard, catalog, mut data) = locked_personal(data_dir)?;
     owner.recheck(state)?;
     let result = update(&catalog, &mut data)?;
+    if let Err(failure) = aede_core::achievements::refresh(
+        &catalog,
+        &mut data,
+        &owner.id,
+        false,
+        clock::now_seconds(),
+    ) {
+        eprintln!("Private achievement projection retained after failure: {failure}");
+    }
     data.forget_empty();
     user::save(&data, &user::user_path(data_dir)).map_err(|failure| {
         eprintln!("API user data write failed: {failure}");

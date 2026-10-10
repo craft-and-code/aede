@@ -755,7 +755,7 @@ pub(super) async fn run(
                 if send_json(&mut socket,serde_json::json!({"type":"recorded","occurrence":visit.occurrence,"track":visit.listen.source.reference.to_token(),"ms_played":visit.listen.ms_played,"completed":visit.listen.completed})).await.is_err(){break}
             }
             if outcome.failed && failure.is_none() {
-                failure = Some(StreamFailure::HISTORY_FAILED)
+                failure = Some(StreamFailure::HISTORY_SOURCE)
             }
         }
         Err(error) => {

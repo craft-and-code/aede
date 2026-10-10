@@ -19,7 +19,7 @@ fn snapshot(data: &UserData, owner: &str) -> Result<View, ApiError> {
     let values = data
         .client_preferences
         .iter()
-        .filter(|row| row.owner == owner)
+        .filter(|row| row.owner == owner && row.key.starts_with("phemios."))
         .map(|row| serde_json::from_str(&row.value).map(|value| (row.key.clone(), value)))
         .collect::<Result<_, _>>()
         .map_err(|_| {

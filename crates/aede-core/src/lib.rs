@@ -10,6 +10,7 @@
 //! of containers that do not deserve a parser of their own.
 
 pub mod accounts;
+pub mod achievements;
 pub mod acoustic;
 pub mod acoustid;
 pub mod analysis;

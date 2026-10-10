@@ -432,6 +432,26 @@ impl StreamFailure {
         code: "history_failed",
         message: "the listening history could not be saved",
     };
+    const HISTORY_SOURCE: Self = Self {
+        code: "history_failed",
+        message: "history source changed or became unavailable; rescan the library",
+    };
+    const HISTORY_BUSY: Self = Self {
+        code: "history_failed",
+        message: "history storage remained busy; saving was not confirmed",
+    };
+    const HISTORY_READ: Self = Self {
+        code: "history_failed",
+        message: "private history storage could not be read; retain the file and check the server log",
+    };
+    const HISTORY_WRITE: Self = Self {
+        code: "history_failed",
+        message: "private history storage could not be written; check disk space and permissions",
+    };
+    const HISTORY_TIMEOUT: Self = Self {
+        code: "history_failed",
+        message: "history saving timed out; its final status is uncertain",
+    };
     const SERVER_SHUTDOWN: Self = Self {
         code: "server_shutdown",
         message: "the server is shutting down",
@@ -1249,12 +1269,8 @@ fn frames_to_milliseconds(frames: u64, sample_rate: u32) -> u64 {
     u64::try_from(milliseconds).unwrap_or(u64::MAX)
 }
 
-fn history_error() -> ApiError {
-    error(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "history_failed",
-        "the listening history could not be saved",
-    )
+fn history_error(message: &str) -> ApiError {
+    error(StatusCode::INTERNAL_SERVER_ERROR, "history_failed", message)
 }
 
 fn lock_for_history(data_dir: &Path) -> Result<StoreLock, ApiError> {
@@ -1270,7 +1286,13 @@ fn lock_for_history(data_dir: &Path) -> Result<StoreLock, ApiError> {
             {
                 std::thread::sleep(Duration::from_millis(25));
             }
-            Err(_) => return Err(history_error()),
+            Err(failure) => {
+                return Err(history_error(if failure.kind() == ErrorKind::WouldBlock {
+                    StreamFailure::HISTORY_BUSY.message
+                } else {
+                    StreamFailure::HISTORY_WRITE.message
+                }));
+            }
         }
     }
 }
@@ -1279,7 +1301,7 @@ fn load_history(data_dir: &Path, catalog: &Catalog) -> Result<UserData, ApiError
     let mut data = user::load(&user::user_path(data_dir))
         .map_err(|failure| {
             eprintln!("API playback history read failed: {failure}");
-            history_error()
+            history_error(StreamFailure::HISTORY_READ.message)
         })?
         .unwrap_or_default();
     user::reconcile(&mut data, catalog);
@@ -1317,7 +1339,7 @@ impl ListenRecord {
         let catalog = store::load(&store::catalog_path(&self.state.data_dir))
             .map_err(|failure| {
                 eprintln!("API playback catalog read failed: {failure}");
-                history_error()
+                history_error(StreamFailure::HISTORY_READ.message)
             })?
             .ok_or_else(unavailable)?;
         let mut data = load_history(&self.state.data_dir, &catalog)?;
@@ -1345,13 +1367,38 @@ impl ListenRecord {
             outcome.saved.push(listen.index);
         }
         if !outcome.saved.is_empty() {
+            if let Err(failure) = aede_core::achievements::refresh(
+                &catalog,
+                &mut data,
+                &principal.owner,
+                false,
+                aede_core::clock::now_seconds(),
+            ) {
+                eprintln!("API achievement projection unavailable: {failure}");
+            }
             user::save(&data, &user::user_path(&self.state.data_dir)).map_err(|failure| {
                 eprintln!("API playback history write failed: {failure}");
-                history_error()
+                history_error(StreamFailure::HISTORY_WRITE.message)
             })?;
         }
         Ok(outcome)
     }
+}
+
+fn history_failure(failure: &ApiError) -> StreamFailure {
+    if matches!(failure.code, "unauthorized" | "forbidden") {
+        return StreamFailure::AUTHENTICATION_EXPIRED;
+    }
+    for reason in [
+        StreamFailure::HISTORY_BUSY,
+        StreamFailure::HISTORY_READ,
+        StreamFailure::HISTORY_WRITE,
+    ] {
+        if failure.message == reason.message {
+            return reason;
+        }
+    }
+    StreamFailure::HISTORY_FAILED
 }
 
 async fn record_listen(
@@ -1367,7 +1414,7 @@ async fn record_listen(
             Ok(Ok(outcome)) => (Ok(outcome), Some(permit)),
             Ok(Err(failure)) => {
                 eprintln!("API playback history update failed: {}", failure.message);
-                (Err(StreamFailure::HISTORY_FAILED), Some(permit))
+                (Err(history_failure(&failure)), Some(permit))
             }
             Err(_) => (Err(StreamFailure::HISTORY_FAILED), Some(permit)),
         },
@@ -1381,7 +1428,7 @@ async fn record_listen(
                     Ok(Ok(_)) => {}
                 }
             });
-            (Err(StreamFailure::HISTORY_FAILED), None)
+            (Err(StreamFailure::HISTORY_TIMEOUT), None)
         }
     }
 }
@@ -1531,7 +1578,7 @@ async fn playback_stream(
                     }
                 }
                 if outcome.failed {
-                    send_failure(&mut socket, StreamFailure::HISTORY_FAILED).await;
+                    send_failure(&mut socket, StreamFailure::HISTORY_SOURCE).await;
                 } else {
                     send_close(&mut socket).await;
                 }

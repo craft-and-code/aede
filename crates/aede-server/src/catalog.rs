@@ -73,6 +73,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "analysis_coverage_sort",
         "analysis_integrity",
         "advanced_search",
+        "private_achievements",
         "queue_m3u",
         "grouped_m3u_exports",
     ];
