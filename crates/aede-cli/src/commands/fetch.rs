@@ -735,6 +735,7 @@ fn second_passes(
         );
     }
 
+    let mut partial: Option<Box<dyn std::error::Error>> = None;
     for pass in passes {
         match pass {
             Pass::Summaries => {
@@ -799,7 +800,16 @@ fn second_passes(
             }
             Pass::Discogs => {
                 let catalog = catalog.ok_or("Discogs requires a catalog")?;
-                super::discogs::run(catalog, transport, backoff, held, path, asked)?;
+                if let Err(error) =
+                    super::discogs::run(catalog, transport, backoff, held, path, asked)
+                {
+                    if error.is::<super::discogs::UnavailableLabels>() {
+                        eprintln!("  {error}; continuing with the remaining enrichment passes.");
+                        partial = Some(error);
+                    } else {
+                        return Err(error);
+                    }
+                }
             }
             Pass::Credits => {
                 let catalog = catalog.expect("a catalog was loaded for it");
@@ -809,7 +819,10 @@ fn second_passes(
             }
         }
     }
-    Ok(())
+    match partial {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// Retrieves MusicBrainz recording credits, work relationships and work

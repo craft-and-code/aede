@@ -10,6 +10,8 @@ Do not turn this file into a development diary.
 
 ## Project status
 
+Desktop enrichment can explicitly identify newly added artists/albums before secondary services within one server-owned task (`musicbrainz:true`, capability `fetch_musicbrainz_first`). Completed unavailable Discogs label batches no longer skip later artwork passes; the final partial failure remains visible. Provider throttling and identification failures still stop their chain. Existing scan exclusions remain independent of replacing watched roots. See fetch and administrative jobs documentation.
+
 Latest playback/settings/lyrics verification (2026-10-10): the complete `tools/check.sh` passes with 2203 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
 
 Track pages/detail now expose an additive `lyrics_available` presence hint using bounded cached tag words or confined regular nonempty LRC metadata. No browsing read opens audio/sidecar text or contacts a provider. Complete lyrics remain an explicit source-guarded read; clients handle stale/empty hints. Owned authenticated acceptance verifies a newly adjacent LRC without rescanning and restores the fixture with unchanged audio hashes. See presentation and playback documentation.

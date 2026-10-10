@@ -58,6 +58,8 @@ pub struct FetchRequest {
     /// Up to 64 nonempty names or server-folder paths, 4096 bytes each, no NUL.
     /// Empty selects the CLI's ordinary all-catalog scope for the chosen passes.
     pub targets: Vec<String>,
+    /// Run ordinary MusicBrainz identification before the selected secondary passes.
+    pub musicbrainz: bool,
     /// Fetch attributed artist/album prose.
     pub summaries: bool,
     /// Fetch artist discographies for later missing-release inspection.

@@ -13,6 +13,22 @@ use aede_core::{clock, discogs, musicbrainz, text};
 
 use super::Res;
 
+/// A completed partial batch, distinct from a provider throttle or an unusable run.
+#[derive(Debug)]
+pub(super) struct UnavailableLabels(pub usize);
+
+impl std::fmt::Display for UnavailableLabels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Discogs completed with {} unavailable label(s); saved profiles are retained",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnavailableLabels {}
+
 /// Explicit batch fallback for identified labels in the requested name/folder scope.
 /// Fresh profiles are reused unless `--full` asks again; dry-run performs no I/O.
 pub(super) fn run(
@@ -78,6 +94,10 @@ pub(super) fn run(
             },
         );
         if let Err(why) = result {
+            // A failed source publication is not an unavailable provider profile.
+            if why.is::<aede_core::store::StoreError>() {
+                return Err(why);
+            }
             // A provider throttle exhausts the pass budget; do not turn it into one request per label.
             if rate_limited.get() {
                 return Err(format!(
@@ -93,10 +113,7 @@ pub(super) fn run(
         }
     }
     if unavailable > 0 {
-        return Err(format!(
-            "Discogs completed with {unavailable} unavailable label(s); saved profiles are retained"
-        )
-        .into());
+        return Err(UnavailableLabels(unavailable).into());
     }
     Ok(())
 }

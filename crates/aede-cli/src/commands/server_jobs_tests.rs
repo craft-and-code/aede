@@ -3,9 +3,74 @@ use crate::args::Args;
 use aede_server::{FetchRequest, ScanRequest};
 
 #[test]
+fn enrichment_identifies_before_secondary_passes_and_keeps_one_task_result() {
+    let request = JobRequest::Fetch(FetchRequest {
+        musicbrainz: true,
+        targets: vec!["Black Sabbath".into(), "--data=/unwanted".into()],
+        covers: true,
+        fanart: true,
+        yes: true,
+        ..Default::default()
+    });
+    let mut requests = Vec::new();
+    let output = run_sequence(request, &AtomicBool::new(false), |request| {
+        requests.push(arguments(&request));
+        Ok(JobOutput {
+            stdout: format!("stage {}\n", requests.len()),
+            ..Default::default()
+        })
+    })
+    .unwrap();
+    assert_eq!(requests.len(), 2);
+    let base = Args::parse(requests[0].clone());
+    assert!(base.has("yes"));
+    assert!(!base.has("covers"));
+    assert!(!base.has("fanart"));
+    assert_eq!(base.positionals, ["Black Sabbath", "--data=/unwanted"]);
+    assert!(!base.has("data"));
+    let artwork = Args::parse(requests[1].clone());
+    assert!(artwork.has("covers") && artwork.has("fanart"));
+    assert_eq!(output.stdout, "stage 1\nstage 2\n");
+}
+
+#[test]
+fn failed_or_cancelled_identification_does_not_start_secondary_work() {
+    for cancel in [false, true] {
+        let cancellation = AtomicBool::new(false);
+        let mut calls = 0;
+        let result = run_sequence(
+            JobRequest::Fetch(FetchRequest {
+                musicbrainz: true,
+                covers: true,
+                ..Default::default()
+            }),
+            &cancellation,
+            |_| {
+                calls += 1;
+                if cancel {
+                    cancellation.store(true, Ordering::Release);
+                }
+                Ok(JobOutput {
+                    exit_code: if cancel { 0 } else { 1 },
+                    stderr: "diagnostic".into(),
+                    ..Default::default()
+                })
+            },
+        );
+        assert_eq!(calls, 1);
+        if cancel {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap().stderr, "diagnostic");
+        }
+    }
+}
+
+#[test]
 fn every_fetch_option_reaches_the_existing_parser_without_option_injection() {
     let job = JobRequest::Fetch(FetchRequest {
         service_keys: None,
+        musicbrainz: false,
         targets: vec![
             "Miles Davis".into(),
             "--data=/unwanted".into(),
@@ -236,4 +301,46 @@ fn client_service_keys_are_child_only_and_redacted_from_captured_output() {
     assert_eq!(output.exit_code, 0);
     assert_eq!(output.stdout, "[redacted]");
     assert_eq!(std::env::var("AEDE_FANARTTV_KEY").ok(), before);
+}
+
+#[test]
+fn combined_stage_output_stays_bounded_at_utf8_boundaries_and_plain_fetch_runs_once() {
+    let mut calls = 0;
+    let output = run_sequence(
+        JobRequest::Fetch(FetchRequest {
+            musicbrainz: true,
+            covers: true,
+            ..Default::default()
+        }),
+        &AtomicBool::new(false),
+        |_| {
+            calls += 1;
+            Ok(JobOutput {
+                stdout: if calls == 1 {
+                    "x".repeat(MAX_OUTPUT - 1)
+                } else {
+                    "é".repeat(10)
+                },
+                ..Default::default()
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(calls, 2);
+    assert_eq!(output.stdout.len(), MAX_OUTPUT - 1);
+    assert!(output.output_truncated);
+    calls = 0;
+    run_sequence(
+        JobRequest::Fetch(FetchRequest {
+            musicbrainz: true,
+            ..Default::default()
+        }),
+        &AtomicBool::new(false),
+        |_| {
+            calls += 1;
+            Ok(JobOutput::default())
+        },
+    )
+    .unwrap();
+    assert_eq!(calls, 1);
 }

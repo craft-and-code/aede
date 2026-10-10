@@ -420,6 +420,45 @@ fn batch_retains_later_profiles_when_an_earlier_label_has_no_discogs_link() {
 }
 
 struct ThrottledTransport(usize);
+
+#[test]
+fn a_failed_source_publication_stops_the_batch_instead_of_becoming_an_unavailable_profile() {
+    let mut catalog = catalog();
+    catalog.labels[0].name = "Control Label".into();
+    catalog.labels[0].key = "control label".into();
+    catalog.labels[0].mbid = Some("11111111-1111-4111-8111-111111111111".into());
+    let target = path("publication_failure");
+    std::fs::create_dir(&target).unwrap();
+    let asked = super::super::fetch::Asked {
+        names: &[],
+        scope: &super::super::fetch::EVERYTHING,
+        again: false,
+        dry_run: false,
+        size: aede_core::coverart::Size::Original,
+        size_requested: false,
+        images: false,
+        fanart: Default::default(),
+        langs: vec!["en".into()],
+        key: None,
+        portrait_key: None,
+    };
+    let error = run(
+        &catalog,
+        &mut BatchTransport,
+        &[],
+        &mut Sources::default(),
+        &target,
+        &asked,
+    )
+    .unwrap_err();
+    assert!(
+        error.is::<aede_core::store::StoreError>(),
+        "a storage failure must remain fatal: {error}"
+    );
+    assert!(target.is_dir());
+    std::fs::remove_dir_all(target.parent().unwrap()).unwrap();
+}
+
 impl super::super::fetch::Ask for ThrottledTransport {
     fn get_json(&mut self, _: &str) -> Result<Json, super::super::fetch::Refusal> {
         self.0 += 1;

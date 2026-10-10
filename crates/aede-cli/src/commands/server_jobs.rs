@@ -98,6 +98,79 @@ pub(super) fn run(
     request: JobRequest,
     cancellation: Arc<AtomicBool>,
 ) -> Result<JobOutput, String> {
+    run_sequence(request, &cancellation, |step| {
+        run_one(data_dir, step, cancellation.clone())
+    })
+}
+
+/// Keep identification and enrichment inside the same cancellable server-owned task.
+fn run_sequence(
+    request: JobRequest,
+    cancellation: &AtomicBool,
+    mut execute_step: impl FnMut(JobRequest) -> Result<JobOutput, String>,
+) -> Result<JobOutput, String> {
+    let mut steps = Vec::new();
+    if let JobRequest::Fetch(fetch) = &request
+        && fetch.musicbrainz
+        && [
+            fetch.summaries,
+            fetch.discography,
+            fetch.covers,
+            fetch.lyrics,
+            fetch.identify,
+            fetch.credits,
+            fetch.recordings,
+            fetch.portraits,
+            fetch.logos,
+            fetch.labels,
+            fetch.discogs,
+            fetch.fanart,
+        ]
+        .into_iter()
+        .any(|selected| selected)
+    {
+        steps.push(JobRequest::Fetch(aede_server::FetchRequest {
+            service_keys: fetch.service_keys.clone(),
+            targets: fetch.targets.clone(),
+            full: fetch.full,
+            dry_run: fetch.dry_run,
+            yes: fetch.yes,
+            ..Default::default()
+        }));
+    }
+    steps.push(request);
+    let mut output = JobOutput::default();
+    for step in steps {
+        if cancellation.load(Ordering::Acquire) {
+            return Err("administrative task cancelled before the next enrichment stage".into());
+        }
+        let next = execute_step(step)?;
+        output.exit_code = next.exit_code;
+        output.output_truncated |= next.output_truncated;
+        for (held, addition) in [
+            (&mut output.stdout, next.stdout),
+            (&mut output.stderr, next.stderr),
+        ] {
+            let available = MAX_OUTPUT.saturating_sub(held.len());
+            let mut end = addition.len().min(available);
+            while !addition.is_char_boundary(end) {
+                end -= 1;
+            }
+            held.push_str(&addition[..end]);
+            output.output_truncated |= end < addition.len();
+        }
+        if output.exit_code != 0 {
+            break;
+        }
+    }
+    Ok(output)
+}
+
+fn run_one(
+    data_dir: &Path,
+    request: JobRequest,
+    cancellation: Arc<AtomicBool>,
+) -> Result<JobOutput, String> {
     let data_dir = std::fs::canonicalize(data_dir).map_err(|error| error.to_string())?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut command = Command::new(exe);

@@ -177,6 +177,27 @@ fn http_jobs_run_real_scans_and_dry_fetches_and_cancel_a_waiting_writer() {
         );
     }
 
+    #[cfg(feature = "fetch")]
+    {
+        let before = std::fs::read(data.0.join("sources.json")).ok();
+        let route = server.submit(
+            "/api/admin/v1/fetch",
+            r#"{"musicbrainz":true,"covers":true,"images":true,"yes":true,"dry_run":true}"#,
+        );
+        let task = server.completed(&route);
+        assert_eq!(task.field_str("status").as_deref(), Some("completed"));
+        let stdout = task.get("result").unwrap().field_str("stdout").unwrap();
+        assert!(
+            stdout.contains("nothing was asked") && stdout.contains("Cover art"),
+            "both stages must execute: {stdout}"
+        );
+        assert_eq!(
+            std::fs::read(data.0.join("sources.json")).ok(),
+            before,
+            "dry-run must not publish source data"
+        );
+    }
+
     let before = std::fs::read(data.0.join("catalog.json")).unwrap();
     let held = aede_core::store_lock::StoreLock::acquire(&data.0).unwrap();
     let route = server.submit("/api/admin/v1/scan", r#"{"full":true}"#);

@@ -82,6 +82,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         capabilities.push("administrative_tasks_list");
         if cfg!(feature = "fetch") {
             capabilities.push("fetch_discogs");
+            capabilities.push("fetch_musicbrainz_first");
             capabilities.push("fetch_track_lyrics");
         }
     }

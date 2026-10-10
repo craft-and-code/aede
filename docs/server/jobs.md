@@ -53,6 +53,7 @@ All booleans default to false; targets defaults to empty. **`{}` is not a no-op*
 | Field(s) | Meaning / constraints |
 | --- | --- |
 | `targets` | At most 64 nonempty artist/album names or server-folder paths, 4096 bytes each, no NUL. Absolute paths make folder selection unambiguous. |
+| `musicbrainz` | Identify artists/albums before the selected secondary passes, in the same server-owned task. Reuses stored answers unless `full` is true; preserves scope, dry-run and cancellation. Advertised as `fetch_musicbrainz_first`. An identification failure stops the chain; completed source answers remain stored. |
 | `summaries` | Fetch artist/album prose through the CLI source pipeline. |
 | `discography` | Fetch artist discography information for later missing-album inspection. |
 | `covers` | Fetch cover-art information; derivative image downloads require `images`. |
