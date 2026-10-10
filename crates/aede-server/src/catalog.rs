@@ -79,6 +79,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
     if state.admin.is_some() {
         capabilities.push("library_m3u_publication");
         capabilities.push("fetch_service_keys");
+        capabilities.push("administrative_tasks_list");
         if cfg!(feature = "fetch") {
             capabilities.push("fetch_discogs");
             capabilities.push("fetch_track_lyrics");

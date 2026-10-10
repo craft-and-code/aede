@@ -76,6 +76,10 @@ All booleans default to false; targets defaults to empty. **`{}` is not a no-op*
 
 Pass dependencies and selection behavior follow [the source guide](../sources.md). Service keys ordinarily come from the server environment. A trusted loopback administrator may supply `service_keys: {fanarttv?: string, acoustid?: string}` for this job only (nonempty strings, at most 1024 bytes, no control characters). Missing keys retain their server defaults. The server does not persist these client keys, include them in task metadata, or accept other environment variables, data folders or executable arguments. Status advertises `fetch_service_keys` when the administrative profile is available; HTTPS still exposes no administrative routes. The ordinary CLI callback passes overrides only in the child environment and redacts them from captured output. Existing rate limits, save-progress and non-overwrite rules remain active. Fetching images/lyrics can create derivative sidecars beside music; audio files/tags stay untouched. A noninteractive run that needs confirmation and lacks `yes` fails rather than prompting. Invalid flags/bounds give 400; an accepted operation can later fail in its task result.
 
+## GET /api/admin/v1/tasks
+
+Administrators can recover the running server's retained tasks after a client reconnect without replaying a job or guessing IDs. The `administrative_tasks_list` capability advertises the additive read. Returns an array with the same authenticated task fields as the singular endpoint, capped by the existing 64-record registry and bounded outputs. Ordinary users/anonymous callers are refused; HTTPS keeps administrative routes disabled. Records are process-local: restarting an embedded/server engine clears the registry, while per-answer source data already written by fetch remains persisted. A new explicitly requested fetch reuses retained fresh profiles.
+
 ## GET /api/admin/v1/tasks/{id}
 
 Use the numeric ID from a JSON-submitted scan/fetch, not a catalog reference or a delegated CLI task ID.
@@ -117,3 +121,5 @@ A POST whose response was lost may already have started. Submissions are not ide
 ## POST /api/admin/v1/lyrics
 
 A trusted loopback administrator can submit `{track:"track:..."}`. The server validates the exact current track source and forwards only that file to the existing cancellable fetch worker with `lyrics:true,yes:true`. `fetch_track_lyrics` advertises the route. No arbitrary client filesystem path is accepted; album/artist references are refused. LRCLIB requires no API key in the existing Aède profile. Provider failures and missing matches remain task output, not invented words. Existing sidecars are preserved, audio/tags are untouched, and `/api/v1/lyrics` discovers a newly written adjacent LRC without requiring a catalog rescan. HTTPS administrative restrictions remain unchanged.
+
+Discogs batch enrichment does not stop at the first label without a usable provider link/profile. It reports each unavailable label, continues with remaining identified labels and preserves every completed profile atomically. A final partial-failure status retains diagnostics and previously saved biographies. Provider 429 or exhausted transient throttling still stops the pass immediately; continuing the batch never bypasses provider backoff/rate rules. Fresh completed profiles are reused by the next explicit run.

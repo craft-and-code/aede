@@ -322,3 +322,5 @@ Dynamic browsing collections accept a bounded union of selected genres, preservi
 
 
 Label playback now reuses chronological release selection and per-album track positions. Dynamic label collections retain stable label keys with year/title-initial/search criteria; removed labels evaluate empty. Administrative fetch jobs support an explicit Discogs biography pass, sharing identity validation/attribution and a run-wide provider throttle. Labels without Wikipedia prose reuse fresh Discogs profiles unless full refresh is requested; ordinary native GET stays local. See native presentation, jobs and the Discogs design note.
+
+Administrative task listing adds an authenticated bounded reconnect read over the current 64-record process registry. Discogs batch recovery continues past unavailable individual labels, preserving subsequent completed profiles; provider throttling still ends the pass. Per-answer atomic persistence and read-only source/audio rules remain unchanged. See jobs documentation for client/server restart boundaries.

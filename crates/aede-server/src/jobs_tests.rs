@@ -694,3 +694,33 @@ fn track_lyrics_acquisition_passes_only_the_validated_file_to_the_existing_fetch
         assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
     });
 }
+
+#[test]
+fn retained_tasks_can_be_recovered_after_client_reconnection_but_require_admin() {
+    runtime().block_on(async {
+        let state = state(|_, _| unreachable!());
+        state.jobs.insert(71, "identification").unwrap();
+        let jobs = task_list_route(
+            State(state.clone()),
+            request("GET", "/api/admin/v1/tasks", Body::empty()),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].task_id, 71);
+        assert!(matches!(jobs[0].status, Status::Queued));
+        let anonymous = Request::builder()
+            .uri("/api/admin/v1/tasks")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            task_list_route(State(state), anonymous)
+                .await
+                .err()
+                .unwrap()
+                .status,
+            StatusCode::UNAUTHORIZED
+        );
+    });
+}

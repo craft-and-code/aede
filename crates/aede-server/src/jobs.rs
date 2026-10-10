@@ -479,6 +479,7 @@ pub(super) fn routes() -> Router<ApiState> {
         .route("/api/admin/v1/lyrics", post(lyrics_route))
         .route("/api/admin/v1/analyze", post(analyze_route))
         .route("/api/admin/v1/spectrum", post(spectrum_route))
+        .route("/api/admin/v1/tasks", get(task_list_route))
         .route("/api/admin/v1/tasks/:id", get(task_route))
         .route("/api/admin/v1/tasks/:id/cancel", post(cancel_route))
 }
@@ -787,6 +788,17 @@ fn task_id(raw: &str) -> Result<u64, ApiError> {
             "task ID must be a positive whole number",
         )
     })
+}
+
+// The registry is already capped; reconnecting clients must not guess another process's IDs.
+async fn task_list_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Json<Vec<Task>>, ApiError> {
+    check_request(&state, &request)?;
+    body(request, 0).await?;
+    let data = state.jobs.data.lock().map_err(|_| registry_error())?;
+    Ok(Json(data.tasks.values().cloned().collect()))
 }
 
 async fn task_route(

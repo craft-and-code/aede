@@ -40,6 +40,8 @@ pub(super) fn run(
         return Ok(());
     }
     let transport = std::cell::RefCell::new(transport);
+    let mut unavailable = 0usize;
+    let rate_limited = std::cell::Cell::new(false);
     for (index, label) in targets.iter().enumerate() {
         println!(
             "  {}/{}: {}",
@@ -47,21 +49,54 @@ pub(super) fn run(
             targets.len(),
             crate::ui::literal(&label.name)
         );
-        refresh(
+        let result = refresh(
             catalog,
             label.id,
             held,
             path,
             &mut |url| {
-                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff)
-                    .map_err(|e| e.to_string())
+                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff).map_err(|e| {
+                    if matches!(
+                        &e,
+                        super::fetch::Refusal::RateLimited | super::fetch::Refusal::TooManyRequests
+                    ) {
+                        rate_limited.set(true);
+                    }
+                    e.to_string()
+                })
             },
             &mut |url| {
-                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff)
-                    .map_err(|e| e.to_string())
+                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff).map_err(|e| {
+                    if matches!(
+                        &e,
+                        super::fetch::Refusal::RateLimited | super::fetch::Refusal::TooManyRequests
+                    ) {
+                        rate_limited.set(true);
+                    }
+                    e.to_string()
+                })
             },
+        );
+        if let Err(why) = result {
+            // A provider throttle exhausts the pass budget; do not turn it into one request per label.
+            if rate_limited.get() {
+                return Err(format!(
+                    "Discogs stopped by provider rate limit: {why}; saved profiles are retained"
+                )
+                .into());
+            }
+            unavailable += 1;
+            eprintln!(
+                "  Discogs label {}: {why}; continuing with the remaining labels.",
+                crate::ui::literal(&label.name)
+            );
+        }
+    }
+    if unavailable > 0 {
+        return Err(format!(
+            "Discogs completed with {unavailable} unavailable label(s); saved profiles are retained"
         )
-        .map_err(|why| format!("Discogs label {}: {why}", crate::ui::literal(&label.name)))?;
+        .into());
     }
     Ok(())
 }
