@@ -374,3 +374,51 @@ fn tag_collection_payloads_are_bounded_and_cannot_be_silently_ignored() {
     v.as_object_mut().unwrap().remove("tags");
     assert!(parse(&v.to_string()).is_err());
 }
+
+#[test]
+fn label_collections_keep_stable_membership_and_include_future_matching_editions() {
+    use crate::model::Label;
+    let mut c = Catalog {
+        labels: vec![Label {
+            id: 0,
+            name: "Test Label".into(),
+            key: "test-label".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let d = UserData::default();
+    let mut value = filters();
+    value["view"] = json!("label");
+    value["label"] = json!(EntityRef::of(&c, EntityKind::Label, 0).unwrap().to_token());
+    let f = parse(&value.to_string()).unwrap();
+    for id in 0..3 {
+        c.releases.push(Release {
+            id,
+            title: "First".into(),
+            year: Some(if id == 2 { 2010 } else { 1995 }),
+            track_ids: vec![id],
+            label_ids: if id == 1 { vec![] } else { vec![0] },
+            ..Default::default()
+        });
+    }
+    assert_eq!(tracks(&f, &Context::new(&c, &d, "owner")), vec![0]);
+    c.releases.push(Release {
+        id: 3,
+        title: "Future addition".into(),
+        year: Some(1997),
+        track_ids: vec![3],
+        label_ids: vec![0],
+        ..Default::default()
+    });
+    assert_eq!(tracks(&f, &Context::new(&c, &d, "owner")), vec![0, 3]);
+    c.labels.clear();
+    assert!(tracks(&f, &Context::new(&c, &d, "owner")).is_empty());
+    value["label"] = json!("artist:other");
+    assert!(parse(&value.to_string()).is_err());
+    value.as_object_mut().unwrap().remove("label");
+    assert!(parse(&value.to_string()).is_err());
+    value["view"] = json!("albums");
+    value["label"] = json!("label:test-label");
+    assert!(parse(&value.to_string()).is_err());
+}

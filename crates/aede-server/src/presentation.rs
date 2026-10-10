@@ -203,7 +203,12 @@ fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>, ApiError>
     let ids = match entity.kind {
         EntityKind::Release => vec![id],
         EntityKind::Artist => catalog.playback_release_order(catalog.releases_as_album_artist(id)),
-        _ => return Err(invalid_query("selection must be an artist, album or track")),
+        EntityKind::Label => catalog.playback_release_order(catalog.releases_of_label(id)),
+        _ => {
+            return Err(invalid_query(
+                "selection must be an artist, album, track or label",
+            ));
+        }
     };
     let mut rows = Vec::new();
     for id in ids {

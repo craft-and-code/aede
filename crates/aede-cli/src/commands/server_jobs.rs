@@ -59,6 +59,7 @@ fn arguments(request: &JobRequest) -> Vec<String> {
                 (fetch.portraits, "portraits"),
                 (fetch.logos, "logos"),
                 (fetch.labels, "labels"),
+                (fetch.discogs, "discogs"),
                 (fetch.fanart, "fanart"),
                 (fetch.banners, "banners"),
                 (fetch.images, "images"),

@@ -62,3 +62,11 @@ Dynamic browsing payloads accept an optional bounded `genres` array. Selected ge
 ## Owner-private tag collections
 
 The additive `tags` browsing view requires `mode: "none"`, a bounded `tags` array (up to 100 nonempty values of at most 256 bytes) and no country/genre filters. Tag choices form a normalized exact union; an empty array selects every tagged target. `query` narrows tag names, matching the desktop Tags view. Current-owner artist tags contribute only principal discographies, album tags contribute every track in that edition, and track tags contribute only that placement, including albumless tracks. Guest credits never inherit an artist tag. Each evaluation reads current annotations; no tag is assigned to another entity. Unsupported or misplaced criteria fail explicitly. `dynamic_browse_tags` advertises this saved-rule extension. Collection album projection includes editions containing any selected track; playback preserves the selected tracks only.
+
+## Label playback and dynamic selections
+
+Playback selection also accepts a label reference, selecting only its current associated editions in the shared chronological album order, then each edition's original track order. Per-album positions/counts and the 4096-track limit stay unchanged. `label_playback` advertises the extension.
+
+A `browse-v1:` payload with `view: "label"` requires an original stable `label` reference of kind Label. Year, title-initial and search filters apply to that label's editions. Other views refuse the field, missing/wrong-kind references fail validation, and a valid removed label evaluates to an empty selection. Future matching editions join on evaluation; no numeric catalog ID is persisted. `dynamic_browse_label` advertises this extension. Clients capture the originating library/account separately, never persisting application namespaces in the expression.
+
+When administrative fetch is available in a network-enabled build, `fetch_discogs` advertises the explicit `discogs` job flag. Ordinary label GET remains local and never launches enrichment.

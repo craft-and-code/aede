@@ -455,6 +455,7 @@ const OPTIONS: &[&str] = &[
     "import",
     "template",
     "summaries",
+    "discogs",
     "discography",
     "covers",
     "size",
@@ -750,6 +751,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "size",
         &["fetch", "spectrum"],
         "choose how large a picture is",
+    ),
+    (
+        "discogs",
+        &["fetch"],
+        "fetch linked Discogs label biographies",
     ),
     ("lang", &["fetch"], "choose the language of the prose"),
     (

@@ -63,6 +63,7 @@ All booleans default to false; targets defaults to empty. **`{}` is not a no-op*
 | `portraits` | Fetch supported artist portraits. |
 | `logos` | Fetch supported artist/label logos. |
 | `labels` | Fetch label information. |
+| `discogs` | Fetch identifier-linked Discogs label biographies explicitly; respects scope, dry-run and recent retained profiles. |
 | `fanart` | Enable the Fanart.tv artwork families. |
 | `banners` | Include banners; requires `logos` or `fanart`. |
 | `images` | Download cover images; requires `covers`. |

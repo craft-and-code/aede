@@ -145,6 +145,7 @@ Cette liste suit répartition et traitements actuels. Elle décrit la portée ac
 | `--no-cdart` | [fetch](fetch.md) |
 | `--banners` | [fetch](fetch.md) |
 | `--labels` | [fetch](fetch.md) |
+| `--discogs` | [fetch](fetch.md) |
 | `--online` | [label](label.md) |
 | `--offline` | [label](label.md) |
 | `--accept ID` | [review](review.md) |

@@ -48,3 +48,11 @@ Le statut annonce aussi `track_catalog_pages` et `catalog_added_dates`. Les albu
 ## Couverture des analyses conservées
 
 `GET /api/v1/presentation/analysis` accepte `offset`, `limit` (200 maximum) et une recherche `q` sur le titre de l’album ou son artiste principal. La capacité `analysis_coverage` annonce cette lecture. Chaque album expose sa référence, son titre, son artiste, ses pistes et les nombres disjoints `current`, `stale`, `failed`, `missing`, ainsi que `spectra` pour les images disponibles. Seuls les résultats FlacCompagnon comptent ; une erreur actuelle est un échec, et une ancienne taille/date de modification signifie un résultat périmé. La couverture suit le dernier scan, sans refaire de contrôle. Le résumé porte sur tous les fichiers du catalogue, y compris sans album ; les spectres sont vérifiés uniquement dans la fenêtre affichée. Cette lecture ne lance aucun traitement et n’écrit aucun fichier.
+
+## Lecture de label et sélections dynamiques
+
+La sélection de lecture accepte aussi une référence de label : seules ses éditions associées sont sélectionnées, dans l’ordre chronologique commun des albums, puis l’ordre original des pistes. Les positions/nombres par album et la limite de 4096 pistes restent inchangés. `label_playback` annonce cette extension.
+
+Une règle `browse-v1:` avec `view: "label"` exige une référence stable originale `label` de type Label. Les filtres d’années, d’initiales des titres et de recherche s’appliquent aux éditions de ce label. Les autres vues refusent ce champ ; une référence absente ou d’un autre type est refusée ; un label valide retiré donne une sélection vide. Les futures éditions correspondantes rejoignent la collection à son évaluation, sans enregistrer d’identifiant numérique de catalogue. `dynamic_browse_label` annonce cette extension. Le client conserve séparément la bibliothèque et le compte d’origine, sans enregistrer son espace de noms dans la règle.
+
+Si l’administration fetch est disponible avec le réseau activé, `fetch_discogs` annonce le champ explicite `discogs` des tâches. Le GET d’un label reste local et ne lance jamais d’enrichissement.

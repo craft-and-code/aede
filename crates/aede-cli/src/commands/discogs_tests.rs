@@ -300,3 +300,59 @@ fn an_unchanged_older_roadrunner_profile_resolves_artist_codes_on_refresh() {
         Some("Founded by Founder.")
     );
 }
+
+#[test]
+fn fetch_discogs_is_explicit_scoped_dry_and_reuses_fresh_profiles() {
+    let c = catalog();
+    let entity = entity(&c);
+    let mut held = Sources::default();
+    musicbrainz(&mut held, &entity);
+    let mut asked = super::super::fetch::Asked {
+        names: &[],
+        scope: &super::super::fetch::EVERYTHING,
+        again: false,
+        dry_run: true,
+        size: super::super::covers::DEFAULT_SIZE,
+        size_requested: false,
+        images: false,
+        fanart: Default::default(),
+        langs: vec!["en".into()],
+        key: None,
+        portrait_key: None,
+    };
+    let p = path("batch_dry");
+    run(&c, &mut Never, &[], &mut held, &p, &asked).unwrap();
+    assert!(!p.exists());
+    asked.dry_run = false;
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: discogs::SOURCE.into(),
+        source_id: Some("33088".into()),
+        fetched_at: clock::now_seconds(),
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: "Stored".into(),
+                url: discogs::label_url(33088),
+                lang: "en".into(),
+                licence: "CC0".into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    run(&c, &mut Never, &[], &mut held, &p, &asked).unwrap();
+    let other = ["Other label".into()];
+    asked.names = &other;
+    asked.again = true;
+    run(&c, &mut Never, &[], &mut held, &p, &asked).unwrap();
+    assert!(!p.exists());
+}
+struct Never;
+impl super::super::fetch::Ask for Never {
+    fn get_json(&mut self, _: &str) -> Result<Json, super::super::fetch::Refusal> {
+        panic!("no network expected")
+    }
+    fn get_bytes(&mut self, _: &str) -> Result<Vec<u8>, super::super::fetch::Refusal> {
+        panic!("no images expected")
+    }
+}

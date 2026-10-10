@@ -63,6 +63,7 @@ Tous les booléens valent false par défaut ; targets est vide. **`{}` n’est p
 | `portraits` | Obtient les portraits d’artistes pris en charge. |
 | `logos` | Obtient les logos d’artistes/labels pris en charge. |
 | `labels` | Obtient les informations de labels. |
+| `discogs` | Récupère explicitement les biographies des labels depuis Discogs ; respecte la sélection, dry-run et les profils récents conservés. |
 | `fanart` | Active les familles d’illustrations Fanart.tv. |
 | `banners` | Inclut les bannières ; exige `logos` ou `fanart`. |
 | `images` | Télécharge les pochettes ; exige `covers`. |

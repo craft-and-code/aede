@@ -3,6 +3,8 @@
 //! MusicBrainz supplies the Discogs identifier as a URL relationship. Discogs
 //! is never searched by name. Failed refreshes keep the last stored profile.
 
+#![cfg_attr(not(feature = "fetch"), allow(dead_code))]
+
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::sources::{self, Facts, LabelFacts, SourceRecord, Sources};
@@ -10,6 +12,59 @@ use aede_core::user::EntityRef;
 use aede_core::{clock, discogs, musicbrainz, text};
 
 use super::Res;
+
+/// Explicit batch fallback for identified labels in the requested name/folder scope.
+/// Fresh profiles are reused unless `--full` asks again; dry-run performs no I/O.
+pub(super) fn run(
+    catalog: &Catalog,
+    transport: &mut dyn super::fetch::Ask,
+    backoff: &[std::time::Duration],
+    held: &mut Sources,
+    path: &std::path::Path,
+    asked: &super::fetch::Asked,
+) -> Res {
+    let targets: Vec<_> = catalog.labels.iter().filter(|label| {
+        let Some(entity)=EntityRef::of(catalog,EntityKind::Label,label.id) else { return false; };
+        super::fetch::reaches(asked.names,&[label.name.as_str()])
+            && asked.scope.has_label(&label.key)
+            && (label.mbid.is_some() || held.get(&entity,sources::MUSICBRAINZ).is_some_and(|r| r.source_id.is_some() && held.is_trusted(catalog,r)))
+            && !matches!(held.get(&entity,"wikipedia").map(|r| &r.facts),Some(Facts::Label(f)) if f.summary.is_some())
+            && (asked.again || !held.get(&entity,discogs::SOURCE).is_some_and(|r| discogs::fresh(r.fetched_at,clock::now_seconds()) && matches!(&r.facts,Facts::Label(f) if f.summary.is_some())))
+    }).collect();
+    println!("{}", crate::ui::section("Discogs label biographies"));
+    println!("  {} to refresh", crate::ui::plural(targets.len(), "label"));
+    if super::fetch::asked_nothing(
+        asked,
+        &targets.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
+    ) {
+        return Ok(());
+    }
+    let transport = std::cell::RefCell::new(transport);
+    for (index, label) in targets.iter().enumerate() {
+        println!(
+            "  {}/{}: {}",
+            index + 1,
+            targets.len(),
+            crate::ui::literal(&label.name)
+        );
+        refresh(
+            catalog,
+            label.id,
+            held,
+            path,
+            &mut |url| {
+                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff)
+                    .map_err(|e| e.to_string())
+            },
+            &mut |url| {
+                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff)
+                    .map_err(|e| e.to_string())
+            },
+        )
+        .map_err(|why| format!("Discogs label {}: {why}", crate::ui::literal(&label.name)))?;
+    }
+    Ok(())
+}
 
 #[cfg(feature = "fetch")]
 pub fn refresh_online(

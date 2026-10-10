@@ -1511,3 +1511,12 @@ fn the_album_half_of_an_ordinary_fetch_honours_a_folder() {
     let whole = crate::commands::releases::targets(&catalog, &held, &[], &EVERYTHING, false);
     assert_eq!(whole.len(), 2, "and without a folder, both records");
 }
+
+#[test]
+fn discogs_is_an_explicit_pass_after_label_identification_and_wikipedia() {
+    let dir = sandbox("discogs_pass_order");
+    let passes = Pass::asked_for(&args(&dir, &["--discogs", "--summaries", "--labels"]));
+    assert_eq!(passes, vec![Pass::Labels, Pass::Summaries, Pass::Discogs]);
+    assert!(!Pass::asked_for(&args(&dir, &["--labels"])).contains(&Pass::Discogs));
+    assert!(Pass::Discogs.needs_the_catalog());
+}

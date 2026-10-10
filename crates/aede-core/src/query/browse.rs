@@ -19,6 +19,7 @@ pub struct Filter {
     genres: Vec<String>,
     ratings: Option<[u64; 2]>,
     tags: Vec<String>,
+    label: Option<EntityRef>,
 }
 /// Parse the bounded JSON payload following `browse-v1:`. Unknown keys are errors.
 pub fn parse(input: &str) -> Result<Filter, QueryError> {
@@ -42,6 +43,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             "genres",
             "ratings",
             "tags",
+            "label",
         ]
         .contains(&k.as_str())
     }) {
@@ -78,12 +80,25 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         "rated",
         "favourites",
         "tags",
+        "label",
     ]
     .contains(&view.as_str())
         || !["none", "years", "alphabet", "both"].contains(&mode.as_str())
     {
         return Err(error("invalid browse view or mode"));
     }
+    let label = if view == "label" {
+        Some(
+            EntityRef::parse_token(&string("label")?)
+                .filter(|r| r.kind == EntityKind::Label && r.key.len() <= 4096)
+                .ok_or_else(|| error("invalid browse label reference"))?,
+        )
+    } else {
+        if o.contains_key("label") {
+            return Err(error("label requires the label view"));
+        }
+        None
+    };
     let ratings = if view == "rated" {
         let bounds = interval("ratings", 5)?;
         if bounds[0] == 0 {
@@ -188,6 +203,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         genres,
         ratings,
         tags,
+        label,
     })
 }
 #[derive(Default)]
@@ -265,6 +281,10 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     if f.view == "tags" {
         return tagged_tracks(f, context);
     }
+    let label = f.label.as_ref().and_then(|r| r.resolve(c));
+    if f.label.is_some() && label.is_none() {
+        return Vec::new();
+    }
     let artist_view = ["artists", "countries", "genres"].contains(&f.view.as_str());
     let principal: BTreeSet<_> = c
         .releases
@@ -324,6 +344,9 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     let term = folded(&f.query);
     let mut tracks = Vec::new();
     for release in &c.releases {
+        if label.is_some_and(|id| !release.label_ids.contains(&id)) {
+            continue;
+        }
         if f.view == "rated" || f.view == "favourites" {
             let own = EntityRef::of(c, EntityKind::Release, release.id)
                 .and_then(|r| context.data.find(context.owner, &r));

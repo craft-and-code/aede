@@ -57,6 +57,8 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "dynamic_browse_genres",
         "dynamic_browse_personal",
         "dynamic_browse_tags",
+        "dynamic_browse_label",
+        "label_playback",
         "collection_rename",
         "album_track_pages",
         "track_catalog_pages",
@@ -73,6 +75,9 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
     if state.admin.is_some() {
         capabilities.push("library_m3u_publication");
         capabilities.push("fetch_service_keys");
+        if cfg!(feature = "fetch") {
+            capabilities.push("fetch_discogs");
+        }
     }
     Json(Status {
         status: "ok",

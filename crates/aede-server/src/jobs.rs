@@ -78,6 +78,8 @@ pub struct FetchRequest {
     pub logos: bool,
     /// Fetch record-label information.
     pub labels: bool,
+    /// Fetch identifier-linked Discogs label biographies explicitly.
+    pub discogs: bool,
     /// Enable the Fanart.tv artwork families and their explicit exclusions.
     pub fanart: bool,
     /// Include banners; requires `logos` or `fanart` and conflicts with `no_banner`.

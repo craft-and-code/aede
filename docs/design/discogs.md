@@ -1,6 +1,6 @@
 # Discogs — label profiles and future styles
 
-**Status:** A label-profile fallback is implemented for `aede label <name>` when no Wikipedia biography is available. Release styles remain deferred.
+**Status:** A label-profile fallback is implemented for `aede label <name>` when no Wikipedia biography is available. The explicit `fetch --discogs` pass also exposes this fallback to administrative desktop jobs. Release styles remain deferred.
 
 The label page follows the Discogs URL attached to the MusicBrainz label on each visit unless `--offline` is given. It never searches Discogs by name and never treats a name match as an identifier. A response must repeat both the numeric label ID and the expected name before its profile is stored in `sources.json` as a distinct `discogs` claim. A failed check does not erase the stored copy; the label page shows it with an update notice, while other readers and exports hide copies older than five hours. The display puts “Data provided by Discogs.” and a link to the label page beside the text. Discogs provides the original profile, normally in English; its French website does not translate that field. Discogs markup is rendered as plain text: linked labels and artists are looked up by Discogs ID and shown by name, independently of the local catalog, and presentation tags are removed. The original markup is kept to avoid repeating those linked-entity requests when the profile has not changed; a stored profile with unresolved artist codes is reprocessed on the next successful visit. No images are fetched.
 
@@ -105,3 +105,10 @@ Archive — and each one is a rate limit to honour, a shape to parse, a licence
 to carry and a set of failure messages to word. A fourth earns its place when
 somebody wants what only it has. Styles are a real gap; nobody has yet said it
 is a gap that hurts.
+
+
+## Explicit batch acquisition
+
+`fetch --labels --summaries --discogs` identifies labels, tries Wikipedia, then acquires the remaining identifier-linked profiles. The Discogs flag alone uses already identified labels; it never searches Discogs by name. Names/folder scopes narrow labels like the existing labels pass. `--dry-run` previews without HTTP or writes; profiles younger than five hours are reused unless `--full` asks again. A failure stops explicitly with completed source writes preserved. One Discogs client retains its 2.5-second throttle across all label and linked-name requests in the entire run, separately from the MusicBrainz client. HTTP 429 stops immediately and persistent 503 exhausts the existing bounded backoff. No API key is required for these ID lookups; no images or audio tags are modified.
+
+Native label GET only displays trusted retained profiles within the existing freshness contract. Phémios requests enrichment explicitly and shows the linked attribution beside Discogs prose.

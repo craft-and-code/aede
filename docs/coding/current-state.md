@@ -315,3 +315,6 @@ Desktop catalog navigation now includes authenticated bounded all-track search p
 Explicit administrative native M3U publication can regenerate relative-path album and complete artist sidecars inside catalog roots, reusing the CLI's extracted folder planner. Ordinary private exports remain owner-scoped and repeat saves restore missing files without duplicate playlist rows. Source audio/tags are unchanged; see native presentation for authorization, partial failures and destinations.
 
 Dynamic browsing collections accept a bounded union of selected genres, preserving the legacy single-genre field. Status advertises this additive capability so clients can refuse incompatible writes to an older running server.
+
+
+Label playback now reuses chronological release selection and per-album track positions. Dynamic label collections retain stable label keys with year/title-initial/search criteria; removed labels evaluate empty. Administrative fetch jobs support an explicit Discogs biography pass, sharing identity validation/attribution and a run-wide provider throttle. Labels without Wikipedia prose reuse fresh Discogs profiles unless full refresh is requested; ordinary native GET stays local. See native presentation, jobs and the Discogs design note.

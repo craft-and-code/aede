@@ -46,6 +46,7 @@ Zero or more existing folders or name terms. Quote a multiword name. A path must
 | `--no-cdart` | Exclude disc images from --fanart. Requires --fanart. |
 | `--banners` | Also fetch a wide artist banner with --logos or the complete --fanart pass. |
 | `--labels` | Identify record labels through MusicBrainz. Name-only proposals remain reviewable claims. |
+| `--discogs` | Retrieve identifier-linked Discogs profiles for labels without Wikipedia prose. Combine with `--labels` to identify labels first; fresh profiles are reused unless `--full`. |
 | `--size VALUE` | With fetch --covers: 250, 500, 1200 (default) or original. With spectrum: half (default) or full. |
 | `--lang CODE` | Preferred language for --summaries prose, for example fr. English remains the fallback; without a prose pass this setting does not create a summary request. |
 | `--images` | With --covers only, also download missing non-front Cover Art Archive images into artwork/. Refused without --covers. |

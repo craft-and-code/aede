@@ -319,3 +319,62 @@ fn coverage_sort_rejects_unknown_columns_and_directions() {
         .is_err()
     );
 }
+
+#[test]
+fn label_playback_starts_with_oldest_album_and_preserves_disc_positions() {
+    let state = sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    c.labels = vec![aede_core::model::Label {
+        id: 0,
+        key: "test-label".into(),
+        name: "Test Label".into(),
+        ..Default::default()
+    }];
+    c.releases[0].label_ids = vec![0];
+    c.releases[0].year = Some(2000);
+    for id in 1..3 {
+        let mut r = c.releases[0].clone();
+        r.id = id;
+        r.title = format!("Album {id}");
+        r.folder = format!("/music/album{id}");
+        r.year = Some(1990);
+        r.track_ids = vec![id];
+        if id == 2 {
+            r.label_ids.clear();
+        }
+        c.releases.push(r);
+        let mut t = c.tracks[0].clone();
+        t.id = id;
+        t.file_id = id;
+        t.release_id = Some(id);
+        c.tracks.push(t);
+        let mut f = c.files[0].clone();
+        f.id = id;
+        f.path = format!("/music/album{id}/01.flac");
+        c.files.push(f);
+    }
+    let mut second = c.tracks[1].clone();
+    second.id = 3;
+    second.file_id = 3;
+    second.disc_no = Some(2);
+    c.tracks.push(second);
+    let mut file = c.files[1].clone();
+    file.id = 3;
+    file.path = "/music/album1/disc2/01.flac".into();
+    c.files.push(file);
+    c.releases[1].track_ids.push(3);
+    let rows = playback_rows(&c, &reference_of(&c, EntityKind::Label, 0).unwrap()).unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["album_total"], 2);
+    assert_eq!(rows[1]["number"], 2);
+    assert_eq!(rows[1]["album_total"], 2);
+    assert_eq!(
+        rows[0]["release"],
+        reference_of(&c, EntityKind::Release, 1).unwrap()
+    );
+    assert_eq!(rows[0]["number"], 1);
+    assert_eq!(
+        rows[2]["release"],
+        reference_of(&c, EntityKind::Release, 0).unwrap()
+    );
+}
