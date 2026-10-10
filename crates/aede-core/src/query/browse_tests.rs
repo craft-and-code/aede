@@ -263,3 +263,114 @@ fn rating_collection_bounds_are_strict_and_never_ignored() {
     v["ratings"] = json!([1, 5]);
     assert!(parse(&v.to_string()).is_err());
 }
+
+#[test]
+fn tagged_collections_follow_owner_artist_album_and_track_tags_without_guest_inheritance() {
+    let c = Catalog {
+        artists: (0..2)
+            .map(|id| Artist {
+                id,
+                key: format!("artist-{id}"),
+                ..Default::default()
+            })
+            .collect(),
+        releases: (0..3)
+            .map(|id| Release {
+                id,
+                key: format!("release-{id}"),
+                title: format!("Edition {id}"),
+                album_artist_id: Some(if id == 0 { 0 } else { 1 }),
+                track_ids: vec![id * 2, id * 2 + 1],
+                ..Default::default()
+            })
+            .collect(),
+        files: (0..7)
+            .map(|id| crate::model::AudioFile {
+                id,
+                path: format!("/music/track-{id}.flac"),
+                ..Default::default()
+            })
+            .collect(),
+        tracks: (0..7)
+            .map(|id| Track {
+                id,
+                file_id: id,
+                release_id: (id < 6).then_some(id / 2),
+                ..Default::default()
+            })
+            .collect(),
+        credits: vec![crate::model::Credit {
+            artist_id: 0,
+            entity_kind: EntityKind::Track,
+            entity_id: 4,
+            role: "featured".into(),
+            credited_as: None,
+            attributes: vec![],
+            began: None,
+            ended: None,
+            order: None,
+            source: "tags".into(),
+            source_id: None,
+        }],
+        ..Default::default()
+    };
+    let mut data = UserData::default();
+    let artist = EntityRef::of(&c, EntityKind::Artist, 0).unwrap();
+    let album = EntityRef::of(&c, EntityKind::Release, 1).unwrap();
+    let track = EntityRef::of(&c, EntityKind::Track, 4).unwrap();
+    let orphan = EntityRef::of(&c, EntityKind::Track, 6).unwrap();
+    data.entry("owner", &artist, 1)
+        .tags
+        .insert("Énergie".into());
+    data.entry("owner", &album, 1).tags.insert("Calme".into());
+    data.entry("owner", &track, 1).tags.insert("Calme".into());
+    data.entry("owner", &orphan, 1).tags.insert("Calme".into());
+    data.entry("other", &album, 1).tags.insert("Énergie".into());
+    let mut v = filters();
+    v["view"] = json!("tags");
+    v["mode"] = json!("none");
+    v["tags"] = json!(["energie"]);
+    let f = parse(&v.to_string()).unwrap();
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![0, 1]);
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "other")), vec![2, 3]);
+    v["tags"] = json!(["energie", "calme"]);
+    let f = parse(&v.to_string()).unwrap();
+    assert_eq!(
+        tracks(&f, &Context::new(&c, &data, "owner")),
+        vec![0, 1, 2, 3, 4, 6]
+    );
+    v["tags"] = json!([]);
+    v["query"] = json!("alm");
+    let f = parse(&v.to_string()).unwrap();
+    assert_eq!(
+        tracks(&f, &Context::new(&c, &data, "owner")),
+        vec![2, 3, 4, 6]
+    );
+    data.entry("owner", &album, 2).tags.clear();
+    assert_eq!(tracks(&f, &Context::new(&c, &data, "owner")), vec![4, 6]);
+}
+
+#[test]
+fn tag_collection_payloads_are_bounded_and_cannot_be_silently_ignored() {
+    let mut v = filters();
+    v["view"] = json!("tags");
+    v["mode"] = json!("none");
+    for tags in [
+        Value::Null,
+        json!("music"),
+        json!([""]),
+        json!([" "]),
+        json!([5]),
+        json!(["a".repeat(257)]),
+        json!(vec!["a"; 101]),
+    ] {
+        v["tags"] = tags;
+        assert!(parse(&v.to_string()).is_err());
+    }
+    v["tags"] = json!(["music"]);
+    v["view"] = json!("albums");
+    assert!(parse(&v.to_string()).is_err());
+    v["view"] = json!("tags");
+    v.as_object_mut().unwrap().remove("tags");
+    assert!(parse(&v.to_string()).is_err());
+}

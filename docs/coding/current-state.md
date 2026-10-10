@@ -10,7 +10,9 @@ Do not turn this file into a development diary.
 
 ## Project status
 
-Latest native-review verification (2026-10-10): the complete `tools/check.sh` passes with 2181 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
+Latest native-review verification (2026-10-10): the complete `tools/check.sh` passes with 2183 Rust tests, required FFmpeg coverage, helper/site checks, generated bilingual documentation, Rustdoc and release compilation. Live missing-cover acquisition/cache reuse succeeds on a public control group. macOS client acceptance uses an isolated fictional store; physical external-player and other-platform execution remain separate.
+
+Owner-private dynamic tag collections retain a normalized tag union and tag-name search. Artist tags contribute principal discographies, album tags whole editions, and track tags only selected placements, including albumless tracks. Guest credits and other owners remain excluded. `dynamic_browse_tags` advertises the additive validated payload.
 
 Retained analysis coverage supports full-catalog column ordering before pagination, with missing counts descending by default and deterministic ties. `analysis_coverage_sort` advertises the additive sort/direction query; unknown values are refused. Sorting spectra inspects matching retained spectrum sidecars; other columns inspect only the visible page's spectra. No analysis job is launched.
 

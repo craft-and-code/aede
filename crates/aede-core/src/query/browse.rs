@@ -18,6 +18,7 @@ pub struct Filter {
     countries: Vec<Option<String>>,
     genres: Vec<String>,
     ratings: Option<[u64; 2]>,
+    tags: Vec<String>,
 }
 /// Parse the bounded JSON payload following `browse-v1:`. Unknown keys are errors.
 pub fn parse(input: &str) -> Result<Filter, QueryError> {
@@ -40,6 +41,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             "genre",
             "genres",
             "ratings",
+            "tags",
         ]
         .contains(&k.as_str())
     }) {
@@ -75,6 +77,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         "genres",
         "rated",
         "favourites",
+        "tags",
     ]
     .contains(&view.as_str())
         || !["none", "years", "alphabet", "both"].contains(&mode.as_str())
@@ -143,6 +146,31 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
     }
     genres.sort();
     genres.dedup();
+    let tags = if view == "tags" {
+        if mode != "none" || !countries.is_empty() || !genres.is_empty() {
+            return Err(error(
+                "tag collections require hidden rails and no country/genre criteria",
+            ));
+        }
+        v["tags"]
+            .as_array()
+            .filter(|a| a.len() <= 100)
+            .ok_or_else(|| error("invalid browse tags"))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|s| !s.trim().is_empty() && s.len() <= 256 && !s.contains('\0'))
+                    .map(folded)
+                    .ok_or_else(|| error("invalid browse tag"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        if o.contains_key("tags") {
+            return Err(error("tags require the tags view"));
+        }
+        Vec::new()
+    };
     let query = string("query")?;
     if query.len() > 2048 {
         return Err(error("browse search exceeds 2048 bytes"));
@@ -159,6 +187,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         countries,
         genres,
         ratings,
+        tags,
     })
 }
 #[derive(Default)]
@@ -233,6 +262,9 @@ fn annotation(context: &Context, kind: EntityKind, id: Id) -> String {
 /// Evaluate once per collection; each matching edition contributes its complete track order.
 pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     let c = context.catalog;
+    if f.view == "tags" {
+        return tagged_tracks(f, context);
+    }
     let artist_view = ["artists", "countries", "genres"].contains(&f.view.as_str());
     let principal: BTreeSet<_> = c
         .releases
@@ -370,6 +402,38 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
         }
     }
     tracks
+}
+
+fn tagged_tracks(f: &Filter, context: &Context) -> Vec<Id> {
+    let term = folded(&f.query);
+    let matches = |kind, id| {
+        EntityRef::of(context.catalog, kind, id)
+            .and_then(|r| context.data.find(context.owner, &r))
+            .is_some_and(|a| {
+                a.tags.iter().any(|tag| {
+                    let key = folded(tag);
+                    (f.tags.is_empty() || f.tags.contains(&key)) && key.contains(&term)
+                })
+            })
+    };
+    context
+        .catalog
+        .tracks
+        .iter()
+        .filter(|track| {
+            matches(EntityKind::Track, track.id)
+                || track
+                    .release_id
+                    .and_then(|id| context.catalog.release(id))
+                    .is_some_and(|release| {
+                        matches(EntityKind::Release, release.id)
+                            || release
+                                .album_artist_id
+                                .is_some_and(|id| matches(EntityKind::Artist, id))
+                    })
+        })
+        .map(|track| track.id)
+        .collect()
 }
 #[cfg(test)]
 #[path = "browse_tests.rs"]
