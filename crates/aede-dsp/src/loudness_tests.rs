@@ -89,3 +89,63 @@ fn programme_with_high_rate_section_does_not_claim_true_peak() {
     assert!(measured.integrated_lufs.is_finite());
     assert_eq!(measured.true_peak, None);
 }
+
+#[test]
+fn format_changes_release_completed_pcm_windows_without_changing_gating() {
+    let mut programme = LoudnessProgramme::new();
+    let mut reference = Vec::new();
+    // Returning to a previous format must still discard unfinished gates at
+    // each intervening boundary, including a section shorter than 400 ms.
+    for (rate, channels, milliseconds, amplitude) in [
+        (48_000, 1, 1_139, 0.2),
+        (44_100, 2, 137, 0.5),
+        (48_000, 1, 919, 0.02),
+        (96_000, 2, 433, 0.1),
+        (44_100, 1, 1_701, 0.3),
+    ] {
+        let format = PcmFormat::new(rate, channels).unwrap();
+        let frames = rate as usize * milliseconds / 1000;
+        let mono = sine(rate, amplitude);
+        let samples = mono
+            .iter()
+            .cycle()
+            .take(frames)
+            .flat_map(|&sample| std::iter::repeat_n(sample, usize::from(channels)))
+            .collect::<Vec<_>>();
+        let mut section =
+            EbuR128::new(u32::from(channels), rate, Mode::I | Mode::TRUE_PEAK).unwrap();
+        let mut tail = PeakTail::new(format);
+        for block in samples.chunks(usize::from(channels) * 733) {
+            section.add_frames_f32(block).unwrap();
+            tail.push(block);
+            programme.push(format, block).unwrap();
+        }
+        reference.push((section, tail));
+    }
+    let expected_lufs =
+        EbuR128::loudness_global_multiple(reference.iter().map(|(meter, _)| meter)).unwrap() as f32;
+    let expected_peak = reference
+        .iter()
+        .map(|(meter, tail)| tail.peak(meter).unwrap().unwrap())
+        .fold(0.0_f32, f32::max);
+    let actual = programme.measurement().unwrap().unwrap();
+    assert_eq!(actual.integrated_lufs, expected_lufs);
+    assert_eq!(actual.true_peak, Some(expected_peak));
+    assert_eq!(programme.measurement().unwrap(), Some(actual));
+    assert_eq!(
+        programme.sections.len(),
+        1,
+        "completed formats must release their full PCM windows"
+    );
+}
+
+#[test]
+fn high_rate_section_keeps_true_peak_unknown_after_returning_to_low_rate() {
+    let mut programme = LoudnessProgramme::new();
+    for rate in [48_000, 192_000, 44_100] {
+        programme
+            .push(PcmFormat::new(rate, 1).unwrap(), &sine(rate, 0.2))
+            .unwrap();
+    }
+    assert_eq!(programme.measurement().unwrap().unwrap().true_peak, None);
+}

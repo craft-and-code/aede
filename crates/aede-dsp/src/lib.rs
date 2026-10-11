@@ -248,6 +248,14 @@ impl Dsp {
     /// detected after earlier frames have changed; discard the block and
     /// processor after any processing failure.
     pub fn process(&mut self, samples: &mut [f32]) -> Result<ProcessStats, DspError> {
+        self.process_block(samples, false)
+    }
+
+    fn process_block(
+        &mut self,
+        samples: &mut [f32],
+        guard: bool,
+    ) -> Result<ProcessStats, DspError> {
         let channels = usize::from(self.format.channels);
         if !samples.len().is_multiple_of(channels) {
             return Err(DspError::IncompleteFrame);
@@ -285,6 +293,9 @@ impl Dsp {
                 let magnitude = sample.abs();
                 stats.sample_peak = stats.sample_peak.max(magnitude);
                 stats.overfull_samples += usize::from(magnitude > 1.0);
+                if guard {
+                    *sample = sample.clamp(-1.0, 1.0);
+                }
             }
         }
         Ok(stats)
@@ -296,9 +307,7 @@ impl Dsp {
     /// is ready for a full-scale floating PCM sink; any hard-clamped samples
     /// are counted by `overfull_samples` for a visible warning.
     pub fn process_for_output(&mut self, samples: &mut [f32]) -> Result<ProcessStats, DspError> {
-        let stats = self.process(samples)?;
-        protect_output(samples)?;
-        Ok(stats)
+        self.process_block(samples, true)
     }
 }
 
