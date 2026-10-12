@@ -1,5 +1,7 @@
 //! Native private M3U publication, using canonical playlist rendering and storage.
 use super::*;
+#[path = "personal_m3u_files.rs"]
+mod files;
 #[path = "personal_m3u_library.rs"]
 mod library;
 use library::publish_library;
@@ -8,6 +10,7 @@ pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/me/v1/m3u", get(list).post(save))
         .route("/api/me/v1/m3u/:id", get(download))
+        .merge(files::routes())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -233,17 +236,23 @@ fn save_selection(
 }
 async fn list(
     State(state): State<ApiState>,
-    input: Result<Query<PageQuery>, QueryRejection>,
+    input: Result<Query<files::Parameters>, QueryRejection>,
     request: Request,
 ) -> Result<Json<Page<Summary>>, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
-    let (offset, limit) = page(parsed_query(input)?)?;
+    let (offset, limit, q) = files::parameters(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
         owner.recheck(&state)?;
-        let own = unique_summaries(&data, &owner.id);
+        let own = unique_summaries(&data, &owner.id)
+            .into_iter()
+            .filter(|row| {
+                q.as_ref()
+                    .is_none_or(|q| text::normalize(&row.name).contains(q))
+            })
+            .collect::<Vec<_>>();
         let items = own.iter().skip(offset).take(limit).cloned().collect();
         Ok(Json(Page::new(
             items,

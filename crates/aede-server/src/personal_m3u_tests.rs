@@ -1,4 +1,48 @@
 use super::*;
+
+#[tokio::test]
+async fn private_export_search_filters_all_owned_summaries_before_pagination() {
+    use crate::accounts_test_support::{Fixture, http, login};
+    let fixture = Fixture::new();
+    let catalog = fixture.0.catalog.read().await.clone().unwrap();
+    let track = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+    let accounts = fixture.accounts();
+    let alice = &accounts.find("alice").unwrap().id;
+    let bob = &accounts.find("bob").unwrap().id;
+    let mut data = UserData::default();
+    data.create_playlist(alice, "Wanted", vec![track.clone()], 1)
+        .unwrap();
+    data.create_playlist(alice, "Wanted", vec![track.clone()], 2)
+        .unwrap();
+    data.create_playlist(alice, "Other", vec![track.clone()], 3)
+        .unwrap();
+    data.create_playlist(bob, "Wanted", vec![track], 4).unwrap();
+    user::save(&data, &user::user_path(&fixture.0.data_dir)).unwrap();
+    let before = std::fs::read(user::user_path(&fixture.0.data_dir)).unwrap();
+    let (address, server) = crate::test_support::start_server(fixture.0.clone()).await;
+    tokio::task::spawn_blocking(move || {
+        let token = login(address, "alice");
+        let (status, page, _) = http(
+            address,
+            "GET",
+            "/api/me/v1/m3u?q=wanted&limit=1",
+            Some(&token),
+            "",
+        );
+        assert_eq!(status, 200, "{page}");
+        assert_eq!(page["total"], 1);
+        assert_eq!(page["items"][0]["name"], "Wanted");
+        assert_eq!(page["items"][0]["duplicates"], 2);
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        std::fs::read(user::user_path(&fixture.0.data_dir)).unwrap(),
+        before
+    );
+    server.abort();
+}
+
 #[test]
 fn summaries_group_exact_legacy_duplicates_without_erasing_or_merging_different_lists() {
     let state = crate::test_support::sample_state();

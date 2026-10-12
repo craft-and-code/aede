@@ -76,6 +76,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "private_achievements",
         "queue_m3u",
         "grouped_m3u_exports",
+        "library_m3u_files",
     ];
     if cfg!(feature = "fetch") {
         capabilities.push("missing_album_covers");
