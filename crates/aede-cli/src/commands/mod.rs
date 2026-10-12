@@ -45,6 +45,7 @@ mod review;
 mod rules;
 mod scan;
 mod search;
+mod secret_output;
 mod serve;
 mod sourced_artist;
 mod sources;

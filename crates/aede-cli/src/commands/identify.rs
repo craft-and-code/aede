@@ -39,7 +39,17 @@ use aede_core::{acoustid, clock};
 use crate::ui;
 
 use super::Res;
-use super::fetch::{Ask, ask_with_backoff, defer, queue};
+use super::fetch::{Ask, Refusal, ask_with_backoff, defer, queue};
+
+fn private_refusal(why: Refusal, secrets: &[String]) -> Refusal {
+    match why {
+        Refusal::Unreachable(detail) => {
+            Refusal::Unreachable(super::secret_output::redact(detail, secrets))
+        }
+        Refusal::Failed(detail) => Refusal::Failed(super::secret_output::redact(detail, secrets)),
+        other => other,
+    }
+}
 
 /// A file to ask about, and what to ask with.
 struct Target {
@@ -80,6 +90,7 @@ pub fn run(
     // environment could not be handed a different answer by a test, because
     // that environment is one variable shared by every thread.
     let key = asked.key.as_deref().ok_or_else(acoustid::no_key)?;
+    let secrets = [key.to_owned()];
 
     // Fetch shares the MusicBrainz throttle across passes, even when this
     // service permits requests more frequently.
@@ -117,7 +128,9 @@ pub fn run(
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         let url = acoustid::lookup_url(key, &target.fingerprint.data, target.fingerprint.seconds);
-        let answer = match ask_with_backoff(transport, &url, backoff) {
+        let answer = match ask_with_backoff(transport, &url, backoff)
+            .map_err(|why| private_refusal(why, &secrets))
+        {
             Ok(answer) => answer,
             Err(why) if why.must_stop() => return Err(why.into()),
             Err(why) if defer(&mut pending, target, retried, &why) => {
@@ -138,6 +151,7 @@ pub fn run(
         // carrying on would spend an hour proving it.
         if let Some(refusal) = acoustid::refused(&answer) {
             println!();
+            let refusal = super::secret_output::redact(refusal, &secrets);
             return Err(format!("AcoustID refused: {refusal}").into());
         }
 

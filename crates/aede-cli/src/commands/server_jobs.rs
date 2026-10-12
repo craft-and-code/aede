@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use aede_server::{JobOutput, JobRequest};
 
+use super::super::secret_output::{redact, secret_variants};
+
 const MAX_OUTPUT: usize = 64 * 1024;
 
 fn arguments(request: &JobRequest) -> Vec<String> {
@@ -329,41 +331,6 @@ fn redact_capture((bytes, truncated): (Vec<u8>, bool), secrets: &[String]) -> (S
     // or leave an ambiguous, partially truncated redaction marker itself.
     text.push_str(marker);
     (text, truncated || shortened)
-}
-
-fn redact(mut text: String, secrets: &[String]) -> String {
-    for secret in secret_variants(secrets) {
-        text = text.replace(&secret, "[redacted]");
-    }
-    text
-}
-
-fn secret_variants(secrets: &[String]) -> Vec<String> {
-    let mut variants = Vec::new();
-    for secret in secrets {
-        for value in [secret.as_str(), secret.trim()] {
-            if value.is_empty() {
-                continue;
-            }
-            variants.push(value.to_string());
-            // Service keys can also appear in an error's query string. The
-            // source adapters trim configuration and percent-encode AcoustID keys.
-            let mut encoded = String::new();
-            let mut lower_encoded = String::new();
-            for byte in value.bytes() {
-                if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-                    encoded.push(char::from(byte));
-                    lower_encoded.push(char::from(byte));
-                } else {
-                    encoded.push_str(&format!("%{byte:02X}"));
-                    lower_encoded.push_str(&format!("%{byte:02x}"));
-                }
-            }
-            variants.push(encoded);
-            variants.push(lower_encoded);
-        }
-    }
-    variants
 }
 
 #[cfg(test)]

@@ -181,13 +181,20 @@ fn captured_output_is_bounded_but_all_child_bytes_are_drained() {
 }
 
 #[test]
-fn credentials_are_redacted_in_raw_trimmed_and_encoded_service_errors() {
-    let text = "  aB/c+  ; aB/c+; client=aB%2Fc%2B; client=aB%2fc%2b";
-    let redacted = redact(text.into(), &["  aB/c+  ".into()]);
-    assert_eq!(
-        redacted,
-        "[redacted]; [redacted]; client=[redacted]; client=[redacted]"
-    );
+fn encoded_overlapping_credentials_stay_masked_within_the_capture_bound() {
+    let secrets = ["fictional/a".into(), "fictional/a+private-tail".into()];
+    for variant in [
+        "fictional/a+private-tail",
+        "fictional%2Fa%2Bprivate-tail",
+        "fictional%2fa%2bprivate-tail",
+    ] {
+        let bytes = format!("{}{}", "x".repeat(MAX_OUTPUT - variant.len()), variant).into_bytes();
+        let (text, truncated) = redact_capture((bytes, false), &secrets);
+        assert!(text.len() <= MAX_OUTPUT);
+        assert!(!text.contains("private-tail"));
+        assert!(text.ends_with("[redacted]"));
+        assert!(!truncated);
+    }
 }
 
 #[cfg(unix)]
