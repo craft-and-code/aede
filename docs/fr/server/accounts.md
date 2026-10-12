@@ -35,7 +35,7 @@ Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/a
 | `/api/me/v1/collections` | GET/HEAD collections paginées |
 | `/api/me/v1/playback` | GET avec passage en WebSocket ; [contrat audio](playback.md), user/admin seulement |
 
-Les routes transitoires `/api/admin/v1/{annotation,history,collection,collections}` continuent à viser `local`, même pour un administrateur ayant un autre propriétaire. Le premier administrateur récupère `local`. La CLI reste une interface de confiance du propriétaire système et conserve sa portée locale.
+Les routes transitoires `/api/admin/v1/{annotation,history,collection,collections}` visent uniquement `local`. Elles acceptent le jeton administratif de confiance de l’installation ou une session administrateur dont le propriétaire est `local` (le premier administrateur). Un autre administrateur reçoit `403 forbidden` sur ces routes personnelles et doit employer `/api/me/v1` pour ses propres données. Son administration des comptes et des tâches de l’installation reste disponible. La CLI reste une interface de confiance du propriétaire système et conserve sa portée locale.
 
 ## Administration des comptes
 

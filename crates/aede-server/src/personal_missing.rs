@@ -66,13 +66,16 @@ async fn list(
             query.include_set_aside.unwrap_or(false),
         )?;
         let total = all.len();
-        Ok(Json(Page::new(
-            all.into_iter().skip(offset).take(limit).collect(),
-            total,
-            offset,
-            limit,
-            catalog.scanned_at,
-        )))
+        owner.admit(
+            &state,
+            Json(Page::new(
+                all.into_iter().skip(offset).take(limit).collect(),
+                total,
+                offset,
+                limit,
+                catalog.scanned_at,
+            )),
+        )
     })?
     .await
     .map_err(|_| unavailable())?

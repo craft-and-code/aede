@@ -35,7 +35,7 @@ Use the [personal routes](personal.md) with `/api/me/v1` replacing `/api/admin/v
 | `/api/me/v1/collections` | GET/HEAD paginated collections |
 | `/api/me/v1/playback` | GET WebSocket upgrade; [audio contract](playback.md), user/admin only |
 
-The transitional `/api/admin/v1/{annotation,history,collection,collections}` routes continue to address `local`, even when an administrator has a different owner. The first administrator inherits `local`. The CLI remains trusted as the OS owner and continues its existing local scope.
+The transitional `/api/admin/v1/{annotation,history,collection,collections}` routes address `local` only. They accept the trusted installation administrative token or an administrator session whose owner is `local` (the first administrator). A different administrator receives `403 forbidden` on these personal routes and must use `/api/me/v1` for their own data. Their account and installation-job administration remains available. The CLI remains trusted as the OS owner and continues its existing local scope.
 
 ## Account administration
 

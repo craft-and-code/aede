@@ -1,5 +1,55 @@
 use super::*;
 
+#[test]
+fn revoked_m3u_publication_preserves_the_store_and_removes_an_uncommitted_new_file() {
+    use crate::accounts_test_support::Fixture;
+    let fixture = Fixture::new();
+    let accounts = fixture.accounts();
+    let alice = accounts.find("alice").unwrap();
+    let catalog = fixture.0.catalog.try_read().unwrap().clone().unwrap();
+    let track = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+    let mut original = UserData::default();
+    original
+        .entry(&accounts.find("bob").unwrap().id, &track, 1)
+        .note = Some("Bob intact".into());
+    let path = user::user_path(&fixture.0.data_dir);
+    user::save(&original, &path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    for revoke_at in [1, 2] {
+        let (principal, _) = auth::start_session(&fixture.0, &accounts, alice).unwrap();
+        let owner = PersonalOwner {
+            id: alice.id.clone(),
+            principal: Some(principal.clone()),
+        };
+        let calls = std::cell::Cell::new(0);
+        let mut data = original.clone();
+        let result = save_selection(
+            &catalog,
+            &mut data,
+            &fixture.0.data_dir,
+            &owner.id,
+            "Private",
+            vec![track.clone()],
+            || {
+                calls.set(calls.get() + 1);
+                if calls.get() == revoke_at {
+                    auth::end_session(&fixture.0, &principal)?;
+                }
+                owner.recheck(&fixture.0)
+            },
+        );
+        assert_eq!(result.err().unwrap().status, StatusCode::UNAUTHORIZED);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        for playlist in data.playlists {
+            assert!(
+                !target_path(&fixture.0.data_dir, &owner.id, &playlist.id)
+                    .unwrap()
+                    .exists()
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn private_export_search_filters_all_owned_summaries_before_pagination() {
     use crate::accounts_test_support::{Fixture, http, login};
@@ -113,6 +163,7 @@ fn repeated_publication_restores_a_missing_file_without_duplicate_playlists() {
         "alice",
         "Fixture",
         tracks.clone(),
+        || Ok(()),
     )
     .unwrap();
     let path = target_path(&root, "alice", &first.id).unwrap();
@@ -125,6 +176,7 @@ fn repeated_publication_restores_a_missing_file_without_duplicate_playlists() {
         "alice",
         "Fixture",
         tracks.clone(),
+        || Ok(()),
     )
     .unwrap();
     assert_eq!(restored.id, first.id);
@@ -138,7 +190,8 @@ fn repeated_publication_restores_a_missing_file_without_duplicate_playlists() {
             &root,
             "alice",
             "Fixture",
-            tracks.clone()
+            tracks.clone(),
+            || Ok(())
         )
         .unwrap()
         .id,
@@ -152,12 +205,16 @@ fn repeated_publication_restores_a_missing_file_without_duplicate_playlists() {
             &root,
             "alice",
             "Fixture",
-            tracks.clone()
+            tracks.clone(),
+            || Ok(())
         )
         .is_err()
     );
     assert_eq!(std::fs::read(&path).unwrap(), b"manual content");
-    let other = save_selection(&catalog, &mut data, &root, "bob", "Fixture", tracks).unwrap();
+    let other = save_selection(&catalog, &mut data, &root, "bob", "Fixture", tracks, || {
+        Ok(())
+    })
+    .unwrap();
     assert_ne!(other.id, first.id);
     assert_eq!(data.playlists.len(), 2);
     std::fs::remove_dir_all(root).unwrap();

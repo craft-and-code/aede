@@ -23,7 +23,7 @@ async fn read(
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, mut data) = locked_personal(&state.data_dir)?;
         owner.recheck(&state)?;
-        aede_core::achievements::refresh(
+        let prepared = aede_core::achievements::refresh(
             &catalog,
             &mut data,
             &owner.id,
@@ -31,7 +31,8 @@ async fn read(
             clock::now_seconds(),
         )
         .map(Json)
-        .map_err(invalid_query)
+        .map_err(invalid_query)?;
+        owner.admit(&state, prepared)
     })?
     .await
     .map_err(|_| unavailable())?

@@ -36,7 +36,7 @@ fn select(
             "no missing album matches this artist and release group",
         ));
     }
-    Ok(())
+    owner.recheck(state)
 }
 async fn read(
     State(state): State<ApiState>,

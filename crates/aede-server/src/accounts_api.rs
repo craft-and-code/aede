@@ -443,3 +443,7 @@ async fn revoke_sessions(
 #[cfg(test)]
 #[path = "accounts_api_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "accounts_personal_isolation_tests.rs"]
+mod personal_isolation_tests;

@@ -110,9 +110,20 @@ impl PersonalOwner {
     fn from_request(state: &ApiState, request: &Request) -> Result<Self, ApiError> {
         if request.uri().path().starts_with("/api/admin/v1/") {
             require_admin(state, request)?;
+            let principal = request.extensions().get::<auth::Principal>().cloned();
+            if principal
+                .as_ref()
+                .is_some_and(|principal| principal.owner != LOCAL_USER)
+            {
+                return Err(error(
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "use /api/me/v1 for this account's personal data",
+                ));
+            }
             Ok(Self {
                 id: LOCAL_USER.into(),
-                principal: request.extensions().get::<auth::Principal>().cloned(),
+                principal,
             })
         } else {
             let principal = auth::request_principal(request)?;
@@ -128,6 +139,13 @@ impl PersonalOwner {
             Some(principal) => auth::recheck(state, principal),
             None => Ok(()),
         }
+    }
+
+    // Preparation may include blocking filesystem reads or catalog projection.
+    // Revalidate after that work, immediately before admitting its result.
+    fn admit<T>(&self, state: &ApiState, prepared: T) -> Result<T, ApiError> {
+        self.recheck(state)?;
+        Ok(prepared)
     }
 
     /// Administrative-token routes have no account role; session routes must
@@ -432,6 +450,7 @@ fn locked_update<T>(
         eprintln!("Private achievement projection retained after failure: {failure}");
     }
     data.forget_empty();
+    owner.recheck(state)?;
     user::save(&data, &user::user_path(data_dir)).map_err(|failure| {
         eprintln!("API user data write failed: {failure}");
         error(
@@ -485,10 +504,13 @@ async fn annotation(
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
         owner.recheck(&state)?;
         existing_target(&catalog, &reference)?;
-        Ok(Json(AnnotationResponse {
-            reference: reference.to_token(),
-            annotation: data.find(&owner.id, &reference).map(annotation_view),
-        }))
+        owner.admit(
+            &state,
+            Json(AnnotationResponse {
+                reference: reference.to_token(),
+                annotation: data.find(&owner.id, &reference).map(annotation_view),
+            }),
+        )
     })?
     .await
     .map_err(|_| {
@@ -628,9 +650,10 @@ async fn history(
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&data_dir)?;
         owner.recheck(&state)?;
-        Ok(Json(history_page(
-            &data, &catalog, &owner.id, offset, limit,
-        )))
+        owner.admit(
+            &state,
+            Json(history_page(&data, &catalog, &owner.id, offset, limit)),
+        )
     })?
     .await
     .map_err(|_| {
@@ -741,7 +764,8 @@ async fn collection(
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, _catalog, data) = locked_personal(&data_dir)?;
         owner.recheck(&state)?;
-        data.collection(&owner.id, &query.name)
+        let prepared = data
+            .collection(&owner.id, &query.name)
             .map(collection_view)
             .map(Json)
             .ok_or_else(|| {
@@ -750,7 +774,8 @@ async fn collection(
                     "collection_not_found",
                     "no collection has this name",
                 )
-            })
+            })?;
+        owner.admit(&state, prepared)
     })?
     .await
     .map_err(|_| {
@@ -891,9 +916,10 @@ async fn collection_albums(
                     .ok_or_else(unavailable)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Json(
-            serde_json::json!({"items":items,"scanned_at":catalog.scanned_at}),
-        ))
+        owner.admit(
+            &state,
+            Json(serde_json::json!({"items":items,"scanned_at":catalog.scanned_at})),
+        )
     })?
     .await
     .map_err(|_| unavailable())?
@@ -928,15 +954,18 @@ async fn collections(
                 .cmp(&text::normalize(&right.name))
                 .then_with(|| left.name.cmp(&right.name))
         });
-        Ok(Json(CollectionsResponse {
-            page: Page {
-                total: items.len(),
-                items: items.into_iter().skip(offset).take(limit).collect(),
-                offset,
-                limit,
-                scanned_at: catalog.scanned_at,
-            },
-        }))
+        owner.admit(
+            &state,
+            Json(CollectionsResponse {
+                page: Page {
+                    total: items.len(),
+                    items: items.into_iter().skip(offset).take(limit).collect(),
+                    offset,
+                    limit,
+                    scanned_at: catalog.scanned_at,
+                },
+            }),
+        )
     })?
     .await
     .map_err(|_| {
@@ -974,13 +1003,16 @@ async fn annotations(
         owner.recheck(&state)?;
         let rows = own_annotations(&data, &catalog, &owner.id);
         let total = rows.len();
-        Ok(Json(Page::new(
-            rows.into_iter().skip(offset).take(limit).collect(),
-            total,
-            offset,
-            limit,
-            catalog.scanned_at,
-        )))
+        owner.admit(
+            &state,
+            Json(Page::new(
+                rows.into_iter().skip(offset).take(limit).collect(),
+                total,
+                offset,
+                limit,
+                catalog.scanned_at,
+            )),
+        )
     })?
     .await
     .map_err(|_| unavailable())?
@@ -1023,3 +1055,7 @@ fn invalid_reference(message: impl Into<String>) -> ApiError {
 #[cfg(test)]
 #[path = "personal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "personal_isolation_tests.rs"]
+mod isolation_tests;

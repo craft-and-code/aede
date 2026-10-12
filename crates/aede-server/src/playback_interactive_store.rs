@@ -72,6 +72,7 @@ pub(super) fn read_profile(
     let data = user::load(&user::user_path(&state.data_dir))
         .map_err(|_| StreamFailure::STATE_FAILED)?
         .unwrap_or_default();
+    authenticated_owner(state, captured)?;
     Ok(data.playback_state(&owner, profile).cloned())
 }
 
@@ -97,6 +98,7 @@ pub(super) fn persist_snapshot(
     }
     data.set_playback_state(snapshot)
         .map_err(|_| StreamFailure::STATE_FAILED)?;
+    authenticated_owner(state, captured)?;
     user::save(&data, &user::user_path(&state.data_dir)).map_err(|_| StreamFailure::STATE_FAILED)
 }
 

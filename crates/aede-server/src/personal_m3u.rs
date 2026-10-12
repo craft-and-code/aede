@@ -115,14 +115,16 @@ async fn save(
             &owner.id,
             &input.name,
             tracks,
+            || owner.recheck(&state),
         )?;
         if input.library {
+            owner.recheck(&state)?;
             answer.library_files = publish_library(
                 &catalog,
                 album.ok_or_else(|| invalid_query("album required"))?,
             )?;
         }
-        Ok(Json(answer))
+        owner.admit(&state, Json(answer))
     })?
     .await
     .map_err(|_| unavailable())?
@@ -170,6 +172,7 @@ fn save_selection(
     owner: &str,
     name: &str,
     tracks: Vec<EntityRef>,
+    confirm: impl Fn() -> Result<(), ApiError>,
 ) -> Result<Published, ApiError> {
     let retained = data
         .playlists
@@ -186,6 +189,7 @@ fn save_selection(
     };
     let answer = published(catalog, data.playlist(owner, &id).ok_or_else(unavailable)?)?;
     let path = target_path(data_dir, owner, &id)?;
+    confirm()?;
     let folder = path.parent().ok_or_else(unavailable)?;
     std::fs::create_dir_all(folder).map_err(|_| unavailable())?;
     if !std::fs::symlink_metadata(folder).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink()) {
@@ -222,15 +226,22 @@ fn save_selection(
             ));
         }
     }
-    if !existing && user::save(data, &user::user_path(data_dir)).is_err() {
-        if created {
-            let _ = std::fs::remove_file(path);
+    if !existing {
+        let saved = confirm().and_then(|_| {
+            user::save(data, &user::user_path(data_dir)).map_err(|_| {
+                error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "store_error",
+                    "private playlist could not be saved",
+                )
+            })
+        });
+        if let Err(failure) = saved {
+            if created && let Err(cleanup) = std::fs::remove_file(path) {
+                eprintln!("API unregistered private playlist cleanup failed: {cleanup}");
+            }
+            return Err(failure);
         }
-        return Err(error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "store_error",
-            "private playlist could not be saved",
-        ));
     }
     Ok(answer)
 }
@@ -254,13 +265,16 @@ async fn list(
             })
             .collect::<Vec<_>>();
         let items = own.iter().skip(offset).take(limit).cloned().collect();
-        Ok(Json(Page::new(
-            items,
-            own.len(),
-            offset,
-            limit,
-            catalog.scanned_at,
-        )))
+        owner.admit(
+            &state,
+            Json(Page::new(
+                items,
+                own.len(),
+                offset,
+                limit,
+                catalog.scanned_at,
+            )),
+        )
     })?
     .await
     .map_err(|_| unavailable())?
@@ -320,7 +334,7 @@ async fn download(
                 "no private playlist has this identity",
             )
         })?;
-        published(&catalog, playlist).map(Json)
+        owner.admit(&state, Json(published(&catalog, playlist)?))
     })?
     .await
     .map_err(|_| unavailable())?

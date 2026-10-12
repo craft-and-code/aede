@@ -168,7 +168,7 @@ async fn read(
                 }
             }
         }
-        Ok(Json(serde_json::json!({"moods":summaries,"items":items,"total":total,"offset":offset,"scanned_at":catalog.scanned_at})))
+        owner.admit(&state, Json(serde_json::json!({"moods":summaries,"items":items,"total":total,"offset":offset,"scanned_at":catalog.scanned_at})))
     })?.await.map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"personal_failed","atmosphere worker failed"))?
 }
 async fn write(

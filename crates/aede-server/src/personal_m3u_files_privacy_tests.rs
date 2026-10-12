@@ -34,6 +34,7 @@ async fn enclosing_watched_roots_never_expose_private_exports_through_shared_fil
         &accounts.find("alice").unwrap().id,
         "Alice private",
         vec![track.clone()],
+        || Ok(()),
     )
     .unwrap();
     let bob = super::save_selection(
@@ -43,6 +44,7 @@ async fn enclosing_watched_roots_never_expose_private_exports_through_shared_fil
         &accounts.find("bob").unwrap().id,
         "Bob private",
         vec![track],
+        || Ok(()),
     )
     .unwrap();
     let alice_path = super::target_path(

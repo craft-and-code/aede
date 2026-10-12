@@ -7,7 +7,8 @@
 //! can preserve these concepts without changing the domain model.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+mod output;
+use output::Output;
 
 /// A JSON value held in memory, as the catalog manipulates it between the file and the model.
 #[derive(Debug, Clone, PartialEq)]
@@ -212,7 +213,27 @@ impl Json {
         out
     }
 
-    fn write(&self, out: &mut String, indent: Option<usize>, depth: usize) {
+    /// Serialize the same indented JSON, refusing output beyond a byte budget.
+    /// This bounds the serialized bytes, including escaping and whitespace.
+    pub(crate) fn to_string_pretty_bounded(
+        &self,
+        maximum: usize,
+    ) -> Result<String, std::fmt::Error> {
+        let mut out = output::Limited::new(maximum);
+        self.write(&mut out, Some(2), 0);
+        out.finish()
+    }
+
+    pub(crate) fn check_pretty_size(&self, maximum: usize) -> std::fmt::Result {
+        let mut out = output::Counter::new(maximum);
+        self.write(&mut out, Some(2), 0);
+        out.finish()
+    }
+
+    fn write(&self, out: &mut impl Output, indent: Option<usize>, depth: usize) {
+        if out.exhausted() {
+            return;
+        }
         match self {
             Json::Null => out.push_str("null"),
             Json::Bool(true) => out.push_str("true"),
@@ -236,6 +257,9 @@ impl Json {
                 }
                 out.push('[');
                 for (i, item) in items.iter().enumerate() {
+                    if out.exhausted() {
+                        return;
+                    }
                     if i > 0 {
                         out.push(',');
                     }
@@ -252,6 +276,9 @@ impl Json {
                 }
                 out.push('{');
                 for (i, (k, v)) in map.iter().enumerate() {
+                    if out.exhausted() {
+                        return;
+                    }
                     if i > 0 {
                         out.push(',');
                     }
@@ -270,7 +297,7 @@ impl Json {
     }
 }
 
-fn newline_indent(out: &mut String, indent: Option<usize>, depth: usize) {
+fn newline_indent(out: &mut impl Output, indent: Option<usize>, depth: usize) {
     if let Some(width) = indent {
         out.push('\n');
         for _ in 0..(width * depth) {
@@ -279,9 +306,12 @@ fn newline_indent(out: &mut String, indent: Option<usize>, depth: usize) {
     }
 }
 
-fn write_escaped(out: &mut String, s: &str) {
+fn write_escaped(out: &mut impl Output, s: &str) {
     out.push('"');
     for ch in s.chars() {
+        if out.exhausted() {
+            return;
+        }
         match ch {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),

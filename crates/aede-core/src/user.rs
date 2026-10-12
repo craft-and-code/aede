@@ -25,6 +25,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::model::{Catalog, EntityKind, Id};
 use crate::text;
 
+#[path = "user_history.rs"]
+mod history;
 #[path = "user_identity.rs"]
 mod identity;
 #[path = "user_preferences.rs"]
@@ -382,12 +384,18 @@ pub struct Collection {
     pub updated_at: u64,
 }
 
-/// Events kept in the log before the oldest are forgotten.
+/// Events kept per owner in each native-play or scrobble journal before that
+/// owner's oldest events are forgotten.
 ///
 /// The log answers "what did I listen to last night"; the counters answer
 /// everything that needs all of history. Bounding the first keeps the file
 /// small without costing the second anything.
 pub const HISTORY_LIMIT: usize = 500;
+/// Global journal capacity, independent of per-owner retention. Publication
+/// refuses this bound rather than evicting another owner's records.
+pub const HISTORY_STORE_LIMIT: usize = HISTORY_LIMIT * aede_accounts::MAX_ACCOUNTS;
+/// Maximum UTF-8 bytes read from or published to the personal store.
+pub const USER_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// A record the user has taken off a report, and why that is allowed.
 ///
@@ -672,10 +680,7 @@ impl UserData {
         // ordering keeps equal-time events in arrival order without deduping.
         self.plays.sort_by_key(|play| play.at);
         // Oldest first, so the excess falls off the front.
-        if self.plays.len() > HISTORY_LIMIT {
-            let excess = self.plays.len() - HISTORY_LIMIT;
-            self.plays.drain(..excess);
-        }
+        history::retain(&mut self.plays, |play| &play.owner);
     }
 
     /// A saved query by name, compared without regard to case or accents:
@@ -751,19 +756,35 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// An exclusive temporary output prevents an existing temporary symlink from
 /// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
+    history::validate(data)?;
     playlists::validate(data)?;
     playback::validate(data)?;
-    crate::atomic_file::write(path, to_json(data).to_string_pretty().as_bytes())?;
+    let text = to_json(data)
+        .to_string_pretty_bounded(USER_MAX_BYTES)
+        .map_err(|_| crate::store::StoreError::Invalid("personal store byte limit exceeded"))?;
+    crate::atomic_file::write(path, text.as_bytes())?;
     Ok(())
 }
 
 /// Loads what the user wrote; `Ok(None)` when nothing has been written yet.
 pub fn load(path: &std::path::Path) -> Result<Option<UserData>, crate::store::StoreError> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
+    use std::io::Read;
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
+    let mut bytes = Vec::new();
+    file.take(USER_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > USER_MAX_BYTES {
+        return Err(crate::store::StoreError::Invalid(
+            "personal store byte limit exceeded",
+        ));
+    }
+    let text = String::from_utf8(bytes).map_err(|failure| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, failure.utf8_error())
+    })?;
     let value = crate::json::parse(&text).map_err(crate::store::StoreError::Parse)?;
     from_json(&value).map(Some)
 }
@@ -948,6 +969,9 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
 /// New static-playlist and scrobble rows are strictly validated: malformed or
 /// oversized rows fail the load, preserving the original file for recovery.
 pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::StoreError> {
+    value
+        .check_pretty_size(USER_MAX_BYTES)
+        .map_err(|_| crate::store::StoreError::Invalid("personal store byte limit exceeded"))?;
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
     if !matches!(found, 1 | USER_FORMAT_VERSION) {
@@ -1171,6 +1195,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
     // Older writers stored arrival order. Normalize in memory so readers and
     // undo operations use event time without changing counts or losing events.
     data.plays.sort_by_key(|play| play.at);
+    history::validate(&data)?;
     Ok(data)
 }
 
@@ -1324,10 +1349,7 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
         }
     }
     into.plays.sort_by_key(|p| p.at);
-    if into.plays.len() > HISTORY_LIMIT {
-        let excess = into.plays.len() - HISTORY_LIMIT;
-        into.plays.drain(..excess);
-    }
+    history::retain(&mut into.plays, |play| &play.owner);
 
     for count in incoming.counts {
         match into
@@ -1396,3 +1418,7 @@ mod test_support;
 #[cfg(test)]
 #[path = "user_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "user_history_tests.rs"]
+mod history_tests;

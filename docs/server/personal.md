@@ -1,6 +1,6 @@
 # Personal annotations, history and collections
 
-These administrative routes require [administrative authentication](administration.md) and address `local`. [Account sessions](accounts.md) use the same operations at `/api/me/v1` for their own authenticated owner. Requests cannot select another owner. An `auditor` session may use the `GET` and `HEAD` forms only; every `PUT`, `POST` or `DELETE` personal operation returns `403 forbidden`. Operations read the current disk catalog and `user.json` under the shared lock, so selection and atomic updates use one completed catalog version.
+These administrative routes require [administrative authentication](administration.md) and address `local`. Only the trusted installation token or an administrator session owning `local` can use them; other administrator sessions receive `403 forbidden`. [Account sessions](accounts.md) use the same operations at `/api/me/v1` for their own authenticated owner. Requests cannot select another owner. An `auditor` session may use the `GET` and `HEAD` forms only; every `PUT`, `POST` or `DELETE` personal operation returns `403 forbidden`. Operations read the current disk catalog and `user.json` under the shared lock, so selection and atomic updates use one completed catalog version.
 
 ## GET /api/admin/v1/annotation
 
@@ -50,7 +50,7 @@ curl 'http://127.0.0.1:8787/api/admin/v1/history?limit=20' \
   -H "Authorization: Bearer $AEDE_ADMIN_TOKEN"
 ```
 
-Returns HTTP 200 with a page; items contain `track,at,ms_played,completed,play_count,last_played`. Times `at`/`last_played` are Unix seconds; played duration is milliseconds. Counts describe the all-time track total, not just this page. History is bounded while per-track counts survive older events dropping from the recent log. Events are ordered by date; equal-date events remain distinct, with the last received first.
+Returns HTTP 200 with a page; items contain `track,at,ms_played,completed,play_count,last_played`. Times `at`/`last_played` are Unix seconds; played duration is milliseconds. Counts describe the owner's all-time track total, not just this page. Each owner retains their newest 500 native events; another owner's listening never removes them. Events are ordered by date; equal-date events remain distinct, with the last received first. Per-track counts survive older events dropping from that owner's recent log.
 
 ### HEAD /api/admin/v1/history
 
@@ -129,6 +129,8 @@ Same authenticated pagination/store validation, without collection JSON.
 ## Shared failures and recovery
 
 All these reads/writes obtain the data-folder lock. Another writer gives `409 store_busy`; retry once it finishes. Absent catalog: `503 catalog_unavailable`; unreadable catalog: `500 store_error`; corrupt/unreadable user data: `500 user_unavailable`; unexpected worker failure: `500 personal_failed`. No personal save occurs on those load/validation failures. Preserve damaged stores and backups before recovery instead of resetting data. [Backup operation](../operating.md#backups-and-recovery) covers safe recovery.
+
+The native `Play` journal and the separate Subsonic `Scrobble` journal each retain up to 500 events per owner. Their independent global capacity is 128,000 events per journal (500 × the account capacity of 256). `user.json` input and its indented serialized representation are limited to 64 MiB, including escaping and whitespace. Load/import and save refuse an exceeded bound; they do not trim another owner's records or replace the existing file. HTTP load failures use `user_unavailable`, and publication failures use `store_error`. These are storage budgets, not a bound on total process memory: the parsed store, domain values and JSON representation also occupy memory. No format change or automatic migration is performed; counts are retained and previously discarded events cannot be reconstructed.
 
 Static playlists have no native `/api/me/v1` route yet, but the [Subsonic/OpenSubsonic adapter](subsonic.md) reads and writes private ordered playlists in the same personal store. That adapter also serves catalogued JPEG/PNG sidecar artwork and original audio, and records client-declared scrobbles separately from `Play` events: no played duration or completion is invented. Both kinds contribute to all-time track counts; the native history page lists `Play` events only. An ephemeral, owner-private now-playing declaration does not increment counts or create history.
 

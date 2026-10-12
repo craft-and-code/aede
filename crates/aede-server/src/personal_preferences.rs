@@ -72,6 +72,7 @@ fn locked(state: &ApiState, owner: &PersonalOwner, patch: Option<Patch>) -> Resu
         {
             return Err(invalid_query("too many preferences"));
         }
+        owner.recheck(state)?;
         user::save(&data, &path).map_err(|_| {
             error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -80,7 +81,7 @@ fn locked(state: &ApiState, owner: &PersonalOwner, patch: Option<Patch>) -> Resu
             )
         })?;
     }
-    snapshot(&data, &owner.id)
+    owner.admit(state, snapshot(&data, &owner.id)?)
 }
 async fn read(
     State(state): State<ApiState>,

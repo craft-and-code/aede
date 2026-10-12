@@ -35,9 +35,12 @@ async fn search(
         let context =
             aede_core::query::Context::new(&catalog, &data, &owner.id).with_sources(&sources);
         let rows = aede_core::query::run(&parsed, &context);
-        Ok(Json(crate::presentation::track_pages::render_rows(
-            &catalog, &rows, offset, limit,
-        )?))
+        owner.admit(
+            &state,
+            Json(crate::presentation::track_pages::render_rows(
+                &catalog, &rows, offset, limit,
+            )?),
+        )
     })?
     .await
     .map_err(|_| unavailable())?

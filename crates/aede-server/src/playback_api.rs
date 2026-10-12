@@ -1376,6 +1376,7 @@ impl ListenRecord {
             ) {
                 eprintln!("API achievement projection unavailable: {failure}");
             }
+            auth::recheck(&self.state, &principal)?;
             user::save(&data, &user::user_path(&self.state.data_dir)).map_err(|failure| {
                 eprintln!("API playback history write failed: {failure}");
                 history_error(StreamFailure::HISTORY_WRITE.message)

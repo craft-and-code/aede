@@ -1,6 +1,6 @@
 # Enable local administration
 
-On local HTTP, administration can scan/fetch and access the local owner's personal data. An [account administrator](accounts.md) may use their session. The optional legacy administrative token also works; without accounts or a token, administration is disabled. [HTTPS](remote.md) disables every `/api/admin` route and the legacy token; use the trusted local CLI for installation work.
+On local HTTP, administration can scan/fetch and manage accounts. An [account administrator](accounts.md) may use their session. The transitional personal routes address `local` and accept only an administrator session owning `local` or the trusted installation token; other administrators use `/api/me/v1` for their own personal data. The optional legacy administrative token also works for installation work; without accounts or a token, administration is disabled. [HTTPS](remote.md) disables every `/api/admin` route and the legacy token; use the trusted local CLI for installation work.
 
 ## Configure the token before startup
 

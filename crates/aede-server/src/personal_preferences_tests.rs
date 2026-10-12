@@ -137,3 +137,58 @@ fn private_engine_state_never_leaks_through_client_preferences() {
         true
     );
 }
+
+#[test]
+fn application_preferences_cannot_replace_reserved_engine_progress_or_another_owners_values() {
+    use crate::accounts_test_support::{Fixture, http, login};
+    let runtime = crate::test_support::test_runtime();
+    let fixture = Fixture::new();
+    let (address, server) = runtime.block_on(crate::test_support::start_server(fixture.0.clone()));
+    let alice = login(address, "alice");
+    let bob = login(address, "bob");
+    assert_eq!(
+        http(
+            address,
+            "POST",
+            "/api/me/v1/achievements",
+            Some(&alice),
+            r#"{"advanced_search":true}"#
+        )
+        .0,
+        200
+    );
+    assert_eq!(http(address, "PATCH", "/api/me/v1/preferences", Some(&bob), r#"{"values":{"phemios.podcasts":{"feeds":["https://example.invalid/feed.xml"]},"phemios.radio":{"stations":[]}}}"#).0, 200);
+    let before = std::fs::read(user::user_path(&fixture.0.data_dir)).unwrap();
+    for body in [
+        r#"{"values":{"aede.achievements.v1":{"version":1,"unlocked":{},"search":false}}}"#,
+        r#"{"owner":"bob","values":{"phemios.radio":{"stations":[]}}}"#,
+    ] {
+        assert_eq!(
+            http(
+                address,
+                "PATCH",
+                "/api/me/v1/preferences",
+                Some(&alice),
+                body
+            )
+            .0,
+            400
+        );
+        assert_eq!(
+            std::fs::read(user::user_path(&fixture.0.data_dir)).unwrap(),
+            before
+        );
+    }
+    let (_, own, _) = http(address, "GET", "/api/me/v1/preferences", Some(&alice), "");
+    assert_eq!(own["values"], serde_json::json!({}));
+    let (_, progress, _) = http(address, "GET", "/api/me/v1/achievements", Some(&alice), "");
+    assert_eq!(progress["unlocked"], 1);
+    let (_, other, _) = http(address, "GET", "/api/me/v1/preferences", Some(&bob), "");
+    assert_eq!(
+        other["values"]["phemios.podcasts"]["feeds"][0],
+        "https://example.invalid/feed.xml"
+    );
+    let (_, other_progress, _) = http(address, "GET", "/api/me/v1/achievements", Some(&bob), "");
+    assert_eq!(other_progress["unlocked"], 0);
+    server.abort();
+}
