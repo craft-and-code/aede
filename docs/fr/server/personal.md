@@ -176,3 +176,6 @@ Le crate autonome `aede-moods`, sans dépendance externe, sélectionne par tags 
 ## Trophées masqués
 
 `GET /api/me/v1/achievements` présente la progression du compte courant. `POST` avec `{}` conserve les nouveaux déblocages ; `{ "advanced_search": true }` déclare une recherche avancée réussie côté client. Les auditeurs ne peuvent que lire. La capacité `private_achievements` annonce ce contrat. Les entrées verrouillées exposent uniquement un emplacement anonyme et une date nulle ; leurs définitions restent dans le moteur. Les dates de déblocage sont conservées, à partir des données privées disponibles, dont les écoutes terminées et confirmées. Les données internes réservées sont exclues de `/api/me/v1/preferences`. Un stockage illisible est conservé ; un échec de cette projection facultative ne peut pas refuser une annotation ou une écriture d’historique valide. Les comptes locaux et distants ont leur propre progression.
+
+
+Les pages de collections comprennent aussi `duration_ms` lorsque toutes les pistes correspondant à la règle ont une durée connue. Le calcul utilise le propriétaire authentifié et le même catalogue verrouillé, uniquement pour la page demandée. Une durée inconnue, une ancienne règle invalide ou un dépassement arithmétique omet cette valeur ; une sélection vide connue vaut zéro. Aucun fichier source ni aucune annotation ne change.

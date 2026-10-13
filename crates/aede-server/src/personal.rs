@@ -17,6 +17,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::*;
 #[path = "personal_achievements.rs"]
 mod achievements;
+#[path = "personal_collection_duration.rs"]
+mod collection_duration;
 #[path = "personal_collections.rs"]
 mod collection_updates;
 #[path = "personal_m3u.rs"]
@@ -740,6 +742,8 @@ struct CollectionView {
     expression: String,
     created_at: u64,
     updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<u64>,
 }
 
 fn collection_view(collection: &user::Collection) -> CollectionView {
@@ -748,6 +752,7 @@ fn collection_view(collection: &user::Collection) -> CollectionView {
         expression: collection.expression.clone(),
         created_at: collection.created_at,
         updated_at: collection.updated_at,
+        duration_ms: None,
     }
 }
 
@@ -954,12 +959,25 @@ async fn collections(
                 .cmp(&text::normalize(&right.name))
                 .then_with(|| left.name.cmp(&right.name))
         });
+        let total = items.len();
+        let sources = inspection::held_sources(&data_dir)?;
+        let context =
+            aede_core::query::Context::new(&catalog, &data, &owner.id).with_sources(&sources);
+        let items = items
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|mut row| {
+                row.duration_ms = collection_duration::duration(&context, &row.expression);
+                row
+            })
+            .collect();
         owner.admit(
             &state,
             Json(CollectionsResponse {
                 page: Page {
-                    total: items.len(),
-                    items: items.into_iter().skip(offset).take(limit).collect(),
+                    total,
+                    items,
                     offset,
                     limit,
                     scanned_at: catalog.scanned_at,

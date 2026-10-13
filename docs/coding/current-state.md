@@ -7,6 +7,8 @@ It describes the state of the repository at the beginning of a development sessi
 Do not turn this file into a development diary.
 
 ---
+Collection list pages expose optional exact owner-rule durations for their requested window, keeping missing durations unknown and known empty matches at zero. Personal storage and source audio remain unchanged.
+
 
 ## Project status
 
@@ -183,7 +185,7 @@ The bilingual [Compatible Aède specification](../server/compatible-aede.md) def
 
 ## Test status
 
-**Last recorded test count:** 2220 at the 2026-10-11 project-statistics checkpoint, including three doctests; none ignored.
+**Last recorded test count:** 2265 at the 2026-10-13 default-feature checkpoint, including integration tests and three doctests; none ignored. The generated active lib/bin TU inventory separately reports 1971.
 
 **Last verified:** 2026-10-11, the complete `tools/check.sh` on macOS with Rust 1.99 and required FFmpeg coverage. All 2220 default-feature Rust tests pass. The 1926 active lib/bin TUs comprise 13 accounts, 563 CLI, 952 core, 56 devices, 78 DSP, two moods and 262 server tests. The other 294 tests are 291 integration tests and three doctests. Generated statistics retain the seven-crate compiled inventory and conservative public “more than 1900” TU bound, not the full-suite count. Formatting, warning-free all-target lint, helper/site tests, real account pseudo-terminal checks, 114 bilingual documentation pages, Rustdoc/site-link validation and release compilation pass. This host run does not replace minimum-toolchain or cross-platform acceptance. A transient image-validation timeout under concurrent compilation passed in isolation and then in the complete successful rerun.
 

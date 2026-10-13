@@ -180,3 +180,6 @@ The dependency-free `aede-moods` crate matches explicit tag/genre evidence. A tr
 ## Opaque achievements
 
 `GET /api/me/v1/achievements` projects the current account's progress. `POST` with `{}` retains newly unlocked entries; `{ "advanced_search": true }` declares a successful client search action. Auditors may only read. `private_achievements` advertises support. Locked entries contain only an anonymous slot and null date; definitions remain engine-only. Unlock dates are monotonic and use retained private evidence, including confirmed completed visits. Reserved engine state is excluded from `/api/me/v1/preferences`. Unreadable records are retained; optional projection failure cannot reject a valid annotation or history write. Local and remote accounts have independent progress.
+
+
+Collection list windows also include `duration_ms` when every matching track has a known duration. The value evaluates the saved rule for the authenticated owner against the same locked catalog; only the requested page is measured. Unknown durations, invalid legacy rules and arithmetic overflow omit the value; a known empty selection is zero. No source files or annotations are changed.
