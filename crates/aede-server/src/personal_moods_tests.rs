@@ -89,6 +89,7 @@ fn mood_http_rules_remain_owner_private_and_select_normalized_artist_tags() {
         assert_eq!(status, 200, "{page}");
         assert_eq!(page["total"], 1);
         assert_eq!(page["items"][0]["reason"]["tag"], "concentration");
+        assert_eq!(page["items"][0]["reason"]["scope"], "artist");
         assert_eq!(
             http(
                 address,
@@ -113,4 +114,68 @@ fn mood_http_rules_remain_owner_private_and_select_normalized_artist_tags() {
         );
         server.abort();
     });
+}
+
+#[test]
+fn explicit_track_mood_overrides_inherited_artist_atmosphere() {
+    let state = crate::test_support::sample_state();
+    let guard = state.catalog.try_read().unwrap();
+    let catalog = guard.as_ref().unwrap();
+    let track = EntityRef::of(catalog, EntityKind::Track, 0).unwrap();
+    let release = catalog
+        .release(catalog.track(0).unwrap().release_id.unwrap())
+        .unwrap();
+    let artist = EntityRef::of(
+        catalog,
+        EntityKind::Artist,
+        release.album_artist_id.unwrap(),
+    )
+    .unwrap();
+    let mut data = UserData::default();
+    data.entry("one", &artist, 1).tags.insert("energy".into());
+    data.entry("one", &track, 2).tags.insert("calm".into());
+    let rows = evidence(catalog, &data, "one").unwrap();
+    assert_eq!(matches(&rows, &aede_moods::presets()[0]).len(), 1);
+    assert!(matches(&rows, &aede_moods::presets()[1]).is_empty());
+}
+
+#[test]
+fn mood_results_rank_specific_evidence_before_stable_chronological_ties() {
+    let rule = aede_moods::presets().remove(0);
+    let rows: Vec<_> = [
+        TagScope::Genre,
+        TagScope::Artist,
+        TagScope::Track,
+        TagScope::Album,
+        TagScope::Track,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, scope)| Evidence {
+        reference: EntityRef::new(EntityKind::Track, format!("file-{index}")),
+        tags: if scope == TagScope::Genre {
+            vec![]
+        } else {
+            vec!["calm".into()]
+        },
+        genres: vec!["ambient".into()],
+        scope,
+    })
+    .collect();
+    let selected = matches(&rows, &rule);
+    assert_eq!(
+        selected
+            .iter()
+            .map(|row| row.0.to_token())
+            .collect::<Vec<_>>(),
+        [
+            "track:file-2",
+            "track:file-4",
+            "track:file-3",
+            "track:file-1",
+            "track:file-0"
+        ]
+    );
+    assert_eq!(selected[0].1.tag.as_deref(), Some("calm"));
+    assert_eq!(selected[4].1.genre.as_deref(), Some("ambient"));
 }

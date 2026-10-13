@@ -1,6 +1,8 @@
 //! Explainable atmosphere selection from normalized owner tags and catalog genres.
 //! No network, model, decoder or mastering-to-emotion inference is involved.
 #![warn(missing_docs)]
+mod selection;
+pub use selection::{TagScope, TagSelector};
 /// One configurable OR rule over complete normalized tags/genres.
 #[derive(Clone, Debug)]
 pub struct Rule {

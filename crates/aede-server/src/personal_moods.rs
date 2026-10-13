@@ -1,6 +1,6 @@
 //! Owner-private explainable atmosphere projections; ordinary reads stay offline.
 use super::*;
-use aede_moods::Rule;
+use aede_moods::{Rule, TagScope, TagSelector};
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Parameters {
@@ -66,9 +66,12 @@ struct Evidence {
     reference: EntityRef,
     tags: Vec<String>,
     genres: Vec<String>,
+    scope: TagScope,
 }
 // Build shared indexes once, and expand presentation rows only for the visible page.
 fn evidence(catalog: &Catalog, data: &UserData, owner: &str) -> Result<Vec<Evidence>, ApiError> {
+    let rules: Vec<Rule> = rules(data, owner)?.iter().map(domain).collect();
+    let selector = TagSelector::new(&rules);
     let mut tags = BTreeMap::<String, Vec<String>>::new();
     for annotation in data.annotations.iter().filter(|row| row.owner == owner) {
         tags.insert(
@@ -114,27 +117,44 @@ fn evidence(catalog: &Catalog, data: &UserData, owner: &str) -> Result<Vec<Evide
         let refs = std::iter::once(reference.clone())
             .chain(release.and_then(|row| EntityRef::of(catalog, EntityKind::Release, row.id)))
             .chain(artist.and_then(|id| EntityRef::of(catalog, EntityKind::Artist, id)));
-        let mut own_tags = Vec::new();
+        let mut layers: [Vec<String>; 3] = Default::default();
         let mut own_genres = Vec::new();
-        for key in refs.map(|reference| reference.to_token()) {
-            own_tags.extend(tags.get(&key).into_iter().flatten().cloned());
+        for (index, key) in refs.map(|reference| reference.to_token()).enumerate() {
+            layers[index].extend(tags.get(&key).into_iter().flatten().cloned());
             own_genres.extend(genres.get(&key).into_iter().flatten().cloned());
         }
+        let scope = selector.scope([&layers[0], &layers[1], &layers[2]]);
+        let own_tags = match scope {
+            TagScope::Track => std::mem::take(&mut layers[0]),
+            TagScope::Album => std::mem::take(&mut layers[1]),
+            TagScope::Artist => std::mem::take(&mut layers[2]),
+            TagScope::Genre => Vec::new(),
+        };
         rows.push(Evidence {
             reference,
             tags: own_tags,
             genres: own_genres,
+            scope,
         });
     }
     Ok(rows)
 }
-fn matches(rows: &[Evidence], rule: &Rule) -> Vec<(EntityRef, aede_moods::Match)> {
-    rows.iter()
+fn matches(rows: &[Evidence], rule: &Rule) -> Vec<(EntityRef, aede_moods::Match, TagScope)> {
+    let mut selected: Vec<_> = rows
+        .iter()
         .filter_map(|row| {
-            rule.matches(&row.tags, &row.genres)
-                .map(|reason| (row.reference.clone(), reason))
+            let genres = if row.scope == TagScope::Genre {
+                row.genres.as_slice()
+            } else {
+                &[]
+            };
+            rule.matches(&row.tags, genres)
+                .map(|reason| (row.reference.clone(), reason, row.scope))
         })
-        .collect()
+        .collect();
+    // Stable ties preserve chronological release and track order; rank before pagination.
+    selected.sort_by_key(|row| row.2);
+    selected
 }
 async fn read(
     State(state): State<ApiState>,
@@ -161,9 +181,12 @@ async fn read(
             summaries.push(serde_json::json!({"rule":rule,"count":selected.len()}));
             if query.mood.as_deref() == Some(rule.id.as_str()) {
                 total = selected.len();
-                for (reference, reason) in selected.into_iter().skip(offset).take(limit) {
+                for (reference, reason, scope) in selected.into_iter().skip(offset).take(limit) {
                     let mut row = super::super::presentation::playback_rows(&catalog, &reference.to_token())?.remove(0);
-                    row["reason"] = serde_json::json!({"tag":reason.tag,"genre":reason.genre});
+                    let scope = match scope {
+                        TagScope::Track => "track", TagScope::Album => "album", TagScope::Artist => "artist", TagScope::Genre => "genre",
+                    };
+                    row["reason"] = serde_json::json!({"tag":reason.tag,"genre":reason.genre,"scope":scope});
                     items.push(row);
                 }
             }
