@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Serialize)]
 pub(super) struct Status {
+    pub(super) versions: serde_json::Value,
     pub(super) status: &'static str,
     pub(super) api_version: u32,
     pub(super) catalog_loaded: bool,

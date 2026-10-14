@@ -44,3 +44,7 @@ A failed recheck clears that file's previous verdict and leaves it eligible for 
 [scan](scan.md), [analyze](analyze.md), [copy](copy.md).
 
 Detailed existing guide: [integrity.md](../integrity.md).
+
+## Full decode test
+
+`aede check --decode-test [file-or-folder…]` explicitly decodes the entire selection without playback or file writes. It always rereads sources. FLAC uses the installed `flac --test` when available; only a missing executable triggers the existing Rust decoder. Non-FLAC sources use the existing native/fallback decoder. The report names the verifier and distinguishes a verified FLAC MD5 from decoding without one. Any unreadable, changed or rejected source makes the command fail, after reporting the other selected files. This mode does not replace cached container CRC verdicts or attributed analysis reports.

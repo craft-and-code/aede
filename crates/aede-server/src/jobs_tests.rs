@@ -398,7 +398,8 @@ fn callback_failure_and_panic_finish_the_task_and_release_capacity() {
             JobRequest::Scan(_)
             | JobRequest::Analyze(_)
             | JobRequest::Spectrum(_)
-            | JobRequest::Generate(_) => Err("mock failure".into()),
+            | JobRequest::Generate(_)
+            | JobRequest::Check(_) => Err("mock failure".into()),
             JobRequest::Fetch(_) => panic!("mock worker panic"),
         });
         let mut events = state.events.subscribe();
@@ -778,5 +779,87 @@ fn generation_route_accepts_only_fixed_nonempty_distinct_stages() {
         .unwrap();
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         wait_for_jobs(&state).await;
+    });
+}
+
+#[test]
+fn album_decode_job_uses_only_catalog_track_files_and_refuses_extra_options() {
+    runtime().block_on(async {
+        let (sent, received) = std::sync::mpsc::channel();
+        let state = state(move |job, _| {
+            sent.send(job).unwrap();
+            Ok(JobOutput::default())
+        });
+        let (reference, expected) = {
+            let mut guard = state.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            for file in &mut catalog.files {
+                file.path = std::env::temp_dir()
+                    .join(format!("aede-decode-fixture-{}.flac", file.id))
+                    .to_string_lossy()
+                    .into_owned();
+            }
+            let release = &catalog.releases[0];
+            let expected: Vec<_> = release
+                .track_ids
+                .iter()
+                .map(|id| {
+                    catalog
+                        .file(catalog.track(*id).unwrap().file_id)
+                        .unwrap()
+                        .path
+                        .clone()
+                })
+                .collect();
+            (
+                aede_core::user::EntityRef::of(
+                    catalog,
+                    aede_core::model::EntityKind::Release,
+                    release.id,
+                )
+                .unwrap()
+                .to_token(),
+                expected,
+            )
+        };
+        let denied = Request::builder()
+            .method("POST")
+            .uri("/api/admin/v1/check")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert!(check_route(State(state.clone()), denied).await.is_err());
+        let body = serde_json::json!({"release":reference}).to_string();
+        assert!(
+            check_route(
+                State(state.clone()),
+                request("POST", "/api/admin/v1/check", body)
+            )
+            .await
+            .is_ok()
+        );
+        let JobRequest::Check(files) = received.recv_timeout(Duration::from_secs(2)).unwrap()
+        else {
+            panic!("exact check expected")
+        };
+        assert_eq!(files, expected);
+        for body in [
+            r#"{"release":"../private"}"#,
+            r#"{"release":"release:x","path":"/private"}"#,
+        ] {
+            assert!(
+                check_route(
+                    State(state.clone()),
+                    request("POST", "/api/admin/v1/check", body)
+                )
+                .await
+                .is_err()
+            );
+        }
+        assert!(JobRequest::Check(vec![]).validate().is_err());
+        assert!(
+            JobRequest::Check(vec!["relative.flac".into()])
+                .validate()
+                .is_err()
+        );
     });
 }

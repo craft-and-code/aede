@@ -44,3 +44,7 @@ Une relecture échouée retire l’ancien verdict de ce fichier, pour qu’une p
 [scan](scan.md), [analyze](analyze.md), [copy](copy.md).
 
 Guide détaillé existant : [integrity.md](../../integrity.md).
+
+## Test complet de décodage
+
+`aede check --decode-test [fichier-ou-dossier…]` relit et décode toute la sélection sans lecture audio ni écriture des fichiers. Pour le FLAC, le programme installé `flac --test` est préféré ; seule son absence déclenche le décodeur Rust existant. Les autres formats utilisent le décodeur habituel. Le rapport nomme le vérificateur et distingue le MD5 vérifié de son absence. Un fichier illisible, modifié ou refusé entraîne un échec après le rapport des autres fichiers. Les conclusions CRC et analyses enregistrées ne sont pas remplacées.

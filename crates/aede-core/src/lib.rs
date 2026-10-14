@@ -57,3 +57,6 @@ pub mod store_lock;
 mod url;
 pub mod user;
 pub mod wikipedia;
+
+/// Version of the linked FlacCompagnon core from the workspace lockfile.
+pub const FLACCOMPAGNON_VERSION: &str = env!("FLACCOMPAGNON_VERSION");

@@ -326,3 +326,7 @@ See [personal contracts](../../docs/server/personal.md#account-presentation-pref
 | --- | --- |
 | `POST /api/admin/v1/generate` | Trusted-local administrative ordered plan of one to four distinct stages: `analyze`, `spectrum`, `m3u`, `lyrics`. Roots come from the current catalog; one audio worker and exclusive job admission prevent parallel administrative stages. Accepted task IDs use the existing read/cancel routes. Completed stage failures remain visible while later stages may continue; cancellation stops the remainder and retains completed work. See [generation jobs](../../docs/server/jobs.md#post-apiadminv1generate). |
 | `GET /api/me/v1/album-listening` | Owner-private paged `{reference,completed}` evidence for nonempty catalogued editions. Complete `Play` counts survive recent-history retention; partial visits and duration-less scrobbles do not qualify. No owner selector, body, mutation or public-cache field. See [personal listening](../../docs/server/personal.md#owner-private-album-listening). |
+
+### Album decode test and component versions
+
+`POST /api/admin/v1/check` accepts only a catalog release reference for trusted-local sequential complete decoding. See [job contract](../../docs/server/jobs.md#post-apiadminv1check). `/api/v1/status` additionally reports `versions:{aede,flaccompagnon}`; the FlacCompagnon Core version comes from the locked linked dependency, not an external desktop installation.

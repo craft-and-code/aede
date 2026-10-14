@@ -90,6 +90,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         capabilities.push("fetch_service_keys");
         capabilities.push("administrative_tasks_list");
         capabilities.push("library_generations");
+        capabilities.push("album_decode_test");
         if cfg!(feature = "fetch") {
             capabilities.push("fetch_discogs");
             capabilities.push("fetch_musicbrainz_first");
@@ -97,6 +98,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         }
     }
     Json(Status {
+        versions: serde_json::json!({"aede":env!("CARGO_PKG_VERSION"),"flaccompagnon":aede_core::FLACCOMPAGNON_VERSION}),
         status: "ok",
         api_version: 1,
         catalog_loaded: state.catalog.read().await.is_some(),

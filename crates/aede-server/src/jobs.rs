@@ -168,6 +168,8 @@ struct GenerationInput {
 pub enum JobRequest {
     /// Whole-catalog derivative work, serialized in the existing CLI worker.
     Generate(GenerationRequest),
+    /// Exact catalogued album files, never a client-supplied path or folder expansion.
+    Check(Vec<String>),
     /// A local scan of watched/newly supplied folders.
     Scan(ScanRequest),
     /// An explicitly requested online pass, or an offline `dry_run` preview.
@@ -188,6 +190,7 @@ impl JobRequest {
                 [GenerationStep::Lyrics] => "library_generation_lyrics",
                 _ => "library_generation",
             },
+            Self::Check(_) => "album_decode_test",
             Self::Scan(_) => "scan",
             Self::Fetch(_) => "identification",
             Self::Analyze(_) => "analysis",
@@ -216,6 +219,19 @@ impl JobRequest {
                 }
                 if !cfg!(feature = "fetch") && plan.steps.contains(&GenerationStep::Lyrics) {
                     return Err(invalid("lyrics generation requires the fetch feature"));
+                }
+            }
+            Self::Check(files) => {
+                if files.is_empty()
+                    || files.len() > 1024
+                    || files.iter().map(String::len).sum::<usize>() > 128_000
+                    || files.iter().any(|file| {
+                        file.len() > 4096
+                            || file.contains('\0')
+                            || !std::path::Path::new(file).is_absolute()
+                    })
+                {
+                    return Err(invalid("decode test needs bounded exact catalog files"));
                 }
             }
             Self::Scan(scan) => {
@@ -576,6 +592,7 @@ pub(super) fn routes() -> Router<ApiState> {
         )
         .route("/api/admin/v1/generate", post(generation_route))
         .route("/api/admin/v1/lyrics", post(lyrics_route))
+        .route("/api/admin/v1/check", post(check_route))
         .route("/api/admin/v1/analyze", post(analyze_route))
         .route("/api/admin/v1/spectrum", post(spectrum_route))
         .route("/api/admin/v1/tasks", get(task_list_route))
@@ -1052,4 +1069,50 @@ pub(super) fn enqueue_background(
         }),
     )
         .into_response())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckSelection {
+    release: String,
+}
+async fn check_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let selected: CheckSelection = decode(&body(request, MAX_BODY).await?)?;
+    if selected.release.len() > super::MAX_REFERENCE_BYTES {
+        return Err(super::invalid_query("release reference is too long"));
+    }
+    let files = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        let id = super::catalog::filter_reference(
+            catalog,
+            &selected.release,
+            aede_core::model::EntityKind::Release,
+        )?;
+        let release = catalog.release(id).ok_or_else(super::unavailable)?;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut files = Vec::new();
+        for id in &release.track_ids {
+            let track = catalog.track(*id).ok_or_else(super::unavailable)?;
+            let file = catalog.file(track.file_id).ok_or_else(super::unavailable)?;
+            if seen.insert(file.path.clone()) {
+                files.push(file.path.clone());
+            }
+        }
+        if let Some(principal) = &principal {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(files)
+    })
+    .await?
+    .0;
+    enqueue(state, JobRequest::Check(files))
 }

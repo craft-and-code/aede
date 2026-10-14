@@ -440,6 +440,7 @@ const OPTIONS: &[&str] = &[
     "all",
     "help",
     "version",
+    "decode-test",
     "full",
     "follow-symlinks",
     "include-hidden",
@@ -671,6 +672,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
             "relation",
         ],
         "take something back",
+    ),
+    (
+        "decode-test",
+        &["check"],
+        "decode complete files without audio output; prefer flac -t for FLAC",
     ),
     (
         "full",

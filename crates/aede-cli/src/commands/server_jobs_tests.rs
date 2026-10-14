@@ -478,3 +478,15 @@ fn cancellation_releases_nested_worker_pipes_before_another_stage_can_start() {
         130
     );
 }
+
+#[test]
+fn album_decode_arguments_preserve_literal_files_without_folder_expansion() {
+    let path = std::env::temp_dir()
+        .join("an album/track;literal.flac")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        arguments(&JobRequest::Check(vec![path.clone()])),
+        ["check", "--decode-test", "--", path.as_str()]
+    );
+}

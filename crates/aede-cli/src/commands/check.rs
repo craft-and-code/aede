@@ -21,6 +21,9 @@ use aede_core::model::{Catalog, Id, IntegrityRecord};
 use aede_core::store;
 use aede_core::text;
 
+#[path = "check_decode.rs"]
+mod decode;
+
 use super::{Res, data_dir, load};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
@@ -43,6 +46,9 @@ pub fn check(args: &Args) -> Res {
     // whole library at once is the kind of thing one wants to try on a corner
     // first.
     let scope = super::scope_of(args, &catalog)?;
+    if args.has("decode-test") {
+        return decode::run(&catalog, &scope);
+    }
     let queue = to_verify(&catalog, &scope, args.has("full"));
 
     // Nothing to read is not nothing to say. The command answers "are my files
