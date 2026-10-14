@@ -288,3 +288,61 @@ fn oversized_user_input_and_output_are_refused_with_existing_bytes_intact() {
         USER_MAX_BYTES as u64 + 4
     );
 }
+
+#[test]
+fn confirmed_completion_survives_retention_and_roundtrip_without_crossing_owners() {
+    let mut data = UserData::default();
+    let first = play("alice", 1);
+    data.record_play(first.clone());
+    for at in 2..HISTORY_LIMIT as u64 + 3 {
+        let mut next = play("alice", at);
+        next.track = EntityRef::new(EntityKind::Track, format!("/music/{at}.flac"));
+        next.completed = false;
+        data.record_play(next);
+    }
+    assert!(!data.plays.iter().any(|p| p.track == first.track));
+    let restored = from_json(&to_json(&data)).unwrap();
+    let count = restored
+        .counts
+        .iter()
+        .find(|p| p.owner == "alice" && p.track == first.track)
+        .unwrap();
+    assert_eq!(count.completed_count, 1);
+    assert!(!restored.counts.iter().any(|p| p.owner == "bob"));
+}
+
+#[test]
+fn legacy_completed_visits_seed_counters_but_partial_visits_and_scrobbles_do_not() {
+    let mut data = UserData::default();
+    data.record_play(play("alice", 1));
+    data.record_scrobble(scrobble("bob", 1)).unwrap();
+    let mut legacy = to_json(&data);
+    if let crate::json::Json::Obj(root) = &mut legacy
+        && let Some(crate::json::Json::Arr(rows)) = root.get_mut("counts")
+    {
+        for row in rows {
+            if let crate::json::Json::Obj(fields) = row {
+                fields.remove("completed_count");
+            }
+        }
+    }
+    let restored = from_json(&legacy).unwrap();
+    assert_eq!(
+        restored
+            .counts
+            .iter()
+            .find(|p| p.owner == "alice")
+            .unwrap()
+            .completed_count,
+        1
+    );
+    assert_eq!(
+        restored
+            .counts
+            .iter()
+            .find(|p| p.owner == "bob")
+            .unwrap()
+            .completed_count,
+        0
+    );
+}

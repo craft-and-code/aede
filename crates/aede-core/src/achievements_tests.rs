@@ -1,5 +1,6 @@
 use super::*;
 use crate::user::Annotation;
+use crate::{model::EntityKind, user::EntityRef};
 #[test]
 fn locked_successes_are_opaque_and_owner_unlocks_survive_removed_annotations_and_history() {
     let catalog = Catalog::default();

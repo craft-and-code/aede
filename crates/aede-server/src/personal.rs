@@ -21,6 +21,8 @@ mod achievements;
 mod collection_duration;
 #[path = "personal_collections.rs"]
 mod collection_updates;
+#[path = "personal_listening.rs"]
+mod listening;
 #[path = "personal_m3u.rs"]
 mod m3u;
 #[path = "personal_missing.rs"]
@@ -79,6 +81,7 @@ pub(super) fn account_routes() -> Router<ApiState> {
         .route("/api/me/v1/annotations", get(annotations))
         .merge(search::routes())
         .merge(achievements::routes())
+        .merge(listening::routes())
         .merge(preferences::routes())
         .merge(moods::routes())
         .merge(m3u::routes())

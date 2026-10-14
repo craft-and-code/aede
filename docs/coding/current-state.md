@@ -6,6 +6,8 @@ It describes the state of the repository at the beginning of a development sessi
 
 Do not turn this file into a development diary.
 
+Whole-library derivative generation reuses the existing typed administrative CLI worker with fixed ordered stages and captured watched roots, one audio worker and exclusive registry admission. Completed stage failures remain visible while later stages can proceed; cancellation stops future work and the owned Unix encoder process group. Album listening now projects owner-private all-time completion evidence beyond recent-history retention, with an optional persisted counter, protected paged API and CLI marker. See [jobs](../server/jobs.md#post-apiadminv1generate) and [personal listening](../server/personal.md#owner-private-album-listening). The complete macOS gate passes 2303 Rust tests, including three doctests, plus format, Clippy, helper/site and terminal tests, bilingual documentation/RustDoc and release compilation.
+
 ---
 Album-M3U verification adds one server HTTP regression, bringing the complete gate to 2292 Rust tests including three doctests. Canonical album M3U lookup now exposes the existing file inventory through a bounded release selector. It reads only metadata for the CLI's expected album filename, refuses unavailable directories, preserves shared-root/private-export isolation and rechecks folder aliases before publication. This lets Phémios distinguish creation from downloading an existing M3U without reading its content or rewriting files. The additive `album_m3u_lookup` capability and selector are documented in [desktop presentation](../server/presentation.md#canonical-album-m3u-lookup).
 

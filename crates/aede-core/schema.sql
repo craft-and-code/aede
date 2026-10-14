@@ -526,3 +526,14 @@ CREATE TABLE user_client_preference (
     value TEXT NOT NULL,
     PRIMARY KEY (owner, key)
 ) WITHOUT ROWID;
+
+-- `user.json` counts retain all-time native/scrobble totals independently of recent events.
+-- completed_count is additive and optional in legacy JSON; only retained confirmed visits seed it.
+CREATE TABLE user_listening_count (
+    owner TEXT NOT NULL,
+    track_reference TEXT NOT NULL,
+    count INTEGER NOT NULL CHECK(count >= 0),
+    completed_count INTEGER NOT NULL DEFAULT 0 CHECK(completed_count >= 0 AND completed_count <= count),
+    last_played INTEGER NOT NULL,
+    PRIMARY KEY (owner, track_reference)
+) WITHOUT ROWID;

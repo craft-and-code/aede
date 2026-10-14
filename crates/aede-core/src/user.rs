@@ -358,6 +358,8 @@ pub struct PlayCount {
     pub track: EntityRef,
     /// All-time native listens and client-declared scrobbles combined.
     pub count: u32,
+    /// All-time completed Play events; duration-less scrobbles never increment this.
+    pub completed_count: u32,
     /// When it was last played.
     pub last_played: u64,
 }
@@ -611,13 +613,14 @@ impl UserData {
             // be guessing, so it is refused.
             return false;
         };
-        self.plays.remove(index);
+        let completed = self.plays.remove(index).completed;
         if let Some(counter) = self
             .counts
             .iter_mut()
             .find(|c| c.owner == owner && &c.track == track)
         {
             counter.count = counter.count.saturating_sub(1);
+            counter.completed_count = counter.completed_count.saturating_sub(u32::from(completed));
             // The last-played date now belongs to whatever play is newest of
             // those left, and to nothing at all when none is.
             counter.last_played = self
@@ -666,12 +669,16 @@ impl UserData {
         {
             Some(counter) => {
                 counter.count = counter.count.saturating_add(1);
+                counter.completed_count = counter
+                    .completed_count
+                    .saturating_add(u32::from(play.completed));
                 counter.last_played = counter.last_played.max(play.at);
             }
             None => self.counts.push(PlayCount {
                 owner: play.owner.clone(),
                 track: play.track.clone(),
                 count: 1,
+                completed_count: u32::from(play.completed),
                 last_played: play.at,
             }),
         }
@@ -890,6 +897,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
             o.set("owner", c.owner.as_str().into());
             o.set("track", c.track.to_token().into());
             o.set("count", c.count.into());
+            o.set("completed_count", c.completed_count.into());
             o.set("last_played", c.last_played.into());
             o
         })
@@ -1112,6 +1120,14 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         });
     }
 
+    // Legacy recent evidence can be recovered, but an evicted unknown visit cannot be guessed.
+    let mut legacy_completed = BTreeMap::<(&str, &EntityRef), u32>::new();
+    for play in data.plays.iter().filter(|play| play.completed) {
+        let count = legacy_completed
+            .entry((&play.owner, &play.track))
+            .or_default();
+        *count = count.saturating_add(1);
+    }
     for row in value.get("counts").and_then(|v| v.as_arr()).unwrap_or(&[]) {
         let Some(track) = row
             .field_str("track")
@@ -1119,10 +1135,22 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         else {
             continue;
         };
+        let owner = row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into());
+        let completed_count = match row.get("completed_count") {
+            Some(value) => value.as_u32().ok_or(crate::store::StoreError::Invalid(
+                "invalid completed listening count",
+            ))?,
+            None => legacy_completed
+                .get(&(owner.as_str(), &track))
+                .copied()
+                .unwrap_or(0)
+                .min(row.field_u32("count").unwrap_or(0)),
+        };
         data.counts.push(PlayCount {
-            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            owner,
             track,
             count: row.field_u32("count").unwrap_or(0),
+            completed_count,
             last_played: row.field_u64("last_played").unwrap_or(0),
         });
     }
@@ -1359,6 +1387,7 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
         {
             Some(existing) => {
                 existing.count = existing.count.max(count.count);
+                existing.completed_count = existing.completed_count.max(count.completed_count);
                 existing.last_played = existing.last_played.max(count.last_played);
             }
             None => into.counts.push(count),

@@ -934,3 +934,12 @@ fn play_list(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+/// The native CLI owner shares the account-private complete-album rule; machine exports stay unchanged.
+fn album_listening_title(title: &str, completed: bool) -> String {
+    if completed {
+        title.to_owned()
+    } else {
+        format!("{} {title}", ui::red("◷"))
+    }
+}

@@ -40,6 +40,15 @@ fn validate_rows<T>(rows: &[T], owner: impl Fn(&T) -> &str) -> Result<(), StoreE
 }
 
 pub(super) fn validate(data: &UserData) -> Result<(), StoreError> {
+    if data
+        .counts
+        .iter()
+        .any(|row| row.completed_count > row.count)
+    {
+        return Err(StoreError::Invalid(
+            "completed listening count exceeds all-time count",
+        ));
+    }
     validate_rows(&data.plays, |row| &row.owner)?;
     validate_rows(&data.scrobbles, |row| &row.owner)
 }

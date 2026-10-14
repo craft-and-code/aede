@@ -75,6 +75,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "analysis_integrity",
         "advanced_search",
         "private_achievements",
+        "album_listening",
         "queue_m3u",
         "grouped_m3u_exports",
         "library_m3u_files",

@@ -219,6 +219,7 @@ impl UserData {
                 owner: event.owner.clone(),
                 track: event.track.clone(),
                 count: 1,
+                completed_count: 0,
                 last_played: at,
             }),
         }

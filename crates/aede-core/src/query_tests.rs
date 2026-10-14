@@ -49,6 +49,7 @@ fn personal_queries_preserve_owner_scope_and_the_first_legacy_row() {
             owner: owner.into(),
             track: target.clone(),
             count,
+            completed_count: 0,
             last_played: 0,
         });
     }

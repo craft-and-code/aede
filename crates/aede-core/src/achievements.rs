@@ -1,7 +1,7 @@
 //! Owner-private discoveries derived from retained personal evidence; locked definitions never leave the engine.
 use crate::{
-    model::{Catalog, EntityKind},
-    user::{ClientPreference, EntityRef, UserData},
+    model::Catalog,
+    user::{ClientPreference, UserData},
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,23 +22,8 @@ fn definitions(catalog: &Catalog, data: &UserData, owner: &str, search: bool) ->
         .filter(|r| r.owner == owner)
         .collect();
     let plays: Vec<_> = data.plays.iter().filter(|r| r.owner == owner).collect();
-    let completed: BTreeSet<_> = plays
-        .iter()
-        .filter(|r| r.completed)
-        .map(|r| r.track.clone())
-        .collect();
-    let albums: BTreeSet<_> = catalog
-        .releases
-        .iter()
-        .filter(|r| {
-            !r.track_ids.is_empty()
-                && r.track_ids.iter().all(|id| {
-                    EntityRef::of(catalog, EntityKind::Track, *id)
-                        .is_some_and(|t| completed.contains(&t))
-                })
-        })
-        .map(|r| r.id)
-        .collect();
+    let completed = crate::listening::completed_tracks(data, owner);
+    let albums = crate::listening::completed_albums(catalog, data, owner);
     let mut discographies: BTreeMap<_, Vec<_>> = BTreeMap::new();
     for r in &catalog.releases {
         if let Some(artist) = r.album_artist_id {
