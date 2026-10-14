@@ -91,6 +91,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         capabilities.push("administrative_tasks_list");
         capabilities.push("library_generations");
         capabilities.push("album_decode_test");
+        capabilities.push("album_decode_results");
         if cfg!(feature = "fetch") {
             capabilities.push("fetch_discogs");
             capabilities.push("fetch_musicbrainz_first");

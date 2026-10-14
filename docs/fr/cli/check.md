@@ -48,3 +48,5 @@ Guide détaillé existant : [integrity.md](../../integrity.md).
 ## Test complet de décodage
 
 `aede check --decode-test [fichier-ou-dossier…]` relit et décode toute la sélection sans lecture audio ni écriture des fichiers. Pour le FLAC, le programme installé `flac --test` est préféré ; seule son absence déclenche le décodeur Rust existant. Les autres formats utilisent le décodeur habituel. Le rapport nomme le vérificateur et distingue le MD5 vérifié de son absence. Un fichier illisible, modifié ou refusé entraîne un échec après le rapport des autres fichiers. Les conclusions CRC et analyses enregistrées ne sont pas remplacées.
+
+`--json` est disponible uniquement avec `--decode-test`. La réponse version 1 contient un tableau `files` : `path` exact, `status` (`ok` pour une empreinte vérifiée, `no_hash` pour un décodage réussi sans empreinte de référence, `ko` pour un échec), `verifier` et éventuellement `message` pour une erreur. Même en cas de sortie non nulle, le rapport par fichier est complet. Aucun résultat n’est enregistré dans le catalogue.

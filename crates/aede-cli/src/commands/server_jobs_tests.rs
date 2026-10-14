@@ -487,6 +487,6 @@ fn album_decode_arguments_preserve_literal_files_without_folder_expansion() {
         .into_owned();
     assert_eq!(
         arguments(&JobRequest::Check(vec![path.clone()])),
-        ["check", "--decode-test", "--", path.as_str()]
+        ["check", "--decode-test", "--json", "--", path.as_str()]
     );
 }

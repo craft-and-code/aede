@@ -44,7 +44,7 @@ fn arguments(request: &JobRequest) -> Vec<String> {
             &plan.roots
         }
         JobRequest::Check(files) => {
-            args.extend(["check", "--decode-test"].map(String::from));
+            args.extend(["check", "--decode-test", "--json"].map(String::from));
             files
         }
         JobRequest::Scan(scan) => {
