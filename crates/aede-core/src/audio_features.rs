@@ -48,5 +48,5 @@ pub fn extract(
     extractor.finish()
 }
 #[cfg(test)]
-#[path = "audio_features/tests.rs"]
+#[path = "audio_features_tests.rs"]
 mod tests;
