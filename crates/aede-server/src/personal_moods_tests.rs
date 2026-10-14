@@ -152,6 +152,7 @@ fn mood_results_rank_specific_evidence_before_stable_chronological_ties() {
     .into_iter()
     .enumerate()
     .map(|(index, scope)| Evidence {
+        file_id: index as Id,
         reference: EntityRef::new(EntityKind::Track, format!("file-{index}")),
         tags: if scope == TagScope::Genre {
             vec![]

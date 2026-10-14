@@ -23,3 +23,10 @@ Acoustic descriptors are shared original-audio facts. Exemplar labels and result
 An explicit trusted-loopback administrative task performs extraction, publishes per-file progress and supports the existing task Stop/polling contract. Client navigation does not terminate the server-owned job; shutdown/cancellation retains completed records. A fresh request resumes by reusing matching records. Ordinary mood reads may load bounded cached descriptors but never decode source audio or contact a provider. Remote HTTPS administrative exclusion remains intact.
 
 Phémios presents coverage, real progress, foreground suspension, Stop and explicit restart of remaining work. Neighbor selection must retain exact personal labels, use at least two usable specific examples before acoustic expansion, rank finite weighted distances and explain the evidence separately from a measured emotion. Genre-only recipes remain transparent fallback where a model lacks examples; mastering loudness does not substitute for tempo/timbre or emotional classification.
+
+
+## Catalogue lookup and allocation checkpoint
+
+Mood evidence retains the validated graph file ID. Descriptor lookup therefore uses the existing constant-time catalog file access and bounded cache map, rather than resolving a track path with a linear catalog scan for each recipe/candidate. Only requested page rows allocate explanation JSON; counts and candidate ordering retain compact typed reasons. The worker uses the scanned ID as its normal source-validation fast path and falls back to path lookup only after catalog reindexing. No new global index, source mutation or private storage is introduced.
+
+A 2,048-source synthetic regression preserves the measured/proximity counts and refuses two placements of the same source as two training examples. Illustrative same-host unoptimized test runs take approximately 175 ms before the lookup/allocation change and 13 ms afterward. These individual runs are not a production benchmark or physical audio acceptance; the structural removal of repeated linear resolution and unused JSON is independent of timing.

@@ -66,6 +66,8 @@ fn rules(data: &UserData, owner: &str) -> Result<Vec<RuleView>, ApiError> {
     Ok(result)
 }
 pub(crate) struct Evidence {
+    // Preserve the validated graph link instead of repeatedly resolving a path for every recipe.
+    pub(crate) file_id: Id,
     pub(crate) reference: EntityRef,
     pub(crate) tags: Vec<String>,
     pub(crate) genres: Vec<String>,
@@ -138,6 +140,7 @@ pub(crate) fn evidence(
             TagScope::Genre => Vec::new(),
         };
         rows.push(Evidence {
+            file_id: track.file_id,
             reference,
             tags: own_tags,
             genres: own_genres,

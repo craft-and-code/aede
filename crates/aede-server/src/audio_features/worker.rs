@@ -143,12 +143,15 @@ pub(super) fn run(
                 .map_err(|_| "audio source changed during extraction")?;
             let catalog = state.catalog.blocking_read();
             if catalog.as_ref().is_none_or(|c| {
-                !c.files.iter().any(|f| {
-                    f.path == input.path
-                        && f.size == input.size
-                        && f.mtime == input.modified
-                        && c.file_mtime_subseconds.get(&f.path).copied().unwrap_or(0) == input.nanos
-                })
+                c.file(source.file.id)
+                    .filter(|f| f.path == input.path)
+                    .or_else(|| c.files.iter().find(|f| f.path == input.path))
+                    .is_none_or(|f| {
+                        f.size != input.size
+                            || f.mtime != input.modified
+                            || c.file_mtime_subseconds.get(&f.path).copied().unwrap_or(0)
+                                != input.nanos
+                    })
             }) {
                 return Err("catalog source changed during extraction".into());
             }

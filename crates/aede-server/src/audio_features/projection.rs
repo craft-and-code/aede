@@ -1,9 +1,30 @@
 use super::*;
 use crate::personal::moods::{Evidence, RuleView, domain};
 use aede_moods::{AcousticModel, TagScope};
+enum Reason {
+    Known(aede_moods::Match, &'static str),
+    Neighbor { distance: f32, examples: usize },
+    Descriptor { value: f32, unit: &'static str },
+}
+impl Reason {
+    // Allocate explanation JSON only for the requested page, rather than every counted candidate.
+    fn value(self) -> serde_json::Value {
+        match self {
+            Self::Known(matched, scope) => {
+                serde_json::json!({"tag":matched.tag,"genre":matched.genre,"scope":scope})
+            }
+            Self::Neighbor { distance, examples } => {
+                serde_json::json!({"tag":null,"genre":null,"scope":"acoustic","audio":{"kind":"neighbor","distance":distance,"examples":examples}})
+            }
+            Self::Descriptor { value, unit } => {
+                serde_json::json!({"tag":null,"genre":null,"scope":"acoustic","audio":{"kind":"descriptor","value":value,"unit":unit}})
+            }
+        }
+    }
+}
 struct Selected<'a> {
     reference: &'a aede_core::user::EntityRef,
-    reason: serde_json::Value,
+    reason: Reason,
     priority: u8,
     distance: f32,
 }
@@ -12,9 +33,7 @@ fn descriptor<'a>(
     catalog: &Catalog,
     row: &Evidence,
 ) -> Option<&'a aede_moods::Features> {
-    let id = row.reference.resolve(catalog)?;
-    let track = catalog.track(id)?;
-    current(facts, catalog, track.file_id)
+    current(facts, catalog, row.file_id)
 }
 fn personal<'a>(
     facts: &Facts,
@@ -27,12 +46,7 @@ fn personal<'a>(
     let seeds = rows
         .iter()
         .filter(|row| row.scope <= TagScope::Album && rule.matches(&row.tags, &[]).is_some())
-        .filter(|row| {
-            row.reference
-                .resolve(catalog)
-                .and_then(|id| catalog.track(id))
-                .is_some_and(|track| seen.insert(track.file_id))
-        })
+        .filter(|row| seen.insert(row.file_id))
         .filter_map(|row| descriptor(facts, catalog, row))
         .filter(|row| row.usable())
         .take(16)
@@ -54,7 +68,7 @@ fn personal<'a>(
             };
             selected.push(Selected {
                 reference: &row.reference,
-                reason: serde_json::json!({"tag":reason.tag,"genre":null,"scope":scope}),
+                reason: Reason::Known(reason, scope),
                 priority: row.scope as u8,
                 distance: 0.,
             });
@@ -68,12 +82,20 @@ fn personal<'a>(
         });
         if let (Some(model), Some(distance)) = (&model, distance) {
             if distance <= model.radius() {
-                selected.push(Selected{reference:&row.reference,reason:serde_json::json!({"tag":null,"genre":null,"scope":"acoustic","audio":{"kind":"neighbor","distance":distance,"examples":model.examples()}}),priority:3,distance});
+                selected.push(Selected {
+                    reference: &row.reference,
+                    reason: Reason::Neighbor {
+                        distance,
+                        examples: model.examples(),
+                    },
+                    priority: 3,
+                    distance,
+                });
             }
         } else if let Some(reason) = rule.matches(&[], &row.genres) {
             selected.push(Selected {
                 reference: &row.reference,
-                reason: serde_json::json!({"tag":null,"genre":reason.genre,"scope":"genre"}),
+                reason: Reason::Known(reason, "genre"),
                 priority: 4,
                 distance: 0.,
             });
@@ -99,7 +121,7 @@ fn expand(
         .map(|entry| {
             let mut row =
                 crate::presentation::playback_rows(catalog, &entry.reference.to_token())?.remove(0);
-            row["reason"] = entry.reason;
+            row["reason"] = entry.reason.value();
             Ok(row)
         })
         .collect()
@@ -147,7 +169,19 @@ pub(crate) fn projection(
         if rules.iter().any(|rule| rule.id == recipe.id) {
             continue;
         }
-        let selected=rows.iter().filter_map(|row|{let feature=descriptor(&facts,catalog,row)?;let (value,unit)=recipe.measure(feature)?;Some(Selected{reference:&row.reference,reason:serde_json::json!({"tag":null,"genre":null,"scope":"acoustic","audio":{"kind":"descriptor","value":value,"unit":unit}}),priority:0,distance:0.})}).collect::<Vec<_>>();
+        let selected = rows
+            .iter()
+            .filter_map(|row| {
+                let feature = descriptor(&facts, catalog, row)?;
+                let (value, unit) = recipe.measure(feature)?;
+                Some(Selected {
+                    reference: &row.reference,
+                    reason: Reason::Descriptor { value, unit },
+                    priority: 0,
+                    distance: 0.,
+                })
+            })
+            .collect::<Vec<_>>();
         summaries.push(serde_json::json!({"rule":{"id":recipe.id,"name":recipe.name,"tags":[],"genres":[],"acoustic":recipe.kind},"count":selected.len()}));
         if chosen == Some(recipe.id) {
             total = selected.len();

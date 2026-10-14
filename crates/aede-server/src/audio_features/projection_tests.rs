@@ -50,6 +50,7 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
         .iter()
         .enumerate()
         .map(|(index, reference)| Evidence {
+            file_id: index as Id,
             reference: reference.clone(),
             tags: if index < 2 {
                 vec!["calm".into()]
@@ -101,6 +102,7 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
     let other = rows
         .iter()
         .map(|row| Evidence {
+            file_id: row.file_id,
             reference: row.reference.clone(),
             tags: vec![],
             genres: vec![],
@@ -154,4 +156,88 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
         )
         .is_err()
     );
+}
+
+#[test]
+fn large_acoustic_projection_preserves_counts_and_requires_distinct_source_examples() {
+    let state = crate::test_support::sample_state();
+    let mut guard = state.catalog.try_write().unwrap();
+    let catalog = guard.as_mut().unwrap();
+    for n in 1..2048 {
+        let mut file = catalog.files[0].clone();
+        file.id = n;
+        file.path = format!("/music/large/{n}.flac");
+        catalog.files.push(file);
+        let mut track = catalog.tracks[0].clone();
+        track.id = n;
+        track.file_id = n;
+        catalog.tracks.push(track);
+        catalog.releases[0].track_ids.push(n);
+    }
+    let rows = catalog
+        .files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| Evidence {
+            file_id: file.id,
+            reference: EntityRef::new(EntityKind::Track, file.path.clone()),
+            tags: if index < 2 {
+                vec!["calm".into()]
+            } else {
+                vec![]
+            },
+            genres: vec![],
+            scope: if index < 2 {
+                TagScope::Track
+            } else {
+                TagScope::Genre
+            },
+        })
+        .collect::<Vec<_>>();
+    let rule = RuleView::from(aede_moods::presets().remove(0));
+    {
+        let mut facts = state.audio_features.facts.lock().unwrap();
+        for file in &catalog.files {
+            facts.rows.insert(
+                file.path.clone(),
+                Record {
+                    input: InputIdentity {
+                        path: file.path.clone(),
+                        size: file.size,
+                        modified: file.mtime,
+                        nanos: 0,
+                    },
+                    features: feature(),
+                },
+            );
+        }
+        let duplicated = (0..2)
+            .map(|_| Evidence {
+                file_id: rows[0].file_id,
+                reference: rows[0].reference.clone(),
+                tags: rows[0].tags.clone(),
+                genres: vec![],
+                scope: TagScope::Track,
+            })
+            .collect::<Vec<_>>();
+        assert!(personal(&facts, catalog, &duplicated, &rule).1.is_none());
+    }
+    let start = Instant::now();
+    let page = projection(
+        &state,
+        catalog,
+        &rows,
+        std::slice::from_ref(&rule),
+        Window {
+            chosen: None,
+            offset: 0,
+            limit: 50,
+            expected: None,
+        },
+    )
+    .unwrap();
+    eprintln!("acoustic projection: 2048 sources in {:?}", start.elapsed());
+    assert_eq!(page["moods"][0]["count"], 2048);
+    assert_eq!(page["moods"][0]["model"]["examples"], 2);
+    assert_eq!(page["moods"][3]["count"], 2048);
 }
