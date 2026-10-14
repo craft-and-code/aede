@@ -85,3 +85,6 @@ Analysis coverage rows include `integrity:{ok,ko,no_hash,unchecked,unsupported,s
 The additive `album_m3u_lookup` capability enables `GET /api/me/v1/m3u-files?ref=<release-token>&limit=1`. It resolves Aède's canonical CLI album-playlist destination, returning the validated release `reference` and zero or one metadata-only shared-file row. Unrelated playlists in the same folder do not disable publication. No playlist text, private export or source audio is opened or rewritten by lookup. Ordinary file detail/download still uses the opaque file ID.
 
 The release must resolve in the current catalog. Its folder must remain inside permitted watched roots and outside exclusions/private exports. Unavailable folders refuse the read rather than asserting absence. Root, catalog, album alias and current-owner admission are rechecked before publication. Clients on older servers must leave unknown existence distinct from a confirmed missing file.
+
+
+Artist media also reports the optional `logo` presence alongside banner, background and portrait. The same confined, read-only artwork endpoint accepts artist `kind=logo` with its existing bounded thumbnail size. Existing logos are read without external enrichment or original-file changes. Older clients ignore the additive hint; older servers omit it.

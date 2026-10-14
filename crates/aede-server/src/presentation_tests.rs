@@ -434,3 +434,22 @@ fn coverage_integrity_distinguishes_md5_crc_absent_unverified_and_unsupported() 
         1
     );
 }
+
+#[test]
+fn presentation_distinguishes_present_and_missing_artist_logos() {
+    let state = sample_state();
+    let mut catalog = state.catalog.blocking_read().clone().unwrap();
+    let root = std::env::temp_dir().join(format!("aede-logo-presence-{}", std::process::id()));
+    let folder = root.join("Artist");
+    std::fs::create_dir_all(folder.join("Album")).unwrap();
+    catalog.roots = vec![root.to_str().unwrap().into()];
+    catalog.releases[0].folder = folder.join("Album").to_str().unwrap().into();
+    let sources = Sources::default();
+    let absent = artist_row(&catalog, &sources, &state.data_dir, &catalog.artists[0]).unwrap();
+    assert_eq!(absent["media"]["logo"], false);
+    let path = folder.join(aede_core::coverart::image_name(Kind::Logo, "png", 0, 1));
+    std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
+    let present = artist_row(&catalog, &sources, &state.data_dir, &catalog.artists[0]).unwrap();
+    assert_eq!(present["media"]["logo"], true);
+    std::fs::remove_dir_all(root).unwrap();
+}

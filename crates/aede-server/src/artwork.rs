@@ -63,10 +63,11 @@ fn select(catalog: &Catalog, data_dir: &Path, parameters: &Parameters) -> Result
     let id = entity.resolve(catalog).ok_or_else(unavailable)?;
     let selected = match (entity.kind, parameters.kind.as_str()) {
         (EntityKind::Release, "cover") => catalog.release(id).and_then(candidate),
-        (EntityKind::Artist, "banner" | "background" | "portrait") => {
+        (EntityKind::Artist, "banner" | "background" | "portrait" | "logo") => {
             let kind = match parameters.kind.as_str() {
                 "banner" => Kind::Banner,
                 "background" => Kind::Background,
+                "logo" => Kind::Logo,
                 _ => Kind::Artist,
             };
             artist_folder(catalog, id, data_dir).and_then(|folder| beside(folder, kind))
