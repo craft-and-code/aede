@@ -78,6 +78,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "queue_m3u",
         "grouped_m3u_exports",
         "library_m3u_files",
+        "album_m3u_lookup",
     ];
     if cfg!(feature = "fetch") {
         capabilities.push("missing_album_covers");

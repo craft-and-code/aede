@@ -2,6 +2,8 @@
 
 use super::*;
 use aede_core::playlist::files as library_files;
+#[path = "personal_m3u_album.rs"]
+mod album;
 #[path = "personal_m3u_files_response.rs"]
 mod response;
 
@@ -17,6 +19,8 @@ pub(super) struct Parameters {
     offset: Option<String>,
     limit: Option<String>,
     q: Option<String>,
+    #[serde(rename = "ref")]
+    reference: Option<String>,
 }
 
 pub(super) fn parameters(query: Parameters) -> Result<(usize, usize, Option<String>), ApiError> {
@@ -106,6 +110,8 @@ impl From<library_files::File> for Summary {
 
 #[derive(Serialize)]
 struct Listing {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reference: Option<String>,
     #[serde(flatten)]
     page: Page<Summary>,
     unavailable_roots: usize,
@@ -166,14 +172,23 @@ async fn list(
 ) -> Result<Response, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
-    let (offset, limit, q) = parameters(parsed_query(input)?)?;
+    let query = parsed_query(input)?;
+    let reference = query.reference.clone();
+    let (offset, limit, q) = parameters(query)?;
     let bytes = spawn_personal(state.inspection_slots.clone(), move || {
         let scope = Scope::capture(&state)?;
-        let discovery = library_files::discover(&scope.roots, &scope.excluded).map_err(failure)?;
+        let (roots, target) = match reference.as_deref() {
+            Some(reference) => album::target(&state, &scope, reference)?,
+            None => (scope.roots.clone(), None),
+        };
+        let discovery = library_files::discover(&roots, &scope.excluded).map_err(failure)?;
         let mut files = discovery.files;
         files.retain(|file| {
-            q.as_ref()
-                .is_none_or(|q| text::normalize(&file.path).contains(q))
+            target
+                .as_ref()
+                .is_none_or(|target| Path::new(&file.path) == target)
+                && q.as_ref()
+                    .is_none_or(|q| text::normalize(&file.path).contains(q))
         });
         let total = files.len();
         let items = files
@@ -183,11 +198,17 @@ async fn list(
             .map(Summary::from)
             .collect();
         let answer = Listing {
+            reference: reference.clone(),
             page: Page::new(items, total, offset, limit, scope.scanned_at),
             unavailable_roots: discovery.unavailable_roots,
             unreadable_directories: discovery.unreadable_directories,
         };
         let bytes = response::serialize(&answer)?;
+        if let Some(reference) = reference.as_deref()
+            && album::target(&state, &scope, reference)? != (roots, target)
+        {
+            return Err(failure(library_files::Error::Changed));
+        }
         scope.confirm(&state, &owner)?;
         Ok(bytes)
     })?

@@ -235,3 +235,92 @@ fn retargeted_root_or_exclusion_alias_refuses_a_prepared_file_listing() {
         symlink(original, alias).unwrap();
     }
 }
+
+#[tokio::test]
+async fn album_file_lookup_is_read_only_exact_and_confined_to_shared_roots() {
+    let fixture = Fixture::new();
+    let album = fixture.0.data_dir.join("music/Artist/First");
+    std::fs::create_dir_all(&album).unwrap();
+    let reference = {
+        let mut held = fixture.0.catalog.write().await;
+        let catalog = held.as_mut().unwrap();
+        catalog.roots = vec![fixture.0.data_dir.join("music").to_string_lossy().into()];
+        catalog.releases[0].folder = album.to_string_lossy().into();
+        EntityRef::of(catalog, EntityKind::Release, catalog.releases[0].id)
+            .unwrap()
+            .to_token()
+    };
+    let query = format!(
+        "/api/me/v1/m3u-files?ref={}&limit=1",
+        reference
+            .bytes()
+            .map(|byte| format!("%{byte:02X}"))
+            .collect::<String>()
+    );
+    let file = album.join("First.m3u");
+    let state = fixture.0.clone();
+    let (address, server) = crate::test_support::start_server(state).await;
+    let shared = fixture.0.clone();
+    tokio::task::spawn_blocking(move || {
+        let token = login(address, "alice");
+        let (status, page, _) = http(address, "GET", &query, Some(&token), "");
+        assert_eq!(status, 200, "{page}");
+        assert_eq!(page["reference"], reference);
+        assert_eq!(page["total"], 0);
+        std::fs::write(album.join("unrelated.m3u"), b"other.flac\n").unwrap();
+        let (status, page, _) = http(address, "GET", &query, Some(&token), "");
+        assert_eq!(status, 200, "{page}");
+        assert_eq!(page["total"], 0);
+        let bytes = b"#EXTM3U\n01.flac\n";
+        std::fs::write(&file, bytes).unwrap();
+        let (status, page, _) = http(address, "GET", &query, Some(&token), "");
+        assert_eq!(status, 200, "{page}");
+        assert_eq!(page["total"], 1);
+        assert_eq!(page["items"][0]["filename"], "First.m3u");
+        assert!(page["items"][0]["track_count"].is_null());
+        let id = page["items"][0]["id"].as_str().unwrap();
+        let (status, detail, _) = http(
+            address,
+            "GET",
+            &format!("/api/me/v1/m3u-files/{id}"),
+            Some(&token),
+            "",
+        );
+        assert_eq!(status, 200, "{detail}");
+        assert_eq!(detail["content"], "#EXTM3U\n01.flac\n");
+        assert_eq!(std::fs::read(&file).unwrap(), bytes);
+        let (status, _, _) = http(
+            address,
+            "GET",
+            "/api/me/v1/m3u-files?ref=artist%3Aexample",
+            Some(&token),
+            "",
+        );
+        assert_eq!(status, 400);
+        let private = shared.data_dir.join("playlists/bob/Private");
+        std::fs::create_dir_all(&private).unwrap();
+        std::fs::write(private.join("Private.m3u"), b"bob-private\n").unwrap();
+        let private_reference = {
+            let mut catalog = shared.catalog.blocking_write();
+            let catalog = catalog.as_mut().unwrap();
+            catalog.roots = vec![shared.data_dir.to_string_lossy().into()];
+            catalog.releases[0].folder = private.to_string_lossy().into();
+            EntityRef::of(catalog, EntityKind::Release, catalog.releases[0].id)
+                .unwrap()
+                .to_token()
+        };
+        let private_query = format!(
+            "/api/me/v1/m3u-files?ref={}",
+            private_reference
+                .bytes()
+                .map(|byte| format!("%{byte:02X}"))
+                .collect::<String>()
+        );
+        let (status, page, _) = http(address, "GET", &private_query, Some(&token), "");
+        assert_eq!(status, 200, "{page}");
+        assert_eq!(page["total"], 0);
+    })
+    .await
+    .unwrap();
+    server.abort();
+}

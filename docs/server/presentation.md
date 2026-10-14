@@ -79,3 +79,9 @@ Label pages additionally accept `sort=albums` with `order=asc|desc`, ordering th
 ### Cached integrity coverage
 
 Analysis coverage rows include `integrity:{ok,ko,no_hash,unchecked,unsupported,stale,md5,crc}`. The first six counts partition album tracks. `md5` counts FLAC tracks and reads only applicable retained FlacCompagnon MD5 evidence: Match, Mismatch and NoSignature retain different outcomes. Present/Error/absent verdicts are unverified, and obsolete reports are stale. Ogg tracks use stored `ogg-page-crc` evidence, counted separately in `crc`; this is not a decoded-audio MD5. Other formats are unsupported by this projection, rather than healthy by default. Listing never launches a check or opens source audio.
+
+## Canonical album M3U lookup
+
+The additive `album_m3u_lookup` capability enables `GET /api/me/v1/m3u-files?ref=<release-token>&limit=1`. It resolves Aède's canonical CLI album-playlist destination, returning the validated release `reference` and zero or one metadata-only shared-file row. Unrelated playlists in the same folder do not disable publication. No playlist text, private export or source audio is opened or rewritten by lookup. Ordinary file detail/download still uses the opaque file ID.
+
+The release must resolve in the current catalog. Its folder must remain inside permitted watched roots and outside exclusions/private exports. Unavailable folders refuse the read rather than asserting absence. Root, catalog, album alias and current-owner admission are rechecked before publication. Clients on older servers must leave unknown existence distinct from a confirmed missing file.
