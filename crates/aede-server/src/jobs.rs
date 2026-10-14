@@ -136,9 +136,38 @@ struct MediaSelection {
     threads: Option<usize>,
 }
 
+/// Fixed whole-catalog stages; clients never supply paths or executable arguments.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationStep {
+    /// Reuse or create FlacCompagnon album reports.
+    Analyze,
+    /// Reuse or create track spectrograms.
+    Spectrum,
+    /// Publish catalog-ordered playlists in album folders.
+    M3u,
+    /// Explicitly obtain missing lyrics through the existing provider pass.
+    Lyrics,
+}
+/// A sequential, cancellable plan owned by one Aède server.
+#[derive(Clone, Debug)]
+pub struct GenerationRequest {
+    /// One to four distinct stages in the requested order.
+    pub steps: Vec<GenerationStep>,
+    /// Current watched roots captured by the server, never accepted from an HTTP body.
+    pub roots: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenerationInput {
+    steps: Vec<GenerationStep>,
+}
+
 /// A typed operation; HTTP clients cannot provide arbitrary executable arguments.
 #[derive(Clone, Debug)]
 pub enum JobRequest {
+    /// Whole-catalog derivative work, serialized in the existing CLI worker.
+    Generate(GenerationRequest),
     /// A local scan of watched/newly supplied folders.
     Scan(ScanRequest),
     /// An explicitly requested online pass, or an offline `dry_run` preview.
@@ -152,6 +181,13 @@ pub enum JobRequest {
 impl JobRequest {
     fn kind(&self) -> &'static str {
         match self {
+            Self::Generate(plan) => match plan.steps.as_slice() {
+                [GenerationStep::Analyze] => "library_generation_analyze",
+                [GenerationStep::Spectrum] => "library_generation_spectrum",
+                [GenerationStep::M3u] => "library_generation_m3u",
+                [GenerationStep::Lyrics] => "library_generation_lyrics",
+                _ => "library_generation",
+            },
             Self::Scan(_) => "scan",
             Self::Fetch(_) => "identification",
             Self::Analyze(_) => "analysis",
@@ -162,6 +198,26 @@ impl JobRequest {
     fn validate(&self) -> Result<(), ApiError> {
         let invalid = |message: &str| error(StatusCode::BAD_REQUEST, "invalid_parameters", message);
         match self {
+            Self::Generate(plan) => {
+                let unique: std::collections::BTreeSet<_> = plan.steps.iter().collect();
+                if plan.roots.is_empty()
+                    || plan.roots.len() > 64
+                    || plan.roots.iter().any(|root| {
+                        root.len() > 4096
+                            || root.contains('\0')
+                            || !std::path::Path::new(root).is_absolute()
+                    })
+                {
+                    return Err(invalid("generation needs current watched roots"));
+                }
+                if plan.steps.is_empty() || plan.steps.len() > 4 || unique.len() != plan.steps.len()
+                {
+                    return Err(invalid("generation needs one to four distinct stages"));
+                }
+                if !cfg!(feature = "fetch") && plan.steps.contains(&GenerationStep::Lyrics) {
+                    return Err(invalid("lyrics generation requires the fetch feature"));
+                }
+            }
             Self::Scan(scan) => {
                 if scan.folders.len() > 64
                     || scan.unavailable_folders.len() > 64
@@ -342,6 +398,17 @@ pub(super) struct JobRegistry {
 impl JobRegistry {
     fn insert(&self, task_id: u64, task_kind: &'static str) -> Result<Arc<AtomicBool>, ApiError> {
         let mut data = self.data.lock().map_err(|_| registry_error())?;
+        if (task_kind.starts_with("library_generation") && data.active > 0)
+            || data.tasks.values().any(|task| {
+                task.task_kind.starts_with("library_generation") && !task.status.is_terminal()
+            })
+        {
+            return Err(error(
+                StatusCode::CONFLICT,
+                "generation_task_active",
+                "whole-library generation excludes concurrent administrative work",
+            ));
+        }
         if task_kind == "mood_features"
             && data
                 .tasks
@@ -507,6 +574,7 @@ pub(super) fn routes() -> Router<ApiState> {
             "/api/admin/v1/mood-features",
             post(super::audio_features::start),
         )
+        .route("/api/admin/v1/generate", post(generation_route))
         .route("/api/admin/v1/lyrics", post(lyrics_route))
         .route("/api/admin/v1/analyze", post(analyze_route))
         .route("/api/admin/v1/spectrum", post(spectrum_route))
@@ -597,6 +665,35 @@ async fn fetch_route(
 struct LyricsSelection {
     track: String,
 }
+async fn generation_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let input: GenerationInput = decode(&body(request, MAX_BODY).await?)?;
+    let roots = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        if let Some(principal) = principal.as_ref() {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(catalog.roots.clone())
+    })
+    .await?
+    .0;
+    enqueue(
+        state,
+        JobRequest::Generate(GenerationRequest {
+            steps: input.steps,
+            roots,
+        }),
+    )
+}
+
 async fn lyrics_route(
     State(state): State<ApiState>,
     request: Request,

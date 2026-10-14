@@ -319,3 +319,9 @@ See [personal contracts](../../docs/server/personal.md#account-presentation-pref
 ### Private opaque achievements
 
 `GET /api/me/v1/achievements` returns an owner-private projection; `POST` with `{}` captures monotonic unlocks, and `{ "advanced_search": true }` records a successful client-declared advanced-search action. Auditor accounts may only read. Status advertises `private_achievements`. Locked entries expose only an anonymous slot and null date. Definitions remain engine-only, and reserved engine records never appear in client preferences. Progress uses retained personal evidence, including confirmed completed listening visits; local and remote accounts remain separate. Corrupt records are retained and reported by this endpoint; optional projection failure cannot reject an otherwise valid annotation or listening-history write.
+
+### Whole-library derivatives
+
+| Route | Contract |
+| --- | --- |
+| `POST /api/admin/v1/generate` | Trusted-local administrative ordered plan of one to four distinct stages: `analyze`, `spectrum`, `m3u`, `lyrics`. Roots come from the current catalog; one audio worker and exclusive job admission prevent parallel administrative stages. Accepted task IDs use the existing read/cancel routes. Completed stage failures remain visible while later stages may continue; cancellation stops the remainder and retains completed work. See [generation jobs](../../docs/server/jobs.md#post-apiadminv1generate). |

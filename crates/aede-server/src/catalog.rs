@@ -88,6 +88,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         capabilities.push("library_m3u_publication");
         capabilities.push("fetch_service_keys");
         capabilities.push("administrative_tasks_list");
+        capabilities.push("library_generations");
         if cfg!(feature = "fetch") {
             capabilities.push("fetch_discogs");
             capabilities.push("fetch_musicbrainz_first");

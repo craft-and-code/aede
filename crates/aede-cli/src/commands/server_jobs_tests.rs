@@ -351,3 +351,130 @@ fn combined_stage_output_stays_bounded_at_utf8_boundaries_and_plain_fetch_runs_o
     .unwrap();
     assert_eq!(calls, 1);
 }
+
+#[test]
+fn generation_keeps_order_and_bounded_workers_and_reports_partial_stage_failure() {
+    use aede_server::{GenerationRequest, GenerationStep};
+    let stages = [
+        GenerationStep::Analyze,
+        GenerationStep::Spectrum,
+        GenerationStep::M3u,
+        GenerationStep::Lyrics,
+    ];
+    let mut calls = Vec::new();
+    run_sequence(
+        JobRequest::Generate(GenerationRequest {
+            steps: stages.to_vec(),
+            roots: vec!["/music".into()],
+        }),
+        &AtomicBool::new(false),
+        |request| {
+            calls.push(arguments(&request));
+            Ok(JobOutput::default())
+        },
+    )
+    .unwrap();
+    assert_eq!(calls.len(), 4);
+    assert_eq!(
+        calls
+            .iter()
+            .map(|args| args[0].as_str())
+            .collect::<Vec<_>>(),
+        ["analyze", "spectrum", "playlist", "fetch"]
+    );
+    assert!(calls[0].contains(&"--threads=1".into()) && calls[1].contains(&"--threads=1".into()));
+    assert!(!calls[2].contains(&"--artists".into()));
+    assert_eq!(Args::parse(calls[2].clone()).positionals, ["/music"]);
+    assert!(calls[3].contains(&"--lyrics".into()) && calls[3].contains(&"--yes".into()));
+    let mut visited = 0;
+    let output = run_sequence(
+        JobRequest::Generate(GenerationRequest {
+            steps: stages.to_vec(),
+            roots: vec!["/music".into()],
+        }),
+        &AtomicBool::new(false),
+        |_| {
+            visited += 1;
+            Ok(JobOutput {
+                exit_code: 1,
+                stderr: "failed stage".into(),
+                ..Default::default()
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(visited, 4);
+    assert_eq!(output.exit_code, 1);
+}
+#[test]
+fn cancelling_a_generation_never_launches_the_next_stage() {
+    use aede_server::{GenerationRequest, GenerationStep};
+    let cancellation = AtomicBool::new(false);
+    let mut visited = 0;
+    let result = run_sequence(
+        JobRequest::Generate(GenerationRequest {
+            steps: vec![GenerationStep::M3u, GenerationStep::Lyrics],
+            roots: vec!["/music".into()],
+        }),
+        &cancellation,
+        |_| {
+            visited += 1;
+            cancellation.store(true, Ordering::Release);
+            Ok(JobOutput::default())
+        },
+    );
+    assert_eq!(result.unwrap().exit_code, 130);
+    assert_eq!(visited, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn cancellation_releases_nested_worker_pipes_before_another_stage_can_start() {
+    use std::sync::mpsc;
+    let directory = std::env::temp_dir().join(format!("aede_job_tree_{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let pid_file = directory.join("worker.pid");
+    let mut command = Command::new("sh");
+    command
+        .args(["-c", "sleep 30 & echo $! > \"$1\"; wait", "aede-test"])
+        .arg(&pid_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let signal = cancellation.clone();
+    let (send, receive) = mpsc::channel();
+    let runner = std::thread::spawn(move || {
+        let _ = send.send(execute(command, signal, &[]));
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !pid_file.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let pid: u32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    cancellation.store(true, Ordering::Release);
+    let outcome = receive.recv_timeout(Duration::from_secs(2));
+    // Clean only this fixture's recorded descendant even on the regression baseline.
+    if outcome.is_err() {
+        let _ = Command::new("/bin/kill")
+            .args(["-KILL", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    runner.join().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+    assert_eq!(
+        outcome
+            .expect("nested worker must not keep the task alive")
+            .unwrap()
+            .exit_code,
+        130
+    );
+}

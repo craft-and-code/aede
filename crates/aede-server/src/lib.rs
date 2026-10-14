@@ -106,7 +106,10 @@ mod subsonic;
 mod tls;
 mod waveform;
 
-pub use jobs::{FetchRequest, JobOutput, JobRequest, MediaJobRequest, ScanRequest};
+pub use jobs::{
+    FetchRequest, GenerationRequest, GenerationStep, JobOutput, JobRequest, MediaJobRequest,
+    ScanRequest,
+};
 
 use admin::*;
 use catalog::*;

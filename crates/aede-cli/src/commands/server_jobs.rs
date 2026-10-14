@@ -11,11 +11,38 @@ use aede_server::{JobOutput, JobRequest};
 
 use super::super::secret_output::{redact, secret_variants};
 
+#[path = "server_job_process.rs"]
+mod process;
+
 const MAX_OUTPUT: usize = 64 * 1024;
 
 fn arguments(request: &JobRequest) -> Vec<String> {
     let mut args = Vec::new();
-    let targets = match request {
+    let targets: &[String] = match request {
+        JobRequest::Generate(plan) => {
+            match plan.steps.first() {
+                Some(aede_server::GenerationStep::Analyze) => args.extend(
+                    [
+                        "analyze",
+                        "--threads=1",
+                        "--json-layout=album",
+                        "--show-results",
+                    ]
+                    .map(String::from),
+                ),
+                Some(aede_server::GenerationStep::Spectrum) => {
+                    args.extend(["spectrum", "--threads=1"].map(String::from))
+                }
+                Some(aede_server::GenerationStep::M3u) => {
+                    args.extend(["playlist"].map(String::from))
+                }
+                Some(aede_server::GenerationStep::Lyrics) => {
+                    args.extend(["fetch", "--lyrics", "--yes"].map(String::from))
+                }
+                None => {} // run_one refuses an unresolved or empty plan before launching.
+            }
+            &plan.roots
+        }
         JobRequest::Scan(scan) => {
             args.push("scan".into());
             for (enabled, flag) in [
@@ -111,6 +138,17 @@ fn run_sequence(
     cancellation: &AtomicBool,
     mut execute_step: impl FnMut(JobRequest) -> Result<JobOutput, String>,
 ) -> Result<JobOutput, String> {
+    if let JobRequest::Generate(plan) = &request {
+        let unique: std::collections::BTreeSet<_> = plan.steps.iter().collect();
+        if plan.roots.is_empty()
+            || plan.steps.is_empty()
+            || plan.steps.len() > 4
+            || unique.len() != plan.steps.len()
+        {
+            return Err("generation needs one to four distinct stages".into());
+        }
+    }
+    let generation = matches!(&request, JobRequest::Generate(_));
     let mut steps = Vec::new();
     if let JobRequest::Fetch(fetch) = &request
         && fetch.musicbrainz
@@ -140,14 +178,29 @@ fn run_sequence(
             ..Default::default()
         }));
     }
-    steps.push(request);
+    if let JobRequest::Generate(plan) = request {
+        for step in plan.steps {
+            steps.push(JobRequest::Generate(aede_server::GenerationRequest {
+                steps: vec![step],
+                roots: plan.roots.clone(),
+            }));
+        }
+    } else {
+        steps.push(request);
+    }
     let mut output = JobOutput::default();
     for step in steps {
         if cancellation.load(Ordering::Acquire) {
+            if generation {
+                output.exit_code = 130;
+                return Ok(output);
+            }
             return Err("administrative task cancelled before the next enrichment stage".into());
         }
         let next = execute_step(step)?;
-        output.exit_code = next.exit_code;
+        if next.exit_code != 0 || !generation {
+            output.exit_code = next.exit_code;
+        }
         output.output_truncated |= next.output_truncated;
         for (held, addition) in [
             (&mut output.stdout, next.stdout),
@@ -161,7 +214,7 @@ fn run_sequence(
             held.push_str(&addition[..end]);
             output.output_truncated |= end < addition.len();
         }
-        if output.exit_code != 0 {
+        if output.exit_code != 0 && !generation {
             break;
         }
     }
@@ -173,6 +226,12 @@ fn run_one(
     request: JobRequest,
     cancellation: Arc<AtomicBool>,
 ) -> Result<JobOutput, String> {
+    if let JobRequest::Generate(plan) = &request
+        && (plan.steps.len() != 1 || plan.roots.is_empty())
+    {
+        return Err("generation plan must be resolved into one stage before launching".into());
+    }
+
     let data_dir = std::fs::canonicalize(data_dir).map_err(|error| error.to_string())?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut command = Command::new(exe);
@@ -239,6 +298,7 @@ fn execute(
             ..Default::default()
         });
     }
+    process::isolate(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| format!("cannot start administrative command: {error}"))?;
@@ -257,7 +317,7 @@ fn execute(
                 break Err(format!("cannot wait for administrative command: {error}"));
             }
         }
-        if cancellation.load(Ordering::Acquire) && child.kill().is_ok() {
+        if cancellation.load(Ordering::Acquire) && process::terminate(&mut child).is_ok() {
             cancelled = true;
         }
         std::thread::sleep(Duration::from_millis(50));

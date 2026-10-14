@@ -395,9 +395,10 @@ fn authenticated_cancellation_is_visible_until_a_terminal_result() {
 fn callback_failure_and_panic_finish_the_task_and_release_capacity() {
     runtime().block_on(async {
         let state = state(|request, _| match request {
-            JobRequest::Scan(_) | JobRequest::Analyze(_) | JobRequest::Spectrum(_) => {
-                Err("mock failure".into())
-            }
+            JobRequest::Scan(_)
+            | JobRequest::Analyze(_)
+            | JobRequest::Spectrum(_)
+            | JobRequest::Generate(_) => Err("mock failure".into()),
             JobRequest::Fetch(_) => panic!("mock worker panic"),
         });
         let mut events = state.events.subscribe();
@@ -722,5 +723,60 @@ fn retained_tasks_can_be_recovered_after_client_reconnection_but_require_admin()
                 .status,
             StatusCode::UNAUTHORIZED
         );
+    });
+}
+
+#[test]
+fn whole_library_generation_excludes_parallel_jobs_until_confirmed_completion() {
+    let registry = JobRegistry::default();
+    registry.insert(1, "library_generation").unwrap();
+    assert!(registry.insert(2, "library_generation").is_err());
+    assert!(registry.insert(3, "analysis").is_err());
+    registry.running(1).unwrap();
+    registry.finish(1, Ok(JobOutput::default())).unwrap();
+    registry.insert(4, "analysis").unwrap();
+    assert!(registry.insert(5, "library_generation").is_err());
+}
+
+#[test]
+fn generation_route_accepts_only_fixed_nonempty_distinct_stages() {
+    runtime().block_on(async {
+        let state = state(|request, _| {
+            assert!(matches!(request, JobRequest::Generate(_)));
+            Ok(JobOutput::default())
+        });
+        state.catalog.try_write().unwrap().as_mut().unwrap().roots = vec![
+            std::env::temp_dir()
+                .join("fictional-library")
+                .to_string_lossy()
+                .into_owned(),
+        ];
+        for body in [
+            r#"{"steps":[]}"#,
+            r#"{"steps":["analyze","analyze"]}"#,
+            r#"{"steps":["shell"]}"#,
+            r#"{"steps":["m3u"],"targets":["/other"]}"#,
+        ] {
+            assert!(
+                generation_route(
+                    State(state.clone()),
+                    request("POST", "/api/admin/v1/generate", body)
+                )
+                .await
+                .is_err()
+            );
+        }
+        let response = generation_route(
+            State(state.clone()),
+            request(
+                "POST",
+                "/api/admin/v1/generate",
+                r#"{"steps":["analyze","spectrum","m3u"]}"#,
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        wait_for_jobs(&state).await;
     });
 }
