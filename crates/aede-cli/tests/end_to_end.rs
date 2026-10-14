@@ -8228,3 +8228,24 @@ fn fingerprint_skip_snapshot_matches_saved_output() {
     assert!(err.is_empty(), "fingerprint wrote to stderr: {err}");
     assert_eq!(out, include_str!("snapshots/fingerprint.txt"));
 }
+
+#[test]
+fn machine_versions_report_the_linked_engine_without_opening_a_catalog() {
+    let sandbox = Sandbox::new("machine_versions");
+    std::fs::write(sandbox.dir.join("catalog.json"), "unreadable catalog").unwrap();
+    let (out, err, ok) = sandbox.run(&["--version", "--json"]);
+    assert!(ok, "{err}");
+    let versions = aede_core::json::parse(&out).expect("machine-readable versions");
+    assert_eq!(
+        versions.get("aede").and_then(|v| v.as_str()),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(
+        versions.get("flaccompagnon").and_then(|v| v.as_str()),
+        Some(aede_core::FLACCOMPAGNON_VERSION)
+    );
+    assert_eq!(
+        std::fs::read_to_string(sandbox.dir.join("catalog.json")).unwrap(),
+        "unreadable catalog"
+    );
+}

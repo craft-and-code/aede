@@ -1,5 +1,7 @@
 # Aède — Current State
 
+Acoustic decoding now releases the global writer until each album publication, which reloads the latest catalogue before merging. Account revision revalidation remains protected while expensive analyses no longer block logins. The explicit `--version --json` response reports the exact linked engine components without opening stores. The complete macOS gate passes 2311 Rust tests including three doctests, plus helper/site/terminal/documentation/Clippy/release checks. See [job lifetime](../server/jobs.md#job-lifetime-and-retry).
+
 This file is the short-term memory of the project.
 
 It describes the state of the repository at the beginning of a development session. It is intentionally concise.

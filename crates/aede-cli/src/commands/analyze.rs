@@ -40,6 +40,10 @@ fn show_progress(completed: usize, total: usize, path: &Path) {
 }
 
 pub fn analyze(args: &Args) -> Res {
+    analyze_with_progress(args, show_progress)
+}
+
+fn analyze_with_progress(args: &Args, progress: impl Fn(usize, usize, &Path) + Sync + Send) -> Res {
     if args.has("json-layout") && args.value("json-layout").is_none() {
         return Err("--json-layout needs album or artist".into());
     }
@@ -53,7 +57,7 @@ pub fn analyze(args: &Args) -> Res {
         return Err("--json-layout must be album or artist".into());
     }
     eprintln!("Preparing acoustic analysis…");
-    let mut catalog = ui::with_loading("Loading catalog…", || load(args))?;
+    let catalog = ui::with_loading("Loading catalog…", || load(args))?;
     let scope = super::scope_of(args, &catalog)?;
     let albums = acoustic::album_files(&catalog, &scope);
     if albums.is_empty() {
@@ -65,7 +69,6 @@ pub fn analyze(args: &Args) -> Res {
         ffmpeg: ffmpeg::find(),
         ..ScanOptions::default()
     };
-    let catalog_file = store::catalog_path(&data_dir(args));
     let mut completed = 0usize;
     let mut failed_files = 0usize;
     let mut failed_reports = Vec::new();
@@ -150,13 +153,8 @@ pub fn analyze(args: &Args) -> Res {
         if changed {
             eprintln!("  ▸ [0/{}] Analyzing {}", pending.len(), folder.display());
         }
-        let mut report = acoustic::analyze_album_with_progress(
-            &folder,
-            &pending,
-            &options,
-            threads,
-            show_progress,
-        );
+        let mut report =
+            acoustic::analyze_album_with_progress(&folder, &pending, &options, threads, &progress);
         for path in &paths {
             if let Some(file) = cached.iter().find(|file| reusable(file, path)) {
                 report.files.push(file.clone());
@@ -187,8 +185,15 @@ pub fn analyze(args: &Args) -> Res {
                 saved_dates.get(&file.path).copied().unwrap_or(0)
             };
         }
-        let attachment = analysis::merge_into(&mut catalog, imported.files, now_seconds());
-        store::save(&catalog, &catalog_file)?;
+        // Decoding can take hours; only the atomic merge owns the shared writer.
+        // Reload here so a concurrent scan or metadata publication survives.
+        let attachment = {
+            let _guard = aede_core::store_lock::StoreLock::acquire(&data_dir(args))?;
+            let mut latest = load(args)?;
+            let attachment = analysis::merge_into(&mut latest, imported.files, now_seconds());
+            store::save(&latest, &store::catalog_path(&data_dir(args)))?;
+            attachment
+        };
 
         if (args.has("json") || args.has("json-layout"))
             && (changed || !destination.exists())

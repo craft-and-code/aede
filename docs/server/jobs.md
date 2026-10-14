@@ -117,7 +117,7 @@ Returns HTTP 202 `{task_id,status:"cancel_requested",status_url}`. Cancellation 
 
 ## Job lifetime and retry
 
-At most four HTTP jobs are active and 64 records retained; oldest finished records are evicted. Jobs wait for the shared writer lock and survive client disconnection. Graceful shutdown waits for accepted jobs, so cancel first if a long fetch should stop. IDs/results are in memory only and disappear after restart.
+At most four HTTP jobs are active and 64 records retained; oldest finished records are evicted. Jobs survive client disconnection. Acoustic decoding runs without the shared writer lock; each album publication acquires it briefly, reloads the current catalogue and merges results. This preserves intervening scans and leaves account session publication available during the expensive calculations. Other store-changing commands keep their existing lock policy. Graceful shutdown waits for accepted jobs, so cancel first if a long fetch should stop. IDs/results are in memory only and disappear after restart.
 
 A POST whose response was lost may already have started. Submissions are not idempotent; do not blindly repeat them. Reconnect/poll a saved ID and inspect activity/logs before deciding to submit again. Recovery does not rewind external requests or saved partial results.
 

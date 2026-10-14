@@ -83,7 +83,25 @@ fn main() {
     }
 
     if args.has("version") {
-        println!("aede {VERSION}");
+        if args.has("json") {
+            println!(
+                "{}",
+                aede_core::json::Json::Obj(
+                    vec![
+                        ("aede".into(), aede_core::json::Json::Str(VERSION.into())),
+                        (
+                            "flaccompagnon".into(),
+                            aede_core::json::Json::Str(aede_core::FLACCOMPAGNON_VERSION.into())
+                        ),
+                    ]
+                    .into_iter()
+                    .collect()
+                )
+                .to_string_compact()
+            );
+        } else {
+            println!("aede {VERSION}");
+        }
         return;
     }
     if args.has("help") {
@@ -262,9 +280,9 @@ fn main() {
             }
         }
     }
-    // Account commands acquire their own lock after password entry, then
-    // reload. Other writers hold it across the entire read/modify/write cycle.
-    let _store_lock = if command != "accounts" && mutates_store_with_args(command, &args) {
+    // Accounts and acoustic analyses lock only their publication, then reload.
+    // Other writers retain the complete read/modify/write guard.
+    let _store_lock = if holds_command_lock(command, &args) {
         match aede_core::store_lock::StoreLock::acquire(&commands::data_dir(&args)) {
             Ok(lock) => Some(lock),
             Err(error) => {
@@ -318,6 +336,10 @@ fn mutates_store(command: &str) -> bool {
             | "played"
             | "history"
     )
+}
+
+fn holds_command_lock(command: &str, args: &args::Args) -> bool {
+    !matches!(command, "accounts" | "analyze") && mutates_store_with_args(command, args)
 }
 
 fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
