@@ -30,7 +30,7 @@
 
 ## 🛠️ System Architecture & Audio Parsers
 
-Account identities, roles and credentials live in the standalone [`aede-accounts`](crates/aede-accounts/README.md) crate. `aede-core` owns the music catalog, personal data and protected file persistence; `aede-server` exposes them through authenticated HTTP and audio routes. The separate `aede-dsp` library provides shared processing for decoded audio samples.
+Account identities, roles and credentials live in the standalone [`aede-accounts`](crates/aede-accounts/README.md) crate. `aede-core` owns the music catalog, personal data and protected file persistence; `aede-server` exposes them through authenticated HTTP and audio routes. The separate `aede-dsp` library provides shared processing for decoded audio samples. The `aede-moods` crate implements [cooperative acoustic discovery](docs/design/audio-features.md), alongside exact personal atmosphere rules.
 
 [`aede-devices`](crates/aede-devices/README.md) owns explicit LAN discovery and the SlimProto, UPnP AVTransport, OpenHome Playlist and experimental Google Cast controllers. The CLI calls it directly for `devices` and `cast`; it has no dependency on the server API. Subsonic/OpenSubsonic remains an authenticated client adapter in `aede-server`.
 

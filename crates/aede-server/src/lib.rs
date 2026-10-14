@@ -84,6 +84,7 @@ mod catalog_commands;
 pub use aede_devices as devices;
 mod analysis_report;
 mod artwork;
+mod audio_features;
 mod errors;
 mod events;
 mod fetch_service_keys;

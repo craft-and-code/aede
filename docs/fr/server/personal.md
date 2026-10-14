@@ -179,3 +179,11 @@ Le crate autonome `aede-moods`, sans dépendance externe, sélectionne par tags 
 
 
 Les pages de collections comprennent aussi `duration_ms` lorsque toutes les pistes correspondant à la règle ont une durée connue. Le calcul utilise le propriétaire authentifié et le même catalogue verrouillé, uniquement pour la page demandée. Une durée inconnue, une ancienne règle invalide ou un dépassement arithmétique omet cette valeur ; une sélection vide connue vaut zéro. Aucun fichier source ni aucune annotation ne change.
+
+### Caractéristiques audio des ambiances
+
+La capacité `mood_audio_features` autorise `audio=true` sur les lectures d’ambiances. La réponse ajoute la couverture du cache audio, un jeton `selection_revision`, quatre sélections mesurées (tempo lent/rapide, centre spectral bas/élevé) et la proximité avec les exemples du compte courant. Les tags personnels priment ; sans au moins deux exemples utilisables sur des pistes ou albums, les genres restent utilisés. Les lectures ordinaires conservent leur réponse et leur sélection. La lecture du cache ne décode aucun fichier et n’appelle aucun fournisseur. Les mesures ne prouvent pas une émotion.
+
+Un administrateur sur la connexion locale de confiance disposant de `mood_audio_extraction` peut appeler `POST /api/admin/v1/mood-features` avec `{force:false}`. La tâche `mood_features` rapporte `{phase,done,total,analyzed,reused,failed}` par les routes de suivi existantes. Une seule extraction est admise ; l’arrêt utilise la route d’annulation habituelle sans corps. Chaque fichier terminé est conservé et réutilisé après interruption. Cette route administrative n’est pas exposée en HTTPS distant. Le premier profil prend en charge un catalogue de 16 384 fichiers au maximum.
+
+`POST /api/me/v1/background-priority`, authentifié, reçoit `{client:<UUID>,active:<booléen>}` pour renouveler ou retirer une priorité audio de six secondes propre au compte. Elle protège notamment les lectures radio/podcast WebKit et les sorties externes. Huit priorités par compte et soixante-quatre au total sont admises ; une priorité expirée est retirée. Un compte ne peut pas retirer celle d’un autre compte. Les caractéristiques partagées ne contiennent aucun tag, aucune note ni règle privée. Un jeton `revision` incohérent pendant la pagination est refusé avec HTTP 409.

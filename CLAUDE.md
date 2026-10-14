@@ -40,7 +40,7 @@ These are fundamental properties of Aède:
 
 - `crates/aede-core` — domain model, catalog, storage and library logic.
 - `crates/aede-accounts` — account identities, credential policy, roles and client keys.
-- `crates/aede-moods` — explainable exact tag/genre atmosphere rules, without inference/network dependencies.
+- `crates/aede-moods` — explainable tag/genre atmosphere rules, bounded audio descriptors and private exemplar proximity, without decoder/filesystem/network dependencies.
 - `crates/aede-dsp` — decoded audio sample processing, independent of the catalog.
 - `crates/aede-devices` — explicit discovery, control and original-audio transport for LAN players.
 - `crates/aede-server` — local HTTP/JSON/WebSocket API over the core.

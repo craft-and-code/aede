@@ -1,6 +1,13 @@
-//! Explainable atmosphere selection from normalized owner tags and catalog genres.
-//! No network, model, decoder or mastering-to-emotion inference is involved.
+//! Explainable atmosphere rules, bounded signal features and private exemplar proximity.
+//! No network, decoder or mastering-to-emotion inference is involved.
 #![warn(missing_docs)]
+mod audio_recipes;
+pub use audio_recipes::{AudioRecipe, audio_recipes};
+pub mod background;
+mod model;
+pub use model::AcousticModel;
+mod features;
+pub use features::{Extractor, Features, PROFILE, RATE, Statistics};
 mod selection;
 pub use selection::{TagScope, TagSelector};
 /// One configurable OR rule over complete normalized tags/genres.
@@ -96,3 +103,11 @@ pub fn presets() -> Vec<Rule> {
 #[cfg(test)]
 #[path = "rules_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "features_tests.rs"]
+mod features_tests;
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod model_tests;

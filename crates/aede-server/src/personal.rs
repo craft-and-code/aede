@@ -26,7 +26,7 @@ mod m3u;
 #[path = "personal_missing.rs"]
 mod missing;
 #[path = "personal_moods.rs"]
-mod moods;
+pub(crate) mod moods;
 #[path = "personal_preferences.rs"]
 mod preferences;
 #[path = "personal_search.rs"]

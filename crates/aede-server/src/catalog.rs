@@ -63,6 +63,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "account_preferences",
         "track_waveform",
         "mood_rules",
+        "mood_audio_features",
         "collection_rename",
         "album_track_pages",
         "track_catalog_pages",
@@ -82,6 +83,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         capabilities.push("missing_album_covers");
     }
     if state.admin.is_some() {
+        capabilities.push("mood_audio_extraction");
         capabilities.push("library_m3u_publication");
         capabilities.push("fetch_service_keys");
         capabilities.push("administrative_tasks_list");

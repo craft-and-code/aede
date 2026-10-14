@@ -5,16 +5,19 @@ use aede_moods::{Rule, TagScope, TagSelector};
 #[serde(deny_unknown_fields)]
 struct Parameters {
     mood: Option<String>,
+    #[serde(default)]
+    audio: bool,
+    revision: Option<String>,
     offset: Option<String>,
     limit: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct RuleView {
-    id: String,
+pub(crate) struct RuleView {
+    pub(crate) id: String,
     name: String,
-    tags: Vec<String>,
-    genres: Vec<String>,
+    pub(crate) tags: Vec<String>,
+    pub(crate) genres: Vec<String>,
 }
 impl From<Rule> for RuleView {
     fn from(rule: Rule) -> Self {
@@ -26,7 +29,7 @@ impl From<Rule> for RuleView {
         }
     }
 }
-fn domain(row: &RuleView) -> Rule {
+pub(crate) fn domain(row: &RuleView) -> Rule {
     Rule {
         id: row.id.clone(),
         name: row.name.clone(),
@@ -62,14 +65,18 @@ fn rules(data: &UserData, owner: &str) -> Result<Vec<RuleView>, ApiError> {
     }
     Ok(result)
 }
-struct Evidence {
-    reference: EntityRef,
-    tags: Vec<String>,
-    genres: Vec<String>,
-    scope: TagScope,
+pub(crate) struct Evidence {
+    pub(crate) reference: EntityRef,
+    pub(crate) tags: Vec<String>,
+    pub(crate) genres: Vec<String>,
+    pub(crate) scope: TagScope,
 }
 // Build shared indexes once, and expand presentation rows only for the visible page.
-fn evidence(catalog: &Catalog, data: &UserData, owner: &str) -> Result<Vec<Evidence>, ApiError> {
+pub(crate) fn evidence(
+    catalog: &Catalog,
+    data: &UserData,
+    owner: &str,
+) -> Result<Vec<Evidence>, ApiError> {
     let rules: Vec<Rule> = rules(data, owner)?.iter().map(domain).collect();
     let selector = TagSelector::new(&rules);
     let mut tags = BTreeMap::<String, Vec<String>>::new();
@@ -156,6 +163,42 @@ fn matches(rows: &[Evidence], rule: &Rule) -> Vec<(EntityRef, aede_moods::Match,
     selected.sort_by_key(|row| row.2);
     selected
 }
+fn legacy_projection(
+    catalog: &Catalog,
+    rows: &[Evidence],
+    rules: &[RuleView],
+    chosen: Option<&str>,
+    offset: usize,
+    limit: usize,
+) -> Result<serde_json::Value, ApiError> {
+    let mut summaries = Vec::new();
+    let mut items = Vec::new();
+    let mut total = 0;
+    for rule in rules {
+        let selected = matches(rows, &domain(rule));
+        summaries.push(serde_json::json!({"rule":rule,"count":selected.len()}));
+        if chosen == Some(rule.id.as_str()) {
+            total = selected.len();
+            for (reference, reason, scope) in selected.into_iter().skip(offset).take(limit) {
+                let mut row =
+                    super::super::presentation::playback_rows(catalog, &reference.to_token())?
+                        .remove(0);
+                let scope = match scope {
+                    TagScope::Track => "track",
+                    TagScope::Album => "album",
+                    TagScope::Artist => "artist",
+                    TagScope::Genre => "genre",
+                };
+                row["reason"] =
+                    serde_json::json!({"tag":reason.tag,"genre":reason.genre,"scope":scope});
+                items.push(row);
+            }
+        }
+    }
+    Ok(
+        serde_json::json!({"moods":summaries,"items":items,"total":total,"offset":offset,"scanned_at":catalog.scanned_at}),
+    )
+}
 async fn read(
     State(state): State<ApiState>,
     input: Result<Query<Parameters>, QueryRejection>,
@@ -163,36 +206,66 @@ async fn read(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
     let query = parsed_query(input)?;
+    if query.revision.as_ref().is_some_and(|value| {
+        !query.audio
+            || value.len() != 16
+            || !value
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    }) {
+        return Err(invalid_query(
+            "revision requires an acoustic selection token",
+        ));
+    }
+    if query.audio {
+        super::super::audio_features::warm(&state);
+    }
     let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
     let dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_lock, catalog, data) = locked_personal(&dir)?;
         owner.recheck(&state)?;
         let rules = rules(&data, &owner.id)?;
-        if query.mood.as_ref().is_some_and(|id| !rules.iter().any(|row| &row.id == id)) {
+        if query.mood.as_ref().is_some_and(|id| {
+            !rules.iter().any(|row| &row.id == id)
+                && !(query.audio && aede_moods::audio_recipes().iter().any(|row| row.id == id))
+        }) {
             return Err(invalid_query("unknown atmosphere"));
         }
         let evidence = evidence(&catalog, &data, &owner.id)?;
-        let mut summaries = Vec::new();
-        let mut items = Vec::new();
-        let mut total = 0;
-        for rule in rules {
-            let selected = matches(&evidence, &domain(&rule));
-            summaries.push(serde_json::json!({"rule":rule,"count":selected.len()}));
-            if query.mood.as_deref() == Some(rule.id.as_str()) {
-                total = selected.len();
-                for (reference, reason, scope) in selected.into_iter().skip(offset).take(limit) {
-                    let mut row = super::super::presentation::playback_rows(&catalog, &reference.to_token())?.remove(0);
-                    let scope = match scope {
-                        TagScope::Track => "track", TagScope::Album => "album", TagScope::Artist => "artist", TagScope::Genre => "genre",
-                    };
-                    row["reason"] = serde_json::json!({"tag":reason.tag,"genre":reason.genre,"scope":scope});
-                    items.push(row);
-                }
-            }
-        }
-        owner.admit(&state, Json(serde_json::json!({"moods":summaries,"items":items,"total":total,"offset":offset,"scanned_at":catalog.scanned_at})))
-    })?.await.map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"personal_failed","atmosphere worker failed"))?
+        let response = if query.audio {
+            super::super::audio_features::projection(
+                &state,
+                &catalog,
+                &evidence,
+                &rules,
+                super::super::audio_features::Window {
+                    chosen: query.mood.as_deref(),
+                    offset,
+                    limit,
+                    expected: query.revision.as_deref(),
+                },
+            )?
+        } else {
+            legacy_projection(
+                &catalog,
+                &evidence,
+                &rules,
+                query.mood.as_deref(),
+                offset,
+                limit,
+            )?
+        };
+        owner.admit(&state, Json(response))
+    })?
+    .await
+    .map_err(|_| {
+        error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "personal_failed",
+            "atmosphere worker failed",
+        )
+    })?
 }
 async fn write(
     State(state): State<ApiState>,

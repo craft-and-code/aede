@@ -141,6 +141,15 @@ pub struct SeekResult {
 impl FileDecoder {
     /// Open a local file and read its format without decoding the whole track.
     pub fn open(path: &Path) -> Result<Self, Error> {
+        Self::open_with_fallback(path, true)
+    }
+
+    /// Background analysis never launches an external decoder with uncontrolled producer work.
+    pub fn open_native(path: &Path) -> Result<Self, Error> {
+        Self::open_with_fallback(path, false)
+    }
+
+    fn open_with_fallback(path: &Path, fallback: bool) -> Result<Self, Error> {
         let (inner, sample_rate, channels) = if let Some(native) = vorbis::VorbisStream::open(path)?
         {
             let sample_rate = native.sample_rate;
@@ -159,6 +168,9 @@ impl FileDecoder {
                     (Source::Native(native), sample_rate, channels)
                 }
                 Err(native_error) => {
+                    if !fallback {
+                        return Err(Error::Decode(native_error));
+                    }
                     let tags = match crate::tags::read(path).ok() {
                         Some(tags)
                             if matches!(

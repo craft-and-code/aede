@@ -303,12 +303,24 @@ struct Failure {
     message: String,
 }
 
+/// Real per-file progress of native background work, without private rule labels.
+#[derive(Clone, Default, Serialize)]
+pub(super) struct NativeProgress {
+    pub(super) phase: &'static str,
+    pub(super) done: usize,
+    pub(super) total: usize,
+    pub(super) analyzed: usize,
+    pub(super) reused: usize,
+    pub(super) failed: usize,
+}
 #[derive(Clone, Serialize)]
 struct Task {
     task_id: u64,
     task_kind: &'static str,
     status: Status,
     cancel_requested: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    progress: Option<NativeProgress>,
     result: Option<JobOutput>,
     error: Option<Failure>,
     #[serde(skip)]
@@ -330,6 +342,18 @@ pub(super) struct JobRegistry {
 impl JobRegistry {
     fn insert(&self, task_id: u64, task_kind: &'static str) -> Result<Arc<AtomicBool>, ApiError> {
         let mut data = self.data.lock().map_err(|_| registry_error())?;
+        if task_kind == "mood_features"
+            && data
+                .tasks
+                .values()
+                .any(|task| task.task_kind == task_kind && !task.status.is_terminal())
+        {
+            return Err(error(
+                StatusCode::CONFLICT,
+                "feature_task_active",
+                "acoustic extraction is already active",
+            ));
+        }
         if data.active >= MAX_ACTIVE {
             return Err(error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -354,6 +378,7 @@ impl JobRegistry {
                 task_kind,
                 status: Status::Queued,
                 cancel_requested: false,
+                progress: None,
                 result: None,
                 error: None,
                 cancellation: cancellation.clone(),
@@ -478,6 +503,10 @@ fn registry_error() -> ApiError {
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/admin/v1/fetch", post(fetch_route))
+        .route(
+            "/api/admin/v1/mood-features",
+            post(super::audio_features::start),
+        )
         .route("/api/admin/v1/lyrics", post(lyrics_route))
         .route("/api/admin/v1/analyze", post(analyze_route))
         .route("/api/admin/v1/spectrum", post(spectrum_route))
@@ -486,7 +515,7 @@ pub(super) fn routes() -> Router<ApiState> {
         .route("/api/admin/v1/tasks/:id/cancel", post(cancel_route))
 }
 
-fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
+pub(super) fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
     require_admin(state, request)?;
     if request.uri().query().is_some_and(|query| !query.is_empty()) {
         return Err(error(
@@ -498,7 +527,7 @@ fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn body(request: Request, limit: usize) -> Result<axum::body::Bytes, ApiError> {
+pub(super) async fn body(request: Request, limit: usize) -> Result<axum::body::Bytes, ApiError> {
     tokio::time::timeout(Duration::from_secs(1), to_bytes(request.into_body(), limit))
         .await
         .map_err(|_| {
@@ -517,7 +546,7 @@ async fn body(request: Request, limit: usize) -> Result<axum::body::Bytes, ApiEr
         })
 }
 
-fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
+pub(super) fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
     if bytes
         .iter()
         .copied()
@@ -834,6 +863,7 @@ async fn cancel_route(
 }
 
 pub(super) async fn wait_for_jobs(state: &ApiState) {
+    state.audio_features.stop();
     loop {
         let finished = state.jobs.finished.notified();
         match state.jobs.data.lock() {
@@ -851,3 +881,78 @@ pub(super) async fn wait_for_jobs(state: &ApiState) {
 #[cfg(test)]
 #[path = "jobs_tests.rs"]
 mod tests;
+
+pub(super) fn progress(state: &ApiState, id: u64, value: NativeProgress) -> Result<(), String> {
+    let mut data = state
+        .jobs
+        .data
+        .lock()
+        .map_err(|_| "feature task state unavailable")?;
+    let task = data.tasks.get_mut(&id).ok_or("feature task disappeared")?;
+    task.progress = Some(value.clone());
+    drop(data);
+    let _ = state.events.send(CatalogEvent::TaskProgress {
+        task_id: id,
+        task_kind: "mood_features",
+        phase: value.phase,
+        done: value.done,
+        total: value.total,
+    });
+    Ok(())
+}
+
+pub(super) fn enqueue_background(
+    state: ApiState,
+    run: impl FnOnce(ApiState, Arc<AtomicBool>, u64) -> Result<JobOutput, String> + Send + 'static,
+) -> Result<Response, ApiError> {
+    if state.admin.is_none() {
+        return Err(registry_error());
+    }
+    let id = state.next_task_id.fetch_add(1, Ordering::Relaxed);
+    let cancel = state.jobs.insert(id, "mood_features")?;
+    let worker = state.clone();
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            worker
+                .jobs
+                .running(id)
+                .map_err(|_| "feature task could not start")?;
+            let _ = worker.events.send(CatalogEvent::TaskStarted {
+                task_id: id,
+                task_kind: "mood_features",
+            });
+            run(worker, cancel, id)
+        })
+        .await
+        .unwrap_or_else(|_| Err("feature worker stopped".into()));
+        match state.jobs.finish(id, result) {
+            Ok(task) if task.status == Status::Completed => {
+                let _ = state.events.send(CatalogEvent::TaskCompleted {
+                    task_id: id,
+                    task_kind: "mood_features",
+                    scanned_at: None,
+                });
+            }
+            Ok(task) => {
+                if let Some(failure) = task.error {
+                    let _ = state.events.send(CatalogEvent::TaskFailed {
+                        task_id: id,
+                        task_kind: "mood_features",
+                        code: failure.code,
+                        message: "acoustic task stopped; inspect its authenticated result".into(),
+                    });
+                }
+            }
+            Err(_) => eprintln!("acoustic task could not publish completion"),
+        }
+    });
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(Accepted {
+            task_id: id,
+            status: "queued",
+            status_url: format!("/api/admin/v1/tasks/{id}"),
+        }),
+    )
+        .into_response())
+}

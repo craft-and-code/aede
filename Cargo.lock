@@ -36,6 +36,7 @@ version = "0.4.0"
 dependencies = [
  "aede-accounts",
  "aede-dsp",
+ "aede-moods",
  "flaccompagnon-core",
  "lofty",
  "md-5",
@@ -71,6 +72,10 @@ dependencies = [
 [[package]]
 name = "aede-moods"
 version = "0.4.0"
+dependencies = [
+ "rustfft",
+ "serde",
+]
 
 [[package]]
 name = "aede-server"

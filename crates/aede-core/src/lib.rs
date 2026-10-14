@@ -16,6 +16,7 @@ pub mod acoustid;
 pub mod analysis;
 pub mod artwork;
 mod atomic_file;
+pub mod audio_features;
 pub mod audit;
 pub mod backup;
 pub mod clock;

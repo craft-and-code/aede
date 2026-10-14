@@ -308,6 +308,8 @@ Missing-album cover art: `GET /api/me/v1/missing/cover` is cache-only, while `PO
 | `PATCH /api/me/v1/preferences` | Merge bounded `phemios.*` values; auditors are read-only. |
 | `GET /api/me/v1/moods` | Explainable tag/genre rule counts and paged playback selections for one owner. |
 | `PUT /api/me/v1/moods` | Create or override an owner-private atmosphere rule. |
+| `POST /api/admin/v1/mood-features` | Explicit trusted-loopback native background extraction; body `{force:false}`, cached per file, with task progress and Stop. |
+| `POST /api/me/v1/background-priority` | Owner-scoped UUID/active foreground lease, renewed for six seconds while WebKit/external audio is active. |
 | `POST /api/admin/v1/lyrics` | Explicit trusted-loopback exact-track LRCLIB acquisition through the existing task worker. |
 
 See [personal contracts](../../docs/server/personal.md#account-presentation-preferences-and-atmospheres), [waveforms](../../docs/server/playback.md#complete-track-waveforms) and [lyrics jobs](../../docs/server/jobs.md#post-apiadminv1lyrics). Status advertises `account_preferences`, `track_waveform`, `mood_rules`, `fetch_track_lyrics` and label-specific `label_album_sort`. Label `sort=albums` orders the complete filtered set before pagination. No atmosphere read launches an analysis or derives emotion from integrity measurements.
