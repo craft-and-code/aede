@@ -1,4 +1,4 @@
-//! One bounded reservation follows acknowledged PCM, independently of history.
+//! Bounded PCM reservations retain transmitted prebuffers independently of history.
 use super::*;
 use aede_core::parental::LeaseGrant;
 use std::sync::atomic::AtomicU64;
@@ -93,10 +93,18 @@ impl Session {
         }
     }
     fn refresh(&self, state: &ApiState, close: bool) -> Result<(), ApiError> {
+        self.refresh_with_clock(state, close, aede_core::clock::now_seconds)
+    }
+    fn refresh_with_clock(
+        &self,
+        state: &ApiState,
+        close: bool,
+        mut clock: impl FnMut() -> u64,
+    ) -> Result<(), ApiError> {
         if !close {
             finish(state)?;
         }
-        let now = aede_core::clock::now_seconds();
+        let now = clock();
         if !close {
             let data = load(state)?;
             data.check_schedule(&self.owner, now, &Media::Music { track: None })
@@ -126,15 +134,27 @@ impl Session {
             auth::recheck(state, &self.captured)?;
         }
         let mut data = load(state)?;
-        let now = aede_core::clock::now_seconds();
+        let now = clock();
         let mut held = self.held.lock().map_err(|_| unavailable())?;
         let Some(held) = held.as_mut() else {
             return Ok(());
         };
-        let consumed = self
+        let acknowledged = self
             .observed_ms
             .load(Ordering::Relaxed)
-            .saturating_sub(held.base_ms)
+            .saturating_sub(held.base_ms);
+        // A client already possesses transmitted PCM even without acknowledging it.
+        // Preserve that short prebuffer on close instead of refunding repeated
+        // receive/disconnect cycles inside the whole-second reservation clock.
+        let received = if close {
+            self.sent_ms
+                .load(Ordering::Relaxed)
+                .saturating_sub(held.sent_base_ms)
+        } else {
+            0
+        };
+        let consumed = acknowledged
+            .max(received)
             .min(u64::from(held.grant.granted_seconds) * 1000);
         if close {
             data.settle(&self.owner, &held.grant.lease_id, consumed, now, true)
@@ -145,8 +165,11 @@ impl Session {
             held.grant = data
                 .renew(&self.owner, &held.grant.lease_id, consumed, 10, now)
                 .map_err(|reason| refused(&reason))?;
-            held.base_ms = self.observed_ms.load(Ordering::Relaxed);
-            held.sent_base_ms = self.sent_ms.load(Ordering::Relaxed);
+            // All previously sent PCM belongs to the expired, fully charged
+            // grant. A delayed ACK must not spend part of this new one again.
+            let sent_ms = self.sent_ms.load(Ordering::Relaxed);
+            held.base_ms = sent_ms;
+            held.sent_base_ms = sent_ms;
         }
         save(state, &data)
     }
@@ -222,3 +245,7 @@ pub(crate) fn failure(state: &ApiState) -> Option<crate::playback_api::StreamFai
         .and_then(|session| session.failure())
         .map(crate::playback_api::StreamFailure::parental)
 }
+
+#[cfg(test)]
+#[path = "pcm_tests.rs"]
+mod tests;

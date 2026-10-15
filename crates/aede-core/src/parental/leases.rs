@@ -144,9 +144,13 @@ impl ParentalStore {
         }
         let mut candidate = self.clone();
         let row = candidate.owners.entry(owner.into()).or_default();
-        row.retire(milliseconds(now)?);
-        if row.reservations.len() >= 8 || row.reservations.iter().any(|value| value.id == lease_id)
-        {
+        let now_ms = milliseconds(now)?;
+        row.prune(now_ms);
+        if row.reservations.iter().any(|value| value.id == lease_id) {
+            return Err("parental listening leases are occupied".into());
+        }
+        row.make_room(now_ms);
+        if row.reservations.len() >= 8 {
             return Err("parental listening leases are occupied".into());
         }
         let clock = super::schedule::clock(&row.policy, now)?;
@@ -290,7 +294,7 @@ impl ParentalStore {
             }
             row.settled = union(std::mem::take(&mut row.settled));
         }
-        row.retire(now_ms);
+        row.prune(now_ms);
         self.validate()
     }
     /// Atomically settle a previous grant and reserve the next slice under the same identifier.

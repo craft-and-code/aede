@@ -102,6 +102,134 @@ fn renewal_refunds_unused_tail_before_reserving_the_next_slice() {
         2
     );
 }
+
+#[test]
+fn renewing_one_voice_does_not_remove_another_expiring_voices_identity() {
+    let mut store = controlled(100);
+    let at = now();
+    for character in ['a', 'b'] {
+        store
+            .reserve("listener", &id(character), Media::Radio, 10, at)
+            .unwrap();
+    }
+    store
+        .renew("listener", &id('a'), 10_000, 10, at + 10)
+        .unwrap();
+    let grant = store
+        .renew("listener", &id('b'), 10_000, 10, at + 10)
+        .expect("another voice's renewal must not invalidate this admitted lease");
+    assert_eq!(grant.expires_at, at + 20);
+    assert_eq!(
+        store
+            .status("listener", at + 10, &Media::Radio)
+            .unwrap()
+            .day_used_seconds,
+        20
+    );
+}
+
+#[test]
+fn expired_lease_slots_are_reusable_without_refunding_their_listening() {
+    let mut store = controlled(100);
+    let at = now();
+    for number in 0..8 {
+        store
+            .reserve("listener", &format!("{number:064x}"), Media::Radio, 10, at)
+            .unwrap();
+    }
+    for number in 8..16 {
+        store
+            .reserve(
+                "listener",
+                &format!("{number:064x}"),
+                Media::Radio,
+                10,
+                at + 10,
+            )
+            .unwrap();
+    }
+    assert!(
+        store
+            .reserve("listener", &id('f'), Media::Radio, 10, at + 10)
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .status("listener", at + 10, &Media::Radio)
+            .unwrap()
+            .day_used_seconds,
+        20
+    );
+}
+
+#[test]
+fn expired_lease_identities_outside_usage_retention_are_forgotten() {
+    let mut store = controlled(100);
+    let at = now();
+    store
+        .reserve("listener", &id('a'), Media::Radio, 10, at)
+        .unwrap();
+    let later = at + 33 * 86_400;
+    store
+        .reserve("listener", &id('b'), Media::Radio, 10, later)
+        .unwrap();
+    assert!(store.renew("listener", &id('a'), 0, 10, later).is_err());
+    assert_eq!(
+        store
+            .status("listener", later, &Media::Radio)
+            .unwrap()
+            .week_used_seconds,
+        10
+    );
+}
+
+#[test]
+fn a_full_retention_window_keeps_a_transmitted_prebuffer_when_the_lease_closes() {
+    let mut store = ParentalStore::default();
+    store
+        .set_policy(
+            "listener",
+            Policy {
+                enabled: true,
+                ..Policy::default()
+            },
+            0,
+        )
+        .unwrap();
+    let at = now();
+    let now_ms = at * 1000;
+    let start_ms = now_ms - super::super::storage::RETAIN_MS;
+    store.owners.get_mut("listener").unwrap().settled = vec![Interval {
+        start_ms,
+        end_ms: now_ms,
+    }];
+    store.validate().unwrap();
+    for transmitted_ms in [1000, 10_000] {
+        let mut active = store.clone();
+        active
+            .reserve("listener", &id('a'), Media::Radio, 10, at)
+            .unwrap();
+        active
+            .settle("listener", &id('a'), transmitted_ms, at, true)
+            .unwrap();
+        let retained = &active.owners["listener"].settled;
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].start_ms, start_ms + transmitted_ms);
+        assert_eq!(retained[0].end_ms, now_ms + transmitted_ms);
+        assert_eq!(
+            retained[0].end_ms - retained[0].start_ms,
+            super::super::storage::RETAIN_MS
+        );
+        let restored = super::super::from_json(&super::super::to_json(&active)).unwrap();
+        assert_eq!(
+            restored
+                .status("listener", at, &Media::Radio)
+                .unwrap()
+                .day_used_seconds,
+            12 * 3600 + transmitted_ms / 1000
+        );
+    }
+}
 #[test]
 fn lease_caps_monotone_counters_and_category_policy_are_enforced() {
     let mut store = controlled(100);

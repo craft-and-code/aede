@@ -266,17 +266,23 @@ impl Owner {
                 .collect(),
         )
     }
-    pub(super) fn retire(&mut self, now_ms: u64) {
-        let mut held = Vec::new();
-        for reservation in self.reservations.drain(..) {
-            if reservation.interval.end_ms <= now_ms {
-                self.settled.push(reservation.interval);
-            } else {
-                held.push(reservation);
-            }
-        }
-        self.reservations = held;
-        let cutoff = now_ms.saturating_sub(RETAIN_MS);
+    pub(super) fn prune(&mut self, now_ms: u64) {
+        // Preserve the format's 32-day span when already transmitted PCM is
+        // prepaid slightly ahead of now. At most ten seconds of the oldest
+        // retained past are dropped; neither daily nor weekly usage is affected.
+        let horizon = self
+            .settled
+            .iter()
+            .map(|interval| interval.end_ms)
+            .max()
+            .unwrap_or(now_ms)
+            .max(now_ms)
+            .min(now_ms.saturating_add(10_000));
+        let cutoff = horizon.saturating_sub(RETAIN_MS);
+        // Retain a recent expired identity so another voice's renewal does not
+        // destroy it. Its full interval still contributes to the usage union.
+        self.reservations
+            .retain(|reservation| reservation.interval.end_ms > cutoff);
         self.settled = union(
             self.settled
                 .iter()
@@ -288,6 +294,23 @@ impl Owner {
                 })
                 .collect(),
         );
+    }
+    pub(super) fn make_room(&mut self, now_ms: u64) {
+        if self.reservations.len() < 8 {
+            return;
+        }
+        if let Some(index) = self
+            .reservations
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| value.interval.end_ms <= now_ms)
+            .min_by_key(|(_, value)| value.interval.end_ms)
+            .map(|(index, _)| index)
+        {
+            let expired = self.reservations.remove(index);
+            self.settled.push(expired.interval);
+            self.prune(now_ms);
+        }
     }
 }
 struct Limited(Vec<u8>);
