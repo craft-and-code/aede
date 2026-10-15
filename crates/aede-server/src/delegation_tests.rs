@@ -103,6 +103,9 @@ fn command_test_state() -> ApiState {
     ApiState {
         data_dir: std::env::temp_dir(),
         catalog: Arc::new(tokio::sync::RwLock::new(None)),
+        parental: Arc::new(crate::parental::ViewState::default()),
+        parental_scope: None,
+        parental_pcm: None,
         loaded_stamp: Arc::new(tokio::sync::RwLock::new(None)),
         reload_gate: Arc::new(tokio::sync::Mutex::new(())),
         events,

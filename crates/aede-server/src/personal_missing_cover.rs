@@ -21,7 +21,7 @@ fn select(
     {
         return Err(invalid_query("invalid missing-album selector"));
     }
-    let (_lock, catalog, data) = locked_personal(&state.data_dir)?;
+    let (_lock, catalog, data) = locked_personal(state)?;
     owner.recheck(state)?;
     let sources = crate::inspection::held_sources(&state.data_dir)?;
     if !rows(&catalog, &sources, &data, &owner.id, true)?

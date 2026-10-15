@@ -29,7 +29,7 @@ async fn search(
         aede_core::query::parse(&input.expression).map_err(|e| invalid_query(e.to_string()))?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let sources = inspection::held_sources(&data_dir)?;
         let context =

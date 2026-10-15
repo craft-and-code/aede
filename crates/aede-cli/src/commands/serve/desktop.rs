@@ -7,14 +7,35 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-fn bootstrap(data: &Path, input: &str) -> Result<(), String> {
+fn bootstrap(data: &Path, input: &str) -> Result<Option<aede_server::DesktopTls>, String> {
     let request = json::parse(input).map_err(|_| "invalid desktop bootstrap")?;
     let json::Json::Obj(fields) = &request else {
         return Err("invalid desktop bootstrap".into());
     };
-    if fields.len() != 2 {
+    if fields.len() != 2 && !(fields.len() == 3 && request.get("tls").is_some()) {
         return Err("invalid desktop bootstrap".into());
     }
+    let tls = request
+        .get("tls")
+        .map(|value| {
+            let json::Json::Obj(fields) = value else {
+                return Err("invalid desktop TLS identity".into());
+            };
+            if fields.len() != 2 {
+                return Err("invalid desktop TLS identity".into());
+            }
+            aede_server::DesktopTls::from_pem(
+                value
+                    .get("certificate")
+                    .and_then(json::Json::as_str)
+                    .ok_or("missing desktop TLS certificate")?,
+                value
+                    .get("private_key")
+                    .and_then(json::Json::as_str)
+                    .ok_or("missing desktop TLS private key")?,
+            )
+        })
+        .transpose()?;
     let username = request
         .get("username")
         .and_then(json::Json::as_str)
@@ -51,20 +72,22 @@ fn bootstrap(data: &Path, input: &str) -> Result<(), String> {
                 .map_err(|_| "desktop credentials could not be saved")?;
         }
     }
-    Ok(())
+    Ok(tls)
 }
 
-pub(super) fn prepare(data: &Path) -> Result<Arc<AtomicBool>, String> {
+pub(super) fn prepare(
+    data: &Path,
+) -> Result<(Arc<AtomicBool>, Option<aede_server::DesktopTls>), String> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
-        .take(2049)
+        .take(32769)
         .read_until(b'\n', &mut bytes)
         .map_err(|_| "desktop bootstrap input failed")?;
-    if bytes.len() > 2048 || bytes.last() != Some(&b'\n') {
+    if bytes.len() > 32768 || bytes.last() != Some(&b'\n') {
         return Err("desktop bootstrap input is oversized or incomplete".into());
     }
-    bootstrap(
+    let tls = bootstrap(
         data,
         std::str::from_utf8(&bytes).map_err(|_| "desktop bootstrap is not UTF-8")?,
     )?;
@@ -80,7 +103,7 @@ pub(super) fn prepare(data: &Path) -> Result<Arc<AtomicBool>, String> {
         }
         flag.store(true, Ordering::Release);
     });
-    Ok(closed)
+    Ok((closed, tls))
 }
 
 #[cfg(test)]

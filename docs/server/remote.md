@@ -25,7 +25,7 @@ Each request must contain one Host matching the configured authority. An absolut
 
 ## Administration stays local
 
-HTTPS disables the entire `/api/admin` family, including account administration, installation jobs and transitional personal routes for `local`. This applies even to an administrator session and even when HTTPS listens on loopback. Legacy `AEDE_ADMIN_TOKEN` access is unavailable on HTTPS. Use `/api/me/v1` for your own data; manage accounts and run scan/fetch with the trusted local CLI. The private Unix command channel keeps its local scope.
+HTTPS exposes account administration, parental rules and installation jobs only to a current named administrator session, including when the TLS listener is on loopback. Users and auditors receive 403; expired/revoked sessions and legacy `AEDE_ADMIN_TOKEN` receive 401. Host/Origin checks, request budgets and job admission remain active. Transitional personal routes still require the exact `local` owner; administration does not grant access to other owners’ private data. The private Unix command channel keeps its local scope.
 
 ## Deployment limits
 

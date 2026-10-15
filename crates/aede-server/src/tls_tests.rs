@@ -295,14 +295,21 @@ fn remote_https_enforces_the_configured_origin_and_keeps_wss_working() {
         let legacy = https_request(address, &fixture, &legacy).await;
         assert!(status(&legacy).starts_with("HTTP/1.1 401"), "{legacy}");
 
-        let mut absent_admin = request("POST", "/api/admin/v1/scan", AUTHORITY, None, None, "");
+        let mut absent_admin = request(
+            "POST",
+            "/api/admin/v1/scan",
+            AUTHORITY,
+            None,
+            Some("application/json"),
+            "{}",
+        );
         absent_admin = absent_admin.replace(
             "Connection: close",
             &format!("Authorization: Bearer {token}\r\nConnection: close"),
         );
         let absent_admin = https_request(address, &fixture, &absent_admin).await;
         assert!(
-            status(&absent_admin).starts_with("HTTP/1.1 404"),
+            status(&absent_admin).starts_with("HTTP/1.1 202"),
             "{absent_admin}"
         );
 
@@ -943,4 +950,40 @@ fn request(
 
 fn status(response: &str) -> &str {
     response.lines().next().unwrap_or_default()
+}
+
+#[test]
+fn https_administrator_manages_parental_rules_while_users_and_tokens_are_refused() {
+    test_support::test_runtime().block_on(async {
+        let certificate = CertificateFixture::new();
+        let accounts = accounts_test_support::Fixture::new();
+        let (address, server) = start_tls(accounts.0.clone(), &certificate).await;
+        async fn authenticated(address: SocketAddr, certificate: &CertificateFixture, method: &str, path: &str, token: &str, body: &str) -> String {
+            let input = request(method, path, AUTHORITY, Some(&format!("https://{AUTHORITY}")), Some("application/json"), body)
+                .replace("Connection: close", &format!("Authorization: Bearer {token}\r\nConnection: close"));
+            https_request(address, certificate, &input).await
+        }
+        let login = https_request(address, &certificate, &request("POST", "/api/auth/v1/session", AUTHORITY, None, Some("application/json"),
+            &serde_json::json!({"username":"operator","password":accounts_test_support::PASSWORD}).to_string())).await;
+        let operator: serde_json::Value = serde_json::from_str(login.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let admin = operator["token"].as_str().unwrap().to_owned();
+        let login = https_request(address, &certificate, &request("POST", "/api/auth/v1/session", AUTHORITY, None, Some("application/json"),
+            &serde_json::json!({"username":"alice","password":accounts_test_support::PASSWORD}).to_string())).await;
+        let user: serde_json::Value = serde_json::from_str(login.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let path = "/api/admin/v1/accounts/alice/parental";
+        for (token, expected) in [(user["token"].as_str().unwrap(), "HTTP/1.1 403"), (accounts_test_support::ADMIN_TOKEN, "HTTP/1.1 401")] {
+            let denied = authenticated(address, &certificate, "GET", path, token, "").await;
+            assert!(status(&denied).starts_with(expected), "{denied}");
+        }
+        let read = authenticated(address, &certificate, "GET", path, &admin, "").await;
+        assert!(status(&read).starts_with("HTTP/1.1 200"), "{read}");
+        let read: serde_json::Value = serde_json::from_str(read.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let body = serde_json::json!({"expected_owner":read["owner"], "expected_revision":read["revision"], "policy":crate::parental_test_support::policy(vec![])}).to_string();
+        let saved = authenticated(address, &certificate, "PUT", path, &admin, &body).await;
+        assert!(status(&saved).starts_with("HTTP/1.1 200"), "{saved}");
+        assert!(saved.contains("locked_by"));
+        let list = authenticated(address, &certificate, "GET", "/api/admin/v1/accounts", &admin, "").await;
+        assert!(status(&list).starts_with("HTTP/1.1 200"), "{list}");
+        server.abort();
+    });
 }

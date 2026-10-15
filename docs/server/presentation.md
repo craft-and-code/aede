@@ -18,7 +18,7 @@ Explicit `library:true` additionally requires the local administrative listener 
 
 ## Explicit media jobs
 
-`POST /api/admin/v1/analyze` and `POST /api/admin/v1/spectrum` accept `{"release":"TOKEN","force":false,"threads":2}`. Only the existing local administrative listener exposes these routes. `release` resolves to one catalog folder; arbitrary paths/arguments and unknown fields are refused. `threads` is optional, 0–64. `force` repeats cached analysis or redraws existing spectra. They return HTTP 202 with the existing task ID/status URL, and share task admission, polling, cancellation, bounded output and catalog refresh. An accepted task is not a completed task.
+`POST /api/admin/v1/analyze` and `POST /api/admin/v1/spectrum` accept `{"release":"TOKEN","force":false,"threads":2}`. Administrator sessions may use these routes over HTTPS or local HTTP. `release` resolves to one catalog folder; arbitrary paths/arguments and unknown fields are refused. `threads` is optional, 0–64. `force` repeats cached analysis or redraws existing spectra. They return HTTP 202 with the existing task ID/status URL, and share task admission, polling, cancellation, bounded output and catalog refresh. An accepted task is not a completed task.
 
 The CLI callback executes ordinary `analyze --json-layout=album --show-results` or `spectrum` with literal arguments. Analyses and spectra may create/update derived sidecars beside the server's music; audio and tags are unchanged. Test executions must use isolated copied music, not the owner's original library. Cancellation follows the existing administrative child-process policy.
 

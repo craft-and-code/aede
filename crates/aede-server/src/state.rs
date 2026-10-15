@@ -31,6 +31,9 @@ impl Drop for ScanGuard {
 pub(super) struct ApiState {
     pub(super) data_dir: PathBuf,
     pub(super) catalog: Arc<RwLock<Option<Catalog>>>,
+    pub(super) parental: Arc<crate::parental::ViewState>,
+    pub(super) parental_scope: Option<crate::parental::Scope>,
+    pub(super) parental_pcm: Option<Arc<crate::parental::pcm::Session>>,
     pub(super) loaded_stamp: Arc<RwLock<Option<(SystemTime, u64)>>>,
     pub(super) reload_gate: Arc<Mutex<()>>,
     pub(super) events: broadcast::Sender<CatalogEvent>,

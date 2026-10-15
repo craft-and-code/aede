@@ -377,6 +377,7 @@ fn personal_store_saves_checkpoints_atomically_and_backup_restores_the_nested_st
         user: crate::backup::Part::Held(data.clone()),
         sources: crate::backup::Part::Empty,
         accounts: crate::backup::Part::Empty,
+        parental: crate::backup::Part::Empty,
     };
     let restored = crate::backup::from_json(&crate::backup::to_json(&backup)).unwrap();
     assert_eq!(

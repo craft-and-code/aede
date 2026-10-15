@@ -220,6 +220,7 @@ fn whole() -> Backup {
         user: Part::Held(user()),
         sources: Part::Held(sources()),
         accounts: Part::Empty,
+        parental: Part::Empty,
     }
 }
 
@@ -333,6 +334,7 @@ fn a_store_that_did_not_exist_is_written_as_null_and_read_as_nothing() {
         user: Part::Held(user()),
         sources: Part::Empty,
         accounts: Part::Empty,
+        parental: Part::Empty,
     };
     let document = to_json(&thin);
     // Written rather than left out: a key that is simply absent cannot be told
@@ -360,6 +362,7 @@ fn a_backup_of_nothing_at_all_says_so() {
         user: Part::Empty,
         sources: Part::Empty,
         accounts: Part::Empty,
+        parental: Part::Empty,
     };
     assert!(nothing.is_empty());
     assert!(!whole().is_empty());
@@ -412,4 +415,40 @@ fn it_goes_to_disk_and_comes_back() {
     assert!(read(&dir.join("nothing here.json")).is_err());
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn parental_part_roundtrips_privately_without_turning_legacy_absence_into_reset() {
+    let mut document = whole();
+    let mut parental = crate::parental::ParentalStore::default();
+    parental
+        .set_policy(
+            "listener",
+            crate::parental::Policy {
+                enabled: true,
+                ..crate::parental::Policy::default()
+            },
+            0,
+        )
+        .unwrap();
+    document.parental = Part::Held(parental);
+    let serialized = to_json(&document);
+    let restored = from_json(&serialized).unwrap();
+    assert!(
+        restored
+            .parental
+            .held()
+            .unwrap()
+            .policy("listener")
+            .policy
+            .enabled
+    );
+    let mut legacy = serialized.clone();
+    legacy.set("format_version", 3_u32.into());
+    assert!(matches!(from_json(&legacy).unwrap().parental, Part::Empty));
+    let mut corrupt = serialized;
+    corrupt.set("parental", Json::obj());
+    let restored = from_json(&corrupt).unwrap();
+    assert!(matches!(restored.parental, Part::Unreadable(_)));
+    assert!(restored.user.held().is_some());
 }

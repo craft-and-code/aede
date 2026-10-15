@@ -6,6 +6,8 @@ Stop the server first for a production recovery. Save the current data directory
 
 Restoring accounts preserves their stable owners and password verifiers, but rotates the credential epoch to invalidate all previous sessions. Versions 1 and 2 contain no accounts and leave existing credentials untouched. Account destinations and credential archives must have private Unix permissions. [Reset](reset.md) also preserves accounts.
 
+Version 4 can also restore administrator-owned parental policies and listening usage. This part replaces `parental.json` only when present and supported; older bundles or an absent/unreadable parental part preserve the current restrictions and usage. A valid restored policy takes effect on the next authenticated admission; restoration never starts audio. Existing reservations remain conservatively charged, and account sessions are still governed by the separate account-restoration rule above. Parental destinations and bundles require the same private permissions as credentials.
+
 The catalog is the snapshot taken on the backup date. Run scan afterward to reconcile added/removed music, with all original roots reachable. Restore cannot recover missing audio because audio is not in the bundle. An unreadable bundle or one with no supported restorable store is refused.
 
 ## Syntax and arguments

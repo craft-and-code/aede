@@ -44,6 +44,7 @@ pub mod listening;
 pub mod missing;
 pub mod model;
 pub mod musicbrainz;
+pub mod parental;
 pub mod places;
 pub mod playback;
 pub mod playlist;

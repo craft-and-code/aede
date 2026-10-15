@@ -52,6 +52,7 @@ impl Fixture {
                 user: Part::Held(user::UserData::default()),
                 sources: Part::Held(sources::Sources::default()),
                 accounts: Part::Empty,
+                parental: Part::Empty,
             },
             path,
         )
@@ -233,4 +234,56 @@ fn readable_parts_restore_while_an_unsupported_part_and_its_destination_remain_u
     assert!(store::catalog_path(&fixture.data).is_file());
     assert!(conclusions::conclusions_path(&fixture.data).is_file());
     assert_eq!(std::fs::read(archive).unwrap(), original);
+}
+
+#[test]
+fn parental_rules_round_trip_privately_and_legacy_empty_parts_preserve_them() {
+    let fixture = Fixture::new("parental_restore");
+    let policy_path = aede_core::parental::path(&fixture.data);
+    let mut policies = aede_core::parental::ParentalStore::default();
+    let policy = aede_core::parental::Policy {
+        enabled: true,
+        radio_allowed: false,
+        ..Default::default()
+    };
+    policies.set_policy("child", policy, 0).unwrap();
+    policies.save(&policy_path).unwrap();
+    let bundle = fixture.directory.join("private-backup.json");
+    let result = fixture.run("backup", &bundle);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let held = backup::read(&bundle).unwrap();
+    assert!(
+        !held
+            .parental
+            .held()
+            .unwrap()
+            .policy("child")
+            .policy
+            .radio_allowed
+    );
+    std::fs::remove_file(&policy_path).unwrap();
+    let restored = fixture.run("restore", &bundle);
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    assert!(
+        !aede_core::parental::ParentalStore::load(&policy_path)
+            .unwrap()
+            .policy("child")
+            .policy
+            .radio_allowed
+    );
+    let empty_parental = fixture.directory.join("older-backup.json");
+    fixture.bundle(&empty_parental);
+    let before = std::fs::read(&policy_path).unwrap();
+    assert!(fixture.run("restore", &empty_parental).status.success());
+    assert_eq!(std::fs::read(&policy_path).unwrap(), before);
+    assert!(!fixture.run("backup", &policy_path).status.success());
+    assert_eq!(std::fs::read(&policy_path).unwrap(), before);
 }

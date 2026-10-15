@@ -77,6 +77,46 @@ pub(super) struct TlsServer {
     pub(super) authority: RemoteAuthority,
 }
 
+/// In-memory TLS identity supplied over the owned desktop child's private stdin pipe.
+/// Never serialize, log or persist the private key; the parent retains only the public certificate.
+pub struct DesktopTls {
+    configuration: Arc<ServerConfig>,
+}
+impl DesktopTls {
+    /// Accept one bounded PEM certificate and matching key before publishing a socket.
+    pub fn from_pem(certificate: &str, private_key: &str) -> Result<Self, String> {
+        if certificate.len() > 8192 || private_key.len() > 8192 {
+            return Err("desktop TLS identity exceeds its budget".into());
+        }
+        let certs = CertificateDer::pem_slice_iter(certificate.as_bytes())
+            .take(2)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "invalid desktop TLS certificate")?;
+        if certs.len() != 1 {
+            return Err("desktop TLS needs exactly one certificate".into());
+        }
+        let key = PrivateKeyDer::from_pem_slice(private_key.as_bytes())
+            .map_err(|_| "invalid desktop TLS private key")?;
+        let mut config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|_| "desktop TLS identity does not match")?;
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Ok(Self {
+            configuration: Arc::new(config),
+        })
+    }
+    pub(super) fn listener(self, address: SocketAddr) -> io::Result<TlsServer> {
+        if !address.ip().is_loopback() || address.port() == 0 {
+            return Err(invalid("desktop TLS requires a bound loopback listener"));
+        }
+        Ok(TlsServer {
+            acceptor: TlsAcceptor::from(self.configuration),
+            authority: RemoteAuthority::parse(&address.to_string()).map_err(invalid)?,
+        })
+    }
+}
+
 pub(super) fn configure(options: &ServerOptions) -> io::Result<Option<TlsServer>> {
     let Some(tls) = &options.tls else {
         if !options.bind.ip().is_loopback() {

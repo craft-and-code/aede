@@ -46,7 +46,7 @@ pub(super) async fn private(
     empty_body(&body(request).await?)?;
     target_path(&state.data_dir, &owner.id, &id)?;
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&state.data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let playlist = data.playlist(&owner.id, &id).ok_or_else(|| error(StatusCode::NOT_FOUND, "playlist_not_found", "no private playlist has this identity"))?;
         owner.admit(&state, Json(json!({"items":rows(&catalog,playlist.tracks.clone())?,"scanned_at":catalog.scanned_at})))

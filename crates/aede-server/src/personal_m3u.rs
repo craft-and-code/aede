@@ -107,7 +107,7 @@ async fn save(
     }
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, mut data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, mut data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let (album, tracks) =
             selection(&catalog, input.release.as_deref(), input.tracks.as_deref())?;
@@ -256,12 +256,20 @@ async fn list(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit, q) = files::parameters(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let own = unique_summaries(&data, &owner.id)
             .into_iter()
+            .filter(|row| {
+                !crate::parental::supervised(&state)
+                    || data.playlist(&owner.id, &row.id).is_some_and(|playlist| {
+                        playlist
+                            .tracks
+                            .iter()
+                            .all(|track| track.resolve(&catalog).is_some())
+                    })
+            })
             .filter(|row| {
                 q.as_ref()
                     .is_none_or(|q| text::normalize(&row.name).contains(q))
@@ -328,7 +336,7 @@ async fn download(
     let data_dir = state.data_dir.clone();
     target_path(&data_dir, &owner.id, &id)?;
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let playlist = data.playlist(&owner.id, &id).ok_or_else(|| {
             error(

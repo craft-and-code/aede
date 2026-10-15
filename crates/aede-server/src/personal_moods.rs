@@ -224,9 +224,8 @@ async fn read(
         super::super::audio_features::warm(&state);
     }
     let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
-    let dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_lock, catalog, data) = locked_personal(&dir)?;
+        let (_lock, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let rules = rules(&data, &owner.id)?;
         if query.mood.as_ref().is_some_and(|id| {
@@ -290,9 +289,8 @@ async fn write(
     if !domain(&row).valid() {
         return Err(invalid_query("invalid atmosphere criteria"));
     }
-    let dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        locked_update(&dir, &state, &owner, |_, data| {
+        locked_update(&state.data_dir, &state, &owner, |_, data| {
             let mut custom: Vec<RuleView> = data
                 .client_preferences
                 .iter()

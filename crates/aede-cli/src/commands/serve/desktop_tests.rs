@@ -60,3 +60,13 @@ fn bootstrap_refuses_corruption_and_unknown_fields() {
     );
     assert!(!accounts::accounts_path(&data.0).exists());
 }
+
+#[test]
+fn desktop_tls_bootstrap_rejects_bad_identity_before_creating_stores() {
+    let data = Data::new("bad-tls");
+    let input = INPUT.trim_end_matches('}').to_owned()
+        + r#","tls":{"certificate":"invalid","private_key":"invalid"}}"#;
+    assert!(bootstrap(&data.0, &input).is_err());
+    assert!(!accounts::accounts_path(&data.0).exists());
+    assert!(!store::catalog_path(&data.0).exists());
+}

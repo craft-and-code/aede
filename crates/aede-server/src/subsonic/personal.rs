@@ -79,6 +79,8 @@ async fn locked(
             .map_err(|_| failure("personal data could not be read"))?
             .unwrap_or_default();
         user::reconcile(&mut data, &catalog);
+        let catalog = crate::parental::view_owned(&state, catalog)
+            .map_err(|_| failure("parental policy changed or is unavailable"))?;
         let index = Index::new(&catalog)?;
         let now = aede_core::clock::now_seconds();
         let result = if catalog_read {

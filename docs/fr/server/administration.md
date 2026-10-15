@@ -1,6 +1,6 @@
 # Activer l’administration locale
 
-En HTTP local, l’administration permet de lancer scan/fetch et de gérer les comptes. Un [compte administrateur](accounts.md) utilise sa session. Les routes personnelles transitoires visent `local` et acceptent uniquement une session administrateur propriétaire de `local` ou le jeton de confiance de l’installation ; les autres administrateurs emploient `/api/me/v1` pour leurs propres données personnelles. Le jeton historique facultatif fonctionne aussi pour les tâches de l’installation. Sans comptes ni jeton, l’administration est désactivée. [HTTPS](remote.md) désactive toutes les routes `/api/admin` et le jeton historique ; utilisez la CLI locale de confiance pour les tâches de l’installation.
+En HTTP local, l’administration permet de lancer scan/fetch et de gérer les comptes. Un [compte administrateur](accounts.md) utilise sa session. Les routes personnelles transitoires visent `local` et acceptent uniquement une session administrateur propriétaire de `local` ou le jeton de confiance de l’installation ; les autres administrateurs emploient `/api/me/v1` pour leurs propres données personnelles. Le jeton historique facultatif fonctionne aussi pour les tâches de l’installation. Sans comptes ni jeton, l’administration est désactivée. [HTTPS](remote.md) autorise ces opérations uniquement avec une session de compte administrateur courante ; le jeton historique reste limité à HTTP local.
 
 ## Configurer le jeton avant le démarrage
 

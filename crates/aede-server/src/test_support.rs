@@ -109,6 +109,9 @@ pub(crate) fn sample_state() -> ApiState {
             NEXT_STATE.fetch_add(1, Ordering::Relaxed)
         )),
         catalog: Arc::new(RwLock::new(Some(catalog))),
+        parental: Arc::new(crate::parental::ViewState::default()),
+        parental_scope: None,
+        parental_pcm: None,
         loaded_stamp: Arc::new(RwLock::new(None)),
         reload_gate: Arc::new(Mutex::new(())),
         events,

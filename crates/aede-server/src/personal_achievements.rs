@@ -21,7 +21,7 @@ async fn read(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, mut data) = locked_personal(&state.data_dir)?;
+        let (_guard, catalog, mut data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let prepared = aede_core::achievements::refresh(
             &catalog,

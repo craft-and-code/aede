@@ -55,7 +55,7 @@ async fn list(
     let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_lock, catalog, data) = locked_personal(&data_dir)?;
+        let (_lock, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let sources = crate::inspection::held_sources(&data_dir)?;
         let all = rows(

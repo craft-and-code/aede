@@ -1,5 +1,7 @@
 # Authenticated PCM playback v1
 
+Controlled accounts also follow [parental admission and short PCM reservations](parental.md#controlled-listening); raw transports cannot replace the supervised stream.
+
 `GET /api/me/v1/playback` upgrades to a WebSocket for one current catalogued track or an explicitly ordered, finite queue. Supply exactly one `Authorization: Bearer <session>` header, using WS on local HTTP or WSS on [HTTPS](remote.md). Only `user` and `admin` sessions may play, because playback writes private history; an `auditor` receives `403 forbidden`. Legacy administrative tokens cannot authenticate this route, even locally. No query parameters are accepted.
 
 This is a native client contract. The client owns its audio device, clock and consumption counter. Aède does not open a server audio device, supply a player UI, accept arbitrary file paths or implement Subsonic here. Browser WebSocket clients cannot set this bearer header directly; a browser login/transport design remains separate work.

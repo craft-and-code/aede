@@ -10,6 +10,9 @@ Le dossier parent de la destination doit déjà exister. Les magasins et verrous
 
 Le fichier ne contient ni audio original, ni images, paroles annexes ou autres fichiers dérivés. Les sauvegarder séparément. Garder ce fichier privé : il peut inclure historique personnel et chemins absolus. Employer restore pour récupérer les données ; l’export simple du catalogue ne contient pas toutes les informations personnelles irremplaçables.
 
+
+La version 4 inclut aussi les règles parentales et les compteurs d’écoute privés. Restaurer une ancienne sauvegarde préserve le magasin parental existant. Ces règles appartiennent aux administrateurs ; un import ordinaire des préférences Phémios ne peut pas les modifier. Une sauvegarde contenant ces données exige les mêmes permissions privées que les identifiants des comptes.
+
 ## Syntaxe et arguments
 
 ```text

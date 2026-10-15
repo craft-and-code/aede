@@ -17,7 +17,7 @@ Use the same `--data <folder>` or `AEDE_HOME` as the CLI that scanned your music
 
 All routes below use English names matching the CLI vocabulary: an **album** is a graph **release** and a **track** is a local placement of a **recording**. `/releases` remains available to existing clients; `/albums` offers the CLI-shaped filters. No route translates or executes an arbitrary command string.
 
-The default HTTP listener is **loopback-only**. Without accounts, local catalog reads are anonymous and reveal metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) protect catalog reads and isolate personal data at `/api/me/v1`. An `admin` manages local accounts and installation work, a `user` may change only their own personal data, and an `auditor` may read only the catalog and their own personal views. Initialize the first administrator with `aede accounts init <name>` and its masked password confirmation; existing `local` data stays with that account. Once the running HTTP process has observed accounts, missing credentials fail closed until restart; unreadable credentials always fail closed. Restarting local HTTP without the store selects the legacy anonymous mode again. Explicit [HTTPS](../../docs/server/remote.md) requires accounts and disables every `/api/admin` route and legacy token, including with a loopback TLS listener. The [audio contract](../../docs/server/playback.md) uses shared PCM/DSP processing and acknowledged client frames for private listening history. Catalog reads never fetch external data or alter audio.
+The default HTTP listener is **loopback-only**. Without accounts, local catalog reads are anonymous and reveal metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) protect catalog reads and isolate personal data at `/api/me/v1`. An `admin` manages local accounts and installation work, a `user` may change only their own personal data, and an `auditor` may read only the catalog and their own personal views. Initialize the first administrator with `aede accounts init <name>` and its masked password confirmation; existing `local` data stays with that account. Once the running HTTP process has observed accounts, missing credentials fail closed until restart; unreadable credentials always fail closed. Restarting local HTTP without the store selects the legacy anonymous mode again. Explicit [HTTPS](../../docs/server/remote.md) requires accounts and requires named administrator sessions for `/api/admin` and refuses legacy tokens, including with a loopback TLS listener. The [audio contract](../../docs/server/playback.md) uses shared PCM/DSP processing and acknowledged client frames for private listening history. Catalog reads never fetch external data or alter audio.
 
 Account routes are additive and use the same error envelope as the catalog. The [complete account reference](../../docs/server/accounts.md) defines bodies, results, limits and expiry:
 
@@ -28,6 +28,9 @@ Account routes are additive and use the same error envelope as the catalog. The 
 | `/api/admin/v1/accounts` | GET account metadata; POST create; administrator required |
 | `/api/admin/v1/accounts/{username}` | GET metadata; PATCH name/role/status/password; administrator required |
 | `/api/admin/v1/accounts/{username}/sessions` | DELETE all sessions; administrator required |
+| `/api/admin/v1/accounts/{username}/parental` | GET/PUT local administrator-owned policy; expected owner/revision required |
+| `/api/me/v1/parental` | GET current-owner rules, calendar and listening budgets |
+| `/api/me/v1/parental/lease` | POST owner-bound external radio/podcast reserve/renew/release |
 | `/api/me/v1/annotation` | GET/PUT own annotations by `ref` |
 | `/api/me/v1/history` | GET/POST/DELETE own history and counts |
 | `/api/me/v1/collection` | GET/PUT/DELETE own collection by `name` |
@@ -133,7 +136,7 @@ Neither accepts commands. Notifications are best effort with no replay. Asynchro
 
 ## Administrative routes
 
-Available to an administrator account session, or the optional `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters, configured before startup). Without either, administration is disabled. Requests require one `Authorization: Bearer <token>` header. The legacy administrative token rejects every `Origin`; account sessions follow the shared local Origin check. Never use URL tokens. These routes stay local-only. The [account API reference](../../docs/server/accounts.md) lists login, password changes, account administration, limits and errors.
+Available to an administrator account session, or the optional `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters, configured before startup). Without either, administration is disabled. Requests require one `Authorization: Bearer <token>` header. The legacy administrative token rejects every `Origin`; account sessions follow the shared local Origin check. Never use URL tokens. HTTPS requires a named administrator session for these routes; the legacy token stays local to HTTP. The [account API reference](../../docs/server/accounts.md) lists login, password changes, account administration, limits and errors.
 
 | Method and route | Body | Result |
 | --- | --- | --- |
@@ -161,7 +164,7 @@ Other fields: `full: bool`, `threads: integer` (0–64; 0 chooses automatically)
 
 ### Fetch parameters
 
-All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server environment supplies default external-service keys. Trusted loopback administrators can provide bounded `service_keys: {fanarttv?: string, acoustid?: string}` for one fetch job; these keys are neither persisted nor included in task metadata. The CLI callback passes them in the child environment and redacts captured output. A request cannot select other environment variables, the data folder or executable arguments. Status advertises `fetch_service_keys` only with the administrative profile; HTTPS administration remains disabled.
+All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server environment supplies default external-service keys. Trusted loopback administrators can provide bounded `service_keys: {fanarttv?: string, acoustid?: string}` for one fetch job; these keys are neither persisted nor included in task metadata. The CLI callback passes them in the child environment and redacts captured output. A request cannot select other environment variables, the data folder or executable arguments. Status advertises `fetch_service_keys` only with the administrative profile; HTTPS administration requires a named administrator session.
 
 Pass flags: `summaries,discography,covers,lyrics,identify,credits,recordings,portraits,logos,labels,fanart`. With no pass flags, `{}` runs the ordinary CLI MusicBrainz identification pass; it is **not** a no-op. Selection and dependencies follow [fetch help](../../docs/sources.md).
 

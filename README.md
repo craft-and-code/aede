@@ -471,6 +471,7 @@ Complete guides to Aède's features and architecture:
 - [Library Fundamentals](docs/library.md) — Overview of the catalog structure
 - [Local API](docs/api.md) — HTTP/JSON endpoints, catalog change events and task activity
 - [Compatible Aède](docs/server/compatible-aede.md) — Client profiles, integration requirements and acceptance checks for native and Subsonic readers
+- [Parental controls](docs/server/parental.md) — Account artist visibility, schedules and shared music/radio/podcast listening budgets
 - [Accounts and sessions](docs/server/accounts.md) — Local authentication, roles and private personal data; [CLI management](docs/cli/accounts.md)
 - [Missing studio albums](docs/server/missing-albums.md) — Cached discography gaps and reversible owner-private decisions
 - [Account design](docs/design/accounts.md) — Stable owners, credential policy, session limits and backup compatibility

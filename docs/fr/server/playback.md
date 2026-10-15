@@ -1,5 +1,7 @@
 # Lecture PCM authentifiée v1
 
+Les comptes supervisés suivent aussi les [règles parentales et réservations PCM courtes](parental.md#écoute-contrôlée) ; un transport original ne peut pas remplacer leur lecture contrôlée.
+
 `GET /api/me/v1/playback` passe en WebSocket pour une piste actuelle du catalogue ou une file finie dont l’ordre est explicite. Fournissez exactement un en-tête `Authorization: Bearer <session>`, en WS sur HTTP local ou WSS sur [HTTPS](remote.md). Seuls `user` et `admin` peuvent lire, car la lecture écrit l’historique privé ; un `auditor` reçoit `403 forbidden`. Le jeton administratif historique n’authentifie pas cette route, même localement. Aucun paramètre d’URL n’est accepté.
 
 Ce contrat vise les clients natifs. Le client possède sa sortie audio, son horloge et son compteur de consommation. Aède n’ouvre pas de périphérique audio sur le serveur, ne fournit pas d’interface de lecteur, n’accepte pas de chemin arbitraire et n’implémente pas Subsonic ici. Un WebSocket de navigateur ne permet pas de définir directement cet en-tête Bearer ; connexion et transport de navigateur restent à concevoir.

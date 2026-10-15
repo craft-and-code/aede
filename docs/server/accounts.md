@@ -2,9 +2,11 @@
 
 Persistent [OpenSubsonic keys](subsonic.md) are managed by the local CLI and authenticate only `/rest`; native routes continue to require bearer sessions. Account generation changes, including either account-wide session-revocation route, also remove that account's keys. Restoring a backup containing accounts removes all restored keys and rotates the epoch; a legacy backup without accounts preserves current credentials and keys. Ordinary sign-out revokes only its session.
 
-Initialize accounts with [accounts](../cli/accounts.md). With no account store on first access in a fresh local HTTP process, catalog reads remain anonymous and local administration uses the optional `AEDE_ADMIN_TOKEN`. Once the process has observed the store, every `/api/v1` HTTP or WebSocket request needs an account session or, on local HTTP, the administrative token. A missing store then fails closed until that process stops; restarting local HTTP without the store restores anonymous compatibility mode. Unreadable or exposed credentials fail closed even on first access. [HTTPS](remote.md) always requires accounts and accepts only sessions; every `/api/admin` route is unavailable there.
+Initialize accounts with [accounts](../cli/accounts.md). With no account store on first access in a fresh local HTTP process, catalog reads remain anonymous and local administration uses the optional `AEDE_ADMIN_TOKEN`. Once the process has observed the store, every `/api/v1` HTTP or WebSocket request needs an account session or, on local HTTP, the administrative token. A missing store then fails closed until that process stops; restarting local HTTP without the store restores anonymous compatibility mode. Unreadable or exposed credentials fail closed even on first access. [HTTPS](remote.md) always requires accounts and accepts only sessions; administrative routes require a named administrator session there.
 
 An `admin` may manage accounts and installation work. A `user` may read and change only their own personal data. An `auditor` can read the shared catalog and use `GET` or `HEAD` only on their own `/api/me/v1` data; every personal mutation, password change, administration or job route returns `403 forbidden`. Auditors may still sign in, inspect their session and sign out.
+
+See [parental controls](parental.md) for administrator-owned artist visibility, schedules, shared audio budgets and the `parental_enabled` session field.
 
 ## Sign in and manage a session
 
@@ -39,7 +41,7 @@ The transitional `/api/admin/v1/{annotation,history,collection,collections}` rou
 
 ## Account administration
 
-On local HTTP, administrators can run [installation jobs](jobs.md) and manage accounts; a `user` or `auditor` receives `403 forbidden` on administration. HTTPS disables these routes for everyone; use the local CLI. An enabled administrator must always remain. Use an administrator session or the optional legacy administrative token:
+On local HTTP, administrators can run [installation jobs](jobs.md) and manage accounts; a `user` or `auditor` receives `403 forbidden` on administration. HTTPS requires a named administrator session for these routes; legacy tokens remain unavailable. An enabled administrator must always remain. Use an administrator session or the optional legacy administrative token:
 
 | Method and path | Body | Result |
 | --- | --- | --- |

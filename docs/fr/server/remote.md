@@ -25,7 +25,7 @@ Chaque requête porte un seul Host correspondant à l’adresse configurée. Une
 
 ## L’administration reste locale
 
-HTTPS désactive toute la famille `/api/admin` : administration des comptes, tâches de l’installation et routes personnelles transitoires de `local`. Cela vaut aussi pour une session administrateur et une écoute HTTPS sur boucle locale. Le jeton historique `AEDE_ADMIN_TOKEN` est indisponible en HTTPS. Utilisez `/api/me/v1` pour vos données ; gérez les comptes et lancez scan/fetch depuis la CLI locale de confiance. Le canal de commandes Unix privé garde sa portée locale.
+HTTPS expose la gestion des comptes, le contrôle parental et les tâches uniquement à une session administrateur nominative courante, même sur boucle locale. Les utilisateurs et auditeurs reçoivent 403 ; les sessions expirées/révoquées et le jeton historique `AEDE_ADMIN_TOKEN` reçoivent 401. Les contrôles Host/Origin, limites de requêtes et de tâches restent actifs. Les routes personnelles transitoires exigent toujours le propriétaire exact `local` ; l’administration ne donne pas accès aux données privées des autres comptes. Le canal de commandes Unix privé garde sa portée locale.
 
 ## Limites de déploiement
 

@@ -174,6 +174,7 @@ fn scan_reconciliation_and_backup_roundtrip_preserve_both_owners_retained_journa
         user: crate::backup::Part::Held(reread),
         sources: crate::backup::Part::Empty,
         accounts: crate::backup::Part::Empty,
+        parental: crate::backup::Part::Empty,
     };
     let restored = crate::backup::from_json(&crate::backup::to_json(&backup)).unwrap();
     let user = restored.user.held().unwrap();

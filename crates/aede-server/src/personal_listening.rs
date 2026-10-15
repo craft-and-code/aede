@@ -12,7 +12,7 @@ async fn read(
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&state.data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let completed = aede_core::listening::completed_albums(&catalog, &data, &owner.id);
         let items: Vec<_> = catalog.releases.iter().skip(offset).take(limit).filter_map(|release| {

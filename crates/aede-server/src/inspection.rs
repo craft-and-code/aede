@@ -266,6 +266,7 @@ async fn diagnose(
                 )
             })?
             .ok_or_else(unavailable)?;
+        let catalog = crate::parental::view_owned(state, catalog)?;
         let held = held_sources(&state.data_dir)?;
         Ok(diagnosis(
             &catalog,

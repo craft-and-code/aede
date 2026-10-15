@@ -143,7 +143,8 @@ impl PersonalOwner {
         match &self.principal {
             Some(principal) => auth::recheck(state, principal),
             None => Ok(()),
-        }
+        }?;
+        crate::parental::confirm(state)
     }
 
     // Preparation may include blocking filesystem reads or catalog projection.
@@ -406,7 +407,7 @@ fn load_personal(data_dir: &Path, catalog: &Catalog) -> Result<UserData, ApiErro
 // Catalog and user data must describe the same completed writer operation.
 // A cached catalog can predate user.json and reconcile a new track's note onto
 // a different track. Keep the lock through validation and any resulting save.
-fn locked_personal(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), ApiError> {
+fn locked_personal_full(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), ApiError> {
     let guard = StoreLock::try_acquire(data_dir).map_err(|failure| {
         if failure.kind() == std::io::ErrorKind::WouldBlock {
             error(
@@ -436,13 +437,19 @@ fn locked_personal(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), Ap
     Ok((guard, catalog, data))
 }
 
+fn locked_personal(state: &ApiState) -> Result<(StoreLock, Catalog, UserData), ApiError> {
+    let (guard, catalog, data) = locked_personal_full(&state.data_dir)?;
+    let visible = crate::parental::view_owned(state, catalog)?;
+    Ok((guard, visible, data))
+}
+
 fn locked_update<T>(
     data_dir: &Path,
     state: &ApiState,
     owner: &PersonalOwner,
     update: impl FnOnce(&Catalog, &mut UserData) -> Result<T, ApiError>,
 ) -> Result<T, ApiError> {
-    let (_guard, catalog, mut data) = locked_personal(data_dir)?;
+    let (_guard, catalog, mut data) = locked_personal(state)?;
     owner.recheck(state)?;
     let result = update(&catalog, &mut data)?;
     if let Err(failure) = aede_core::achievements::refresh(
@@ -504,9 +511,8 @@ async fn annotation(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let reference = reference(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         existing_target(&catalog, &reference)?;
         owner.admit(
@@ -651,10 +657,13 @@ async fn history(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, mut data) = locked_personal(&state)?;
         owner.recheck(&state)?;
+        if crate::parental::supervised(&state) {
+            data.plays
+                .retain(|play| play.track.resolve(&catalog).is_some());
+        }
         owner.admit(
             &state,
             Json(history_page(&data, &catalog, &owner.id, offset, limit)),
@@ -768,9 +777,8 @@ async fn collection(
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
     validate_collection_name(&query.name)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, _catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, _catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let prepared = data
             .collection(&owner.id, &query.name)
@@ -898,7 +906,7 @@ async fn collection_albums(
     validate_collection_name(&query.name)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let saved = data.collection(&owner.id, &query.name).ok_or_else(|| {
             error(
@@ -949,7 +957,7 @@ async fn collections(
     let (offset, limit) = page(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let mut items: Vec<_> = data
             .collections
@@ -1018,9 +1026,8 @@ async fn annotations(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let rows = own_annotations(&data, &catalog, &owner.id);
         let total = rows.len();

@@ -286,6 +286,20 @@ fn selected_sources(
 ) -> Result<(Vec<TrackSource>, Catalog), StreamFailure> {
     let catalog = state.catalog.blocking_read();
     let catalog = catalog.as_ref().ok_or(StreamFailure::CATALOG_UNAVAILABLE)?;
+    let visible = crate::parental::visible(state, catalog)
+        .map_err(|_| StreamFailure::parental("parental_policy_unavailable"))?;
+    let held_visible = visible.as_ref().map(|view| view.blocking_read());
+    let catalog = match held_visible.as_ref() {
+        Some(held) => held.as_ref().ok_or(StreamFailure::CATALOG_UNAVAILABLE)?,
+        None => catalog,
+    };
+    if crate::parental::supervised(state)
+        && requested
+            .iter()
+            .any(|reference| reference.resolve(catalog).is_none())
+    {
+        return Err(StreamFailure::parental("parental_artist_blocked"));
+    }
     let sources = requested
         .iter()
         .map(|reference| source_from_catalog(catalog, reference))
@@ -372,6 +386,20 @@ pub(super) struct StreamFailure {
 }
 
 impl StreamFailure {
+    pub(super) fn parental(code: &str) -> Self {
+        let code = match code {
+            "parental_outside_schedule" => "parental_outside_schedule",
+            "parental_daily_limit" => "parental_daily_limit",
+            "parental_weekly_limit" => "parental_weekly_limit",
+            "parental_artist_blocked" => "parental_artist_blocked",
+            "parental_conflict" => "parental_conflict",
+            _ => "parental_policy_unavailable",
+        };
+        Self {
+            code,
+            message: "playback is restricted by this account's parental policy",
+        }
+    }
     const INVALID_START: Self = Self {
         code: "invalid_start",
         message: "the first message must be a valid playback start request",
@@ -642,7 +670,7 @@ async fn receive_start(
             _ = shutdown.recv() => return Err(Some(StreamFailure::SERVER_SHUTDOWN)),
             _ = authorization.tick() => {
                 if !authorized(state, captured, false).await {
-                    return Err(Some(StreamFailure::AUTHENTICATION_EXPIRED));
+                    return Err(Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)));
                 }
             }
             incoming = socket.recv() => {
@@ -700,7 +728,32 @@ async fn authorized(state: &ApiState, captured: &auth::Principal, touch: bool) -
     ) else {
         return false;
     };
-    auth::require_mutation(&principal).is_ok()
+    if auth::require_mutation(&principal).is_err() {
+        return false;
+    }
+    if let Some(session) = &state.parental_pcm {
+        return session.check(state).await;
+    }
+    if state.parental_scope.is_some() {
+        let state = state.clone();
+        let owner = principal.owner.clone();
+        return tokio::task::spawn_blocking(move || {
+            crate::parental::confirm(&state)?;
+            if !crate::parental::supervised(&state) {
+                return Ok(());
+            }
+            crate::parental::load(&state)?
+                .check_schedule(
+                    &owner,
+                    aede_core::clock::now_seconds(),
+                    &aede_core::parental::Media::Music { track: None },
+                )
+                .map_err(|reason| crate::parental::refused(&reason))
+        })
+        .await
+        .is_ok_and(|result: Result<(), ApiError>| result.is_ok());
+    }
+    true
 }
 
 async fn send_json(socket: &mut WebSocket, value: impl Serialize) -> Result<(), ()> {
@@ -789,6 +842,47 @@ async fn drive(
     mode: DriveMode<'_>,
     timeline: &mut ListeningTimeline,
 ) -> DriveEnd {
+    let mut owned = state.clone();
+    owned.parental_pcm = match crate::parental::pcm::begin(state, captured).await {
+        Ok(session) => session,
+        Err(error) => {
+            return DriveEnd {
+                acknowledged_frames: 0,
+                sample_rate: None,
+                completed: false,
+                failure: Some(StreamFailure::parental(error.code)),
+                notify: true,
+                control: None,
+            };
+        }
+    };
+    let mut end = drive_inner(
+        socket, &owned, captured, receiver, shutdown, sources, mode, timeline,
+    )
+    .await;
+    if let Some(session) = &owned.parental_pcm {
+        if let Some(rate) = end.sample_rate {
+            session.observe(frames_to_milliseconds(end.acknowledged_frames, rate));
+        }
+        if let Err(error) = session.close(&owned).await {
+            end.failure = Some(StreamFailure::parental(error.code));
+            end.notify = true;
+            end.completed = false;
+        }
+    }
+    end
+}
+
+async fn drive_inner(
+    socket: &mut WebSocket,
+    state: &ApiState,
+    captured: &auth::Principal,
+    receiver: &mut mpsc::Receiver<ProducerEvent>,
+    shutdown: &mut broadcast::Receiver<()>,
+    sources: &[TrackSource],
+    mode: DriveMode<'_>,
+    timeline: &mut ListeningTimeline,
+) -> DriveEnd {
     let DriveMode { queue, interactive } = mode;
     let mut authorization = tokio::time::interval(AUTH_RECHECK_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -814,7 +908,7 @@ async fn drive(
                         acknowledged_frames: 0,
                         sample_rate: None,
                         completed: false,
-                        failure: Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                        failure: Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)),
                         notify: true,
                         control: None,
                     };
@@ -884,11 +978,24 @@ async fn drive(
         }
     };
     let mut acknowledgements = Acknowledgements::with_window(format.max_unacknowledged_frames);
+    if let Some(session) = &state.parental_pcm
+        && let Err(error) = session.activate(state).await
+    {
+        return DriveEnd::stopped(
+            &acknowledgements,
+            Some(format.sample_rate),
+            Some(StreamFailure::parental(error.code)),
+            true,
+        );
+    }
     if !keep_authorized(state, captured, &mut last_authentication, true).await {
         return DriveEnd::stopped(
             &acknowledgements,
             Some(format.sample_rate),
-            Some(StreamFailure::AUTHENTICATION_EXPIRED),
+            Some(
+                crate::parental::pcm::failure(state)
+                    .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
+            ),
             true,
         );
     }
@@ -903,6 +1010,16 @@ async fn drive(
     let mut producer_progress = Instant::now();
     let mut checkpoint_at = Instant::now();
     loop {
+        if let Some(session) = &state.parental_pcm {
+            session.observe(frames_to_milliseconds(
+                acknowledgements.consumed,
+                format.sample_rate,
+            ));
+            session.sent(frames_to_milliseconds(
+                acknowledgements.sent,
+                format.sample_rate,
+            ));
+        }
         if interactive.is_some_and(|epoch| epoch.checkpoint_failed()) {
             return DriveEnd::stopped(
                 &acknowledgements,
@@ -917,7 +1034,11 @@ async fn drive(
                     mut bytes,
                     mut frames,
                 } => {
-                    let accepted = frames.min(acknowledgements.available());
+                    let mut accepted = frames.min(acknowledgements.available());
+                    if let Some(session) = &state.parental_pcm {
+                        accepted = accepted
+                            .min(session.available(acknowledgements.sent, format.sample_rate));
+                    }
                     if accepted == 0 {
                         // The window is full. Requeue this exact producer
                         // block and fall through to `select!` so an ACK,
@@ -971,7 +1092,10 @@ async fn drive(
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
-                                Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                                Some(
+                                    crate::parental::pcm::failure(state)
+                                        .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
+                                ),
                                 true,
                             );
                         }
@@ -1013,7 +1137,10 @@ async fn drive(
                         return DriveEnd::stopped(
                             &acknowledgements,
                             Some(format.sample_rate),
-                            Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                            Some(
+                                crate::parental::pcm::failure(state)
+                                    .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
+                            ),
                             true,
                         );
                     }
@@ -1060,7 +1187,10 @@ async fn drive(
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
-                                Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                                Some(
+                                    crate::parental::pcm::failure(state)
+                                        .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
+                                ),
                                 true,
                             );
                         }
@@ -1161,6 +1291,7 @@ async fn drive(
         tokio::pin!(progress_timeout);
         let consumed_before_receive = acknowledgements.consumed;
         tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(20)), if pending.is_some() && state.parental_pcm.is_some() => {},
             _ = &mut acknowledgement_timeout, if acknowledgements.deadline().is_some() => {
                 return DriveEnd::stopped(
                     &acknowledgements,
@@ -1186,7 +1317,7 @@ async fn drive(
                     return DriveEnd::stopped(
                         &acknowledgements,
                         Some(format.sample_rate),
-                        Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                        Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)),
                         true,
                     );
                 }
@@ -1203,7 +1334,7 @@ async fn drive(
                 Ok(interactive::Incoming::Control(control)) => {
                     if !authorized(state, captured, true).await {
                         return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
-                            Some(StreamFailure::AUTHENTICATION_EXPIRED), true);
+                            Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)), true);
                     }
                     let mut end = DriveEnd::stopped(&acknowledgements, Some(format.sample_rate), None, false);
                     end.control = Some(control);
@@ -1222,7 +1353,7 @@ async fn drive(
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
-                                Some(StreamFailure::AUTHENTICATION_EXPIRED),
+                                Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)),
                                 true,
                             );
                         }

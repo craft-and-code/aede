@@ -2,7 +2,7 @@
 //!
 //! Two commands rather than `backup --restore`, and the reason is the one that
 //! renamed `artwork` to `extract`: **a command that writes is named for the
-//! writing.** Restoring replaces up to five stores at once — the most destructive
+//! writing.** Restoring replaces up to six stores at once — the most destructive
 //! thing this program can be asked to do to its own data — and hiding that
 //! direction behind an option on a command called *backup* would put the
 //! dangerous half under the reassuring name.
@@ -21,7 +21,7 @@
 //! in order to protect the rebuildable one would be the wrong trade twice over.
 
 use aede_core::backup::{self, Backup, Part};
-use aede_core::{accounts, clock, conclusions, sources, store, user};
+use aede_core::{accounts, clock, conclusions, parental, sources, store, user};
 
 use super::Res;
 use crate::args::Args;
@@ -90,6 +90,11 @@ pub fn backup(args: &Args) -> Res {
         user: part(user::load(&user::user_path(&data))),
         sources: part(sources::load_all(&sources::sources_path(&data))),
         accounts: part(accounts::load(&accounts::accounts_path(&data))),
+        parental: match parental::ParentalStore::load_optional(&parental::path(&data)) {
+            Ok(Some(value)) => Part::Held(value),
+            Ok(None) => Part::Empty,
+            Err(error) => Part::Unreadable(error),
+        },
     };
 
     // The same store summary a restore prints, from the same function, so the two
@@ -153,6 +158,7 @@ pub fn restore(args: &Args) -> Res {
         user::user_path(&data),
         sources::sources_path(&data),
         accounts::accounts_path(&data),
+        parental::path(&data),
     ];
     preflight_restore(&held, &path, &data, &into)?;
     let mut writing = 0usize;
@@ -213,6 +219,9 @@ pub fn restore(args: &Args) -> Res {
     if let Some(accounts) = restored_accounts.as_ref() {
         accounts::save(accounts, &accounts::accounts_path(&data))?;
     }
+    if let Some(parental) = held.parental.held() {
+        parental.save(&parental::path(&data))?;
+    }
     println!(
         "{} {} restored",
         ui::green("→"),
@@ -227,12 +236,12 @@ pub fn restore(args: &Args) -> Res {
 
 /// Rejects known-invalid destinations before any store can be replaced.
 /// Each subsequent save is atomic on its own, but an unexpected later I/O
-/// failure can still leave a partial restore across the five separate files.
+/// failure can still leave a partial restore across the six separate files.
 fn preflight_restore(
     held: &Backup,
     archive: &std::path::Path,
     data: &std::path::Path,
-    into: &[std::path::PathBuf; 5],
+    into: &[std::path::PathBuf; 6],
 ) -> Res {
     let data = data.canonicalize()?;
     let archive = archive.canonicalize()?;
@@ -242,9 +251,13 @@ fn preflight_restore(
         held.user.held().is_some(),
         held.sources.held().is_some(),
         held.accounts.held().is_some(),
+        held.parental.held().is_some(),
     ];
     if held.accounts.held().is_some() {
         accounts::check_private_file(&accounts::accounts_path(&data))?;
+    }
+    if held.parental.held().is_some() {
+        accounts::check_private_file(&parental::path(&data))?;
     }
     for (path, write) in into.iter().zip(writing) {
         if !write {
@@ -343,15 +356,15 @@ impl Doing {
     }
 }
 
-/// The five stores of a backup, named and described, in a fixed order.
+/// The six stores of a backup, named and described, in a fixed order.
 ///
 /// **One function for both commands.** `backup` and `restore` talk about the
-/// same five things, and two lists of wording would have drifted the first
+/// same six things, and two lists of wording would have drifted the first
 /// time a field was added to one of them — the same reason the role vocabulary
 /// is one table read in both directions. Only the words for "there is none"
 /// differ, because they mean different things on the way out and on the way in,
 /// so that one is passed in.
-fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 5] {
+fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 6] {
     [
         ("catalog", state(&held.catalog, catalog_of, nothing)),
         (
@@ -368,6 +381,14 @@ fn summarise(held: &Backup, nothing: &str) -> [(&'static str, Doing); 5] {
             state(
                 &held.accounts,
                 |accounts| ui::plural(accounts.all().len(), "account"),
+                nothing,
+            ),
+        ),
+        (
+            "parental controls",
+            state(
+                &held.parental,
+                |_| "policies and listening usage".into(),
                 nothing,
             ),
         ),

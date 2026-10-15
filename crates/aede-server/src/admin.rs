@@ -115,7 +115,11 @@ pub(super) async fn admin_scan(
     let _reload = state.reload_gate.lock().await;
     let scanned_at = catalog.scanned_at;
     let files = catalog.files.len();
-    *state.catalog.write().await = Some(catalog);
+    {
+        let mut published = state.catalog.write().await;
+        *published = Some(catalog);
+        state.parental.invalidate();
+    }
     *state.loaded_stamp.write().await = saved_stamp;
     let _ = state.events.send(CatalogEvent::CatalogChanged {
         scanned_at: Some(scanned_at),
