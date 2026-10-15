@@ -45,7 +45,7 @@ Le statut annonce aussi `track_catalog_pages` et `catalog_added_dates`. Les albu
 
 ## Publication M3U dans la bibliothèque
 
-`POST /api/me/v1/m3u` accepte aussi `library:true`, réservé au compte administrateur sur le serveur administratif local. Aède reprend le plan de la commande `playlist` : fichier nommé d’après le dossier, chemins relatifs, album complet et discographie chronologique dans le dossier artiste lorsqu’il est identifiable et distinct d’une racine surveillée. `library_files` confirme les destinations ; `library_m3u_publication` annonce cette capacité. Les fichiers audio et leurs tags restent intacts. Les destinations doivent appartenir aux racines disponibles du catalogue. Une erreur sur plusieurs fichiers est signalée, mais les fichiers déjà publiés et la liste privée peuvent subsister. Une sélection privée identique réutilise son identifiant et recrée son export supprimé.
+`POST /api/me/v1/m3u` accepte aussi `library:true`, réservé au compte administrateur avec le profil administratif, en HTTPS ou HTTP local. Aède reprend le plan de la commande `playlist` : fichier nommé d’après le dossier, chemins relatifs, album complet et discographie chronologique dans le dossier artiste lorsqu’il est identifiable et distinct d’une racine surveillée. `library_files` confirme les destinations ; `library_m3u_publication` annonce cette capacité. Les fichiers audio et leurs tags restent intacts. Les destinations doivent appartenir aux racines disponibles du catalogue. Une erreur sur plusieurs fichiers est signalée, mais les fichiers déjà publiés et la liste privée peuvent subsister. Une sélection privée identique réutilise son identifiant et recrée son export supprimé.
 
 ## Couverture des analyses conservées
 

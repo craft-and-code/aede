@@ -20,7 +20,7 @@ Acoustic descriptors are shared original-audio facts. Exemplar labels and result
 
 ## HTTP and client integration
 
-An explicit trusted-loopback administrative task performs extraction, publishes per-file progress and supports the existing task Stop/polling contract. Client navigation does not terminate the server-owned job; shutdown/cancellation retains completed records. A fresh request resumes by reusing matching records. Ordinary mood reads may load bounded cached descriptors but never decode source audio or contact a provider. Remote HTTPS administrative exclusion remains intact.
+An explicit administrative task performs extraction, publishes per-file progress and supports the existing task Stop/polling contract. HTTPS requires a current named administrator session; local HTTP retains its administrative authentication. Client navigation does not terminate the server-owned job; shutdown/cancellation retains completed records. A fresh request resumes by reusing matching records. Ordinary mood reads may load bounded cached descriptors but never decode source audio or contact a provider.
 
 Phémios presents coverage, real progress, foreground suspension, Stop and explicit restart of remaining work. Neighbor selection must retain exact personal labels, use at least two usable specific examples before acoustic expansion, rank finite weighted distances and explain the evidence separately from a measured emotion. Genre-only recipes remain transparent fallback where a model lacks examples; mastering loudness does not substitute for tempo/timbre or emotional classification.
 

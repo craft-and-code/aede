@@ -164,7 +164,7 @@ Other fields: `full: bool`, `threads: integer` (0–64; 0 chooses automatically)
 
 ### Fetch parameters
 
-All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server environment supplies default external-service keys. Trusted loopback administrators can provide bounded `service_keys: {fanarttv?: string, acoustid?: string}` for one fetch job; these keys are neither persisted nor included in task metadata. The CLI callback passes them in the child environment and redacts captured output. A request cannot select other environment variables, the data folder or executable arguments. Status advertises `fetch_service_keys` only with the administrative profile; HTTPS administration requires a named administrator session.
+All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server environment supplies default external-service keys. Authenticated administrators can provide bounded `service_keys: {fanarttv?: string, acoustid?: string}` for one fetch job; these keys are neither persisted nor included in task metadata. The CLI callback passes them in the child environment and redacts captured output. A request cannot select other environment variables, the data folder or executable arguments. Status advertises `fetch_service_keys` only with the administrative profile; HTTPS administration requires a named administrator session.
 
 Pass flags: `summaries,discography,covers,lyrics,identify,credits,recordings,portraits,logos,labels,fanart`. With no pass flags, `{}` runs the ordinary CLI MusicBrainz identification pass; it is **not** a no-op. Selection and dependencies follow [fetch help](../../docs/sources.md).
 
@@ -313,9 +313,9 @@ Missing-album cover art: `GET /api/me/v1/missing/cover` is cache-only, while `PO
 | `PATCH /api/me/v1/preferences` | Merge bounded `phemios.*` values; auditors are read-only. |
 | `GET /api/me/v1/moods` | Explainable tag/genre rule counts and paged playback selections for one owner. |
 | `PUT /api/me/v1/moods` | Create or override an owner-private atmosphere rule. |
-| `POST /api/admin/v1/mood-features` | Explicit trusted-loopback native background extraction; body `{force:false}`, cached per file, with task progress and Stop. |
+| `POST /api/admin/v1/mood-features` | Explicit authenticated administrative background extraction; body `{force:false}`, cached per file, with task progress and Stop. |
 | `POST /api/me/v1/background-priority` | Owner-scoped UUID/active foreground lease, renewed for six seconds while WebKit/external audio is active. |
-| `POST /api/admin/v1/lyrics` | Explicit trusted-loopback exact-track LRCLIB acquisition through the existing task worker. |
+| `POST /api/admin/v1/lyrics` | Explicit authenticated administrative exact-track LRCLIB acquisition through the existing task worker. |
 
 See [personal contracts](../../docs/server/personal.md#account-presentation-preferences-and-atmospheres), [waveforms](../../docs/server/playback.md#complete-track-waveforms) and [lyrics jobs](../../docs/server/jobs.md#post-apiadminv1lyrics). Status advertises `account_preferences`, `track_waveform`, `mood_rules`, `fetch_track_lyrics` and label-specific `label_album_sort`. Label `sort=albums` orders the complete filtered set before pagination. No atmosphere read launches an analysis or derives emotion from integrity measurements.
 

@@ -523,6 +523,7 @@ Complete guides to Aède's features and architecture:
 - [Bit-Perfect Acceptance](docs/coding/bit-perfect-acceptance.md) — Independent PCM references, native ALSA trials and exact digital-capture comparison
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
+- [Desktop Branch Review](docs/coding/desktop-branch-review.md) — Integration audit, demonstrated regressions, dependency security and verification limits
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 

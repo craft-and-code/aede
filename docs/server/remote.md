@@ -23,7 +23,9 @@ The native login and bearer-session contract is the same as for local [accounts]
 
 Each request must contain one Host matching the configured authority. An absolute-form target must use HTTPS and the same authority. A supplied browser Origin must be the exact matching HTTPS origin; native clients may omit Origin. Forwarded headers do not change these checks. No cross-origin permission, browser login screen or cookie session is implemented. Native passwords and bearer tokens must never enter URLs. Adapter credentials use protocol query/form parameters; redact them from logs and prefer form POST where the method/client supports it.
 
-## Administration stays local
+<div id="administration-stays-local" data-legacy-anchor></div>
+
+## Authenticated administration
 
 HTTPS exposes account administration, parental rules and installation jobs only to a current named administrator session, including when the TLS listener is on loopback. Users and auditors receive 403; expired/revoked sessions and legacy `AEDE_ADMIN_TOKEN` receive 401. Host/Origin checks, request budgets and job admission remain active. Transitional personal routes still require the exact `local` owner; administration does not grant access to other owners’ private data. The private Unix command channel keeps its local scope.
 
