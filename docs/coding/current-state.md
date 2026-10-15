@@ -1,5 +1,7 @@
 # Aède — Current State
 
+External album decode failures now retain a bounded, terminal-safe verifier diagnostic through the existing transient JSON message. The complete stderr pipe is drained without accumulating unlimited output, the child is reaped, and unavailable-tool-only fallback remains unchanged. A real MD5 mismatch is readable without saving any report or changing audio/catalog/personal data. The complete macOS gate passes 2317 Rust tests including three doctests, plus helper/site/terminal/documentation/Clippy/release checks.
+
 Transient album decode checks now expose versioned exact-file JSON results through `album_decode_results`, distinguishing verified hashes, successful decoding without a reference hash and failures. External FLAC success without STREAMINFO MD5 is no longer called verified. Audio, tags, persisted CRC/analysis conclusions and personal stores stay unchanged. The complete macOS gate passes 2315 Rust tests including three doctests, plus helper/site/terminal/documentation/Clippy/release checks. See [full decode](../cli/check.md#full-decode-test) and [administrative tasks](../server/jobs.md).
 
 Artist logos are available through the same confined artwork read as portraits, with optional public presence metadata and bounded response sizing. No enrichment or source files are changed. The complete macOS gate passes 2313 Rust tests including three doctests, plus helper/site/terminal/documentation/Clippy/release checks. See [desktop presentation](../server/presentation.md).

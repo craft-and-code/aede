@@ -104,3 +104,54 @@ fn structured_decode_results_preserve_distinct_verdicts_and_escape_exact_paths()
         Some(&Json::Str("digest mismatch".into()))
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn failed_external_decode_retains_the_actual_diagnostic_without_retrying_or_writing_audio() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    struct Program(PathBuf);
+    impl Drop for Program {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let program = Program(std::env::temp_dir().join(format!(
+        "aede-decode-diagnostic-{}-{nonce}",
+        std::process::id()
+    )));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&program.0)
+        .unwrap();
+    file.write_all(b"#!/bin/sh\nprintf 'ERROR: decoded MD5 signature mismatch\n' >&2\nexit 1\n")
+        .unwrap();
+    file.set_permissions(std::fs::Permissions::from_mode(0o700))
+        .unwrap();
+    drop(file);
+    let source = fixture();
+    let before = std::fs::read(&source).unwrap();
+    let error = verify(&source, true, Some(&program.0)).err().unwrap();
+    assert!(error.contains("decoded MD5 signature mismatch"), "{error}");
+    assert_eq!(std::fs::read(source).unwrap(), before);
+}
+
+#[test]
+fn decoder_diagnostics_are_bounded_utf8_plain_text_while_the_entire_pipe_is_drained() {
+    let mut bytes = std::io::Cursor::new("\u{1b}音\r".repeat(12000).into_bytes());
+    let text = decode_diagnostic(&mut bytes).unwrap();
+    assert_eq!(bytes.position(), bytes.get_ref().len() as u64);
+    assert!(text.len() < 4096);
+    assert!(!text.contains('\u{1b}'));
+    assert!(!text.contains('\r'));
+    assert!(text.ends_with("[diagnostic truncated]"));
+    assert_eq!(
+        decode_diagnostic(&b"ERROR: MD5 mismatch\n"[..]).unwrap(),
+        "ERROR: MD5 mismatch"
+    );
+}

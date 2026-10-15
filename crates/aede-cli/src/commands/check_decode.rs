@@ -88,15 +88,8 @@ fn verify(path: &Path, flac: bool, program: Option<&Path>) -> Result<Verificatio
         return Err("source must be a regular file, not a link".into());
     }
     let method = if flac && let Some(program) = program {
-        match Command::new(program)
-            .args(["--test", "--silent", "--"])
-            .arg(path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-        {
-            Ok(status) if status.success() => {
+        match external(program, path) {
+            Ok((status, _)) if status.success() => {
                 let status = FileDecoder::open(path)
                     .map_err(|error| error.to_string())?
                     .flac_md5_status();
@@ -114,7 +107,13 @@ fn verify(path: &Path, flac: bool, program: Option<&Path>) -> Result<Verificatio
                     hash,
                 }
             }
-            Ok(_) => return Err("flac -t rejected the complete stream".into()),
+            Ok((_, diagnostic)) => {
+                return Err(if diagnostic.is_empty() {
+                    "flac -t rejected the complete stream".into()
+                } else {
+                    format!("flac -t rejected the complete stream:\n{diagnostic}")
+                });
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => native(path)?,
             Err(error) => return Err(error.to_string()),
         }
@@ -129,6 +128,40 @@ fn verify(path: &Path, flac: bool, program: Option<&Path>) -> Result<Verificatio
         return Err("source changed during verification".into());
     }
     Ok(method)
+}
+// stdout is discarded, so draining this single pipe before wait cannot fill a second pipe.
+fn external(program: &Path, path: &Path) -> std::io::Result<(std::process::ExitStatus, String)> {
+    let mut child = Command::new(program)
+        .args(["--test", "--silent", "--"])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let diagnostic = child.stderr.take().map(decode_diagnostic).transpose();
+    let status = child.wait()?;
+    Ok((status, diagnostic?.unwrap_or_default()))
+}
+
+// Retain a small prefix but consume all bytes; control escapes stay within the client limit.
+fn decode_diagnostic(mut input: impl std::io::Read) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    input.by_ref().take(3000).read_to_end(&mut bytes)?;
+    let hidden = std::io::copy(&mut input, &mut std::io::sink())? > 0;
+    let mut text = ui::literal(String::from_utf8_lossy(&bytes).trim());
+    let truncated = hidden || text.len() > 3500;
+    if text.len() > 3500 {
+        let mut end = 3500;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    if truncated {
+        text.push_str("\n[diagnostic truncated]");
+    }
+    Ok(text)
 }
 fn native(path: &Path) -> Result<Verification, String> {
     let mut decoder = FileDecoder::open(path).map_err(|e| e.to_string())?;
