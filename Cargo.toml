@@ -27,7 +27,7 @@ jiff = { version = "=0.2.38", features = ["tzdb-bundle-always"] }
 axum = { version = "0.7.9", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
 hyper = { version = "=1.11.1", default-features = false, features = ["server", "http1"] }
 hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio", "service"] }
-rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "=1.15.1", features = ["std"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "net", "sync", "time", "signal", "io-util"] }
