@@ -490,3 +490,92 @@ fn album_decode_arguments_preserve_literal_files_without_folder_expansion() {
         ["check", "--decode-test", "--json", "--", path.as_str()]
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn cancellation_still_stops_descendants_after_the_command_leader_exits() {
+    use std::sync::mpsc;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory =
+        std::env::temp_dir().join(format!("aede_job_orphan_{}_{nonce}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let pid_file = directory.join("owned-pids");
+    let mut command = Command::new("sh");
+    command
+        .args([
+            "-c",
+            "sleep 30 & printf '%s %s\\n' \"$$\" \"$!\" > \"$1\"; exit 0",
+            "aede-test",
+        ])
+        .arg(&pid_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let signal = cancellation.clone();
+    let (send, receive) = mpsc::channel();
+    let runner = std::thread::spawn(move || {
+        let _ = send.send(execute(command, signal, &[]));
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let pids = loop {
+        if let Ok(text) = std::fs::read_to_string(&pid_file) {
+            let pids: Vec<_> = text
+                .split_whitespace()
+                .filter_map(|part| part.parse::<u32>().ok())
+                .collect();
+            if pids.len() == 2 {
+                break Some(pids);
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let mut leader_exited = false;
+    if let Some(pids) = &pids {
+        while std::time::Instant::now() < deadline {
+            if let Ok(output) = Command::new("ps")
+                .args(["-o", "stat=", "-p", &pids[0].to_string()])
+                .output()
+            {
+                let state = String::from_utf8_lossy(&output.stdout);
+                // A finished leader is either already reaped or held as a zombie.
+                if state.trim().is_empty() || state.trim().starts_with('Z') {
+                    leader_exited = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    cancellation.store(true, Ordering::Release);
+    let outcome = receive.recv_timeout(Duration::from_secs(2));
+    if outcome.is_err()
+        && let Some(pids) = &pids
+    {
+        // Only the descendant launched by this fixture may be cleaned up.
+        let _ = Command::new("/bin/kill")
+            .args(["-KILL", &pids[1].to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    runner.join().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+    assert!(
+        leader_exited,
+        "the fixture leader must exit before cancellation"
+    );
+    assert_eq!(
+        outcome
+            .expect("a descendant must not retain task pipes after cancellation")
+            .unwrap()
+            .exit_code,
+        130
+    );
+}

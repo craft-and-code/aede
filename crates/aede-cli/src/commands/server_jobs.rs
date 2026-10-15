@@ -312,13 +312,18 @@ fn execute(
     let err = std::thread::spawn(move || capture(stderr));
     let mut cancelled = false;
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Ok(None) => {}
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break Err(format!("cannot wait for administrative command: {error}"));
+        // A command may exit before its descendants close inherited pipes.
+        // Keep its PID reserved until capture finishes so cancellation can
+        // still signal the owned process group, never a recycled leader PID.
+        if out.is_finished() && err.is_finished() {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => {}
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Err(format!("cannot wait for administrative command: {error}"));
+                }
             }
         }
         if cancellation.load(Ordering::Acquire) && process::terminate(&mut child).is_ok() {
