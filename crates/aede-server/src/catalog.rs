@@ -79,6 +79,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "queue_m3u",
         "grouped_m3u_exports",
         "library_m3u_files",
+        "m3u_playback_selection",
         "album_m3u_lookup",
     ];
     if cfg!(feature = "fetch") {

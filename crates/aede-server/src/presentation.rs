@@ -191,14 +191,7 @@ pub(super) fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>
         )
     })?;
     if entity.kind == EntityKind::Track {
-        let track = catalog.track(id).ok_or_else(unavailable)?;
-        let release = track.release_id.and_then(|id| catalog.release(id));
-        let position = release.and_then(|r| r.track_ids.iter().position(|p| *p == id));
-        return Ok(vec![
-            json!({"reference":reference_of(catalog,EntityKind::Track,id)?,"title":track.title,
-            "release":release.map(|r| reference_of(catalog,EntityKind::Release,r.id)).transpose()?,
-            "number":position.map_or(1, |p| p+1), "album_total":release.map_or(1, |r| r.track_ids.len())}),
-        ]);
+        return Ok(vec![playback_track_row(catalog, id)?]);
     }
     let ids = match entity.kind {
         EntityKind::Release => vec![id],
@@ -223,6 +216,17 @@ pub(super) fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>
         }
     }
     Ok(rows)
+}
+/// Render an already resolved catalogue track without repeating reference resolution.
+pub(super) fn playback_track_row(catalog: &Catalog, id: Id) -> Result<Value, ApiError> {
+    let track = catalog.track(id).ok_or_else(unavailable)?;
+    let release = track.release_id.and_then(|id| catalog.release(id));
+    let position = release.and_then(|r| r.track_ids.iter().position(|p| *p == id));
+    Ok(
+        json!({"reference":reference_of(catalog,EntityKind::Track,id)?,"title":track.title,
+        "release":release.map(|r| reference_of(catalog,EntityKind::Release,r.id)).transpose()?,
+        "number":position.map_or(1, |p| p+1), "album_total":release.map_or(1, |r| r.track_ids.len())}),
+    )
 }
 async fn playback_selection(
     State(state): State<ApiState>,

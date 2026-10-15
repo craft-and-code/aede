@@ -272,6 +272,8 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 | `POST /api/me/v1/m3u` | Private static playlist and server-side M3U publication |
 | `GET /api/me/v1/m3u` | Private playlist summaries |
 | `GET /api/me/v1/m3u/{id}` | Complete current-owner M3U download |
+| `GET /api/me/v1/m3u/{id}/playback` | Exact ordered current-owner playlist selection, refusing unresolved or ambiguous entries |
+| `GET /api/me/v1/m3u-files/{id}/playback` | Exact ordered catalogue selection from an admitted library M3U file |
 | `GET /api/me/v1/m3u-files` | Existing shared M3U/M3U8 files under watched roots, searched before pagination |
 | `GET /api/me/v1/m3u-files/{id}` | Exact UTF-8 content of a currently permitted library playlist file |
 | `POST /api/admin/v1/analyze` | Catalog-scoped asynchronous FlacCompagnon analysis |

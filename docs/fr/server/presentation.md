@@ -28,6 +28,8 @@ Ces critères restent dans le stockage existant des règles de collection. Leur 
 
 `GET /api/v1/presentation/playback?ref=…` renvoie la discographie principale dans l’ordre chronologique partagé avec le CLI, ou les pistes d’un album, avec numéro et nombre total de pistes par album (limite de 4096 pistes). Les années inconnues viennent en dernier ; les pistes gardent leur ordre. Cette consultation ne lance pas de lecture.
 
+La capacité additive `m3u_playback_selection` active les lectures authentifiées `GET /api/me/v1/m3u-files/{id}/playback` et `GET /api/me/v1/m3u/{id}/playback`. Elles renvoient la même projection ordonnée `items` et `scanned_at`, sans lancer de lecture ni écrire l’historique. Les fichiers surveillés conservent les contrôles de racines, exclusions, identité et isolation des exports privés. Les chemins relatifs sont résolus depuis le dossier de la liste, uniquement par correspondance avec les fichiers du catalogue actuel : aucune entrée ne déclenche de lecture de fichier ou de requête réseau. Une entrée inconnue, ambiguë ou désignant un flux refuse la sélection entière. Les exports privés utilisent uniquement les références du compte authentifié. L’ordre et les répétitions sont conservés, dans la limite de 4096 occurrences. Les deux sources refusent un fichier associé à plusieurs pistes du catalogue ; un index de chemins par requête évite de reparcourir le catalogue pour chaque occurrence privée. Un ancien serveur doit être mis à jour puis redémarré.
+
 
 ## Pistes d’album légères et capacités
 

@@ -11,6 +11,10 @@ pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/me/v1/m3u-files", get(list))
         .route("/api/me/v1/m3u-files/:id", get(read))
+        .route(
+            "/api/me/v1/m3u-files/:id/playback",
+            get(super::playback::library),
+        )
 }
 
 #[derive(Default, Deserialize)]
@@ -41,15 +45,15 @@ pub(super) fn parameters(query: Parameters) -> Result<(usize, usize, Option<Stri
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct Scope {
-    roots: Vec<String>,
-    excluded: Vec<String>,
+pub(super) struct Scope {
+    pub(super) roots: Vec<String>,
+    pub(super) excluded: Vec<String>,
     scanned_at: u64,
     canonical_paths: Vec<Option<PathBuf>>,
 }
 
 impl Scope {
-    fn capture(state: &ApiState) -> Result<Self, ApiError> {
+    pub(super) fn capture(state: &ApiState) -> Result<Self, ApiError> {
         let mut scope = {
             let catalog = state.catalog.blocking_read();
             let catalog = catalog.as_ref().ok_or_else(unavailable)?;
@@ -80,7 +84,7 @@ impl Scope {
         Ok(scope)
     }
 
-    fn confirm(&self, state: &ApiState, owner: &PersonalOwner) -> Result<(), ApiError> {
+    pub(super) fn confirm(&self, state: &ApiState, owner: &PersonalOwner) -> Result<(), ApiError> {
         if *self != Self::capture(state)? {
             return Err(failure(library_files::Error::Changed));
         }
@@ -118,7 +122,7 @@ struct Listing {
     unreadable_directories: usize,
 }
 
-fn failure(reason: library_files::Error) -> ApiError {
+pub(super) fn failure(reason: library_files::Error) -> ApiError {
     use library_files::Error;
     let (status, code, message) = match reason {
         Error::InvalidIdentity => (

@@ -4,12 +4,15 @@ use super::*;
 mod files;
 #[path = "personal_m3u_library.rs"]
 mod library;
+#[path = "personal_m3u_playback.rs"]
+mod playback;
 use library::publish_library;
 
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/me/v1/m3u", get(list).post(save))
         .route("/api/me/v1/m3u/:id", get(download))
+        .route("/api/me/v1/m3u/:id/playback", get(playback::private))
         .merge(files::routes())
 }
 #[derive(Deserialize)]

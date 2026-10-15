@@ -38,6 +38,8 @@ The expression remains in the existing saved-query store; evaluation evolves wit
 
 `GET /api/v1/presentation/playback?ref=…` exposes server-selected chronological principal discography or one album, including per-album track number and total (4096-item bound). It shares the CLI ordering function and does not start playback. See the route README for authenticated evaluation and confirmed history reset.
 
+The additive `m3u_playback_selection` capability enables authenticated `GET /api/me/v1/m3u-files/{id}/playback` and `GET /api/me/v1/m3u/{id}/playback`. They return the same ordered `items` and `scanned_at` projection without starting audio or recording history. Watched files retain the existing roots/exclusions/private-export isolation and identity rechecks. Relative entries resolve against the discovered playlist parent, solely by current catalogue file identity; no entry triggers filesystem or network I/O. A non-file, missing or ambiguous entry refuses the whole selection. Private exports use only the authenticated owner's retained track references. Order and repetitions are preserved, with a 4096-occurrence bound. Both sources reject a file shared by multiple catalogue track placements; one per-request path index resolves private occurrences without rescanning the catalogue for each row. Update and restart older server processes before using this capability.
+
 `GET /api/me/v1/collection/albums?name=…` evaluates the saved rule for the authenticated owner and returns current release references. `DELETE /api/me/v1/history` requires `{ "confirm": true }` to clear that owner’s events, scrobbles and counters together, preserving annotations and other owners.
 
 

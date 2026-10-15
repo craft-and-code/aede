@@ -12,6 +12,8 @@
 pub mod files;
 /// Shared catalog-derived folder destinations and rendering.
 pub mod folders;
+/// Explicit catalog-only resolution of existing M3U entries.
+pub mod selection;
 
 use std::path::Path;
 
