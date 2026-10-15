@@ -180,3 +180,48 @@ fn mood_results_rank_specific_evidence_before_stable_chronological_ties() {
     assert_eq!(selected[0].1.tag.as_deref(), Some("calm"));
     assert_eq!(selected[4].1.genre.as_deref(), Some("ambient"));
 }
+
+#[test]
+fn adding_a_mood_cannot_overflow_preferences_or_corrupt_another_owners_store() {
+    use crate::accounts_test_support::{Fixture, http, login};
+    use crate::test_support::{start_server, test_runtime};
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let owner = fixture.accounts().find("alice").unwrap().id.clone();
+        let path = user::user_path(&fixture.0.data_dir);
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let token = login(address, "alice");
+        for (count, own_rows) in [(8192, false), (64, true)] {
+            let data = UserData {
+                client_preferences: (0..count)
+                    .map(|index| user::ClientPreference {
+                        owner: if own_rows {
+                            owner.clone()
+                        } else {
+                            format!("account:{}", index / 64)
+                        },
+                        key: format!("phemios.setting-{}", index % 64),
+                        value: "true".into(),
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            user::save(&data, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let (status, response, _) = http(
+                address,
+                "PUT",
+                "/api/me/v1/moods",
+                Some(&token),
+                r#"{"id":"winter","name":"Winter","tags":["calm"],"genres":[]}"#,
+            );
+            assert_eq!(status, 400, "{response}");
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(
+                user::load(&path).unwrap().unwrap().client_preferences.len(),
+                count
+            );
+        }
+        server.abort();
+    });
+}

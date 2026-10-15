@@ -316,6 +316,16 @@ async fn write(
             {
                 entry.value = value;
             } else {
+                if data.client_preferences.len() >= 8192
+                    || data
+                        .client_preferences
+                        .iter()
+                        .filter(|entry| entry.owner == owner.id)
+                        .count()
+                        >= 64
+                {
+                    return Err(invalid_query("too many preferences"));
+                }
                 data.client_preferences.push(user::ClientPreference {
                     owner: owner.id.clone(),
                     key: "phemios.moods".into(),

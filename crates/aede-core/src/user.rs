@@ -763,6 +763,7 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// An exclusive temporary output prevents an existing temporary symlink from
 /// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
+    preferences::validate(&data.client_preferences)?;
     history::validate(data)?;
     playlists::validate(data)?;
     playback::validate(data)?;

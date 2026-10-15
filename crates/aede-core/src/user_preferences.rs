@@ -23,6 +23,24 @@ pub fn valid_preference(key: &str, value: &str) -> bool {
         && value.len() <= 8192
         && crate::json::parse(value).is_ok()
 }
+pub(super) fn validate(rows: &[ClientPreference]) -> Result<(), StoreError> {
+    if rows.len() > 8192 {
+        return Err(StoreError::Invalid("too many client preferences"));
+    }
+    let mut known = BTreeSet::new();
+    for row in rows {
+        if row.owner.is_empty()
+            || row.owner.len() > 256
+            || !valid_preference(&row.key, &row.value)
+            || !known.insert((&row.owner, &row.key))
+        {
+            return Err(StoreError::Invalid(
+                "invalid or duplicate client preference",
+            ));
+        }
+    }
+    Ok(())
+}
 pub(super) fn write(data: &UserData, root: &mut Json) {
     if data.client_preferences.is_empty() {
         return;
@@ -53,8 +71,8 @@ pub(super) fn read(root: &Json) -> Result<Vec<ClientPreference>, StoreError> {
     if rows.len() > 8192 {
         return Err(StoreError::Invalid("too many client preferences"));
     }
-    let mut known = BTreeSet::new();
-    rows.iter()
+    let rows = rows
+        .iter()
         .map(|row| {
             let owner = row
                 .field_str("owner")
@@ -65,18 +83,11 @@ pub(super) fn read(root: &Json) -> Result<Vec<ClientPreference>, StoreError> {
             let value = row
                 .field_str("value")
                 .ok_or(StoreError::Invalid("missing preference value"))?;
-            if owner.is_empty()
-                || owner.len() > 256
-                || !valid_preference(&key, &value)
-                || !known.insert((owner.clone(), key.clone()))
-            {
-                return Err(StoreError::Invalid(
-                    "invalid or duplicate client preference",
-                ));
-            }
             Ok(ClientPreference { owner, key, value })
         })
-        .collect()
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    validate(&rows)?;
+    Ok(rows)
 }
 #[cfg(test)]
 #[path = "user_preferences_tests.rs"]
