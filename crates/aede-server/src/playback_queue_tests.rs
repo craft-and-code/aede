@@ -387,6 +387,10 @@ fn invalidating_one_queued_source_before_publication_preserves_other_valid_liste
                 ServerFrame::Text(frame) if frame["type"] == "recorded" => records.push(frame),
                 ServerFrame::Text(frame) if frame["type"] == "error" => {
                     assert_eq!(frame["code"], "history_failed");
+                    assert_eq!(
+                        frame["message"],
+                        "history source changed or became unavailable; rescan the library"
+                    );
                     failed = true;
                 }
                 ServerFrame::Text(_) => {}

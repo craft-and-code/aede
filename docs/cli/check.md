@@ -44,3 +44,11 @@ A failed recheck clears that file's previous verdict and leaves it eligible for 
 [scan](scan.md), [analyze](analyze.md), [copy](copy.md).
 
 Detailed existing guide: [integrity.md](../integrity.md).
+
+## Full decode test
+
+`aede check --decode-test [file-or-folder…]` explicitly decodes the entire selection without playback or file writes. It always rereads sources. FLAC uses the installed `flac --test` when available; only a missing executable triggers the existing Rust decoder. Non-FLAC sources use the existing native/fallback decoder. The report names the verifier and distinguishes a verified FLAC MD5 from decoding without one. Any unreadable, changed or rejected source makes the command fail, after reporting the other selected files. This mode does not replace cached container CRC verdicts or attributed analysis reports.
+
+`--json` is supported only with `--decode-test`. It returns a version-1 object with a `files` array: exact `path`, `status` (`ok` for a verified digest, `no_hash` for successful decoding without a reference digest, `ko` for failure), `verifier`, and an optional failure `message`. Even a nonzero exit retains the complete per-file report. No result is written to the catalog.
+
+External verifier failures include their bounded plain-text diagnostic, with an explicit truncation marker when necessary. The complete pipe is drained without retaining unlimited output. This diagnostic remains transient.

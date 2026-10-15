@@ -3,6 +3,8 @@
 //! MusicBrainz supplies the Discogs identifier as a URL relationship. Discogs
 //! is never searched by name. Failed refreshes keep the last stored profile.
 
+#![cfg_attr(not(feature = "fetch"), allow(dead_code))]
+
 use aede_core::json::Json;
 use aede_core::model::{Catalog, EntityKind, Id};
 use aede_core::sources::{self, Facts, LabelFacts, SourceRecord, Sources};
@@ -10,6 +12,111 @@ use aede_core::user::EntityRef;
 use aede_core::{clock, discogs, musicbrainz, text};
 
 use super::Res;
+
+/// A completed partial batch, distinct from a provider throttle or an unusable run.
+#[derive(Debug)]
+pub(super) struct UnavailableLabels(pub usize);
+
+impl std::fmt::Display for UnavailableLabels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Discogs completed with {} unavailable label(s); saved profiles are retained",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnavailableLabels {}
+
+/// Explicit batch fallback for identified labels in the requested name/folder scope.
+/// Fresh profiles are reused unless `--full` asks again; dry-run performs no I/O.
+pub(super) fn run(
+    catalog: &Catalog,
+    transport: &mut dyn super::fetch::Ask,
+    backoff: &[std::time::Duration],
+    held: &mut Sources,
+    path: &std::path::Path,
+    asked: &super::fetch::Asked,
+) -> Res {
+    let targets: Vec<_> = catalog.labels.iter().filter(|label| {
+        let Some(entity)=EntityRef::of(catalog,EntityKind::Label,label.id) else { return false; };
+        super::fetch::reaches(asked.names,&[label.name.as_str()])
+            && asked.scope.has_label(&label.key)
+            && (label.mbid.is_some() || held.get(&entity,sources::MUSICBRAINZ).is_some_and(|r| r.source_id.is_some() && held.is_trusted(catalog,r)))
+            && !matches!(held.get(&entity,"wikipedia").map(|r| &r.facts),Some(Facts::Label(f)) if f.summary.is_some())
+            && (asked.again || !held.get(&entity,discogs::SOURCE).is_some_and(|r| discogs::fresh(r.fetched_at,clock::now_seconds()) && matches!(&r.facts,Facts::Label(f) if f.summary.is_some())))
+    }).collect();
+    println!("{}", crate::ui::section("Discogs label biographies"));
+    println!("  {} to refresh", crate::ui::plural(targets.len(), "label"));
+    if super::fetch::asked_nothing(
+        asked,
+        &targets.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
+    ) {
+        return Ok(());
+    }
+    let transport = std::cell::RefCell::new(transport);
+    let mut unavailable = 0usize;
+    let rate_limited = std::cell::Cell::new(false);
+    for (index, label) in targets.iter().enumerate() {
+        println!(
+            "  {}/{}: {}",
+            index + 1,
+            targets.len(),
+            crate::ui::literal(&label.name)
+        );
+        let result = refresh(
+            catalog,
+            label.id,
+            held,
+            path,
+            &mut |url| {
+                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff).map_err(|e| {
+                    if matches!(
+                        &e,
+                        super::fetch::Refusal::RateLimited | super::fetch::Refusal::TooManyRequests
+                    ) {
+                        rate_limited.set(true);
+                    }
+                    e.to_string()
+                })
+            },
+            &mut |url| {
+                super::fetch::ask_with_backoff(*transport.borrow_mut(), url, backoff).map_err(|e| {
+                    if matches!(
+                        &e,
+                        super::fetch::Refusal::RateLimited | super::fetch::Refusal::TooManyRequests
+                    ) {
+                        rate_limited.set(true);
+                    }
+                    e.to_string()
+                })
+            },
+        );
+        if let Err(why) = result {
+            // A failed source publication is not an unavailable provider profile.
+            if why.is::<aede_core::store::StoreError>() {
+                return Err(why);
+            }
+            // A provider throttle exhausts the pass budget; do not turn it into one request per label.
+            if rate_limited.get() {
+                return Err(format!(
+                    "Discogs stopped by provider rate limit: {why}; saved profiles are retained"
+                )
+                .into());
+            }
+            unavailable += 1;
+            eprintln!(
+                "  Discogs label {}: {why}; continuing with the remaining labels.",
+                crate::ui::literal(&label.name)
+            );
+        }
+    }
+    if unavailable > 0 {
+        return Err(UnavailableLabels(unavailable).into());
+    }
+    Ok(())
+}
 
 #[cfg(feature = "fetch")]
 pub fn refresh_online(

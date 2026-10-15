@@ -83,7 +83,15 @@ pub struct PcmTrack {
 impl PcmTrack {
     /// Open a local audio file without decoding it in full.
     pub fn open(path: &Path) -> Result<Self, decoder::Error> {
-        let decoder = FileDecoder::open(path)?;
+        Self::from_decoder(FileDecoder::open(path)?)
+    }
+
+    /// Native-only progressive decode for cooperative background extraction, without a child process.
+    pub fn open_native(path: &Path) -> Result<Self, decoder::Error> {
+        Self::from_decoder(FileDecoder::open_native(path)?)
+    }
+
+    fn from_decoder(decoder: FileDecoder) -> Result<Self, decoder::Error> {
         let format = PcmStreamFormat::with_layout(decoder.sample_rate(), decoder.channel_layout())
             .map_err(|_| decoder::Error::InvalidFormat)?;
         let sample_capacity = BLOCK_FRAMES * usize::from(format.channels());

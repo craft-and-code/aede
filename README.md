@@ -30,7 +30,7 @@
 
 ## 🛠️ System Architecture & Audio Parsers
 
-Account identities, roles and credentials live in the standalone [`aede-accounts`](crates/aede-accounts/README.md) crate. `aede-core` owns the music catalog, personal data and protected file persistence; `aede-server` exposes them through authenticated HTTP and audio routes. The separate `aede-dsp` library provides shared processing for decoded audio samples.
+Account identities, roles and credentials live in the standalone [`aede-accounts`](crates/aede-accounts/README.md) crate. `aede-core` owns the music catalog, personal data and protected file persistence; `aede-server` exposes them through authenticated HTTP and audio routes. The separate `aede-dsp` library provides shared processing for decoded audio samples. The `aede-moods` crate implements [cooperative acoustic discovery](docs/design/audio-features.md), alongside exact personal atmosphere rules.
 
 [`aede-devices`](crates/aede-devices/README.md) owns explicit LAN discovery and the SlimProto, UPnP AVTransport, OpenHome Playlist and experimental Google Cast controllers. The CLI calls it directly for `devices` and `cast`; it has no dependency on the server API. Subsonic/OpenSubsonic remains an authenticated client adapter in `aede-server`.
 
@@ -471,7 +471,9 @@ Complete guides to Aède's features and architecture:
 - [Library Fundamentals](docs/library.md) — Overview of the catalog structure
 - [Local API](docs/api.md) — HTTP/JSON endpoints, catalog change events and task activity
 - [Compatible Aède](docs/server/compatible-aede.md) — Client profiles, integration requirements and acceptance checks for native and Subsonic readers
+- [Parental controls](docs/server/parental.md) — Account artist visibility, schedules and shared music/radio/podcast listening budgets
 - [Accounts and sessions](docs/server/accounts.md) — Local authentication, roles and private personal data; [CLI management](docs/cli/accounts.md)
+- [Missing studio albums](docs/server/missing-albums.md) — Cached discography gaps and reversible owner-private decisions
 - [Account design](docs/design/accounts.md) — Stable owners, credential policy, session limits and backup compatibility
 - [Server route reference](crates/aede-server/README.md) — All available routes, parameters, scan/fetch jobs and examples
 - [Operating the Local Server](docs/operating.md) — Startup, backups, CLI coexistence and NAS security limits
@@ -512,13 +514,16 @@ Complete guides to Aède's features and architecture:
 - [Current State](docs/coding/current-state.md) — Project status and active work
 - [Project Statistics](docs/manual/project-statistics.md) — Generated code measurements by crate and a rounded inventory of active unit tests
 - [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
+- [Account Isolation](docs/coding/account-isolation.md) — Personal ownership boundaries, retention, revocation guards and verification limits
 - [M3 Hardening](docs/coding/m3-review.md) — Player/DSP security, source identity, spectrum timing, performance measurements and verification limits
 - [Audio DSP Comparison](docs/coding/dsp-comparison.md) — Aède/FlacCompagnon responsibilities, measured differences and safe sharing candidates
+- [Parent-owned Desktop Engine](docs/server/desktop.md) — Isolated desktop bootstrap, readiness, lifetime lease and unavailable mounts
 - [Network Audio Devices](docs/server/devices.md) — Initial SlimProto, UPnP AV, OpenHome and Google Cast profiles and acceptance limits
 - [Gapless Measurement](docs/coding/gapless-measurement.md) — Whole/split probes, physical capture and bounded idle/load trials
 - [Bit-Perfect Acceptance](docs/coding/bit-perfect-acceptance.md) — Independent PCM references, native ALSA trials and exact digital-capture comparison
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
+- [Desktop Branch Review](docs/coding/desktop-branch-review.md) — Integration audit, demonstrated regressions, dependency security and verification limits
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 

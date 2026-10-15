@@ -4,11 +4,21 @@ use aede_core::coverart::Kind;
 use aede_core::sources::{Facts, Sources};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
+#[path = "analysis_coverage.rs"]
+mod analysis_coverage;
+#[path = "presentation_tracks.rs"]
+pub(crate) mod track_pages;
 
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/v1/presentation/artists", get(artists))
         .route("/api/v1/presentation/albums", get(albums))
+        .route("/api/v1/presentation/playback", get(playback_selection))
+        .route("/api/v1/presentation/tracks", get(track_pages::list))
+        .route(
+            "/api/v1/presentation/analysis",
+            get(analysis_coverage::list),
+        )
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,7 +80,7 @@ fn artist_row(
     };
     let relations:Vec<_>=catalog.neighbours_of_artist(artist.id).into_iter().map(|(other,weight,kind)|json!({"reference":reference(catalog,EntityKind::Artist,other.id),"name":other.name,"weight":weight,"kind":kind,"source":"tags"})).collect();
     Ok(
-        json!({"reference":entity.to_token(),"name":artist.name,"genre":genres.iter().cloned().collect::<Vec<_>>().join(" · "),"genres":genres,"country":origin.country_code.as_ref().or(origin.area.as_ref()),"country_code":origin.country_code,"origin":origin,"biography":biography.map(|prose|prose.text.as_str()).unwrap_or(""),"biography_credit":biography.map(|prose|json!({"url":prose.url,"lang":prose.lang,"licence":prose.licence})),"artwork":false,"media":{"banner":media(Kind::Banner),"background":media(Kind::Background),"portrait":media(Kind::Artist)},"release_refs":releases.into_iter().map(|id|reference_of(catalog,EntityKind::Release,id)).collect::<Result<Vec<_>,_>>()?,"search_fields":[artist.sort_name,artist.mbid.as_deref().unwrap_or(""),artist.aliases.join(" ")],"relations":relations}),
+        json!({"reference":entity.to_token(),"name":artist.name,"genre":genres.iter().cloned().collect::<Vec<_>>().join(" · "),"genres":genres,"country":origin.country_code.as_ref().or(origin.area.as_ref()),"country_code":origin.country_code,"origin":origin,"biography":biography.map(|prose|prose.text.as_str()).unwrap_or(""),"biography_credit":biography.map(|prose|json!({"url":prose.url,"lang":prose.lang,"licence":prose.licence})),"artwork":false,"media":{"banner":media(Kind::Banner),"background":media(Kind::Background),"portrait":media(Kind::Artist),"logo":media(Kind::Logo)},"release_refs":releases.into_iter().map(|id|reference_of(catalog,EntityKind::Release,id)).collect::<Result<Vec<_>,_>>()?,"search_fields":[artist.sort_name,artist.mbid.as_deref().unwrap_or(""),artist.aliases.join(" ")],"relations":relations}),
     )
 }
 fn album_row(catalog: &Catalog, release: &aede_core::model::Release) -> Result<Value, ApiError> {
@@ -106,7 +116,7 @@ fn album_row(catalog: &Catalog, release: &aede_core::model::Release) -> Result<V
         .map(|genre| genre.name.clone())
         .collect();
     Ok(
-        json!({"reference":reference,"artist":release.album_artist_id.and_then(|id|crate::catalog::reference(catalog,EntityKind::Artist,id)),"title":release.title,"year":release.year,"compilation":release.is_compilation,"tags":genres,"contributors":contributors.into_iter().map(|id|reference_of(catalog,EntityKind::Artist,id)).collect::<Result<Vec<_>,_>>()?,"cover":crate::subsonic::artwork::candidate(release).is_some_and(|source|crate::subsonic::artwork::available(&source)),"track_count":release.track_ids.len(),"search_fields":search}),
+        json!({"reference":reference,"artist":release.album_artist_id.and_then(|id|crate::catalog::reference(catalog,EntityKind::Artist,id)),"title":release.title,"year":release.year,"compilation":release.is_compilation,"tags":genres,"contributors":contributors.into_iter().map(|id|reference_of(catalog,EntityKind::Artist,id)).collect::<Result<Vec<_>,_>>()?,"cover":crate::subsonic::artwork::candidate(release).is_some_and(|source|crate::subsonic::artwork::available(&source)),"track_count":release.track_ids.len(),"added_at":catalog.release_added_at(release.id),"search_fields":search}),
     )
 }
 async fn artists(
@@ -159,6 +169,75 @@ async fn albums(
         ))
     })
     .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlaybackQuery {
+    #[serde(rename = "ref")]
+    reference: String,
+}
+pub(super) fn playback_rows(catalog: &Catalog, token: &str) -> Result<Vec<Value>, ApiError> {
+    if token.len() > MAX_REFERENCE_BYTES {
+        return Err(invalid_query("reference is too long"));
+    }
+    let entity = EntityRef::parse_token(token)
+        .ok_or_else(|| invalid_query("invalid selection reference"))?;
+    let id = entity.resolve(catalog).ok_or_else(|| {
+        error(
+            StatusCode::NOT_FOUND,
+            "entity_not_found",
+            "selection is no longer available",
+        )
+    })?;
+    if entity.kind == EntityKind::Track {
+        return Ok(vec![playback_track_row(catalog, id)?]);
+    }
+    let ids = match entity.kind {
+        EntityKind::Release => vec![id],
+        EntityKind::Artist => catalog.playback_release_order(catalog.releases_as_album_artist(id)),
+        EntityKind::Label => catalog.playback_release_order(catalog.releases_of_label(id)),
+        _ => {
+            return Err(invalid_query(
+                "selection must be an artist, album, track or label",
+            ));
+        }
+    };
+    let mut rows = Vec::new();
+    for id in ids {
+        let release = catalog.release(id).ok_or_else(unavailable)?;
+        let reference = reference_of(catalog, EntityKind::Release, id)?;
+        for (index, id) in release.track_ids.iter().enumerate() {
+            if rows.len() >= 4096 {
+                return Err(invalid_query("selection exceeds 4096 tracks"));
+            }
+            let track = catalog.track(*id).ok_or_else(unavailable)?;
+            rows.push(json!({"reference": reference_of(catalog, EntityKind::Track, *id)?, "title": track.title, "release": reference, "number": index + 1, "album_total": release.track_ids.len()}));
+        }
+    }
+    Ok(rows)
+}
+/// Render an already resolved catalogue track without repeating reference resolution.
+pub(super) fn playback_track_row(catalog: &Catalog, id: Id) -> Result<Value, ApiError> {
+    let track = catalog.track(id).ok_or_else(unavailable)?;
+    let release = track.release_id.and_then(|id| catalog.release(id));
+    let position = release.and_then(|r| r.track_ids.iter().position(|p| *p == id));
+    Ok(
+        json!({"reference":reference_of(catalog,EntityKind::Track,id)?,"title":track.title,
+        "release":release.map(|r| reference_of(catalog,EntityKind::Release,r.id)).transpose()?,
+        "number":position.map_or(1, |p| p+1), "album_total":release.map_or(1, |r| r.track_ids.len())}),
+    )
+}
+async fn playback_selection(
+    State(state): State<ApiState>,
+    query: Result<Query<PlaybackQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Query(query) = query.map_err(|failure| invalid_query(failure.body_text()))?;
+    inspection::inspect(state, move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(unavailable)?;
+        Ok(json!({"items": playback_rows(catalog, &query.reference)?, "scanned_at": catalog.scanned_at}))
+    }).await
 }
 
 #[cfg(test)]

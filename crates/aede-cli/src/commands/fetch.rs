@@ -132,7 +132,10 @@ pub fn fetch(_args: &Args) -> Res {
 
 /// The client library, wrapped so that everything below it is testable.
 #[cfg(feature = "fetch")]
-struct Http(aede_core::http::Client);
+struct Http {
+    general: aede_core::http::Client,
+    discogs: aede_core::http::Client,
+}
 
 #[cfg(feature = "fetch")]
 fn http_refusal(error: aede_core::http::Error) -> Refusal {
@@ -148,21 +151,26 @@ fn http_refusal(error: aede_core::http::Error) -> Refusal {
 #[cfg(feature = "fetch")]
 impl Ask for Http {
     fn get_json(&mut self, url: &str) -> Result<Json, Refusal> {
-        self.0.get_json(url).map_err(http_refusal)
+        if url.starts_with("https://api.discogs.com/") {
+            self.discogs.get_json(url).map_err(http_refusal)
+        } else {
+            self.general.get_json(url).map_err(http_refusal)
+        }
     }
 
     fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
-        self.0.get_bytes(url).map_err(http_refusal)
+        self.general.get_bytes(url).map_err(http_refusal)
     }
 }
 
 #[cfg(feature = "fetch")]
 pub fn fetch(args: &Args) -> Res {
     use aede_core::http::Client;
-    let mut transport = Http(Client::new(
-        identity(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"))?,
-        musicbrainz::REQUEST_INTERVAL,
-    ));
+    let agent = identity(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"))?;
+    let mut transport = Http {
+        general: Client::new(agent.clone(), musicbrainz::REQUEST_INTERVAL),
+        discogs: Client::new(agent, aede_core::discogs::REQUEST_INTERVAL),
+    };
     run(args, &mut transport)
 }
 
@@ -623,6 +631,8 @@ enum Pass {
     /// A label's own MusicBrainz identifier, closing the gap passive capture
     /// leaves — see [`super::labels`].
     Labels,
+    /// Identifier-linked Discogs fallback for labels without Wikipedia prose.
+    Discogs,
 }
 
 impl Pass {
@@ -631,6 +641,7 @@ impl Pass {
         [
             ("labels", Pass::Labels),
             ("summaries", Pass::Summaries),
+            ("discogs", Pass::Discogs),
             ("discography", Pass::Discography),
             ("covers", Pass::Covers),
             ("lyrics", Pass::Lyrics),
@@ -664,6 +675,7 @@ impl Pass {
             Pass::Portraits => "--portraits",
             Pass::Logos => "--logos",
             Pass::Labels => "--labels",
+            Pass::Discogs => "--discogs",
         }
     }
 
@@ -723,6 +735,7 @@ fn second_passes(
         );
     }
 
+    let mut partial: Option<Box<dyn std::error::Error>> = None;
     for pass in passes {
         match pass {
             Pass::Summaries => {
@@ -785,6 +798,19 @@ fn second_passes(
                 let catalog = catalog.expect("a catalog was loaded for it");
                 super::labels::run(catalog, transport, backoff, held, path, asked)?;
             }
+            Pass::Discogs => {
+                let catalog = catalog.ok_or("Discogs requires a catalog")?;
+                if let Err(error) =
+                    super::discogs::run(catalog, transport, backoff, held, path, asked)
+                {
+                    if error.is::<super::discogs::UnavailableLabels>() {
+                        eprintln!("  {error}; continuing with the remaining enrichment passes.");
+                        partial = Some(error);
+                    } else {
+                        return Err(error);
+                    }
+                }
+            }
             Pass::Credits => {
                 let catalog = catalog.expect("a catalog was loaded for it");
                 if rich_credits(catalog, transport, backoff, held, path, asked, args)? {
@@ -793,7 +819,10 @@ fn second_passes(
             }
         }
     }
-    Ok(())
+    match partial {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// Retrieves MusicBrainz recording credits, work relationships and work

@@ -103,6 +103,9 @@ fn command_test_state() -> ApiState {
     ApiState {
         data_dir: std::env::temp_dir(),
         catalog: Arc::new(tokio::sync::RwLock::new(None)),
+        parental: Arc::new(crate::parental::ViewState::default()),
+        parental_scope: None,
+        parental_pcm: None,
         loaded_stamp: Arc::new(tokio::sync::RwLock::new(None)),
         reload_gate: Arc::new(tokio::sync::Mutex::new(())),
         events,
@@ -118,6 +121,8 @@ fn command_test_state() -> ApiState {
         websocket_slots: Arc::new(tokio::sync::Semaphore::new(64)),
         playback_slots: Arc::new(tokio::sync::Semaphore::new(MAX_PLAYBACKS)),
         player_profiles: Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new())),
+        audio_features: Arc::new(crate::audio_features::FeatureState::default()),
+        missing_covers: Arc::new(crate::missing_cover_cache::CoverService::default()),
         inspection_slots: Arc::new(tokio::sync::Semaphore::new(2)),
         jobs: Arc::new(crate::jobs::JobRegistry::default()),
     }

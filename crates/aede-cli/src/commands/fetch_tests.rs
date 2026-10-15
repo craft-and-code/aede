@@ -1511,3 +1511,75 @@ fn the_album_half_of_an_ordinary_fetch_honours_a_folder() {
     let whole = crate::commands::releases::targets(&catalog, &held, &[], &EVERYTHING, false);
     assert_eq!(whole.len(), 2, "and without a folder, both records");
 }
+
+#[test]
+fn discogs_is_an_explicit_pass_after_label_identification_and_wikipedia() {
+    let dir = sandbox("discogs_pass_order");
+    let passes = Pass::asked_for(&args(&dir, &["--discogs", "--summaries", "--labels"]));
+    assert_eq!(passes, vec![Pass::Labels, Pass::Summaries, Pass::Discogs]);
+    assert!(!Pass::asked_for(&args(&dir, &["--labels"])).contains(&Pass::Discogs));
+    assert!(Pass::Discogs.needs_the_catalog());
+}
+
+#[test]
+fn unavailable_discogs_labels_do_not_skip_the_following_cover_pass() {
+    struct Trace(Vec<String>);
+    impl super::super::fetch::Ask for Trace {
+        fn get_json(&mut self, url: &str) -> Result<Json, super::super::fetch::Refusal> {
+            self.0.push(url.into());
+            Ok(aede_core::json::parse(r#"{"id":"ce105941-dc16-4291-9d18-5fed7edc5e5a","name":"Roadracer Records","relations":[]}"#).unwrap())
+        }
+        fn get_bytes(&mut self, _: &str) -> Result<Vec<u8>, super::super::fetch::Refusal> {
+            panic!("metadata-only test must not download images")
+        }
+    }
+    let dir = sandbox("following_artwork");
+    let mut catalog = super::super::load(&args(&dir, &[])).unwrap();
+    catalog.labels.push(aede_core::model::Label {
+        id: 0,
+        key: "roadracer records".into(),
+        name: "Roadracer Records".into(),
+        mbid: None,
+    });
+    catalog.labels[0].mbid = Some("ce105941-dc16-4291-9d18-5fed7edc5e5a".into());
+    catalog.releases[0].mbid = Some("11111111-1111-4111-8111-111111111111".into());
+    let target = sources::sources_path(&dir);
+    let asked = super::super::fetch::Asked {
+        names: &[],
+        scope: &super::super::fetch::EVERYTHING,
+        again: false,
+        dry_run: false,
+        size: aede_core::coverart::Size::Original,
+        size_requested: false,
+        images: false,
+        fanart: Default::default(),
+        langs: vec!["en".into()],
+        key: None,
+        portrait_key: None,
+    };
+    let mut transport = Trace(Vec::new());
+    let result = second_passes(
+        &[Pass::Discogs, Pass::Covers],
+        &crate::args::Args::default(),
+        &mut transport,
+        &[],
+        &mut sources::Sources::default(),
+        &target,
+        target.parent().unwrap(),
+        &asked,
+        Some(&catalog),
+    );
+    assert!(
+        result.is_err(),
+        "unavailable labels must remain visible in the final outcome"
+    );
+    assert!(
+        transport
+            .0
+            .iter()
+            .any(|url| url.contains("coverartarchive.org")),
+        "artwork was skipped: {:?}",
+        transport.0
+    );
+    std::fs::remove_dir_all(target.parent().unwrap()).unwrap();
+}

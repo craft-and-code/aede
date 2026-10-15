@@ -395,9 +395,11 @@ fn authenticated_cancellation_is_visible_until_a_terminal_result() {
 fn callback_failure_and_panic_finish_the_task_and_release_capacity() {
     runtime().block_on(async {
         let state = state(|request, _| match request {
-            JobRequest::Scan(_) | JobRequest::Analyze(_) | JobRequest::Spectrum(_) => {
-                Err("mock failure".into())
-            }
+            JobRequest::Scan(_)
+            | JobRequest::Analyze(_)
+            | JobRequest::Spectrum(_)
+            | JobRequest::Generate(_)
+            | JobRequest::Check(_) => Err("mock failure".into()),
             JobRequest::Fetch(_) => panic!("mock worker panic"),
         });
         let mut events = state.events.subscribe();
@@ -599,5 +601,265 @@ fn media_jobs_resolve_catalog_references_and_refuse_arbitrary_paths() {
         };
         assert!(JobRequest::Analyze(media.clone()).validate().is_err());
         assert!(JobRequest::Spectrum(media).validate().is_err());
+    });
+}
+
+#[test]
+fn explicit_service_keys_reach_the_trusted_worker_without_entering_task_metadata() {
+    runtime().block_on(async {
+        let (sent, received) = std::sync::mpsc::channel();
+        let state = state(move |request, _| {
+            let JobRequest::Fetch(fetch) = request else {
+                panic!("expected fetch")
+            };
+            let keys = fetch.service_keys.unwrap();
+            sent.send(keys.fanarttv).unwrap();
+            Ok(JobOutput::default())
+        });
+        let reply = fetch_route(
+            State(state.clone()),
+            request(
+                "POST",
+                "/api/admin/v1/fetch",
+                r#"{"dry_run":true,"service_keys":{"fanarttv":"fictional-test-key"}}"#,
+            ),
+        )
+        .await
+        .unwrap();
+        let bytes = to_bytes(reply.into_body(), MAX_BODY).await.unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("fictional-test-key"));
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Some("fictional-test-key".into())
+        );
+        for payload in [
+            r#"{"service_keys":{"fanarttv":""}}"#,
+            r#"{"service_keys":{"acoustid":"unsafe\nvalue"}}"#,
+            r#"{"service_keys":{"AEDE_ADMIN_TOKEN":"injection"}}"#,
+        ] {
+            assert_eq!(
+                fetch_route(
+                    State(state.clone()),
+                    request("POST", "/api/admin/v1/fetch", payload)
+                )
+                .await
+                .unwrap_err()
+                .status,
+                StatusCode::BAD_REQUEST
+            );
+        }
+    });
+}
+
+#[test]
+fn track_lyrics_acquisition_passes_only_the_validated_file_to_the_existing_fetch_worker() {
+    runtime().block_on(async {
+        let mut fixture = crate::accounts_test_support::Fixture::new();
+        let track = crate::playback_test_support::install_wav(&fixture, 8000).await;
+        let original = std::fs::read(&track.path).unwrap();
+        let (sent, received) = std::sync::mpsc::channel();
+        let admin = fixture.0.admin.as_mut().unwrap();
+        admin.token = TOKEN.into();
+        admin.job = Arc::new(move |job, _| {
+            sent.send(job).unwrap();
+            Ok(JobOutput::default())
+        });
+        let body = serde_json::json!({"track":track.reference}).to_string();
+        let reply = lyrics_route(
+            State(fixture.0.clone()),
+            request("POST", "/api/admin/v1/lyrics", body),
+        )
+        .await
+        .unwrap();
+        accepted_id(reply).await;
+        let job = received.recv_timeout(Duration::from_secs(3)).unwrap();
+        let JobRequest::Fetch(fetch) = job else {
+            panic!("expected fetch")
+        };
+        assert!(fetch.lyrics && fetch.yes);
+        assert!(!fetch.covers && !fetch.images && !fetch.full && !fetch.identify);
+        assert_eq!(
+            fetch.targets,
+            vec![track.path.to_string_lossy().into_owned()]
+        );
+        assert_eq!(std::fs::read(&track.path).unwrap(), original);
+        let invalid = lyrics_route(
+            State(fixture.0.clone()),
+            request(
+                "POST",
+                "/api/admin/v1/lyrics",
+                r#"{"track":"artist:ac/dc"}"#,
+            ),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+    });
+}
+
+#[test]
+fn retained_tasks_can_be_recovered_after_client_reconnection_but_require_admin() {
+    runtime().block_on(async {
+        let state = state(|_, _| unreachable!());
+        state.jobs.insert(71, "identification").unwrap();
+        let jobs = task_list_route(
+            State(state.clone()),
+            request("GET", "/api/admin/v1/tasks", Body::empty()),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].task_id, 71);
+        assert!(matches!(jobs[0].status, Status::Queued));
+        let anonymous = Request::builder()
+            .uri("/api/admin/v1/tasks")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            task_list_route(State(state), anonymous)
+                .await
+                .err()
+                .unwrap()
+                .status,
+            StatusCode::UNAUTHORIZED
+        );
+    });
+}
+
+#[test]
+fn whole_library_generation_excludes_parallel_jobs_until_confirmed_completion() {
+    let registry = JobRegistry::default();
+    registry.insert(1, "library_generation").unwrap();
+    assert!(registry.insert(2, "library_generation").is_err());
+    assert!(registry.insert(3, "analysis").is_err());
+    registry.running(1).unwrap();
+    registry.finish(1, Ok(JobOutput::default())).unwrap();
+    registry.insert(4, "analysis").unwrap();
+    assert!(registry.insert(5, "library_generation").is_err());
+}
+
+#[test]
+fn generation_route_accepts_only_fixed_nonempty_distinct_stages() {
+    runtime().block_on(async {
+        let state = state(|request, _| {
+            assert!(matches!(request, JobRequest::Generate(_)));
+            Ok(JobOutput::default())
+        });
+        state.catalog.try_write().unwrap().as_mut().unwrap().roots = vec![
+            std::env::temp_dir()
+                .join("fictional-library")
+                .to_string_lossy()
+                .into_owned(),
+        ];
+        for body in [
+            r#"{"steps":[]}"#,
+            r#"{"steps":["analyze","analyze"]}"#,
+            r#"{"steps":["shell"]}"#,
+            r#"{"steps":["m3u"],"targets":["/other"]}"#,
+        ] {
+            assert!(
+                generation_route(
+                    State(state.clone()),
+                    request("POST", "/api/admin/v1/generate", body)
+                )
+                .await
+                .is_err()
+            );
+        }
+        let response = generation_route(
+            State(state.clone()),
+            request(
+                "POST",
+                "/api/admin/v1/generate",
+                r#"{"steps":["analyze","spectrum","m3u"]}"#,
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        wait_for_jobs(&state).await;
+    });
+}
+
+#[test]
+fn album_decode_job_uses_only_catalog_track_files_and_refuses_extra_options() {
+    runtime().block_on(async {
+        let (sent, received) = std::sync::mpsc::channel();
+        let state = state(move |job, _| {
+            sent.send(job).unwrap();
+            Ok(JobOutput::default())
+        });
+        let (reference, expected) = {
+            let mut guard = state.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            for file in &mut catalog.files {
+                file.path = std::env::temp_dir()
+                    .join(format!("aede-decode-fixture-{}.flac", file.id))
+                    .to_string_lossy()
+                    .into_owned();
+            }
+            let release = &catalog.releases[0];
+            let expected: Vec<_> = release
+                .track_ids
+                .iter()
+                .map(|id| {
+                    catalog
+                        .file(catalog.track(*id).unwrap().file_id)
+                        .unwrap()
+                        .path
+                        .clone()
+                })
+                .collect();
+            (
+                aede_core::user::EntityRef::of(
+                    catalog,
+                    aede_core::model::EntityKind::Release,
+                    release.id,
+                )
+                .unwrap()
+                .to_token(),
+                expected,
+            )
+        };
+        let denied = Request::builder()
+            .method("POST")
+            .uri("/api/admin/v1/check")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert!(check_route(State(state.clone()), denied).await.is_err());
+        let body = serde_json::json!({"release":reference}).to_string();
+        assert!(
+            check_route(
+                State(state.clone()),
+                request("POST", "/api/admin/v1/check", body)
+            )
+            .await
+            .is_ok()
+        );
+        let JobRequest::Check(files) = received.recv_timeout(Duration::from_secs(2)).unwrap()
+        else {
+            panic!("exact check expected")
+        };
+        assert_eq!(files, expected);
+        for body in [
+            r#"{"release":"../private"}"#,
+            r#"{"release":"release:x","path":"/private"}"#,
+        ] {
+            assert!(
+                check_route(
+                    State(state.clone()),
+                    request("POST", "/api/admin/v1/check", body)
+                )
+                .await
+                .is_err()
+            );
+        }
+        assert!(JobRequest::Check(vec![]).validate().is_err());
+        assert!(
+            JobRequest::Check(vec!["relative.flac".into()])
+                .validate()
+                .is_err()
+        );
     });
 }

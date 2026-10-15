@@ -182,3 +182,13 @@ fn an_empty_screen_names_the_emptiness_it_actually_is() {
     assert!(past.contains("52 issues in all"), "{past}");
     assert!(past.contains("--offset=99 starts past the end"), "{past}");
 }
+
+#[test]
+fn album_completion_marker_is_absent_after_full_listening() {
+    let unseen = super::album_listening_title("Fictional Album", false);
+    assert!(unseen.contains('◷') && unseen.contains("Fictional Album"));
+    assert_eq!(
+        super::album_listening_title("Fictional Album", true),
+        "Fictional Album"
+    );
+}

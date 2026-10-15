@@ -45,6 +45,7 @@ mod review;
 mod rules;
 mod scan;
 mod search;
+mod secret_output;
 mod serve;
 mod sourced_artist;
 mod sources;
@@ -278,18 +279,6 @@ fn unknown_folder(raw: &str, catalog: &Catalog) -> String {
 /// `true` when the path is inside one of the folders given, or is one of them.
 pub fn in_scope(path: &str, scope: &[String]) -> bool {
     scope.is_empty() || scope.iter().any(|root| text::is_under(path, root))
-}
-
-/// The deepest folder holding every one of these releases, or `None`.
-///
-/// Not a thing the catalog holds — an artist folder is inferred, not scanned
-/// — so this is the one place that infers it, shared by `playlist`'s
-/// `--discography` mode and the artist artwork passes. Each writes a file into
-/// it. When albums do not share one folder, there is no destination to infer;
-/// callers also reject a watched root, so a flat library does not get a stray
-/// file in its root for every artist.
-pub(super) fn shared_folder(releases: &[&Release]) -> Option<PathBuf> {
-    aede_core::coverart::shared_artist_folder(releases)
 }
 
 fn releases_by_album_artist(catalog: &Catalog) -> BTreeMap<Id, Vec<&Release>> {
@@ -945,3 +934,12 @@ fn play_list(catalog: &Catalog, tracks: &[Id], args: &Args) -> Res {
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+/// The native CLI owner shares the account-private complete-album rule; machine exports stay unchanged.
+fn album_listening_title(title: &str, completed: bool) -> String {
+    if completed {
+        title.to_owned()
+    } else {
+        format!("{} {title}", ui::red("◷"))
+    }
+}

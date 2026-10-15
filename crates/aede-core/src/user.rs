@@ -25,8 +25,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::model::{Catalog, EntityKind, Id};
 use crate::text;
 
+#[path = "user_history.rs"]
+mod history;
 #[path = "user_identity.rs"]
 mod identity;
+#[path = "user_preferences.rs"]
+mod preferences;
+pub use preferences::{ClientPreference, valid_preference};
 #[path = "user_playback.rs"]
 mod playback;
 #[path = "user_playlists.rs"]
@@ -353,6 +358,8 @@ pub struct PlayCount {
     pub track: EntityRef,
     /// All-time native listens and client-declared scrobbles combined.
     pub count: u32,
+    /// All-time completed Play events; duration-less scrobbles never increment this.
+    pub completed_count: u32,
     /// When it was last played.
     pub last_played: u64,
 }
@@ -379,12 +386,18 @@ pub struct Collection {
     pub updated_at: u64,
 }
 
-/// Events kept in the log before the oldest are forgotten.
+/// Events kept per owner in each native-play or scrobble journal before that
+/// owner's oldest events are forgotten.
 ///
 /// The log answers "what did I listen to last night"; the counters answer
 /// everything that needs all of history. Bounding the first keeps the file
 /// small without costing the second anything.
 pub const HISTORY_LIMIT: usize = 500;
+/// Global journal capacity, independent of per-owner retention. Publication
+/// refuses this bound rather than evicting another owner's records.
+pub const HISTORY_STORE_LIMIT: usize = HISTORY_LIMIT * aede_accounts::MAX_ACCOUNTS;
+/// Maximum UTF-8 bytes read from or published to the personal store.
+pub const USER_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// A record the user has taken off a report, and why that is allowed.
 ///
@@ -451,6 +464,8 @@ pub struct SameArtist {
 /// Everything the user wrote, as it sits on disk.
 #[derive(Debug, Clone, Default)]
 pub struct UserData {
+    /// Optional owner-private application preferences; retained across scans and exports.
+    pub client_preferences: Vec<ClientPreference>,
     /// One record per owner and target.
     pub annotations: Vec<Annotation>,
     /// Notes and labels attached to graph relationships.
@@ -598,13 +613,14 @@ impl UserData {
             // be guessing, so it is refused.
             return false;
         };
-        self.plays.remove(index);
+        let completed = self.plays.remove(index).completed;
         if let Some(counter) = self
             .counts
             .iter_mut()
             .find(|c| c.owner == owner && &c.track == track)
         {
             counter.count = counter.count.saturating_sub(1);
+            counter.completed_count = counter.completed_count.saturating_sub(u32::from(completed));
             // The last-played date now belongs to whatever play is newest of
             // those left, and to nothing at all when none is.
             counter.last_played = self
@@ -653,12 +669,16 @@ impl UserData {
         {
             Some(counter) => {
                 counter.count = counter.count.saturating_add(1);
+                counter.completed_count = counter
+                    .completed_count
+                    .saturating_add(u32::from(play.completed));
                 counter.last_played = counter.last_played.max(play.at);
             }
             None => self.counts.push(PlayCount {
                 owner: play.owner.clone(),
                 track: play.track.clone(),
                 count: 1,
+                completed_count: u32::from(play.completed),
                 last_played: play.at,
             }),
         }
@@ -667,10 +687,7 @@ impl UserData {
         // ordering keeps equal-time events in arrival order without deduping.
         self.plays.sort_by_key(|play| play.at);
         // Oldest first, so the excess falls off the front.
-        if self.plays.len() > HISTORY_LIMIT {
-            let excess = self.plays.len() - HISTORY_LIMIT;
-            self.plays.drain(..excess);
-        }
+        history::retain(&mut self.plays, |play| &play.owner);
     }
 
     /// A saved query by name, compared without regard to case or accents:
@@ -746,19 +763,36 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// An exclusive temporary output prevents an existing temporary symlink from
 /// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
+    preferences::validate(&data.client_preferences)?;
+    history::validate(data)?;
     playlists::validate(data)?;
     playback::validate(data)?;
-    crate::atomic_file::write(path, to_json(data).to_string_pretty().as_bytes())?;
+    let text = to_json(data)
+        .to_string_pretty_bounded(USER_MAX_BYTES)
+        .map_err(|_| crate::store::StoreError::Invalid("personal store byte limit exceeded"))?;
+    crate::atomic_file::write(path, text.as_bytes())?;
     Ok(())
 }
 
 /// Loads what the user wrote; `Ok(None)` when nothing has been written yet.
 pub fn load(path: &std::path::Path) -> Result<Option<UserData>, crate::store::StoreError> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
+    use std::io::Read;
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
+    let mut bytes = Vec::new();
+    file.take(USER_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > USER_MAX_BYTES {
+        return Err(crate::store::StoreError::Invalid(
+            "personal store byte limit exceeded",
+        ));
+    }
+    let text = String::from_utf8(bytes).map_err(|failure| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, failure.utf8_error())
+    })?;
     let value = crate::json::parse(&text).map_err(crate::store::StoreError::Parse)?;
     from_json(&value).map(Some)
 }
@@ -864,6 +898,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
             o.set("owner", c.owner.as_str().into());
             o.set("track", c.track.to_token().into());
             o.set("count", c.count.into());
+            o.set("completed_count", c.completed_count.into());
             o.set("last_played", c.last_played.into());
             o
         })
@@ -886,6 +921,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
     root.set("collections", Json::Arr(collections));
     playlists::write_tables(data, &mut root);
     playback::write_table(data, &mut root);
+    preferences::write(data, &mut root);
 
     let set_aside: Vec<Json> = data
         .set_aside
@@ -942,6 +978,9 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
 /// New static-playlist and scrobble rows are strictly validated: malformed or
 /// oversized rows fail the load, preserving the original file for recovery.
 pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::StoreError> {
+    value
+        .check_pretty_size(USER_MAX_BYTES)
+        .map_err(|_| crate::store::StoreError::Invalid("personal store byte limit exceeded"))?;
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
     if !matches!(found, 1 | USER_FORMAT_VERSION) {
@@ -975,6 +1014,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         }
     }
     let mut data = UserData {
+        client_preferences: preferences::read(value)?,
         playlists: playlists::read_playlists(value)?,
         scrobbles: playlists::read_scrobbles(value)?,
         playback_states: playback::read_states(value)?,
@@ -1081,6 +1121,14 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         });
     }
 
+    // Legacy recent evidence can be recovered, but an evicted unknown visit cannot be guessed.
+    let mut legacy_completed = BTreeMap::<(&str, &EntityRef), u32>::new();
+    for play in data.plays.iter().filter(|play| play.completed) {
+        let count = legacy_completed
+            .entry((&play.owner, &play.track))
+            .or_default();
+        *count = count.saturating_add(1);
+    }
     for row in value.get("counts").and_then(|v| v.as_arr()).unwrap_or(&[]) {
         let Some(track) = row
             .field_str("track")
@@ -1088,10 +1136,22 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         else {
             continue;
         };
+        let owner = row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into());
+        let completed_count = match row.get("completed_count") {
+            Some(value) => value.as_u32().ok_or(crate::store::StoreError::Invalid(
+                "invalid completed listening count",
+            ))?,
+            None => legacy_completed
+                .get(&(owner.as_str(), &track))
+                .copied()
+                .unwrap_or(0)
+                .min(row.field_u32("count").unwrap_or(0)),
+        };
         data.counts.push(PlayCount {
-            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            owner,
             track,
             count: row.field_u32("count").unwrap_or(0),
+            completed_count,
             last_played: row.field_u64("last_played").unwrap_or(0),
         });
     }
@@ -1164,6 +1224,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
     // Older writers stored arrival order. Normalize in memory so readers and
     // undo operations use event time without changing counts or losing events.
     data.plays.sort_by_key(|play| play.at);
+    history::validate(&data)?;
     Ok(data)
 }
 
@@ -1201,6 +1262,15 @@ pub struct Merge {
 /// never rewinds an existing device checkpoint, even if its timestamp is older.
 pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
     let mut report = Merge::default();
+    for entry in incoming.client_preferences {
+        if !into
+            .client_preferences
+            .iter()
+            .any(|known| known.owner == entry.owner && known.key == entry.key)
+        {
+            into.client_preferences.push(entry);
+        }
+    }
     playlists::merge(into, incoming.playlists, incoming.scrobbles, &mut report);
     playback::merge(into, incoming.playback_states, &mut report);
 
@@ -1308,10 +1378,7 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
         }
     }
     into.plays.sort_by_key(|p| p.at);
-    if into.plays.len() > HISTORY_LIMIT {
-        let excess = into.plays.len() - HISTORY_LIMIT;
-        into.plays.drain(..excess);
-    }
+    history::retain(&mut into.plays, |play| &play.owner);
 
     for count in incoming.counts {
         match into
@@ -1321,6 +1388,7 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
         {
             Some(existing) => {
                 existing.count = existing.count.max(count.count);
+                existing.completed_count = existing.completed_count.max(count.completed_count);
                 existing.last_played = existing.last_played.max(count.last_played);
             }
             None => into.counts.push(count),
@@ -1380,3 +1448,7 @@ mod test_support;
 #[cfg(test)]
 #[path = "user_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "user_history_tests.rs"]
+mod history_tests;

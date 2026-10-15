@@ -335,3 +335,6 @@ fn shuffle(order: &mut [usize], seed: u64) {
 #[cfg(test)]
 #[path = "playback_tests.rs"]
 mod tests;
+
+/// Complete source envelopes for graphical seek controls.
+pub mod waveform;

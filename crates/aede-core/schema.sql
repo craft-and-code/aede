@@ -36,6 +36,88 @@ CREATE TABLE account_api_key (
     created_at INTEGER NOT NULL
 );
 
+-- Parental format 1 in parental.json, independent of credentials and user.json.
+-- A policy belongs to an immutable account owner, but has no account FK: parts
+-- restore independently and an unavailable account never deletes its restrictions
+-- or usage. Disabled policies retain their settings and ledger. Ordinary client
+-- preferences/history resets cannot change these administrator-owned records.
+CREATE TABLE parental_policy (
+    owner TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL CHECK (revision BETWEEN 0 AND 9007199254740991),
+    locked_by TEXT, -- Stable supervising administrator, never a client preference
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    timezone TEXT NOT NULL, -- IANA zone; bundled Jiff data supplies offline DST rules
+    radio_allowed INTEGER NOT NULL CHECK (radio_allowed IN (0, 1)),
+    podcasts_allowed INTEGER NOT NULL DEFAULT 1 CHECK (podcasts_allowed IN (0, 1)),
+    week_limit_seconds INTEGER CHECK (week_limit_seconds BETWEEN 0 AND 604800)
+);
+
+-- Exactly seven rows per policy; Monday is 0 and Sunday is 6. NULL is unlimited,
+-- zero forbids listening. The core validates counts and non-overlapping windows.
+CREATE TABLE parental_day (
+    owner TEXT NOT NULL REFERENCES parental_policy (owner),
+    weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+    limit_seconds INTEGER CHECK (limit_seconds BETWEEN 0 AND 86400),
+    PRIMARY KEY (owner, weekday)
+) WITHOUT ROWID;
+
+CREATE TABLE parental_window (
+    owner TEXT NOT NULL,
+    weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+    position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 7),
+    start_minute INTEGER NOT NULL CHECK (start_minute BETWEEN 0 AND 1439),
+    end_minute INTEGER NOT NULL CHECK (end_minute BETWEEN 1 AND 1440),
+    CHECK (start_minute < end_minute), -- inclusive start, exclusive end; split overnight
+    PRIMARY KEY (owner, weekday, position),
+    FOREIGN KEY (owner, weekday) REFERENCES parental_day (owner, weekday)
+) WITHOUT ROWID;
+
+-- Stable artist keys are intentionally not dense catalogue IDs or foreign keys:
+-- missing references remain restricted when a future scan brings them back.
+CREATE TABLE parental_blocked_artist (
+    owner TEXT NOT NULL REFERENCES parental_policy (owner),
+    artist_reference TEXT NOT NULL,
+    PRIMARY KEY (owner, artist_reference)
+) WITHOUT ROWID;
+
+CREATE TABLE parental_blocked_podcast (
+    owner TEXT NOT NULL REFERENCES parental_policy (owner),
+    feed TEXT NOT NULL, -- canonical HTTP(S) RSS identity, not an episode enclosure
+    PRIMARY KEY (owner, feed)
+) WITHOUT ROWID;
+
+-- Settled UTC millisecond intervals are ordered, disjoint unions, retained for
+-- 32 days and reprojected through the current timezone. Overlapping voices in
+-- a crossfade therefore spend one interval, not their summed audio durations.
+-- Core bounds: 256 owners, 8192 settled intervals/owner, 65536 globally, 8 MiB.
+CREATE TABLE parental_usage_interval (
+    owner TEXT NOT NULL REFERENCES parental_policy (owner),
+    start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+    end_ms INTEGER NOT NULL,
+    CHECK (start_ms < end_ms AND end_ms - start_ms <= 2764800000),
+    PRIMARY KEY (owner, start_ms)
+) WITHOUT ROWID;
+
+-- At most eight active, server-generated reservations per owner. Persist before
+-- granting audio. Closing refunds only future unused time; expiry/crash retains
+-- the whole reserved interval. Lease IDs never authenticate a user or a session.
+CREATE TABLE parental_reservation (
+    owner TEXT NOT NULL REFERENCES parental_policy (owner),
+    lease_id TEXT NOT NULL,
+    media_kind TEXT NOT NULL CHECK (media_kind IN ('music', 'radio', 'podcast')),
+    track_reference TEXT,
+    feed TEXT,
+    start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+    end_ms INTEGER NOT NULL,
+    consumed_ms INTEGER NOT NULL CHECK (consumed_ms >= 0),
+    CHECK (start_ms < end_ms AND end_ms - start_ms <= 10000),
+    CHECK (consumed_ms <= end_ms - start_ms),
+    CHECK ((media_kind = 'music' AND feed IS NULL)
+        OR (media_kind = 'radio' AND track_reference IS NULL AND feed IS NULL)
+        OR (media_kind = 'podcast' AND track_reference IS NULL AND feed IS NOT NULL)),
+    PRIMARY KEY (owner, lease_id)
+) WITHOUT ROWID;
+
 -- ---------------------------------------------------------------------------
 -- Physical files
 -- ---------------------------------------------------------------------------
@@ -47,6 +129,7 @@ CREATE TABLE file (
     -- Unix epoch in seconds, with a separately stored nanosecond fraction.
     -- Both parts and `size` must match before the scanner reuses tags.
     mtime             INTEGER NOT NULL,
+    added_at          INTEGER CHECK (added_at >= 0), -- first catalog observation; legacy unknown
     mtime_subseconds  INTEGER CHECK (mtime_subseconds BETWEEN 0 AND 999999999),
     container         TEXT,           -- flac, mp3, mp4, ogg, wav, aiff
     codec             TEXT,           -- flac, mp3, alac, aac, vorbis, opus, pcm
@@ -516,4 +599,23 @@ CREATE TABLE user_playback_entry (
     PRIMARY KEY (owner, profile, position),
     UNIQUE (owner, profile, occurrence),
     FOREIGN KEY (owner, profile) REFERENCES user_playback_state (owner, profile)
+) WITHOUT ROWID;
+
+-- Optional application-owned preferences; credentials belong to accounts.
+CREATE TABLE user_client_preference (
+    owner TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (owner, key)
+) WITHOUT ROWID;
+
+-- `user.json` counts retain all-time native/scrobble totals independently of recent events.
+-- completed_count is additive and optional in legacy JSON; only retained confirmed visits seed it.
+CREATE TABLE user_listening_count (
+    owner TEXT NOT NULL,
+    track_reference TEXT NOT NULL,
+    count INTEGER NOT NULL CHECK(count >= 0),
+    completed_count INTEGER NOT NULL DEFAULT 0 CHECK(completed_count >= 0 AND completed_count <= count),
+    last_played INTEGER NOT NULL,
+    PRIMARY KEY (owner, track_reference)
 ) WITHOUT ROWID;

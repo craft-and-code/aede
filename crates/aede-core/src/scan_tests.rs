@@ -187,6 +187,13 @@ fn root_order_does_not_change_followed_aliases_or_the_persisted_catalog() {
     let (first, _) = scan(&[target.clone(), alias.clone()], None, &options, |_| {}).unwrap();
     let (mut second, _) = scan(&[alias, target], None, &options, |_| {}).unwrap();
     second.scanned_at = first.scanned_at;
+    // Independent scans can cross a clock second; compare root ordering,
+    // preserving every file/path assertion while excluding wall-clock facts.
+    for (path, added_at) in &mut second.file_added_at {
+        if let Some(previous) = first.file_added_at.get(path) {
+            *added_at = *previous;
+        }
+    }
     assert_eq!(
         crate::store::to_json(&first),
         crate::store::to_json(&second)
@@ -448,4 +455,76 @@ fn cover_choice_is_deterministic_when_preference_ranks_tie() {
     .unwrap();
     let actual = catalog.releases[0].cover_path.as_deref().map(Path::new);
     assert_eq!(actual, Some(expected.as_path()));
+}
+
+#[test]
+fn first_catalog_dates_survive_rescans_and_never_backfill_legacy_files() {
+    let directory = Sandbox::new();
+    directory.track("one.flac");
+    let (first, _) = scan(
+        std::slice::from_ref(&directory.0),
+        None,
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    let path = first.files[0].path.clone();
+    assert_eq!(first.file_added_at[&path], first.scanned_at);
+    let mut dated = first.clone();
+    dated.file_added_at.insert(path.clone(), 123);
+    let (again, _) = scan(
+        std::slice::from_ref(&directory.0),
+        Some(&dated),
+        &ScanOptions {
+            force_read: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(again.file_added_at[&path], 123);
+    let mut legacy = first;
+    legacy.file_added_at.clear();
+    directory.track("two.flac");
+    let (changed, _) = scan(
+        std::slice::from_ref(&directory.0),
+        Some(&legacy),
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(!changed.file_added_at.contains_key(&path));
+    assert_eq!(changed.file_added_at.len(), 1);
+    let decoded = crate::store::from_json(&crate::store::to_json(&changed)).unwrap();
+    assert_eq!(decoded.file_added_at, changed.file_added_at);
+}
+
+#[test]
+fn unmounted_empty_directory_keeps_tracks_until_volume_returns() {
+    let sandbox = Sandbox::new();
+    let path = sandbox.track("mounted/01.flac");
+    let root = path.parent().unwrap().to_path_buf();
+    let (first, _) = scan(
+        std::slice::from_ref(&root),
+        None,
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let options = ScanOptions {
+        unavailable_roots: vec![root.clone()],
+        ..Default::default()
+    };
+    let (retained, report) =
+        scan(std::slice::from_ref(&root), Some(&first), &options, |_| {}).unwrap();
+    assert_eq!(retained.files.len(), 1);
+    assert_eq!(report.removed, 0);
+    assert_eq!(report.preserved, 1);
+    let (mounted_empty, _) =
+        scan(&[root], Some(&retained), &ScanOptions::default(), |_| {}).unwrap();
+    assert!(
+        mounted_empty.files.is_empty(),
+        "an available empty volume is actually empty"
+    );
 }

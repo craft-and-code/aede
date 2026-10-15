@@ -17,7 +17,7 @@ Use the same `--data <folder>` or `AEDE_HOME` as the CLI that scanned your music
 
 All routes below use English names matching the CLI vocabulary: an **album** is a graph **release** and a **track** is a local placement of a **recording**. `/releases` remains available to existing clients; `/albums` offers the CLI-shaped filters. No route translates or executes an arbitrary command string.
 
-The default HTTP listener is **loopback-only**. Without accounts, local catalog reads are anonymous and reveal metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) protect catalog reads and isolate personal data at `/api/me/v1`. An `admin` manages local accounts and installation work, a `user` may change only their own personal data, and an `auditor` may read only the catalog and their own personal views. Initialize the first administrator with `aede accounts init <name>` and its masked password confirmation; existing `local` data stays with that account. Once the running HTTP process has observed accounts, missing credentials fail closed until restart; unreadable credentials always fail closed. Restarting local HTTP without the store selects the legacy anonymous mode again. Explicit [HTTPS](../../docs/server/remote.md) requires accounts and disables every `/api/admin` route and legacy token, including with a loopback TLS listener. The [audio contract](../../docs/server/playback.md) uses shared PCM/DSP processing and acknowledged client frames for private listening history. Catalog reads never fetch external data or alter audio.
+The default HTTP listener is **loopback-only**. Without accounts, local catalog reads are anonymous and reveal metadata/paths. Optional [accounts and sessions](../../docs/server/accounts.md) protect catalog reads and isolate personal data at `/api/me/v1`. An `admin` manages local accounts and installation work, a `user` may change only their own personal data, and an `auditor` may read only the catalog and their own personal views. Initialize the first administrator with `aede accounts init <name>` and its masked password confirmation; existing `local` data stays with that account. Once the running HTTP process has observed accounts, missing credentials fail closed until restart; unreadable credentials always fail closed. Restarting local HTTP without the store selects the legacy anonymous mode again. Explicit [HTTPS](../../docs/server/remote.md) requires accounts and requires named administrator sessions for `/api/admin` and refuses legacy tokens, including with a loopback TLS listener. The [audio contract](../../docs/server/playback.md) uses shared PCM/DSP processing and acknowledged client frames for private listening history. Catalog reads never fetch external data or alter audio.
 
 Account routes are additive and use the same error envelope as the catalog. The [complete account reference](../../docs/server/accounts.md) defines bodies, results, limits and expiry:
 
@@ -28,10 +28,14 @@ Account routes are additive and use the same error envelope as the catalog. The 
 | `/api/admin/v1/accounts` | GET account metadata; POST create; administrator required |
 | `/api/admin/v1/accounts/{username}` | GET metadata; PATCH name/role/status/password; administrator required |
 | `/api/admin/v1/accounts/{username}/sessions` | DELETE all sessions; administrator required |
+| `/api/admin/v1/accounts/{username}/parental` | GET/PUT local administrator-owned policy; expected owner/revision required |
+| `/api/me/v1/parental` | GET current-owner rules, calendar and listening budgets |
+| `/api/me/v1/parental/lease` | POST owner-bound external radio/podcast reserve/renew/release |
 | `/api/me/v1/annotation` | GET/PUT own annotations by `ref` |
-| `/api/me/v1/history` | GET/POST own history and counts |
+| `/api/me/v1/history` | GET/POST/DELETE own history and counts |
 | `/api/me/v1/collection` | GET/PUT/DELETE own collection by `name` |
 | `/api/me/v1/collections` | GET own paginated collections |
+| `/api/me/v1/collection/albums` | GET current-owner evaluated collection album references |
 | `/api/me/v1/playback` | GET WebSocket; user/admin session, processed f32le and consumption acknowledgements; one track, finite queue or optional interactive seek/edit/checkpoint resume |
 
 ## Read routes
@@ -55,7 +59,7 @@ A **page** is `{items,total,offset,limit,scanned_at}`. Pagination defaults to `o
 | `/genres` | `q` or `name`, `sort`, `order`. | Page of `{kind,reference,name,release_count,track_count}`. |
 | `/genre` | Exactly one of `ref` or `name`; no pagination. | One genre and its linked albums/tracks, including a track's inherited album genre. |
 | `/labels` | `q` or `name`, `mbid`, `sort`, `order`. | Page of `{kind,reference,name,mbid,release_count}`. |
-| `/label` | Exactly one of `ref` or `name`; no pagination. | One label and its albums. |
+| `/label` | Exactly one of `ref` or `name`; no pagination. | One label and its albums, with optional cached attributed biography (`text,url,lang,licence,source`). |
 | `/recordings` | `q`, `work` (stable reference), `sort`, `order`. | Page of recording summaries. |
 | `/recording` | Exactly one of `ref` or `name`; no pagination. | One recording, its local tracks and works. |
 | `/works` | `q` or `name`, `mbid`, `sort`, `order`. | Page of `{kind,reference,title,mbid,recording_count}`. |
@@ -132,7 +136,7 @@ Neither accepts commands. Notifications are best effort with no replay. Asynchro
 
 ## Administrative routes
 
-Available to an administrator account session, or the optional `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters, configured before startup). Without either, administration is disabled. Requests require one `Authorization: Bearer <token>` header. The legacy administrative token rejects every `Origin`; account sessions follow the shared local Origin check. Never use URL tokens. These routes stay local-only. The [account API reference](../../docs/server/accounts.md) lists login, password changes, account administration, limits and errors.
+Available to an administrator account session, or the optional `AEDE_ADMIN_TOKEN` (at least 32 ASCII characters, configured before startup). Without either, administration is disabled. Requests require one `Authorization: Bearer <token>` header. The legacy administrative token rejects every `Origin`; account sessions follow the shared local Origin check. Never use URL tokens. HTTPS requires a named administrator session for these routes; the legacy token stays local to HTTP. The [account API reference](../../docs/server/accounts.md) lists login, password changes, account administration, limits and errors.
 
 | Method and route | Body | Result |
 | --- | --- | --- |
@@ -160,7 +164,7 @@ Other fields: `full: bool`, `threads: integer` (0–64; 0 chooses automatically)
 
 ### Fetch parameters
 
-All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server's environment supplies external-service keys; a request cannot override keys, the data folder or executable arguments.
+All booleans default to false. `targets: string[]` contains artist/album names or server-side folders, just like positional CLI arguments (at most 64 nonempty strings, 4096 bytes each). Use absolute paths for unambiguous folder selection. The server environment supplies default external-service keys. Authenticated administrators can provide bounded `service_keys: {fanarttv?: string, acoustid?: string}` for one fetch job; these keys are neither persisted nor included in task metadata. The CLI callback passes them in the child environment and redacts captured output. A request cannot select other environment variables, the data folder or executable arguments. Status advertises `fetch_service_keys` only with the administrative profile; HTTPS administration requires a named administrator session.
 
 Pass flags: `summaries,discography,covers,lyrics,identify,credits,recordings,portraits,logos,labels,fanart`. With no pass flags, `{}` runs the ordinary CLI MusicBrainz identification pass; it is **not** a no-op. Selection and dependencies follow [fetch help](../../docs/sources.md).
 
@@ -207,7 +211,7 @@ Accepted jobs survive client disconnection and wait for the shared writer lock. 
 
 ### Personal data: annotations, plays and smart collections
 
-These transitional administrative routes always address `local`, using administrator authentication. Account sessions use the identical selectors, bodies and response shapes at `/api/me/v1/{annotation,history,collection,collections}`, bound to their own stable owner. Requests cannot choose an owner. Private values remain separate from catalog responses, and `user.json` keeps its existing format. Session checks are repeated under the data lock; personal workers are bounded and shared with inspection (`503 personal_busy` when occupied).
+These transitional administrative routes always address `local`, accepting only an administrator session whose owner is `local` or the trusted installation token. Another administrator receives `403 forbidden` here and uses the identical selectors, bodies and response shapes at `/api/me/v1/{annotation,history,collection,collections}` for their own stable owner; their account/job administration is unchanged. Requests cannot choose an owner. Private values remain separate from catalog responses, and `user.json` keeps its existing format. Session checks are repeated under the data lock; personal workers are bounded and shared with inspection (`503 personal_busy` when occupied). The [personal contract](../../docs/server/personal.md#shared-failures-and-recovery) describes per-owner history retention and global storage budgets.
 
 `PUT /annotation?ref=<token>` accepts one or more of the following fields. Omitting a field leaves it unchanged; an explicit `null` removes `rating`, `note`, or all `tags`. `loved` must be a boolean. Rating is 1–5. Notes must contain non-whitespace text. Tags replace the complete set, are sorted in the response, and allow at most 100 unique non-empty entries of 256 bytes. A patch which leaves no favourite, rating, note or tag removes the stored annotation rather than keeping an empty record.
 
@@ -224,7 +228,7 @@ The reference must name a current catalog entity and contain at most 16384 UTF-8
 
 `POST /history` accepts `{track,at?,ms_played,completed}`. `track` is a current track reference; `at` defaults to the server time and cannot be over one day in the future; `ms_played` is capped at 24 hours. Each accepted event updates the bounded recent-history log and the all-time per-track count together. Delayed events are ordered by `at`, not receipt time: the log retains the newest events by date, while every accepted event still increments its all-time count. Existing arrival-ordered history is sorted when loaded without dropping events or changing counts. `GET /history?offset=&limit=` returns `{items,total,offset,limit,scanned_at}` with each item containing `track,at,ms_played,completed,play_count,last_played`. Sorting happens before pagination, newest first; equal-time events remain distinct and the last received appears first.
 
-A collection stores a **query expression**, not a static list of tracks: its result evolves with the catalog. `PUT /collection?name=<name>` validates the current Aède query grammar before saving a non-empty expression of up to 2048 bytes. Names are matched case/accent-insensitively, like the CLI, and must contain non-whitespace text within 256 UTF-8 bytes for GET, PUT and DELETE. `GET /collections` uses normal `offset`/`limit` pagination.
+A collection stores a **query expression**, not a static list of tracks: its result evolves with the catalog. `PUT /collection?name=<name>` validates the current Aède query grammar before saving a non-empty expression of up to 8192 bytes. Optional `create_only: true` refuses a same-name collection with `409 collection_exists` rather than replacing it. Names are matched case/accent-insensitively, like the CLI, and must contain non-whitespace text within 256 UTF-8 bytes for GET, PUT and DELETE. `GET /collections` uses normal `offset`/`limit` pagination.
 
 Every personal read and write obtains the same data-directory lock as the CLI and loads both the current on-disk catalog and `user.json` while holding it. Target validation and reconciliation therefore use the same completed catalog version, even before the public catalog cache refreshes after a scan. The lock remains held through an update's atomic save to `user.json`; a competing request receives `409 store_busy` and can retry. An absent catalog returns `503 catalog_unavailable`, an unreadable catalog returns `500 store_error`, and failed/corrupt user-data reads return `500 user_unavailable`; no personal data is saved on these failures. Unexpected background failures return `500 personal_failed`.
 
@@ -264,10 +268,70 @@ See [native presentation](../../docs/server/presentation.md) for complete contra
 | --- | --- |
 | `GET /api/v1/presentation/artists` | Paged attributed artist presentation and contributions |
 | `GET /api/v1/presentation/albums` | Paged editions, compilations and broad tag search |
+| `GET /api/v1/presentation/tracks` | Lightweight track pages for a release or the complete catalog |
+| `GET /api/v1/presentation/analysis` | Retained per-album analysis coverage and catalog file totals |
 | `GET /api/v1/artwork` | Bounded catalog-selected local images and spectra |
 | `GET /api/me/v1/annotations` | Current-owner annotation index |
 | `POST /api/me/v1/m3u` | Private static playlist and server-side M3U publication |
 | `GET /api/me/v1/m3u` | Private playlist summaries |
 | `GET /api/me/v1/m3u/{id}` | Complete current-owner M3U download |
+| `GET /api/me/v1/m3u/{id}/playback` | Exact ordered current-owner playlist selection, refusing unresolved or ambiguous entries |
+| `GET /api/me/v1/m3u-files/{id}/playback` | Exact ordered catalogue selection from an admitted library M3U file |
+| `GET /api/me/v1/m3u-files` | Existing shared M3U/M3U8 files under watched roots, searched before pagination |
+| `GET /api/me/v1/m3u-files/{id}` | Exact UTF-8 content of a currently permitted library playlist file |
 | `POST /api/admin/v1/analyze` | Catalog-scoped asynchronous FlacCompagnon analysis |
 | `POST /api/admin/v1/spectrum` | Catalog-scoped asynchronous spectrogram generation |
+
+`GET /api/v1/analysis/report?ref=TOKEN` (and read-only `HEAD`) exports an original-format FlacCompagnon JSON for one catalog track or album. It extracts/combines retained source entries without re-analysis, refuses incomplete/stale reports, and is bounded to 2048 tracks/16 MiB. See [native presentation](../../docs/server/presentation.md#flaccompagnon-report-downloads).
+
+### Desktop selection and dynamic browsing collections
+
+`GET /api/v1/presentation/playback?ref=<artist-release-or-track-reference>` returns `{items,scanned_at}` with each track's `reference,title,release,number,album_total`. Artist selection uses principal discography and the shared CLI oldest-first release order (unknown years last, folder/title tie breakers); release track order stays intact. At most 4096 items are returned, otherwise an explicit error. This read does not start audio or write history; the client sends bounded individual PCM starts.
+
+Saved collections also accept the versioned `browse-v1:` JSON expression described in [native presentation](../../docs/server/presentation.md#dynamic-browsing-collections). `GET /api/me/v1/collection/albums?name=<name>` evaluates an ordinary or browsing rule against the current disk catalog, trusted sources and authenticated owner's annotations, returning `{items,scanned_at}` with deduplicated release references. Other owners' collection names never resolve.
+
+`DELETE /api/me/v1/history` requires the JSON body `{ "confirm": true }` and no query. It returns `{events,counters}` and reuses `UserData::forget_history`: retained native events, declared scrobbles and lifetime counters for that owner are removed together. Annotations, collections, other owners and playback checkpoints are preserved. Active playback can subsequently publish a new listen. Auditors are refused and authentication is rechecked under the writer lock. The transitional local-admin history route has the same confirmed reset contract.
+
+Status advertises `dynamic_browse_collections` and `album_track_pages` in its additive `capabilities` array. See [lightweight album tracks](../../docs/server/presentation.md#lightweight-album-tracks-and-capability-negotiation) for paging fields and the requirement to restart an older running server.
+
+Track detail adds file properties, raw tags and attributed credits. Album presentation adds nullable first-observed `added_at`; legacy unknown dates are not guessed. Complete track pages support optional `q`; status advertises `track_catalog_pages` and `catalog_added_dates`. See [native presentation](../../docs/server/presentation.md#complete-track-catalog-and-entry-dates).
+
+Explicit `library:true` on private M3U creation publishes catalog-derived album/artist M3U sidecars using the shared CLI folder plan. This requires a local administrator, advertises `library_m3u_publication`, confirms `library_files`, and never changes audio/tags. Repeated identical selections restore the same private export without consuming additional playlist slots.
+
+## Missing studio albums
+
+The owner-private `/api/me/v1/missing` GET/PUT contract exposes the shared CLI missing-discography policy and reversible owner decisions without modifying sources or audio. See [missing albums](../../docs/server/missing-albums.md). Status advertises `missing_studio_albums` and `label_biography`; label detail includes only already-retained trusted prose, never an implicit external fetch.
+
+Missing-album cover art: `GET /api/me/v1/missing/cover` is cache-only, while `POST` with `artist` and `release_group` selectors and no body explicitly acquires archive art. Optional `fetch` builds advertise `missing_album_covers`; the [missing-album contract](../../docs/server/missing-albums.md) defines identity, cache, roles, bounds and failures.
+
+## Desktop playback preferences and discovery
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/v1/waveform` | Source-guarded complete-track adaptive peak envelope; required track `ref`, derived cache only. |
+| `GET /api/me/v1/preferences` | Owner-private non-secret JSON settings, including before the first scan. |
+| `PATCH /api/me/v1/preferences` | Merge bounded `phemios.*` values; auditors are read-only. |
+| `GET /api/me/v1/moods` | Explainable tag/genre rule counts and paged playback selections for one owner. |
+| `PUT /api/me/v1/moods` | Create or override an owner-private atmosphere rule. |
+| `POST /api/admin/v1/mood-features` | Explicit authenticated administrative background extraction; body `{force:false}`, cached per file, with task progress and Stop. |
+| `POST /api/me/v1/background-priority` | Owner-scoped UUID/active foreground lease, renewed for six seconds while WebKit/external audio is active. |
+| `POST /api/admin/v1/lyrics` | Explicit authenticated administrative exact-track LRCLIB acquisition through the existing task worker. |
+
+See [personal contracts](../../docs/server/personal.md#account-presentation-preferences-and-atmospheres), [waveforms](../../docs/server/playback.md#complete-track-waveforms) and [lyrics jobs](../../docs/server/jobs.md#post-apiadminv1lyrics). Status advertises `account_preferences`, `track_waveform`, `mood_rules`, `fetch_track_lyrics` and label-specific `label_album_sort`. Label `sort=albums` orders the complete filtered set before pagination. No atmosphere read launches an analysis or derives emotion from integrity measurements.
+
+| `GET /api/me/v1/search` | Current-owner advanced query; standard bounded track page, no mutation. See [personal search](../../docs/server/personal.md#owner-scoped-advanced-search-and-queue-publication). |
+
+### Private opaque achievements
+
+`GET /api/me/v1/achievements` returns an owner-private projection; `POST` with `{}` captures monotonic unlocks, and `{ "advanced_search": true }` records a successful client-declared advanced-search action. Auditor accounts may only read. Status advertises `private_achievements`. Locked entries expose only an anonymous slot and null date. Definitions remain engine-only, and reserved engine records never appear in client preferences. Progress uses retained personal evidence, including confirmed completed listening visits; local and remote accounts remain separate. Corrupt records are retained and reported by this endpoint; optional projection failure cannot reject an otherwise valid annotation or listening-history write.
+
+### Whole-library derivatives and personal completion
+
+| Route | Contract |
+| --- | --- |
+| `POST /api/admin/v1/generate` | Trusted-local administrative ordered plan of one to four distinct stages: `analyze`, `spectrum`, `m3u`, `lyrics`. Roots come from the current catalog; one audio worker and exclusive job admission prevent parallel administrative stages. Accepted task IDs use the existing read/cancel routes. Completed stage failures remain visible while later stages may continue; cancellation stops the remainder and retains completed work. See [generation jobs](../../docs/server/jobs.md#post-apiadminv1generate). |
+| `GET /api/me/v1/album-listening` | Owner-private paged `{reference,completed}` evidence for nonempty catalogued editions. Complete `Play` counts survive recent-history retention; partial visits and duration-less scrobbles do not qualify. No owner selector, body, mutation or public-cache field. See [personal listening](../../docs/server/personal.md#owner-private-album-listening). |
+
+### Album decode test and component versions
+
+`POST /api/admin/v1/check` accepts only a catalog release reference for trusted-local sequential complete decoding. See [job contract](../../docs/server/jobs.md#post-apiadminv1check). `/api/v1/status` additionally reports `versions:{aede,flaccompagnon}`; the FlacCompagnon Core version comes from the locked linked dependency, not an external desktop installation.

@@ -7,7 +7,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+fetch = ["aede-core/fetch"]
+
 [dependencies]
+aede-moods = { path = "../aede-moods" }
 aede-core = { path = "../aede-core", default-features = false }
 aede-dsp = { path = "../aede-dsp" }
 aede-devices = { path = "../aede-devices" }

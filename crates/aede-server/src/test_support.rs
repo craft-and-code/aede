@@ -109,6 +109,9 @@ pub(crate) fn sample_state() -> ApiState {
             NEXT_STATE.fetch_add(1, Ordering::Relaxed)
         )),
         catalog: Arc::new(RwLock::new(Some(catalog))),
+        parental: Arc::new(crate::parental::ViewState::default()),
+        parental_scope: None,
+        parental_pcm: None,
         loaded_stamp: Arc::new(RwLock::new(None)),
         reload_gate: Arc::new(Mutex::new(())),
         events,
@@ -123,6 +126,8 @@ pub(crate) fn sample_state() -> ApiState {
         websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
         playback_slots: Arc::new(Semaphore::new(MAX_PLAYBACKS)),
         player_profiles: Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new())),
+        audio_features: Arc::new(crate::audio_features::FeatureState::default()),
+        missing_covers: Arc::new(crate::missing_cover_cache::CoverService::default()),
         inspection_slots: Arc::new(Semaphore::new(2)),
         jobs: Arc::new(jobs::JobRegistry::default()),
         #[cfg(unix)]

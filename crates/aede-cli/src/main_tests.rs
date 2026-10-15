@@ -424,3 +424,10 @@ fn no_sentence_carries_the_whitespace_of_the_source_it_was_written_in() {
         ragged.join("\n  ")
     );
 }
+
+#[test]
+fn acoustic_jobs_still_delegate_without_holding_the_writer_during_decoding() {
+    let args = Args::parse(["analyze", "--threads=1"].map(str::to_string));
+    assert!(mutates_store_with_args("analyze", &args));
+    assert!(!holds_command_lock("analyze", &args));
+}

@@ -30,6 +30,8 @@ pub struct ScanRequest {
     /// Up to 64 absolute server-side folders, 4096 bytes each and without NUL.
     /// Empty means rescan the already watched roots.
     pub folders: Vec<String>,
+    /// Explicitly unavailable mount roots; preserve retained catalog entries without traversal.
+    pub unavailable_folders: Vec<String>,
     /// Replace watched roots instead of adding; requires nonempty `folders`.
     pub replace: bool,
     /// Reread tags rather than reusing unchanged files; keep saved conclusions.
@@ -46,14 +48,18 @@ pub struct ScanRequest {
 ///
 /// Missing booleans default to false. No pass flags selects ordinary MusicBrainz
 /// identification, so a default request is not a no-op. HTTP validates option
-/// dependencies before the callback; service keys come from the server's
-/// environment, not this request. Full details are in `docs/server/jobs.md`.
+/// dependencies before the callback; optional bounded client keys apply only
+/// to this job. Full details are in `docs/server/jobs.md`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FetchRequest {
+    /// Optional client-owned keys, confined to the existing trusted admin endpoint.
+    pub service_keys: Option<super::FetchServiceKeys>,
     /// Up to 64 nonempty names or server-folder paths, 4096 bytes each, no NUL.
     /// Empty selects the CLI's ordinary all-catalog scope for the chosen passes.
     pub targets: Vec<String>,
+    /// Run ordinary MusicBrainz identification before the selected secondary passes.
+    pub musicbrainz: bool,
     /// Fetch attributed artist/album prose.
     pub summaries: bool,
     /// Fetch artist discographies for later missing-release inspection.
@@ -74,6 +80,8 @@ pub struct FetchRequest {
     pub logos: bool,
     /// Fetch record-label information.
     pub labels: bool,
+    /// Fetch identifier-linked Discogs label biographies explicitly.
+    pub discogs: bool,
     /// Enable the Fanart.tv artwork families and their explicit exclusions.
     pub fanart: bool,
     /// Include banners; requires `logos` or `fanart` and conflicts with `no_banner`.
@@ -128,9 +136,40 @@ struct MediaSelection {
     threads: Option<usize>,
 }
 
+/// Fixed whole-catalog stages; clients never supply paths or executable arguments.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationStep {
+    /// Reuse or create FlacCompagnon album reports.
+    Analyze,
+    /// Reuse or create track spectrograms.
+    Spectrum,
+    /// Publish catalog-ordered playlists in album folders.
+    M3u,
+    /// Explicitly obtain missing lyrics through the existing provider pass.
+    Lyrics,
+}
+/// A sequential, cancellable plan owned by one Aède server.
+#[derive(Clone, Debug)]
+pub struct GenerationRequest {
+    /// One to four distinct stages in the requested order.
+    pub steps: Vec<GenerationStep>,
+    /// Current watched roots captured by the server, never accepted from an HTTP body.
+    pub roots: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenerationInput {
+    steps: Vec<GenerationStep>,
+}
+
 /// A typed operation; HTTP clients cannot provide arbitrary executable arguments.
 #[derive(Clone, Debug)]
 pub enum JobRequest {
+    /// Whole-catalog derivative work, serialized in the existing CLI worker.
+    Generate(GenerationRequest),
+    /// Exact catalogued album files, never a client-supplied path or folder expansion.
+    Check(Vec<String>),
     /// A local scan of watched/newly supplied folders.
     Scan(ScanRequest),
     /// An explicitly requested online pass, or an offline `dry_run` preview.
@@ -144,6 +183,14 @@ pub enum JobRequest {
 impl JobRequest {
     fn kind(&self) -> &'static str {
         match self {
+            Self::Generate(plan) => match plan.steps.as_slice() {
+                [GenerationStep::Analyze] => "library_generation_analyze",
+                [GenerationStep::Spectrum] => "library_generation_spectrum",
+                [GenerationStep::M3u] => "library_generation_m3u",
+                [GenerationStep::Lyrics] => "library_generation_lyrics",
+                _ => "library_generation",
+            },
+            Self::Check(_) => "album_decode_test",
             Self::Scan(_) => "scan",
             Self::Fetch(_) => "identification",
             Self::Analyze(_) => "analysis",
@@ -154,13 +201,51 @@ impl JobRequest {
     fn validate(&self) -> Result<(), ApiError> {
         let invalid = |message: &str| error(StatusCode::BAD_REQUEST, "invalid_parameters", message);
         match self {
+            Self::Generate(plan) => {
+                let unique: std::collections::BTreeSet<_> = plan.steps.iter().collect();
+                if plan.roots.is_empty()
+                    || plan.roots.len() > 64
+                    || plan.roots.iter().any(|root| {
+                        root.len() > 4096
+                            || root.contains('\0')
+                            || !std::path::Path::new(root).is_absolute()
+                    })
+                {
+                    return Err(invalid("generation needs current watched roots"));
+                }
+                if plan.steps.is_empty() || plan.steps.len() > 4 || unique.len() != plan.steps.len()
+                {
+                    return Err(invalid("generation needs one to four distinct stages"));
+                }
+                if !cfg!(feature = "fetch") && plan.steps.contains(&GenerationStep::Lyrics) {
+                    return Err(invalid("lyrics generation requires the fetch feature"));
+                }
+            }
+            Self::Check(files) => {
+                if files.is_empty()
+                    || files.len() > 1024
+                    || files.iter().map(String::len).sum::<usize>() > 128_000
+                    || files.iter().any(|file| {
+                        file.len() > 4096
+                            || file.contains('\0')
+                            || !std::path::Path::new(file).is_absolute()
+                    })
+                {
+                    return Err(invalid("decode test needs bounded exact catalog files"));
+                }
+            }
             Self::Scan(scan) => {
                 if scan.folders.len() > 64
-                    || scan.folders.iter().any(|folder| {
-                        folder.len() > 4096
-                            || folder.contains('\0')
-                            || !std::path::Path::new(folder).is_absolute()
-                    })
+                    || scan.unavailable_folders.len() > 64
+                    || scan
+                        .folders
+                        .iter()
+                        .chain(&scan.unavailable_folders)
+                        .any(|folder| {
+                            folder.len() > 4096
+                                || folder.contains('\0')
+                                || !std::path::Path::new(folder).is_absolute()
+                        })
                 {
                     return Err(invalid(
                         "folders must contain at most 64 absolute server paths of at most 4096 bytes without NUL",
@@ -188,6 +273,15 @@ impl JobRequest {
                 }
             }
             Self::Fetch(fetch) => {
+                if fetch
+                    .service_keys
+                    .as_ref()
+                    .is_some_and(|keys| !keys.valid())
+                {
+                    return Err(invalid(
+                        "service keys must be nonempty, at most 1024 bytes and without control characters",
+                    ));
+                }
                 if fetch.targets.len() > 64
                     || fetch.targets.iter().any(|target| {
                         target.trim().is_empty() || target.len() > 4096 || target.contains('\0')
@@ -281,12 +375,24 @@ struct Failure {
     message: String,
 }
 
+/// Real per-file progress of native background work, without private rule labels.
+#[derive(Clone, Default, Serialize)]
+pub(super) struct NativeProgress {
+    pub(super) phase: &'static str,
+    pub(super) done: usize,
+    pub(super) total: usize,
+    pub(super) analyzed: usize,
+    pub(super) reused: usize,
+    pub(super) failed: usize,
+}
 #[derive(Clone, Serialize)]
 struct Task {
     task_id: u64,
     task_kind: &'static str,
     status: Status,
     cancel_requested: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    progress: Option<NativeProgress>,
     result: Option<JobOutput>,
     error: Option<Failure>,
     #[serde(skip)]
@@ -308,6 +414,29 @@ pub(super) struct JobRegistry {
 impl JobRegistry {
     fn insert(&self, task_id: u64, task_kind: &'static str) -> Result<Arc<AtomicBool>, ApiError> {
         let mut data = self.data.lock().map_err(|_| registry_error())?;
+        if (task_kind.starts_with("library_generation") && data.active > 0)
+            || data.tasks.values().any(|task| {
+                task.task_kind.starts_with("library_generation") && !task.status.is_terminal()
+            })
+        {
+            return Err(error(
+                StatusCode::CONFLICT,
+                "generation_task_active",
+                "whole-library generation excludes concurrent administrative work",
+            ));
+        }
+        if task_kind == "mood_features"
+            && data
+                .tasks
+                .values()
+                .any(|task| task.task_kind == task_kind && !task.status.is_terminal())
+        {
+            return Err(error(
+                StatusCode::CONFLICT,
+                "feature_task_active",
+                "acoustic extraction is already active",
+            ));
+        }
         if data.active >= MAX_ACTIVE {
             return Err(error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -332,6 +461,7 @@ impl JobRegistry {
                 task_kind,
                 status: Status::Queued,
                 cancel_requested: false,
+                progress: None,
                 result: None,
                 error: None,
                 cancellation: cancellation.clone(),
@@ -456,13 +586,21 @@ fn registry_error() -> ApiError {
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/admin/v1/fetch", post(fetch_route))
+        .route(
+            "/api/admin/v1/mood-features",
+            post(super::audio_features::start),
+        )
+        .route("/api/admin/v1/generate", post(generation_route))
+        .route("/api/admin/v1/lyrics", post(lyrics_route))
+        .route("/api/admin/v1/check", post(check_route))
         .route("/api/admin/v1/analyze", post(analyze_route))
         .route("/api/admin/v1/spectrum", post(spectrum_route))
+        .route("/api/admin/v1/tasks", get(task_list_route))
         .route("/api/admin/v1/tasks/:id", get(task_route))
         .route("/api/admin/v1/tasks/:id/cancel", post(cancel_route))
 }
 
-fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
+pub(super) fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
     require_admin(state, request)?;
     if request.uri().query().is_some_and(|query| !query.is_empty()) {
         return Err(error(
@@ -474,7 +612,7 @@ fn check_request(state: &ApiState, request: &Request) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn body(request: Request, limit: usize) -> Result<axum::body::Bytes, ApiError> {
+pub(super) async fn body(request: Request, limit: usize) -> Result<axum::body::Bytes, ApiError> {
     tokio::time::timeout(Duration::from_secs(1), to_bytes(request.into_body(), limit))
         .await
         .map_err(|_| {
@@ -493,7 +631,7 @@ async fn body(request: Request, limit: usize) -> Result<axum::body::Bytes, ApiEr
         })
 }
 
-fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
+pub(super) fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
     if bytes
         .iter()
         .copied()
@@ -537,6 +675,80 @@ async fn fetch_route(
     check_request(&state, &request)?;
     let bytes = body(request, MAX_BODY).await?;
     enqueue(state, JobRequest::Fetch(decode(&bytes)?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LyricsSelection {
+    track: String,
+}
+async fn generation_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let input: GenerationInput = decode(&body(request, MAX_BODY).await?)?;
+    let roots = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        if let Some(principal) = principal.as_ref() {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(catalog.roots.clone())
+    })
+    .await?
+    .0;
+    enqueue(
+        state,
+        JobRequest::Generate(GenerationRequest {
+            steps: input.steps,
+            roots,
+        }),
+    )
+}
+
+async fn lyrics_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let selected: LyricsSelection = decode(&body(request, MAX_BODY).await?)?;
+    if selected.track.len() > super::MAX_REFERENCE_BYTES {
+        return Err(super::invalid_query("track reference too long"));
+    }
+    let target = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        let requested = super::EntityRef::parse_token(&selected.track)
+            .ok_or_else(|| super::invalid_query("invalid track"))?;
+        let source = super::playback_api::source_from_catalog(catalog, &requested)
+            .map_err(|_| super::invalid_query("current track source unavailable"))?;
+        super::playback_api::validate_source(&source)
+            .map_err(|_| super::invalid_query("track source changed; rescan first"))?;
+        if let Some(principal) = &principal {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(source.file.path)
+    })
+    .await?
+    .0;
+    enqueue(
+        state,
+        JobRequest::Fetch(FetchRequest {
+            lyrics: true,
+            targets: vec![target],
+            yes: true,
+            ..Default::default()
+        }),
+    )
 }
 
 async fn analyze_route(state: State<ApiState>, request: Request) -> Result<Response, ApiError> {
@@ -723,6 +935,17 @@ fn task_id(raw: &str) -> Result<u64, ApiError> {
     })
 }
 
+// The registry is already capped; reconnecting clients must not guess another process's IDs.
+async fn task_list_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Json<Vec<Task>>, ApiError> {
+    check_request(&state, &request)?;
+    body(request, 0).await?;
+    let data = state.jobs.data.lock().map_err(|_| registry_error())?;
+    Ok(Json(data.tasks.values().cloned().collect()))
+}
+
 async fn task_route(
     State(state): State<ApiState>,
     Path(id): Path<String>,
@@ -754,6 +977,7 @@ async fn cancel_route(
 }
 
 pub(super) async fn wait_for_jobs(state: &ApiState) {
+    state.audio_features.stop();
     loop {
         let finished = state.jobs.finished.notified();
         match state.jobs.data.lock() {
@@ -771,3 +995,124 @@ pub(super) async fn wait_for_jobs(state: &ApiState) {
 #[cfg(test)]
 #[path = "jobs_tests.rs"]
 mod tests;
+
+pub(super) fn progress(state: &ApiState, id: u64, value: NativeProgress) -> Result<(), String> {
+    let mut data = state
+        .jobs
+        .data
+        .lock()
+        .map_err(|_| "feature task state unavailable")?;
+    let task = data.tasks.get_mut(&id).ok_or("feature task disappeared")?;
+    task.progress = Some(value.clone());
+    drop(data);
+    let _ = state.events.send(CatalogEvent::TaskProgress {
+        task_id: id,
+        task_kind: "mood_features",
+        phase: value.phase,
+        done: value.done,
+        total: value.total,
+    });
+    Ok(())
+}
+
+pub(super) fn enqueue_background(
+    state: ApiState,
+    run: impl FnOnce(ApiState, Arc<AtomicBool>, u64) -> Result<JobOutput, String> + Send + 'static,
+) -> Result<Response, ApiError> {
+    if state.admin.is_none() {
+        return Err(registry_error());
+    }
+    let id = state.next_task_id.fetch_add(1, Ordering::Relaxed);
+    let cancel = state.jobs.insert(id, "mood_features")?;
+    let worker = state.clone();
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            worker
+                .jobs
+                .running(id)
+                .map_err(|_| "feature task could not start")?;
+            let _ = worker.events.send(CatalogEvent::TaskStarted {
+                task_id: id,
+                task_kind: "mood_features",
+            });
+            run(worker, cancel, id)
+        })
+        .await
+        .unwrap_or_else(|_| Err("feature worker stopped".into()));
+        match state.jobs.finish(id, result) {
+            Ok(task) if task.status == Status::Completed => {
+                let _ = state.events.send(CatalogEvent::TaskCompleted {
+                    task_id: id,
+                    task_kind: "mood_features",
+                    scanned_at: None,
+                });
+            }
+            Ok(task) => {
+                if let Some(failure) = task.error {
+                    let _ = state.events.send(CatalogEvent::TaskFailed {
+                        task_id: id,
+                        task_kind: "mood_features",
+                        code: failure.code,
+                        message: "acoustic task stopped; inspect its authenticated result".into(),
+                    });
+                }
+            }
+            Err(_) => eprintln!("acoustic task could not publish completion"),
+        }
+    });
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(Accepted {
+            task_id: id,
+            status: "queued",
+            status_url: format!("/api/admin/v1/tasks/{id}"),
+        }),
+    )
+        .into_response())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckSelection {
+    release: String,
+}
+async fn check_route(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    check_request(&state, &request)?;
+    let principal = request
+        .extensions()
+        .get::<super::auth::Principal>()
+        .cloned();
+    let selected: CheckSelection = decode(&body(request, MAX_BODY).await?)?;
+    if selected.release.len() > super::MAX_REFERENCE_BYTES {
+        return Err(super::invalid_query("release reference is too long"));
+    }
+    let files = super::inspection::inspect(state.clone(), move |state| {
+        let guard = state.catalog.blocking_read();
+        let catalog = guard.as_ref().ok_or_else(super::unavailable)?;
+        let id = super::catalog::filter_reference(
+            catalog,
+            &selected.release,
+            aede_core::model::EntityKind::Release,
+        )?;
+        let release = catalog.release(id).ok_or_else(super::unavailable)?;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut files = Vec::new();
+        for id in &release.track_ids {
+            let track = catalog.track(*id).ok_or_else(super::unavailable)?;
+            let file = catalog.file(track.file_id).ok_or_else(super::unavailable)?;
+            if seen.insert(file.path.clone()) {
+                files.push(file.path.clone());
+            }
+        }
+        if let Some(principal) = &principal {
+            super::auth::recheck(state, principal)?;
+        }
+        Ok(files)
+    })
+    .await?
+    .0;
+    enqueue(state, JobRequest::Check(files))
+}

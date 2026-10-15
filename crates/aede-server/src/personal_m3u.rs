@@ -1,16 +1,28 @@
 //! Native private M3U publication, using canonical playlist rendering and storage.
 use super::*;
+#[path = "personal_m3u_files.rs"]
+mod files;
+#[path = "personal_m3u_library.rs"]
+mod library;
+#[path = "personal_m3u_playback.rs"]
+mod playback;
+use library::publish_library;
 
 pub(super) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/api/me/v1/m3u", get(list).post(save))
         .route("/api/me/v1/m3u/:id", get(download))
+        .route("/api/me/v1/m3u/:id/playback", get(playback::private))
+        .merge(files::routes())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
-    release: String,
+    release: Option<String>,
+    tracks: Option<Vec<String>>,
     name: String,
+    #[serde(default)]
+    library: bool,
 }
 #[derive(Serialize)]
 struct Published {
@@ -18,6 +30,8 @@ struct Published {
     name: String,
     filename: String,
     content: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    library_files: Vec<String>,
 }
 fn target_path(data_dir: &Path, owner: &str, id: &str) -> Result<PathBuf, ApiError> {
     if owner.is_empty()
@@ -72,6 +86,7 @@ fn published(catalog: &Catalog, playlist: &user::Playlist) -> Result<Published, 
         name: playlist.name.clone(),
         filename: format!("{}.m3u", playlist.id),
         content,
+        library_files: Vec::new(),
     })
 }
 async fn save(
@@ -81,99 +96,234 @@ async fn save(
     no_query(&request)?;
     let owner = PersonalOwner::from_request(&state, &request)?;
     owner.require_mutation()?;
+    let publication_admin = require_admin(&state, &request).map(|_| ());
     let input: Selection = json_body(request).await?;
+    if input.library {
+        publication_admin?;
+    }
     validate_collection_name(&input.name)?;
-    if input.release.len() > MAX_REFERENCE_BYTES {
-        return Err(invalid_query("release reference is too long"));
+    if input.library && input.release.is_none() {
+        return Err(invalid_query("library publication requires an album"));
     }
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, mut data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, mut data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        let id = crate::catalog::filter_reference(&catalog, &input.release, EntityKind::Release)?;
-        let release = catalog.release(id).ok_or_else(unavailable)?;
-        let tracks = release
-            .track_ids
-            .iter()
-            .map(|id| EntityRef::of(&catalog, EntityKind::Track, *id).ok_or_else(unavailable))
-            .collect::<Result<_, _>>()?;
-        let id = data
-            .create_playlist(&owner.id, &input.name, tracks, clock::now_seconds())
-            .map_err(|message| error(StatusCode::BAD_REQUEST, "playlist_refused", message))?;
-        let playlist = data.playlist(&owner.id, &id).ok_or_else(unavailable)?;
-        let answer = published(&catalog, playlist)?;
-        let path = target_path(&data_dir, &owner.id, &id)?;
-        let folder = path.parent().ok_or_else(unavailable)?;
-        std::fs::create_dir_all(folder).map_err(|_| unavailable())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
-                .map_err(|_| unavailable())?;
+        let (album, tracks) =
+            selection(&catalog, input.release.as_deref(), input.tracks.as_deref())?;
+        let mut answer = save_selection(
+            &catalog,
+            &mut data,
+            &data_dir,
+            &owner.id,
+            &input.name,
+            tracks,
+            || owner.recheck(&state),
+        )?;
+        if input.library {
+            owner.recheck(&state)?;
+            answer.library_files = publish_library(
+                &catalog,
+                album.ok_or_else(|| invalid_query("album required"))?,
+            )?;
         }
-        if !store::write_new_atomic(&path, answer.content.as_bytes()).map_err(|_| unavailable())? {
-            return Err(error(
-                StatusCode::CONFLICT,
-                "playlist_exists",
-                "playlist file already exists",
-            ));
-        }
-        if user::save(&data, &user::user_path(&data_dir)).is_err() {
-            let _ = std::fs::remove_file(path);
-            return Err(error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "store_error",
-                "private playlist could not be saved",
-            ));
-        }
-        Ok(Json(answer))
+        owner.admit(&state, Json(answer))
     })?
     .await
     .map_err(|_| unavailable())?
 }
+fn selection(
+    catalog: &Catalog,
+    release: Option<&str>,
+    tracks: Option<&[String]>,
+) -> Result<(Option<Id>, Vec<EntityRef>), ApiError> {
+    match (release, tracks) {
+        (Some(token), None) if token.len() <= MAX_REFERENCE_BYTES => {
+            let id = crate::catalog::filter_reference(catalog, token, EntityKind::Release)?;
+            let tracks = catalog
+                .release(id)
+                .ok_or_else(unavailable)?
+                .track_ids
+                .iter()
+                .map(|id| EntityRef::of(catalog, EntityKind::Track, *id).ok_or_else(unavailable))
+                .collect::<Result<_, _>>()?;
+            Ok((Some(id), tracks))
+        }
+        (None, Some(tracks)) if !tracks.is_empty() && tracks.len() <= 4096 => {
+            let tracks = tracks
+                .iter()
+                .map(|token| {
+                    if token.len() > MAX_REFERENCE_BYTES {
+                        return Err(invalid_query("track reference too long"));
+                    }
+                    let id = crate::catalog::filter_reference(catalog, token, EntityKind::Track)?;
+                    EntityRef::of(catalog, EntityKind::Track, id).ok_or_else(unavailable)
+                })
+                .collect::<Result<_, _>>()?;
+            Ok((None, tracks))
+        }
+        _ => Err(invalid_query(
+            "select exactly one album or a nonempty ordered track list",
+        )),
+    }
+}
+// Repeated explicit saves restore the same retained selection instead of consuming playlist slots.
+fn save_selection(
+    catalog: &Catalog,
+    data: &mut UserData,
+    data_dir: &Path,
+    owner: &str,
+    name: &str,
+    tracks: Vec<EntityRef>,
+    confirm: impl Fn() -> Result<(), ApiError>,
+) -> Result<Published, ApiError> {
+    let retained = data
+        .playlists
+        .iter()
+        .rev()
+        .find(|p| p.owner == owner && p.name == name && p.tracks == tracks)
+        .map(|p| p.id.clone());
+    let existing = retained.is_some();
+    let id = match retained {
+        Some(id) => id,
+        None => data
+            .create_playlist(owner, name, tracks, clock::now_seconds())
+            .map_err(|message| error(StatusCode::BAD_REQUEST, "playlist_refused", message))?,
+    };
+    let answer = published(catalog, data.playlist(owner, &id).ok_or_else(unavailable)?)?;
+    let path = target_path(data_dir, owner, &id)?;
+    confirm()?;
+    let folder = path.parent().ok_or_else(unavailable)?;
+    std::fs::create_dir_all(folder).map_err(|_| unavailable())?;
+    if !std::fs::symlink_metadata(folder).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink()) {
+        return Err(unavailable());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
+            .map_err(|_| unavailable())?;
+    }
+    let created =
+        store::write_new_atomic(&path, answer.content.as_bytes()).map_err(|_| unavailable())?;
+    if !created {
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| unavailable())?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() != answer.content.len() as u64
+            || {
+                use std::io::Read;
+                let mut held = Vec::new();
+                std::fs::File::open(&path)
+                    .map_err(|_| unavailable())?
+                    .take(8 * 1024 * 1024 + 1)
+                    .read_to_end(&mut held)
+                    .map_err(|_| unavailable())?;
+                held != answer.content.as_bytes()
+            }
+        {
+            return Err(error(
+                StatusCode::CONFLICT,
+                "playlist_exists",
+                "existing playlist file differs; it has not been overwritten",
+            ));
+        }
+    }
+    if !existing {
+        let saved = confirm().and_then(|_| {
+            user::save(data, &user::user_path(data_dir)).map_err(|_| {
+                error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "store_error",
+                    "private playlist could not be saved",
+                )
+            })
+        });
+        if let Err(failure) = saved {
+            if created && let Err(cleanup) = std::fs::remove_file(path) {
+                eprintln!("API unregistered private playlist cleanup failed: {cleanup}");
+            }
+            return Err(failure);
+        }
+    }
+    Ok(answer)
+}
 async fn list(
     State(state): State<ApiState>,
-    input: Result<Query<PageQuery>, QueryRejection>,
+    input: Result<Query<files::Parameters>, QueryRejection>,
     request: Request,
 ) -> Result<Json<Page<Summary>>, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
-    let (offset, limit) = page(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
+    let (offset, limit, q) = files::parameters(parsed_query(input)?)?;
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        let own: Vec<_> = data
-            .playlists
-            .iter()
-            .filter(|playlist| playlist.owner == owner.id)
-            .collect();
-        let items = own
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .map(|playlist| Summary {
-                id: playlist.id.clone(),
-                name: playlist.name.clone(),
-                track_count: playlist.tracks.len(),
+        let own = unique_summaries(&data, &owner.id)
+            .into_iter()
+            .filter(|row| {
+                !crate::parental::supervised(&state)
+                    || data.playlist(&owner.id, &row.id).is_some_and(|playlist| {
+                        playlist
+                            .tracks
+                            .iter()
+                            .all(|track| track.resolve(&catalog).is_some())
+                    })
             })
-            .collect();
-        Ok(Json(Page::new(
-            items,
-            own.len(),
-            offset,
-            limit,
-            catalog.scanned_at,
-        )))
+            .filter(|row| {
+                q.as_ref()
+                    .is_none_or(|q| text::normalize(&row.name).contains(q))
+            })
+            .collect::<Vec<_>>();
+        let items = own.iter().skip(offset).take(limit).cloned().collect();
+        owner.admit(
+            &state,
+            Json(Page::new(
+                items,
+                own.len(),
+                offset,
+                limit,
+                catalog.scanned_at,
+            )),
+        )
     })?
     .await
     .map_err(|_| unavailable())?
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct Summary {
     id: String,
     name: String,
     track_count: usize,
+    duplicates: usize,
+}
+// Legacy repeated saves remain stored; only exact ordered selections with the same name share one row.
+fn unique_summaries(data: &UserData, owner: &str) -> Vec<Summary> {
+    let mut rows: Vec<Summary> = Vec::new();
+    let mut keys = BTreeMap::new();
+    for playlist in data.playlists.iter().rev().filter(|p| p.owner == owner) {
+        let key = (
+            playlist.name.clone(),
+            playlist
+                .tracks
+                .iter()
+                .map(EntityRef::to_token)
+                .collect::<Vec<_>>(),
+        );
+        if let Some(index) = keys.get(&key).copied() {
+            let row: &mut Summary = &mut rows[index];
+            row.duplicates += 1;
+        } else {
+            keys.insert(key, rows.len());
+            rows.push(Summary {
+                id: playlist.id.clone(),
+                name: playlist.name.clone(),
+                track_count: playlist.tracks.len(),
+                duplicates: 1,
+            });
+        }
+    }
+    rows
 }
 async fn download(
     State(state): State<ApiState>,
@@ -186,7 +336,7 @@ async fn download(
     let data_dir = state.data_dir.clone();
     target_path(&data_dir, &owner.id, &id)?;
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let playlist = data.playlist(&owner.id, &id).ok_or_else(|| {
             error(
@@ -195,7 +345,7 @@ async fn download(
                 "no private playlist has this identity",
             )
         })?;
-        published(&catalog, playlist).map(Json)
+        owner.admit(&state, Json(published(&catalog, playlist)?))
     })?
     .await
     .map_err(|_| unavailable())?

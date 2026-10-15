@@ -126,6 +126,7 @@ fn queries(count: usize) -> Result<(), Box<dyn Error>> {
             owner: "local".into(),
             track: target,
             count: 3,
+            completed_count: 0,
             last_played: 1_700_000_000,
         });
     }

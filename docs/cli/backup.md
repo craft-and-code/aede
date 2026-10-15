@@ -10,6 +10,9 @@ The destination's parent folder must already exist. Active Aède stores and writ
 
 The bundle contains no original audio, artwork, lyrics sidecars or other derivative assets. Back those up separately. Treat the bundle as private because it can include personal history and absolute file paths. Use restore to recover stores, not export: an ordinary catalog export does not include all irreplaceable personal information.
 
+
+Version 4 also includes private parental policies and listening usage. Restoring an older bundle preserves the existing parental store. These rules are administrator-owned; ordinary Phémios preference imports cannot alter them. A bundle containing parental data requires the same private permissions as account credentials.
+
 ## Syntax and arguments
 
 ```text

@@ -21,6 +21,9 @@ use aede_core::model::{Catalog, Id, IntegrityRecord};
 use aede_core::store;
 use aede_core::text;
 
+#[path = "check_decode.rs"]
+mod decode;
+
 use super::{Res, data_dir, load};
 use crate::args::Args;
 use crate::ui::{self, Align, Table};
@@ -35,6 +38,9 @@ const LONG_RUN: usize = 500;
 const SAVE_EVERY: usize = 250;
 
 pub fn check(args: &Args) -> Res {
+    if args.has("json") && !args.has("decode-test") {
+        return Err("--json requires --decode-test for check".into());
+    }
     let dir = data_dir(args);
     let catalog_file = store::catalog_path(&dir);
     let mut catalog = load(args)?;
@@ -43,6 +49,9 @@ pub fn check(args: &Args) -> Res {
     // whole library at once is the kind of thing one wants to try on a corner
     // first.
     let scope = super::scope_of(args, &catalog)?;
+    if args.has("decode-test") {
+        return decode::run(&catalog, &scope, args.has("json"));
+    }
     let queue = to_verify(&catalog, &scope, args.has("full"));
 
     // Nothing to read is not nothing to say. The command answers "are my files

@@ -10,11 +10,13 @@
 //! of containers that do not deserve a parser of their own.
 
 pub mod accounts;
+pub mod achievements;
 pub mod acoustic;
 pub mod acoustid;
 pub mod analysis;
 pub mod artwork;
 mod atomic_file;
+pub mod audio_features;
 pub mod audit;
 pub mod backup;
 pub mod clock;
@@ -38,8 +40,11 @@ pub mod graph;
 #[cfg(feature = "fetch")]
 pub mod http;
 mod image;
+pub mod listening;
+pub mod missing;
 pub mod model;
 pub mod musicbrainz;
+pub mod parental;
 pub mod places;
 pub mod playback;
 pub mod playlist;
@@ -53,3 +58,6 @@ pub mod store_lock;
 mod url;
 pub mod user;
 pub mod wikipedia;
+
+/// Version of the linked FlacCompagnon core from the workspace lockfile.
+pub const FLACCOMPAGNON_VERSION: &str = env!("FLACCOMPAGNON_VERSION");

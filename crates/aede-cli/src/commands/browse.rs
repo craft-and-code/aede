@@ -521,6 +521,8 @@ pub fn list_albums(args: &Args) -> Res {
             ui::dim(&format!("filtered on {}", applied.join(", ")))
         );
     }
+    let completed =
+        aede_core::listening::completed_albums(&catalog, &data, aede_core::user::LOCAL_USER);
     let mut t = super::album_summary_table("Tracks", 30);
     let total = rows.len();
     for release in rows.into_iter().skip(window.offset).take(window.limit) {
@@ -528,7 +530,11 @@ pub fn list_albums(args: &Args) -> Res {
         let (duration, size) = totals(&catalog, &release.track_ids);
         t.push(vec![
             super::year_label(release.year),
-            format!("{}{}", release.title, copy_marker(&catalog, release.id)),
+            format!(
+                "{}{}",
+                super::album_listening_title(&release.title, completed.contains(&release.id)),
+                copy_marker(&catalog, release.id)
+            ),
             artist,
             release.track_ids.len().to_string(),
             text::format_duration(duration),

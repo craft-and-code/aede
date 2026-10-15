@@ -1133,7 +1133,7 @@ fn a_rating_given_is_a_rating_shown() {
     assert!(ok);
     assert!(out.contains("Yours"), "output: {out}");
     assert!(out.contains('★'), "the rating: {out}");
-    assert!(out.contains('♥'), "the favourite: {out}");
+    assert!(out.contains('❤'), "the favourite: {out}");
     assert!(out.contains("the quintet"), "the note: {out}");
 
     // And reading a note back is what `note` does with nothing to write.
@@ -1191,7 +1191,7 @@ fn track_listening_counts_are_visible_without_an_annotation() {
         "listening alone is visible: {output}"
     );
     assert!(output.contains("played 2 times"), "{output}");
-    assert!(!output.contains('★') && !output.contains('♥'), "{output}");
+    assert!(!output.contains('★') && !output.contains('❤'), "{output}");
     assert_eq!(std::fs::read(&path).unwrap(), before);
 
     let (_, error, ok) = sandbox.run(&["rate", "track", "Take Five", "--stars", "4"]);
@@ -8227,4 +8227,25 @@ fn fingerprint_skip_snapshot_matches_saved_output() {
     assert!(ok, "fingerprint failed:\n{out}\n{err}");
     assert!(err.is_empty(), "fingerprint wrote to stderr: {err}");
     assert_eq!(out, include_str!("snapshots/fingerprint.txt"));
+}
+
+#[test]
+fn machine_versions_report_the_linked_engine_without_opening_a_catalog() {
+    let sandbox = Sandbox::new("machine_versions");
+    std::fs::write(sandbox.dir.join("catalog.json"), "unreadable catalog").unwrap();
+    let (out, err, ok) = sandbox.run(&["--version", "--json"]);
+    assert!(ok, "{err}");
+    let versions = aede_core::json::parse(&out).expect("machine-readable versions");
+    assert_eq!(
+        versions.get("aede").and_then(|v| v.as_str()),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(
+        versions.get("flaccompagnon").and_then(|v| v.as_str()),
+        Some(aede_core::FLACCOMPAGNON_VERSION)
+    );
+    assert_eq!(
+        std::fs::read_to_string(sandbox.dir.join("catalog.json")).unwrap(),
+        "unreadable catalog"
+    );
 }

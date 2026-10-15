@@ -266,6 +266,7 @@ async fn diagnose(
                 )
             })?
             .ok_or_else(unavailable)?;
+        let catalog = crate::parental::view_owned(state, catalog)?;
         let held = held_sources(&state.data_dir)?;
         Ok(diagnosis(
             &catalog,
@@ -703,12 +704,16 @@ fn public_query(expression: &str) -> Result<query::Query, ApiError> {
                 | query::Field::Label
                 | query::Field::Comment
                 | query::Field::Path
+                | query::Field::Container
                 | query::Field::Codec
                 | query::Field::Year
                 | query::Field::Duration
                 | query::Field::Size
                 | query::Field::Bitrate
                 | query::Field::SampleRate
+                | query::Field::BitDepth
+                | query::Field::Channels
+                | query::Field::Reference
                 | query::Field::Lossless
                 | query::Field::Compilation
                 | query::Field::Performing
@@ -720,6 +725,11 @@ fn public_query(expression: &str) -> Result<query::Query, ApiError> {
                 | query::Field::Collaborator
                 | query::Field::Anything => {}
             },
+            query::Query::Browse(_) => {
+                return Err(invalid_query(
+                    "browse collections require the current-owner endpoint",
+                ));
+            }
             query::Query::All => {}
         }
     }

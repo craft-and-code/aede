@@ -206,7 +206,11 @@ pub(super) async fn refresh_catalog(
         Ok(Reload::Loaded(current, outcome)) => match *outcome {
             Ok(catalog) => {
                 let scanned_at = catalog.as_ref().map(|c| c.scanned_at);
-                *state.catalog.write().await = catalog;
+                {
+                    let mut published = state.catalog.write().await;
+                    *published = catalog;
+                    state.parental.invalidate();
+                }
                 *state.loaded_stamp.write().await = current;
                 *known = current;
                 *reported_failure = None;
@@ -627,8 +631,8 @@ pub fn serve(
 ///
 /// A `tls: None` option preserves the loopback-only HTTP contract. A TLS
 /// option requires an initialized account store before any public socket is
-/// announced; legacy administrative-token and administrative routes remain
-/// local-only. Shutdown still waits for accepted installation jobs and local
+/// announced; HTTPS administrative routes require a named administrator session.
+/// Legacy administrative tokens remain local-only. Shutdown still waits for accepted installation jobs and local
 /// command requests; after that it waits at most five seconds for background
 /// playback workers that cannot be safely interrupted.
 pub fn serve_with_options(
@@ -643,13 +647,98 @@ pub fn serve_with_options(
     + 'static,
     on_ready: impl FnOnce(SocketAddr),
 ) -> Result<(), Box<dyn Error>> {
+    serve_with_owner_lease(
+        data_dir,
+        options,
+        admin_token,
+        on_scan,
+        on_command,
+        on_job,
+        on_ready,
+        None,
+    )
+}
+
+/// Host-owned loopback process: a released stdin lease requests normal graceful shutdown.
+/// The optional flag is process-local and never changes authentication or listener policy.
+pub fn serve_with_owner_lease(
+    data_dir: &Path,
+    options: ServerOptions,
+    admin_token: Option<String>,
+    on_scan: impl Fn(&mut (dyn FnMut(Progress) + Send)) -> Result<(), String> + Send + Sync + 'static,
+    on_command: impl Fn(&[String], &str) -> bool + Send + Sync + 'static,
+    on_job: impl Fn(JobRequest, Arc<std::sync::atomic::AtomicBool>) -> Result<JobOutput, String>
+    + Send
+    + Sync
+    + 'static,
+    on_ready: impl FnOnce(SocketAddr),
+    owner_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<(), Box<dyn Error>> {
+    serve_with_owner_transport(
+        data_dir,
+        options,
+        admin_token,
+        on_scan,
+        on_command,
+        on_job,
+        on_ready,
+        (owner_closed, None),
+    )
+}
+
+/// Serve an authenticated ephemeral HTTPS engine owned by one desktop stdin lease.
+pub fn serve_with_desktop_tls(
+    data_dir: &Path,
+    options: ServerOptions,
+    on_scan: impl Fn(&mut (dyn FnMut(Progress) + Send)) -> Result<(), String> + Send + Sync + 'static,
+    on_command: impl Fn(&[String], &str) -> bool + Send + Sync + 'static,
+    on_job: impl Fn(JobRequest, Arc<std::sync::atomic::AtomicBool>) -> Result<JobOutput, String>
+    + Send
+    + Sync
+    + 'static,
+    on_ready: impl FnOnce(SocketAddr),
+    owner_closed: Arc<std::sync::atomic::AtomicBool>,
+    identity: super::tls::DesktopTls,
+) -> Result<(), Box<dyn Error>> {
+    if options.tls.is_some() || !options.bind.ip().is_loopback() || options.bind.port() != 0 {
+        return Err("owned desktop TLS requires an ephemeral loopback address".into());
+    }
+    serve_with_owner_transport(
+        data_dir,
+        options,
+        None,
+        on_scan,
+        on_command,
+        on_job,
+        on_ready,
+        (Some(owner_closed), Some(identity)),
+    )
+}
+
+fn serve_with_owner_transport(
+    data_dir: &Path,
+    options: ServerOptions,
+    admin_token: Option<String>,
+    on_scan: impl Fn(&mut (dyn FnMut(Progress) + Send)) -> Result<(), String> + Send + Sync + 'static,
+    on_command: impl Fn(&[String], &str) -> bool + Send + Sync + 'static,
+    on_job: impl Fn(JobRequest, Arc<std::sync::atomic::AtomicBool>) -> Result<JobOutput, String>
+    + Send
+    + Sync
+    + 'static,
+    on_ready: impl FnOnce(SocketAddr),
+    owned: (
+        Option<Arc<std::sync::atomic::AtomicBool>>,
+        Option<super::tls::DesktopTls>,
+    ),
+) -> Result<(), Box<dyn Error>> {
+    let (owner_closed, desktop_tls) = owned;
     #[cfg(not(unix))]
     let _ = on_command;
     #[cfg(unix)]
     let _server_lock = delegation::ServerLock::acquire(data_dir)?;
     // Read and validate certificate material before binding a public socket.
     let tls = configure(&options)?;
-    let remote = tls.is_some();
+    let remote = tls.is_some() || desktop_tls.is_some();
     let path = store::catalog_path(data_dir);
     let (catalog, loaded_stamp) = {
         let _guard = StoreLock::acquire(data_dir)?;
@@ -667,8 +756,12 @@ pub fn serve_with_options(
     let result = runtime.block_on(async move {
         let (events, _) = broadcast::channel(32);
         let (shutdown, _) = broadcast::channel(1);
-        let admin = (!remote).then(|| Admin {
-            token: admin_token.unwrap_or_default(),
+        let admin = Some(Admin {
+            token: if remote {
+                String::new()
+            } else {
+                admin_token.unwrap_or_default()
+            },
             data_dir: data_dir.to_path_buf(),
             scan: Arc::new(on_scan),
             job: Arc::new(on_job),
@@ -676,6 +769,9 @@ pub fn serve_with_options(
         let state = ApiState {
             data_dir: data_dir.to_path_buf(),
             catalog: Arc::new(RwLock::new(Some(catalog))),
+            parental: Arc::new(crate::parental::ViewState::default()),
+            parental_scope: None,
+            parental_pcm: None,
             loaded_stamp: Arc::new(RwLock::new(loaded_stamp)),
             reload_gate: Arc::new(Mutex::new(())),
             events,
@@ -690,6 +786,8 @@ pub fn serve_with_options(
             websocket_slots: Arc::new(Semaphore::new(MAX_WEBSOCKETS)),
             playback_slots: Arc::new(Semaphore::new(MAX_PLAYBACKS)),
             player_profiles: Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new())),
+            audio_features: Arc::new(crate::audio_features::FeatureState::default()),
+            missing_covers: Arc::new(crate::missing_cover_cache::CoverService::default()),
             inspection_slots: Arc::new(Semaphore::new(2)),
             jobs: Arc::new(jobs::JobRegistry::default()),
             #[cfg(unix)]
@@ -705,6 +803,10 @@ pub fn serve_with_options(
         #[cfg(unix)]
         let (command_listener, command_socket) = delegation::bind_command_socket(data_dir)?;
         let address = listener.local_addr()?;
+        let tls = match desktop_tls {
+            Some(identity) => Some(identity.listener(address)?),
+            None => tls,
+        };
         on_ready(address);
         match tls {
             Some(tls) => {
@@ -719,7 +821,7 @@ pub fn serve_with_options(
                     command_socket,
                     #[cfg(unix)]
                     Arc::new(on_command),
-                    shutdown_signal(),
+                    owner_shutdown(owner_closed),
                 )
                 .await?;
             }
@@ -734,7 +836,7 @@ pub fn serve_with_options(
                     command_socket,
                     #[cfg(unix)]
                     Arc::new(on_command),
-                    shutdown_signal(),
+                    owner_shutdown(owner_closed),
                 )
                 .await?;
             }
@@ -748,3 +850,15 @@ pub fn serve_with_options(
 #[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod tests;
+
+async fn owner_shutdown(closed: Option<Arc<std::sync::atomic::AtomicBool>>) {
+    let lease = async {
+        let Some(closed) = closed else {
+            return std::future::pending::<()>().await;
+        };
+        while !closed.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    tokio::select! { _ = shutdown_signal() => {}, _ = lease => {} }
+}

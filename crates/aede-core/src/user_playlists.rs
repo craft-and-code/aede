@@ -80,11 +80,12 @@ fn playlist_valid(playlist: &Playlist) -> bool {
 pub(super) fn validate(data: &UserData) -> Result<(), StoreError> {
     let mut owners = BTreeMap::new();
     let mut ids = BTreeSet::new();
-    if data.playlists.len() > PLAYLIST_LIMIT || data.scrobbles.len() > HISTORY_LIMIT {
+    if data.playlists.len() > PLAYLIST_LIMIT || data.scrobbles.len() > HISTORY_STORE_LIMIT {
         return Err(StoreError::Invalid(
             "personal playlist or scrobble limit exceeded",
         ));
     }
+    history::validate(data)?;
     for playlist in &data.playlists {
         let count = owners.entry(&playlist.owner).or_insert(0usize);
         *count += 1;
@@ -218,14 +219,13 @@ impl UserData {
                 owner: event.owner.clone(),
                 track: event.track.clone(),
                 count: 1,
+                completed_count: 0,
                 last_played: at,
             }),
         }
         self.scrobbles.push(event);
         self.scrobbles.sort_by_key(|event| event.at_ms);
-        if self.scrobbles.len() > HISTORY_LIMIT {
-            self.scrobbles.drain(..self.scrobbles.len() - HISTORY_LIMIT);
-        }
+        history::retain(&mut self.scrobbles, |event| &event.owner);
         Ok(())
     }
 }
@@ -333,7 +333,7 @@ pub(super) fn read_playlists(root: &Json) -> Result<Vec<Playlist>, StoreError> {
 
 pub(super) fn read_scrobbles(root: &Json) -> Result<Vec<Scrobble>, StoreError> {
     let rows = root.get("scrobbles").and_then(Json::as_arr).unwrap_or(&[]);
-    if rows.len() > HISTORY_LIMIT {
+    if rows.len() > HISTORY_STORE_LIMIT {
         return Err(StoreError::Invalid("personal scrobble limit exceeded"));
     }
     let mut data = UserData::default();
@@ -398,9 +398,7 @@ pub(super) fn merge(
         }
     }
     into.scrobbles.sort_by_key(|event| event.at_ms);
-    if into.scrobbles.len() > HISTORY_LIMIT {
-        into.scrobbles.drain(..into.scrobbles.len() - HISTORY_LIMIT);
-    }
+    history::retain(&mut into.scrobbles, |event| &event.owner);
 }
 
 #[cfg(test)]

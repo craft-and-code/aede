@@ -1,5 +1,7 @@
 # Lecture PCM authentifiée v1
 
+Les comptes supervisés suivent aussi les [règles parentales et réservations PCM courtes](parental.md#écoute-contrôlée) ; un transport original ne peut pas remplacer leur lecture contrôlée.
+
 `GET /api/me/v1/playback` passe en WebSocket pour une piste actuelle du catalogue ou une file finie dont l’ordre est explicite. Fournissez exactement un en-tête `Authorization: Bearer <session>`, en WS sur HTTP local ou WSS sur [HTTPS](remote.md). Seuls `user` et `admin` peuvent lire, car la lecture écrit l’historique privé ; un `auditor` reçoit `403 forbidden`. Le jeton administratif historique n’authentifie pas cette route, même localement. Aucun paramètre d’URL n’est accepté.
 
 Ce contrat vise les clients natifs. Le client possède sa sortie audio, son horloge et son compteur de consommation. Aède n’ouvre pas de périphérique audio sur le serveur, ne fournit pas d’interface de lecteur, n’accepte pas de chemin arbitraire et n’implémente pas Subsonic ici. Un WebSocket de navigateur ne permet pas de définir directement cet en-tête Bearer ; connexion et transport de navigateur restent à concevoir.
@@ -194,3 +196,11 @@ Après passage en WebSocket, un échec envoie `{"type":"error","code":"…","mes
 | `server_shutdown` | Arrêt du serveur. |
 
 Une panne de transport ou un client fermé ne garantit ni erreur JSON ni confirmation finale. Les restrictions communes des [comptes](accounts.md) et de [HTTPS](remote.md) concernent négociation et flux actif. Les contrôles automatisés PCM/transport ne valident ni gapless physique, qualité du périphérique client ni capacité du NAS cible.
+
+## Forme d'onde du morceau complet
+
+`GET /api/v1/waveform?ref=track:...`, authentifié, renvoie `{reference,duration_ms,sample_rate,bucket_frames,peaks}`. Le fichier actuel est entièrement décodé localement, sans DSP ni normalisation. Chaque valeur représente le maximum absolu des canaux dans une fenêtre, borné entre 0 et 1. Au maximum 2048 fenêtres sont conservées, par regroupement adaptatif ; la dernière fenêtre partielle reste présente. La durée vient des frames décodées, et non du temps écouté. Le budget est de 60 secondes de décodage et 24 heures de frames source ; les échecs restent explicites.
+
+Le cache dérivé reste dans `waveforms/` du dossier de données et dépend de la piste, du chemin, de la taille et de la date précise du fichier. Les lectures sont bornées ; le fichier est validé avant et après le travail, et le compte revérifié avant la réponse. Les données corrompues du cache ne sont pas servies : elles entraînent un nouveau décodage, sans remplacement du fichier conservé. La capacité `track_waveform` annonce cette route. Ce cache visuel ne modifie ni audio ni tags, n'ajoute pas d'historique d'écoute et ne constitue pas un verdict d'intégrité.
+
+Les erreurs d’historique conservent le code `history_failed` et précisent désormais dans le message une source modifiée ou indisponible, un stockage occupé, une lecture impossible, un échec d’écriture ou un délai dépassé. Ce dernier laisse la confirmation incertaine ; aucun client ne doit inventer une écoute réussie. Une source modifiée nécessite un nouveau scan. Le journal serveur conserve la cause technique. Ces diagnostics ne relâchent ni la validation d’identité du fichier ni l’acquittement des échantillons consommés.

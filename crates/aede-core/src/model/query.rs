@@ -21,6 +21,33 @@ use super::{
 };
 
 impl Catalog {
+    /// Earliest known file entry date; any unknown placement keeps an existing edition undated.
+    pub fn release_added_at(&self, id: Id) -> Option<u64> {
+        let release = self.release(id)?;
+        let mut earliest = None;
+        for id in &release.track_ids {
+            let file = self.file(self.track(*id)?.file_id)?;
+            let added = *self.file_added_at.get(&file.path)?;
+            earliest = Some(earliest.map_or(added, |old: u64| old.min(added)));
+        }
+        earliest
+    }
+
+    /// Order selected releases for playback: oldest first, unknown dates last.
+    /// Equal years retain the CLI folder/title tie breakers; track order is untouched.
+    pub fn playback_release_order(&self, mut ids: Vec<Id>) -> Vec<Id> {
+        ids.sort_by(|a, b| {
+            self.release(*a)
+                .map(|r| (r.year.unwrap_or(u32::MAX), &r.folder, &r.title))
+                .cmp(
+                    &self
+                        .release(*b)
+                        .map(|r| (r.year.unwrap_or(u32::MAX), &r.folder, &r.title)),
+                )
+        });
+        ids
+    }
+
     /// The artist an id designates, or `None` when the id is out of range.
     pub fn artist(&self, id: Id) -> Option<&Artist> {
         self.artists.get(id as usize)

@@ -8,6 +8,13 @@
 //! machine. One renderer for both, because two would agree about `#EXTINF`
 //! today and disagree about it in six months.
 
+/// Bounded, read-only discovery of playlist files under watched roots.
+pub mod files;
+/// Shared catalog-derived folder destinations and rendering.
+pub mod folders;
+/// Explicit catalog-only resolution of existing M3U entries.
+pub mod selection;
+
 use std::path::Path;
 
 use crate::model::{Catalog, EntityKind, Id};

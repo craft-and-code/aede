@@ -122,3 +122,5 @@ identity. A verified source MD5 does not establish that an operating-system
 mixer, driver, receiver or DAC left the submitted audio unchanged.
 
 For command syntax, threads, stored verdicts and practical limits see [check](cli/check.md). For read-back of newly copied destination files see [copy](cli/copy.md); it has different verification semantics.
+
+For an explicit complete decoding test without playback, use [`check --decode-test`](cli/check.md#full-decode-test). This is separate from persisted container CRC verification.

@@ -69,11 +69,15 @@ pub fn show_album(args: &Args) -> Res {
             ))
         );
     }
+    let personal = super::user_data(args, &catalog)?;
+    let completed =
+        aede_core::listening::completed_albums(&catalog, &personal, aede_core::user::LOCAL_USER);
     for release in &matches {
         let navigation = print_album(
             args,
             &catalog,
             release,
+            completed.contains(&release.id),
             &sourced_credits,
             &edition_credits,
             &parent_works,
@@ -150,6 +154,7 @@ fn print_album(
     args: &Args,
     catalog: &Catalog,
     release: &Release,
+    listening_completed: bool,
     sourced_credits: &[sources::SourcedCreditLink],
     edition_credits: &[sources::SourcedEditionCreditLink],
     parent_works: &[sources::SourcedWorkParentLink],
@@ -164,7 +169,13 @@ fn print_album(
         navigation.entity(catalog, "Album artist", EntityKind::Artist, artist_id);
     }
 
-    println!("{}", ui::section(&release.title));
+    println!(
+        "{}",
+        ui::section(&super::album_listening_title(
+            &release.title,
+            listening_completed
+        ))
+    );
     println!("  {}", ui::bold(&artist));
     if let Some(year) = release.year {
         println!("  {year}");

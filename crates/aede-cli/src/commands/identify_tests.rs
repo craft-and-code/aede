@@ -290,6 +290,75 @@ fn a_bad_key_stops_the_run_instead_of_condemning_the_whole_library() {
 }
 
 #[test]
+fn provider_reflected_credentials_are_masked_without_losing_the_failure_reason() {
+    let key = "fixture/a+private-key";
+    for (index, variant) in [
+        key,
+        "fixture%2Fa%2Bprivate-key",
+        "fixture%2fa%2bprivate-key",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let dir = sandbox(&format!("reflected-{index}"));
+        let catalog = library(true);
+        let mut layer = sources::Sources::default();
+        let mut transport = Canned {
+            answers: vec![Ok(format!(
+                r#"{{"status":"error","error":{{"message":"invalid API key: {variant}"}}}}"#
+            ))],
+            asked: Vec::new(),
+        };
+        let error = run(
+            &catalog,
+            &mut transport,
+            &[],
+            &mut layer,
+            &sources::sources_path(&dir),
+            &with_key(false, false, Some(key)),
+        )
+        .expect_err("a rejected key must still fail");
+        assert_eq!(
+            error.to_string(),
+            "AcoustID refused: invalid API key: [redacted]"
+        );
+        assert_eq!(transport.asked.len(), 1);
+        assert!(layer.records.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+fn transport_reports_mask_credentials_while_preserving_retry_and_failure_classes() {
+    let secrets = ["fixture/a+private-key".into()];
+    for variant in [
+        "fixture/a+private-key",
+        "fixture%2Fa%2Bprivate-key",
+        "fixture%2fa%2bprivate-key",
+    ] {
+        let message = format!("backend rejected client={variant}: unavailable");
+        assert_eq!(
+            private_refusal(Refusal::Unreachable(message.clone()), &secrets),
+            Refusal::Unreachable("backend rejected client=[redacted]: unavailable".into())
+        );
+        assert_eq!(
+            private_refusal(Refusal::Failed(message), &secrets),
+            Refusal::Failed("backend rejected client=[redacted]: unavailable".into())
+        );
+    }
+    for refusal in [
+        Refusal::RateLimited,
+        Refusal::TooManyRequests,
+        Refusal::Missing,
+    ] {
+        let must_stop = refusal.must_stop();
+        let protected = private_refusal(refusal.clone(), &secrets);
+        assert_eq!(protected, refusal);
+        assert_eq!(protected.must_stop(), must_stop);
+    }
+}
+
+#[test]
 fn no_key_is_refused_before_a_single_request() {
     let dir = sandbox("no_key");
     let catalog = library(true);

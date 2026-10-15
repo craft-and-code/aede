@@ -83,7 +83,25 @@ fn main() {
     }
 
     if args.has("version") {
-        println!("aede {VERSION}");
+        if args.has("json") {
+            println!(
+                "{}",
+                aede_core::json::Json::Obj(
+                    vec![
+                        ("aede".into(), aede_core::json::Json::Str(VERSION.into())),
+                        (
+                            "flaccompagnon".into(),
+                            aede_core::json::Json::Str(aede_core::FLACCOMPAGNON_VERSION.into())
+                        ),
+                    ]
+                    .into_iter()
+                    .collect()
+                )
+                .to_string_compact()
+            );
+        } else {
+            println!("aede {VERSION}");
+        }
         return;
     }
     if args.has("help") {
@@ -262,9 +280,9 @@ fn main() {
             }
         }
     }
-    // Account commands acquire their own lock after password entry, then
-    // reload. Other writers hold it across the entire read/modify/write cycle.
-    let _store_lock = if command != "accounts" && mutates_store_with_args(command, &args) {
+    // Accounts and acoustic analyses lock only their publication, then reload.
+    // Other writers retain the complete read/modify/write guard.
+    let _store_lock = if holds_command_lock(command, &args) {
         match aede_core::store_lock::StoreLock::acquire(&commands::data_dir(&args)) {
             Ok(lock) => Some(lock),
             Err(error) => {
@@ -318,6 +336,10 @@ fn mutates_store(command: &str) -> bool {
             | "played"
             | "history"
     )
+}
+
+fn holds_command_lock(command: &str, args: &args::Args) -> bool {
+    !matches!(command, "accounts" | "analyze") && mutates_store_with_args(command, args)
 }
 
 fn mutates_store_with_args(command: &str, args: &args::Args) -> bool {
@@ -440,6 +462,7 @@ const OPTIONS: &[&str] = &[
     "all",
     "help",
     "version",
+    "decode-test",
     "full",
     "follow-symlinks",
     "include-hidden",
@@ -455,6 +478,7 @@ const OPTIONS: &[&str] = &[
     "import",
     "template",
     "summaries",
+    "discogs",
     "discography",
     "covers",
     "size",
@@ -672,6 +696,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "take something back",
     ),
     (
+        "decode-test",
+        &["check"],
+        "decode complete files without audio output; prefer flac -t for FLAC",
+    ),
+    (
         "full",
         &["scan", "check", "spectrum", "fetch", "fingerprint"],
         "ignore what was already done",
@@ -750,6 +779,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "size",
         &["fetch", "spectrum"],
         "choose how large a picture is",
+    ),
+    (
+        "discogs",
+        &["fetch"],
+        "fetch linked Discogs label biographies",
     ),
     ("lang", &["fetch"], "choose the language of the prose"),
     (
@@ -1068,6 +1102,7 @@ const PRESENTATION_OPTIONS: &[&str] = &["no-color"];
 /// `--json` used to be declared globally and read by four commands, so
 /// `aede albums --json` printed the ordinary table and dropped the word.
 const JSON_COMMANDS: &[&str] = &[
+    "check",
     "accounts",
     "scan",
     "analyze",

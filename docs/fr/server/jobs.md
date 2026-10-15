@@ -63,6 +63,7 @@ Tous les booléens valent false par défaut ; targets est vide. **`{}` n’est p
 | `portraits` | Obtient les portraits d’artistes pris en charge. |
 | `logos` | Obtient les logos d’artistes/labels pris en charge. |
 | `labels` | Obtient les informations de labels. |
+| `discogs` | Récupère explicitement les biographies des labels depuis Discogs ; respecte la sélection, dry-run et les profils récents conservés. |
 | `fanart` | Active les familles d’illustrations Fanart.tv. |
 | `banners` | Inclut les bannières ; exige `logos` ou `fanart`. |
 | `images` | Télécharge les pochettes ; exige `covers`. |
@@ -73,7 +74,7 @@ Tous les booléens valent false par défaut ; targets est vide. **`{}` n’est p
 | `yes` | Accepte explicitement la confirmation d’un grand traitement ; HTTP n’attend pas de réponse interactive. |
 | `no_logo,no_label_logo,no_portrait,no_background,no_banner,no_album_cover,no_cdart` | Exclusions booléennes de familles d’images ; toutes exigent `fanart`. Ne combinez pas `logos`/`no_logo` ou `banners`/`no_banner`. |
 
-Dépendances et choix suivent [le guide des sources](../../sources.md). Les clés des services viennent du serveur ; le client ne remplace ni clés, ni dossier de données, ni arguments d’exécutable. Limites de débit, sauvegarde de progression et absence d’écrasement restent actives. Images/paroles peuvent créer des fichiers dérivés à côté de la musique ; audio/tags restent intacts. Sans `yes`, une tâche non interactive nécessitant confirmation échoue au lieu d’attendre. Options/plages invalides : 400 ; une tâche acceptée peut ensuite échouer dans son résultat.
+Dépendances et choix suivent [le guide des sources](../../sources.md). Les clés des services viennent par défaut du serveur. Un administrateur authentifié peut fournir `service_keys: {fanarttv?: string, acoustid?: string}` pour cette tâche uniquement : valeurs non vides, 1024 octets maximum, sans caractères de contrôle. Les clés absentes conservent les valeurs du serveur. Aède ne les enregistre pas, ne les inclut pas dans les informations de tâche et ne permet de modifier ni autres variables d’environnement, ni dossier de données, ni arguments d’exécutable. La capacité `fetch_service_keys` est annoncée avec le profil administratif ; HTTPS exige une session administrateur nominative. Le processus CLI reçoit les clés uniquement dans son environnement et masque leurs valeurs dans les sorties capturées. Limites de débit, sauvegarde de progression et absence d’écrasement restent actives. Images/paroles peuvent créer des fichiers dérivés à côté de la musique ; audio/tags restent intacts. Sans `yes`, une tâche non interactive nécessitant confirmation échoue au lieu d’attendre. Options/plages invalides : 400 ; une tâche acceptée peut ensuite échouer dans son résultat.
 
 ## GET /api/admin/v1/tasks/{id}
 
@@ -112,3 +113,20 @@ Renvoie HTTP 202 `{task_id,status:"cancel_requested",status_url}`. C’est une d
 Maximum quatre tâches HTTP actives et 64 dossiers conservés ; les plus anciennes tâches terminées sont évincées. Les tâches attendent le verrou partagé et survivent à la déconnexion du client. L’arrêt propre du serveur les attend : annulez d’abord un long fetch à interrompre. ID/résultats vivent seulement en mémoire et disparaissent au redémarrage.
 
 Un POST dont la réponse a été perdue peut déjà avoir démarré. Les soumissions ne sont pas idempotentes : ne les répétez pas aveuglément. Reconnectez-vous/suivez un ID conservé et examinez activité/journaux avant une nouvelle soumission. La récupération ne rembobine ni requêtes externes ni résultats partiels sauvegardés.
+
+## POST /api/admin/v1/lyrics
+
+Un administrateur authentifié peut envoyer `{track:"track:..."}`. Le serveur valide le fichier actuel de cette piste et transmet uniquement celui-ci au worker d'enrichissement annulable existant avec `lyrics:true,yes:true`. La capacité `fetch_track_lyrics` annonce cette route. Aucun chemin arbitraire fourni par le client n'est accepté ; les références d'album ou d'artiste sont refusées. LRCLIB ne demande aucune clé API dans le fonctionnement actuel d'Aède. Les erreurs du fournisseur et absences de correspondance restent dans le résultat de la tâche. Les paroles existantes, fichiers audio et tags sont conservés. `/api/v1/lyrics` découvre un nouveau LRC adjacent sans rescanner le catalogue. HTTPS exige une session administrateur nominative.
+
+## POST /api/admin/v1/generate
+
+Un administrateur local peut soumettre `{"steps":["analyze","spectrum","m3u","lyrics"]}` pour traiter la bibliothèque par étapes successives. `library_generations` annonce ce contrat. Il faut une à quatre étapes distinctes ; les champs inconnus, chemins et arguments arbitraires sont refusés. Les dossiers surveillés viennent du catalogue du serveur. Les analyses FlacCompagnon et les spectrogrammes utilisent un seul worker ; les M3U sont générés dans les dossiers d’albums, sans dériver un dossier d’artiste hors des racines. Les paroles utilisent explicitement la passe LRCLIB existante. Les fichiers audio et leurs tags restent intacts.
+
+Une seule génération réserve le registre administratif ; aucune autre tâche administrative ne peut démarrer en parallèle. Les résultats déjà présents sont réutilisés selon les règles des commandes. Une étape terminée avec des erreurs est signalée, les étapes suivantes restent exécutées et le résultat final demeure en échec. L’annulation arrête la suite et conserve ce qui a été terminé. La tâche appartient à Aède et continue quand le client ferme sa vue ou sa connexion. Les identifiants et journaux restent bornés et propres au processus serveur. Le suivi et l’annulation utilisent les routes de tâches existantes. Les types `library_generation_analyze`, `library_generation_spectrum`, `library_generation_m3u`, `library_generation_lyrics` ou `library_generation` identifient l’action ; l’étape paroles exige la fonctionnalité fetch.
+
+Sur Unix, les sous-processus appartiennent à un groupe séparé et l’annulation arrête ce groupe, y compris les encodeurs imbriqués, sans signaler le serveur ou son lecteur. Les tests hôtes vérifient la fermeture des pipes hérités, même lorsque le processus principal se termine avant ses descendants. La vérification native Windows reste distincte. La limitation à un worker réduit la concurrence ; elle ne certifie pas une lecture physique sans interruption sous toute charge système.
+
+
+## POST /api/admin/v1/check
+
+Test complet de décodage d’un album: `{"release":"release:…"}`. Un administrateur authentifié lance un décodage neuf, séquentiel, des fichiers catalogués de cette édition uniquement. Aucun chemin, élargissement au dossier ou option supplémentaire n’est accepté. Les routes habituelles de tâche et d’annulation donnent le résultat réel. La capacité `album_decode_test` annonce cette fonction. La capacité supplémentaire `album_decode_results` annonce le rapport JSON par fichier (version 1, `path` exact, `status: ok | no_hash | ko`, `verifier` et `message` éventuel). Le moteur utilise `check --decode-test --json`, avec `flac -t` pour les FLAC si disponible sur sa machine, sinon son décodeur Rust ; les autres formats utilisent le décodeur existant. Un échec du programme externe ne déclenche pas de repli trompeur. Un MD5 absent ne vaut pas un MD5 vérifié. Les fichiers audio, tags et conclusions CRC/analyses restent intacts. Les erreurs apparaissent par fichier et font échouer la tâche. HTTPS exige une session administrateur nominative.

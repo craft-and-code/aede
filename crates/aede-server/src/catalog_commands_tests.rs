@@ -127,6 +127,10 @@ fn track_detail_exposes_complete_attributed_analysis() {
         {
             let mut guard = state.catalog.write().await;
             let catalog = guard.as_mut().unwrap();
+            catalog.files[0].properties.codec = "flac".into();
+            catalog.files[0].tags.insert("mood".into(), vec!["electric".into()]);
+            catalog.files[0].tags.insert("lyrics".into(), vec!["original control words".into()]);
+            catalog.tracks[0].track_no = Some(1);
             let file = &catalog.files[0];
             catalog.analyses.push(aede_core::analysis::FileAnalysis {
                 path: file.path.clone(),
@@ -139,6 +143,11 @@ fn track_detail_exposes_complete_attributed_analysis() {
         }
         let (address, server) = start(state).await;
         let detail = json_response(address, "/api/v1/track?name=Hells%20Bells");
+        assert_eq!(detail["properties"]["codec"], "flac");
+        assert_eq!(detail["tags"]["mood"][0], "electric");
+        assert!(detail["credits"].is_array());
+        assert_eq!(detail["track_no"], 1);
+        assert_eq!(detail["lyrics_available"], true);
         assert_eq!(detail["analyses"][0]["source"], "flaccompagnon");
         assert_eq!(detail["analyses"][0]["stale"], false);
         assert_eq!(detail["analyses"][0]["source_data"]["local_phase"]["bands"][0]["correlation"], 0.82);
@@ -437,6 +446,73 @@ fn catalog_navigation_bounds_search_text_before_lookup() {
             json_response(address, "/api/v1/albums?name=Black")["total"],
             3
         );
+        server.abort();
+    });
+}
+
+#[test]
+fn label_prose_keeps_source_language_and_licence_without_fetching() {
+    use aede_core::sources::{LabelFacts, Prose};
+    let state = sample_state();
+    let catalog = state.catalog.blocking_read();
+    let catalog = catalog.as_ref().unwrap();
+    let reference = EntityRef::of(catalog, EntityKind::Label, 0).unwrap();
+    let mut sources = Sources::default();
+    assert!(label_biography(catalog, &reference, &sources).is_none());
+    sources.set(SourceRecord {
+        key: reference.key.clone(),
+        source: "discogs".into(),
+        source_id: Some("42".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: "Independent label.".into(),
+                url: "https://example.org/label".into(),
+                lang: "en".into(),
+                licence: "Attributed terms".into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    let prose = label_biography(catalog, &reference, &sources).unwrap();
+    assert_eq!(prose["text"], "Independent label.");
+    assert_eq!(prose["source"], "discogs");
+    assert_eq!(prose["lang"], "en");
+    assert_eq!(prose["licence"], "Attributed terms");
+    runtime().block_on(async {
+        let state = fixture().await;
+        let directory = state.data_dir.clone();
+        sources.records[0].key = "atlantic".into();
+        sources.records[0].fetched_at = aede_core::clock::now_seconds();
+        std::fs::create_dir_all(&directory).unwrap();
+        aede_core::sources::save(&sources, &aede_core::sources::sources_path(&directory)).unwrap();
+        let (address, server) = start(state).await;
+        let detail = json_response(address, "/api/v1/label?name=Atlantic");
+        assert_eq!(detail["biography"], prose);
+        assert_eq!(detail["releases"].as_array().unwrap().len(), 2);
+        sources.records[0].fetched_at = 1;
+        aede_core::sources::save(&sources, &aede_core::sources::sources_path(&directory)).unwrap();
+        assert!(json_response(address, "/api/v1/label?name=Atlantic")["biography"].is_null());
+        server.abort();
+        std::fs::remove_dir_all(directory).unwrap();
+    });
+}
+
+#[test]
+fn label_album_count_order_is_applied_before_pagination_and_refuses_other_kinds() {
+    runtime().block_on(async {
+        let state = fixture().await;
+        let (address, server) = start(state).await;
+        for (order, expected) in [("asc", "Roadrunner"), ("desc", "Atlantic")] {
+            let page = json_response(
+                address,
+                &format!("/api/v1/labels?sort=albums&order={order}&limit=1"),
+            );
+            assert_eq!(page["items"][0]["name"], expected);
+            assert_eq!(page["total"], 2);
+        }
+        assert!(request(address, "/api/v1/genres?sort=albums").starts_with("HTTP/1.1 400"));
         server.abort();
     });
 }

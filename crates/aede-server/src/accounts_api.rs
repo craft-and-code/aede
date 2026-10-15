@@ -4,9 +4,12 @@ use aede_core::accounts::{self, Account, Accounts, Role};
 use axum::extract::{Path as PathParameter, rejection::PathRejection};
 
 use super::*;
+#[path = "parental_accounts.rs"]
+mod parental;
 
 pub(super) fn routes() -> Router<ApiState> {
     remote_routes()
+        .merge(parental::routes())
         .route(
             "/api/admin/v1/accounts",
             get(list_accounts).post(create_account),
@@ -39,6 +42,9 @@ pub(super) struct AccountView {
     enabled: bool,
     created_at: u64,
     updated_at: u64,
+    parental_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parental_locked_by: Option<String>,
 }
 
 fn account_view(account: &Account) -> AccountView {
@@ -49,7 +55,19 @@ fn account_view(account: &Account) -> AccountView {
         enabled: account.enabled,
         created_at: account.created_at,
         updated_at: account.updated_at,
+        parental_enabled: false,
+        parental_locked_by: None,
     }
+}
+
+fn scoped_account_view(state: &ApiState, account: &Account) -> Result<AccountView, ApiError> {
+    let mut view = account_view(account);
+    if account.role == Role::Administrator {
+        return Ok(view);
+    }
+    let policy = crate::parental::snapshot(state, &account.id)?;
+    view.parental_enabled = account.role != Role::Administrator && policy.policy.enabled;
+    Ok(view)
 }
 
 #[derive(Deserialize)]
@@ -131,7 +149,7 @@ async fn login(
             token: auth::session_token(&principal).into(),
             token_type: "Bearer",
             expires_at,
-            account: account_view(account),
+            account: scoped_account_view(&state, account)?,
         }))
     })
     .await
@@ -155,10 +173,15 @@ async fn session_info(
         false,
         Instant::now(),
     )?;
-    data.find(&captured.username)
-        .map(account_view)
-        .map(Json)
-        .ok_or_else(auth::unauthorized)
+    let account = data
+        .find(&captured.username)
+        .ok_or_else(auth::unauthorized)?
+        .clone();
+    let for_work = state.clone();
+    crate::parental::blocking(&state, move || {
+        scoped_account_view(&for_work, &account).map(Json)
+    })
+    .await
 }
 
 async fn logout(State(state): State<ApiState>, request: Request) -> Result<StatusCode, ApiError> {
@@ -188,7 +211,7 @@ async fn change_password(
         return Err(refused("password exceeds 1024 UTF-8 bytes"));
     }
     auth::take_attempt(&state, &captured.username)?;
-    password_update(state, Some(captured.clone()), move |data| {
+    password_update(state, Some(captured.clone()), move |_, _, data| {
         if data
             .authenticate(&captured.username, &input.current_password)
             .is_none()
@@ -244,7 +267,9 @@ fn check_capture(state: &ApiState, captured: Option<&auth::Principal>) -> Result
 async fn password_update<T: Send + 'static>(
     state: ApiState,
     captured: Option<auth::Principal>,
-    operation: impl FnOnce(&mut Accounts) -> Result<T, ApiError> + Send + 'static,
+    operation: impl FnOnce(&ApiState, Option<&auth::Principal>, &mut Accounts) -> Result<T, ApiError>
+    + Send
+    + 'static,
 ) -> Result<T, ApiError> {
     let permit = state
         .auth
@@ -257,7 +282,7 @@ async fn password_update<T: Send + 'static>(
         let _guard = lock_accounts(&state)?;
         check_capture(&state, captured.as_ref())?;
         let mut data = enabled_accounts(&state)?;
-        let result = operation(&mut data)?;
+        let result = operation(&state, captured.as_ref(), &mut data)?;
         accounts::save(&data, &accounts::accounts_path(&state.data_dir)).map_err(|_| {
             error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -286,7 +311,13 @@ async fn read_accounts<T: Send + 'static>(
             Instant::now(),
         )?;
     }
-    operation(&data)
+    let for_work = state.clone();
+    crate::parental::blocking(&state, move || {
+        let value = operation(&data)?;
+        check_capture(&for_work, captured.as_ref())?;
+        Ok(value)
+    })
+    .await
 }
 
 async fn list_accounts(
@@ -295,8 +326,23 @@ async fn list_accounts(
 ) -> Result<Json<Vec<AccountView>>, ApiError> {
     let captured = admin_capture(&state, &request)?;
     personal::empty_body(&personal::body(request).await?)?;
-    read_accounts(state, captured, |data| {
-        Ok(Json(data.all().iter().map(account_view).collect()))
+    let for_work = state.clone();
+    read_accounts(state, captured, move |data| {
+        let policies = crate::parental::load(&for_work)?;
+        Ok(Json(
+            data.all()
+                .iter()
+                .map(|account| {
+                    let mut view = account_view(account);
+                    view.parental_locked_by = if policies.supervises(&account.id) {
+                        Some(account.id.clone())
+                    } else {
+                        policies.policy(&account.id).locked_by
+                    };
+                    view
+                })
+                .collect(),
+        ))
     })
     .await
 }
@@ -339,7 +385,7 @@ async fn create_account(
     let input: CreateAccount = personal::json_body(request).await?;
     let role =
         Role::parse(&input.role).ok_or_else(|| refused("role must be admin, user or auditor"))?;
-    password_update(state, captured, move |data| {
+    password_update(state, captured, move |_, _, data| {
         data.create(
             &input.username,
             &input.password,
@@ -387,10 +433,15 @@ async fn update_account(
     {
         return Err(refused("provide at least one account field"));
     }
-    password_update(state, captured, move |data| {
-        if data.find(&name).is_none() {
-            return Err(missing());
-        }
+    password_update(state, captured, move |state, actor, data| {
+        let account = data.find(&name).ok_or_else(missing)?;
+        parental::check_account_edit(state, actor, account)?;
+        parental::check_administrator_retained(
+            state,
+            account,
+            patch.role.as_deref(),
+            patch.enabled,
+        )?;
         let now = aede_core::clock::now_seconds();
         let mut current_name = name;
         if let Some(name) = patch.username {
@@ -429,10 +480,8 @@ async fn revoke_sessions(
     let captured = admin_capture(&state, &request)?;
     let name = path_name(input)?;
     personal::empty_body(&personal::body(request).await?)?;
-    password_update(state, captured, move |data| {
-        if data.find(&name).is_none() {
-            return Err(missing());
-        }
+    password_update(state, captured, move |state, actor, data| {
+        parental::check_account_edit(state, actor, data.find(&name).ok_or_else(missing)?)?;
         data.revoke(&name, aede_core::clock::now_seconds())
             .map_err(refused)?;
         Ok(StatusCode::NO_CONTENT)
@@ -443,3 +492,7 @@ async fn revoke_sessions(
 #[cfg(test)]
 #[path = "accounts_api_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "accounts_personal_isolation_tests.rs"]
+mod personal_isolation_tests;

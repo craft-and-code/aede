@@ -310,6 +310,9 @@ pub fn to_json(catalog: &Catalog) -> Json {
                     if let Some(fraction) = catalog.file_mtime_subseconds.get(&file.path) {
                         row.set("mtime_subseconds", (*fraction).into());
                     }
+                    if let Some(added) = catalog.file_added_at.get(&file.path) {
+                        row.set("added_at", (*added).into());
+                    }
                     row
                 })
                 .collect(),
@@ -745,6 +748,11 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
                 .insert(file.path.clone(), fraction);
         } else if item.get("mtime_subseconds").is_some() {
             return Err(StoreError::Invalid("invalid file modification fraction"));
+        }
+        if let Some(added) = item.field_u64("added_at") {
+            catalog.file_added_at.insert(file.path.clone(), added);
+        } else if item.get("added_at").is_some() {
+            return Err(StoreError::Invalid("invalid file catalog date"));
         }
         catalog.files.push(file);
     }

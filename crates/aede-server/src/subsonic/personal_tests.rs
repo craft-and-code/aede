@@ -546,6 +546,79 @@ fn scrobble_batches_persist_only_client_declarations_with_private_counts() {
 }
 
 #[test]
+fn scrobble_retention_never_erases_another_accounts_declarations_or_native_visits() {
+    let runtime = crate::test_support::test_runtime();
+    let fixture = Fixture::new();
+    let alice = identity(&fixture, "alice");
+    let bob = identity(&fixture, "bob");
+    let song = id(&fixture, EntityKind::Track);
+    let catalog = fixture.0.catalog.try_read().unwrap().clone().unwrap();
+    let track = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+    let mut data = UserData::default();
+    data.record_play(user::Play {
+        owner: alice.owner.clone(),
+        track: track.clone(),
+        at: 1,
+        ms_played: 1000,
+        completed: true,
+    });
+    data.record_scrobble(Scrobble {
+        owner: alice.owner.clone(),
+        track: track.clone(),
+        at_ms: 1000,
+    })
+    .unwrap();
+    for at in 2..=user::HISTORY_LIMIT as u64 {
+        data.record_scrobble(Scrobble {
+            owner: bob.owner.clone(),
+            track: track.clone(),
+            at_ms: at * 1000,
+        })
+        .unwrap();
+    }
+    user::save(&data, &user::user_path(&fixture.0.data_dir)).unwrap();
+    run(
+        &runtime,
+        &fixture,
+        &bob,
+        "scrobble",
+        &[
+            ("id", &song),
+            ("id", &song),
+            ("time", "501000"),
+            ("time", "502000"),
+        ],
+    )
+    .unwrap();
+    let restored = persisted(&fixture);
+    assert_eq!(restored.plays, data.plays);
+    assert_eq!(
+        restored
+            .scrobbles
+            .iter()
+            .filter(|p| p.owner == alice.owner)
+            .collect::<Vec<_>>(),
+        data.scrobbles
+            .iter()
+            .filter(|p| p.owner == alice.owner)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        restored
+            .scrobbles
+            .iter()
+            .filter(|p| p.owner == bob.owner)
+            .count(),
+        user::HISTORY_LIMIT
+    );
+    assert_eq!(restored.play_count(&alice.owner, &track), 2);
+    assert_eq!(
+        restored.play_count(&bob.owner, &track),
+        user::HISTORY_LIMIT as u32 + 1
+    );
+}
+
+#[test]
 fn catalogue_views_expose_only_the_authenticated_owners_ratings_favourites_and_counts() {
     let runtime = crate::test_support::test_runtime();
     let fixture = Fixture::new();

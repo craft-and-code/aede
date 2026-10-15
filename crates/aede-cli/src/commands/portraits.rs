@@ -34,7 +34,7 @@
 //! # Where the picture is written
 //!
 //! Beside the music, when the artist's answer is unambiguous: every album
-//! [`super::shared_folder`] can find for them shares one parent, which is
+//! [`aede_core::coverart::shared_artist_folder`] can find for them shares one parent, which is
 //! the same folder `aede playlist --artists` already writes a discography
 //! playlist into. It rides along with the user's own backup exactly as
 //! `cover.jpg` does today — nothing about `aede backup` has to know it

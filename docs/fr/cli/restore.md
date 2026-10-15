@@ -6,6 +6,8 @@ Arrêter le serveur pour une récupération réelle. Sauvegarder les données ac
 
 Restaurer les comptes conserve propriétaires stables et vérificateurs des mots de passe, mais renouvelle l’époque des identifiants pour invalider toutes les anciennes sessions. Les versions 1 et 2, sans comptes, laissent les identifiants existants intacts. Destinations de comptes et archives avec identifiants exigent des permissions Unix privées. [Reset](reset.md) préserve aussi les comptes.
 
+La version 4 peut aussi restaurer les règles parentales des administrateurs et les compteurs d’écoute. Cette partie remplace `parental.json` uniquement si elle est présente et prise en charge ; une ancienne sauvegarde ou une partie parentale absente ou illisible conserve les règles et compteurs actuels. Une règle restaurée s’applique au prochain contrôle authentifié ; la restauration ne lance jamais de lecture. Les réservations conservées restent comptées de manière prudente, et les sessions suivent toujours la règle distincte de restauration des comptes ci-dessus. Les destinations et sauvegardes parentales exigent les mêmes permissions privées que les identifiants.
+
 Le catalogue est une photographie de la date de sauvegarde. Exécuter scan ensuite pour rapprocher musique ajoutée/retirée, toutes les racines accessibles. restore ne récupère pas l’audio absent, non inclus. Un fichier illisible ou sans magasin restaurable est refusé.
 
 ## Syntaxe et arguments

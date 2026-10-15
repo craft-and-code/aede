@@ -1,6 +1,6 @@
 # Enable local administration
 
-On local HTTP, administration can scan/fetch and access the local owner's personal data. An [account administrator](accounts.md) may use their session. The optional legacy administrative token also works; without accounts or a token, administration is disabled. [HTTPS](remote.md) disables every `/api/admin` route and the legacy token; use the trusted local CLI for installation work.
+On local HTTP, administration can scan/fetch and manage accounts. An [account administrator](accounts.md) may use their session. The transitional personal routes address `local` and accept only an administrator session owning `local` or the trusted installation token; other administrators use `/api/me/v1` for their own personal data. The optional legacy administrative token also works for installation work; without accounts or a token, administration is disabled. [HTTPS](remote.md) permits these operations only with a current administrator account session; the legacy token stays local to HTTP.
 
 ## Configure the token before startup
 
@@ -33,6 +33,6 @@ Reads use no body. Task routes accept no query parameters; personal routes only 
 
 `401 unauthorized` means a missing/incorrect/duplicate Bearer header, or an Origin with the legacy token. A `user` or `auditor` account receives `403 forbidden`. Without accounts or a token, administration returns `404 not_found`. Jobs use the server's OS permissions: scan/fetch paths belong to that host and require a trusted administrator.
 
-The server reads music and tags without changing them. Images, lyrics and analysis sidecars are derivatives that may require destination write access. Service keys come from the server environment, never HTTP overrides. Administrative personal routes retain `local`; `/api/me/v1` uses the session's owner. Requests cannot choose a different owner.
+The server reads music and tags without changing them. Images, lyrics and analysis sidecars are derivatives that may require destination write access. Service keys default to the server environment; authenticated administrative fetch jobs may use bounded client-owned keys for that job only, without changing the installation configuration (see [fetch jobs](jobs.md)). Administrative personal routes retain `local`; `/api/me/v1` uses the session's owner. Requests cannot choose a different owner.
 
 Continue with [Scan/fetch jobs and cancellation](jobs.md) or [Personal-data routes](personal.md). The [operating guide](../operating.md) covers long-running service permissions and backups.

@@ -49,6 +49,7 @@ fn personal_queries_preserve_owner_scope_and_the_first_legacy_row() {
             owner: owner.into(),
             track: target.clone(),
             count,
+            completed_count: 0,
             last_played: 0,
         });
     }
@@ -970,4 +971,24 @@ fn an_empty_query_matches_everything_and_a_broken_one_says_why() {
     let error = parse("bogus:1").expect_err("unknown field");
     assert!(error.message.contains("not a field"), "{error}");
     assert!(error.message.contains("genre"), "{error}");
+}
+
+#[test]
+fn technical_queries_distinguish_unknown_depth_channels_and_exact_track_identity() {
+    let mut c = catalog();
+    c.files[0].properties.bit_depth = Some(24);
+    c.files[0].properties.channels = Some(2);
+    let data = UserData::default();
+    let context = Context::new(&c, &data, LOCAL_USER);
+    assert_eq!(
+        run(&parse("bitdepth:24 channels:2").unwrap(), &context),
+        [0]
+    );
+    assert!(run(&parse("bitdepth:16").unwrap(), &context).is_empty());
+    let reference = EntityRef::of(&c, EntityKind::Track, 0).unwrap().to_token();
+    assert_eq!(
+        run(&parse(&format!("ref:=\"{reference}\"")).unwrap(), &context),
+        [0]
+    );
+    assert!(parse("bitdepth:24..16").is_err());
 }

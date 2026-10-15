@@ -82,13 +82,19 @@ mod catalog_commands;
 /// Network-device controllers; prefer the standalone `aede-devices` crate.
 /// This reexport preserves the original Rust API without duplicating it.
 pub use aede_devices as devices;
+mod analysis_report;
 mod artwork;
+mod audio_features;
 mod errors;
 mod events;
+mod fetch_service_keys;
 mod inspection;
 mod jobs;
+mod missing_cover_cache;
+pub use fetch_service_keys::FetchServiceKeys;
 mod lyrics;
 mod models;
+mod parental;
 mod personal;
 mod playback_api;
 mod presentation;
@@ -99,8 +105,12 @@ mod security;
 mod state;
 mod subsonic;
 mod tls;
+mod waveform;
 
-pub use jobs::{FetchRequest, JobOutput, JobRequest, MediaJobRequest, ScanRequest};
+pub use jobs::{
+    FetchRequest, GenerationRequest, GenerationStep, JobOutput, JobRequest, MediaJobRequest,
+    ScanRequest,
+};
 
 use admin::*;
 use catalog::*;
@@ -112,9 +122,10 @@ use routing::*;
 #[cfg(test)]
 use runtime::run_http;
 use runtime::{refresh_catalog, stamp};
-pub use runtime::{serve, serve_with_options};
+pub use runtime::{serve, serve_with_desktop_tls, serve_with_options, serve_with_owner_lease};
 use security::*;
 use state::*;
+pub use tls::DesktopTls;
 use tls::*;
 pub use tls::{ServerOptions, TlsOptions};
 
@@ -134,3 +145,17 @@ mod tests;
 #[cfg(test)]
 #[path = "tls_tests.rs"]
 mod tls_tests;
+
+#[cfg(test)]
+#[path = "parental_api_tests.rs"]
+mod parental_api_tests;
+#[cfg(test)]
+#[path = "parental_ownership_tests.rs"]
+mod parental_ownership_tests;
+
+#[cfg(test)]
+mod parental_test_support;
+
+#[cfg(test)]
+#[path = "parental_pcm_tests.rs"]
+mod parental_pcm_tests;

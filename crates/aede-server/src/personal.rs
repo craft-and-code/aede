@@ -15,8 +15,24 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::*;
+#[path = "personal_achievements.rs"]
+mod achievements;
+#[path = "personal_collection_duration.rs"]
+mod collection_duration;
+#[path = "personal_collections.rs"]
+mod collection_updates;
+#[path = "personal_listening.rs"]
+mod listening;
 #[path = "personal_m3u.rs"]
 mod m3u;
+#[path = "personal_missing.rs"]
+mod missing;
+#[path = "personal_moods.rs"]
+pub(crate) mod moods;
+#[path = "personal_preferences.rs"]
+mod preferences;
+#[path = "personal_search.rs"]
+mod search;
 
 const MAX_BODY: usize = 16 * 1024;
 const MAX_TAGS: usize = 100;
@@ -29,11 +45,15 @@ pub(super) fn routes() -> Router<ApiState> {
             "/api/admin/v1/annotation",
             get(annotation).put(update_annotation),
         )
-        .route("/api/admin/v1/history", get(history).post(record_history))
+        .route(
+            "/api/admin/v1/history",
+            get(history).post(record_history).delete(reset_history),
+        )
         .route(
             "/api/admin/v1/collection",
             get(collection)
                 .put(save_collection)
+                .patch(collection_updates::rename)
                 .delete(delete_collection),
         )
         .route("/api/admin/v1/collections", get(collections))
@@ -45,16 +65,27 @@ pub(super) fn account_routes() -> Router<ApiState> {
             "/api/me/v1/annotation",
             get(annotation).put(update_annotation),
         )
-        .route("/api/me/v1/history", get(history).post(record_history))
+        .route(
+            "/api/me/v1/history",
+            get(history).post(record_history).delete(reset_history),
+        )
         .route(
             "/api/me/v1/collection",
             get(collection)
                 .put(save_collection)
+                .patch(collection_updates::rename)
                 .delete(delete_collection),
         )
         .route("/api/me/v1/collections", get(collections))
+        .route("/api/me/v1/collection/albums", get(collection_albums))
         .route("/api/me/v1/annotations", get(annotations))
+        .merge(search::routes())
+        .merge(achievements::routes())
+        .merge(listening::routes())
+        .merge(preferences::routes())
+        .merge(moods::routes())
         .merge(m3u::routes())
+        .merge(missing::routes())
 }
 
 struct PersonalOwner {
@@ -84,9 +115,20 @@ impl PersonalOwner {
     fn from_request(state: &ApiState, request: &Request) -> Result<Self, ApiError> {
         if request.uri().path().starts_with("/api/admin/v1/") {
             require_admin(state, request)?;
+            let principal = request.extensions().get::<auth::Principal>().cloned();
+            if principal
+                .as_ref()
+                .is_some_and(|principal| principal.owner != LOCAL_USER)
+            {
+                return Err(error(
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "use /api/me/v1 for this account's personal data",
+                ));
+            }
             Ok(Self {
                 id: LOCAL_USER.into(),
-                principal: request.extensions().get::<auth::Principal>().cloned(),
+                principal,
             })
         } else {
             let principal = auth::request_principal(request)?;
@@ -101,7 +143,15 @@ impl PersonalOwner {
         match &self.principal {
             Some(principal) => auth::recheck(state, principal),
             None => Ok(()),
-        }
+        }?;
+        crate::parental::confirm(state)
+    }
+
+    // Preparation may include blocking filesystem reads or catalog projection.
+    // Revalidate after that work, immediately before admitting its result.
+    fn admit<T>(&self, state: &ApiState, prepared: T) -> Result<T, ApiError> {
+        self.recheck(state)?;
+        Ok(prepared)
     }
 
     /// Administrative-token routes have no account role; session routes must
@@ -248,6 +298,8 @@ impl PlayRequest {
 #[serde(deny_unknown_fields)]
 struct CollectionRequest {
     expression: String,
+    #[serde(default)]
+    create_only: bool,
 }
 
 fn parsed_query<T>(input: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
@@ -355,7 +407,7 @@ fn load_personal(data_dir: &Path, catalog: &Catalog) -> Result<UserData, ApiErro
 // Catalog and user data must describe the same completed writer operation.
 // A cached catalog can predate user.json and reconcile a new track's note onto
 // a different track. Keep the lock through validation and any resulting save.
-fn locked_personal(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), ApiError> {
+fn locked_personal_full(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), ApiError> {
     let guard = StoreLock::try_acquire(data_dir).map_err(|failure| {
         if failure.kind() == std::io::ErrorKind::WouldBlock {
             error(
@@ -385,16 +437,32 @@ fn locked_personal(data_dir: &Path) -> Result<(StoreLock, Catalog, UserData), Ap
     Ok((guard, catalog, data))
 }
 
+fn locked_personal(state: &ApiState) -> Result<(StoreLock, Catalog, UserData), ApiError> {
+    let (guard, catalog, data) = locked_personal_full(&state.data_dir)?;
+    let visible = crate::parental::view_owned(state, catalog)?;
+    Ok((guard, visible, data))
+}
+
 fn locked_update<T>(
     data_dir: &Path,
     state: &ApiState,
     owner: &PersonalOwner,
     update: impl FnOnce(&Catalog, &mut UserData) -> Result<T, ApiError>,
 ) -> Result<T, ApiError> {
-    let (_guard, catalog, mut data) = locked_personal(data_dir)?;
+    let (_guard, catalog, mut data) = locked_personal(state)?;
     owner.recheck(state)?;
     let result = update(&catalog, &mut data)?;
+    if let Err(failure) = aede_core::achievements::refresh(
+        &catalog,
+        &mut data,
+        &owner.id,
+        false,
+        clock::now_seconds(),
+    ) {
+        eprintln!("Private achievement projection retained after failure: {failure}");
+    }
     data.forget_empty();
+    owner.recheck(state)?;
     user::save(&data, &user::user_path(data_dir)).map_err(|failure| {
         eprintln!("API user data write failed: {failure}");
         error(
@@ -443,15 +511,17 @@ async fn annotation(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let reference = reference(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         existing_target(&catalog, &reference)?;
-        Ok(Json(AnnotationResponse {
-            reference: reference.to_token(),
-            annotation: data.find(&owner.id, &reference).map(annotation_view),
-        }))
+        owner.admit(
+            &state,
+            Json(AnnotationResponse {
+                reference: reference.to_token(),
+                annotation: data.find(&owner.id, &reference).map(annotation_view),
+            }),
+        )
     })?
     .await
     .map_err(|_| {
@@ -587,13 +657,17 @@ async fn history(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, mut data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        Ok(Json(history_page(
-            &data, &catalog, &owner.id, offset, limit,
-        )))
+        if crate::parental::supervised(&state) {
+            data.plays
+                .retain(|play| play.track.resolve(&catalog).is_some());
+        }
+        owner.admit(
+            &state,
+            Json(history_page(&data, &catalog, &owner.id, offset, limit)),
+        )
     })?
     .await
     .map_err(|_| {
@@ -642,12 +716,46 @@ async fn record_history(
     })?
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResetHistory {
+    confirm: bool,
+}
+#[derive(Serialize)]
+struct ResetHistoryResult {
+    events: usize,
+    counters: usize,
+}
+async fn reset_history(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Result<Json<ResetHistoryResult>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    owner.require_mutation()?;
+    no_query(&request)?;
+    let input: ResetHistory = json_body(request).await?;
+    if !input.confirm {
+        return Err(invalid_query("explicit confirmation is required"));
+    }
+    let data_dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        locked_update(&data_dir, &state, &owner, |_, data| {
+            let (events, counters) = data.forget_history(&owner.id);
+            Ok(Json(ResetHistoryResult { events, counters }))
+        })
+    })?
+    .await
+    .map_err(|_| unavailable())?
+}
+
 #[derive(Serialize)]
 struct CollectionView {
     name: String,
     expression: String,
     created_at: u64,
     updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<u64>,
 }
 
 fn collection_view(collection: &user::Collection) -> CollectionView {
@@ -656,6 +764,7 @@ fn collection_view(collection: &user::Collection) -> CollectionView {
         expression: collection.expression.clone(),
         created_at: collection.created_at,
         updated_at: collection.updated_at,
+        duration_ms: None,
     }
 }
 
@@ -668,11 +777,11 @@ async fn collection(
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
     validate_collection_name(&query.name)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, _catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, _catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        data.collection(&owner.id, &query.name)
+        let prepared = data
+            .collection(&owner.id, &query.name)
             .map(collection_view)
             .map(Json)
             .ok_or_else(|| {
@@ -681,7 +790,8 @@ async fn collection(
                     "collection_not_found",
                     "no collection has this name",
                 )
-            })
+            })?;
+        owner.admit(&state, prepared)
     })?
     .await
     .map_err(|_| {
@@ -703,11 +813,11 @@ async fn save_collection(
     let query = parsed_query(input)?;
     validate_collection_name(&query.name)?;
     let input: CollectionRequest = json_body(request).await?;
-    if input.expression.trim().is_empty() || input.expression.len() > 2048 {
+    if input.expression.trim().is_empty() || input.expression.len() > 8192 {
         return Err(error(
             StatusCode::BAD_REQUEST,
             "invalid_parameters",
-            "expression must contain 1 to 2048 bytes",
+            "expression must contain 1 to 8192 bytes",
         ));
     }
     aede_core::query::parse(&input.expression).map_err(|failure| {
@@ -721,6 +831,13 @@ async fn save_collection(
     spawn_personal(state.inspection_slots.clone(), move || {
         let now = clock::now_seconds();
         locked_update(&data_dir, &state, &owner, |_, data| {
+            if input.create_only && data.collection(&owner.id, &query.name).is_some() {
+                return Err(error(
+                    StatusCode::CONFLICT,
+                    "collection_exists",
+                    "a collection already has this name",
+                ));
+            }
             data.save_collection(&owner.id, &query.name, &input.expression, now);
             data.collection(&owner.id, &query.name)
                 .map(collection_view)
@@ -778,6 +895,52 @@ async fn delete_collection(
     })?
 }
 
+async fn collection_albums(
+    State(state): State<ApiState>,
+    input: Result<Query<NameQuery>, QueryRejection>,
+    request: Request,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let owner = PersonalOwner::from_request(&state, &request)?;
+    empty_body(&body(request).await?)?;
+    let query = parsed_query(input)?;
+    validate_collection_name(&query.name)?;
+    let data_dir = state.data_dir.clone();
+    spawn_personal(state.inspection_slots.clone(), move || {
+        let (_guard, catalog, data) = locked_personal(&state)?;
+        owner.recheck(&state)?;
+        let saved = data.collection(&owner.id, &query.name).ok_or_else(|| {
+            error(
+                StatusCode::NOT_FOUND,
+                "collection_not_found",
+                "collection is unavailable",
+            )
+        })?;
+        let parsed = aede_core::query::parse(&saved.expression)
+            .map_err(|failure| invalid_query(failure.to_string()))?;
+        let sources = inspection::held_sources(&data_dir)?;
+        let context =
+            aede_core::query::Context::new(&catalog, &data, &owner.id).with_sources(&sources);
+        let releases: BTreeSet<_> = aede_core::query::run(&parsed, &context)
+            .into_iter()
+            .filter_map(|id| catalog.track(id).and_then(|t| t.release_id))
+            .collect();
+        let items = releases
+            .into_iter()
+            .map(|id| {
+                EntityRef::of(&catalog, EntityKind::Release, id)
+                    .map(|r| r.to_token())
+                    .ok_or_else(unavailable)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        owner.admit(
+            &state,
+            Json(serde_json::json!({"items":items,"scanned_at":catalog.scanned_at})),
+        )
+    })?
+    .await
+    .map_err(|_| unavailable())?
+}
+
 #[derive(Serialize)]
 struct CollectionsResponse {
     #[serde(flatten)]
@@ -794,7 +957,7 @@ async fn collections(
     let (offset, limit) = page(parsed_query(input)?)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let mut items: Vec<_> = data
             .collections
@@ -807,15 +970,31 @@ async fn collections(
                 .cmp(&text::normalize(&right.name))
                 .then_with(|| left.name.cmp(&right.name))
         });
-        Ok(Json(CollectionsResponse {
-            page: Page {
-                total: items.len(),
-                items: items.into_iter().skip(offset).take(limit).collect(),
-                offset,
-                limit,
-                scanned_at: catalog.scanned_at,
-            },
-        }))
+        let total = items.len();
+        let sources = inspection::held_sources(&data_dir)?;
+        let context =
+            aede_core::query::Context::new(&catalog, &data, &owner.id).with_sources(&sources);
+        let items = items
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|mut row| {
+                row.duration_ms = collection_duration::duration(&context, &row.expression);
+                row
+            })
+            .collect();
+        owner.admit(
+            &state,
+            Json(CollectionsResponse {
+                page: Page {
+                    total,
+                    items,
+                    offset,
+                    limit,
+                    scanned_at: catalog.scanned_at,
+                },
+            }),
+        )
     })?
     .await
     .map_err(|_| {
@@ -847,19 +1026,21 @@ async fn annotations(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let (offset, limit) = page(parsed_query(input)?)?;
-    let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
-        let (_guard, catalog, data) = locked_personal(&data_dir)?;
+        let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
         let rows = own_annotations(&data, &catalog, &owner.id);
         let total = rows.len();
-        Ok(Json(Page::new(
-            rows.into_iter().skip(offset).take(limit).collect(),
-            total,
-            offset,
-            limit,
-            catalog.scanned_at,
-        )))
+        owner.admit(
+            &state,
+            Json(Page::new(
+                rows.into_iter().skip(offset).take(limit).collect(),
+                total,
+                offset,
+                limit,
+                catalog.scanned_at,
+            )),
+        )
     })?
     .await
     .map_err(|_| unavailable())?
@@ -902,3 +1083,7 @@ fn invalid_reference(message: impl Into<String>) -> ApiError {
 #[cfg(test)]
 #[path = "personal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "personal_isolation_tests.rs"]
+mod isolation_tests;

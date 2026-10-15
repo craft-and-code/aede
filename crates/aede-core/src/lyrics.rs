@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "lyrics_source.rs"]
 mod source;
-pub use source::{CurrentTrack, ReadError, read_current, read_local};
+pub use source::{CurrentTrack, ReadError, has_source, read_current, read_local};
 
 #[path = "lyrics_timeline.rs"]
 mod timeline;

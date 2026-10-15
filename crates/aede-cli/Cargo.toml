@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [features]
 default = ["fetch"]
-fetch = ["aede-core/fetch"]
+fetch = ["aede-core/fetch", "aede-server/fetch"]
 
 [dependencies]
 # `default-features = false` so that turning this crate's `fetch` off

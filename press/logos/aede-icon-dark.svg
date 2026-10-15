@@ -1,0 +1,11 @@
+<svg role="img" aria-labelledby="title" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title id="title">Aède — application icon proposal</title>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#222a27"/><stop offset="1" stop-color="#101413"/></linearGradient>
+    <radialGradient id="light" cx=".25" cy=".15" r=".85"><stop stop-color="#d8f36a" stop-opacity=".08"/><stop offset="1" stop-color="#d8f36a" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="url(#surface)"/>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="url(#light)" stroke="#e1eadc" stroke-opacity=".12" stroke-width="3"/>
+  <path fill="#f1f0eb" fill-rule="evenodd" d="M496 287c-98 0-166 41-175 118h102c6-25 30-40 72-40 46 0 69 20 69 53v10h-74c-129 0-195 46-195 134 0 81 56 138 143 138 56 0 100-23 130-62v51h101V429c0-94-61-142-173-142Zm68 218v29c0 53-37 85-91 85-39 0-60-18-60-45 0-45 29-69 94-69h57Z"/>
+  <circle cx="757" cy="654" r="48" fill="#d8f36a"/>
+</svg>

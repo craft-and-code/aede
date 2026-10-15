@@ -1,6 +1,6 @@
 # Activer l’administration locale
 
-En HTTP local, l’administration permet de lancer scan/fetch et de gérer les données du propriétaire local. Un [compte administrateur](accounts.md) utilise sa session ; le jeton historique facultatif fonctionne aussi. Sans comptes ni jeton, l’administration est désactivée. [HTTPS](remote.md) désactive toutes les routes `/api/admin` et le jeton historique ; utilisez la CLI locale de confiance pour les tâches de l’installation.
+En HTTP local, l’administration permet de lancer scan/fetch et de gérer les comptes. Un [compte administrateur](accounts.md) utilise sa session. Les routes personnelles transitoires visent `local` et acceptent uniquement une session administrateur propriétaire de `local` ou le jeton de confiance de l’installation ; les autres administrateurs emploient `/api/me/v1` pour leurs propres données personnelles. Le jeton historique facultatif fonctionne aussi pour les tâches de l’installation. Sans comptes ni jeton, l’administration est désactivée. [HTTPS](remote.md) autorise ces opérations uniquement avec une session de compte administrateur courante ; le jeton historique reste limité à HTTP local.
 
 ## Configurer le jeton avant le démarrage
 
@@ -33,6 +33,6 @@ Les lectures n’ont pas de corps. Les routes de tâches refusent les paramètre
 
 `401 unauthorized` signale un Bearer absent/incorrect/répété, ou une Origin avec le jeton historique. Un compte `user` ou `auditor` reçoit `403 forbidden`. Sans comptes ni jeton, l’administration répond `404 not_found`. Les tâches utilisent les permissions du compte système serveur : dossiers scan/fetch sont des chemins de cet hôte et exigent un administrateur de confiance.
 
-Le serveur ne change ni audio ni tags. Images/paroles et résultats d’analyse sont des fichiers dérivés pouvant demander des droits d’écriture. Les clés des services viennent de l’environnement serveur, jamais de HTTP. Les routes personnelles administratives gardent `local` ; `/api/me/v1` utilise le propriétaire de la session. Aucune requête ne peut choisir un autre propriétaire.
+Le serveur ne change ni audio ni tags. Images/paroles et résultats d’analyse sont des fichiers dérivés pouvant demander des droits d’écriture. Les clés des services viennent par défaut de l’environnement serveur ; une tâche fetch administrative authentifiée peut utiliser des clés fournies pour cette tâche uniquement, sans modifier la configuration de l’installation (voir [les tâches fetch](jobs.md)). Les routes personnelles administratives gardent `local` ; `/api/me/v1` utilise le propriétaire de la session. Aucune requête ne peut choisir un autre propriétaire.
 
 Suite : [Tâches scan/fetch et annulation](jobs.md) ou [Données personnelles](personal.md). Le [guide d’exploitation](../../operating.md) couvre les permissions de service et les sauvegardes.

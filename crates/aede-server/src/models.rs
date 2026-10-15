@@ -4,9 +4,11 @@ use super::*;
 
 #[derive(Serialize)]
 pub(super) struct Status {
+    pub(super) versions: serde_json::Value,
     pub(super) status: &'static str,
     pub(super) api_version: u32,
     pub(super) catalog_loaded: bool,
+    pub(super) capabilities: Vec<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -94,6 +96,12 @@ pub(super) enum EntityDetail {
         size: u64,
         analyses: Vec<serde_json::Value>,
         spectrum_available: bool,
+        lyrics_available: bool,
+        disc_no: Option<u32>,
+        track_no: Option<u32>,
+        properties: serde_json::Value,
+        tags: std::collections::BTreeMap<String, Vec<String>>,
+        credits: Vec<serde_json::Value>,
     },
     Recording {
         reference: String,

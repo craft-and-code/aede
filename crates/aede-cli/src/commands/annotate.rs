@@ -199,7 +199,7 @@ pub fn panel(args: &Args, catalog: &Catalog, reference: &EntityRef) {
             marks.push(stars_of(rating));
         }
         if entry.loved {
-            marks.push("♥".to_string());
+            marks.push("❤".to_string());
         }
         if !entry.tags.is_empty() {
             marks.push(ui::literal(
@@ -287,7 +287,7 @@ pub fn love(args: &Args) -> Res {
     let name = ui::literal(&reference.display_name(&catalog));
     println!(
         "{} {name} {}",
-        ui::green(if wanted { "♥" } else { "→" }),
+        ui::green(if wanted { "❤" } else { "→" }),
         match (wanted, changed) {
             (true, true) => "is a favourite",
             (true, false) => "was already a favourite",
@@ -1254,7 +1254,7 @@ fn print_annotations(catalog: &Catalog, rows: &[&Annotation], args: &Args, headi
         t.push(vec![
             a.target.kind.as_str().to_string(),
             a.target.display_name(catalog),
-            if a.loved { "♥".into() } else { String::new() },
+            if a.loved { "❤".into() } else { String::new() },
             a.rating.map(stars_of).unwrap_or_default(),
             a.tags.iter().cloned().collect::<Vec<_>>().join(", "),
             a.note.clone().unwrap_or_default().replace('\n', " "),

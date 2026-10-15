@@ -54,6 +54,9 @@ fn tokenize(input: &str) -> Result<Vec<String>, QueryError> {
 /// assert!(parse("title:Track AND").is_err());
 /// ```
 pub fn parse(input: &str) -> Result<Query, QueryError> {
+    if let Some(value) = input.strip_prefix("browse-v1:") {
+        return browse::parse(value).map(|filter| Query::Browse(Box::new(filter)));
+    }
     let words = tokenize(input)?;
     if words.is_empty() {
         return Ok(Query::All);

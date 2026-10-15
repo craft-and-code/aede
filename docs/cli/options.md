@@ -145,6 +145,7 @@ This inventory follows the current dispatcher and handlers. It lists accepted co
 | `--no-cdart` | [fetch](fetch.md) |
 | `--banners` | [fetch](fetch.md) |
 | `--labels` | [fetch](fetch.md) |
+| `--discogs` | [fetch](fetch.md) |
 | `--online` | [label](label.md) |
 | `--offline` | [label](label.md) |
 | `--accept ID` | [review](review.md) |

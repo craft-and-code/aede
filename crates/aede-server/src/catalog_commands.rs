@@ -1,6 +1,6 @@
 //! CLI-shaped navigation over the catalog, without executing command-line code.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use aede_core::query as catalog_query;
 use aede_core::sources::{self, Confidence, Facts, Sources};
@@ -39,6 +39,8 @@ struct NavigationDetail {
     entity: EntityDetail,
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<ArtistOrigin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    biography: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -378,6 +380,18 @@ pub(super) fn artist_origin(
     origin
 }
 
+fn label_biography(
+    catalog: &Catalog,
+    requested: &EntityRef,
+    sources: &Sources,
+) -> Option<serde_json::Value> {
+    sources.about(requested).filter(|record| sources.is_trusted(catalog, record)).find_map(|record| {
+        let Facts::Label(facts) = &record.facts else { return None; };
+        let prose = facts.summary.as_ref()?;
+        Some(serde_json::json!({"text":prose.text,"url":prose.url,"lang":prose.lang,"licence":prose.licence,"source":record.source}))
+    })
+}
+
 async fn detail(
     State(state): State<ApiState>,
     query: Result<Query<SelectionQuery>, QueryRejection>,
@@ -388,7 +402,7 @@ async fn detail(
         let guard = state.catalog.blocking_read();
         let catalog = guard.as_ref().ok_or_else(unavailable)?;
         let requested = resolve_selection(catalog, &query, kind)?;
-        let sources = if kind == EntityKind::Artist {
+        let sources = if matches!(kind, EntityKind::Artist | EntityKind::Label) {
             Some(crate::inspection::held_sources(&state.data_dir)?)
         } else {
             None
@@ -397,7 +411,12 @@ async fn detail(
             entity: entity_detail(catalog, &requested)?,
             origin: sources
                 .as_ref()
+                .filter(|_| kind == EntityKind::Artist)
                 .map(|sources| artist_origin(catalog, &requested, sources)),
+            biography: sources
+                .as_ref()
+                .filter(|_| kind == EntityKind::Label)
+                .and_then(|sources| label_biography(catalog, &requested, sources)),
         })
     })
     .await
@@ -477,10 +496,11 @@ fn browse_options(query: &BrowseQuery, kind: EntityKind) -> Result<BrowseOptions
     let (offset, limit) = page_bounds(query.offset.as_deref(), query.limit.as_deref())?;
     let sort = query.sort.as_deref().unwrap_or("catalog");
     if !(matches!(sort, "catalog" | "name" | "title")
-        || (sort == "year" && kind == EntityKind::Release))
+        || (sort == "year" && kind == EntityKind::Release)
+        || (sort == "albums" && kind == EntityKind::Label))
     {
         return Err(invalid_query(
-            "sort must be catalog, name, title, or year for albums",
+            "sort must be catalog, name, title, year for albums, or albums for labels",
         ));
     }
     if sort == "title" && matches!(kind, EntityKind::Genre | EntityKind::Label) {
@@ -707,7 +727,26 @@ fn browse_page(
             .as_deref()
             .is_none_or(|mbid| entity_mbid(catalog, kind, id) == Some(mbid))
     });
-    if options.sort != "catalog" {
+    if options.sort == "albums" {
+        let mut counts = BTreeMap::<Id, usize>::new();
+        for release in &catalog.releases {
+            for id in release.label_ids.iter().copied().collect::<BTreeSet<_>>() {
+                *counts.entry(id).or_default() += 1;
+            }
+        }
+        rows.sort_by_cached_key(|&id| {
+            let count = counts.get(&id).copied().unwrap_or_default();
+            (
+                if options.descending {
+                    usize::MAX - count
+                } else {
+                    count
+                },
+                text::normalize(entity_name(catalog, kind, id).unwrap_or_default()),
+                id,
+            )
+        });
+    } else if options.sort != "catalog" {
         if options.descending {
             rows.sort_by_cached_key(|&id| {
                 std::cmp::Reverse(text::normalize(

@@ -145,6 +145,7 @@ fn both_commands_describe_one_store_in_one_set_of_words() {
         user: Part::Held(UserData::default()),
         sources: Part::Empty,
         accounts: Part::Empty,
+        parental: Part::Empty,
     };
     let out = summarise(&held, "nothing here to save");
     let back = summarise(&held, "not in this backup");
@@ -157,7 +158,8 @@ fn both_commands_describe_one_store_in_one_set_of_words() {
             "conclusions",
             "what you said",
             "what sources said",
-            "accounts"
+            "accounts",
+            "parental controls"
         ]
     );
     assert_eq!(

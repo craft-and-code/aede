@@ -58,13 +58,15 @@ impl From<ebur128::Error> for LoudnessError {
 
 /// Streaming meter for an ordered programme, including format changes.
 ///
-/// Consecutive blocks of the same format share one meter. At a format change,
-/// a new meter starts and the final gated result combines both histories.
-/// This avoids averaging per-track LUFS; a format boundary does not contribute
-/// windows that cross that boundary.
+/// Consecutive blocks share one meter and its integrated energy history. Format
+/// changes reset the filters and unfinished gate, releasing the previous PCM
+/// window. This avoids averaging per-track LUFS; a format boundary does not
+/// contribute windows that cross that boundary.
 #[derive(Default)]
 pub struct LoudnessProgramme {
     sections: Vec<Section>,
+    completed_peak: f32,
+    true_peak_unavailable: bool,
 }
 
 struct Section {
@@ -95,14 +97,30 @@ impl LoudnessProgramme {
                 && section.meter.channels() == u32::from(format.channels())
         });
         if !reuse {
-            self.sections.push(Section {
-                meter: EbuR128::new(
-                    u32::from(format.channels()),
-                    format.sample_rate(),
-                    Mode::I | Mode::TRUE_PEAK,
-                )?,
-                peak_tail: PeakTail::new(format),
-            });
+            if let Some(section) = self.sections.last_mut() {
+                let previous_peak = section.peak_tail.peak(&section.meter)?;
+                // change_parameters retains the exact integrated-energy
+                // history, but resets filters and drops an unfinished gate.
+                // Resolve the old FIR tail before replacing its PCM window.
+                section
+                    .meter
+                    .change_parameters(u32::from(format.channels()), format.sample_rate())?;
+                section.peak_tail = PeakTail::new(format);
+                if let Some(peak) = previous_peak {
+                    self.completed_peak = self.completed_peak.max(peak);
+                } else {
+                    self.true_peak_unavailable = true;
+                }
+            } else {
+                self.sections.push(Section {
+                    meter: EbuR128::new(
+                        u32::from(format.channels()),
+                        format.sample_rate(),
+                        Mode::I | Mode::TRUE_PEAK,
+                    )?,
+                    peak_tail: PeakTail::new(format),
+                });
+            }
         }
         if let Some(section) = self.sections.last_mut() {
             section.meter.add_frames_f32(samples)?;
@@ -126,12 +144,13 @@ impl LoudnessProgramme {
         }
         // ebur128 does not oversample at 192 kHz or above. A sample peak
         // from even one section cannot establish the programme's true peak.
-        let true_peak = if self
-            .sections
-            .iter()
-            .all(|section| section.meter.rate() < 192_000)
+        let true_peak = if !self.true_peak_unavailable
+            && self
+                .sections
+                .iter()
+                .all(|section| section.meter.rate() < 192_000)
         {
-            let mut peak = 0.0f32;
+            let mut peak = self.completed_peak;
             for section in &self.sections {
                 if let Some(section_peak) = section.peak_tail.peak(&section.meter)? {
                     peak = peak.max(section_peak);

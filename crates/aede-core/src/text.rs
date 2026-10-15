@@ -227,7 +227,7 @@ fn strip_leading_article(s: &str) -> String {
 /// ASCII folding of the accented characters most common in Western artist
 /// names. Deliberately limited: no transliteration of Cyrillic or Greek,
 /// which must stay distinct.
-fn fold_char(c: char) -> std::vec::IntoIter<char> {
+pub(crate) fn fold_char(c: char) -> std::vec::IntoIter<char> {
     let replacement: &str = match c {
         'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
         'ç' | 'ć' | 'č' => "c",

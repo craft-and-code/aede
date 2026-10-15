@@ -2,9 +2,11 @@
 
 Les [clés OpenSubsonic](subsonic.md) persistantes se gèrent par CLI locale et authentifient uniquement `/rest` ; les routes natives gardent les sessions Bearer. Un changement de génération du compte, y compris les routes révoquant toutes ses sessions, retire aussi ses clés. Restaurer une sauvegarde contenant des comptes retire toutes les clés restaurées et change la génération globale ; une ancienne sauvegarde sans comptes conserve les identifiants et clés courants. Une simple déconnexion retire seulement sa session.
 
-Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes à la première lecture dans un nouveau processus HTTP local, les lectures du catalogue restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Dès que le processus a observé le magasin, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou, en HTTP local, le jeton administratif. Un magasin ensuite absent ferme l’accès jusqu’à l’arrêt de ce processus ; redémarrer HTTP local sans magasin rétablit le mode de compatibilité anonyme. Des identifiants illisibles ou exposés ferment l’accès même à la première lecture. [HTTPS](remote.md) exige toujours des comptes et accepte seulement les sessions ; toutes les routes `/api/admin` y sont indisponibles.
+Initialiser les comptes avec [accounts](../cli/accounts.md). Sans magasin de comptes à la première lecture dans un nouveau processus HTTP local, les lectures du catalogue restent anonymes et l’administration locale utilise le secret facultatif `AEDE_ADMIN_TOKEN`. Dès que le processus a observé le magasin, chaque requête HTTP ou WebSocket `/api/v1` exige une session ou, en HTTP local, le jeton administratif. Un magasin ensuite absent ferme l’accès jusqu’à l’arrêt de ce processus ; redémarrer HTTP local sans magasin rétablit le mode de compatibilité anonyme. Des identifiants illisibles ou exposés ferment l’accès même à la première lecture. [HTTPS](remote.md) exige toujours des comptes et accepte seulement les sessions ; les routes administratives y exigent une session administrateur nominative.
 
 Un `admin` gère les comptes et les tâches de l’installation. Un `user` lit et modifie uniquement ses propres données personnelles. Un `auditor` lit le catalogue partagé et emploie seulement `GET` ou `HEAD` sur ses propres données `/api/me/v1` ; toute modification personnelle, changement de mot de passe, administration ou tâche renvoie `403 forbidden`. Un auditeur peut toujours se connecter, consulter sa session et se déconnecter.
+
+Voir le [contrôle parental](parental.md) pour la visibilité des artistes, les horaires, les budgets audio et le champ de session `parental_enabled`.
 
 ## Connexion et gestion d’une session
 
@@ -35,11 +37,11 @@ Employer les [routes personnelles](personal.md) avec `/api/me/v1` au lieu de `/a
 | `/api/me/v1/collections` | GET/HEAD collections paginées |
 | `/api/me/v1/playback` | GET avec passage en WebSocket ; [contrat audio](playback.md), user/admin seulement |
 
-Les routes transitoires `/api/admin/v1/{annotation,history,collection,collections}` continuent à viser `local`, même pour un administrateur ayant un autre propriétaire. Le premier administrateur récupère `local`. La CLI reste une interface de confiance du propriétaire système et conserve sa portée locale.
+Les routes transitoires `/api/admin/v1/{annotation,history,collection,collections}` visent uniquement `local`. Elles acceptent le jeton administratif de confiance de l’installation ou une session administrateur dont le propriétaire est `local` (le premier administrateur). Un autre administrateur reçoit `403 forbidden` sur ces routes personnelles et doit employer `/api/me/v1` pour ses propres données. Son administration des comptes et des tâches de l’installation reste disponible. La CLI reste une interface de confiance du propriétaire système et conserve sa portée locale.
 
 ## Administration des comptes
 
-En HTTP local, les administrateurs peuvent lancer les [tâches de l’installation](jobs.md) et gérer les comptes ; un `user` ou un `auditor` reçoit `403 forbidden` sur l’administration. HTTPS désactive ces routes pour tous ; employer la CLI locale. Un administrateur actif doit toujours rester. Employer une session administrateur ou le jeton administratif historique facultatif :
+En HTTP local, les administrateurs peuvent lancer les [tâches de l’installation](jobs.md) et gérer les comptes ; un `user` ou un `auditor` reçoit `403 forbidden` sur l’administration. HTTPS exige une session administrateur nominative pour ces routes ; le jeton historique reste indisponible. Un administrateur actif doit toujours rester. Employer une session administrateur ou le jeton administratif historique facultatif :
 
 | Méthode et chemin | Corps | Résultat |
 | --- | --- | --- |

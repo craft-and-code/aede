@@ -660,3 +660,123 @@ fn annotation_index_is_owner_private_and_keeps_unknown_targets_out_of_results() 
     assert_eq!(rows[0].note.as_deref(), Some("alice private note"));
     assert!(own_annotations(&data, &catalog, "nobody").is_empty());
 }
+
+#[test]
+fn history_reset_requires_confirmation_and_preserves_other_owners_and_annotations() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let reference = EntityRef::parse_token(&track(&state).await).unwrap();
+        let mut data = UserData::default();
+        for owner in [LOCAL_USER, "other"] {
+            data.record_play(Play {
+                owner: owner.into(),
+                track: reference.clone(),
+                at: 1,
+                ms_played: 5,
+                completed: false,
+            });
+            data.entry(owner, &reference, 1).note = Some("preserve".into());
+        }
+        let path = user::user_path(&state.data_dir);
+        user::save(&data, &path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(
+            reset_history(
+                State(state.clone()),
+                request("/api/admin/v1/history", r#"{"confirm":false}"#)
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let answer = reset_history(
+            State(state.clone()),
+            request("/api/admin/v1/history", r#"{"confirm":true}"#),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(answer.events, 1);
+        assert_eq!(answer.counters, 1);
+        let saved = user::load(&path).unwrap().unwrap();
+        assert_eq!(saved.play_count("other", &reference), 1);
+        assert_eq!(saved.play_count(LOCAL_USER, &reference), 0);
+        assert_eq!(
+            saved.find(LOCAL_USER, &reference).unwrap().note.as_deref(),
+            Some("preserve")
+        );
+        cleanup(&state);
+    });
+}
+
+#[test]
+fn collection_rename_keeps_rule_and_creation_time_and_refuses_collisions() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let path = user::user_path(&state.data_dir);
+        let mut data = UserData::default();
+        data.save_collection(LOCAL_USER, "Original", "loved", 10);
+        data.save_collection(LOCAL_USER, "Taken", "rating>=2", 11);
+        data.save_collection("other", "Other owner", "loved", 12);
+        user::save(&data, &path).unwrap();
+        let rename = collection_updates::rename(
+            State(state.clone()),
+            Ok(Query(NameQuery {
+                name: "Original".into(),
+            })),
+            request("/api/admin/v1/collection", r#"{"name":"Renamed"}"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(rename.0.name, "Renamed");
+        assert_eq!(rename.0.expression, "loved");
+        assert_eq!(rename.0.created_at, 10);
+        let saved = user::load(&path).unwrap().unwrap();
+        assert!(saved.collection(LOCAL_USER, "Original").is_none());
+        assert_eq!(saved.collections.len(), 3);
+        for (old, new, status) in [
+            ("Renamed", "taken", StatusCode::CONFLICT),
+            ("Other owner", "Unsafe", StatusCode::NOT_FOUND),
+            ("Renamed", " ", StatusCode::BAD_REQUEST),
+        ] {
+            let failure = collection_updates::rename(
+                State(state.clone()),
+                Ok(Query(NameQuery { name: old.into() })),
+                request(
+                    "/api/admin/v1/collection",
+                    &serde_json::json!({"name":new}).to_string(),
+                ),
+            )
+            .await
+            .err()
+            .unwrap();
+            assert_eq!(failure.status, status);
+        }
+        assert_eq!(
+            user::load(&path)
+                .unwrap()
+                .unwrap()
+                .collections
+                .iter()
+                .map(|c| (&c.name, &c.expression, c.created_at))
+                .collect::<Vec<_>>(),
+            saved
+                .collections
+                .iter()
+                .map(|c| (&c.name, &c.expression, c.created_at))
+                .collect::<Vec<_>>()
+        );
+        let casing = collection_updates::rename(
+            State(state.clone()),
+            Ok(Query(NameQuery {
+                name: "renamed".into(),
+            })),
+            request("/api/admin/v1/collection", r#"{"name":"RENAMED"}"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(casing.0.name, "RENAMED");
+        assert_eq!(casing.0.created_at, 10);
+        cleanup(&state);
+    });
+}

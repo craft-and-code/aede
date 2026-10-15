@@ -516,6 +516,9 @@ pub struct Catalog {
     /// guessing zero would miss real same-second changes. Keeping the fraction
     /// apart from epoch seconds avoids losing precision in JSON numbers.
     pub file_mtime_subseconds: BTreeMap<String, u32>,
+    /// First successful catalog observation by path, in Unix seconds.
+    /// Absent legacy dates remain unknown; file modification dates are not substitutes.
+    pub file_added_at: BTreeMap<String, u64>,
     /// Deep analyses imported from another tool, one row per path and source.
     ///
     /// Optional by nature: a catalog without a single one works exactly the

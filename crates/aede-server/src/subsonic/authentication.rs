@@ -187,11 +187,17 @@ pub(crate) async fn recheck(state: &ApiState, identity: &Identity) -> Result<(),
             &identity.epoch,
             identity.revision,
         )
-        .ok_or_else(invalid)
-        .map(|_| ())
+        .ok_or_else(invalid)?;
+    if state.parental_scope.is_some() {
+        let for_check = state.clone();
+        crate::parental::blocking(state, move || crate::parental::finish(&for_check))
+            .await
+            .map_err(|_| ProtocolError::new(50, "parental policy changed or is unavailable"))?;
+    }
+    Ok(())
 }
 
-/// Confirm the current key under a personal-data writer lock, on a bounded worker.
+/// Confirm the current key and policy under a personal-data writer lock.
 pub(super) fn recheck_blocking(state: &ApiState, identity: &Identity) -> Result<(), ProtocolError> {
     let accounts = auth::load_accounts(state)
         .map_err(|_| unavailable())?
@@ -203,8 +209,9 @@ pub(super) fn recheck_blocking(state: &ApiState, identity: &Identity) -> Result<
             &identity.epoch,
             identity.revision,
         )
-        .ok_or_else(invalid)
-        .map(|_| ())
+        .ok_or_else(invalid)?;
+    crate::parental::finish(state)
+        .map_err(|_| ProtocolError::new(50, "parental policy changed or is unavailable"))
 }
 
 pub(crate) fn require_audio(identity: &Identity) -> Result<(), ProtocolError> {

@@ -1,5 +1,7 @@
 # Authenticated PCM playback v1
 
+Controlled accounts also follow [parental admission and short PCM reservations](parental.md#controlled-listening); raw transports cannot replace the supervised stream.
+
 `GET /api/me/v1/playback` upgrades to a WebSocket for one current catalogued track or an explicitly ordered, finite queue. Supply exactly one `Authorization: Bearer <session>` header, using WS on local HTTP or WSS on [HTTPS](remote.md). Only `user` and `admin` sessions may play, because playback writes private history; an `auditor` receives `403 forbidden`. Legacy administrative tokens cannot authenticate this route, even locally. No query parameters are accepted.
 
 This is a native client contract. The client owns its audio device, clock and consumption counter. Aède does not open a server audio device, supply a player UI, accept arbitrary file paths or implement Subsonic here. Browser WebSocket clients cannot set this bearer header directly; a browser login/transport design remains separate work.
@@ -194,3 +196,11 @@ After upgrade, failures send `{"type":"error","code":"…","message":"…"}` whe
 | `server_shutdown` | Server is stopping. |
 
 Transport and closed-client failures cannot guarantee a JSON error or final confirmation. The shared [account](accounts.md) and [HTTPS](remote.md) restrictions apply to the handshake and the live stream. These automated PCM/transport checks do not establish physical gapless playback, client-device quality or target-NAS capacity.
+
+## Complete-track waveforms
+
+Authenticated `GET /api/v1/waveform?ref=track:...` returns `{reference,duration_ms,sample_rate,bucket_frames,peaks}`. The entire current source is decoded locally, without playback DSP or normalization; each peak is the maximum absolute channel sample in its bucket, clamped to 0–1. At most 2048 buckets are retained, with adaptive pair coalescing and a final partial bucket. Duration follows decoded source frames, not played time. The worker has a 60-second decode budget and a 24-hour source-frame bound; failure is explicit rather than substituting synthetic peaks.
+
+The derived cache is confined to the data directory's `waveforms/` folder, keyed by track/source path, size and precise modification time. Reads are bounded and validate the current source before and after work, plus the captured account before publication. Source audio/tags remain unchanged. Corrupt cached data is not published; it is decoded again without overwriting that retained file. `track_waveform` advertises the route. Waveform extraction may run alongside playback through the existing bounded inspection pool; this is a visualization cache, not a listening-history event or integrity verdict.
+
+History errors retain the `history_failed` code and now distinguish source revalidation, busy storage, unreadable private data, write failure and timeout in their message. Timeout leaves confirmation uncertain; no client should invent a successful listen. Changed/unavailable source failures require a rescan. Consult the server log for the underlying storage error. These diagnostics do not relax consumed-frame acknowledgement or source-identity validation.

@@ -332,3 +332,22 @@ fn progressive_seek_preserves_ffmpeg_encoder_trim_and_source_samples() {
         assert_eq!(suffix, reference[skipped as usize * channels..], "{name}");
     }
 }
+
+#[test]
+fn background_native_decoder_keeps_original_samples_and_complete_md5_checks() {
+    let path = fixture("playback-stereo.flac");
+    let mut background = FileDecoder::open_native(&path).unwrap();
+    let mut ordinary = FileDecoder::open(&path).unwrap();
+    let mut left = vec![0.; 4096 * 2];
+    let mut right = vec![0.; 4096 * 2];
+    loop {
+        let a = background.read_frames(&mut left).unwrap();
+        let b = ordinary.read_frames(&mut right).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(left[..a], right[..b]);
+        if a == 0 {
+            break;
+        }
+    }
+    assert_eq!(background.flac_md5_status(), ordinary.flac_md5_status());
+}

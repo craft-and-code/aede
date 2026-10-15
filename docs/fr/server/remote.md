@@ -23,9 +23,11 @@ La connexion native et les sessions Bearer suivent le même contrat que les [com
 
 Chaque requête porte un seul Host correspondant à l’adresse configurée. Une cible sous forme absolue utilise HTTPS et la même adresse. Une Origin de navigateur, si présente, doit correspondre exactement à cette origine HTTPS ; les clients natifs peuvent l’omettre. Les en-têtes de proxy ne changent pas ces vérifications. Aucune autorisation d’origine tierce, interface de connexion de navigateur ou session par cookie n’est implémentée. Les mots de passe natifs et jetons Bearer ne doivent jamais apparaître dans une URL. Les identifiants de l’adaptateur passent par les paramètres query/form du protocole ; masquez-les dans les journaux et préférez POST form quand méthode/client le permettent.
 
-## L’administration reste locale
+<div id="l-administration-reste-locale" data-legacy-anchor></div>
 
-HTTPS désactive toute la famille `/api/admin` : administration des comptes, tâches de l’installation et routes personnelles transitoires de `local`. Cela vaut aussi pour une session administrateur et une écoute HTTPS sur boucle locale. Le jeton historique `AEDE_ADMIN_TOKEN` est indisponible en HTTPS. Utilisez `/api/me/v1` pour vos données ; gérez les comptes et lancez scan/fetch depuis la CLI locale de confiance. Le canal de commandes Unix privé garde sa portée locale.
+## Administration authentifiée
+
+HTTPS expose la gestion des comptes, le contrôle parental et les tâches uniquement à une session administrateur nominative courante, même sur boucle locale. Les utilisateurs et auditeurs reçoivent 403 ; les sessions expirées/révoquées et le jeton historique `AEDE_ADMIN_TOKEN` reçoivent 401. Les contrôles Host/Origin, limites de requêtes et de tâches restent actifs. Les routes personnelles transitoires exigent toujours le propriétaire exact `local` ; l’administration ne donne pas accès aux données privées des autres comptes. Le canal de commandes Unix privé garde sa portée locale.
 
 ## Limites de déploiement
 

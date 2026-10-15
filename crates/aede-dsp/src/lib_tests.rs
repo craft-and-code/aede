@@ -1,4 +1,45 @@
-use super::{Dsp, DspError, PcmFormat, ProcessStats, gain_with_headroom_db, protect_output};
+use super::{
+    Dsp, DspError, PcmFormat, ProcessStats, ToneControls, gain_with_headroom_db, protect_output,
+};
+
+#[test]
+fn fused_output_guard_matches_separate_processing_for_tone_and_gain_ramps() {
+    for rate in [8_000, 44_100, 96_000, 384_000] {
+        for channels in [1, 2] {
+            for tone in [
+                ToneControls::FLAT,
+                ToneControls::new(12.0, -12.0).unwrap(),
+                ToneControls::new(-9.0, 9.0).unwrap(),
+            ] {
+                let format = PcmFormat::new(rate, channels).unwrap();
+                let mut output = Dsp::new(format);
+                output.set_tone(tone).unwrap();
+                output.set_gain_db(6.0, 177).unwrap();
+                let mut reference = output.clone();
+                let mut source = vec![0.0, -0.0, 1.0, -1.0, f32::MIN_POSITIVE, -f32::MIN_POSITIVE];
+                source.extend((0..2_042).map(|frame| (frame as f32 * 0.13).sin() * 0.9));
+                for (index, block) in source.chunks(62 * usize::from(channels)).enumerate() {
+                    if index == 3 {
+                        output.set_gain_db(-3.0, 239).unwrap();
+                        reference.set_gain_db(-3.0, 239).unwrap();
+                    }
+                    let mut actual = block.to_vec();
+                    let mut expected = block.to_vec();
+                    let actual_stats = output.process_for_output(&mut actual).unwrap();
+                    let expected_stats = reference.process(&mut expected).unwrap();
+                    protect_output(&mut expected).unwrap();
+                    assert_eq!(actual_stats, expected_stats);
+                    assert!(
+                        actual
+                            .iter()
+                            .zip(&expected)
+                            .all(|(actual, expected)| actual.to_bits() == expected.to_bits())
+                    );
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn headroom_caps_positive_gain_using_the_declared_peak() {

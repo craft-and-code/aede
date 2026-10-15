@@ -52,10 +52,60 @@ pub(super) fn release_item(
 }
 
 pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
+    let mut capabilities = vec![
+        "dynamic_browse_collections",
+        "dynamic_browse_genres",
+        "dynamic_browse_personal",
+        "dynamic_browse_tags",
+        "dynamic_browse_label",
+        "label_playback",
+        "label_album_sort",
+        "account_preferences",
+        "track_waveform",
+        "mood_rules",
+        "mood_audio_features",
+        "collection_rename",
+        "album_track_pages",
+        "track_catalog_pages",
+        "catalog_added_dates",
+        "missing_studio_albums",
+        "label_biography",
+        "analysis_coverage",
+        "analysis_coverage_sort",
+        "analysis_integrity",
+        "advanced_search",
+        "private_achievements",
+        "album_listening",
+        "queue_m3u",
+        "grouped_m3u_exports",
+        "library_m3u_files",
+        "m3u_playback_selection",
+        "parental_controls",
+        "album_m3u_lookup",
+    ];
+    if cfg!(feature = "fetch") {
+        capabilities.push("missing_album_covers");
+    }
+    if state.admin.is_some() {
+        capabilities.push("mood_audio_extraction");
+        capabilities.push("library_m3u_publication");
+        capabilities.push("fetch_service_keys");
+        capabilities.push("administrative_tasks_list");
+        capabilities.push("library_generations");
+        capabilities.push("album_decode_test");
+        capabilities.push("album_decode_results");
+        if cfg!(feature = "fetch") {
+            capabilities.push("fetch_discogs");
+            capabilities.push("fetch_musicbrainz_first");
+            capabilities.push("fetch_track_lyrics");
+        }
+    }
     Json(Status {
+        versions: serde_json::json!({"aede":env!("CARGO_PKG_VERSION"),"flaccompagnon":aede_core::FLACCOMPAGNON_VERSION}),
         status: "ok",
         api_version: 1,
         catalog_loaded: state.catalog.read().await.is_some(),
+        capabilities,
     })
 }
 
@@ -418,9 +468,22 @@ pub(super) fn entity_detail(
                     .and_then(|id| reference(catalog, EntityKind::Release, id)),
                 recording: reference(catalog, EntityKind::Recording, track.recording_id),
                 duration_ms: track.duration_ms,
+                disc_no: track.disc_no,
+                track_no: track.track_no,
+                properties: serde_json::json!({"codec":file.properties.codec,"container":file.properties.container,"sample_rate":file.properties.sample_rate,"bit_depth":file.properties.bit_depth,"channels":file.properties.channels,"bitrate_kbps":file.properties.bitrate_kbps,"lossless":file.properties.lossless}),
+                tags: file.tags.clone(),
+                credits: catalog.credits.iter().filter(|credit| credit.entity_kind == EntityKind::Track && credit.entity_id == id).map(|credit| {
+                    let artist = catalog.artist(credit.artist_id).ok_or_else(unavailable)?;
+                    Ok(serde_json::json!({"reference":reference(catalog,EntityKind::Artist,artist.id),"name":artist.name,"role":credit.role,"source":credit.source}))
+                }).collect::<Result<Vec<_>, ApiError>>()?,
                 path: file.path.clone(),
                 size: file.size,
                 analyses,
+                lyrics_available: aede_core::lyrics::has_source(
+                    Path::new(&file.path),
+                    file.first_tag("lyrics"),
+                    file.lyrics_path.as_deref().map(Path::new),
+                ),
                 spectrum_available: aede_core::spectrum::picture_for(Path::new(&file.path))
                     .is_file(),
             }

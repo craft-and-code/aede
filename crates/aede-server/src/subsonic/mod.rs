@@ -73,6 +73,25 @@ async fn execute(
         ]})));
     }
     let identity = authentication::authenticate(&state, &parameters).await?;
+    let state = crate::parental::scoped(
+        state,
+        identity.owner.clone(),
+        identity.role == aede_core::accounts::Role::Administrator,
+        true,
+    )
+    .await
+    .map_err(|_| ProtocolError::new(50, "parental policy is unavailable"))?;
+    if crate::parental::supervised(&state)
+        && matches!(
+            method,
+            "stream" | "download" | "getPlaylists" | "getPlaylist"
+        )
+    {
+        return Err(ProtocolError::new(
+            50,
+            "supervised playback requires the controlled PCM transport",
+        ));
+    }
     let payload = match method {
         "ping" => {
             parameters.allowed(&[])?;
@@ -94,7 +113,8 @@ async fn execute(
             {
                 return Err(ProtocolError::new(50, "only your own user is available"));
             }
-            let audio = identity.role != aede_core::accounts::Role::Auditor;
+            let audio = identity.role != aede_core::accounts::Role::Auditor
+                && !crate::parental::supervised(&state);
             // Installation administration is not exposed by this adapter.
             json!({"user": {"username": identity.username, "scrobblingEnabled": audio,
                 "adminRole": false, "settingsRole": false, "downloadRole": audio,
@@ -210,3 +230,7 @@ mod test_support;
 #[cfg(test)]
 #[path = "client_tests.rs"]
 mod client_tests;
+
+#[cfg(test)]
+#[path = "parental_tests.rs"]
+mod parental_tests;

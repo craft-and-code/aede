@@ -33,6 +33,8 @@ use crate::user::{EntityRef, UserData};
 /// A parsed query, ready to be run against any catalog.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Query {
+    /// Versioned catalog browsing filters saved as a dynamic collection.
+    Browse(Box<browse::Filter>),
     /// Matches everything, which is what an empty expression means.
     All,
     /// Every part must match.
@@ -124,6 +126,8 @@ pub enum Field {
     Path,
     /// The codec: flac, mp3, opus…
     Codec,
+    /// File container, independently of the contained codec.
+    Container,
     /// Year of the album.
     Year,
     /// Playing time, in milliseconds.
@@ -134,6 +138,12 @@ pub enum Field {
     Bitrate,
     /// Sample rate in Hz.
     SampleRate,
+    /// Declared bits per sample, when the format provides it.
+    BitDepth,
+    /// Declared source channel count.
+    Channels,
+    /// Stable catalog track reference, independent of display titles.
+    Reference,
     /// `true` for a lossless codec.
     Lossless,
     /// `true` when the album is one several artists share.
@@ -239,12 +249,16 @@ const FIELD_NAMES: &[(&str, Field)] = &[
     ("path", Field::Path),
     ("codec", Field::Codec),
     ("format", Field::Codec),
+    ("container", Field::Container),
     ("year", Field::Year),
     ("duration", Field::Duration),
     ("length", Field::Duration),
     ("size", Field::Size),
     ("bitrate", Field::Bitrate),
     ("samplerate", Field::SampleRate),
+    ("bitdepth", Field::BitDepth),
+    ("channels", Field::Channels),
+    ("ref", Field::Reference),
     ("lossless", Field::Lossless),
     ("compilation", Field::Compilation),
     ("played", Field::Played),
@@ -304,6 +318,8 @@ fn is_numeric(field: &Field) -> bool {
             | Field::Size
             | Field::Bitrate
             | Field::SampleRate
+            | Field::BitDepth
+            | Field::Channels
             | Field::Played
             | Field::Rating(_)
     )
@@ -336,6 +352,7 @@ fn is_flag(field: &Field) -> bool {
 /// `genre:metal rating` is rescoped only where rescoping means something.
 pub fn rescoped(query: &Query, scope: Scope) -> Query {
     match query {
+        Query::Browse(filter) => Query::Browse(filter.clone()),
         Query::All => Query::All,
         Query::And(parts) => Query::And(parts.iter().map(|p| rescoped(p, scope)).collect()),
         Query::Or(parts) => Query::Or(parts.iter().map(|p| rescoped(p, scope)).collect()),
@@ -357,6 +374,7 @@ pub fn rescoped(query: &Query, scope: Scope) -> Query {
 /// track's own scope — the case where [`rescoped`] has anything to offer.
 pub fn asks_about_the_track_itself(query: &Query) -> bool {
     match query {
+        Query::Browse(_) => false,
         Query::All => false,
         Query::And(parts) | Query::Or(parts) => parts.iter().any(asks_about_the_track_itself),
         Query::Not(inner) => asks_about_the_track_itself(inner),
@@ -428,7 +446,7 @@ pub fn unknown_values(query: &Query, context: &Context) -> Vec<(String, String)>
 
 fn collect_unknown(query: &Query, context: &Context, out: &mut Vec<(String, String)>) {
     match query {
-        Query::All => {}
+        Query::Browse(_) | Query::All => {}
         Query::And(parts) | Query::Or(parts) => {
             for part in parts {
                 collect_unknown(part, context, out);
@@ -510,6 +528,7 @@ pub fn field_names() -> Vec<&'static str> {
 // Running a query
 // --------------------------------------------------------------------------
 
+pub mod browse;
 mod indexes;
 mod sorting;
 pub use sorting::{Sort, SortKey, sort, sort_key_names};
@@ -524,6 +543,7 @@ pub struct Context<'a> {
     pub owner: &'a str,
     /// Certain external relationships, indexed once for this evaluation.
     sourced: SourcedRelations,
+    browse_claims: browse::Claims,
     local: indexes::LocalIndexes<'a>,
 }
 
@@ -535,6 +555,7 @@ impl<'a> Context<'a> {
             data,
             owner,
             sourced: SourcedRelations::default(),
+            browse_claims: browse::Claims::default(),
             local: indexes::LocalIndexes::new(catalog, data, owner),
         }
     }
@@ -544,6 +565,7 @@ impl<'a> Context<'a> {
     /// query results.
     pub fn with_sources(mut self, sources: &crate::sources::Sources) -> Context<'a> {
         self.sourced = SourcedRelations::new(self.catalog, sources);
+        self.browse_claims = browse::Claims::new(self.catalog, sources);
         self
     }
 }
@@ -610,6 +632,9 @@ impl SourcedRelations {
 /// Order matters because everything downstream pages through it, and paging is
 /// only meaningful while the order is the same on every run.
 pub fn run(query: &Query, context: &Context) -> Vec<Id> {
+    if let Query::Browse(filter) = query {
+        return browse::tracks(filter, context);
+    }
     context
         .catalog
         .tracks
@@ -622,6 +647,7 @@ pub fn run(query: &Query, context: &Context) -> Vec<Id> {
 /// Whether one track satisfies a query.
 pub fn matches(query: &Query, context: &Context, track: Id) -> bool {
     match query {
+        Query::Browse(filter) => browse::tracks(filter, context).contains(&track),
         Query::All => true,
         Query::And(parts) => parts.iter().all(|p| matches(p, context, track)),
         Query::Or(parts) => parts.iter().any(|p| matches(p, context, track)),
@@ -760,6 +786,8 @@ fn number_of(field: &Field, context: &Context, track: Id) -> Option<f64> {
         Field::Size => file.map(|f| f.size as f64),
         Field::Bitrate => file.and_then(|f| f.properties.bitrate_kbps).map(f64::from),
         Field::SampleRate => file.and_then(|f| f.properties.sample_rate).map(f64::from),
+        Field::BitDepth => file.and_then(|f| f.properties.bit_depth).map(f64::from),
+        Field::Channels => file.and_then(|f| f.properties.channels).map(f64::from),
         Field::Played => {
             let reference = scoped(Scope::Track, context, track)?;
             Some(f64::from(context.local.play_count(
@@ -924,6 +952,12 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
         Field::Lyrics => catalog
             .lyrics_of_track(track)
             .map(|lyrics| vec![lyrics.text()])
+            .unwrap_or_default(),
+        Field::Reference => EntityRef::of(catalog, EntityKind::Track, track)
+            .map(|r| vec![r.to_token()])
+            .unwrap_or_default(),
+        Field::Container => file
+            .map(|f| vec![f.properties.container.clone()])
             .unwrap_or_default(),
         Field::Path => file.map(|f| vec![f.path.clone()]).unwrap_or_default(),
         Field::Codec => file
