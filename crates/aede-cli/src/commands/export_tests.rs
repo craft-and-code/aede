@@ -153,3 +153,97 @@ fn a_field_is_quoted_only_when_it_has_to_be() {
     assert_eq!(escape("Say \"Hello\"", ','), "\"Say \"\"Hello\"\"\"");
     assert_eq!(escape("Two\nlines", ','), "\"Two\nlines\"");
 }
+
+#[test]
+fn album_export_totals_saturate_extreme_measures_and_preserve_ordinary_values() {
+    use aede_core::model::{AudioFile, Release, Track};
+
+    let catalog = Catalog {
+        files: [1u64 << 63, 1u64 << 63, 11, 13]
+            .into_iter()
+            .enumerate()
+            .map(|(id, size)| AudioFile {
+                id: id as Id,
+                size,
+                ..Default::default()
+            })
+            .collect(),
+        tracks: [1u64 << 63, 1u64 << 63, 500, 700]
+            .into_iter()
+            .enumerate()
+            .map(|(id, duration)| Track {
+                id: id as Id,
+                file_id: id as Id,
+                release_id: Some((id / 2) as Id),
+                duration_ms: Some(duration),
+                ..Default::default()
+            })
+            .collect(),
+        releases: (0..2)
+            .map(|id| Release {
+                id,
+                track_ids: vec![id * 2, id * 2 + 1],
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let (header, rows) = album_rows(&catalog, &[0, 1]);
+    let duration = header
+        .iter()
+        .position(|name| *name == "duration_ms")
+        .unwrap();
+    let size = header
+        .iter()
+        .position(|name| *name == "size_bytes")
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0][duration], u64::MAX.to_string());
+    assert_eq!(rows[0][size], u64::MAX.to_string());
+    assert_eq!(rows[1][duration], "1200");
+    assert_eq!(rows[1][size], "24");
+}
+
+#[test]
+fn album_integrity_requires_evidence_for_every_track() {
+    use aede_core::audit::integrity::Verdict::{Damaged, Intact, NothingToCheck};
+    use aede_core::model::{AudioFile, IntegrityRecord};
+
+    let damaged = Damaged {
+        detail: "checksum mismatch".into(),
+    };
+    for (verdicts, expected) in [
+        (vec![], ""),
+        (vec![Some(NothingToCheck)], "nothing_to_check"),
+        (
+            vec![Some(NothingToCheck), Some(NothingToCheck)],
+            "nothing_to_check",
+        ),
+        (vec![Some(Intact)], "intact"),
+        (vec![Some(Intact), Some(Intact)], "intact"),
+        (vec![Some(Intact), Some(NothingToCheck)], "not_verified"),
+        (vec![Some(NothingToCheck), Some(Intact)], "not_verified"),
+        (vec![None], "not_verified"),
+        (vec![None, Some(NothingToCheck)], "not_verified"),
+        (vec![Some(Intact), None], "not_verified"),
+        (vec![Some(damaged.clone()), Some(NothingToCheck)], "damaged"),
+        (vec![Some(NothingToCheck), Some(damaged.clone())], "damaged"),
+        (vec![None, Some(damaged.clone())], "damaged"),
+        (vec![Some(Intact), Some(damaged)], "damaged"),
+    ] {
+        let files: Vec<AudioFile> = verdicts
+            .iter()
+            .cloned()
+            .map(|verdict| AudioFile {
+                integrity: verdict.map(|verdict| IntegrityRecord {
+                    verdict,
+                    method: "test".into(),
+                    checked_at: 1,
+                }),
+                ..Default::default()
+            })
+            .collect();
+        let references: Vec<&AudioFile> = files.iter().collect();
+        assert_eq!(integrity_of(&references), expected, "{verdicts:?}");
+    }
+}

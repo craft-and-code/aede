@@ -4,7 +4,9 @@ notes liste les notes et peut filtrer les entités portant --tag ÉTIQUETTE. CSV
 
 En conflit, la note la plus récente gagne et les remplacements sont signalés ; le plus grand compteur d’écoutes est conservé. Importer deux fois le même fichier n’ajoute rien. L’export dépasse le simple texte Markdown car il garde la structure d’annotation permettant le rattachement.
 
-note TYPE NOM lit/écrit une note précise ; backup sauvegarde les quatre magasins ; rules les décisions reproductibles de sources/graphe. Garder les exports privés : notes et références peuvent être personnelles.
+note TYPE NOM lit/écrit une note précise ; backup sauvegarde l’ensemble des données ; rules les décisions reproductibles de sources/graphe. Garder les exports privés : notes et références peuvent être personnelles. L’import utilise la même limite de 64 Mio d’octets bruts et la même validation que le magasin personnel, espaces compris.
+
+Le déplacement automatique d’une référence de piste exige des preuves d’identité concordantes, dont les tags d’artiste et d’artiste d’album au singulier comme au pluriel. Une ancienne preuve incomplète ne démontre pas un déplacement : la référence reste en attente jusqu’à concordance ou rattachement explicite. Une réconciliation au chemin d’origine actualise les preuves avant un déplacement ultérieur.
 
 ## Syntaxe et arguments
 

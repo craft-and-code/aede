@@ -150,3 +150,52 @@ fn truncated_info_list_does_not_panic() {
     read_info_list(&data, &mut tags);
     assert!(tags.is_empty());
 }
+
+#[test]
+fn extensible_pcm_uses_signal_precision_instead_of_container_width() {
+    for valid_bits in [16u16, 24, 32] {
+        let mut format = extensible_format(1);
+        format[18..20].copy_from_slice(&valid_bits.to_le_bytes());
+        let tags = read_format(&format).unwrap();
+        assert_eq!(tags.properties.bit_depth, Some(valid_bits));
+        assert_eq!(tags.properties.is_hi_res(), valid_bits > 16);
+        assert_eq!(
+            tags.properties.quality_label(),
+            format!("PCM {valid_bits}/44.1")
+        );
+    }
+}
+
+#[test]
+fn compressed_aifc_does_not_apply_pcm_duration_or_precision_rules() {
+    let mut common = Vec::new();
+    common.extend(1u16.to_be_bytes());
+    common.extend(690u32.to_be_bytes()); // IMA4 packets, each decodes to 64 samples
+    common.extend(4u16.to_be_bytes());
+    common.extend([0x40, 0x0e, 0xac, 0x44, 0, 0, 0, 0, 0, 0]);
+    common.extend(b"ima4\0\0"); // compression type, empty Pascal name and alignment
+    let mut body = b"AIFCFVER".to_vec();
+    body.extend(4u32.to_be_bytes());
+    body.extend(0xa280_5140u32.to_be_bytes());
+    body.extend(b"COMM");
+    body.extend((common.len() as u32).to_be_bytes());
+    body.extend(common);
+    body.extend(b"SSND");
+    body.extend((8u32 + 690 * 34).to_be_bytes());
+    body.extend(vec![0; 8 + 690 * 34]); // offset, block size and IMA4 packets
+    body.extend(b"NAME");
+    body.extend(14u32.to_be_bytes());
+    body.extend(b"Example title\0");
+    let mut bytes = b"FORM".to_vec();
+    bytes.extend((body.len() as u32).to_be_bytes());
+    bytes.extend(body);
+    let tags = read_container(&bytes, read_aiff).unwrap();
+    assert_eq!(tags.first("title"), Some("Example title"));
+    assert_eq!(tags.properties.codec, "ima4");
+    assert_eq!(tags.properties.channels, Some(1));
+    assert_eq!(tags.properties.sample_rate, Some(44_100));
+    assert!(!tags.properties.lossless);
+    assert_eq!(tags.properties.duration_ms, None);
+    assert_eq!(tags.properties.bit_depth, None);
+    assert_eq!(tags.properties.bitrate_kbps, None);
+}

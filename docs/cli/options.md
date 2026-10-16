@@ -28,6 +28,8 @@ Both `--option value` and `--option=value` work. Paths/numbers/keywords take one
 
 Short forms are separate options: `-j` means command-scoped `--json`, `-o FILE` means command-scoped `--output FILE`. `-o=FILE` is supported. Do not combine short letters (`-jo`); that is not a declared alias. Unknown/missing-valued options are validated even before help/version. Repeating the same option currently keeps the last value; write it once to avoid accidental replacement.
 
+Valueless flags such as `--yes`, `--json` and `--help` refuse inline values, including `=false`, `=true` and an empty `=`. They are presence switches, not boolean-valued options. This validation happens before help/version, confirmation or any data change; omit `--yes` when confirmation should remain required.
+
 ## Reusable families
 
 Pagination: `--limit N`, `--offset N`, `--all` only on the commands below. N is a whole number; limit must be positive, offset starts at zero, all and limit are incompatible. Ordinary paged lists generally default to 50; some reports choose smaller subsidiary lists. Export preserves the actual filtered/paged rows, so request all deliberately.

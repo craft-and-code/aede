@@ -6,6 +6,8 @@ The normal scan reuses unchanged files. --full rereads metadata but keeps the wa
 
 The summary reports scanned files, albums, artists and parse issues. A successful scan is an index, not an audio integrity verdict. Imported FlacCompagnon reports beside the scanned folders are attached to matching files; changed files invalidate stale conclusions. Audio and tags are never rewritten.
 
+Adjacent lyrics accept `.lrc` suffixes without regard to ASCII case, retaining the actual walked filename even when audio metadata is reused. If several suffix spellings coexist, the exact lowercase filename takes precedence; otherwise native sorted path order decides.
+
 ## Syntax and arguments
 
 ```text
@@ -48,6 +50,6 @@ Output describes the selected operation or catalog data. Read any per-item warni
 
 Detailed existing guide: [library.md](../library.md).
 
-An inaccessible subtree retains its previously indexed entries, including with --full, and reports the access failure. Precise modification timestamps are used when supplied by the filesystem; older catalogs lacking the precision are reread once. JSON contains dry_run, roots, added, changed, removed, unreadable and counts; preserved counts retained entries from inaccessible paths.
+An inaccessible subtree retains its previously indexed entries, including with --full, and reports the access failure. Precise modification timestamps are used when supplied by the filesystem; older catalogs lacking the precision are reread once. Unavailable or pre-1970 timestamps cannot establish unchanged bytes and are reread on each scan; they cannot reattach cached conclusions merely through the unsigned fallback zero. An exact epoch timestamp with explicit precision remains usable. Retained conclusions are not erased by this read-time refusal. JSON contains dry_run, roots, added, changed, removed, unreadable and counts; preserved counts retained entries from inaccessible paths.
 
 Only regular files are opened, so a special file with an audio extension cannot block the scan. Paths that cannot be represented as UTF-8 are reported and skipped; non-UTF-8 roots are refused. With --follow-symlinks, aliases are selected in deterministic native path order. A file changed or replaced during metadata reading is reported as temporarily unreadable and its cached entry is preserved.

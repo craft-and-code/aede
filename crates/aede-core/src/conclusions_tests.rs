@@ -93,6 +93,34 @@ fn results_live_outside_catalog_and_match_bytes() {
 }
 
 #[test]
+fn fallback_zero_timestamps_cannot_establish_unchanged_audio() {
+    let mut original = catalog();
+    original.files[0].mtime = 0;
+    original.files[0].integrity = Some(verdict());
+    let stored = Conclusions::from_catalog(&original);
+    let before = to_json(&stored);
+    let mut fresh = original.clone();
+    stored.attach(&mut fresh);
+    assert!(fresh.files[0].integrity.is_none());
+    assert_eq!(
+        to_json(&stored),
+        before,
+        "an uncertain read does not alter held evidence"
+    );
+
+    original
+        .file_mtime_subseconds
+        .insert(original.files[0].path.clone(), 0);
+    let precise = Conclusions::from_catalog(&original);
+    precise.attach(&mut original);
+    assert_eq!(
+        original.files[0].integrity,
+        Some(verdict()),
+        "an exact epoch timestamp remains usable"
+    );
+}
+
+#[test]
 fn subsecond_file_identity_roundtrips_and_expires_same_second_results() {
     let mut original = catalog();
     original

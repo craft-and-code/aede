@@ -186,3 +186,41 @@ fn generated_playlists_can_be_verified_published_and_resumed_without_an_encoder(
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn complete_encoded_outputs_resume_without_an_available_encoder() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "aede_copy_encoded_resume_{}_{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let item = Item {
+        source: PathBuf::from("source.flac"),
+        relative: PathBuf::from("track.mp3"),
+        size: 1000,
+        kind: ItemKind::Audio,
+        convert: Some(Target::Mp3),
+        contents: None,
+    };
+    let target = directory.join(&item.relative);
+    std::fs::write(&target, b"existing encoded file").unwrap();
+    assert_eq!(
+        write_one(
+            &item,
+            &directory,
+            true,
+            false,
+            false,
+            &recipe(Some(Target::Mp3)),
+            None,
+        )
+        .unwrap(),
+        copy::Wrote::Skipped
+    );
+    assert_eq!(std::fs::read(&target).unwrap(), b"existing encoded file");
+    std::fs::remove_dir_all(directory).unwrap();
+}

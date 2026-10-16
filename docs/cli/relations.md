@@ -4,6 +4,8 @@ relations is the inventory of directed graph edges: local tag relationships and 
 
 An optional name matches either endpoint and relationship kind. --source narrows provenance such as musicbrainz; --tag narrows your personal edge labels. --json produces structured edges and --output requires that JSON form. Pagination applies to the resulting list.
 
+An empty JSON selection is `[]`, including when written with --output. Invalid pagination is refused even when no relationship matches.
+
 Open one ID with relation, then annotate it without changing the edge. For a sourced-credit correction use credit --exclude rather than relation --remove: the latter removes your annotation only. Disappearing edges do not erase your personal annotations; doctor reports orphaned annotations, which can still be removed by ID.
 
 ## Syntax and arguments

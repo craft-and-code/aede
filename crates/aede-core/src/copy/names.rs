@@ -103,14 +103,20 @@ fn rewrite(component: &str) -> String {
         };
     }
 
-    // The reserved word is the *stem*, so `NUL.flac` is refused too.
-    let (stem, extension) = split_extension(&out);
+    // Device names stay reserved before the first dot, even with several
+    // extensions or a suffix the collision counter would not call an extension.
+    let (stem, extension) = out.split_at(out.find('.').unwrap_or(out.len()));
     if RESERVED.iter().any(|word| stem.eq_ignore_ascii_case(word)) {
         out = format!("{stem}{REPLACEMENT}{extension}");
     }
 
     if out.len() > MAX_COMPONENT {
-        out = shorten(&out);
+        // Cutting can expose punctuation that was inside the original name.
+        out = shorten(&out).trim_end_matches([' ', '.']).to_string();
+        // Removing that ending can also leave a bare reserved device name.
+        if RESERVED.iter().any(|word| out.eq_ignore_ascii_case(word)) {
+            out.push(REPLACEMENT);
+        }
     }
     if out.is_empty() {
         out = REPLACEMENT.to_string();

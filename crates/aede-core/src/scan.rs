@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use crate::analysis;
-use crate::clock::{mtime_seconds, mtime_subseconds, now_seconds};
+use crate::clock::{mtime_seconds, now_seconds};
 use crate::model::{self, Catalog, ScannedFile};
 use crate::tags::{self, RawTags};
 
@@ -216,10 +216,10 @@ pub fn scan(
         };
         let size = meta.len();
         let mtime = mtime_seconds(&meta);
-        let fraction = mtime_subseconds(&meta);
+        let fraction = cache_modification_fraction(&meta);
 
-        match cache.get(path_str.as_str()) {
-            Some(old)
+        match (cache.get(path_str.as_str()), fraction) {
+            (Some(old), Some(fraction))
                 if !options.force_read
                     && old.size == size
                     && old.mtime == mtime
@@ -262,7 +262,7 @@ pub fn scan(
     // --- 3. Parallel reading ----------------------------------------------
     let thread_count = resolve_threads(options.threads).min(to_read.len().max(1));
     let queue = Mutex::new(to_read);
-    let results: Mutex<Vec<(ScannedFile, u32)>> = Mutex::new(Vec::new());
+    let results: Mutex<Vec<(ScannedFile, Option<u32>)>> = Mutex::new(Vec::new());
     let failures: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
     let unavailable: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
     let done = AtomicUsize::new(0);
@@ -279,7 +279,7 @@ pub fn scan(
                     let outcome = read_fresh(&path, options.follow_symlinks, tags::read);
                     match outcome {
                         Ok((metadata, tags)) => {
-                            let fraction = mtime_subseconds(&metadata);
+                            let fraction = cache_modification_fraction(&metadata);
                             let file = ScannedFile {
                                 path: path_str,
                                 size: metadata.len(),
@@ -330,7 +330,9 @@ pub fn scan(
         .unwrap_or_else(|e| e.into_inner())
         .into_iter()
         .map(|(file, fraction)| {
-            fractions.insert(file.path.clone(), fraction);
+            if let Some(fraction) = fraction {
+                fractions.insert(file.path.clone(), fraction);
+            }
             file
         })
         .collect();
@@ -438,6 +440,18 @@ pub fn scan(
 
     report.elapsed_ms = started.elapsed().as_millis();
     Ok((catalog, report))
+}
+
+// Zero in the unsigned second field also represents unavailable/pre-epoch
+// times. Omitting their precision prevents that fallback from becoming cache
+// evidence that two otherwise unrelated file versions are identical.
+fn cache_modification_fraction(metadata: &std::fs::Metadata) -> Option<u32> {
+    metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|modified| modified.subsec_nanos())
 }
 
 fn read_fresh(
@@ -581,11 +595,11 @@ pub fn resolve_threads(requested: usize) -> usize {
 }
 
 /// The `.lrc` beside this file, if the walk saw one.
-fn sidecar_for(sidecars: &HashSet<PathBuf>, file: &Path) -> Option<String> {
+fn sidecar_for(sidecars: &HashMap<PathBuf, PathBuf>, file: &Path) -> Option<String> {
     let expected = crate::lyrics::sidecar_of(file);
     sidecars
-        .contains(&expected)
-        .then(|| expected.to_string_lossy().to_string())
+        .get(&expected)
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 fn cover_for(covers: &HashMap<PathBuf, PathBuf>, file: &Path) -> Option<String> {
@@ -604,7 +618,7 @@ struct Walker<'a> {
     reports: Vec<PathBuf>,
     /// Best cover art found per folder.
     folder_covers: HashMap<PathBuf, PathBuf>,
-    sidecars: HashSet<PathBuf>,
+    sidecars: HashMap<PathBuf, PathBuf>,
     /// Folders already visited, so as not to go round in circles on a
     /// circular symbolic link.
     visited: HashSet<PathBuf>,
@@ -622,7 +636,7 @@ impl<'a> Walker<'a> {
             audio_files: Vec::new(),
             reports: Vec::new(),
             folder_covers: HashMap::new(),
-            sidecars: HashSet::new(),
+            sidecars: HashMap::new(),
             visited: HashSet::new(),
             failures: Vec::new(),
             inaccessible: HashSet::new(),
@@ -744,7 +758,16 @@ impl<'a> Walker<'a> {
                 // the walk already has the names in hand, and asking the
                 // filesystem again once per track would be ten thousand
                 // questions with the answers already on the table.
-                self.sidecars.insert(path);
+                let expected = path.with_extension(crate::lyrics::EXTENSION);
+                let selected = self
+                    .sidecars
+                    .entry(expected.clone())
+                    .or_insert_with(|| path.clone());
+                // Keep the exact lowercase name when present; other suffix
+                // spellings retain the first path in the sorted traversal.
+                if path == expected {
+                    *selected = path;
+                }
             } else if let Some(rank) = cover_rank(&name)
                 && best_cover
                     .as_ref()

@@ -585,10 +585,29 @@ impl Catalog {
         if !exact.is_empty() {
             return (exact, TitleMatch::Exact);
         }
+        let aliases: Vec<&Artist> = self
+            .artists
+            .iter()
+            .filter(|artist| {
+                artist
+                    .aliases
+                    .iter()
+                    .any(|alias| text::normalize(alias) == key)
+            })
+            .collect();
+        if !aliases.is_empty() {
+            return (aliases, TitleMatch::Exact);
+        }
         let partial = self
             .artists
             .iter()
-            .filter(|a| a.key.contains(&key))
+            .filter(|artist| {
+                artist.key.contains(&key)
+                    || artist
+                        .aliases
+                        .iter()
+                        .any(|alias| text::normalize(alias).contains(&key))
+            })
             .collect();
         (partial, TitleMatch::Partial)
     }

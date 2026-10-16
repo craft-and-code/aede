@@ -53,12 +53,17 @@ pub fn split_artists(raw: &str) -> Vec<String> {
     // "feat." mentions are looked up without regard to case.
     let mut expanded = Vec::new();
     for part in parts {
-        let lower = part.to_lowercase();
         let mut cut = None;
         for marker in FEATURE_MARKERS {
-            if let Some(idx) = lower.find(marker) {
+            // Markers are ASCII; Unicode lowercasing can change byte lengths
+            // and would make its offsets unsafe for the original spelling.
+            if let Some(idx) = part
+                .as_bytes()
+                .windows(marker.len())
+                .position(|window| window.eq_ignore_ascii_case(marker.as_bytes()))
+            {
                 cut = Some(match cut {
-                    Some((prev, _)) if prev <= idx => (prev, marker.len()),
+                    Some((prev, len)) if prev <= idx => (prev, len),
                     _ => (idx, marker.len()),
                 });
             }

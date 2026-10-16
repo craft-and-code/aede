@@ -104,7 +104,7 @@ pub fn check(path: &Path) -> Result<Report, TagError> {
 }
 
 fn check_with_limit(path: &Path, max_bytes: usize) -> Result<Report, TagError> {
-    let mut file = std::fs::File::open(path)?;
+    let mut file = crate::tags::bytes::open_regular(path)?;
     let head = read_at_most(&mut file, 0, 4)?;
     if head.len() < 4 {
         return Err(TagError::UnrecognizedFormat);

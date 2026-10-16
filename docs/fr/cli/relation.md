@@ -4,6 +4,8 @@ relation ouvre l’identifiant exact copié dans relations et montre extrémité
 
 --remove seul retire toute l’annotation. --tag ÉTIQUETTE --remove retire seulement ces étiquettes. Mélanger nouvelle note et retrait est refusé. Si le lien a disparu, l’identifiant de son annotation conservée reste utilisable pour la supprimer.
 
+Un préfixe d’identifiant correspondant à plusieurs liens actuels est ambigu et refusé pour la suppression comme pour la consultation. Une sélection actuelle ambiguë n’est jamais assimilée à un lien disparu.
+
 C’est l’endroit pour « vérifier dans le livret » ou « collaboration intéressante ». Cela n’édite pas le graphe : credit corrige/exclut un crédit de source, review choisit la confiance d’une identité proposée.
 
 ## Syntaxe et arguments

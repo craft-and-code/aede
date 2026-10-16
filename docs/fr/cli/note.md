@@ -1,8 +1,8 @@
 # note — Écrire des notes Markdown
 
-note TYPE NOM lit la note actuelle sans option d’écriture/retrait. Une note par entité. --text fournit un texte court, --file lit un fichier UTF-8, --file - lit l’entrée d’un programme précédent. Choisir une source ; --from TYPE:NOM copie une autre note.
+note TYPE NOM lit la note actuelle sans option d’écriture/retrait. Une note par entité. --text fournit un texte court, --file lit un fichier UTF-8, --file - lit l’entrée d’un programme précédent. Choisir une source ; --from TYPE:NOM copie les annotations de la source, dont sa note.
 
-Le nouveau texte remplace la note sauf --append, qui l’ajoute après une ligne vide. --remove efface et refuse les actions d’écriture contradictoires. Markdown, lignes vides et formulation sont préservés ; le terminal montre le texte source et un client graphique peut le rendre de façon sûre.
+Le nouveau texte remplace la note sauf --append, qui l’ajoute après une ligne vide. --remove efface et refuse les actions d’écriture contradictoires. Markdown, lignes vides, fins de lignes finales et formulation sont préservés, y compris LF/CRLF depuis un fichier ou un programme ; le terminal montre le texte source et un client graphique peut le rendre de façon sûre. La copie --from refuse --text, --file et --append plutôt que d’ignorer une autre action d’écriture.
 
 Exporter avec notes --export et sauvegarder user.json via backup. search --notes ou query album.note:TEXTE retrouvent la prose. Une note personnelle diffère du commentaire intégré à l’audio.
 
@@ -14,7 +14,7 @@ Les annotations personnelles sont gardées séparément dans user.json, sans ret
 aede note <kind> <name>
 ```
 
-Type puis nom ; --from désigne une autre entité par TYPE:NOM.
+Type puis nom ; --from désigne une autre entité par TYPE:NOM. Les noms uniques du catalogue sont résolus pour chaque type ; les références personnelles exactes, y compris en attente de rattachement, restent utilisables. Un nom ambigu est refusé.
 
 ## Options de cette commande
 
@@ -23,8 +23,8 @@ Type puis nom ; --from désigne une autre entité par TYPE:NOM.
 | `--remove` | Retirer la valeur personnelle désignée par cette commande ; sa portée est précisée ci-dessous. |
 | `--text TEXT` | Écrire le texte de la note personnelle. Les mots sont consommés jusqu’à la prochaine option. |
 | `--file FILE_OR_-` | Lire une note UTF-8 depuis FICHIER. Le caractère - seul lit l’entrée standard d’un programme précédent. |
-| `--append` | Ajouter le texte fourni à la note existante, séparé par une ligne vide. Sans cette option, remplacer la note. |
-| `--from KIND:NAME` | Copier une note depuis une autre référence, telle que album:"Kind of Blue". Incompatible avec une autre source de texte. |
+| `--append` | Ajouter le texte de --text ou --file à la note existante, séparé par une ligne vide. Une source de texte est nécessaire ; --remove est incompatible. Sans --append, remplacer la note. |
+| `--from KIND:NAME` | Copier les annotations personnelles (note, tags, étoiles et favori) depuis une autre référence, telle que album:"Kind of Blue". Incompatible avec une autre source de texte. |
 
 La [référence des options](options.md) explique `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, valeurs et règles d’export/pagination. Elles ne rendent pas CSV/JSON ou pagination disponibles partout.
 

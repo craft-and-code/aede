@@ -158,6 +158,56 @@ fn detects_missing_tags() {
 }
 
 #[test]
+fn plural_artist_tags_are_not_reported_as_a_missing_artist() {
+    let catalog = model::build(
+        vec![file(
+            "/music/Record/01.flac",
+            &[
+                ("title", "Song"),
+                ("artists", "The Band"),
+                ("album", "Record"),
+            ],
+            Some(60_000),
+            "flac",
+        )],
+        vec!["/music".into()],
+        0,
+        &[],
+    );
+    assert_eq!(catalog.tracks_of_artist(catalog.artists[0].id).len(), 1);
+    let issues = diagnose(&catalog, &crate::sources::Sources::default());
+    assert_eq!(count(&issues, IssueKind::MissingArtist), 0);
+}
+
+#[test]
+fn original_dates_are_diagnosed_when_no_edition_date_exists() {
+    for (date, missing, suspicious) in [("1999", 0, 0), ("1800", 0, 1), ("unknown", 1, 0)] {
+        let catalog = model::build(
+            vec![file(
+                "/music/Record/01.flac",
+                &[
+                    ("artist", "The Band"),
+                    ("album", "Record"),
+                    ("originaldate", date),
+                ],
+                Some(60_000),
+                "flac",
+            )],
+            vec!["/music".into()],
+            0,
+            &[],
+        );
+        let issues = diagnose(&catalog, &crate::sources::Sources::default());
+        assert_eq!(count(&issues, IssueKind::MissingDate), missing, "{date}");
+        assert_eq!(
+            count(&issues, IssueKind::SuspiciousYear),
+            suspicious,
+            "{date}"
+        );
+    }
+}
+
+#[test]
 fn detects_an_unreadable_duration() {
     let c = model::build(
         vec![file(

@@ -1,11 +1,9 @@
 //! What a file really contains, as opposed to what it claims.
 //!
-//! Tag reading answers "what does this file say about itself". This module
-//! answers "is it telling the truth", by walking the encoded stream without
-//! decoding any audio.
-//!
-//! It deliberately depends on nothing but [`crate::tags`], so it can be lifted
-//! into a crate of its own and shared with other tools.
+//! Tag reading reports declarations. Structural stream walks check supported
+//! container checksums and encoded audio properties. FLAC precision candidates
+//! additionally use the existing integer codec for bounded confirmation from
+//! already-read frames; the integrity/checksum walk does not decode audio.
 
 mod bits;
 /// Public because a checksum is a checksum. `copy` verifies a file it has just

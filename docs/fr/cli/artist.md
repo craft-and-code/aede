@@ -2,6 +2,8 @@
 
 artist ouvre un artiste local par nom ou identifiant MusicBrainz. La carte distingue discographie, apparitions invitées, compilations, écriture/production et collaborations, plutôt que tout mélanger dans une liste d’albums.
 
+La recherche locale privilégie un nom canonique exact, puis un alias conservé exact, avant les correspondances partielles sur les noms et alias. Un alias ambigu conserve tous ses candidats sans choisir silencieusement un artiste. Les annotations d’artiste utilisent la même recherche.
+
 --role limite les contributions, --with sélectionne les pistes communes à un autre artiste local, --members montre les membres datés. Les albums peuvent déduire la formation de leur année à partir des dates sourcées ; aucune formation historique n’est inventée.
 
 Choisir une seule question parmi --role, --with et --members ; les combinaisons sont refusées. Sur la carte locale ordinaire, --limit/--offset paginent chaque tableau d’albums séparément (50 lignes par défaut) et les collaborateurs (20 par défaut). Avec --role ou --with, ils paginent le tableau de pistes ; CSV/JSON/M3U exportent aussi cette sélection de pistes paginée. Les exports ordinaires paginent les pistes interprétées par l’artiste. --all retire ces limites. Les totaux décrivent toujours la sélection complète. --members présente toutes les relations datées et refuse les options d’export et de pagination.

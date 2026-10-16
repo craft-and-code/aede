@@ -7,7 +7,7 @@ fn page(serial: u32, granule: u64, continued: bool, segments: &[&[u8]]) -> Vec<u
     out.extend_from_slice(&granule.to_le_bytes());
     out.extend_from_slice(&serial.to_le_bytes());
     out.extend_from_slice(&0u32.to_le_bytes()); // page number
-    out.extend_from_slice(&0u32.to_le_bytes()); // CRC (not verified)
+    out.extend_from_slice(&0u32.to_le_bytes()); // CRC field is zero during calculation
     out.push(segments.len() as u8);
     for s in segments {
         out.push(s.len() as u8);
@@ -15,6 +15,8 @@ fn page(serial: u32, granule: u64, continued: bool, segments: &[&[u8]]) -> Vec<u
     for s in segments {
         out.extend_from_slice(s);
     }
+    let crc = crate::audit::crc::crc32_ogg(&out);
+    out[22..26].copy_from_slice(&crc.to_le_bytes());
     out
 }
 
@@ -85,4 +87,79 @@ fn a_large_ogg_granule_does_not_overflow_duration_conversion() {
     let fixture = super::super::test_support::BinaryFile::new("opus", &bytes);
     let tags = fixture.read().unwrap();
     assert_eq!(tags.properties.duration_ms, Some(samples / 48));
+}
+
+#[test]
+fn capture_patterns_inside_a_page_payload_do_not_replace_its_duration() {
+    let mut identification = b"OpusHead".to_vec();
+    identification.extend_from_slice(&[1, 2]);
+    identification.extend_from_slice(&0u16.to_le_bytes());
+    identification.extend_from_slice(&48_000u32.to_le_bytes());
+    identification.extend_from_slice(&[0; 3]);
+    let embedded = page(7, 4_800_000, false, &[]);
+    let bytes = [
+        page(7, 0, false, &[&identification]),
+        page(7, 48_000, false, &[&embedded]),
+    ]
+    .concat();
+    let fixture = super::super::test_support::BinaryFile::new("opus", &bytes);
+    assert_eq!(fixture.read().unwrap().properties.duration_ms, Some(1000));
+}
+
+#[test]
+fn an_unaligned_tail_resumes_after_an_incomplete_embedded_capture_pattern() {
+    let mut identification = b"OpusHead".to_vec();
+    identification.extend_from_slice(&[1, 2]);
+    identification.extend_from_slice(&0u16.to_le_bytes());
+    identification.extend_from_slice(&48_000u32.to_le_bytes());
+    identification.extend_from_slice(&[0; 3]);
+    let mut payload = vec![b'x'; 65_025];
+    let mut embedded = page(7, 4_800_000, false, &[]);
+    embedded[26] = 255;
+    embedded.extend_from_slice(&[255; 255]);
+    payload[5000..5000 + embedded.len()].copy_from_slice(&embedded);
+    let final_payload = [b'x'; 1024];
+    let bytes = [
+        page(7, 0, false, &[&identification]),
+        page(7, 24_000, false, &payload.chunks(255).collect::<Vec<_>>()),
+        page(
+            7,
+            48_000,
+            false,
+            &final_payload.chunks(255).collect::<Vec<_>>(),
+        ),
+    ]
+    .concat();
+    assert!(bytes.len() > TAIL_WINDOW);
+    let fixture = super::super::test_support::BinaryFile::new("opus", &bytes);
+    assert_eq!(fixture.read().unwrap().properties.duration_ms, Some(1000));
+}
+
+#[test]
+fn an_unaligned_tail_does_not_admit_a_complete_capture_spanning_the_final_page() {
+    let mut identification = b"OpusHead".to_vec();
+    identification.extend_from_slice(&[1, 2]);
+    identification.extend_from_slice(&0u16.to_le_bytes());
+    identification.extend_from_slice(&48_000u32.to_le_bytes());
+    identification.extend_from_slice(&[0; 3]);
+    let mut payload = vec![b'x'; 65_025];
+    let filler = vec![0; 60_000];
+    let embedded = page(7, 4_800_000, false, &filler.chunks(255).collect::<Vec<_>>());
+    let header_size = 27 + usize::from(embedded[26]);
+    payload[5000..5000 + header_size].copy_from_slice(&embedded[..header_size]);
+    let final_payload = [b'x'; 1024];
+    let bytes = [
+        page(7, 0, false, &[&identification]),
+        page(7, 24_000, false, &payload.chunks(255).collect::<Vec<_>>()),
+        page(
+            7,
+            48_000,
+            false,
+            &final_payload.chunks(255).collect::<Vec<_>>(),
+        ),
+    ]
+    .concat();
+    assert!(bytes.len() > TAIL_WINDOW);
+    let fixture = super::super::test_support::BinaryFile::new("opus", &bytes);
+    assert_eq!(fixture.read().unwrap().properties.duration_ms, Some(1000));
 }

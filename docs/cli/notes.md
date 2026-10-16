@@ -4,7 +4,9 @@ notes lists personal notes and can filter entities carrying --tag LABEL. CSV/JSO
 
 On collisions, newer notes win and replaced values are reported; play counts retain the larger count. Importing the identical document twice is idempotent. The export is broader than plain Markdown note text because it preserves the personal annotation structure needed to attach data again.
 
-Use note KIND NAME to read/write one exact note, backup for all four stores, and rules for reproducible source/graph decisions. Keep exports private because notes and file-based references can be personal.
+Use note KIND NAME to read/write one exact note, backup for a complete data snapshot, and rules for reproducible source/graph decisions. Keep exports private because notes and file-based references can be personal. Import uses the same 64 MiB raw-input budget and validation as the personal store, including whitespace.
+
+Automatic track relocation requires matching retained identity evidence, including singular and plural artist/album-artist tags. Missing legacy evidence does not prove a move; the reference stays waiting until it can be matched or explicitly reattached. Reconciliation at the original path refreshes the evidence before a later move.
 
 ## Syntax and arguments
 

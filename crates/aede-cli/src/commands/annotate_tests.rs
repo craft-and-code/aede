@@ -115,3 +115,84 @@ fn forgetting_history_includes_client_reports_without_counters_and_keeps_other_o
     assert_eq!(remaining.scrobbles.len(), 1);
     assert_eq!(remaining.scrobbles[0].owner, "other");
 }
+
+#[test]
+fn note_files_preserve_the_complete_text_when_replaced_or_appended() {
+    let store = super::test_support::NotesStore::new();
+    let path = store.path.join("note.md");
+    let target = store.to.to_token();
+    for text in ["# Heading\n\nBody\n\n", "# Heading\r\n\r\nBody\r\n"] {
+        std::fs::write(&path, text).unwrap();
+        let args = Args::parse([
+            "note".into(),
+            target.clone(),
+            format!("--data={}", store.path.display()),
+            format!("--file={}", path.display()),
+        ]);
+        note(&args).unwrap();
+        assert_eq!(
+            store
+                .data()
+                .find(LOCAL_USER, &store.to)
+                .unwrap()
+                .note
+                .as_deref(),
+            Some(text)
+        );
+        let appended = Args::parse([
+            "note".into(),
+            target.clone(),
+            format!("--data={}", store.path.display()),
+            "--text=More\n\n".into(),
+            "--append".into(),
+        ]);
+        note(&appended).unwrap();
+        assert_eq!(
+            store
+                .data()
+                .find(LOCAL_USER, &store.to)
+                .unwrap()
+                .note
+                .as_deref(),
+            Some(format!("{text}\n\nMore\n\n").as_str())
+        );
+    }
+}
+
+#[test]
+fn note_copy_refuses_competing_write_actions_before_changing_the_store() {
+    let store = super::test_support::NotesStore::new();
+    let mut data = store.data();
+    data.entry(LOCAL_USER, &store.to, 1).note = Some("Existing destination note".into());
+    user::save(&data, &user::user_path(&store.path)).unwrap();
+    let before = store.bytes();
+    for option in [
+        "--text=Do not ignore this",
+        "--file=missing-note.md",
+        "--append",
+    ] {
+        let args = Args::parse([
+            "note".into(),
+            store.to.to_token(),
+            format!("--data={}", store.path.display()),
+            format!("--from={}", store.from.to_token()),
+            option.into(),
+        ]);
+        assert!(note(&args).is_err(), "ignored {option}");
+        assert_eq!(store.bytes(), before);
+    }
+}
+
+#[test]
+fn empty_notes_refuse_invalid_windows_without_changing_the_store() {
+    let store = super::test_support::NotesStore::new();
+    user::save(&UserData::default(), &user::user_path(&store.path)).unwrap();
+    let before = store.bytes();
+    for option in ["--limit=0", "--offset=invalid"] {
+        assert!(
+            notes(&store.args(&[option.into()])).is_err(),
+            "ignored {option}"
+        );
+        assert_eq!(store.bytes(), before);
+    }
+}

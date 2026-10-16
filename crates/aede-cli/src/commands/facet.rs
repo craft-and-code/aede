@@ -25,6 +25,7 @@ use crate::ui::{self, Align, Table};
 const DEFAULT_LIMIT: usize = 50;
 
 pub fn show_genre(args: &Args) -> Res {
+    let window = args.window(DEFAULT_LIMIT)?;
     let catalog = load(args)?;
     let name = args.positionals.join(" ");
     if name.trim().is_empty() {
@@ -44,7 +45,9 @@ pub fn show_genre(args: &Args) -> Res {
 
     let tracks = tracks_from(&ids, |id| catalog.tracks_of_genre(id));
 
-    if let Some(result) = selection_output(&catalog, &tracks, args) {
+    let first = window.offset.min(tracks.len());
+    let last = first.saturating_add(window.limit).min(tracks.len());
+    if let Some(result) = selection_output(&catalog, &tracks[first..last], args) {
         return result;
     }
 
@@ -62,6 +65,7 @@ pub fn show_genre(args: &Args) -> Res {
 }
 
 pub fn show_label(args: &Args) -> Res {
+    let window = args.window(DEFAULT_LIMIT)?;
     let catalog = load(args)?;
     let name = args.positionals.join(" ");
     if name.trim().is_empty() {
@@ -100,7 +104,9 @@ pub fn show_label(args: &Args) -> Res {
     releases.sort_unstable();
     releases.dedup();
 
-    if let Some(result) = selection_output(&catalog, &tracks, args) {
+    let first = window.offset.min(tracks.len());
+    let last = first.saturating_add(window.limit).min(tracks.len());
+    if let Some(result) = selection_output(&catalog, &tracks[first..last], args) {
         return result;
     }
 

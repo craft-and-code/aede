@@ -4,6 +4,8 @@ relations inventorie les liens dirigés du graphe : relations des tags et décla
 
 Le nom facultatif cherche dans les deux extrémités et le type. --source limite la provenance, par exemple musicbrainz ; --tag limite vos étiquettes de liens. --json fournit les liens structurés et --output exige cette forme JSON. La pagination s’applique à la liste obtenue.
 
+Une sélection JSON vide donne `[]`, y compris avec --output. Une pagination invalide est refusée même lorsqu’aucun lien ne correspond.
+
 Ouvrir un identifiant avec relation, puis l’annoter sans modifier le lien. Pour corriger un crédit de source, employer credit --exclude plutôt que relation --remove : ce dernier retire seulement votre annotation. Un lien disparu ne supprime pas son annotation ; doctor signale les orphelines, encore retirables par identifiant.
 
 ## Syntaxe et arguments

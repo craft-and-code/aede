@@ -72,7 +72,7 @@ pub fn backup(args: &Args) -> Res {
     // Read straight off the disk rather than through the loaders that refuse a
     // missing catalog: a data folder with notes and no catalog is a perfectly
     // ordinary thing to want backed up.
-    let catalog = part(store::load(&store::catalog_path(&data)));
+    let catalog = part(store::load_catalog_only(&store::catalog_path(&data)));
     let gathered = match part(conclusions::load(&conclusions::conclusions_path(&data))) {
         Part::Empty => catalog
             .held()
@@ -450,13 +450,17 @@ fn user_of(data: &aede_core::user::UserData) -> String {
     let counts = [
         (data.annotations.len(), "annotation"),
         (data.relation_annotations.len(), "relation annotation"),
+        (data.client_preferences.len(), "client preference"),
         (data.collections.len(), "collection"),
         (data.set_aside.len(), "record set aside"),
+        (data.same_artist.len(), "artist filing rule"),
         (data.plays.len(), "play"),
         (data.counts.len(), "play counter"),
         (data.playlists.len(), "playlist"),
         (data.scrobbles.len(), "client listen"),
         (data.playback_states.len(), "playback profile"),
+        (data.track_identities.len(), "track identity"),
+        (data.relinks.len(), "reattachment decision"),
     ];
     let said: Vec<String> = counts
         .iter()

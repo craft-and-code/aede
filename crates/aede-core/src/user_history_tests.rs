@@ -19,6 +19,55 @@ fn scrobble(owner: &str, at_ms: u64) -> Scrobble {
 }
 
 #[test]
+fn forgetting_one_listen_preserves_other_zero_counters_and_their_relink_undo() {
+    let fixture = TemporaryUser::new();
+    let catalog = library(&["/new/01.flac"]);
+    let from = EntityRef::new(EntityKind::Track, "/old/01.flac");
+    let to = EntityRef::new(EntityKind::Track, "/new/01.flac");
+    let mut data = UserData::default();
+    data.counts.push(PlayCount {
+        owner: "other".into(),
+        track: from.clone(),
+        count: 0,
+        completed_count: 0,
+        last_played: 0,
+    });
+    data.counts.push(PlayCount {
+        owner: LOCAL_USER.into(),
+        track: EntityRef::new(EntityKind::Track, "/unrelated/01.flac"),
+        count: 0,
+        completed_count: 0,
+        last_played: 0,
+    });
+    // Zero counters are valid persisted personal data, including as a
+    // waiting reference and as the complete snapshot of an undoable relink.
+    save(&data, &fixture.path()).unwrap();
+    let mut data = load(&fixture.path()).unwrap().unwrap();
+    assert_eq!(data.counts.len(), 2);
+    let id = data.relink("other", &from, &to, &catalog, 2).unwrap();
+    let mut local_play = play(LOCAL_USER, 3);
+    local_play.track = to.clone();
+    data.record_play(local_play);
+    save(&data, &fixture.path()).unwrap();
+    let mut data = load(&fixture.path()).unwrap().unwrap();
+    assert!(data.preview_undo_relink("other", id).is_ok());
+    let untouched: Vec<_> = data
+        .counts
+        .iter()
+        .filter(|count| count.owner != LOCAL_USER || count.track != to)
+        .cloned()
+        .collect();
+
+    assert!(data.forget_last_play(LOCAL_USER, &to));
+    assert_eq!(data.play_count(LOCAL_USER, &to), 0);
+    let undo = data.preview_undo_relink("other", id);
+    assert!(undo.is_ok(), "another owner's undo changed: {undo:?}");
+    assert_eq!(data.counts, untouched);
+    data.undo_relink("other", id, 4).unwrap();
+    assert_eq!(data.counts[0].track, from);
+}
+
+#[test]
 fn another_accounts_native_listens_never_evict_the_owners_recent_history() {
     let mut data = UserData::default();
     let alice = play("alice", 1);

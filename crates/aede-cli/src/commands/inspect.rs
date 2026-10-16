@@ -15,6 +15,9 @@ pub fn inspect(args: &Args) -> Res {
     let Some(raw) = args.positionals.first() else {
         return Err("give a file: aede file track.flac".into());
     };
+    if args.positionals.len() > 1 {
+        return Err("give exactly one file: aede file \"path/to/track.flac\"".into());
+    }
     let path = Path::new(raw);
     let tags = tags::read(path)?;
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
@@ -78,3 +81,7 @@ pub fn inspect(args: &Args) -> Res {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "inspect_tests.rs"]
+mod tests;

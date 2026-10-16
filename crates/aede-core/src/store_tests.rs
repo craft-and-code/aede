@@ -193,6 +193,77 @@ fn invalid_graph_identifiers_and_foreign_references_cannot_be_published() {
 }
 
 #[test]
+fn persisted_forward_links_require_their_inverse_membership() {
+    let original = model::build(
+        vec![model::tests::track(
+            "/music/Album/01.flac",
+            &[
+                ("title", "Song"),
+                ("artist", "Artist"),
+                ("album", "Album"),
+                ("musicbrainz_releasegroupid", "release-group-id"),
+            ],
+            1000,
+        )],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    let directory = crate::store_lock::test_support::Directory::new("inverse_membership");
+    let path = catalog_path(directory.path());
+    let mut accepted = Vec::new();
+    for (table, field) in [
+        ("release", "track_ids"),
+        ("recording", "track_ids"),
+        ("release_group", "release_ids"),
+    ] {
+        let mut document = to_json(&original);
+        let mut entries = rows(&document, table).to_vec();
+        entries[0].set(field, Json::Arr(Vec::new()));
+        document.set(table, Json::Arr(entries));
+        let bytes = document.to_string_compact();
+        std::fs::write(&path, &bytes).unwrap();
+        accepted.push((table, load(&path).is_ok()));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+    }
+    assert_eq!(
+        accepted,
+        vec![
+            ("release", false),
+            ("recording", false),
+            ("release_group", false)
+        ],
+        "a stored forward reference must not describe a child absent from its parent"
+    );
+
+    assert!(from_json(&to_json(&original)).is_ok());
+    assert!(from_json(&to_json(&Catalog::default())).is_ok());
+    let albumless = model::build(
+        vec![model::tests::track(
+            "/music/standalone.flac",
+            &[("title", "Standalone"), ("artist", "Artist")],
+            1000,
+        )],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    assert!(albumless.releases.is_empty());
+    assert!(from_json(&to_json(&albumless)).is_ok());
+
+    let mut legacy = to_json(&original);
+    legacy.set("release_group", Json::Arr(Vec::new()));
+    legacy.set("recording", Json::Arr(Vec::new()));
+    let bytes = legacy.to_string_compact();
+    std::fs::write(&path, &bytes).unwrap();
+    let migrated = load(&path).unwrap().unwrap();
+    assert_eq!(migrated.releases[0].track_ids, vec![0]);
+    assert_eq!(migrated.recordings[0].track_ids, vec![0]);
+    assert_eq!(migrated.release_groups[0].release_ids, vec![0]);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+}
+
+#[test]
 fn malformed_polymorphic_rows_cannot_silently_disappear_or_attach_to_entity_zero() {
     for (table, field) in [
         ("credit", "entity_kind"),

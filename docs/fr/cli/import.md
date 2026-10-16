@@ -4,7 +4,9 @@ import lit les rapports JSON [FlacCompagnon](https://craft-and-code.github.io/Fl
 
 --list distingue résultats rattachés, en attente et obsolètes. --pending garde ceux sans fichier encore catalogué. --forget retire les analyses mémorisées sélectionnées ; avec --pending, seulement celles en attente. Les dossiers limitent --list, --pending et --forget --pending ; --forget seul refuse un dossier. L’import normal accepte des rapports ou des dossiers de rapports parcourus récursivement. --source limite à un outil.
 
-La date de rapport la plus récente gagne lors d’un recouvrement ; changer l’audio rend la mesure obsolète. Supprimer le rapport ensuite n’efface pas l’import. JSON mal formé, rapport incompatible ou chemin illisible sont signalés. analyze produit de nouvelles mesures dans Aède.
+--limit, --offset et --all concernent uniquement les listes --list/--pending en lecture seule ; l’import et le retrait les refusent. --forget est incompatible avec --list. --source filtre les listes et retraits mémorisés ; il est refusé lors de l’import de rapports. Ces vérifications précèdent la lecture ou la publication des fichiers de données.
+
+La date de rapport la plus récente gagne lors d’un recouvrement, y compris quand des rapports en attente sont rattachés après un scan. Changer l’audio rend la mesure obsolète. Supprimer le rapport ensuite n’efface pas l’import. JSON mal formé, structure de rapport invalide, version incompatible ou chemin illisible sont signalés. Un objet report et un tableau files sont requis ; un tableau vide reste valide. Les anciens rapports sans version restent compatibles avec la version 0 ; une version présente doit être un entier non signé sur 32 bits. analyze produit de nouvelles mesures dans Aède.
 
 ## Syntaxe et arguments
 

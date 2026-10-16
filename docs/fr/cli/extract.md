@@ -8,6 +8,8 @@ Il exige les droits d’écriture à côté de l’album mais lit seulement l’
 
 Alias : `aede artwork`. Options et comportement identiques.
 
+Les sources audio doivent être des fichiers ordinaires, y compris les liens vers ces fichiers. Une FIFO ou un dossier est refusé avant ouverture ; le descripteur vérifié conserve le choix de format par extension. Cette vérification ne supprime pas les courses de remplacement concurrent du chemin.
+
 ## Syntaxe et arguments
 
 ```text

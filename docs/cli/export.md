@@ -6,6 +6,8 @@ export describes the whole catalog and takes no entity name/filter. The default 
 
 --output writes directly to a chosen file, and --separator affects CSV only. Exported data can contain absolute paths, prose or personal notes, so review it before sharing. To export a filtered selection instead, use albums/query/collection and their supported output formats.
 
+Album duration/byte totals saturate at `u64::MAX` instead of wrapping if persisted measures exceed that range in aggregate. Album-table integrity is `intact` only when every selected file has a positive container-check verdict. Mixed checked/unsupported or missing reports yield `not_verified`; all unsupported yields `nothing_to_check`, and any damaged verdict takes priority. These labels do not add a decoded-audio hash guarantee.
+
 ## Syntax and arguments
 
 ```text

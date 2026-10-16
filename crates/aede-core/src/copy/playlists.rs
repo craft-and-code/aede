@@ -67,11 +67,6 @@ impl Plan {
             if path.contains(['\n', '\r']) {
                 return Err("selected output path cannot be represented in M3U".into());
             }
-            let path = if path.starts_with('#') {
-                format!("./{path}")
-            } else {
-                path
-            };
             paths.insert(id, path);
         }
         let contents = crate::playlist::render_with_paths(
@@ -121,6 +116,13 @@ fn remap(
             pending.push(line);
             continue;
         }
+        // Match both M3U readers: a URI separator cannot become a native
+        // relative path, while a colon alone may belong to a name or drive.
+        if line.contains("://") {
+            pending.clear();
+            omitted += 1;
+            continue;
+        }
         let key = match source {
             Some(source) if !is_absolute(line) => path_key(&format!(
                 "{}/{}",
@@ -145,11 +147,7 @@ fn remap(
                 target.display()
             ));
         }
-        if path.starts_with('#') {
-            rendered.push_str("./");
-        }
-        rendered.push_str(&path);
-        rendered.push('\n');
+        crate::playlist::push_path(&mut rendered, &path);
     }
     Ok((rendered, omitted))
 }

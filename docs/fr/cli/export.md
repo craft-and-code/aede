@@ -6,6 +6,8 @@ export décrit tout le catalogue sans nom/filtre d’entité. Par défaut : JSON
 
 --output écrit dans le fichier choisi ; --separator concerne seulement CSV. Les exports peuvent inclure chemins absolus, textes et notes personnelles : examiner avant partage. Pour une sélection filtrée, utiliser albums/query/collection et leurs formats.
 
+Les totaux de durée et d’octets des albums saturent à `u64::MAX` au lieu de revenir à zéro si la somme des mesures enregistrées dépasse cette plage. L’intégrité du tableau d’albums vaut `intact` seulement si chaque fichier sélectionné possède un verdict positif de contrôle du conteneur. Un mélange de fichiers contrôlés/non pris en charge, ou des rapports absents, donne `not_verified` ; tous non pris en charge donne `nothing_to_check`, et un verdict endommagé reste prioritaire. Ces libellés n’ajoutent pas une garantie de hash de l’audio décodé.
+
 ## Syntaxe et arguments
 
 ```text

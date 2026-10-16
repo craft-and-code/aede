@@ -16,6 +16,29 @@
 
 use std::process::{Command, Stdio};
 
+/// Drains a helper's error pipe while retaining only its last 4096 bytes.
+///
+/// Reading to EOF keeps a verbose child from blocking on a full pipe. A bounded
+/// tail keeps a corrupt source's repeated decoder errors out of process memory.
+pub(crate) fn diagnostic_tail(mut input: impl std::io::Read) -> std::io::Result<Vec<u8>> {
+    let mut tail = Vec::new();
+    let mut buffer = [0; 1024];
+    loop {
+        let count = match input.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        if count == 0 {
+            return Ok(tail);
+        }
+        tail.extend_from_slice(&buffer[..count]);
+        if tail.len() > 4096 {
+            tail.drain(..tail.len() - 4096);
+        }
+    }
+}
+
 /// Where ffmpeg is, or `None` when it is not installed.
 ///
 /// Callers processing many files can retain this answer for their run.

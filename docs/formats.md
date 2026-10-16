@@ -29,9 +29,29 @@ Other recognized formats are read through the `lofty` fallback when a primary re
 
 Extensions: `.aac`, `.ape`, `.wv`, `.mpc`, `.mp+`, `.mpp`, `.spx`.
 
+WavPack losslessness follows the selected stream's declared properties, including hybrid lossy streams. Lossy streams have no reported lossless PCM depth; this does not add `.wvc` correction-file handling. For fallback formats, the primary tag (such as APEv2 in WavPack) precedes legacy alternatives such as ID3v1, while unique secondary values remain available. Rereading metadata with `scan --full` applies these rules to already cached entries.
+
+Floating-point WavPack retains its known codec and losslessness, but its PCM precision is left unknown because the shared properties cannot describe that representation. The PCM representation check examines at most 64 WavPack block headers to identify the first audio block; an unresolved representation also leaves precision unknown. Conversion to FLAC/WAV then refuses before encoding. Unchanged copying and explicit lossy conversion remain available; floating-point WavPack conversion support is not added.
+
 ### Parser precision and resilience
 
 The dedicated readers retain details needed by later operations, including LAME encoder delay/padding, Opus pre-skip, channel layout and ALAC stream information. Regression fixtures cover malformed/truncated inputs and real files produced by media tools. A successful metadata read still does not verify every audio sample or establish file integrity; use [integrity checks](integrity.md) or attributed [acoustic analysis](imported-analyses.md) for their respective questions.
+
+For MPEG audio, the reported codec follows the parsed layer (`mp1`, `mp2` or `mp3`), rather than assuming Layer III from the `.mp3` filename. This does not add file extensions or guarantee a new playback decoder.
+
+ID3v2.3 unsynchronisation is undone at tag scope; ID3v2.4 is undone at frame scope after consuming the encoded frame size, so following frames keep their boundaries. Group identity and optional data-length headers are removed before decoding text. Legacy ID3 `TDAT`/`TDA` day/month values are retained as `recordingdaymonth`, separately from year-bearing `date` values.
+
+ID3 custom and MP4 free-form MusicBrainz keys are normalized once. The release-track identifier stays separate from the recording identifier; it cannot create or split canonical recording identities. The compatibility `Track.mbid` field still names the recording. Use `scan --full` to reread these tags in an existing metadata cache.
+
+For legacy FLAC files with a leading ID3v2 tag, native Vorbis comments take precedence and distinct ID3 fields/values remain available. Both path and opened-file metadata reads apply this rule.
+
+Path-based metadata, embedded-artwork extraction and native integrity/resolution readers refuse nonregular audio sources before opening them, including static FIFOs; links to ordinary files remain supported. They recheck the opened descriptor, but this metadata/open sequence does not prevent concurrent path replacement.
+
+MP4 stream properties are read from audio tracks, so a video track cannot replace them. Extensible PCM WAV distinguishes valid sample bits from storage width; unsupported compressed AIFC has no inferred PCM precision or duration.
+
+For AAC in MP4, rates above 65535 Hz use the bounded `esds` decoder configuration because they cannot fit the sample entry's 16.16 field. Ordinary-rate entries retain their existing interpretation; this is not a complete HE-AAC extension validator or decoder. Truncated or unsupported configurations do not replace the entry's rate. Reread existing cached metadata with `scan --full` to apply the corrected high rate.
+
+Ogg duration lookup follows complete page boundaries. Its end window uses the existing page CRC to recognise a page while resynchronising at an unknown byte boundary; this bounded lookup is not a whole-file integrity check and does not decode the audio.
 
 ## Dependencies and playback
 

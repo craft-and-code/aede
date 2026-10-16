@@ -20,6 +20,7 @@ fn file(path: &str, album: &str) -> ScannedFile {
         tags.insert(key, value);
     }
     tags.properties.codec = "flac".into();
+    tags.properties.bit_depth = Some(16);
     tags.properties.duration_ms = Some(1000);
     ScannedFile {
         path: path.into(),

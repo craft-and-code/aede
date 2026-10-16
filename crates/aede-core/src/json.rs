@@ -570,6 +570,11 @@ impl<'a> Parser<'a> {
             return Err(self.err("truncated \\u escape"));
         }
         let slice = &self.bytes[self.pos..self.pos + 4];
+        // Rust's radix parser also accepts a leading '+', which JSON's
+        // four-hex-digit Unicode escape does not permit.
+        if !slice.iter().all(u8::is_ascii_hexdigit) {
+            return Err(self.err("non-hexadecimal \\u escape"));
+        }
         let text =
             std::str::from_utf8(slice).map_err(|_| self.err("non-hexadecimal \\u escape"))?;
         let value =

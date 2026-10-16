@@ -82,6 +82,17 @@ fn main() {
         std::process::exit(2);
     }
 
+    let unexpected_values = args.options_with_unexpected_values();
+    if !unexpected_values.is_empty() {
+        for option in unexpected_values {
+            eprintln!(
+                "{} option {option} does not accept a value",
+                ui::red("Error:")
+            );
+        }
+        std::process::exit(2);
+    }
+
     if args.has("version") {
         if args.has("json") {
             println!(

@@ -314,6 +314,7 @@ pub fn missing_ffmpeg() -> String {
 ///
 /// FLAC stores integer PCM; arbitrary floating-point PCM must remain in a
 /// floating-capable container such as WAV rather than being quantized silently.
+/// Unknown source precision cannot establish a lossless conversion either.
 pub fn validate_conversion(
     properties: &crate::tags::AudioProperties,
     target: Target,
@@ -322,13 +323,18 @@ pub fn validate_conversion(
     {
         return Err("FLAC cannot preserve arbitrary floating-point PCM; use WAV or copy the source unchanged".into());
     }
+    if target.lossless() && properties.bit_depth.is_none_or(|bits| bits == 0) {
+        return Err(
+            "cannot preserve unknown source PCM precision in a lossless conversion; copy the source unchanged or choose an explicit lossy target".into(),
+        );
+    }
     Ok(())
 }
 
 /// Converts one file, and reports what went wrong in words rather than in an
 /// exit status.
 ///
-/// The metadata travels: `-map_metadata 0` carries the tags across, and the
+/// The metadata travels from the input's global and first audio-stream tags, and the
 /// embedded cover is copied as a picture stream where the container takes one.
 /// Neither is perfect — no two tag formats hold quite the same fields, and a
 /// Vorbis comment with three values for one field cannot be an ID3 frame that
@@ -431,14 +437,34 @@ fn encode(
     }
     command
         .args(["-map_metadata", "0"])
+        // Ogg FLAC keeps tags on the audio stream rather than globally. Merge
+        // those missing values while retaining the global metadata already copied.
+        .args(["-map_metadata", "0:s:a:0"])
         .args(["-c:a", codec])
         .args(quality_arguments(target, quality))
         .arg(destination);
 
-    let output = command
-        .output()
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("ffmpeg could not be run: {e}"))?;
-    if output.status.success() {
+    let Some(stderr) = child.stderr.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("ffmpeg did not open its error pipe".into());
+    };
+    // Only stderr is piped, so draining before wait cannot block on stdout.
+    let diagnostic = crate::ffmpeg::diagnostic_tail(stderr);
+    if diagnostic.is_err() {
+        let _ = child.kill();
+    }
+    let status = child
+        .wait()
+        .map_err(|error| format!("ffmpeg could not be reaped: {error}"))?;
+    let diagnostic = diagnostic.map_err(|error| format!("cannot read ffmpeg errors: {error}"))?;
+    if status.success() {
         if target.lossless() {
             let source = crate::tags::read(source)
                 .map_err(|error| format!("cannot read source precision: {error}"))?
@@ -452,7 +478,7 @@ fn encode(
     }
     // ffmpeg's own words, trimmed to the last few lines: the first ones are
     // usually the banner, and the reason is at the end.
-    let said = String::from_utf8_lossy(&output.stderr);
+    let said = String::from_utf8_lossy(&diagnostic);
     let reason: Vec<&str> = said.lines().filter(|l| !l.trim().is_empty()).collect();
     let tail = reason
         .iter()

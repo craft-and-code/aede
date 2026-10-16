@@ -31,6 +31,75 @@ fn a_line_break_in_a_path_cannot_inject_another_playlist_entry() {
 }
 
 #[test]
+fn relative_entries_with_initial_whitespace_resolve_without_renaming_files() {
+    let parent = std::env::temp_dir().join("aede-playlist-whitespace");
+    for relative in [
+        " Leading.flac",
+        "\u{3000}Wide.flac",
+        " Leading/01.flac",
+        "#Hash.flac",
+    ] {
+        let path = parent.join(relative);
+        let catalog = one_track(path.to_str().unwrap());
+        let tracks = vec![catalog.tracks[0].id; 2];
+        for style in [Style::Simple, Style::Extended] {
+            let rendered = try_render(&catalog, &tracks, Some(&parent), style).unwrap();
+            assert_eq!(
+                crate::playlist::selection::resolve(&catalog, &rendered, &parent).unwrap(),
+                tracks,
+                "the rendered paths must retain initial whitespace and repeated occurrences"
+            );
+            assert_eq!(
+                rendered
+                    .lines()
+                    .filter(|line| !line.starts_with('#'))
+                    .collect::<Vec<_>>(),
+                vec![format!("./{relative}"); 2]
+            );
+        }
+        assert_eq!(
+            render(&catalog, &[tracks[0]], None, Style::Simple),
+            format!("{}\n", path.display()),
+            "absolute source paths retain their original spelling"
+        );
+    }
+}
+
+#[test]
+fn relative_file_scheme_names_resolve_as_catalogued_files() {
+    let parent = std::env::temp_dir().join("aede-playlist-file-scheme");
+    for relative in ["file:track.flac", "file:Album/01.flac"] {
+        let path = parent.join(relative);
+        let catalog = one_track(path.to_str().unwrap());
+        let tracks = vec![catalog.tracks[0].id; 2];
+        for style in [Style::Simple, Style::Extended] {
+            let rendered = try_render(&catalog, &tracks, Some(&parent), style).unwrap();
+            assert_eq!(
+                crate::playlist::selection::resolve(&catalog, &rendered, &parent).unwrap(),
+                tracks,
+                "a literal file: name must not become a file URI"
+            );
+            assert_eq!(
+                rendered
+                    .lines()
+                    .filter(|line| !line.starts_with('#'))
+                    .collect::<Vec<_>>(),
+                vec![format!("./{relative}"); 2]
+            );
+        }
+        assert_eq!(
+            render(&catalog, &[tracks[0]], None, Style::Simple),
+            format!("{}\n", path.display()),
+            "absolute paths retain their original spelling"
+        );
+        assert!(
+            crate::playlist::selection::resolve(&catalog, "file:///track.flac\n", &parent).is_err(),
+            "actual file URIs remain unsupported"
+        );
+    }
+}
+
+#[test]
 fn rounding_an_extreme_duration_does_not_overflow() {
     let mut catalog = one_track("/music/track.flac");
     catalog.tracks[0].duration_ms = Some(u64::MAX);

@@ -16,9 +16,9 @@
 ## 🏛️ Design Philosophy & Core Principles
 
 1. **Vault Sanctity (Strict Non-Destructive Read-Only Storage)**  
-   Aède never mutates, re-tags, or re-organizes the files inside your watched music directories. Tags and file names inside your library remain untouched. All annotations, user tags, play counts, manual merges, and query collections reside safely in a separate local state store (`user.json`).
+   Aède never modifies, re-tags, or reorganizes original audio files. Explicit generation commands can create derived M3U, lyrics and artwork files beside them. Personal annotations, tags, play counts, manual artist merges and query collections live in a separate state store (`user.json`).
 2. **Bespoke Forensic Parsers**  
-   The primary audio containers (FLAC, MP3, MP4/ALAC, Ogg Vorbis/Opus, WAV, AIFF) are parsed by native Rust code implemented directly from container format specifications. Every parser guarantees zero `unwrap()` calls and zero direct memory indexing—a corrupted or violently truncated file produces an explicit diagnostic error rather than a panic.
+   The primary audio containers (FLAC, MP3, MP4/ALAC, Ogg Vorbis/Opus, WAV, AIFF) are parsed by native Rust code implemented from container format specifications. Fallible reads and checked bounds handle malformed/truncated input; regression fixtures exercise those cases. A successful metadata read does not certify container checksums or decoded audio integrity. See [formats](docs/formats.md) and [integrity checks](docs/integrity.md).
 3. **Sample-Accurate Precision**  
    General-purpose tagging libraries frequently ignore crucial playback metadata. Aède extracts LAME encoder delay and padding, ALAC magic cookies, and Opus pre-skip samples, ensuring the exact foundation required for sample-accurate, gapless audio playback.
 4. **Empirical & Deterministic Operations**  
@@ -34,13 +34,13 @@ Account identities, roles and credentials live in the standalone [`aede-accounts
 
 [`aede-devices`](crates/aede-devices/README.md) owns explicit LAN discovery and the SlimProto, UPnP AVTransport, OpenHome Playlist and experimental Google Cast controllers. The CLI calls it directly for `devices` and `cast`; it has no dependency on the server API. Subsonic/OpenSubsonic remains an authenticated client adapter in `aede-server`.
 
-Aède uses a two-tier parsing architecture. Mainstream, high-fidelity containers are parsed natively by custom, zero-panic Rust engines. Niche and legacy archival formats fall back gracefully to the audited `lofty` crate.
+Aède uses a two-tier parsing architecture. The primary containers use native Rust readers; the secondary formats use the `lofty` crate. Both paths keep original audio and tags read-only.
 
 | Container          | Codecs                    | Tag Standards                   | Duration Source               | Parser Tier          |
 | :----------------- | :------------------------ | :------------------------------ | :---------------------------- | :------------------- |
 | **FLAC**           | FLAC                      | Vorbis Comment, ID3v2 Header    | `STREAMINFO` block            | Native (`aede-core`) |
 | **MP3**            | MPEG 1/2/2.5 Layers I–III | ID3v2.2/2.3/2.4, ID3v1          | Xing / VBRI / CBR calculation | Native (`aede-core`) |
-| **MP4 / M4A**      | ALAC, AAC                 | iTunes Atoms, Freeform `----`   | `mvhd` / `mdhd` atom          | Native (`aede-core`) |
+| **MP4 / M4A**      | ALAC, AAC                 | iTunes Atoms, Freeform `----`   | `mvhd` movie header          | Native (`aede-core`) |
 | **Ogg**            | Vorbis, Opus              | Vorbis Comment                  | Granule position              | Native (`aede-core`) |
 | **WAV**            | PCM                       | `LIST/INFO` chunk, `id3 ` chunk | `fmt ` + `data` chunk sizes   | Native (`aede-core`) |
 | **AIFF / AIFC**    | PCM                       | `NAME`/`AUTH`, `ID3 ` chunk     | `COMM` chunk                  | Native (`aede-core`) |
@@ -524,6 +524,7 @@ Complete guides to Aède's features and architecture:
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
 - [Desktop Branch Review](docs/coding/desktop-branch-review.md) — Integration audit, demonstrated regressions, dependency security and verification limits
+- [M0 Review](docs/coding/m0-review.md) — Local catalogue, personal queries and copy/conversion regressions, resource measurements and verification limits
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 

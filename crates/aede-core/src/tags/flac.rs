@@ -71,6 +71,11 @@ pub fn read(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
         }
     }
 
+    // Keep native comments first, then retain legacy ID3 fields and values.
+    if start > 0 {
+        super::id3::read_id3v2(file, &mut tags)?;
+    }
+
     // Actual bitrate: size of the audio alone, excluding metadata.
     if let Some(ms) = tags.properties.duration_ms
         && ms > 0

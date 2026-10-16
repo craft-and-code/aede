@@ -6,6 +6,8 @@ Lire la raison et la commande proposée. Un doublon ou une suggestion de fusion 
 
 --severity cible un niveau ; --all montre le rapport complet. --json conserve sa structure. doctor utilise le catalogue et les preuves mémorisées ; il n’interroge aucun fournisseur et ne vérifie pas tous les octets audio.
 
+Les annotations personnelles de relation en attente sont signalées uniquement pour le propriétaire local du CLI. Celles d’un autre compte ne contribuent ni aux détails ni aux compteurs ; la lecture du rapport ne modifie les données enregistrées d’aucun compte.
+
 Une suggestion de doublon fondée sur les tags exige artiste, titre et durée positive lisible. Toutes les durées d’un groupe restent à trois secondes au plus de la plus courte ; des versions différentes ne sont pas réunies par une chaîne de durées intermédiaires. Cela reste une suggestion à examiner. Les pistes/disques manquants affichent les douze premières positions puis des points de suspension, même si un total erroné annonce des milliards de positions.
 
 ## Syntaxe et arguments

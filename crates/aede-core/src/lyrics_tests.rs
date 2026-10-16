@@ -270,6 +270,51 @@ fn a_sidecar_is_read_bounded_and_a_missing_one_is_no_error() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_sidecar_replaced_by_a_fifo_is_refused_without_waiting_for_a_writer() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("aede_lyrics_fifo_{}_{nonce}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("song.lrc");
+    std::fs::write(&path, "ordinary words").unwrap();
+    assert_eq!(read(&path).unwrap().text(), "ordinary words");
+    let link = dir.join("linked.lrc");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    assert_eq!(read(&link).unwrap().text(), "ordinary words");
+    assert!(read(&dir).is_none());
+
+    std::fs::remove_file(&path).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let opening = path.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let _ = sender.send(read(&opening));
+    });
+    let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+    if matches!(result, Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
+        // Release the previous blocking read before reporting this regression.
+        let writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        drop(writer);
+        let _ = receiver.recv_timeout(std::time::Duration::from_secs(1));
+    }
+    worker.join().unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        matches!(result, Ok(None)),
+        "a lyrics FIFO must be refused without waiting for a writer"
+    );
+}
+
 #[test]
 fn sidecar_errors_after_the_read_limit_do_not_hide_the_lyrics_prefix() {
     struct UnreadableTail;

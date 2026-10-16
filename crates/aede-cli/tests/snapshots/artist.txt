@@ -26,8 +26,18 @@ Roles
 
 Continue
 
-  Relation            Command                           
-  ──────────────────  ──────────────────────────────────
+  Relation            Command
+  ──────────────────  ─────────────────────────────────────────
   Filtered albums     aede albums --artist='Miles Davis'
-  Credited recording  aede recording 'So What'
-  Credited recording  aede recording 'Blue in Green'
+  Credited recording  aede recording 'local:<MUSIC>/aac.m4a'
+  Credited recording  aede recording 'local:<MUSIC>/hires.flac'
+  Credited recording  aede recording 'local:<MUSIC>/track.aac'
+  Credited recording  aede recording 'local:<MUSIC>/track.aiff'
+  Credited recording  aede recording 'local:<MUSIC>/track.flac'
+  Credited recording  aede recording 'local:<MUSIC>/track.m4a'
+  Credited recording  aede recording 'local:<MUSIC>/track.mp3'
+  Credited recording  aede recording 'local:<MUSIC>/track.ogg'
+  Credited recording  aede recording 'local:<MUSIC>/track.opus'
+  Credited recording  aede recording 'local:<MUSIC>/track.wav'
+  Credited recording  aede recording 'local:<MUSIC>/track.wv'
+  Credited recording  aede recording 'local:<MUSIC>/vbr.mp3'

@@ -145,16 +145,24 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
                 .map(aede_core::conclusions::Conclusions::from_catalog)
         });
         if let Some(gathered) = gathered {
-            // The scan may just have imported reports found beside the audio.
-            // Reapply them after older stored analyses so the fresh report wins.
+            // With a previous catalog the core already carried all retained
+            // analyses through report import and reconciliation. Restore that
+            // complete snapshot after attaching native conclusions; replaying
+            // it into the old store would recreate resolved waiting paths.
             let fresh_analyses = std::mem::take(&mut catalog.analyses);
             gathered.attach(&mut catalog);
-            aede_core::analysis::merge_into(
-                &mut catalog,
-                fresh_analyses,
-                aede_core::clock::now_seconds(),
-            );
-            report.attached += aede_core::analysis::reconcile(&mut catalog);
+            if previous.is_some() {
+                catalog.analyses = fresh_analyses;
+            } else {
+                // A rebuilt catalog has not seen the independent store yet.
+                // Fresh sidecar reports still keep the normal date priority.
+                aede_core::analysis::merge_into(
+                    &mut catalog,
+                    fresh_analyses,
+                    aede_core::clock::now_seconds(),
+                );
+                report.attached += aede_core::analysis::reconcile(&mut catalog);
+            }
         }
     }
     report.analyses = catalog.analyses.len();

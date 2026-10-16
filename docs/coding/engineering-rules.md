@@ -445,6 +445,8 @@ Replacement saves preserve existing store permissions. Newly created stores use 
 
 Render untrusted tags, notes, paths and external text literally on a terminal. Escape terminal control instructions before adding presentation colours; preserve original values in storage and machine-readable exports. Formats with one path per line must refuse paths containing line breaks.
 
+Terminal table alignment and shortening must measure visible columns, ignoring only the complete style sequences emitted by the presentation module. Shortening must preserve complete style tokens and close retained styles; combining accents must use the same width rules in measurement and shortening. This remains an approximate Unicode width model, not a full grapheme or terminal-emulator implementation.
+
 If processing can continue after an individual failure, report the failure rather than pretending it did not happen.
 
 ---

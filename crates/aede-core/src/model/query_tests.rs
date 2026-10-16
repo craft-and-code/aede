@@ -9,6 +9,77 @@ use crate::model::build;
 use crate::model::tests::{example_catalog, first_release, track};
 
 #[test]
+fn artist_lookup_keeps_merged_spellings_and_preserves_ambiguous_aliases() {
+    let mut catalog = build(
+        vec![
+            track(
+                "/music/Current/01.flac",
+                &[
+                    ("artist", "Current Artist"),
+                    ("musicbrainz_artistid", "shared-artist-id"),
+                ],
+                1,
+            ),
+            track(
+                "/music/Previous/01.flac",
+                &[
+                    ("artist", "Previous Name"),
+                    ("musicbrainz_artistid", "shared-artist-id"),
+                ],
+                1,
+            ),
+        ],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    assert_eq!(catalog.artists.len(), 1);
+    assert_eq!(catalog.artists[0].name, "Current Artist");
+    assert_eq!(catalog.artists[0].aliases, ["previous name"]);
+
+    for (name, expected_match) in [
+        ("Current Artist", TitleMatch::Exact),
+        ("PREVIOUS NAME", TitleMatch::Exact),
+        ("Previous", TitleMatch::Partial),
+    ] {
+        let (found, matching) = catalog.find_artists(name);
+        assert_eq!(matching, expected_match);
+        assert_eq!(
+            found.iter().map(|artist| artist.id).collect::<Vec<_>>(),
+            [0]
+        );
+    }
+
+    catalog.artists.push(Artist {
+        id: 1,
+        name: "Previous Name".into(),
+        key: "previous name".into(),
+        ..Default::default()
+    });
+    let (found, matching) = catalog.find_artists("Previous Name");
+    assert_eq!(matching, TitleMatch::Exact);
+    assert_eq!(
+        found.iter().map(|artist| artist.id).collect::<Vec<_>>(),
+        [1]
+    );
+
+    catalog.artists[1].name = "Other Artist".into();
+    catalog.artists[1].key = "other artist".into();
+    catalog.artists[1].aliases.push("previous name".into());
+    for (name, expected_match) in [
+        ("Previous Name", TitleMatch::Exact),
+        ("Previous", TitleMatch::Partial),
+    ] {
+        let (found, matching) = catalog.find_artists(name);
+        assert_eq!(matching, expected_match);
+        assert_eq!(
+            found.iter().map(|artist| artist.id).collect::<Vec<_>>(),
+            [0, 1]
+        );
+    }
+}
+
+#[test]
 fn recordings_and_works_are_found_by_title_or_external_identity() {
     let mut catalog = example_catalog();
     catalog.recordings = vec![

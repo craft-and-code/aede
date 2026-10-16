@@ -6,6 +6,8 @@ For an older catalog still containing inline conclusions, reset saves those verd
 
 Watched folders live in catalog.json: they must be named again when rebuilding. The command prints a scan command with the previous roots. Copy it before closing the terminal. Despite an older help summary, reset does not preserve the roots inside a replacement catalog.
 
+In POSIX shells, the printed command retains spaces, quotes and dollar signs in root names literally.
+
 Make a backup before using reset if you need to recover the exact catalog snapshot. --yes accepts the deletion without a prompt; it does not make it reversible. If no catalog exists, reset reports that nothing needs removing.
 
 ## Syntax and arguments

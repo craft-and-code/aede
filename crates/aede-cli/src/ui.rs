@@ -10,6 +10,7 @@ use std::io::IsTerminal;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static COLOR_ENABLED: AtomicBool = AtomicBool::new(true);
+const STYLES: [&str; 7] = ["[0m", "[1m", "[2m", "[31m", "[32m", "[33m", "[36m"];
 
 pub fn init_color(force_off: bool) {
     let enabled = !force_off && is_interactive() && std::env::var_os("NO_COLOR").is_none();
@@ -121,10 +122,7 @@ fn literal_styled_with_color(text: &str, enabled: bool) -> String {
     let mut parts = text.split('\x1b');
     let mut out = literal(parts.next().unwrap_or_default());
     for part in parts {
-        if let Some(prefix) = ["[0m", "[1m", "[2m", "[31m", "[32m", "[33m", "[36m"]
-            .into_iter()
-            .find(|prefix| part.starts_with(prefix))
-        {
+        if let Some(prefix) = STYLES.into_iter().find(|prefix| part.starts_with(prefix)) {
             if enabled {
                 out.push('\x1b');
                 out.push_str(prefix);
@@ -160,12 +158,38 @@ pub fn red(text: &str) -> String {
 /// Approximate display width of a string, in terminal columns.
 ///
 /// We count Unicode characters, not bytes, and give two columns to ideographs
-/// and emoji. That is enough to align artist names.
+/// and emoji. Aède's complete style sequences use no columns. This is an
+/// approximation rather than full grapheme segmentation.
 pub fn display_width(text: &str) -> usize {
-    text.chars()
-        .filter(|c| !is_combining(*c))
-        .map(|c| if is_wide(c) { 2 } else { 1 })
-        .sum()
+    display_units(text).map(|(_, width)| width).sum()
+}
+
+// Treat our complete SGR sequences as indivisible zero-column units. Both
+// alignment and shortening must measure the same visible text, including its
+// combining marks; cutting an escape sequence would print broken controls.
+fn display_units(mut text: &str) -> impl Iterator<Item = (&str, usize)> {
+    std::iter::from_fn(move || {
+        let ch = text.chars().next()?;
+        let (length, width) = match text
+            .strip_prefix('\x1b')
+            .and_then(|tail| STYLES.into_iter().find(|prefix| tail.starts_with(prefix)))
+        {
+            Some(prefix) => (prefix.len() + 1, 0),
+            None => (
+                ch.len_utf8(),
+                if is_combining(ch) {
+                    0
+                } else if is_wide(ch) {
+                    2
+                } else {
+                    1
+                },
+            ),
+        };
+        let (unit, rest) = text.split_at(length);
+        text = rest;
+        Some((unit, width))
+    })
 }
 
 fn is_combining(c: char) -> bool {
@@ -192,15 +216,18 @@ pub fn truncate(text: &str, max: usize) -> String {
     }
     let mut out = String::new();
     let mut width = 0;
-    for c in text.chars() {
-        let w = if is_wide(c) { 2 } else { 1 };
+    for (unit, w) in display_units(text) {
         if width + w > max.saturating_sub(1) {
             break;
         }
-        out.push(c);
+        out.push_str(unit);
         width += w;
     }
+    let styled = out.contains('\x1b');
     out.push('…');
+    if styled {
+        out.push_str("\x1b[0m");
+    }
     out
 }
 
@@ -250,18 +277,23 @@ pub fn truncate_start(text: &str, max: usize) -> String {
     if display_width(text) <= max || max == 0 {
         return text.to_string();
     }
-    let mut tail: Vec<char> = Vec::new();
-    let mut width = 0;
-    for c in text.chars().rev() {
-        let w = if is_wide(c) { 2 } else { 1 };
-        if width + w > max.saturating_sub(1) {
-            break;
-        }
-        tail.push(c);
-        width += w;
-    }
+    let mut skip = display_width(text) - max.saturating_sub(1);
+    let mut skipping = true;
     let mut out = String::from("…");
-    out.extend(tail.into_iter().rev());
+    for (unit, width) in display_units(text) {
+        if width == 0 {
+            // Keep style changes from the omitted prefix so the surviving
+            // suffix retains its style, but do not leave an orphaned accent.
+            if unit.starts_with('\x1b') || !skipping {
+                out.push_str(unit);
+            }
+        } else if skip > 0 {
+            skip = skip.saturating_sub(width);
+        } else {
+            skipping = false;
+            out.push_str(unit);
+        }
+    }
     out
 }
 

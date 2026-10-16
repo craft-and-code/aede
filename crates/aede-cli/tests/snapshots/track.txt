@@ -49,9 +49,9 @@ Graph
 
 Continue
 
-  Relation         Command                   
-  ───────────────  ──────────────────────────
-  Recording        aede recording 'Take Five'
+  Relation         Command
+  ───────────────  ───────────────────────────────────────────────
+  Recording        aede recording 'local:<MUSIC>/compilation.flac'
   Album            aede album 'Duos'
   Credited artist  aede artist 'Dave Brubeck'
 

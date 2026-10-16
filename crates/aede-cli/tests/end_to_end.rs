@@ -23,6 +23,55 @@ fn library_flac() -> PathBuf {
     library().join("track.flac")
 }
 
+#[cfg(unix)]
+#[test]
+fn reset_rebuild_command_preserves_literal_root_names() {
+    let sandbox = Sandbox::new("reset_rebuild_command");
+    let music = sandbox.dir.join("music \"special gig\" $edition's");
+    std::fs::create_dir_all(&music).expect("quoted music folder");
+    let ordinary = sandbox.dir.join("ordinary music");
+    std::fs::create_dir_all(&ordinary).expect("ordinary watched folder");
+    let audio = music.join("track.flac");
+    std::fs::copy(library_flac(), &audio).expect("real fixture audio");
+    let original = std::fs::read(&audio).expect("source bytes");
+    let (out, err, ok) = sandbox.run(&[
+        "scan",
+        music.to_str().expect("fixture path"),
+        ordinary.to_str().expect("ordinary fixture path"),
+    ]);
+    assert!(ok, "scan failed: {out}\n{err}");
+    let roots = aede_core::store::load(&aede_core::store::catalog_path(&sandbox.dir))
+        .expect("load scanned catalog")
+        .expect("scanned catalog")
+        .roots;
+    assert_eq!(roots.len(), 2);
+    let (out, err, ok) = sandbox.run(&["reset", "--yes"]);
+    assert!(ok, "reset failed: {out}\n{err}");
+    let command = out
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("aede scan "))
+        .expect("rebuild command");
+    // Capture the shell's actual argument vector, without rescanning or
+    // duplicating the command formatter's escaping algorithm in this test.
+    let captured = Command::new("/bin/sh")
+        .args([
+            "-c",
+            &format!("aede() {{ printf '%s\\n' \"$@\"; }}\n{command}"),
+        ])
+        .env("edition", "expanded value")
+        .output()
+        .expect("parse the printed continuation");
+    assert!(captured.status.success(), "{captured:?}");
+    assert_eq!(
+        String::from_utf8(captured.stdout).expect("captured arguments"),
+        format!("scan\n{}\n", roots.join("\n")),
+        "the printed continuation must name precisely the watched root"
+    );
+    assert!(!aede_core::store::catalog_path(&sandbox.dir).exists());
+    assert_eq!(std::fs::read(audio).expect("unchanged source"), original);
+}
+
 fn json_string(value: &str) -> String {
     aede_core::json::Json::Str(value.to_string()).to_string_compact()
 }
@@ -2101,7 +2150,9 @@ fn doctor_keeps_and_reports_a_relation_annotation_whose_edge_is_gone() {
         .note = Some("Keep this while the drive is disconnected".into());
     aede_core::user::save(&user, &aede_core::user::user_path(&sandbox.dir)).unwrap();
 
-    let (out, err, ok) = sandbox.run(&["doctor", "--severity=info"]);
+    // Reference audio may add unrelated informational issues before the
+    // waiting annotation. This test checks preservation, not its page rank.
+    let (out, err, ok) = sandbox.run(&["doctor", "--severity=info", "--all"]);
     assert!(ok, "stderr: {err}");
     assert!(
         out.contains("relation annotation is waiting"),
@@ -8108,6 +8159,60 @@ fn snapshot_path(output: &str, paths: &[PathBuf], replacement: &str) -> String {
     })
 }
 
+/// Path normalization also changes the width of the navigation command column.
+/// Keep its header/rule aligned with the normalized rows, independent of the
+/// temporary directory's native spelling and length. Validate the native header
+/// and divider first so reconstruction cannot conceal malformed output.
+fn snapshot_navigation(original: &str, output: &str) -> Result<String, String> {
+    let Some((_, original_navigation)) = original.rsplit_once("\nContinue\n\n") else {
+        return Ok(output.to_string());
+    };
+    let original_lines: Vec<_> = original_navigation.lines().collect();
+    if original_lines.len() < 3 {
+        return Err("incomplete native navigation table".into());
+    }
+    let command_at = original_lines[0]
+        .find("Command")
+        .ok_or("missing native navigation command column")?;
+    let relation_width = command_at
+        .checked_sub(4)
+        .ok_or("invalid native navigation relation column")?;
+    let command_header = &original_lines[0][command_at..];
+    if !command_header["Command".len()..]
+        .bytes()
+        .all(|byte| byte == b' ')
+    {
+        return Err("unexpected native navigation command header".into());
+    }
+    let original_divider = format!(
+        "  {}  {}",
+        "─".repeat(relation_width),
+        "─".repeat(command_header.len()),
+    );
+    if original_lines[1] != original_divider {
+        return Err("native navigation divider does not match its column widths".into());
+    }
+    let Some((page, navigation)) = output.rsplit_once("\nContinue\n\n") else {
+        return Err("normalized output lost the navigation table".into());
+    };
+    let lines: Vec<_> = navigation.lines().collect();
+    let command_width = lines[2..]
+        .iter()
+        .filter_map(|line| line.get(command_at..))
+        .map(|command| command.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max("Command".len());
+    Ok(format!(
+        "{page}\nContinue\n\n{}{}\n  {}  {}\n{}\n",
+        &lines[0][..command_at],
+        "Command",
+        "─".repeat(relation_width),
+        "─".repeat(command_width),
+        lines[2..].join("\n"),
+    ))
+}
+
 #[test]
 fn snapshot_paths_accept_windows_spellings_without_changing_other_text() {
     for path in [
@@ -8124,6 +8229,41 @@ fn snapshot_paths_accept_windows_spellings_without_changing_other_text() {
             "  Path          <MUSIC>/compilation.flac\n  Comment       keep \\slashes\\ in this tag\n",
             "snapshot path spelling: {path}"
         );
+        let command = format!("aede recording 'local:{path}'");
+        let output = format!(
+            "{output}\nContinue\n\n  Relation   {:<width$}\n  ─────────  {}\n  Recording  {command}\n",
+            "Command",
+            "─".repeat(command.chars().count()),
+            width = command.chars().count(),
+        );
+        let normalized = snapshot_navigation(
+            &output,
+            &snapshot_path(&output, &[PathBuf::from(path)], "<MUSIC>/compilation.flac"),
+        )
+        .expect("valid native navigation table");
+        assert_eq!(
+            normalized,
+            "  Path          <MUSIC>/compilation.flac\n  Comment       keep \\slashes\\ in this tag\n\nContinue\n\n  Relation   Command\n  ─────────  ───────────────────────────────────────────────\n  Recording  aede recording 'local:<MUSIC>/compilation.flac'\n",
+            "navigation path spelling: {path}"
+        );
+        let divider = format!("  ─────────  {}", "─".repeat(command.chars().count()));
+        for corrupted in [
+            output.replacen("Command", "Command BROKEN HEADER", 1),
+            output.replacen(&divider, "  BROKEN DIVIDER", 1),
+        ] {
+            assert!(
+                snapshot_navigation(
+                    &corrupted,
+                    &snapshot_path(
+                        &corrupted,
+                        &[PathBuf::from(path)],
+                        "<MUSIC>/compilation.flac",
+                    ),
+                )
+                .is_err(),
+                "navigation corruption must remain observable"
+            );
+        }
     }
 }
 
@@ -8141,6 +8281,27 @@ fn cli_output_snapshots_match_the_real_binary() {
     }
     let (out, err, ok) = sandbox.run(&["scan", music.to_str().expect("fixture path")]);
     assert!(ok, "fixture scan failed:\n{out}\n{err}");
+    let canonical_music = music
+        .canonicalize()
+        .expect("canonical fixture music folder");
+    let normalize = |output_before_normalization: &str| {
+        let mut output = output_before_normalization.to_string();
+        for entry in std::fs::read_dir(&music).expect("snapshot music files") {
+            let entry = entry.expect("snapshot music file");
+            let name = entry.file_name();
+            output = snapshot_path(
+                &output,
+                &[canonical_music.join(&name), music.join(&name)],
+                &format!("<MUSIC>/{}", name.to_str().expect("snapshot fixture name")),
+            );
+        }
+        if output == output_before_normalization {
+            output
+        } else {
+            snapshot_navigation(output_before_normalization, &output)
+                .expect("valid native navigation table before path normalization")
+        }
+    };
 
     // Capture complete stdout from the real binary. The reference files are
     // reviewed alongside presentation changes; a changed line is never
@@ -8149,7 +8310,7 @@ fn cli_output_snapshots_match_the_real_binary() {
         let (out, err, ok) = sandbox.run(args);
         assert!(ok, "{args:?} failed:\n{out}\n{err}");
         assert!(err.is_empty(), "{args:?} wrote to stderr: {err}");
-        assert_eq!(out, reference, "stdout changed for {args:?}");
+        assert_eq!(normalize(&out), reference, "stdout changed for {args:?}");
     };
 
     check(
@@ -8180,17 +8341,7 @@ fn cli_output_snapshots_match_the_real_binary() {
     let (out, err, ok) = sandbox.run(&["track", "Take Five"]);
     assert!(ok, "track failed:\n{out}\n{err}");
     assert!(err.is_empty(), "track wrote to stderr: {err}");
-    let canonical_music = music
-        .canonicalize()
-        .expect("canonical fixture music folder");
-    let out = snapshot_path(
-        &out,
-        &[
-            canonical_music.join("compilation.flac"),
-            music.join("compilation.flac"),
-        ],
-        "<MUSIC>/compilation.flac",
-    );
+    let out = normalize(&out);
     assert_eq!(out, include_str!("snapshots/track.txt"));
     #[cfg(feature = "fetch")]
     check(

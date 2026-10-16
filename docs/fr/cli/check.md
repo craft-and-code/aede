@@ -4,6 +4,8 @@ check relit les sommes intégrées aux conteneurs pris en charge : CRC des trame
 
 Par défaut, les verdicts des fichiers inchangés sont réutilisés. --full relit tout le périmètre, utile après un soupçon de panne de disque. Si rien n’attend, le rapport courant s’affiche. Un dossier facultatif limite les fichiers catalogués ; scanner la nouvelle musique avant de la vérifier.
 
+Pour le contrôle des conteneurs, --threads est vérifié même si la sélection est vide ou si tous ses verdicts sont en cache. Zéro conserve le choix automatique ; un entier strictement positif demande ce nombre de travailleurs.
+
 Les verdicts sont mémorisés et deviennent obsolètes si la source change. Ce contrôle diffère de la vérification MD5 du FLAC décodé ou de l’analyse d’origine audio de FlacCompagnon. Il ne répare ni ne remplace les fichiers abîmés. Sauvegarder aussi les originaux.
 
 ## Syntaxe et arguments

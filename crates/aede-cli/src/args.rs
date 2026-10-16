@@ -544,6 +544,20 @@ impl Args {
             .collect()
     }
 
+    /// Valueless flags cannot interpret an inline value such as `--yes=false`.
+    /// Refuse it before presence alone could authorize a destructive action.
+    pub fn options_with_unexpected_values(&self) -> Vec<&str> {
+        self.flags
+            .iter()
+            .filter(|(name, value)| {
+                value.is_some()
+                    && !VALUED_WORD.contains(&name.as_str())
+                    && !VALUED_NAME.contains(&name.as_str())
+            })
+            .map(|(name, _)| self.as_typed(name))
+            .collect()
+    }
+
     /// The formats asked for, among the ones a caller offers, when more than
     /// one was given — `None` when at most one was.
     ///

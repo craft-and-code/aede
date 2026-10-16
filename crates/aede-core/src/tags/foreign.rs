@@ -16,23 +16,88 @@
 
 use std::path::Path;
 
+use lofty::config::ParseOptions;
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
 use lofty::prelude::ItemKey;
+use lofty::probe::Probe;
 use lofty::tag::{Tag, TagType};
+use lofty::wavpack::WavPackFile;
 
 use super::{RawTags, TagError};
 
 /// Reads a file through `lofty` and translates the result into [`RawTags`].
 pub fn read(path: &Path) -> Result<RawTags, TagError> {
-    let file = lofty::read_from_path(path).map_err(|_| TagError::UnrecognizedFormat)?;
-    Ok(translate(file))
+    let probe = Probe::open(path).map_err(|_| TagError::UnrecognizedFormat)?;
+    read_probe(probe)
 }
 
 pub(super) fn read_from_file(file: &mut std::fs::File) -> Result<RawTags, TagError> {
     use std::io::{Seek, SeekFrom};
     file.seek(SeekFrom::Start(0))?;
-    let tagged = lofty::read_from(file).map_err(|_| TagError::UnrecognizedFormat)?;
-    Ok(translate(tagged))
+    read_probe(Probe::new(file))
+}
+
+fn read_probe<R: std::io::Read + std::io::Seek>(probe: Probe<R>) -> Result<RawTags, TagError> {
+    let probe = probe
+        .guess_file_type()
+        .map_err(|_| TagError::UnrecognizedFormat)?;
+    if probe.file_type() == Some(FileType::WavPack) {
+        let mut reader = probe.into_inner();
+        // The first audio block's FLOAT_DATA flag is not exposed by Lofty.
+        let flags = wavpack_audio_flags(&mut reader)?;
+        reader
+            .seek(std::io::SeekFrom::Start(0))
+            .map_err(|_| TagError::UnrecognizedFormat)?;
+        let wavpack = WavPackFile::read_from(&mut reader, ParseOptions::default())
+            .map_err(|_| TagError::UnrecognizedFormat)?;
+        // Generic FileProperties drops WavPack's hybrid/lossless distinction.
+        let lossless = wavpack.properties().is_lossless();
+        let mut tags = translate(wavpack.into());
+        tags.properties.lossless = lossless;
+        // Shared properties cannot describe compressed floating-point PCM;
+        // unknown precision makes lossless exporters refuse quantization.
+        if !lossless || flags.is_none_or(|flags| flags & 0x80 != 0) {
+            tags.properties.bit_depth = None;
+        }
+        return Ok(tags);
+    }
+    let file = probe.read().map_err(|_| TagError::UnrecognizedFormat)?;
+    Ok(translate(file))
+}
+
+/// Reads only headers, bounding non-audio prefixes without loading their bodies.
+/// Unknown flags must not be treated as evidence of integer PCM precision.
+fn wavpack_audio_flags<R: std::io::Read + std::io::Seek>(
+    reader: &mut R,
+) -> Result<Option<u32>, TagError> {
+    let mut offset = 0u64;
+    for _ in 0..64 {
+        reader.seek(std::io::SeekFrom::Start(offset))?;
+        let mut bytes = [0; 32];
+        match reader.read_exact(&mut bytes) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        let mut header = super::bytes::Cursor::new(&bytes);
+        if header.take(4) != Some(b"wvpk".as_slice()) {
+            return Ok(None);
+        }
+        let Some(size @ 24..=1_048_576) = header.u32_le() else {
+            return Ok(None);
+        };
+        header.skip(12);
+        let (Some(samples), Some(flags)) = (header.u32_le(), header.u32_le()) else {
+            return Ok(None);
+        };
+        if samples > 0 {
+            return Ok(Some(flags));
+        }
+        offset = offset
+            .checked_add(u64::from(size) + 8)
+            .ok_or(TagError::Malformed("WavPack block offset overflow"))?;
+    }
+    Ok(None)
 }
 
 fn translate(file: TaggedFile) -> RawTags {
@@ -51,11 +116,16 @@ fn translate(file: TaggedFile) -> RawTags {
     }
     tags.properties.bitrate_kbps = properties.audio_bitrate().or(properties.overall_bitrate());
 
-    // Later tags do not overwrite earlier ones: `RawTags::insert` appends, and
-    // the readers of the catalog take the first value. A file carrying both an
-    // APE tag and an ID3v1 one therefore keeps the richer of the two, which
-    // `lofty` lists first.
-    for tag in file.tags() {
+    // Catalogue readers take the first value. Lofty does not always list the
+    // format's primary tag first; keep it ahead of legacy alternatives while
+    // retaining their unique values and fields missing from the primary tag.
+    let primary = file.primary_tag_type();
+    for tag in file
+        .tags()
+        .iter()
+        .filter(|tag| tag.tag_type() == primary)
+        .chain(file.tags().iter().filter(|tag| tag.tag_type() != primary))
+    {
         collect(tag, &mut tags);
     }
     tags
@@ -114,3 +184,7 @@ fn field_name(key: ItemKey) -> Option<&'static str> {
     key.map_key(TagType::VorbisComments)
         .or_else(|| key.map_key(TagType::Ape))
 }
+
+#[cfg(test)]
+#[path = "foreign_tests.rs"]
+mod tests;

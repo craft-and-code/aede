@@ -55,28 +55,30 @@ impl Navigation {
 
     /// Prints nothing when the page has nowhere else to go.
     pub fn print(self) {
+        print!("{}", self.render());
+    }
+
+    fn render(self) -> String {
         if self.rows.is_empty() {
-            return;
+            return String::new();
         }
         const LIMIT: usize = 30;
-        println!("{}", ui::section("Continue"));
-        let mut table = Table::new(&["Relation", "Command"])
-            .limit(0, 30)
-            .limit(1, 90);
+        let mut table = Table::new(&["Relation", "Command"]).limit(0, 30);
         let total = self.rows.len();
         for (relation, command) in self.rows.into_iter().take(LIMIT) {
             table.push(vec![relation, command]);
         }
-        print!("{}", table.render());
+        let mut output = format!("{}\n{}", ui::section("Continue"), table.render());
         if total > LIMIT {
-            println!(
-                "  {}",
+            output.push_str(&format!(
+                "  {}\n",
                 ui::dim(&format!(
                     "{} more navigation targets not shown",
                     total - LIMIT
                 ))
-            );
+            ));
         }
+        output
     }
 }
 
@@ -103,13 +105,14 @@ pub fn open_command(catalog: &Catalog, kind: EntityKind, id: Id) -> Option<Strin
         EntityKind::Track => ("track", catalog.track(id)?.title.clone()),
         EntityKind::Recording => {
             let recording = catalog.recording(id)?;
-            (
-                "recording",
-                recording
-                    .mbid
-                    .clone()
-                    .unwrap_or_else(|| recording.title.clone()),
-            )
+            let identity = recording.mbid.clone().or_else(|| {
+                recording.track_ids.iter().find_map(|&track_id| {
+                    let track = catalog.track(track_id)?;
+                    let file = catalog.file(track.file_id)?;
+                    Some(format!("local:{}", file.path))
+                })
+            })?;
+            ("recording", identity)
         }
         EntityKind::Work => ("work", catalog.work(id)?.mbid.clone()),
         EntityKind::ReleaseGroup => ("release-group", catalog.release_group(id)?.mbid.clone()),

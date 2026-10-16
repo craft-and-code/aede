@@ -104,7 +104,10 @@ pub fn reset(args: &Args) -> Res {
     std::fs::remove_file(&catalog_file)?;
     println!("{} catalog removed", ui::green("→"));
     if !roots.is_empty() {
-        let quoted: Vec<String> = roots.iter().map(|r| format!("\"{r}\"")).collect();
+        let quoted: Vec<String> = roots
+            .iter()
+            .map(|root| super::navigation::shell_arg(root))
+            .collect();
         println!("  {}", ui::dim("to rebuild it:"));
         println!("  aede scan {}", ui::literal(&quoted.join(" ")));
     }

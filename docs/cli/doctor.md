@@ -6,6 +6,8 @@ Read the reason and the adjacent command suggested by the report. A duplicate or
 
 Use --severity to focus on one class and --all to inspect the complete report. --json preserves diagnostic structure. doctor operates on the catalog snapshot and held evidence; it does not contact metadata providers or check every audio byte.
 
+Waiting personal relationship annotations are reported only for the CLI's local owner. Another account's annotations do not contribute diagnostic details or counts; reading this report never changes either owner's saved data.
+
 Tag-based duplicate suggestions require a known artist, title and positive readable duration. Every duration in a suggested group is within three seconds of the shortest; different versions cannot be joined merely through intermediate durations. These remain suggestions for review. Missing track/disc reports show the first twelve positions and an ellipsis for longer lists, even when a malformed total tag announces billions of positions.
 
 ## Syntax and arguments

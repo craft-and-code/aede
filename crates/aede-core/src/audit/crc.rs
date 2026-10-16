@@ -66,6 +66,19 @@ pub fn crc16(data: &[u8]) -> u16 {
 /// final inversion — which is what sets it apart from the CRC-32 of zip and
 /// PNG, and why a general-purpose implementation cannot be reused here.
 pub fn crc32_ogg(data: &[u8]) -> u32 {
+    crc32_ogg_bytes(data.iter().copied())
+}
+
+/// Computes a page checksum without copying or changing its checksum field.
+pub(crate) fn crc32_ogg_page(page: &[u8]) -> u32 {
+    crc32_ogg_bytes(page.iter().enumerate().map(
+        |(index, &byte)| {
+            if (22..26).contains(&index) { 0 } else { byte }
+        },
+    ))
+}
+
+fn crc32_ogg_bytes(data: impl Iterator<Item = u8>) -> u32 {
     static TABLE: OnceLock<[u32; 256]> = OnceLock::new();
     let table = TABLE.get_or_init(|| {
         let mut table = [0u32; 256];
@@ -83,7 +96,7 @@ pub fn crc32_ogg(data: &[u8]) -> u32 {
         table
     });
 
-    data.iter().fold(0u32, |crc, &byte| {
+    data.fold(0u32, |crc, byte| {
         (crc << 8) ^ table[((crc >> 24) as u8 ^ byte) as usize]
     })
 }

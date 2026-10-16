@@ -69,6 +69,30 @@ fn malformed_unicode_and_controls_are_errors_without_panicking() {
 }
 
 #[test]
+fn unicode_escapes_require_four_ascii_hex_digits() {
+    for input in [
+        r#""\u+041""#,
+        r#"{"note":"\u+00A"}"#,
+        r#"{"\u+061":1}"#,
+        r#""\u-041""#,
+        r#""\u 041""#,
+        r#""\u0x41""#,
+        r#""\u１２""#,
+    ] {
+        assert!(parse(input).is_err(), "accepted malformed escape {input}");
+    }
+    for (input, expected) in [
+        (r#""\u0041""#, "A"),
+        (r#""\u00e9""#, "é"),
+        (r#""\u00E9""#, "é"),
+        (r#""\u000A""#, "\n"),
+        (r#""\uD83C\uDFB5""#, "🎵"),
+    ] {
+        assert_eq!(parse(input).unwrap().as_str(), Some(expected));
+    }
+}
+
+#[test]
 fn malformed_or_overflowing_numbers_are_rejected() {
     for input in ["01", "-01", "1.", "-.1", ".1", "1e", "1e+", "1e999"] {
         assert!(parse(input).is_err(), "accepted {input}");

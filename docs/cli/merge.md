@@ -4,6 +4,8 @@ merge records your statement that one artist spelling should be filed under anot
 
 The next scan rebuilds the graph around that rule. --list shows rules and whether they are already effective. --forget FIRST removes a rule; scan again to undo its catalog effect. Names not yet on the shelf may be stated before a later scan, with an explicit warning to reveal possible typos.
 
+The CLI reads, lists and removes only the legacy `local` owner's statements, including the decisions passed to a scan. Other accounts' stored statements remain private and unchanged. An exact canonical artist key takes precedence; otherwise a unique normalized alias can identify the artist. An ambiguous alias is refused before saving, and aliases cannot bypass the different-MusicBrainz-identifiers refusal.
+
 If both local spellings have different MusicBrainz artist identifiers, merge refuses: they identify different people and must be corrected deliberately at the source. doctor suggests candidate spelling pairs but never applies them. --source is only meaningful for the rule/source-related operation offered by the command; it is not a fuzzy auto-merge mode.
 
 ## Syntax and arguments

@@ -421,19 +421,19 @@ fn print_album(
         print!("{}", people.render());
     }
 
-    let duration: u64 = release
+    let duration = release
         .track_ids
         .iter()
         .filter_map(|&id| catalog.track(id))
         .filter_map(|t| t.duration_ms)
-        .sum();
-    let size: u64 = release
+        .fold(0, u64::saturating_add);
+    let size = release
         .track_ids
         .iter()
         .filter_map(|&id| catalog.track(id))
         .filter_map(|t| catalog.file(t.file_id))
         .map(|f| f.size)
-        .sum();
+        .fold(0, u64::saturating_add);
     println!(
         "  {}",
         ui::dim(&summary(discs, release.track_ids.len(), duration, size))

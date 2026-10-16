@@ -56,6 +56,10 @@ pub fn rules(args: &Args) -> Res {
         if !incoming_user.annotations.is_empty()
             || !incoming_user.plays.is_empty()
             || !incoming_user.counts.is_empty()
+            || !incoming_user.client_preferences.is_empty()
+            || !incoming_user.playlists.is_empty()
+            || !incoming_user.scrobbles.is_empty()
+            || !incoming_user.playback_states.is_empty()
             || !incoming_user.track_identities.is_empty()
             || !incoming_user.relinks.is_empty()
         {

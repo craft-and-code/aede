@@ -46,6 +46,58 @@ fn the_same_album_twice_is_linked_and_qualified() {
 }
 
 #[test]
+fn album_duplicate_suggestions_require_known_positive_durations() {
+    for (left, right) in [
+        (None, None),
+        (None, Some(60_000)),
+        (Some(0), Some(0)),
+        (Some(1_000), Some(0)),
+        (Some(60_000), Some(62_000)),
+    ] {
+        let files = [("A", left), ("B", right)]
+            .into_iter()
+            .map(|(edition, duration)| {
+                let mut file = track(
+                    &format!("/music/{edition}/01.flac"),
+                    &[("artist", "Band"), ("album", "Record"), ("title", "Song")],
+                    60_000,
+                );
+                file.tags.properties.duration_ms = duration;
+                file
+            })
+            .collect();
+        let catalog = build(files, vec!["/music".into()], 0, &[]);
+        let expected = matches!((left, right), (Some(a), Some(b)) if a > 0 && b > 0);
+        let mut old = catalog.clone();
+        old.relations.retain(|relation| relation.kind != DUPLICATE);
+        for (source_id, target_id) in [(0, 1), (1, 0)] {
+            old.relations.push(Relation {
+                source_kind: EntityKind::Release,
+                source_id,
+                target_kind: EntityKind::Release,
+                target_id,
+                kind: DUPLICATE.into(),
+                weight: 1,
+                source: "tags".into(),
+            });
+        }
+        let mut saved = crate::store::to_json(&old);
+        saved.set("relation_rules", 3u32.into());
+        let loaded = crate::store::from_json(&saved).unwrap();
+        for current in [&catalog, &loaded] {
+            assert_eq!(
+                !current.related_releases(0, DUPLICATE).is_empty(),
+                expected,
+                "{left:?} and {right:?}"
+            );
+            assert_eq!(current.files.len(), 2);
+            assert_eq!(current.tracks[0].duration_ms, left);
+            assert_eq!(current.tracks[1].duration_ms, right);
+        }
+    }
+}
+
+#[test]
 fn two_editions_in_two_folders_stay_two_releases() {
     // Same title, same artist, different folder: two pressings of one
     // record must not be merged into a single release.
@@ -177,6 +229,86 @@ fn encoding_quality_is_compared_per_track_instead_of_per_album_set() {
         for release in &catalog.releases {
             assert!(catalog.related_releases(release.id, DUPLICATE).is_empty());
             assert_eq!(catalog.related_releases(release.id, OTHER_EDITION).len(), 1);
+        }
+    }
+}
+
+#[test]
+fn channel_variants_are_other_editions_when_built_or_loaded_from_older_rules() {
+    for (left_channels, right_channels) in [(1, 2), (2, 6), (2, 2)] {
+        let files = [("A", left_channels), ("B", right_channels)]
+            .into_iter()
+            .map(|(edition, channels)| {
+                let mut file = track(
+                    &format!("/music/{edition}/01.flac"),
+                    &[
+                        ("artist", "Band"),
+                        ("album", "Record"),
+                        ("title", "Song"),
+                        ("tracknumber", "1"),
+                    ],
+                    60_000,
+                );
+                file.tags.properties.codec = "flac".into();
+                file.tags.properties.lossless = true;
+                file.tags.properties.sample_rate = Some(44_100);
+                file.tags.properties.bit_depth = Some(16);
+                file.tags.properties.channels = Some(channels);
+                file
+            })
+            .collect();
+        let catalog = build(files, vec!["/music".into()], 0, &[]);
+        assert_eq!(
+            catalog.files[0].properties.quality_label(),
+            catalog.files[1].properties.quality_label(),
+            "a display label does not distinguish channel variants"
+        );
+        let mut previous = catalog.clone();
+        for relation in &mut previous.relations {
+            if relation.kind == OTHER_EDITION {
+                relation.kind = DUPLICATE.into();
+            }
+        }
+        let mut saved = crate::store::to_json(&previous);
+        saved.set("relation_rules", 4u32.into());
+        let loaded = crate::store::from_json(&saved).unwrap();
+        for current in [&catalog, &loaded] {
+            let different_channels = left_channels != right_channels;
+            assert_eq!(
+                current.related_releases(0, DUPLICATE).len(),
+                usize::from(!different_channels),
+                "{left_channels} and {right_channels} channels"
+            );
+            assert_eq!(
+                current.related_releases(0, OTHER_EDITION).len(),
+                usize::from(different_channels)
+            );
+            let issues = crate::doctor::diagnose(current, &crate::sources::Sources::default());
+            assert_eq!(
+                issues
+                    .iter()
+                    .filter(|issue| issue.kind == crate::doctor::IssueKind::DuplicateAlbum)
+                    .count(),
+                usize::from(!different_channels)
+            );
+            assert_eq!(
+                issues
+                    .iter()
+                    .filter(|issue| issue.kind == crate::doctor::IssueKind::OtherEdition)
+                    .count(),
+                usize::from(different_channels)
+            );
+            assert_eq!(current.files.len(), 2);
+            for (file, channels) in current.files.iter().zip([left_channels, right_channels]) {
+                assert_eq!(file.properties.channels, Some(channels));
+                assert_eq!(file.properties.duration_ms, Some(60_000));
+                assert_eq!(
+                    file.path,
+                    format!("/music/{}/01.flac", if file.id == 0 { "A" } else { "B" })
+                );
+                assert_eq!(file.size, catalog.files[file.id as usize].size);
+                assert_eq!(file.mtime, catalog.files[file.id as usize].mtime);
+            }
         }
     }
 }

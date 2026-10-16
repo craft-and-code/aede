@@ -6,6 +6,8 @@ Si un ancien catalogue contient encore ses conclusions, reset préserve ses verd
 
 Les dossiers suivis vivent dans catalog.json : il faut les nommer à nouveau lors de la reconstruction. La commande affiche un scan avec les anciennes racines. Le copier avant de fermer le terminal. Malgré un ancien résumé d’aide, reset ne conserve pas ces racines dans un catalogue de remplacement.
 
+Dans un shell POSIX, la commande affichée conserve littéralement les espaces, guillemets et signes dollar présents dans les noms de dossiers.
+
 Faire une sauvegarde auparavant pour récupérer exactement l’état du catalogue. --yes accepte la suppression sans question ; cela ne la rend pas réversible. Sans catalogue, reset indique qu’il n’y a rien à retirer.
 
 ## Syntaxe et arguments
