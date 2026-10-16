@@ -14,6 +14,7 @@ const DEFAULT_LIMIT: usize = 50;
 
 /// Lists local and source-backed graph relationships.
 pub fn relations(args: &Args) -> Res {
+    let window = args.window(DEFAULT_LIMIT)?;
     let catalog = load(args)?;
     let sources = sources_held(args)?;
     let user = user::load(&user::user_path(&data_dir(args)))?.unwrap_or_default();
@@ -48,13 +49,6 @@ pub fn relations(args: &Args) -> Res {
             .then_with(|| left.target_name.cmp(&right.target_name))
     });
 
-    if edges.is_empty() {
-        println!("{}", ui::section("Relations"));
-        println!("  {}", ui::dim("no relationship matches"));
-        return Ok(());
-    }
-
-    let window = args.window(DEFAULT_LIMIT)?;
     if args.has("json") {
         let rows = edges
             .iter()
@@ -63,6 +57,12 @@ pub fn relations(args: &Args) -> Res {
             .map(|edge| edge_json(edge, annotation(&user, edge)))
             .collect();
         return super::export::emit(args, &Json::Arr(rows).to_string_pretty());
+    }
+
+    if edges.is_empty() {
+        println!("{}", ui::section("Relations"));
+        println!("  {}", ui::dim("no relationship matches"));
+        return Ok(());
     }
 
     println!("{}", ui::section(&format!("Relations ({})", edges.len())));
@@ -93,8 +93,8 @@ pub fn relations(args: &Args) -> Res {
 
 /// Shows or changes one relationship annotation.
 pub fn relation(args: &Args) -> Res {
-    let selector = args.positionals.join(" ");
-    if selector.trim().is_empty() {
+    let selector = args.positionals.join(" ").trim().to_ascii_lowercase();
+    if selector.is_empty() {
         return Err("give the ID printed by aede relations: aede relation <ID>".into());
     }
     let catalog = load(args)?;
@@ -104,7 +104,15 @@ pub fn relation(args: &Args) -> Res {
     let mut data = user::load(&path)?.unwrap_or_default();
     let edge = match graph::select(&edges, &selector) {
         Ok(edge) => edge,
-        Err(_) if args.has("remove") && !args.has("text") && !args.has("tag") => {
+        Err(_)
+            if args.has("remove")
+                && !args.has("text")
+                && !args.has("tag")
+                && !edges
+                    .iter()
+                    .any(|edge| edge.reference.id().starts_with(&selector)) =>
+        {
+            // Saved annotations recover absent edges, not ambiguous live IDs.
             let relation = select_annotation(&data, &selector)?;
             data.relation_annotations.retain(|annotation| {
                 annotation.owner != LOCAL_USER || annotation.relation != relation
@@ -469,3 +477,7 @@ fn attribute_json(attribute: &aede_core::model::CreditAttribute) -> Json {
     );
     row
 }
+
+#[cfg(test)]
+#[path = "relation_tests.rs"]
+mod tests;

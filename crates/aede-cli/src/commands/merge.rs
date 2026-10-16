@@ -53,6 +53,7 @@ pub fn stated(dir: &std::path::Path) -> Vec<aede_core::model::identity::Chosen> 
 fn chosen(data: &UserData) -> Vec<aede_core::model::identity::Chosen> {
     data.same_artist
         .iter()
+        .filter(|m| m.owner == user::LOCAL_USER)
         .map(|m| aede_core::model::identity::Chosen {
             spelling: m.spelling.clone(),
             filed_as: m.filed_as.clone(),
@@ -121,8 +122,23 @@ fn state(
     // folder holding it is scanned looks like, and refusing it would make the
     // order of two commands matter for no reason. What is worth saying is which
     // of the two the shelf does not know, so a typo is visible at once.
-    let known = |key: &str| catalog.artists.iter().find(|a| a.key == key);
-    let (left, right) = (known(&from), known(&to));
+    let known = |key: &str| {
+        if let Some(artist) = catalog.artists.iter().find(|a| a.key == key) {
+            return Ok(Some(artist));
+        }
+        let mut matched = catalog
+            .artists
+            .iter()
+            .filter(|artist| artist.aliases.iter().any(|alias| alias == key));
+        let found = matched.next();
+        if matched.next().is_some() {
+            return Err(format!(
+                "artist spelling \"{key}\" is ambiguous; name its exact canonical spelling"
+            ));
+        }
+        Ok(found)
+    };
+    let (left, right) = (known(&from)?, known(&to)?);
 
     // The one refusal. Two identifiers are two people, said so by the only
     // authority on the question, and a statement to the contrary belongs on
@@ -210,7 +226,12 @@ const RESCAN: &str = "run aede scan to rebuild the shelf around it";
 /// happened.
 fn listed(args: &Args, data: &UserData, catalog: Option<Catalog>) -> Res {
     println!("{}", ui::section("Merged artists"));
-    if data.same_artist.is_empty() {
+    let statements = data
+        .same_artist
+        .iter()
+        .filter(|m| m.owner == user::LOCAL_USER)
+        .collect::<Vec<_>>();
+    if statements.is_empty() {
         println!("  {}", ui::dim("nobody has been merged"));
         println!(
             "  {}",
@@ -229,9 +250,9 @@ fn listed(args: &Args, data: &UserData, catalog: Option<Catalog>) -> Res {
         .map(|n| text::normalize(n))
         .filter(|n| !n.is_empty())
         .collect();
-    let rows: Vec<&SameArtist> = data
-        .same_artist
+    let rows: Vec<&SameArtist> = statements
         .iter()
+        .copied()
         .filter(|m| super::fetch::reaches(&wanted, &[&m.spelling, &m.filed_as]))
         .collect();
     if rows.is_empty() {
@@ -240,7 +261,7 @@ fn listed(args: &Args, data: &UserData, catalog: Option<Catalog>) -> Res {
             ui::dim(&format!(
                 "no merge matches {} — {} in all",
                 wanted.join(", "),
-                ui::plural(data.same_artist.len(), "statement")
+                ui::plural(statements.len(), "statement")
             ))
         );
         return Ok(());
@@ -290,7 +311,9 @@ fn forget(args: &Args, data: &mut UserData, path: &std::path::Path) -> Res {
         return Err("name the spelling to unmerge: aede merge --forget \"O. Osbourne\"".into());
     }
 
-    let matched = |m: &SameArtist| wanted.iter().any(|w| m.spelling.contains(w.as_str()));
+    let matched = |m: &SameArtist| {
+        m.owner == user::LOCAL_USER && wanted.iter().any(|w| m.spelling.contains(w.as_str()))
+    };
     let taken: Vec<String> = data
         .same_artist
         .iter()

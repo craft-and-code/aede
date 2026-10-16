@@ -4,7 +4,9 @@ import reads [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) JS
 
 --list shows attached, waiting and stale results. --pending narrows to results whose file is not yet catalogued. --forget removes the selected stored analyses; with --pending it removes only waiting results. Folder arguments narrow --list, --pending and --forget --pending; bare --forget refuses a folder argument. Ordinary import accepts report files or recursively walked report directories. --source narrows by tool name.
 
-The newer available report date wins for overlapping file results, and changing source audio makes old measurements stale. Deleting a report later does not remove imported data. A malformed JSON file, unsupported report or unreadable path is reported rather than treated as audio. Use analyze when you want fresh in-process measurements.
+--limit, --offset and --all apply only to read-only --list/--pending output; importing or forgetting refuses them. --forget cannot be combined with --list. --source filters stored listings/removal and is refused when importing report files. These mode checks precede reading or publishing stores.
+
+The newer available report date wins for overlapping file results, including waiting reports attached after a scan. Changing source audio makes old measurements stale. Deleting a report later does not remove imported data. A malformed JSON file, invalid report envelope, unsupported version or unreadable path is reported rather than treated as audio. A report requires a report object and a files array; an empty array remains valid. Legacy reports without a version retain version 0 compatibility, while a present version must be an unsigned 32-bit integer. Use analyze when you want fresh in-process measurements.
 
 ## Syntax and arguments
 

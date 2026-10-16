@@ -25,6 +25,8 @@ The default cover selection avoids automatically copying every large spectrogram
 
 Destination name restrictions depend on the filesystem and mount. Aède probes the destination and can adapt forbidden characters, trailing names and reserved device names. `--safe-names` forces adaptation; `--raw-names` keeps original characters and may fail on a restrictive destination. Collision counters can still distinguish otherwise equivalent names. Those two options are incompatible.
 
+Portable adaptation recognizes reserved device words before the first dot, including multiple or long suffixes (`CON.foo.bar` becomes `CON_.foo.bar`). Shortening at a Unicode boundary also rechecks newly exposed trailing spaces/dots and bare reserved words, while keeping the conservative 255-byte component limit and recognized extensions.
+
 Adapted names are listed. Files and folders share conservative matching keys that fold case, common composed/decomposed accents and punctuation. Deterministic counters distinguish collisions rather than merging source folders or selected tracks. A real transfer also tests the planned namespace in an isolated directory on the destination; aliases outside those matching rules or unsupported names are refused before changing real outputs.
 
 `--dry-run` creates no probe or temporary output. Without an explicit name option it conservatively plans adapted names; pass `--safe-names` or `--raw-names` to use the same explicit policy for both preview and transfer.
@@ -67,11 +69,15 @@ Only sources identified as lossless are encoded. Already-lossy files are copied 
 
 Floating-point PCM can be preserved in WAV. Conversion to FLAC is refused for floating-point sources, including during preview: FLAC stores integer samples and would quantize them.
 
-Integer sources above 24 bits require FFmpeg's 32-bit FLAC encoding support; an incapable encoder is refused. Newly encoded lossless files are checked for preserved precision, sample rate and channel count before publication, even without `--verify`.
+A conversion to a lossless target requires known source PCM precision; an unknown depth is refused before encoding rather than silently quantized. Explicit conversion to a lossy target remains available. Integer sources above 24 bits require FFmpeg's 32-bit FLAC encoding support; an incapable encoder is refused. Newly encoded lossless files are checked for preserved precision, sample rate and channel count before publication, even without `--verify`.
 
-FFmpeg must be installed for actual conversions. Conversion workers use an automatic parallel count by default, while a plain copy defaults to one worker; `--threads N` can override it. A conversion dry-run plans the work without encoding.
+Floating-point WavPack sources have no advertised integer PCM precision, so their FLAC/WAV conversion is refused. The same refusal applies when the first audio block's representation cannot be established within 64 WavPack block headers. Copying the source unchanged or choosing an explicit lossy target remains available.
 
-Metadata is carried where the destination container and FFmpeg support it. Embedded cover handling is supported by the selected MP3/AAC/FLAC paths, while WAV/Vorbis/Opus conversion has image limitations. WAV's metadata mapping is limited; do not assume every original credit/custom tag is preserved. Sidecar artwork remains selectable independently.
+FFmpeg must be installed for actual conversions. A resume that only skips existing nonempty converted outputs does not need the encoder; `--replace`, `--verify-existing` or a missing converted output does. Conversion workers use an automatic parallel count by default, while a plain copy defaults to one worker; `--threads N` can override it. A conversion dry-run plans the work without encoding.
+
+Encoder diagnostics are drained completely while only a bounded tail is retained, so repeated errors from a corrupt source do not accumulate in memory. Failed encodes leave any previous destination file intact.
+
+Metadata is carried where the destination container and FFmpeg support it, from both container-level and first-audio-stream tags (including Ogg-FLAC comments). Container-level values take precedence when both supply the same key. Embedded cover handling is supported by the selected MP3/AAC/FLAC paths, while WAV/Vorbis/Opus conversion has image limitations. WAV's metadata mapping is limited; do not assume every original credit/custom tag is preserved. Sidecar artwork remains selectable independently.
 
 Before conversion, sizes are estimates. With `--verify`, Aède's own parsers check the newly encoded result's readable nonzero duration and compare it with source duration when available, using the implementation's tolerance. This catches incomplete output; it is not a full decoded sample comparison or proof of audible transparency.
 
@@ -84,6 +90,8 @@ For every option, argument and beginner example, use the [copy command reference
 ## Playlists that follow the exported files
 
 `--playlists` adds an `aede-selection.m3u8` playlist in selection order, with paths relative to the destination. If a companion already reserves that name, a deterministic suffix keeps both distinct. With `--extras all`, copied UTF-8 M3U/M3U8 companions are remapped to the adapted filenames and converted extensions. References outside the selected audio, including remote URLs, are omitted and counted. Original playlists remain untouched. A differing existing destination playlist is preserved and reported unless `--replace` is supplied.
+
+Relative entries beginning with whitespace, `#` or `file:` receive an explicit `./` prefix so playlist readers preserve the literal filename instead of trimming it or reading a comment. Audio names, source playlists, order and repeated occurrences are unchanged.
 
 ```sh
 aede copy /Volumes/Player --collection Road --compress mp3 --quality V0 --playlists --verify

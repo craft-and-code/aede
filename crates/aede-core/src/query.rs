@@ -492,6 +492,9 @@ fn collect_unknown(query: &Query, context: &Context, out: &mut Vec<(String, Stri
                 | Field::Collaborator => {
                     context.catalog.artists.iter().any(|a| {
                         a.key.contains(&wanted)
+                            || a.aliases
+                                .iter()
+                                .any(|alias| text::normalize(alias).contains(&wanted))
                             || a.mbid
                                 .as_deref()
                                 .is_some_and(|mbid| text::normalize(mbid) == wanted)

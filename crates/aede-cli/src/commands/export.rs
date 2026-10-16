@@ -423,8 +423,11 @@ fn album_rows(catalog: &Catalog, releases: &[Id]) -> (Vec<&'static str>, Vec<Vec
             .collect();
 
         let discs: BTreeSet<u32> = tracks.iter().map(|t| t.disc_no.unwrap_or(1)).collect();
-        let duration: u64 = tracks.iter().filter_map(|t| t.duration_ms).sum();
-        let size: u64 = files.iter().map(|f| f.size).sum();
+        let duration = tracks
+            .iter()
+            .filter_map(|t| t.duration_ms)
+            .fold(0, u64::saturating_add);
+        let size = files.iter().map(|f| f.size).fold(0, u64::saturating_add);
         let formats: BTreeSet<&str> = files.iter().map(|f| f.properties.codec.as_str()).collect();
         let rates: BTreeSet<u32> = files
             .iter()
@@ -565,7 +568,7 @@ fn integrity_of(files: &[&aede_core::model::AudioFile]) -> &'static str {
         match file.integrity.as_ref().map(|r| &r.verdict) {
             Some(Verdict::Damaged { .. }) => return "damaged",
             Some(Verdict::Intact) => all_nothing = false,
-            Some(Verdict::NothingToCheck) => {}
+            Some(Verdict::NothingToCheck) => any_unverified = true,
             None => {
                 any_unverified = true;
                 all_nothing = false;
@@ -573,8 +576,8 @@ fn integrity_of(files: &[&aede_core::model::AudioFile]) -> &'static str {
         }
     }
     match (any_unverified, all_nothing) {
-        (true, _) => "not_verified",
-        (false, true) => "nothing_to_check",
+        (_, true) => "nothing_to_check",
+        (true, false) => "not_verified",
         (false, false) => "intact",
     }
 }

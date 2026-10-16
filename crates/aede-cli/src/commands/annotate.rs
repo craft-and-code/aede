@@ -338,6 +338,10 @@ pub fn note(args: &Args) -> Res {
     let (catalog, reference, mut data, now) = editable_target(args)?;
     let name = ui::literal(&reference.display_name(&catalog));
 
+    if args.has("append") && !args.has("text") && !args.has("file") {
+        return Err("--append requires text supplied with --text or --file".into());
+    }
+
     // --from, --text and --file each say what to write; --remove says to take
     // it away. Two answers to "what happens to the note" is not something to
     // pick between in silence.
@@ -353,16 +357,29 @@ pub fn note(args: &Args) -> Res {
     // Copying everything said about one thing onto another, so that a note
     // written once is not retyped for every disc of a box set.
     if let Some(token) = args.value("from") {
-        let source = match EntityRef::parse_token(token) {
-            Some(reference) => reference,
-            None => {
-                let (kind, rest) = token
-                    .split_once(':')
-                    .ok_or("--from takes <kind>:<name>, as in --from album:\"Legion\"")?;
-                let kind = parse_entity_kind(kind)
-                    .ok_or_else(|| format!("\"{kind}\" is not a kind of thing"))?;
-                find(&catalog, kind, rest)?
-            }
+        if let Some(flag) = ["text", "file", "append"]
+            .into_iter()
+            .find(|flag| args.has(flag))
+        {
+            return Err(format!("--from and --{flag} both say what to write; give one").into());
+        }
+        let (kind, rest) = token
+            .split_once(':')
+            .ok_or("--from takes <kind>:<name>, as in --from album:\"Legion\"")?;
+        let kind =
+            parse_entity_kind(kind).ok_or_else(|| format!("\"{kind}\" is not a kind of thing"))?;
+        let source = EntityRef::new(kind, rest);
+        // Exact personal references can still be waiting. Otherwise resolve
+        // catalog aliases before trying the documented kind:name form.
+        let source = if data.find(&owner(args), &source).is_some() {
+            source
+        } else if let Some(canonical) = source
+            .resolve(&catalog)
+            .and_then(|id| EntityRef::of(&catalog, kind, id))
+        {
+            canonical
+        } else {
+            find(&catalog, kind, rest)?
         };
         if !data.copy(&owner(args), &source, &reference, now) {
             return Err(format!(
@@ -393,14 +410,11 @@ pub fn note(args: &Args) -> Res {
             use std::io::Read;
             let mut buffer = String::new();
             std::io::stdin().read_to_string(&mut buffer)?;
-            Some(buffer.trim_end_matches('\n').to_string())
+            Some(buffer)
         }
-        (None, Some(path)) => Some(
-            std::fs::read_to_string(path)
-                .map_err(|e| format!("cannot read {path}: {e}"))?
-                .trim_end_matches('\n')
-                .to_string(),
-        ),
+        (None, Some(path)) => {
+            Some(std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?)
+        }
         (None, None) => None,
     };
     // Typed or read, empty is not a note: writing it anyway would create a
@@ -821,6 +835,7 @@ pub fn query(args: &Args) -> Res {
 /// look like it had been ignored.
 fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
     let catalog = load(args)?;
+    let window = args.window(DEFAULT_LIMIT)?;
     let parsed = aede_core::query::parse(expression)?;
     let data = read(args, &catalog)?;
     let held = super::sources_held(args)?;
@@ -835,7 +850,9 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
         aede_core::query::sort(&mut tracks, aede_core::query::Sort::parse(order)?, &context);
     }
 
-    if let Some(result) = super::selection_output(&catalog, &tracks, args) {
+    let first = window.offset.min(tracks.len());
+    let last = first.saturating_add(window.limit).min(tracks.len());
+    if let Some(result) = super::selection_output(&catalog, &tracks[first..last], args) {
         return result;
     }
     if tracks.is_empty() {
@@ -844,7 +861,6 @@ fn run_query(args: &Args, expression: &str, shown: &str) -> Res {
         return Ok(());
     }
 
-    let window = args.window(DEFAULT_LIMIT)?;
     println!("{}", ui::section(&format!("{shown} ({})", tracks.len())));
     let mut t = Table::new(&["Track", "Artist", "Album", "Year", "Length"])
         .align(3, Align::Right)
@@ -1030,6 +1046,7 @@ pub fn favourites(args: &Args) -> Res {
         .filter(|a| a.owner == owner && a.loved)
         .collect();
     if rows.is_empty() && !args.has("json") && !args.has("csv") {
+        super::refuse_output_without_a_format(args)?;
         println!(
             "{}",
             ui::dim("nothing is a favourite yet: aede love album \"<title>\"")
@@ -1042,6 +1059,7 @@ pub fn favourites(args: &Args) -> Res {
 /// `aede notes` — everything written, whatever kind it was written on.
 pub fn notes(args: &Args) -> Res {
     validate_notes_options(args)?;
+    args.window(DEFAULT_LIMIT)?;
     let catalog = load(args)?;
     let mut data = read(args, &catalog)?;
     if args.has("relink") || args.has("undo-relink") || args.has("relinks") {
@@ -1060,8 +1078,8 @@ pub fn notes(args: &Args) -> Res {
         return super::export::emit(args, &user::to_json(&data).to_string_pretty());
     }
     if let Some(path) = args.value("import") {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-        let incoming = user::from_json(&aede_core::json::parse(&text)?)?;
+        let incoming = user::load(std::path::Path::new(path))?
+            .ok_or_else(|| format!("cannot read {path}: personal export does not exist"))?;
         let report = user::merge(&mut data, incoming);
         write(args, &mut data, &catalog)?;
         println!(
@@ -1244,6 +1262,7 @@ fn print_annotations(catalog: &Catalog, rows: &[&Annotation], args: &Args, headi
         );
     }
 
+    super::refuse_output_without_a_format(args)?;
     println!("{}", ui::section(&format!("{heading} ({})", sorted.len())));
     let mut t = Table::new(&["Kind", "Name", "", "Rating", "Tags", "Note"])
         .limit(1, 34)

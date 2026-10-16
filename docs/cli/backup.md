@@ -2,6 +2,8 @@
 
 backup creates one versioned bundle containing readable catalog, conclusions, personal data, source evidence and accounts. It can run even when only some stores exist; personal notes or accounts without a catalog are still worth saving. The summary states which parts were held, empty or unreadable.
 
+Each store is read independently. An unreadable separate conclusions file is reported and omitted from the bundle, without omitting a readable catalog or other readable stores. Its original bytes remain untouched; keep a separate copy if they need recovery.
+
 Version 3 includes salted account password verifiers, never sessions. A backup containing credentials requires private Unix permissions, including when replacing an existing destination (`chmod 600`). Older versions remain readable. See [accounts](accounts.md).
 
 Choose an explicit filename and keep a copy off the machine/NAS. If that file already exists, Aède asks before overwriting it; --yes bypasses that prompt. A completely empty data directory returns an error rather than writing a misleading empty backup.

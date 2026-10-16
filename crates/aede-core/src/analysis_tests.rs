@@ -85,6 +85,241 @@ fn a_valid_report_replaces_a_stale_measurement_regardless_of_report_dates() {
     );
 }
 
+#[test]
+fn a_waiting_current_result_replaces_stale_exact_path_evidence_after_a_scan() {
+    for (index, waiting_name) in ["A pending.flac", "z pending.flac"].into_iter().enumerate() {
+        let dir = TestDirectory::new(&format!("stale_exact_reconciliation_{index}"));
+        let music = dir.path.join("Music");
+        std::fs::create_dir(&music).unwrap();
+        let path = music.join("track.flac");
+        std::fs::write(&path, include_bytes!("../tests/fixtures/track.flac")).unwrap();
+        let roots = [music];
+        let (mut previous, _) =
+            crate::scan::scan(&roots, None, &Default::default(), |_| {}).unwrap();
+        let file = &previous.files[0];
+        let old = FileAnalysis {
+            result_at_ns: 1000,
+            detail: Some("different earlier bytes".into()),
+            ..record_for(&file.path, file.size, file.mtime)
+        };
+        assert_eq!(merge_into(&mut previous, vec![old.clone()], 10).matched, 1);
+
+        let bytes = include_bytes!("../tests/fixtures/hires.flac");
+        let before_move = dir.file(waiting_name, bytes);
+        let mut source_data = Json::obj();
+        source_data.set("path", before_move.clone().into());
+        source_data.set("unknown_measurement", true.into());
+        let current = FileAnalysis {
+            file_md5: Some(file_md5(Path::new(&before_move)).unwrap()),
+            result_at_ns: 200,
+            detail: Some("current bytes".into()),
+            source_data: Some(source_data.clone()),
+            ..record_for(&before_move, bytes.len() as u64, 10)
+        };
+        assert_eq!(merge_into(&mut previous, vec![current], 20).waiting, 1);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::rename(&before_move, &path).unwrap();
+        let (refreshed, _) =
+            crate::scan::scan(&roots, Some(&previous), &Default::default(), |_| {}).unwrap();
+        assert_eq!(refreshed.analyses.len(), 1, "{waiting_name}");
+        let record = &refreshed.analyses[0];
+        let file = &refreshed.files[0];
+        assert_eq!(record.path, file.path);
+        assert!(record.still_applies(file.size, file.mtime));
+        assert_eq!(record.detail.as_deref(), Some("current bytes"));
+        assert_eq!(record.result_at_ns, 200);
+        assert_eq!(record.source_data, Some(source_data));
+        assert_eq!(refreshed.pending_analyses(), 0);
+
+        let mut no_replacement = Catalog {
+            files: refreshed.files.clone(),
+            analyses: vec![old.clone()],
+            ..Default::default()
+        };
+        assert_eq!(reconcile(&mut no_replacement), 0);
+        assert_eq!(
+            no_replacement.analyses,
+            vec![old],
+            "stale evidence stays held when nothing replaces it"
+        );
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn waiting_reports_keep_the_newest_result_when_their_paths_converge() {
+    let dir = TestDirectory::new("dated_waiting_reports");
+    let bytes = include_bytes!("../tests/fixtures/track.flac");
+    let path = dir.file("renamed.flac", bytes);
+    let digest = file_md5(Path::new(&path)).unwrap();
+    let size = bytes.len() as u64;
+    for (first_date, last_date, expected_date) in [
+        (200, 100, 200),
+        (100, 200, 200),
+        (200, 200, 200),
+        (0, 0, 0),
+        (200, 0, 0),
+    ] {
+        for reverse_import in [false, true] {
+            let mut records = Vec::new();
+            for (old_path, result_at_ns) in [
+                ("/old-library/a/track.flac", first_date),
+                ("/old-library/z/track.flac", last_date),
+            ] {
+                let text = example(&format!(", \"file_md5\": \"{digest}\""))
+                    .replace("/music/Danzig/01 7th House.flac", old_path)
+                    .replace(
+                        "\"file_name\": \"01 7th House.flac\"",
+                        "\"file_name\": \"track.flac\"",
+                    )
+                    .replace("33551356", &size.to_string())
+                    .replace("1782122103", "10");
+                let mut record = parse_report(&text).unwrap().files.remove(0);
+                record.result_at_ns = result_at_ns;
+                records.push(record);
+            }
+            let expected = if first_date != 0 && last_date != 0 && first_date > last_date {
+                records[0].clone()
+            } else {
+                records[1].clone()
+            };
+            if reverse_import {
+                records.reverse();
+            }
+            let mut catalog = Catalog::default();
+            assert_eq!(merge_into(&mut catalog, records, 99).waiting, 2);
+            catalog.files = catalog_holding(&path, size, 20).files;
+            assert!(reconcile(&mut catalog) > 0);
+            assert_eq!(catalog.analyses.len(), 1);
+            let attached = &catalog.analyses[0];
+            assert_eq!(attached.path, path);
+            assert_eq!(attached.result_at_ns, expected_date);
+            assert_eq!(attached.modified_unix, 20);
+            assert_eq!(attached.source_data, expected.source_data);
+            assert_eq!(attached.imported_at, 99);
+            assert_eq!(catalog.pending_analyses(), 0);
+        }
+    }
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+}
+
+#[test]
+fn malformed_report_envelopes_are_refused_without_rejecting_empty_legacy_reports() {
+    for version in ["null", "\"1\"", "true", "-1", "1.5", "4294967296"] {
+        let text = format!(
+            r#"{{"format":"flaccompagnon-report","version":{version},"report":{{"files":[]}}}}"#
+        );
+        assert!(parse_report(&text).is_err(), "accepted version {version}");
+    }
+    for text in [
+        r#"{"format":"flaccompagnon-report","version":1}"#,
+        r#"{"format":"flaccompagnon-report","version":1,"report":null}"#,
+        r#"{"format":"flaccompagnon-report","version":1,"report":[]}"#,
+        r#"{"format":"flaccompagnon-report","version":1,"report":{}}"#,
+        r#"{"format":"flaccompagnon-report","version":1,"report":{"files":null}}"#,
+        r#"{"format":"flaccompagnon-report","version":1,"report":{"files":"not an array"}}"#,
+    ] {
+        assert!(
+            parse_report(text).is_err(),
+            "accepted malformed report {text}"
+        );
+    }
+    for (version_field, expected_version) in [("\"version\":1,", 1), ("\"version\":0,", 0), ("", 0)]
+    {
+        let report = parse_report(&format!(
+            r#"{{"format":"flaccompagnon-report",{version_field}"report":{{"root":"/music","files":[],"future_measurement":true}}}}"#
+        ))
+        .unwrap();
+        assert_eq!(report.version, expected_version);
+        assert!(report.files.is_empty());
+    }
+    let report = parse_report(
+        r#"{"format":"flaccompagnon-report","version":1,"report":{"files":[{}, {"path":null}, {"path":"/music/a.flac","future_measurement":{"value":42}}]}}"#,
+    )
+    .unwrap();
+    assert_eq!(report.files.len(), 1, "pathless entries remain skippable");
+    assert_eq!(report.files[0].path, "/music/a.flac");
+    assert!(
+        report.files[0]
+            .source_data
+            .as_ref()
+            .unwrap()
+            .get("future_measurement")
+            .is_some()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_catalogued_hash_candidate_replaced_by_a_fifo_does_not_block_import() {
+    const CHILD_PATH: &str = "AEDE_ANALYSIS_FIFO_TEST_PATH";
+    const CHILD_DIGEST: &str = "AEDE_ANALYSIS_FIFO_TEST_DIGEST";
+    let bytes = include_bytes!("../tests/fixtures/track.flac");
+    if let Some(path) = std::env::var_os(CHILD_PATH) {
+        let path = path.to_str().unwrap();
+        let mut catalog = catalog_holding(path, bytes.len() as u64, 10);
+        let record = FileAnalysis {
+            file_md5: Some(std::env::var(CHILD_DIGEST).unwrap()),
+            ..record_for("/old-library/track.flac", bytes.len() as u64, 10)
+        };
+        let outcome = merge_into(&mut catalog, vec![record], 99);
+        assert_eq!(outcome.waiting, 1);
+        assert_eq!(outcome.moved, 0);
+        assert_eq!(catalog.analyses[0].path, "/old-library/track.flac");
+        return;
+    }
+
+    let dir = TestDirectory::new("fifo_hash_candidate");
+    let path = dir.file("track.flac", bytes);
+    let digest = file_md5(Path::new(&path)).unwrap();
+    let link = dir.path.join("linked.flac");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    assert_eq!(file_md5(&link).unwrap(), digest);
+    assert!(file_md5(&dir.path).is_err());
+    std::fs::remove_file(&path).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    for candidate in [Path::new(&path), link.as_path()] {
+        // Isolate the public import call: an old blocking reader must be
+        // killed and reaped instead of leaving the test suite waiting too.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "analysis::tests::a_catalogued_hash_candidate_replaced_by_a_fifo_does_not_block_import",
+                "--nocapture",
+            ])
+            .env(CHILD_PATH, candidate)
+            .env(CHILD_DIGEST, &digest)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let timed_out = loop {
+            if child.try_wait().unwrap().is_some() {
+                break false;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                break true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let output = child.wait_with_output().unwrap();
+        assert!(!timed_out, "import blocked on {}", candidate.display());
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 /// A report holding one file, with the fields a real one carries.
 fn example(extra: &str) -> String {
     format!(

@@ -45,7 +45,7 @@ pub fn read_id3v2(file: &mut File, tags: &mut RawTags) -> Result<(), TagError> {
 fn parse_tag_body(body: &[u8], major: u8, flags: u8, tags: &mut RawTags) {
     // Global unsynchronisation (ID3v2.3): the bytes 0xFF 0x00 encode 0xFF.
     let decoded;
-    let body = if flags & 0x80 != 0 {
+    let body = if major < 4 && flags & 0x80 != 0 {
         decoded = deunsynchronize(body);
         &decoded[..]
     } else {
@@ -63,7 +63,7 @@ fn parse_tag_body(body: &[u8], major: u8, flags: u8, tags: &mut RawTags) {
         start = ext_size.min(body.len());
     }
 
-    parse_frames(&body[start..], major, tags);
+    parse_frames(&body[start..], major, flags & 0x80 != 0, tags);
 }
 
 /// Reads the ID3v1 tag from the last 128 bytes. Used only as a fallback, when
@@ -142,7 +142,7 @@ fn deunsynchronize(input: &[u8]) -> Vec<u8> {
     out
 }
 
-fn parse_frames(body: &[u8], major: u8, tags: &mut RawTags) {
+fn parse_frames(body: &[u8], major: u8, tag_unsynchronised: bool, tags: &mut RawTags) {
     let (id_len, size_len, flags_len) = if major <= 2 { (3, 3, 0) } else { (4, 4, 2) };
     let mut c = Cursor::new(body);
 
@@ -182,7 +182,7 @@ fn parse_frames(body: &[u8], major: u8, tags: &mut RawTags) {
         if size == 0 || size > c.remaining() {
             break;
         }
-        let Some(mut payload) = c.take(size) else {
+        let Some(payload) = c.take(size) else {
             break;
         };
 
@@ -200,11 +200,29 @@ fn parse_frames(body: &[u8], major: u8, tags: &mut RawTags) {
         if compressed || encrypted {
             continue;
         }
-        // Data length indicator: 4 bytes to skip.
-        let owned;
-        if major >= 4 && frame_flags & 0x0001 != 0 && payload.len() > 4 {
-            owned = payload[4..].to_vec();
-            payload = &owned;
+        // Unlike v2.3, v2.4 sizes describe encoded frame bytes. Transform only
+        // the selected payload so removing escape bytes cannot shift the next header.
+        let decoded;
+        let mut payload = if major == 4 && (tag_unsynchronised || frame_flags & 0x0002 != 0) {
+            decoded = deunsynchronize(payload);
+            decoded.as_slice()
+        } else {
+            payload
+        };
+        // Group identity is an extra header byte, not the text encoding.
+        let grouped = if major >= 4 { 0x0040 } else { 0x0020 };
+        if frame_flags & grouped != 0 {
+            let Some(content) = payload.get(1..) else {
+                continue;
+            };
+            payload = content;
+        }
+        // Data length indicator: 4 bytes to skip after reversing unsynchronisation.
+        if major >= 4 && frame_flags & 0x0001 != 0 {
+            let Some(content) = payload.get(4..) else {
+                continue;
+            };
+            payload = content;
         }
 
         handle_frame(&id, payload, tags);
@@ -292,7 +310,10 @@ fn frame_key(id: &str) -> Option<&'static str> {
         "TSRC" | "TRC" => "isrc",
         "TBPM" | "TBP" => "bpm",
         "TCMP" | "TCP" => "compilation",
-        "TDRC" | "TYER" | "TYE" | "TDAT" => "date",
+        "TDRC" | "TYER" | "TYE" => "date",
+        // Legacy DDMM frames contain no year. Keep that information without
+        // allowing e.g. 25 December (2512) to become the album's release year.
+        "TDAT" | "TDA" => "recordingdaymonth",
         "TDOR" | "TORY" => "originaldate",
         "TSOP" | "TSP" => "artistsort",
         "TSO2" => "albumartistsort",
@@ -308,8 +329,8 @@ fn frame_key(id: &str) -> Option<&'static str> {
     })
 }
 
-/// TXXX frames carry a free-form key; the known conventions (Picard,
-/// foobar2000) are mapped back onto the canonical vocabulary.
+/// Adapt descriptive TXXX keys before `RawTags::insert` normalizes them once.
+/// A release-track ID must not pass through the recording-ID alias twice.
 fn user_key(description: &str) -> String {
     let lower = description.trim().to_lowercase();
     match lower.as_str() {
@@ -317,7 +338,7 @@ fn user_key(description: &str) -> String {
         "musicbrainz artist id" => "musicbrainz_artistid".into(),
         "musicbrainz album artist id" => "musicbrainz_albumartistid".into(),
         "musicbrainz release group id" => "musicbrainz_releasegroupid".into(),
-        "musicbrainz release track id" => "musicbrainz_trackid".into(),
+        "musicbrainz release track id" => "musicbrainz_releasetrackid".into(),
         "acoustid id" => "acoustid_id".into(),
         "acoustid fingerprint" => "acoustid_fingerprint".into(),
         "catalognumber" | "catalog number" => "catalognumber".into(),
@@ -325,7 +346,7 @@ fn user_key(description: &str) -> String {
         "originalyear" => "originaldate".into(),
         "totaltracks" => "tracktotal".into(),
         "totaldiscs" => "disctotal".into(),
-        other => super::canonical_key(other),
+        other => other.to_string(),
     }
 }
 

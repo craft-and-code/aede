@@ -988,6 +988,52 @@ fn a_set_aside_row_names_the_artist_it_belongs_to() {
 }
 
 #[test]
+fn set_aside_listing_removal_and_insertion_keep_other_owners_independent() {
+    let catalog = shelf();
+    let layer = browsed();
+    let source_before = sources::to_json(&layer);
+    let dir = sandbox("aside_owners");
+    let path = aede_core::user::user_path(&dir);
+    let mut user = put_aside();
+    let mut other = user.set_aside[0].clone();
+    other.owner = "other-listener".into();
+    user.set_aside.push(other.clone());
+    aede_core::user::save(&user, &path).unwrap();
+    let listed_owners = aside_rows(&catalog, &layer, &user, &[])
+        .iter()
+        .map(|(aside, _)| aside.owner.clone())
+        .collect::<Vec<_>>();
+    let args = crate::args::Args::parse(
+        ["missing", "--forget", "--remove", "Bitches Brew"].map(str::to_string),
+    );
+    set_aside(&args, &catalog, &layer, &mut user, &path).unwrap();
+    let restored = aede_core::user::load(&path).unwrap().unwrap();
+    assert_eq!(
+        (listed_owners, restored.set_aside),
+        (
+            vec![aede_core::user::LOCAL_USER.to_string()],
+            vec![other.clone()]
+        ),
+        "local decisions must neither reveal nor delete another owner's choice"
+    );
+    assert!(aside_rows(&catalog, &layer, &user, &[]).is_empty());
+    let before = std::fs::read(&path).unwrap();
+    set_aside(&args, &catalog, &layer, &mut user, &path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    let args =
+        crate::args::Args::parse(["missing", "--forget", "Bitches Brew"].map(str::to_string));
+    set_aside(&args, &catalog, &layer, &mut user, &path)
+        .expect("another owner's decision must not hide a locally missing album");
+    let restored = aede_core::user::load(&path).unwrap().unwrap();
+    assert_eq!(restored.set_aside.len(), 2);
+    assert_eq!(restored.set_aside[0], other);
+    assert_eq!(restored.set_aside[1].owner, aede_core::user::LOCAL_USER);
+    assert_eq!(restored.set_aside[1].release_group, "g2");
+    assert_eq!(sources::to_json(&layer), source_before);
+}
+
+#[test]
 fn an_artist_with_no_identifier_cannot_be_browsed() {
     let mut layer = Sources::default();
     layer.set(SourceRecord {

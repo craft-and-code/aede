@@ -192,8 +192,7 @@ pub fn search(args: &Args) -> Res {
     } else if !hits.is_empty() {
         let mut t = Table::new(&["Type", "Name", "Context", "Open"])
             .limit(1, 32)
-            .limit(2, 22)
-            .limit(3, 64);
+            .limit(2, 22);
         for hit in hits.iter().skip(window.offset).take(window.limit) {
             // "release" is the model's word; "album" is the user's. On screen
             // the user's wins — the JSON keeps the model's, for a client that

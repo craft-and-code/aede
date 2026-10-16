@@ -28,6 +28,15 @@ impl BinaryFile {
     pub(super) fn read(&self) -> Result<super::RawTags, super::TagError> {
         super::read(&self.path)
     }
+
+    pub(super) fn read_from_file(&self) -> Result<super::RawTags, super::TagError> {
+        let mut file = std::fs::File::open(&self.path)?;
+        super::read_from_file(&mut file)
+    }
+
+    pub(super) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
 }
 
 impl Drop for BinaryFile {

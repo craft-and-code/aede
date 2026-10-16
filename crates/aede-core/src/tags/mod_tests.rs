@@ -65,6 +65,62 @@ fn extension_recognition() {
     assert!(!is_audio_path(Path::new("/music/folder")));
 }
 
+#[cfg(unix)]
+#[test]
+fn static_special_audio_paths_are_refused_before_opening() {
+    type Reader = fn(&Path) -> Result<(), TagError>;
+    let readers: [(&str, Reader); 3] = [
+        ("metadata", |path| read(path).map(|_| ())),
+        ("integrity", |path| {
+            crate::audit::integrity::check(path).map(|_| ())
+        }),
+        ("resolution", |path| {
+            crate::audit::flac::audit(path, Default::default()).map(|_| ())
+        }),
+    ];
+    let directory = crate::store_lock::test_support::Directory::new("special_audio");
+    let regular = directory.path().join("ordinary.flac");
+    std::fs::write(&regular, include_bytes!("../../tests/fixtures/track.flac")).unwrap();
+    let linked = directory.path().join("linked.flac");
+    std::os::unix::fs::symlink(&regular, &linked).unwrap();
+    let fifo = directory.path().join("pipe.flac");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    for (name, reader) in readers {
+        assert!(reader(&regular).is_ok(), "{name} ordinary file");
+        assert!(reader(&linked).is_ok(), "{name} regular-file symlink");
+        assert!(reader(directory.path()).is_err(), "{name} directory");
+        let opening = fifo.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(reader(&opening));
+        });
+        let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+        if matches!(result, Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
+            // Read/write also avoids waiting if the worker returns between
+            // the timeout and this release of the old blocking open.
+            drop(
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&fifo)
+                    .unwrap(),
+            );
+            let _ = receiver.recv_timeout(std::time::Duration::from_secs(1));
+        }
+        worker.join().unwrap();
+        assert!(
+            matches!(result, Ok(Err(TagError::Io(ref error))) if error.kind() == std::io::ErrorKind::InvalidInput),
+            "{name} must refuse a static FIFO without a writer: {result:?}"
+        );
+    }
+}
+
 #[test]
 fn opened_metadata_reads_native_and_foreign_sources_after_path_replacement() {
     use std::io::{Seek, SeekFrom};

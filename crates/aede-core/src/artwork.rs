@@ -36,7 +36,13 @@ use crate::tags::TagError;
 pub fn pictures(path: &Path) -> Result<Vec<(Kind, Vec<u8>)>, TagError> {
     use lofty::file::TaggedFileExt;
 
-    let file = lofty::read_from_path(path).map_err(|_| TagError::UnrecognizedFormat)?;
+    let file = crate::tags::bytes::open_regular(path)?;
+    let mut probe = lofty::probe::Probe::new(std::io::BufReader::new(file));
+    // Keep read_from_path's extension-based dispatch on the checked descriptor.
+    if let Some(file_type) = lofty::file::FileType::from_path(path) {
+        probe = probe.set_file_type(file_type);
+    }
+    let file = probe.read().map_err(|_| TagError::UnrecognizedFormat)?;
     Ok(file
         .tags()
         .iter()

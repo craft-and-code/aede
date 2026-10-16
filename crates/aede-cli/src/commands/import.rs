@@ -28,6 +28,24 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn import(args: &Args) -> Res {
+    if args.has("forget") && args.has("list") {
+        return Err("--forget and --list ask for different import operations".into());
+    }
+    let listing = !args.has("forget") && (args.has("list") || args.has("pending"));
+    if !listing {
+        if let Some(option) = ["limit", "offset", "all"]
+            .into_iter()
+            .find(|option| args.has(option))
+        {
+            return Err(format!(
+                "--{option} applies when listing analyses, not importing or forgetting them"
+            )
+            .into());
+        }
+        if !args.has("forget") && args.has("source") {
+            return Err("--source filters stored analyses when listing or forgetting them".into());
+        }
+    }
     let dir = data_dir(args);
     let catalog_file = store::catalog_path(&dir);
     // The one command that does not demand a catalog. Analysing a library and
@@ -216,6 +234,7 @@ fn selected(record: &FileAnalysis, source: Option<&str>, folders: &[String]) -> 
 /// path, not its tail. So the column is left unbounded: this is the one
 /// listing whose whole content is the path.
 fn list_pending(catalog: &Catalog, args: &Args) -> Res {
+    let window = args.window(25)?;
     let source = args.value("source");
     let folders = scope(args);
     let pending: Vec<&FileAnalysis> = catalog
@@ -252,7 +271,6 @@ fn list_pending(catalog: &Catalog, args: &Args) -> Res {
             .or_insert(0) += 1;
     }
 
-    let window = args.window(25)?;
     let mut t = Table::new(&["Folder", "Analyses", "Source"]).align(1, Align::Right);
     for ((folder, source), count) in by_folder.iter().skip(window.offset).take(window.limit) {
         t.push(vec![
@@ -326,6 +344,7 @@ impl Fate {
 /// file whose bytes have changed since. The third is invisible everywhere else
 /// and is the one that silently voids a verdict.
 fn list_all(catalog: &Catalog, args: &Args) -> Res {
+    let window = args.window(25)?;
     let source = args.value("source");
     let folders = scope(args);
     let held: BTreeMap<&str, &aede_core::model::AudioFile> =
@@ -369,7 +388,6 @@ fn list_all(catalog: &Catalog, args: &Args) -> Res {
         return Ok(());
     }
 
-    let window = args.window(25)?;
     let mut t = Table::new(&["Folder", "Analyses", "State", "Source"]).align(1, Align::Right);
     for ((folder, source), fate) in by_folder.iter().skip(window.offset).take(window.limit) {
         t.push(vec![
@@ -497,3 +515,7 @@ fn walk_for_reports(dir: &Path) -> Vec<PathBuf> {
     found.sort();
     found
 }
+
+#[cfg(test)]
+#[path = "import_tests.rs"]
+mod tests;

@@ -1,21 +1,27 @@
-//! Walks the FLAC frame structure without decoding any audio.
+//! Walks the FLAC frame structure, with bounded precision confirmation.
 //!
 //! Two claims a file makes about itself cannot be checked from its header
 //! alone: how many bits of resolution it really carries, and whether its two
 //! channels hold different sound. Both answers are already written in the
-//! encoded stream, and reading them costs far less than decoding.
+//! encoded stream. The structural walk finds candidates; padding claims also
+//! need the exact integer samples after stereo decorrelation.
 //!
 //! **Resolution.** When the low bits of every sample are zero — the signature
 //! of 16-bit audio re-encoded as 24-bit — the encoder does not store them. It
 //! records a *wasted bits* count in each subframe instead. A file claiming 24
-//! bits with eight wasted bits everywhere carries 16 bits of real music.
+//! bits with eight wasted bits everywhere may carry 16 bits of real music.
+//! Correlated and constant subframes can hide significant original low bits,
+//! so a lazy existing decoder confirms candidates one bounded frame at a
+//! time, from the bytes already read. An unavailable confirmation makes no
+//! padding claim. The checksum walk remains entirely structural.
 //!
 //! **Channels.** For stereo, the encoder picks the cheapest of four
 //! correlations per frame. When both channels are identical the difference
 //! channel is constant zero, which shows up as a `CONSTANT` subframe.
 //!
-//! Neither check can accuse a file wrongly. An encoder that skipped these
-//! optimisations yields "unknown", never a false positive.
+//! An encoder that skipped these optimisations yields no additional evidence.
+//! Precision confirmation can withdraw a structural padding candidate; it
+//! does not certify the file's integrity or establish the recording's origin.
 //!
 //! Reference: <https://xiph.org/flac/format.html>
 
@@ -25,11 +31,14 @@ use super::bits::BitReader;
 use crate::tags::TagError;
 use crate::tags::bytes::read_at_most;
 
+#[path = "flac_precision.rs"]
+mod precision;
+
 /// How much of a file the walk is allowed to read.
 ///
-/// Walking costs about 80 MB/s, so an unbounded pass over a large library is
-/// out of the question. Padding is a property of the whole file and shows up
-/// in the first frames; identical channels, in principle, might not.
+/// The structural walk and optional single-frame precision confirmation must
+/// stay bounded over a large library. Padding is a property of the whole
+/// file; the quick result describes only the frames examined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// Bytes of encoded audio to read at most.
@@ -69,7 +78,9 @@ impl Default for Limits {
 pub struct FlacAudit {
     /// Bit depth written in STREAMINFO.
     pub declared_bit_depth: u16,
-    /// Bit depth actually carried, once the wasted low bits are removed.
+    /// Conservative bit-depth estimate for the frames examined, once
+    /// confirmed wasted low bits are removed. Unavailable confirmation retains
+    /// the declared depth.
     ///
     /// Lower than `declared_bit_depth` means the file was padded: 24-bit
     /// packaging around 16-bit music.
@@ -78,7 +89,7 @@ pub struct FlacAudit {
     pub channels: u16,
     /// What the two channels of a stereo file actually hold.
     pub stereo: StereoContent,
-    /// Whether every subframe examined was constant, which means silence.
+    /// Whether every subframe examined was constant zero, which means silence.
     pub digital_silence: bool,
     /// Number of frames the walk covered.
     pub frames_examined: usize,
@@ -108,7 +119,7 @@ pub enum StereoContent {
 
 /// Walks the frames of a FLAC file and reports what they reveal.
 pub fn audit(path: &Path, limits: Limits) -> Result<FlacAudit, TagError> {
-    let mut file = std::fs::File::open(path)?;
+    let mut file = crate::tags::bytes::open_regular(path)?;
     let (stream_info, audio_start) = read_stream_info(&mut file)?;
 
     let budget = match limits.max_bytes {
@@ -120,6 +131,8 @@ pub fn audit(path: &Path, limits: Limits) -> Result<FlacAudit, TagError> {
     let mut reader = BitReader::new(&data);
 
     let mut min_wasted = u32::MAX;
+    let mut confirmed_wasted = u32::MAX;
+    let mut precision = precision::PrecisionConfirmation::new(stream_info.raw);
     let mut frames = 0usize;
     let mut all_constant = true;
     let mut duplicated_frames = 0usize;
@@ -128,6 +141,17 @@ pub fn audit(path: &Path, limits: Limits) -> Result<FlacAudit, TagError> {
     while let Some(frame) = read_frame(&mut reader, &stream_info) {
         frames += 1;
         min_wasted = min_wasted.min(frame.min_wasted);
+        // Nonzero constant frames have no structural minimum of their own,
+        // but their significant bits can refute a later padding candidate.
+        // Digital zero is neutral. Once a sample refutes padding, no more
+        // decoding is needed for this file.
+        if min_wasted > 0 && confirmed_wasted > 0 && !frame.all_constant {
+            let confirmed = data
+                .get(frame.span.start..frame.span.end)
+                .and_then(|bytes| precision.confirm(bytes, frame.block_size))
+                .unwrap_or(0);
+            confirmed_wasted = confirmed_wasted.min(confirmed);
+        }
         all_constant &= frame.all_constant;
         if frame.is_stereo {
             stereo_frames += 1;
@@ -145,7 +169,7 @@ pub fn audit(path: &Path, limits: Limits) -> Result<FlacAudit, TagError> {
     let wasted = if frames == 0 || min_wasted == u32::MAX {
         0
     } else {
-        min_wasted
+        min_wasted.min(confirmed_wasted)
     };
     let effective = (stream_info.bits_per_sample as u32).saturating_sub(wasted);
 
@@ -172,6 +196,9 @@ pub fn audit(path: &Path, limits: Limits) -> Result<FlacAudit, TagError> {
 pub(crate) struct StreamInfo {
     pub(crate) bits_per_sample: u16,
     pub(crate) channels: u16,
+    // Older structural readers accepted the first 18 bytes. Missing decoder
+    // metadata must not change their checksum behavior or support a claim.
+    raw: Option<[u8; 34]>,
 }
 
 /// Reads STREAMINFO and returns it with the offset of the first frame.
@@ -205,6 +232,7 @@ pub(crate) fn read_stream_info(file: &mut std::fs::File) -> Result<(StreamInfo, 
             info = Some(StreamInfo {
                 channels: (((packed >> 41) & 0x07) as u16) + 1,
                 bits_per_sample: (((packed >> 36) & 0x1F) as u16) + 1,
+                raw: body.as_slice().try_into().ok(),
             });
         }
         offset += length;
@@ -222,12 +250,13 @@ pub(crate) fn read_stream_info(file: &mut std::fs::File) -> Result<(StreamInfo, 
 /// What one frame contributes to the audit.
 pub(crate) struct FrameAudit {
     min_wasted: u32,
+    block_size: u32,
     all_constant: bool,
     is_stereo: bool,
     channels_identical: bool,
     /// Byte range of the frame within the slice being walked, and where its
-    /// header stops — what a checksum needs, and what the resolution audit
-    /// ignores.
+    /// header stops. The checksum walk and precision confirmation share these
+    /// already-read bytes.
     pub(crate) span: FrameSpan,
 }
 
@@ -318,9 +347,9 @@ pub(crate) fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Optio
         10 => (2, Some(1)),
         _ => return None,
     };
-    // Mid/side stores (left + right) >> 1, and that shift eats one of the
-    // trailing zero bits. Without putting it back, a padded file looks one bit
-    // richer than it is.
+    // Mid/side stores (left + right) >> 1. Restoring its candidate bit retains
+    // detection of padded streams; it is not proof about the original low
+    // bits. The public precision audit confirms any positive candidate.
     let mid_index = if channel_assignment == 10 {
         Some(0)
     } else {
@@ -335,9 +364,9 @@ pub(crate) fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Optio
         let extra_bit = side_index == Some(channel);
         let bps = bits_per_sample + if extra_bit { 1 } else { 0 };
         let sub = read_subframe(reader, block_size, bps)?;
-        // A constant subframe says nothing about resolution: the encoder has
-        // no reason to record wasted bits on a value it stores once. Counting
-        // it would drag the minimum to zero and hide a padded file.
+        // Constant headers alone cannot establish precision: the encoder has
+        // no reason to record wasted bits on a value stored once. Ignore them
+        // for this candidate, then confirm their actual samples in the audit.
         if sub.constant_value.is_none() {
             let corrected = sub.wasted + if mid_index == Some(channel) { 1 } else { 0 };
             min_wasted = min_wasted.min(corrected);
@@ -353,6 +382,7 @@ pub(crate) fn read_frame(reader: &mut BitReader<'_>, info: &StreamInfo) -> Optio
 
     Some(FrameAudit {
         min_wasted,
+        block_size,
         all_constant,
         is_stereo: side_index.is_some(),
         channels_identical: side_is_zero,

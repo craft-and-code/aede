@@ -192,7 +192,7 @@ pub fn is_audio_path(path: &Path) -> bool {
 /// then by the extension: a real library always contains a few `.mp3` files
 /// that are in fact FLAC.
 pub fn read(path: &Path) -> Result<RawTags, TagError> {
-    let mut file = std::fs::File::open(path)?;
+    let mut file = bytes::open_regular(path)?;
     read_opened(&mut file, |_| foreign::read(path))
 }
 

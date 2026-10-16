@@ -52,6 +52,7 @@ pub fn check(args: &Args) -> Res {
     if args.has("decode-test") {
         return decode::run(&catalog, &scope, args.has("json"));
     }
+    let requested_threads = args.number_or("threads", 0)?;
     let queue = to_verify(&catalog, &scope, args.has("full"));
 
     // Nothing to read is not nothing to say. The command answers "are my files
@@ -70,7 +71,7 @@ pub fn check(args: &Args) -> Res {
     let done = AtomicUsize::new(0);
     let mut failures: Vec<(String, String)> = Vec::new();
     let now = now_seconds();
-    let threads = resolve_threads(args.number_or("threads", 0)?);
+    let threads = resolve_threads(requested_threads);
     let interactive = ui::is_interactive();
 
     // One batch at a time, each saved before the next starts: a run stopped

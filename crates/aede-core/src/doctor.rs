@@ -263,6 +263,8 @@ pub fn diagnose(catalog: &Catalog, sources: &crate::sources::Sources) -> Vec<Iss
 ///
 /// They are kept rather than deleted: a disconnected drive, a rejected source
 /// claim, or a later rescan can make the relationship visible again.
+/// Account-specific callers must first scope the supplied relationship
+/// annotations to their owner; this generic helper does not select one.
 pub fn orphaned_relation_annotations(
     catalog: &Catalog,
     sources: &crate::sources::Sources,
@@ -312,7 +314,11 @@ fn check_tracks(catalog: &Catalog, issues: &mut Vec<Issue>) {
                 files: vec![path.clone()],
             });
         }
-        if file.first_tag("artist").is_none() {
+        if file
+            .first_tag("artists")
+            .or_else(|| file.first_tag("artist"))
+            .is_none()
+        {
             issues.push(Issue {
                 kind: IssueKind::MissingArtist,
                 detail: "no artist in the tags".into(),
@@ -341,7 +347,10 @@ fn check_tracks(catalog: &Catalog, issues: &mut Vec<Issue>) {
             });
         }
 
-        let year = file.first_tag("date").and_then(text::extract_year);
+        let year = file
+            .first_tag("originaldate")
+            .or_else(|| file.first_tag("date"))
+            .and_then(text::extract_year);
         match year {
             None => issues.push(Issue {
                 kind: IssueKind::MissingDate,
@@ -757,8 +766,15 @@ fn check_imported_analyses(catalog: &Catalog, issues: &mut Vec<Issue>) {
 /// CD rip is a deliberate second copy and not something to fix.
 fn check_duplicate_albums(catalog: &Catalog, issues: &mut Vec<Issue>) {
     let mut seen: std::collections::BTreeSet<(Id, Id)> = Default::default();
-    for release in &catalog.releases {
-        for other_id in catalog.related_releases(release.id, model::DUPLICATE) {
+    for relation in &catalog.relations {
+        if relation.source_kind == model::EntityKind::Release
+            && relation.target_kind == model::EntityKind::Release
+            && relation.kind == model::DUPLICATE
+        {
+            let Some(release) = catalog.release(relation.source_id) else {
+                continue;
+            };
+            let other_id = relation.target_id;
             let pair = (release.id.min(other_id), release.id.max(other_id));
             if !seen.insert(pair) {
                 continue;
@@ -814,8 +830,15 @@ fn covered_by_the_album(catalog: &Catalog, cluster: &[(Id, u64)]) -> bool {
 /// oversight next to the duplicate lines.
 fn check_other_editions(catalog: &Catalog, issues: &mut Vec<Issue>) {
     let mut seen: std::collections::BTreeSet<(Id, Id)> = Default::default();
-    for release in &catalog.releases {
-        for other_id in catalog.related_releases(release.id, model::OTHER_EDITION) {
+    for relation in &catalog.relations {
+        if relation.source_kind == model::EntityKind::Release
+            && relation.target_kind == model::EntityKind::Release
+            && relation.kind == model::OTHER_EDITION
+        {
+            let Some(release) = catalog.release(relation.source_id) else {
+                continue;
+            };
+            let other_id = relation.target_id;
             let pair = (release.id.min(other_id), release.id.max(other_id));
             if !seen.insert(pair) {
                 continue;

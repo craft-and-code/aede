@@ -32,6 +32,8 @@ La pochette choisie évite d’embarquer automatiquement tous les gros spectrogr
 
 Aède teste la destination pour ses restrictions et peut adapter caractères, fins de noms et noms de périphériques réservés. `--safe-names` force l’adaptation ; `--raw-names` conserve les caractères originaux et peut échouer. Les compteurs de collision restent applicables. Options incompatibles.
 
+L’adaptation portable reconnaît les mots réservés avant le premier point, même avec plusieurs suffixes ou un suffixe long (`CON.foo.bar` devient `CON_.foo.bar`). Le raccourcissement à une frontière Unicode revérifie les espaces/points finaux et mots réservés qu’il peut exposer, en conservant la limite prudente de 255 octets par composant et les extensions reconnues.
+
 Les noms adaptés sont listés. Des compteurs déterministes distinguent les collisions de fichiers et de dossiers par une comparaison conservatrice des majuscules, accents composés/décomposés courants et ponctuation. Deux albums distincts ne sont pas fusionnés après adaptation. Une copie réelle teste aussi les chemins prévus dans un dossier isolé sur la destination ; les autres équivalences ou noms refusés entraînent une erreur avant de modifier les résultats réels.
 
 <div id="ensuring-it-arrives-intact" data-legacy-anchor></div>
@@ -72,11 +74,17 @@ aede copy /Volumes/Phone --compress mp3 --quality V0 --query "loved"
 
 Cibles : `mp3`, `opus`, `aac` dans M4A, `vorbis` dans Ogg, `flac`, `wav`. Qualités : MP3 `V0`–`V9`, Vorbis `q0`–`q10` ou débit `192k`, interprété par l’encodeur choisi. `flac`/`wav` sans perte refusent la qualité ; qualité sans `--compress` aussi.
 
+Une conversion vers une cible sans perte exige une précision PCM connue ; sinon elle est refusée avant encodage plutôt que de réduire silencieusement les échantillons. La conversion explicite vers une cible avec perte reste possible.
+
+Les sources WavPack flottantes n’affichent pas de précision PCM entière ; leur conversion en FLAC/WAV est donc refusée. Ce refus s’applique aussi lorsque la représentation du premier bloc audio reste indéterminée après 64 en-têtes de blocs WavPack. La copie à l’identique ou le choix explicite d’une cible avec perte restent possibles.
+
 Seules les sources identifiées sans perte sont encodées. Les sources avec perte sont copiées telles quelles, même dans un autre codec cible. MP3 vers Opus reste donc MP3 ; MP3 vers FLAC n’invente pas une qualité sans perte.
 
-FFmpeg est requis à la conversion réelle. Conversion parallèle automatiquement ; copie simple : un traitement par défaut. `--threads N` remplace ce choix. La prévision ne lance pas l’encodage.
+FFmpeg est requis à la conversion réelle. Une reprise qui ignore seulement des sorties converties déjà présentes et non vides n’a pas besoin de l’encodeur ; `--replace`, `--verify-existing` ou une sortie convertie absente l’exigent. Conversion parallèle automatiquement ; copie simple : un traitement par défaut. `--threads N` remplace ce choix. La prévision ne lance pas l’encodage.
 
-Les métadonnées traversent selon les limites du conteneur/FFmpeg. Images intégrées possibles dans les chemins MP3/AAC/FLAC choisis ; limitations WAV/Vorbis/Opus. WAV ne conserve pas tous les crédits/champs personnalisés. Les images annexes restent indépendamment sélectionnables.
+Les diagnostics de l’encodeur sont lus entièrement, mais seule une fin de taille bornée est conservée : les erreurs répétées d’une source corrompue ne s’accumulent pas en mémoire. Un encodage en échec préserve tout fichier de destination préexistant.
+
+Les métadonnées traversent selon les limites du conteneur/FFmpeg, depuis le conteneur et la première piste audio (dont les commentaires Ogg-FLAC). Si une clé existe dans les deux, la valeur du conteneur est prioritaire. Images intégrées possibles dans les chemins MP3/AAC/FLAC choisis ; limitations WAV/Vorbis/Opus. WAV ne conserve pas tous les crédits/champs personnalisés. Les images annexes restent indépendamment sélectionnables.
 
 Avec `--verify`, les lecteurs Aède vérifient la durée lisible non nulle du résultat nouvellement encodé et la comparent à la source si disponible, selon la tolérance du code. Ce n’est pas une comparaison de tous les échantillons ni une preuve de transparence audible.
 
@@ -93,6 +101,8 @@ Voir [copy](cli/copy.md) pour toutes les options, [backup](cli/backup.md) pour l
 `--verify-existing` compare les copies déjà présentes avec leur source. Pour une conversion, un nouvel encodage temporaire est comparé au fichier existant : une version d’encodeur ou des métadonnées non déterministes peuvent changer les octets malgré un audio équivalent. Un écart conserve le fichier existant et signale une erreur ; `--replace` autorise explicitement sa réécriture. FFmpeg et de l’espace temporaire sont nécessaires pour comparer une conversion.
 
 `--playlists` crée `aede-selection.m3u8` dans l’ordre de sélection et adapte les M3U/M3U8 UTF-8 copiés avec `--extras all`. Les chemins suivent les noms adaptés et les extensions converties ; les entrées hors sélection, y compris les URL, sont omises et comptées. Une playlist existante différente reste intacte sans `--replace`.
+
+Un chemin relatif commençant par un espace, `#` ou `file:` reçoit le préfixe explicite `./` pour que le lecteur conserve le nom exact au lieu de le tronquer ou de lire un commentaire. Les noms audio, listes sources, ordre et répétitions restent inchangés.
 
 Les écritures utilisent un dossier temporaire privé créé exclusivement. Les liens symboliques dans les fichiers ou sous-dossiers de destination sont refusés. `--dry-run` ne crée aucune sonde ; sans politique explicite, les noms prévus sont conservateurs. Donner `--safe-names` ou `--raw-names` fixe la politique pour la prévision et le transfert. La conversion WAV conserve la précision entière ou flottante connue de la source ; une précision inconnue ou non prise en charge est refusée. La conversion des sources flottantes en FLAC est refusée, même en prévision : ce format entier quantifierait leurs échantillons. Un fichier déjà au format audio cible reste inchangé même si son extension est un alias. MP3 accepte V0–V9, Vorbis q0–q10, AAC/Opus uniquement un débit.
 

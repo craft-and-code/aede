@@ -295,6 +295,8 @@ impl Builder {
                     self.release_group_for(&title, tags.first("musicbrainz_releasegroupid"))
             {
                 self.catalog.releases[id as usize].release_group_id = Some(group_id);
+                self.catalog.releases[id as usize].release_group_mbid =
+                    Some(self.catalog.release_groups[group_id as usize].mbid.clone());
                 self.catalog.release_groups[group_id as usize]
                     .release_ids
                     .push(id);
@@ -547,8 +549,7 @@ impl Builder {
                 .tags
                 .all("musicbrainz_labelid")
                 .get(position)
-                .map(String::as_str)
-                .or_else(|| item.tags.first("musicbrainz_labelid"));
+                .map(String::as_str);
             let label_id = self.intern_label(value, mbid);
             if let Some(release) = self.catalog.releases.get_mut(rid as usize)
                 && !release.label_ids.contains(&label_id)

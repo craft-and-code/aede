@@ -131,6 +131,42 @@ fn a_checkpoint_only_backup_is_described_as_personal_data_to_restore() {
 }
 
 #[test]
+fn every_other_retained_personal_table_is_described_as_restorable_data() {
+    for (table, rows, description) in [
+        (
+            "client_preferences",
+            r#"[{"owner":"local","key":"phemios.layout","value":"true"}]"#,
+            "1 client preference",
+        ),
+        (
+            "same_artist",
+            r#"[{"owner":"local","spelling":"alias","filed_as":"artist","created_at":1}]"#,
+            "1 artist filing rule",
+        ),
+        (
+            "track_identities",
+            r#"[{"path":"/music/track.flac","size":1,"codec":"flac","metadata":{}}]"#,
+            "1 track identity",
+        ),
+        (
+            "relinks",
+            r#"[{"id":1,"owner":"local","from":"track:/old/track.flac","to":"track:/music/track.flac","at":2,
+                "before":{"format_version":2,"annotations":[{"owner":"local","target":"track:/old/track.flac","note":"original","created_at":1,"updated_at":1}]}}]"#,
+            "1 reattachment decision",
+        ),
+    ] {
+        let mut document = aede_core::user::to_json(&UserData::default());
+        document.set(table, aede_core::json::parse(rows).unwrap());
+        let data = aede_core::user::from_json(&document).expect("valid retained personal data");
+        assert_eq!(user_of(&data), description, "{table}");
+        match state(&Part::Held(data), user_of, "not in this backup") {
+            Doing::Write(what) => assert_eq!(what, description, "{table}"),
+            Doing::Skip(why) => panic!("{table} must remain restorable: {why}"),
+        }
+    }
+}
+
+#[test]
 fn both_commands_describe_one_store_in_one_set_of_words() {
     // Written twice, the two lists would have drifted the first time a field
     // was added to one of the stores — the same reason the role vocabulary is
@@ -179,4 +215,55 @@ fn both_commands_describe_one_store_in_one_set_of_words() {
         ),
         _ => panic!("an empty store is written by neither"),
     }
+}
+
+#[test]
+fn a_readable_catalog_is_backed_up_even_when_separate_conclusions_are_unreadable() {
+    let directory = std::env::temp_dir().join(format!(
+        "aede-backup-independent-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let data = directory.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let catalog = aede_core::model::Catalog {
+        roots: vec!["/fictional/music".into()],
+        scanned_at: 42,
+        ..Default::default()
+    };
+    let catalog_path = store::catalog_path(&data);
+    store::save_catalog_only(&catalog, &catalog_path).unwrap();
+    let catalog_before = std::fs::read(&catalog_path).unwrap();
+    let reference = user::EntityRef::new(aede_core::model::EntityKind::Artist, "band");
+    let mut personal = UserData::default();
+    personal.entry("owner-a", &reference, 1).note = Some("First owner's note".into());
+    personal.entry("owner-b", &reference, 2).note = Some("Second owner's note".into());
+    let user_path = user::user_path(&data);
+    user::save(&personal, &user_path).unwrap();
+    let user_before = std::fs::read(&user_path).unwrap();
+    let conclusions_path = conclusions::conclusions_path(&data);
+    std::fs::write(&conclusions_path, b"{").unwrap();
+    let archive = directory.join("backup.aede");
+    let command = args(&[archive.to_str().unwrap(), "--data", data.to_str().unwrap()]);
+    super::backup(&command).unwrap();
+    let held = backup::read(&archive).unwrap();
+    let saved = held
+        .catalog
+        .held()
+        .expect("the readable catalog must be saved independently");
+    assert_eq!(store::to_json(saved), store::to_json(&catalog));
+    // Unreadable source parts are reported by the command and omitted from
+    // the archive; their absence must not omit the independently valid stores.
+    assert!(matches!(held.conclusions, Part::Empty));
+    assert_eq!(
+        user::to_json(held.user.held().unwrap()),
+        user::to_json(&personal)
+    );
+    assert_eq!(std::fs::read(&catalog_path).unwrap(), catalog_before);
+    assert_eq!(std::fs::read(&user_path).unwrap(), user_before);
+    assert_eq!(std::fs::read(&conclusions_path).unwrap(), b"{");
+    std::fs::remove_dir_all(directory).unwrap();
 }

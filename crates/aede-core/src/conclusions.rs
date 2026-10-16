@@ -97,6 +97,9 @@ impl Conclusions {
             file.integrity = None;
             file.fingerprint = None;
             if let Some(record) = self.files.get(&file.path)
+                // A fallback zero without precision says nothing about bytes.
+                // A real timestamp at the epoch still has explicit precision.
+                && (file.mtime > 0 || catalog.file_mtime_subseconds.contains_key(&file.path))
                 && record.size == file.size
                 && record.mtime == file.mtime
                 && record.mtime_subseconds == catalog.file_mtime_subseconds.get(&file.path).copied()

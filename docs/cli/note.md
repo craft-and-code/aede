@@ -1,8 +1,8 @@
 # note — Read or write a personal note
 
-note KIND NAME reads the current note when no write/remove option is supplied. There is one note per entity. --text supplies short text, --file reads a UTF-8 file, and --file - reads piped standard input. Choose one text source; --from KIND:NAME copies another note.
+note KIND NAME reads the current note when no write/remove option is supplied. There is one note per entity. --text supplies short text, --file reads a UTF-8 file, and --file - reads piped standard input. Choose one text source; --from KIND:NAME copies the source annotations, including its note.
 
-New text replaces the note unless --append adds it separated by a blank line. --remove clears the note and refuses conflicting write actions. Markdown, blank lines and wording are preserved; terminal output shows the source text, while a graphical client can render it safely.
+New text replaces the note unless --append adds it separated by a blank line. --remove clears the note and refuses conflicting write actions. Markdown, blank lines, trailing line endings and wording are preserved, including LF/CRLF from a file or pipe; terminal output shows the source text, while a graphical client can render it safely. The --from copy refuses --text, --file and --append rather than ignoring another write action.
 
 Export personal annotations with notes --export and back up user.json through backup. Searching --notes or query album.note:TEXT finds your prose. A personal note is distinct from the comment metadata embedded in audio.
 
@@ -14,7 +14,7 @@ Personal annotations are stored separately in user.json. They never retag or ren
 aede note <kind> <name>
 ```
 
-Entity kind then name; --from references another entity as KIND:NAME.
+Entity kind then name; --from references another entity as KIND:NAME. Unique catalog names are resolved for every supported kind; exact personal references, including waiting entries, remain usable. An ambiguous name is refused.
 
 ## Options for this command
 
@@ -23,8 +23,8 @@ Entity kind then name; --from references another entity as KIND:NAME.
 | `--remove` | Undo or remove the personal value named by this command; the scope is described below. |
 | `--text TEXT` | Write the personal note text. Names with spaces are consumed until the next option. |
 | `--file FILE_OR_-` | Read a UTF-8 note from FILE. A lone - reads standard input from a pipe. |
-| `--append` | Append supplied text to the existing note, separated by a blank line. Without it, supplied text replaces the note. |
-| `--from KIND:NAME` | Copy a note from another reference, such as album:"Kind of Blue". Refused with another source of note text. |
+| `--append` | Append text supplied by --text or --file to the existing note, separated by a blank line. A text source is required; --remove is incompatible. Without --append, supplied text replaces the note. |
+| `--from KIND:NAME` | Copy personal annotations (note, tags, rating and favourite) from another reference, such as album:"Kind of Blue". Refused with another source of note text. |
 
 The shared [options reference](options.md) explains `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, option values and output/pagination rules. These shared presentation/data options do not make every command support CSV/JSON or pagination.
 

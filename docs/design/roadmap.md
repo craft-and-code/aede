@@ -5,7 +5,7 @@ The status below reflects the current implementation. [Current state](../coding/
 | Milestone | Implementation status | Remaining work |
 | --- | --- | --- |
 | M0 — catalog | Done and hardened | No blocking feature gap recorded in the current scope. |
-| M0.5 — personal data and queries | Done and hardened | Listening quotas and account-specific album visibility are later extensions. |
+| M0.5 — personal data and queries | Done and hardened | No blocking storage/query gap recorded. Account parental policies are implemented separately; see [parental controls](../server/parental.md). |
 | M0.6 — copying and conversion | Done and hardened | Continue platform/filesystem validation for release and target deployments. |
 | M1 — identification and enrichment | Done and hardened | The owner has confirmed the live-service paths; retain that evidence in the [manual verification record](../coding/m1-manual-verification.md). |
 | M2 — API and persistence | Implemented and hardened; deployment acceptance pending | Real-library and target-NAS CPU/memory budgets, client interoperability, service lifecycle and recovery validation. SQLite remains conditional on measurements. |
@@ -72,4 +72,4 @@ The [transparent playback and bit-perfect contract](bit-perfect.md) defines a lo
 
 The remaining player designs are in [Playback](playback.md); missing adapter surfaces are in the [Subsonic/OpenSubsonic guide](../server/subsonic.md#remaining-compatibility-work). Target-device and physical signal acceptance are tracked in the [DSP review](../coding/dsp-review.md#remaining-work-in-priority-order).
 
-Listening-time limits and administrator-controlled album visibility are discussed extensions, without an implemented policy yet. They must be enforced by the server if adopted. Browser/mobile interfaces and external-service sign-in remain separate design work. The [DSP product proposal](dsp-product-proposal.md) retains optional Premium effects as research, with no approved pricing, release date or implementation promise.
+Account [parental controls](../server/parental.md) now enforce listening windows, daily/weekly budgets, supervised artist visibility and radio/podcast restrictions through the server and cooperating clients. These policies are separate from the original M0.5 personal-storage/query groundwork; they do not add arbitrary per-album access rules or an operating-system lock. Browser/mobile interfaces and external-service sign-in remain separate design work. The [DSP product proposal](dsp-product-proposal.md) retains optional Premium effects as research, with no approved pricing, release date or implementation promise.

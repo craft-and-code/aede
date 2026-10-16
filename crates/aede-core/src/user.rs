@@ -637,7 +637,8 @@ impl UserData {
                 .max()
                 .unwrap_or(0);
         }
-        self.counts.retain(|c| c.count > 0);
+        self.counts
+            .retain(|c| c.count > 0 || c.owner != owner || &c.track != track);
         true
     }
 

@@ -4,6 +4,8 @@ merge enregistre votre décision qu’une écriture de nom doit être classée s
 
 Le prochain scan reconstruit le graphe selon la règle. --list affiche les règles et leur prise d’effet. --forget PREMIER retire une règle ; refaire un scan pour annuler son effet. Des noms encore absents peuvent être déclarés avant un scan, avec avertissement révélant une faute possible.
 
+La CLI lit, liste et retire seulement les décisions du propriétaire historique `local`, y compris celles transmises au scan. Les décisions des autres comptes restent privées et inchangées. La clé canonique exacte d’un artiste est prioritaire ; sinon un alias normalisé unique peut l’identifier. Un alias ambigu est refusé avant enregistrement et ne permet pas de contourner le refus des identifiants MusicBrainz différents.
+
 Deux identifiants MusicBrainz locaux différents provoquent un refus : ils désignent des personnes distinctes, à corriger volontairement à la source. doctor suggère des rapprochements sans les appliquer. --source ne crée pas un mode de fusion approximative automatique.
 
 ## Syntaxe et arguments

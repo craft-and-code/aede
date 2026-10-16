@@ -36,7 +36,9 @@ impl TrackIdentity {
         let metadata = [
             "title",
             "artist",
+            "artists",
             "albumartist",
+            "albumartists",
             "album",
             "tracknumber",
             "discnumber",

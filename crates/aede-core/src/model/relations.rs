@@ -25,7 +25,7 @@ use super::{Catalog, EntityKind, Id, Relation, is_performing_role};
 /// `store::FORMAT_VERSION` — refusing to load would be out of proportion, and
 /// would throw away integrity verdicts that cost hours to obtain. Bump this
 /// instead, and every catalog rebuilds its relations on the next load.
-pub const RELATION_RULES: u32 = 3;
+pub const RELATION_RULES: u32 = 5;
 
 /// Recomputes every inferred relation from the entities already in place.
 ///
@@ -303,23 +303,24 @@ fn build_release_relations(catalog: &mut Catalog) {
 /// `true` when two releases hold the same tracks.
 ///
 /// Disc and track positions and normalised titles have to match exactly;
-/// durations only have to be **close**. Two rips of one disc differ by a few
+/// positive, known durations only have to be **close**. Two rips of one disc differ by a few
 /// hundred milliseconds, and a transcode to a lossy format shifts the end of a
 /// track further still — but a
 /// live rendition of the same song differs by minutes. Three seconds is the
 /// tolerance the duplicate-track check uses, for the same reason.
 fn same_track_list(catalog: &Catalog, left: Id, right: Id) -> bool {
     let (left, right) = (track_list(catalog, left), track_list(catalog, right));
-    left.len() == right.len()
-        && left
-            .iter()
-            .zip(right.iter())
-            .all(|(a, b)| a.0 == b.0 && a.1 == b.1 && a.2 == b.2 && a.3.abs_diff(b.3) <= 3_000)
+    left.len() == right.len() && left.iter().zip(right.iter()).all(|(a, b)| {
+        a.0 == b.0
+            && a.1 == b.1
+            && a.2 == b.2
+            && matches!((a.3, b.3), (Some(a), Some(b)) if a > 0 && b > 0 && a.abs_diff(b) <= 3_000)
+    })
 }
 
 /// Disc and track positions, titles and durations of a release, in a comparable
 /// order.
-fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, u64)> {
+fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, Option<u64>)> {
     let Some(release) = catalog.release(release_id) else {
         return Vec::new();
     };
@@ -332,7 +333,7 @@ fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, u64)>
                 t.disc_no.unwrap_or(1),
                 t.track_no.unwrap_or(0),
                 text::normalize(&t.title),
-                t.duration_ms.unwrap_or(0),
+                t.duration_ms,
             )
         })
         .collect();
@@ -344,7 +345,11 @@ fn track_list(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, u64)>
 /// copy from a second one kept on purpose. Keeping positions and multiplicity
 /// avoids equating two releases merely because they contain the same set of
 /// encodings, attached to different tracks.
-fn quality_fingerprint(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, String, String)> {
+/// The display label omits channels, so compare that source property separately.
+fn quality_fingerprint(
+    catalog: &Catalog,
+    release_id: Id,
+) -> Vec<(u32, u32, String, String, Option<u16>)> {
     let Some(release) = catalog.release(release_id) else {
         return Vec::new();
     };
@@ -359,6 +364,7 @@ fn quality_fingerprint(catalog: &Catalog, release_id: Id) -> Vec<(u32, u32, Stri
                 track.track_no.unwrap_or(0),
                 text::normalize(&track.title),
                 file.properties.quality_label(),
+                file.properties.channels,
             )
         })
         .collect();

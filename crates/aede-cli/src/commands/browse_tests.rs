@@ -70,3 +70,56 @@ fn a_year_that_is_not_one_is_refused_by_the_option_that_named_it() {
         "the message names the option typed, not the grammar: {error}"
     );
 }
+
+#[test]
+fn album_filter_values_keep_quotes_apostrophes_and_brackets_literal() {
+    use aede_core::model::{self, ScannedFile};
+    use aede_core::query::{self, Context};
+    use aede_core::tags::RawTags;
+    use aede_core::user::{LOCAL_USER, UserData};
+
+    for value in [
+        "Rock'n'roll",
+        "Rock(pop)",
+        "mix\"quote edition",
+        "Mix\"quoted'part",
+    ] {
+        let files = [value, "Different artist"].map(|name| {
+            let mut tags = RawTags::default();
+            for key in ["artist", "albumartist", "genre", "label", "comment"] {
+                tags.insert(key, name);
+            }
+            tags.insert("album", name);
+            tags.insert("title", name);
+            ScannedFile {
+                path: format!("/music/{name}/01.flac"),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }
+        });
+        let catalog = model::build(files.into(), vec!["/music".into()], 1, &[]);
+        let data = UserData::default();
+        let context = Context::new(&catalog, &data, LOCAL_USER);
+        let expected = catalog
+            .tracks
+            .iter()
+            .find(|track| track.title == value)
+            .unwrap()
+            .id;
+        for option in ["--artist", "--genre", "--label", "--comment"] {
+            let expression = expression(&["albums", option, value]);
+            let parsed = query::parse(&expression)
+                .unwrap_or_else(|error| panic!("{option} {value:?}: {error}"));
+            assert_eq!(
+                query::run(&parsed, &context),
+                [expected],
+                "{option} {value:?} must search for the literal option value"
+            );
+        }
+    }
+}

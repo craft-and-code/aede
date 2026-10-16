@@ -8,6 +8,27 @@ use std::io::{Read, Seek, SeekFrom};
 
 use super::TagError;
 
+/// Opens an ordinary audio source, refusing static special paths before they
+/// can block waiting for a FIFO writer. Links to regular files remain valid.
+/// The descriptor is checked too; concurrent ancestor/path replacement is
+/// not prevented by this metadata/open sequence.
+pub(crate) fn open_regular(path: &std::path::Path) -> Result<File, TagError> {
+    fn ensure_regular(metadata: std::fs::Metadata) -> Result<(), TagError> {
+        if metadata.is_file() {
+            Ok(())
+        } else {
+            Err(TagError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "audio source must be a regular file",
+            )))
+        }
+    }
+    ensure_regular(std::fs::metadata(path)?)?;
+    let file = File::open(path)?;
+    ensure_regular(file.metadata()?)?;
+    Ok(file)
+}
+
 /// Read-only cursor over a byte buffer.
 pub struct Cursor<'a> {
     data: &'a [u8],

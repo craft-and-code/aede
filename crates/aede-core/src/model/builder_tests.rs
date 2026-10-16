@@ -471,6 +471,65 @@ fn an_explicit_label_identifier_becomes_canonical_without_name_matching() {
 }
 
 #[test]
+fn an_unpaired_label_identifier_is_not_reused_for_other_labels() {
+    let item = track(
+        "/music/Album/01.flac",
+        &[
+            ("title", "Song"),
+            ("artist", "Artist"),
+            ("album", "Album"),
+            ("label", "First Label"),
+            ("label", "Second Label"),
+            ("musicbrainz_labelid", "first-label-id"),
+        ],
+        60_000,
+    );
+    let catalog = build(vec![item], vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.labels.len(), 2);
+    assert_eq!(catalog.labels[0].mbid.as_deref(), Some("first-label-id"));
+    assert_eq!(catalog.labels[1].mbid, None);
+}
+
+#[test]
+fn a_later_track_can_supply_the_release_group_identifier() {
+    let files = [
+        ("/music/Album/01.flac", None),
+        ("/music/Album/02.flac", Some("group-id")),
+        ("/music/Album/03.flac", Some("different-group-id")),
+    ]
+    .into_iter()
+    .map(|(path, group)| {
+        let mut fields = vec![("artist", "Band"), ("album", "Album")];
+        if let Some(group) = group {
+            fields.push(("musicbrainz_releasegroupid", group));
+        }
+        track(path, &fields, 60_000)
+    })
+    .collect();
+    let catalog = build(files, vec!["/music".into()], 0, &[]);
+    assert_eq!(catalog.releases.len(), 1);
+    assert_eq!(
+        catalog.release_groups.len(),
+        1,
+        "later conflicts do not replace the first identity"
+    );
+    let release = &catalog.releases[0];
+    let group = catalog
+        .release_group(release.release_group_id.unwrap())
+        .unwrap();
+    assert_eq!(group.mbid, "group-id");
+    assert_eq!(
+        release.release_group_mbid.as_deref(),
+        Some(group.mbid.as_str())
+    );
+    let restored = crate::store::from_json(&crate::store::to_json(&catalog)).unwrap();
+    assert_eq!(
+        restored.releases[0].release_group_mbid,
+        release.release_group_mbid
+    );
+}
+
+#[test]
 fn the_same_credit_is_never_recorded_twice() {
     let mut b = Builder::new(vec![], 0, Default::default());
     let artist = b.intern_artist("Miles Davis");

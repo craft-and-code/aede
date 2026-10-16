@@ -1,5 +1,56 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn excessive_encoder_diagnostics_are_drained_and_bounded_without_publishing_output() {
+    use std::os::unix::fs::PermissionsExt;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "aede_convert_diagnostic_{}_{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let encoder = directory.join("encoder");
+    std::fs::write(
+        &encoder,
+        "#!/bin/sh\ndd if=/dev/zero bs=1048576 count=16 2>/dev/null\ndd if=/dev/zero bs=1048576 count=16 2>/dev/null | tr '\\000' x >&2\nprintf ' final encoder failure' >&2\nprintf completed > \"$0.done\"\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&encoder, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/track.flac");
+    let original = std::fs::read(&source).unwrap();
+    let destination = directory.join("output.mp3");
+    std::fs::write(&destination, b"preserve this previous output").unwrap();
+    let error = convert(
+        encoder.to_str().unwrap(),
+        &source,
+        &destination,
+        Target::Mp3,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        error.len() <= 16_384,
+        "an encoder diagnostic must not grow with its output: {} bytes",
+        error.len()
+    );
+    assert!(error.ends_with("final encoder failure"));
+    assert_eq!(
+        std::fs::read(encoder.with_extension("done")).unwrap(),
+        b"completed"
+    );
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert_eq!(
+        std::fs::read(&destination).unwrap(),
+        b"preserve this previous output"
+    );
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 3);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 fn conversion_through_a_destination_hard_link_keeps_the_original_audio() {
     let Some(ffmpeg) = find_ffmpeg() else {
@@ -421,4 +472,178 @@ fn a_lossless_encoder_reporting_lower_precision_is_refused() {
     assert!(verify_lossless_properties(&source, &written).is_ok());
     written.channels = Some(1);
     assert!(verify_lossless_properties(&source, &written).is_err());
+}
+
+#[test]
+fn conversion_preserves_global_and_ogg_flac_stream_tags() {
+    let Some(ffmpeg) = find_ffmpeg() else {
+        assert!(
+            std::env::var_os("AEDE_REQUIRE_FFMPEG").is_none(),
+            "stream metadata conversion regression requires ffmpeg"
+        );
+        eprintln!("stream metadata conversion regression needs ffmpeg");
+        return;
+    };
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "aede-convert-stream-tags-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/track.flac");
+    let expected = [
+        ("title", "Preserved title"),
+        ("artist", "Preserved artist"),
+        ("album", "Preserved album"),
+        ("composer", "Preserved composer"),
+    ];
+    for (container, extension) in [("flac", "flac"), ("ogg", "oga")] {
+        let source = directory.join(format!("source.{extension}"));
+        let mut command = Command::new(&ffmpeg);
+        command
+            .args(["-nostdin", "-loglevel", "error", "-i"])
+            .arg(&fixture)
+            .args(["-map", "0:a", "-c:a", "flac", "-f", container]);
+        for (key, value) in expected {
+            command.args(["-metadata", &format!("{key}={value}")]);
+        }
+        let encoded = command.arg(&source).output().unwrap();
+        assert!(
+            encoded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&encoded.stderr)
+        );
+        assert!(crate::tags::read(&source).unwrap().properties.lossless);
+        let original = std::fs::read(&source).unwrap();
+        let destination = directory.join(format!("{container}.mp3"));
+        convert(&ffmpeg, &source, &destination, Target::Mp3, None).unwrap();
+        let written = crate::tags::read(&destination).unwrap();
+        for (key, value) in expected {
+            assert_eq!(
+                written.first(key),
+                Some(value),
+                "{container} {key} must reach the destination"
+            );
+        }
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+    }
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 4);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn unknown_ogg_flac_precision_refuses_lossless_conversion_without_quantizing_samples() {
+    let Some(ffmpeg) = find_ffmpeg() else {
+        assert!(
+            std::env::var_os("AEDE_REQUIRE_FFMPEG").is_none(),
+            "Ogg FLAC precision regression requires ffmpeg"
+        );
+        eprintln!("Ogg FLAC precision regression needs ffmpeg");
+        return;
+    };
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "aede-convert-ogg-precision-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    // This reference-verified native fixture contains nonzero low 32-bit PCM
+    // bits. Remuxing copies its encoded audio without requiring a 32-bit encoder.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/playback_fixtures/flac/playback32-mono.flac");
+    let source = directory.join("source.oga");
+    let remuxed = Command::new(&ffmpeg)
+        .args(["-nostdin", "-loglevel", "error", "-i"])
+        .arg(&fixture)
+        .args(["-map", "0:a", "-c:a", "copy", "-f", "ogg"])
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        remuxed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&remuxed.stderr)
+    );
+    let original = std::fs::read(&source).unwrap();
+    let tags = crate::tags::read(&source).unwrap();
+    assert!(tags.properties.lossless);
+    assert_eq!(tags.properties.bit_depth, None);
+    let scanned = crate::model::ScannedFile {
+        path: source.to_str().unwrap().into(),
+        size: original.len() as u64,
+        mtime: 0,
+        tags,
+        folder_cover: None,
+        sidecar: None,
+        integrity: None,
+        fingerprint: None,
+    };
+    let catalog = crate::model::build(
+        vec![scanned.clone()],
+        vec![directory.to_str().unwrap().into()],
+        0,
+        &[],
+    );
+    let tracks = vec![catalog.tracks[0].id];
+    for target in [Target::Flac, Target::Wav] {
+        let destination = directory.join(format!("output.{}", target.extension()));
+        let error = convert(&ffmpeg, &source, &destination, target, None).unwrap_err();
+        assert!(
+            error.contains("unknown") && error.contains("precision"),
+            "{error}"
+        );
+        assert!(!destination.exists());
+        let plan = super::super::plan(
+            &catalog,
+            &tracks,
+            &super::super::Recipe {
+                extras: super::super::Extras::None,
+                convert: Some(target),
+                ..Default::default()
+            },
+        );
+        assert!(plan.items.is_empty(), "a preview must refuse the same loss");
+        assert_eq!(plan.rejected.len(), 1);
+        assert!(plan.rejected[0].reason.contains("precision"));
+    }
+    let destination = directory.join("output.mp3");
+    convert(&ffmpeg, &source, &destination, Target::Mp3, None).unwrap();
+    assert_eq!(
+        crate::tags::read(&destination).unwrap().properties.codec,
+        "mp3"
+    );
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+
+    // Missing old precision metadata does not require an encoder when the
+    // source is already in the requested container and will be copied intact.
+    let mut unchanged = scanned;
+    unchanged.path = fixture.to_str().unwrap().into();
+    unchanged.tags = crate::tags::read(&fixture).unwrap();
+    assert_eq!(unchanged.tags.properties.bit_depth, Some(32));
+    unchanged.tags.properties.bit_depth = None;
+    let unchanged_catalog = crate::model::build(
+        vec![unchanged],
+        vec![fixture.parent().unwrap().to_str().unwrap().into()],
+        0,
+        &[],
+    );
+    let plan = super::super::plan(
+        &unchanged_catalog,
+        &[unchanged_catalog.tracks[0].id],
+        &super::super::Recipe {
+            extras: super::super::Extras::None,
+            convert: Some(Target::Flac),
+            ..Default::default()
+        },
+    );
+    assert!(plan.rejected.is_empty());
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].convert, None);
+    std::fs::remove_dir_all(directory).unwrap();
 }

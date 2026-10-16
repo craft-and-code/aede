@@ -260,7 +260,13 @@ pub fn load(path: &Path) -> Result<Option<Catalog>, StoreError> {
     Ok(Some(catalog))
 }
 
-fn load_catalog_only(path: &Path) -> Result<Option<Catalog>, StoreError> {
+/// Reads the catalog snapshot without loading independent conclusions.
+///
+/// Backups handle each store separately: an unreadable conclusions document
+/// must not hide an otherwise readable catalog. Legacy inline conclusions stay
+/// available to the caller for migration. Ordinary catalog consumers should use
+/// [`load`] to attach the current independent results.
+pub fn load_catalog_only(path: &Path) -> Result<Option<Catalog>, StoreError> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -978,6 +984,11 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
 /// The `Vec`s are indexed by identifier: we check that the file read back
 /// respects that invariant before handing it to the rest of the program.
 fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
+    // Validated reverse entries prove their forward membership in linear time,
+    // including albums or recordings with many placements.
+    let mut tracks_in_releases = vec![false; catalog.tracks.len()];
+    let mut tracks_in_recordings = vec![false; catalog.tracks.len()];
+    let mut releases_in_groups = vec![false; catalog.releases.len()];
     // A frequently performed work can link thousands of recordings. Walking
     // that full list for each reverse reference would make loading quadratic.
     let work_recordings: Vec<std::collections::HashSet<&Id>> = catalog
@@ -1016,12 +1027,14 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
         {
             return Err(StoreError::Invalid("release attached to a missing label"));
         }
-        if release.track_ids.iter().any(|&id| {
-            catalog
+        for &id in &release.track_ids {
+            if catalog
                 .track(id)
                 .is_none_or(|track| track.release_id != Some(release.id))
-        }) {
-            return Err(StoreError::Invalid("release attached to a missing track"));
+            {
+                return Err(StoreError::Invalid("release attached to a missing track"));
+            }
+            tracks_in_releases[id as usize] = true;
         }
         if release
             .release_group_id
@@ -1038,16 +1051,26 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
                 "non-contiguous release group identifiers",
             ));
         }
-        if group.release_ids.iter().any(|&id| {
-            catalog
+        for &id in &group.release_ids {
+            if catalog
                 .releases
                 .get(id as usize)
                 .is_none_or(|release| release.release_group_id != Some(group.id))
-        }) {
-            return Err(StoreError::Invalid(
-                "release group attached to a missing release",
-            ));
+            {
+                return Err(StoreError::Invalid(
+                    "release group attached to a missing release",
+                ));
+            }
+            releases_in_groups[id as usize] = true;
         }
+    }
+    if catalog
+        .releases
+        .iter()
+        .enumerate()
+        .any(|(index, release)| release.release_group_id.is_some() && !releases_in_groups[index])
+    {
+        return Err(StoreError::Invalid("release absent from its release group"));
     }
     for (index, track) in catalog.tracks.iter().enumerate() {
         if track.id as usize != index {
@@ -1065,17 +1088,22 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
         {
             return Err(StoreError::Invalid("track attached to a missing release"));
         }
+        if track.release_id.is_some() && !tracks_in_releases[index] {
+            return Err(StoreError::Invalid("track absent from its release"));
+        }
     }
     for (index, recording) in catalog.recordings.iter().enumerate() {
         if recording.id as usize != index {
             return Err(StoreError::Invalid("non-contiguous recording identifiers"));
         }
-        if recording.track_ids.iter().any(|&id| {
-            catalog
+        for &id in &recording.track_ids {
+            if catalog
                 .track(id)
                 .is_none_or(|track| track.recording_id != recording.id)
-        }) {
-            return Err(StoreError::Invalid("recording attached to a missing track"));
+            {
+                return Err(StoreError::Invalid("recording attached to a missing track"));
+            }
+            tracks_in_recordings[id as usize] = true;
         }
         if recording.work_ids.iter().any(|&id| {
             work_recordings
@@ -1084,6 +1112,9 @@ fn verify_integrity(catalog: &Catalog) -> Result<(), StoreError> {
         }) {
             return Err(StoreError::Invalid("recording attached to a missing work"));
         }
+    }
+    if tracks_in_recordings.iter().any(|present| !present) {
+        return Err(StoreError::Invalid("track absent from its recording"));
     }
     for (index, work) in catalog.works.iter().enumerate() {
         if work.id as usize != index {

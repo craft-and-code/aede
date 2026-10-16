@@ -110,7 +110,15 @@ pub fn is_sidecar(name: &str) -> bool {
 /// because of one accent would be the wrong trade. Reads at most 256 KiB;
 /// expanded line text stays within 1 MiB, including after lossy decoding.
 pub fn read(path: &Path) -> Option<Lyrics> {
+    // A sidecar may have been replaced since the scan. Refuse special files
+    // before an open could wait for a FIFO writer; ordinary links still work.
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let file = std::fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
     let text = read_text(file).ok()?;
     let lines = parse_with_budget(&text, MIN_TEXT_BUDGET);
     match lines.is_empty() {

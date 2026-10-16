@@ -130,8 +130,11 @@ fn ensure_query_values(parsed: &query::Query, context: &query::Context<'_>) -> R
 }
 
 fn quoted_query_value(value: &str) -> String {
-    if value.contains(char::is_whitespace) {
-        format!("\"{}\"", value.replace('"', ""))
+    if value.contains(|ch: char| ch.is_whitespace() || matches!(ch, '\'' | '"' | '(' | ')')) {
+        // The grammar accepts adjacent quoted runs. Quote a literal double
+        // quote with single quotes, rather than discarding it or introducing
+        // an escaping convention the query tokenizer does not understand.
+        format!("\"{}\"", value.replace('"', "\"'\"'\""))
     } else {
         value.to_string()
     }
@@ -895,6 +898,9 @@ fn selection_output(catalog: &Catalog, tracks: &[Id], args: &Args) -> Option<Res
     }
     if args.has("csv") || args.has("json") {
         return Some(export::tracks_table(catalog, tracks, args));
+    }
+    if args.has("output") {
+        return Some(refuse_output_without_a_format(args));
     }
     None
 }

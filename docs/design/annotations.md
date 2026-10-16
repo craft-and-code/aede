@@ -132,6 +132,8 @@ is the one unforgivable failure in this program.
 
 Track relocation remains a conservative heuristic, not a checksum or an external identity assertion. Album references use the canonical release folder; former disc-folder references migrate only when unambiguous. A manual relink cannot overwrite existing personal data and records an owner-scoped snapshot for undo. Undo refuses subsequent edits or conflicting data rather than replacing them; an undone decision also suppresses automatic relocation of that old track reference.
 
+Track identity evidence includes plural `ARTISTS` and `ALBUMARTISTS` alongside their singular variants, matching the graph builder's plural-first interpretation. Different plural values prevent automatic relocation even when the basename and singular fallback tags agree. Older evidence lacking those retained fields stays waiting when the candidate has them; reconciliation while the original path is still present refreshes the evidence for a later move. This adds no store version or automatic source read.
+
 ## Its own file, and it is the one worth backing up
 
 Not in `catalog.json`. Two reasons, and the second is the real one:

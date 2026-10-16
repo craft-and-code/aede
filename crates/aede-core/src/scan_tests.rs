@@ -273,12 +273,82 @@ fn same_second_same_size_changes_are_read_again() {
 }
 
 #[test]
+fn distinct_pre_epoch_modification_times_are_not_reused_as_one_identity() {
+    let sandbox = Sandbox::new();
+    let path = sandbox.track("01.flac");
+    let set_time = |seconds| {
+        let modified = std::time::UNIX_EPOCH - std::time::Duration::from_secs(seconds);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified
+        );
+    };
+    set_time(100);
+    let (first, _) = scan(
+        std::slice::from_ref(&sandbox.0),
+        None,
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(first.file_mtime_subseconds.is_empty());
+    set_time(200);
+    let (_, report) = scan(
+        std::slice::from_ref(&sandbox.0),
+        Some(&first),
+        &ScanOptions::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report.read, 1);
+    assert_eq!(report.reused, 0);
+}
+
+#[test]
 fn cover_art_rank() {
     assert_eq!(cover_rank("cover.jpg"), Some(0));
     assert_eq!(cover_rank("folder.png"), Some(1));
     assert_eq!(cover_rank("scan-back.jpg"), Some(COVER_NAMES.len()));
     assert_eq!(cover_rank("notes.txt"), None);
     assert_eq!(cover_rank("no_extension"), None);
+}
+
+#[test]
+fn lyrics_sidecar_suffixes_keep_their_walked_spelling_on_fresh_and_cached_reads() {
+    for suffix in ["LRC", "LrC", "lrc"] {
+        let sandbox = Sandbox::new();
+        let audio = sandbox.track("01.flac");
+        let roots = std::slice::from_ref(&sandbox.0);
+        let (previous, _) = scan(roots, None, &Default::default(), |_| {}).unwrap();
+        assert!(previous.files[0].lyrics_path.is_none());
+
+        let sidecar = audio.with_extension(suffix);
+        std::fs::write(&sidecar, "[00:01]words").unwrap();
+        for old in [None, Some(&previous)] {
+            let (catalog, report) = scan(roots, old, &Default::default(), |_| {}).unwrap();
+            assert_eq!(report.reused, usize::from(old.is_some()));
+            assert_eq!(
+                catalog.files[0].lyrics_path.as_deref().map(Path::new),
+                Some(sidecar.as_path()),
+                "{suffix} must be found without changing its native spelling"
+            );
+            let lyrics = catalog.lyrics_of_track(catalog.tracks[0].id).unwrap();
+            assert_eq!(lyrics.text(), "words");
+
+            std::fs::remove_file(&sidecar).unwrap();
+            let (without, report) =
+                scan(roots, Some(&catalog), &Default::default(), |_| {}).unwrap();
+            assert_eq!(report.reused, 1);
+            assert!(without.files[0].lyrics_path.is_none());
+            std::fs::write(&sidecar, "[00:01]words").unwrap();
+        }
+    }
 }
 
 #[test]

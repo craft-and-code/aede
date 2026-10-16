@@ -227,6 +227,7 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
                 track.file_id = n;
                 catalog.tracks.push(track);
                 catalog.releases[0].track_ids.push(n);
+                catalog.recordings[0].track_ids.push(n);
             }
             let mut facts = fixture.0.audio_features.facts.lock().unwrap();
             facts.epoch = Some(signature(catalog));

@@ -356,3 +356,53 @@ fn composed_and_decomposed_album_names_copy_both_files_without_merging() {
             .all(|folder| folder.join("01.flac").is_file())
     );
 }
+
+#[test]
+fn converted_copy_resumes_without_ffmpeg_when_no_encoding_is_pending() {
+    let fixture = Fixture::new("encoder_free_resume");
+    let source = fixture.audio("Album/01.flac");
+    fixture.scan();
+    let target = fixture.output.join("Album/01.mp3");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    let existing = b"existing nonempty output accepted by the resume heuristic";
+    std::fs::write(&target, existing).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    let run = |options: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_aede"))
+            .args([
+                "copy",
+                fixture.output.to_str().unwrap(),
+                "--compress",
+                "mp3",
+                "--extras",
+                "none",
+                "--safe-names",
+            ])
+            .args(options)
+            .env("AEDE_HOME", &fixture.data)
+            .env("NO_COLOR", "1")
+            .env("PATH", &fixture.data)
+            .output()
+            .unwrap()
+    };
+    let resumed = run(&["--verify"]);
+    assert!(
+        resumed.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&resumed.stdout),
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert!(String::from_utf8_lossy(&resumed.stdout).contains("Already there"));
+    for options in [["--replace"], ["--verify-existing"]] {
+        let refused = run(&options);
+        assert!(!refused.status.success());
+        assert!(String::from_utf8_lossy(&refused.stderr).contains("ffmpeg"));
+        assert_eq!(std::fs::read(&target).unwrap(), existing);
+    }
+    std::fs::remove_file(&target).unwrap();
+    let missing = run(&[]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("ffmpeg"));
+    assert!(!target.exists());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+}

@@ -334,13 +334,17 @@ pub fn merge_into(catalog: &mut Catalog, records: Vec<FileAnalysis>, now: u64) -
 /// Returns how many were attached.
 pub fn reconcile(catalog: &mut Catalog) -> usize {
     let mut moves: Vec<(usize, String, u64)> = Vec::new();
+    let known: BTreeMap<&str, (u64, u64)> = catalog
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), (file.size, file.mtime)))
+        .collect();
     {
-        let known: BTreeSet<&str> = catalog.files.iter().map(|f| f.path.as_str()).collect();
         let by_name_size = name_size_index(catalog);
         let wanted_sizes = catalog
             .analyses
             .iter()
-            .filter(|record| !known.contains(record.path.as_str()))
+            .filter(|record| !known.contains_key(record.path.as_str()))
             .filter(|record| record.file_md5.is_some())
             .map(|record| record.size_bytes)
             .collect();
@@ -348,12 +352,16 @@ pub fn reconcile(catalog: &mut Catalog) -> usize {
         let taken: BTreeSet<(&str, &str)> = catalog
             .analyses
             .iter()
-            .filter(|a| known.contains(a.path.as_str()))
+            .filter(|record| {
+                known
+                    .get(record.path.as_str())
+                    .is_some_and(|&(size, mtime)| record.still_applies(size, mtime))
+            })
             .map(|a| (a.path.as_str(), a.source.as_str()))
             .collect();
 
         for (index, record) in catalog.analyses.iter().enumerate() {
-            if known.contains(record.path.as_str()) {
+            if known.contains_key(record.path.as_str()) {
                 continue;
             }
             let candidate = if let Some(digest) = &record.file_md5 {
@@ -367,8 +375,8 @@ pub fn reconcile(catalog: &mut Catalog) -> usize {
             let Some((path, mtime)) = candidate else {
                 continue;
             };
-            // A record already filed under the real path wins: it was attached
-            // deliberately, this one is being guessed at.
+            // Current evidence already filed under the real path wins. A
+            // stale record cannot reserve a file whose bytes it no longer describes.
             if taken.contains(&(path, record.source.as_str())) {
                 continue;
             }
@@ -382,15 +390,25 @@ pub fn reconcile(catalog: &mut Catalog) -> usize {
     }
     if attached > 0 {
         // Refiling two records onto the same path is possible when a report
-        // named the same file twice by two routes; the last one wins, as it
-        // does on import.
-        let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
-        catalog.analyses.reverse();
-        catalog
-            .analyses
-            .retain(|a| seen.insert((a.path.clone(), a.source.clone())));
-        catalog.analyses.reverse();
-        sort_analyses(catalog);
+        // named the same file by two routes. Apply the import date rule here
+        // too, retaining the existing order for equal or unknown dates.
+        let mut by_file: BTreeMap<(String, String), FileAnalysis> = BTreeMap::new();
+        for record in std::mem::take(&mut catalog.analyses) {
+            let key = (record.path.clone(), record.source.clone());
+            if by_file.get(&key).is_some_and(|held| {
+                let preserve_current =
+                    known
+                        .get(record.path.as_str())
+                        .is_some_and(|&(size, mtime)| {
+                            held.still_applies(size, mtime) && !record.still_applies(size, mtime)
+                        });
+                preserve_current || is_older_result(&record, held)
+            }) {
+                continue;
+            }
+            by_file.insert(key, record);
+        }
+        catalog.analyses = by_file.into_values().collect();
     }
     attached
 }
@@ -451,7 +469,21 @@ fn file_md5_index<'a>(
 }
 
 fn file_md5(path: &Path) -> std::io::Result<String> {
+    // Refuse static special paths before opening them. Rechecking the
+    // descriptor preserves this rule but does not close path-replacement races.
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "analysis hash source must be a regular file",
+        ));
+    }
     let mut file = std::fs::File::open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "analysis hash source must be a regular file",
+        ));
+    }
     let mut digest = Md5::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
@@ -467,14 +499,9 @@ fn file_md5(path: &Path) -> std::io::Result<String> {
 /// Stores the latest dated result for one path and source. Equal or unknown
 /// dates retain the legacy import-order rule; records never accumulate.
 fn store_one(catalog: &mut Catalog, record: FileAnalysis) -> bool {
-    if record.result_at_ns != 0
-        && catalog.analyses.iter().any(|held| {
-            held.path == record.path
-                && held.source == record.source
-                && held.still_applies(record.size_bytes, record.modified_unix)
-                && held.result_at_ns > record.result_at_ns
-        })
-    {
+    if catalog.analyses.iter().any(|held| {
+        held.path == record.path && held.source == record.source && is_older_result(&record, held)
+    }) {
         return false;
     }
     catalog
@@ -482,6 +509,14 @@ fn store_one(catalog: &mut Catalog, record: FileAnalysis) -> bool {
         .retain(|a| !(a.path == record.path && a.source == record.source));
     catalog.analyses.push(record);
     true
+}
+
+/// Whether an incoming result for the same path and source must keep the
+/// held measurement of those bytes. Unknown dates retain the legacy order.
+fn is_older_result(record: &FileAnalysis, held: &FileAnalysis) -> bool {
+    record.result_at_ns != 0
+        && held.still_applies(record.size_bytes, record.modified_unix)
+        && held.result_at_ns > record.result_at_ns
 }
 
 fn sort_analyses(catalog: &mut Catalog) {
@@ -497,6 +532,8 @@ pub enum ImportError {
     Io(std::io::Error),
     /// The text is not valid JSON.
     Json(String),
+    /// A recognized report has an invalid envelope or file-list shape.
+    Malformed(&'static str),
     /// Valid JSON, but not a report this reader knows.
     NotAReport {
         /// What the file claimed to be.
@@ -514,6 +551,7 @@ impl std::fmt::Display for ImportError {
         match self {
             ImportError::Io(e) => write!(f, "input/output error: {e}"),
             ImportError::Json(e) => write!(f, "not valid JSON: {e}"),
+            ImportError::Malformed(detail) => write!(f, "malformed FlacCompagnon report: {detail}"),
             ImportError::NotAReport { found } => write!(
                 f,
                 "not a FlacCompagnon report (format is \"{found}\", expected \"{FLACCOMPAGNON_FORMAT}\")"
@@ -559,17 +597,26 @@ pub fn parse_report(text: &str) -> Result<Report, ImportError> {
     if format != FLACCOMPAGNON_FORMAT {
         return Err(ImportError::NotAReport { found: format });
     }
-    let version = value.field_u32("version").unwrap_or(0);
+    let version = match value.get("version") {
+        // Preserve the reader's legacy absent-version fallback.
+        None => 0,
+        Some(value) => value.as_u32().ok_or(ImportError::Malformed(
+            "version must be an unsigned 32-bit integer",
+        ))?,
+    };
     if version > SUPPORTED_VERSION {
         return Err(ImportError::Version { found: version });
     }
 
-    let report = value.get("report");
-    let root = report.and_then(|r| r.field_str("root")).unwrap_or_default();
+    let report = value
+        .get("report")
+        .filter(|report| matches!(report, Json::Obj(_)))
+        .ok_or(ImportError::Malformed("report must be an object"))?;
+    let root = report.field_str("root").unwrap_or_default();
     let entries = report
-        .and_then(|r| r.get("files"))
+        .get("files")
         .and_then(|f| f.as_arr())
-        .unwrap_or(&[]);
+        .ok_or(ImportError::Malformed("report.files must be an array"))?;
 
     // An entry without a path cannot be attached to anything, ever: it is
     // dropped here rather than stored as a record about no file in particular.

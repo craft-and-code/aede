@@ -58,3 +58,44 @@ fn frame_detection_ignores_stray_bytes() {
     assert_eq!(offset, 4);
     assert_eq!(parsed.sample_rate, 44_100);
 }
+
+#[test]
+fn real_mpeg_layer_two_is_not_labelled_as_layer_three() {
+    let Some(ffmpeg) = crate::ffmpeg::find() else {
+        assert!(
+            std::env::var_os("AEDE_REQUIRE_FFMPEG").is_none(),
+            "MPEG Layer II regression requires ffmpeg"
+        );
+        return;
+    };
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/track.wav");
+    let encoded = super::super::test_support::BinaryFile::new("mp3", &[]);
+    let result = std::process::Command::new(ffmpeg)
+        .args(["-nostdin", "-loglevel", "error", "-y", "-i"])
+        .arg(&source)
+        .args(["-c:a", "mp2", "-b:a", "192k", "-f", "mp2"])
+        .arg(encoded.path())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    for tags in [encoded.read().unwrap(), encoded.read_from_file().unwrap()] {
+        assert_eq!(tags.properties.codec, "mp2");
+        assert_eq!(tags.properties.sample_rate, Some(44_100));
+        assert_eq!(tags.properties.channels, Some(1));
+        assert_eq!(tags.properties.bitrate_kbps, Some(192));
+        assert!(tags.properties.duration_ms.is_some_and(|ms| ms > 0));
+        assert!(!tags.properties.lossless);
+    }
+    let ordinary = super::super::test_support::BinaryFile::new(
+        "mp3",
+        include_bytes!("../../tests/fixtures/track.mp3"),
+    );
+    for tags in [ordinary.read().unwrap(), ordinary.read_from_file().unwrap()] {
+        assert_eq!(tags.properties.codec, "mp3");
+        assert!(tags.properties.duration_ms.is_some_and(|ms| ms > 0));
+    }
+}

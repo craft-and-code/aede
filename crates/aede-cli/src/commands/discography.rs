@@ -304,6 +304,15 @@ fn has_shelf(catalog: &Catalog, entity: &EntityRef) -> bool {
 
 pub use aede_core::missing::{Absent, absent, absent_for};
 
+/// Personal exclusions used by the trusted CLI's legacy local owner.
+pub(super) fn local_asides(user: &aede_core::user::UserData) -> Vec<aede_core::user::SetAside> {
+    user.set_aside
+        .iter()
+        .filter(|aside| aside.owner == aede_core::user::LOCAL_USER)
+        .cloned()
+        .collect()
+}
+
 /// The `missing` command: the records your artists made and you do not have.
 pub fn missing(args: &crate::args::Args) -> Res {
     let catalog = super::load(args)?;
@@ -348,7 +357,8 @@ pub fn missing(args: &crate::args::Args) -> Res {
         return Ok(());
     }
 
-    let all = absent(&catalog, &held, &user.set_aside, everything);
+    let aside = local_asides(&user);
+    let all = absent(&catalog, &held, &aside, everything);
     let rows: Vec<&Absent> = all.iter().filter(|a| matches(a, &wanted)).collect();
     // What the ordinary run is leaving out, counted over the rows this run is
     // about rather than over the whole layer: a reader who typed a name is owed
@@ -356,7 +366,7 @@ pub fn missing(args: &crate::args::Args) -> Res {
     // table, so the note and the list cannot disagree.
     let held_back = match everything {
         true => Vec::new(),
-        false => absent(&catalog, &held, &user.set_aside, true)
+        false => absent(&catalog, &held, &aside, true)
             .into_iter()
             .filter(|a| a.held_back.is_some() && matches(a, &wanted))
             .collect(),
@@ -534,19 +544,19 @@ fn set_aside(
     // report, so looking there would find nothing and say so.
     if args.has("remove") {
         let before = user.set_aside.len();
+        let matched = |aside: &aede_core::user::SetAside| {
+            aside.owner == aede_core::user::LOCAL_USER
+                && wanted
+                    .iter()
+                    .any(|wanted| text::normalize(&aside.title).contains(wanted))
+        };
         let put_back: Vec<String> = user
             .set_aside
             .iter()
-            .filter(|a| {
-                let title = text::normalize(&a.title);
-                wanted.iter().any(|w| title.contains(w.as_str()))
-            })
+            .filter(|aside| matched(aside))
             .map(|a| a.title.clone())
             .collect();
-        user.set_aside.retain(|a| {
-            let title = text::normalize(&a.title);
-            !wanted.iter().any(|w| title.contains(w.as_str()))
-        });
+        user.set_aside.retain(|aside| !matched(aside));
         println!("{}", ui::section("Missing"));
         if user.set_aside.len() == before {
             println!("  {}", ui::dim("nothing set aside answers to that"));
@@ -560,7 +570,8 @@ fn set_aside(
         return Ok(());
     }
 
-    let all = absent(catalog, held, &user.set_aside, false);
+    let aside = local_asides(user);
+    let all = absent(catalog, held, &aside, false);
     let found: Vec<&Absent> = all.iter().filter(|a| matches(a, &wanted)).collect();
     match found.len() {
         0 => Err("nothing missing answers to that".into()),
@@ -620,6 +631,7 @@ fn aside_rows<'a>(
 ) -> Vec<(&'a aede_core::user::SetAside, String)> {
     user.set_aside
         .iter()
+        .filter(|aside| aside.owner == aede_core::user::LOCAL_USER)
         .map(|aside| (aside, whose(catalog, held, &aside.release_group)))
         .filter(|(aside, artist)| super::fetch::reaches(wanted, &[&aside.title, artist]))
         .collect()
@@ -633,7 +645,12 @@ fn listed(
     wanted: &[String],
 ) -> Res {
     println!("{}", ui::section("Set aside"));
-    if user.set_aside.is_empty() {
+    let total = user
+        .set_aside
+        .iter()
+        .filter(|aside| aside.owner == aede_core::user::LOCAL_USER)
+        .count();
+    if total == 0 {
         println!("  {}", ui::dim("nothing has been set aside"));
         return Ok(());
     }
@@ -645,7 +662,7 @@ fn listed(
             ui::dim(&format!(
                 "nothing set aside matches {} — {} in all",
                 wanted.join(", "),
-                ui::plural(user.set_aside.len(), "record")
+                ui::plural(total, "record")
             ))
         );
         return Ok(());

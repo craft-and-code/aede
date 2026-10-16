@@ -28,6 +28,8 @@ aede file -- ./-track.flac
 
 Raccourcis séparés : `-j` signifie `--json` de portée limitée ; `-o FICHIER` signifie `--output`. `-o=FICHIER` fonctionne. Ne pas combiner les lettres (`-jo` n’est pas déclaré). Options inconnues/valeurs manquantes sont vérifiées avant aide/version. Répéter une option garde actuellement sa dernière valeur ; l’écrire une fois évite un remplacement involontaire.
 
+Les indicateurs sans valeur comme `--yes`, `--json` et `--help` refusent une valeur accolée, y compris `=false`, `=true` et un `=` vide. Ils agissent par leur présence et ne prennent pas une valeur booléenne. Ce contrôle précède aide/version, confirmation et toute modification ; omettre `--yes` pour conserver la demande de confirmation.
+
 ## Familles réutilisées
 
 Pagination : `--limit N`, `--offset N`, `--all` seulement sur les commandes listées ci-dessous. N entier ; limite positive, décalage depuis zéro ; all et limit incompatibles. Une liste paginée demande généralement 50 lignes, certains rapports moins pour leurs listes secondaires. L’export garde les lignes filtrées/paginées ; demander tout volontairement.

@@ -91,6 +91,12 @@ fn analyze_stream(
         return Ok(());
     };
 
+    tags.properties.codec = match header.layer {
+        1 => "mp1",
+        2 => "mp2",
+        _ => "mp3",
+    }
+    .into();
     tags.properties.sample_rate = Some(header.sample_rate);
     tags.properties.channels = Some(header.channels);
 

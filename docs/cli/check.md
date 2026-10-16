@@ -4,6 +4,8 @@ check reads the checksums already carried by supported containers: FLAC frame CR
 
 By default unchanged files with stored verdicts are reused. --full rereads everything in scope, useful after a suspected disk problem. If nothing is waiting, the current report is printed. An optional folder narrows catalogued files; scan new music before checking it.
 
+Container-check --threads values are validated even for an empty selection or one whose verdicts are all cached. Zero retains automatic worker selection; positive whole numbers request that many workers.
+
 Verdicts are stored as conclusions and become stale when the source changes. This command is distinct from decoded FLAC MD5 verification or an audio-origin analysis performed through FlacCompagnon. It never repairs or overwrites a damaged file. Keep a separate backup of original music.
 
 ## Syntax and arguments

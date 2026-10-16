@@ -12,8 +12,10 @@ pub fn show_doctor(args: &Args) -> Res {
     let catalog = load(args)?;
     let sources = super::sources_held(args)?;
     let mut issues = doctor::diagnose(&catalog, &sources);
-    let user =
+    let mut user =
         aede_core::user::load(&aede_core::user::user_path(&data_dir(args)))?.unwrap_or_default();
+    user.relation_annotations
+        .retain(|annotation| annotation.owner == aede_core::user::LOCAL_USER);
     issues.extend(doctor::orphaned_relation_annotations(
         &catalog, &sources, &user,
     ));

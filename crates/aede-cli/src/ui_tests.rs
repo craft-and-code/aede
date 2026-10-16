@@ -196,6 +196,46 @@ fn aligned_table() {
 }
 
 #[test]
+fn styled_cells_align_and_shorten_by_visible_columns_without_partial_controls() {
+    let styled = "\x1b[31m◷\x1b[0m Album";
+    assert_eq!(display_width(styled), display_width("◷ Album"));
+    assert_eq!(
+        literal_styled_with_color(&pad(styled, 12), false),
+        pad("◷ Album", 12)
+    );
+    assert_eq!(
+        literal_styled_with_color(&pad_left(styled, 12), false),
+        pad_left("◷ Album", 12)
+    );
+    for (plain, styled) in [
+        ("◷ Album", styled),
+        (
+            "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}",
+            "\x1b[32me\u{301}e\u{301}e\u{301}e\u{301}e\u{301}\x1b[0m",
+        ),
+        ("日本語 Album", "\x1b[1m日本語\x1b[0m Album"),
+    ] {
+        for width in 1..=14 {
+            for (plain, colored) in [
+                (truncate(plain, width), truncate(styled, width)),
+                (truncate_start(plain, width), truncate_start(styled, width)),
+            ] {
+                assert!(display_width(&plain) <= width, "{plain:?}, {width}");
+                assert_eq!(literal_styled_with_color(&colored, false), plain);
+                assert!(display_width(&colored) <= width, "{colored:?}, {width}");
+            }
+        }
+    }
+    let cut = truncate(styled, 2);
+    assert!(
+        cut.ends_with("\x1b[0m"),
+        "a truncated style must be closed: {cut:?}"
+    );
+    assert_eq!(truncate(styled, 0), styled, "zero still means unlimited");
+    assert_eq!(truncate_start(styled, 0), styled);
+}
+
+#[test]
 fn plural_agreement() {
     assert_eq!(plural(0, "album"), "0 album");
     assert_eq!(plural(1, "album"), "1 album");

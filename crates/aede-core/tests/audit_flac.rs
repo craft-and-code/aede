@@ -1,8 +1,10 @@
 //! Integration tests for the FLAC frame walk.
 //!
-//! The five reference files were produced with ffmpeg, each one built to carry
+//! The original five reference files were produced with ffmpeg, each built to carry
 //! a single property: real 24-bit content, 16-bit content packaged as 24, two
 //! identical channels, two different ones, and digital silence.
+//! Additional tiny Xiph encodings cover correlated/constant precision edges;
+//! their reproducible provenance is in `fixtures/audit-precision.md`.
 
 use std::path::PathBuf;
 
@@ -77,4 +79,35 @@ fn a_limit_marks_the_result_as_partial() {
 fn a_file_that_is_not_flac_is_refused() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/track.mp3");
     assert!(audit::flac::audit(&path, Limits::quick()).is_err());
+}
+
+#[test]
+fn significant_low_bits_survive_stereo_and_constant_subframes() {
+    // Real encodings: mid/side rounding, one nonzero constant channel, and
+    // whole nonzero constant frames on either side of a padded frame.
+    for (name, frames) in [
+        ("audit-mid-side-lsb24.flac", 1),
+        ("audit-constant-lsb24.flac", 1),
+        ("audit-dc-then-padded24.flac", 2),
+        ("audit-padded-then-dc24.flac", 2),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        let original = std::fs::read(&path).expect("fixture bytes");
+        let a = walk(name);
+        assert_eq!(a.declared_bit_depth, 24, "{name}");
+        assert_eq!(a.effective_bit_depth, 24, "{name} has nonzero low bits");
+        assert!(!a.is_padded(), "{name}");
+        assert_eq!(a.frames_examined, frames, "{name}");
+        assert!(!a.digital_silence, "{name}");
+        assert!(!a.truncated, "{name}");
+        let integrity = audit::integrity::check(&path).expect("fixture checksum walk");
+        assert_eq!(
+            integrity.verdict,
+            audit::integrity::Verdict::Intact,
+            "{name}"
+        );
+        assert_eq!(std::fs::read(&path).expect("fixture after audit"), original);
+    }
 }

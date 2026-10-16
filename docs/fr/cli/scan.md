@@ -6,6 +6,8 @@ Le scan normal réutilise les fichiers inchangés. --full relit les métadonnée
 
 Le résumé indique fichiers, albums, artistes et problèmes de lecture. Un scan réussi produit un index, pas un verdict d’intégrité audio. Les rapports FlacCompagnon présents sont rattachés aux fichiers correspondants ; les fichiers modifiés rendent leurs anciennes conclusions obsolètes. L’audio et ses tags restent intacts.
 
+Les paroles voisines acceptent le suffixe `.lrc` sans distinction de casse ASCII et conservent le nom réellement parcouru, même lorsque les métadonnées audio sont réutilisées. Si plusieurs variantes du suffixe coexistent, le nom exactement en minuscules est prioritaire ; sinon l’ordre natif trié des chemins décide.
+
 ## Syntaxe et arguments
 
 ```text
@@ -48,6 +50,6 @@ La sortie décrit l’opération ou les données choisies. Lire avertissements e
 
 Guide détaillé existant : [library.md](../../library.md).
 
-Un sous-dossier inaccessible conserve ses entrées déjà connues, même avec --full, et une erreur de lecture est signalée. Les horodatages précis sont utilisés lorsque le système les fournit ; un ancien catalogue sans cette précision est relu une fois. Le JSON contient dry_run, roots, added, changed, removed, unreadable et counts ; preserved compte les entrées conservées des chemins inaccessibles.
+Un sous-dossier inaccessible conserve ses entrées déjà connues, même avec --full, et une erreur de lecture est signalée. Les horodatages précis sont utilisés lorsque le système les fournit ; un ancien catalogue sans cette précision est relu une fois. Une date indisponible ou antérieure à 1970 ne prouve pas que les octets sont inchangés : le fichier est relu à chaque scan et les conclusions ne sont pas rattachées sur le seul zéro de remplacement. Une date exactement à l’époque avec précision explicite reste utilisable. Ce refus lors de la lecture n’efface pas les conclusions conservées. Le JSON contient dry_run, roots, added, changed, removed, unreadable et counts ; preserved compte les entrées conservées des chemins inaccessibles.
 
 Seuls les fichiers réguliers sont ouverts : un fichier spécial portant une extension audio ne peut pas bloquer le scan. Les chemins non représentables en UTF-8 sont signalés et ignorés ; les racines non UTF-8 sont refusées. Avec --follow-symlinks, les alias sont choisis dans un ordre natif déterministe. Un fichier changé ou remplacé pendant la lecture est signalé comme temporairement illisible et son entrée connue est conservée.

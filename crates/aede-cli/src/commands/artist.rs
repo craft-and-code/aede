@@ -480,7 +480,7 @@ fn say_what_is_missing(args: &Args, catalog: &aede_core::model::Catalog, artist:
         return;
     };
     let aside = match super::user_data(args, catalog) {
-        Ok(user) => user.set_aside,
+        Ok(user) => super::discography::local_asides(&user),
         Err(_) => Vec::new(),
     };
     let count = super::discography::absent_for(catalog, &held, &aside, artist);

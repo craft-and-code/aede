@@ -121,7 +121,13 @@ pub fn copy(args: &Args) -> Res {
     // Looked for once, before the first file rather than on each of nine
     // hundred — and before the first byte is written, so a missing encoder is
     // an error at the start rather than half a copy.
-    let ffmpeg = match plan.converted() > 0 {
+    let needs_encoder = plan.items.iter().any(|item| {
+        item.convert.is_some()
+            && (args.has("replace")
+                || args.has("verify-existing")
+                || !encoded_output_is_present(&destination.join(&item.relative)))
+    });
+    let ffmpeg = match needs_encoder {
         false => None,
         true => Some(transcode::find_ffmpeg().ok_or_else(transcode::missing_ffmpeg)?),
     };
@@ -717,21 +723,12 @@ fn write_one(
             verify_existing,
         );
     };
-    let Some(ffmpeg) = ffmpeg else {
-        return Err("no encoder".into());
-    };
-
     // A file already there is left alone, as in a plain copy — but the test
     // cannot be the size, which for an encoder's output is a guess. Existence
-    // and a non-empty length is what can honestly be checked, so an
+    // and a non-empty length is what can honestly be checked, so
     // complete-looking outputs can resume without encoding, and --replace
     // explicitly refreshes an empty output or a changed recipe.
-    if !replace
-        && !verify_existing
-        && let Ok(existing) = std::fs::metadata(&target)
-        && existing.is_file()
-        && existing.len() > 0
-    {
+    if !replace && !verify_existing && encoded_output_is_present(&target) {
         return Ok(copy::Wrote::Skipped);
     }
     if !replace && !verify_existing && target.exists() {
@@ -740,6 +737,9 @@ fn write_one(
             target.display()
         ));
     }
+    let Some(ffmpeg) = ffmpeg else {
+        return Err("no encoder".into());
+    };
     let temporary = copy::TemporaryOutput::new(&target)?;
     transcode::convert(
         ffmpeg,
@@ -763,6 +763,11 @@ fn write_one(
     }
     publish(temporary, replace)?;
     Ok(copy::Wrote::Copied)
+}
+
+/// The nonempty ordinary-file resume heuristic, shared by preflight and workers.
+fn encoded_output_is_present(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
 }
 
 fn publish(temporary: copy::TemporaryOutput, replace: bool) -> Result<(), String> {

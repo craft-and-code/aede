@@ -443,28 +443,15 @@ impl FfmpegStream {
             let _ = child.wait();
             return Err(Error::External("ffmpeg did not open its PCM pipe".into()));
         };
-        let Some(mut stderr) = child.stderr.take() else {
+        let Some(stderr) = child.stderr.take() else {
             let _ = child.kill();
             let _ = child.wait();
             return Err(Error::External("ffmpeg did not open its error pipe".into()));
         };
         let stderr = match std::thread::Builder::new()
             .name("aede-ffmpeg-errors".into())
-            .spawn(move || {
-                let mut tail = Vec::new();
-                let mut buffer = [0; 1024];
-                loop {
-                    let count = stderr.read(&mut buffer)?;
-                    if count == 0 {
-                        break;
-                    }
-                    tail.extend_from_slice(&buffer[..count]);
-                    if tail.len() > 4096 {
-                        tail.drain(..tail.len() - 4096);
-                    }
-                }
-                Ok(tail)
-            }) {
+            .spawn(move || crate::ffmpeg::diagnostic_tail(stderr))
+        {
             Ok(handle) => handle,
             Err(error) => {
                 let _ = child.kill();

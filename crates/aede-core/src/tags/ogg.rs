@@ -98,6 +98,7 @@ impl PreSkip for RawTags {
 
 struct Page<'a> {
     serial: u32,
+    granule: u64,
     /// Whether the first packet of this page continues the previous packet.
     continued: bool,
     segments: Vec<&'a [u8]>,
@@ -106,10 +107,16 @@ struct Page<'a> {
 }
 
 fn parse_pages(data: &[u8]) -> Vec<Page<'_>> {
+    parse_page_window(data, false)
+}
+
+/// A tail starts at an unknown boundary: accept only checksum-valid pages when
+/// resynchronising. An aligned head remains a metadata-only structural read.
+fn parse_page_window(data: &[u8], resynchronise: bool) -> Vec<Page<'_>> {
     let mut pages = Vec::new();
     let mut offset = 0usize;
 
-    while offset + 27 <= data.len() {
+    'pages: while offset + 27 <= data.len() {
         if &data[offset..offset + 4] != b"OggS" {
             // Resynchronization: look for the next capture pattern.
             match find(&data[offset + 1..], b"OggS") {
@@ -130,6 +137,10 @@ fn parse_pages(data: &[u8]) -> Vec<Page<'_>> {
         let segment_count = data[offset + 26] as usize;
         let table_start = offset + 27;
         if table_start + segment_count > data.len() {
+            if resynchronise {
+                offset += 4;
+                continue;
+            }
             break;
         }
         let table = &data[table_start..table_start + segment_count];
@@ -140,6 +151,10 @@ fn parse_pages(data: &[u8]) -> Vec<Page<'_>> {
         for &len in table {
             let len = len as usize;
             if body + len > data.len() {
+                if resynchronise {
+                    offset += 4;
+                    continue 'pages;
+                }
                 return pages;
             }
             segments.push(&data[body..body + len]);
@@ -147,8 +162,33 @@ fn parse_pages(data: &[u8]) -> Vec<Page<'_>> {
             last_full = len == 255;
         }
 
+        if resynchronise {
+            let checksum = u32::from_le_bytes([
+                data[offset + 22],
+                data[offset + 23],
+                data[offset + 24],
+                data[offset + 25],
+            ]);
+            if data[offset + 4] != 0
+                || crate::audit::crc::crc32_ogg_page(&data[offset..body]) != checksum
+            {
+                offset += 4;
+                continue;
+            }
+        }
+
         pages.push(Page {
             serial,
+            granule: u64::from_le_bytes([
+                data[offset + 6],
+                data[offset + 7],
+                data[offset + 8],
+                data[offset + 9],
+                data[offset + 10],
+                data[offset + 11],
+                data[offset + 12],
+                data[offset + 13],
+            ]),
             continued: header_type & 0x01 != 0,
             segments,
             last_segment_full: last_full,
@@ -239,38 +279,13 @@ fn read_opus_identification(packet: &[u8], tags: &mut RawTags) -> Option<u32> {
 
 /// Granule position of the last page of the wanted stream.
 fn last_granule(tail: &[u8], serial: u32) -> Option<u64> {
-    let mut found = None;
-    let mut offset = 0usize;
-    while let Some(pos) = find(&tail[offset..], b"OggS") {
-        let start = offset + pos;
-        if start + 27 > tail.len() {
-            break;
-        }
-        let page_serial = u32::from_le_bytes([
-            tail[start + 14],
-            tail[start + 15],
-            tail[start + 16],
-            tail[start + 17],
-        ]);
-        if page_serial == serial {
-            let granule = u64::from_le_bytes([
-                tail[start + 6],
-                tail[start + 7],
-                tail[start + 8],
-                tail[start + 9],
-                tail[start + 10],
-                tail[start + 11],
-                tail[start + 12],
-                tail[start + 13],
-            ]);
-            // -1 marks a page with no completed sample.
-            if granule != u64::MAX {
-                found = Some(granule);
-            }
-        }
-        offset = start + 4;
-    }
-    found
+    // Reuse complete page boundaries: an encoded packet may itself contain
+    // "OggS", and a truncated trailing header does not describe a complete page.
+    parse_page_window(tail, true)
+        .into_iter()
+        .filter(|page| page.serial == serial && page.granule != u64::MAX)
+        .map(|page| page.granule)
+        .next_back()
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {

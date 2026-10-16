@@ -290,3 +290,87 @@ fn a_file_with_no_picture_is_a_refusal_and_not_an_empty_file() {
     assert!(!dir.join("cover.jpg").exists());
     assert!(!dir.join("cover.png").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn embedded_artwork_readers_refuse_static_special_sources() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const WORKER_PATH: &str = "AEDE_ARTWORK_SPECIAL_TEST_PATH";
+    if let Some(path) = std::env::var_os(WORKER_PATH) {
+        let path = std::path::PathBuf::from(path);
+        let destination = path.parent().unwrap().join("refused-output");
+        assert!(pictures(&path).is_err());
+        assert!(embedded(&path).is_err());
+        assert!(extract_into(&path, &destination).is_err());
+        assert!(extract_extras_into(&path, &destination).is_err());
+        assert!(!destination.exists());
+        return;
+    }
+
+    let source = with_picture(
+        &format!("special-{}", std::process::id()),
+        "track.flac",
+        lofty::picture::PictureType::CoverFront,
+    )
+    .expect("FLAC must accept a picture");
+    let directory = source.parent().unwrap();
+    let original = std::fs::read(&source).unwrap();
+    let regular_link = directory.join("linked.FLAC");
+    std::os::unix::fs::symlink(&source, &regular_link).unwrap();
+    for path in [&source, &regular_link] {
+        assert_eq!(embedded(path).unwrap().as_deref(), Some(PNG));
+        let output = directory
+            .join(path.file_name().unwrap())
+            .with_extension("output");
+        let extracted = extract_into(path, &output).unwrap();
+        assert_eq!(std::fs::read(extracted).unwrap(), PNG);
+    }
+    let unknown_extension = directory.join("linked.unknown");
+    std::os::unix::fs::symlink(&source, &unknown_extension).unwrap();
+    assert!(pictures(&unknown_extension).is_err());
+    assert!(pictures(directory).is_err());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+
+    let fifo = directory.join("pipe.flac");
+    assert!(
+        Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let linked_fifo = directory.join("linked-pipe.flac");
+    std::os::unix::fs::symlink(&fifo, &linked_fifo).unwrap();
+    for path in [&fifo, &linked_fifo] {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "artwork::tests::embedded_artwork_readers_refuse_static_special_sources",
+                "--nocapture",
+            ])
+            .env(WORKER_PATH, path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let completed = loop {
+            if child.try_wait().unwrap().is_some() {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let output = child.wait_with_output().unwrap();
+        assert!(completed, "artwork reader blocked on {}", path.display());
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
+    }
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    std::fs::remove_dir_all(directory).unwrap();
+}

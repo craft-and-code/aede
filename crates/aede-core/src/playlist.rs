@@ -116,13 +116,20 @@ pub(crate) fn render_with_paths(
                 false => out.push_str(&format!("#EXTINF:{seconds},{artist} - {title}\n")),
             }
         }
-        if path.starts_with('#') {
-            out.push_str("./");
-        }
-        out.push_str(&path);
-        out.push('\n');
+        push_path(&mut out, &path);
     }
     out
+}
+
+/// Writes a path without exposing its first character to M3U line formatting.
+pub(crate) fn push_path(out: &mut String, path: &str) {
+    // An explicit relative prefix preserves literal initial characters that
+    // readers otherwise trim or interpret as a comment or file URI.
+    if path.starts_with('#') || path.starts_with(char::is_whitespace) || path.starts_with("file:") {
+        out.push_str("./");
+    }
+    out.push_str(path);
+    out.push('\n');
 }
 
 /// The path as the playlist should carry it.

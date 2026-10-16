@@ -87,6 +87,69 @@ fn two_identifiers_are_two_people_and_the_merge_is_refused() {
 }
 
 #[test]
+fn artist_aliases_cannot_bypass_the_distinct_identifier_refusal() {
+    let catalog = shelf(&[
+        ("O. Osbourne", Some("ozzy")),
+        ("Ozzy Osbourne", Some("ozzy")),
+        ("Neil Young", Some("neil")),
+    ]);
+    assert_eq!(catalog.artists.len(), 2);
+    assert!(catalog.artists[0].aliases.contains(&"ozzy osbourne".into()));
+    for (spelling, filed_as) in [
+        ("Ozzy Osbourne", "Neil Young"),
+        ("Neil Young", "Ozzy Osbourne"),
+    ] {
+        let path = scratch(spelling);
+        let mut data = UserData {
+            same_artist: vec![SameArtist {
+                owner: "other-listener".into(),
+                spelling: "another spelling".into(),
+                filed_as: "another artist".into(),
+                created_at: 1,
+            }],
+            ..Default::default()
+        };
+        user::save(&data, &path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let refusal = state(&catalog, &mut data, &path, spelling, filed_as)
+            .expect_err("an alias carries its artist's existing identifier");
+        assert!(refusal.to_string().contains("two people"), "{refusal}");
+        assert_eq!(data.same_artist.len(), 1);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+
+    let mut ambiguous = catalog.clone();
+    for artist in &mut ambiguous.artists {
+        artist.aliases.push("shared spelling".into());
+    }
+    for (spelling, filed_as) in [
+        ("Shared Spelling", "Neil Young"),
+        ("Neil Young", "Shared Spelling"),
+    ] {
+        let path = scratch(spelling);
+        let mut data = UserData::default();
+        let refusal = state(&ambiguous, &mut data, &path, spelling, filed_as)
+            .expect_err("an ambiguous alias must not choose the first matching artist");
+        assert!(refusal.to_string().contains("ambiguous"), "{refusal}");
+        assert!(data.same_artist.is_empty());
+        assert!(!path.exists());
+    }
+
+    let mut exact = catalog.clone();
+    exact.artists[1].aliases.push("o osbourne".into());
+    let path = scratch("exact");
+    let mut data = UserData::default();
+    let refusal = state(&exact, &mut data, &path, "O. Osbourne", "Neil Young")
+        .expect_err("an exact canonical key takes precedence over another artist's alias");
+    assert!(refusal.to_string().contains("two people"), "{refusal}");
+    assert!(!path.exists());
+
+    let path = scratch("unknown");
+    state(&catalog, &mut data, &path, "Unseen Spelling", "Neil Young").unwrap();
+    assert_eq!(data.same_artist.len(), 1);
+}
+
+#[test]
 fn one_identifier_and_one_silence_is_not_a_contradiction() {
     // The ordinary case: a well-tagged album and an old rip that carries
     // nothing. Refusing here would leave the very libraries this exists for
@@ -143,4 +206,43 @@ fn a_name_that_is_already_one_name_here_is_refused_rather_than_stored() {
         refusal.to_string().contains("already one name"),
         "{refusal}"
     );
+}
+
+#[test]
+fn artist_filing_reads_and_forgets_only_the_local_owners_statements() {
+    let path = scratch("owners");
+    let local = SameArtist {
+        owner: user::LOCAL_USER.into(),
+        spelling: "o osbourne".into(),
+        filed_as: "ozzy osbourne".into(),
+        created_at: 1,
+    };
+    let other = SameArtist {
+        owner: "other-listener".into(),
+        spelling: local.spelling.clone(),
+        filed_as: "ozzy".into(),
+        created_at: 2,
+    };
+    let mut data = UserData {
+        same_artist: vec![local.clone(), other.clone()],
+        ..Default::default()
+    };
+    user::save(&data, &path).unwrap();
+    let scan_choices = stated(path.parent().unwrap());
+    let args = Args::parse(["merge", "--forget", "O. Osbourne"].map(str::to_string));
+    forget(&args, &mut data, &path).unwrap();
+    let retained = user::load(&path).unwrap().unwrap().same_artist;
+
+    assert_eq!(
+        (scan_choices, retained),
+        (
+            vec![aede_core::model::identity::Chosen {
+                spelling: local.spelling,
+                filed_as: local.filed_as,
+            }],
+            vec![other],
+        ),
+        "another owner's filing rule neither reaches the scan nor disappears on local removal"
+    );
+    assert!(chosen(&data).is_empty());
 }

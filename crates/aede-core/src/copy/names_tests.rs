@@ -54,6 +54,25 @@ fn a_device_name_is_refused_whatever_the_extension() {
 }
 
 #[test]
+fn a_device_name_stays_reserved_before_multiple_or_long_extensions() {
+    for (name, adapted) in [
+        ("CON.foo.bar", "CON_.foo.bar"),
+        ("aux.log.txt", "aux_.log.txt"),
+        ("NUL.abcdefghijklmn", "NUL_.abcdefghijklmn"),
+        ("COM1.album.flac", "COM1_.album.flac"),
+    ] {
+        assert_eq!(adapt(name).as_deref(), Some(adapted), "{name}");
+    }
+    for name in [
+        "Concert.foo.bar",
+        "Nullify.abcdefghijklmn",
+        "Vol. 1 Live.flac",
+    ] {
+        assert_eq!(adapt(name), None, "{name} is not a reserved device");
+    }
+}
+
+#[test]
 fn an_overlong_name_keeps_its_extension() {
     // Cutting the tail would take the extension with it, and a player that
     // sorts by extension would lose the track entirely.
@@ -72,6 +91,41 @@ fn a_name_is_cut_on_a_character_and_not_in_the_middle_of_one() {
         let adapted = adapt(&long).expect("too long");
         assert!(adapted.len() <= MAX_COMPONENT);
         assert!(adapted.ends_with(".flac"));
+    }
+}
+
+#[test]
+fn shortening_does_not_expose_a_trailing_dot_or_space() {
+    let prefix = "é".repeat(127);
+    for ending in ['.', ' '] {
+        let name = format!("{prefix}{ending}é");
+        let adapted = adapt(&name).expect("the component exceeds the byte limit");
+        assert_eq!(adapted, prefix);
+        assert!(adapted.len() <= MAX_COMPONENT);
+        assert_eq!(adapt(&adapted), None, "an adapted name stays acceptable");
+    }
+    let name = format!("{prefix}.flac");
+    let adapted = adapt(&name).expect("the component exceeds the byte limit");
+    assert!(adapted.len() <= MAX_COMPONENT);
+    assert!(adapted.ends_with(".flac"));
+    assert_eq!(adapt(&adapted), None);
+
+    for name in [
+        format!("CON{}x", " ".repeat(252)),
+        format!("CON{}é", " ".repeat(251)),
+    ] {
+        let adapted = adapt(&name).expect("the component exceeds the byte limit");
+        assert_eq!(adapted, "CON_");
+        assert_eq!(adapt(&adapted), None);
+    }
+    for name in [
+        format!("CON.{}.flac", "é".repeat(127)),
+        format!("NUL.{}", "é".repeat(127)),
+        format!("COM1.{}.extensiontoolong", "a".repeat(250)),
+    ] {
+        let adapted = adapt(&name).expect("the component needs adaptation");
+        assert!(adapted.len() <= MAX_COMPONENT);
+        assert_eq!(adapt(&adapted), None, "{adapted}");
     }
 }
 

@@ -318,6 +318,7 @@ pub fn list_artists(args: &Args) -> Res {
         );
     }
 
+    super::refuse_output_without_a_format(args)?;
     // "3 in total" over one row is a count contradicting the rows under it.
     // The unfiltered listing can say how many the library holds, because that
     // is what it is showing; the moment anything narrows it, the number has to
@@ -489,6 +490,7 @@ pub fn list_albums(args: &Args) -> Res {
         return export::albums_table(&catalog, &ids, args);
     }
 
+    super::refuse_output_without_a_format(args)?;
     let heading = if compilations_only {
         "Compilations"
     } else if albums_only {
@@ -589,6 +591,7 @@ pub fn list_genres(args: &Args) -> Res {
             args,
         );
     }
+    super::refuse_output_without_a_format(args)?;
     println!(
         "{}",
         ui::section(&format!("Genres ({} in total)", catalog.genres.len()))
@@ -631,7 +634,7 @@ pub fn list_labels(args: &Args) -> Res {
         Order::Size,
     ];
     if let Some(ordering) = order(args, LABEL_ORDERS)? {
-        put_in_order(&mut top, ordering, |&(id, count)| {
+        put_in_order(&mut top, ordering, |&(id, _)| {
             let tracks = tracks_of_label(&catalog, id);
             let (duration, size) = totals(&catalog, &tracks);
             let albums = catalog
@@ -643,7 +646,7 @@ pub fn list_labels(args: &Args) -> Res {
                 .label(id)
                 .map(|l| l.name.clone())
                 .unwrap_or_default();
-            (name.clone(), name, count, albums, duration, size, 0)
+            (name.clone(), name, tracks.len(), albums, duration, size, 0)
         });
     }
     if args.has("csv") || args.has("json") {
@@ -672,6 +675,7 @@ pub fn list_labels(args: &Args) -> Res {
             args,
         );
     }
+    super::refuse_output_without_a_format(args)?;
     println!(
         "{}",
         ui::section(&format!("Labels ({} in total)", catalog.labels.len()))
@@ -762,6 +766,7 @@ pub fn list_years(args: &Args) -> Res {
         );
     }
 
+    super::refuse_output_without_a_format(args)?;
     println!("{}", ui::section("Years"));
     let mut t = Table::new(&["Year", "Albums", "Tracks", "Duration", "Size", ""])
         .align(1, Align::Right)
@@ -905,6 +910,7 @@ pub fn list_countries(args: &Args) -> Res {
         );
     }
 
+    super::refuse_output_without_a_format(args)?;
     println!(
         "{}",
         ui::section(&format!("Countries ({} in total)", places.len()))

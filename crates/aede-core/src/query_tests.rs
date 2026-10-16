@@ -469,6 +469,60 @@ fn who_is_audible_is_its_own_question() {
 }
 
 #[test]
+fn merged_artist_aliases_remain_valid_role_and_participation_queries() {
+    let catalog = model::build(
+        vec![
+            model::tests::track(
+                "/music/A/01.flac",
+                &[
+                    ("title", "Guest song"),
+                    ("artist", "Band"),
+                    ("albumartist", "Band"),
+                    ("album", "Record"),
+                    ("performer", "O. Osbourne"),
+                    ("composer", "O. Osbourne"),
+                ],
+                60_000,
+            ),
+            model::tests::track(
+                "/music/B/01.flac",
+                &[("title", "Solo song"), ("artist", "Ozzy Osbourne")],
+                60_000,
+            ),
+        ],
+        vec!["/music".into()],
+        0,
+        &[model::identity::Chosen {
+            spelling: "o osbourne".into(),
+            filed_as: "ozzy osbourne".into(),
+        }],
+    );
+    let data = UserData::default();
+    let context = Context::new(&catalog, &data, LOCAL_USER);
+    for (field, expected) in [
+        ("performing", vec![0, 1]),
+        ("mainartist", vec![1]),
+        ("performer", vec![0]),
+        ("composer", vec![0]),
+        ("guest", vec![0]),
+        ("contributor", vec![0]),
+        ("with", vec![0]),
+        ("compilationartist", vec![]),
+    ] {
+        let query = parse(&format!("{field}:\"O. Osbourne\"")).unwrap();
+        assert_eq!(run(&query, &context), expected, "{field}");
+        assert!(
+            unknown_values(&query, &context).is_empty(),
+            "{field}: a merged spelling is still a known artist"
+        );
+    }
+    assert_eq!(
+        unknown_values(&parse("performer:\"Absent Artist\"").unwrap(), &context),
+        [("artist".into(), "absent artist".into())]
+    );
+}
+
+#[test]
 fn classical_roles_remain_separately_queryable() {
     let catalog = model::build(
         vec![model::tests::track(

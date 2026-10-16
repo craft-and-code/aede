@@ -4,6 +4,8 @@ relation opens the exact edge ID copied from relations and shows its endpoints a
 
 --remove alone removes the whole personal annotation. --tag LABEL --remove removes only those labels. Combining a new note with a removal is refused. If the graph edge has disappeared, its retained annotation ID can still be used for removal, so personal data is not stranded.
 
+An ID prefix matching several current edges is ambiguous and refused for removal as well as inspection. An ambiguous live selection is never treated as a disappeared edge.
+
 This is the right place for “verify against booklet” or “interesting collaboration”. It is not a graph-editing command: use credit to exclude or correct a sourced credit and review to decide whether a proposed identity is trusted.
 
 ## Syntax and arguments

@@ -8,6 +8,8 @@ The command needs write access to the album/sidecar directory but only reads aud
 
 Alias: `aede artwork`. Options and behavior are identical.
 
+Audio sources must be ordinary files, including links to ordinary files. A static FIFO or directory is refused before opening; the checked descriptor retains the existing extension-based format selection. This does not close concurrent path-replacement races.
+
 ## Syntax and arguments
 
 ```text

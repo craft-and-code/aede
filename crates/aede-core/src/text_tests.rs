@@ -194,6 +194,28 @@ fn artist_splitting() {
 }
 
 #[test]
+fn feature_markers_preserve_unicode_names_and_their_original_byte_boundaries() {
+    for (raw, names) in [
+        ("İlhan feat. Öz", vec!["İlhan", "Öz"]),
+        ("İlhan FeAt. Guest", vec!["İlhan", "Guest"]),
+        ("K feat. Guest", vec!["K", "Guest"]),
+    ] {
+        assert_eq!(split_artists(raw), names, "{raw}");
+    }
+}
+
+#[test]
+fn the_first_feature_marker_keeps_its_length_when_another_marker_follows() {
+    for raw in [
+        "First feat. Second w/Third",
+        "First feat. Second featuring Third",
+    ] {
+        let expected = raw.strip_prefix("First feat. ").unwrap();
+        assert_eq!(split_artists(raw), vec!["First", expected], "{raw}");
+    }
+}
+
+#[test]
 fn sort_names() {
     assert_eq!(sort_name("The Beatles"), "Beatles, The");
     assert_eq!(sort_name("Miles Davis"), "Miles Davis");

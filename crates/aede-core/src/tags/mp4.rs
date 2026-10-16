@@ -48,36 +48,20 @@ fn walk(
     }
     let mut offset = start;
 
-    while end.saturating_sub(offset) >= 8 {
-        let header = read_at(file, offset, 8)?;
-        let mut size = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as u64;
-        let kind = [header[4], header[5], header[6], header[7]];
-        let mut body = offset + 8;
-
-        if size == 1 {
-            // Size extended to 64 bits.
-            if end - offset < 16 {
-                return Err(TagError::Malformed("truncated extended MP4 box header"));
-            }
-            let large = read_at(file, offset + 8, 8)?;
-            size = u64::from_be_bytes([
-                large[0], large[1], large[2], large[3], large[4], large[5], large[6], large[7],
-            ]);
-            body = offset + 16;
-        } else if size == 0 {
-            size = end - offset; // the box runs to the end
-        }
-
-        // Extended sizes include their 16-byte header. Check the enclosing
-        // range before subtracting its body or following the next box.
-        let body_end = offset
-            .checked_add(size)
-            .filter(|&limit| size >= body - offset && limit <= end)
-            .ok_or(TagError::Malformed("invalid MP4 box size"))?;
-
+    while let Some(BoxRange {
+        kind,
+        body,
+        end: body_end,
+    }) = read_box_range(file, offset, end)?
+    {
         match &kind {
             // Pure containers: descend straight into them.
-            b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl" | b"udta" => {
+            b"moov" | b"mdia" | b"minf" | b"stbl" | b"udta" => {
+                walk(file, body, body_end, depth + 1, tags)?;
+            }
+            // Video and chapter tracks have sample descriptions too. Their
+            // layouts must never be interpreted as AudioSampleEntry fields.
+            b"trak" if track_is_audio(file, body, body_end)? => {
                 walk(file, body, body_end, depth + 1, tags)?;
             }
             // `meta` carries 4 bytes of version/flags before its children.
@@ -107,6 +91,61 @@ fn walk(
         offset = body_end;
     }
     Ok(())
+}
+
+struct BoxRange {
+    kind: [u8; 4],
+    body: u64,
+    end: u64,
+}
+
+fn read_box_range(file: &mut File, offset: u64, end: u64) -> Result<Option<BoxRange>, TagError> {
+    if end.saturating_sub(offset) < 8 {
+        return Ok(None);
+    }
+    let header = read_at(file, offset, 8)?;
+    let mut size = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as u64;
+    let kind = [header[4], header[5], header[6], header[7]];
+    let mut body = offset + 8;
+    if size == 1 {
+        if end - offset < 16 {
+            return Err(TagError::Malformed("truncated extended MP4 box header"));
+        }
+        let large = read_at(file, offset + 8, 8)?;
+        size = u64::from_be_bytes([
+            large[0], large[1], large[2], large[3], large[4], large[5], large[6], large[7],
+        ]);
+        body = offset + 16;
+    } else if size == 0 {
+        size = end - offset;
+    }
+    let end = offset
+        .checked_add(size)
+        .filter(|&limit| size >= body - offset && limit <= end)
+        .ok_or(TagError::Malformed("invalid MP4 box size"))?;
+    Ok(Some(BoxRange { kind, body, end }))
+}
+
+fn track_is_audio(file: &mut File, start: u64, end: u64) -> Result<bool, TagError> {
+    let mut offset = start;
+    while let Some(track_child) = read_box_range(file, offset, end)? {
+        if &track_child.kind == b"mdia" {
+            let mut media_offset = track_child.body;
+            while let Some(media_child) = read_box_range(file, media_offset, track_child.end)? {
+                if &media_child.kind == b"hdlr" {
+                    let handler = read_at_most(
+                        file,
+                        media_child.body,
+                        (media_child.end - media_child.body).min(12) as usize,
+                    )?;
+                    return Ok(handler.get(8..12) == Some(b"soun"));
+                }
+                media_offset = media_child.end;
+            }
+        }
+        offset = track_child.end;
+    }
+    Ok(false)
 }
 
 fn read_mvhd(data: &[u8], tags: &mut RawTags) {
@@ -202,14 +241,19 @@ fn read_stsd(data: &[u8], tags: &mut RawTags) {
     // The ALAC "magic cookie" gives the exact bit depth and sample rate, which
     // are more reliable than the AudioSampleEntry: it often saturates at
     // 16 bits / 44.1 kHz.
-    let limit = (entry_size as usize).min(c.remaining() + c.position());
+    // The entry starts after the stsd flags/count, not at offset zero. Keep
+    // child boxes inside it so a following description cannot supply a cookie.
+    let limit = 8usize.saturating_add(entry_size as usize).min(data.len());
     while c.position() + 8 <= limit {
         let Some(size) = c.u32_be() else { break };
         let Some(kind) = c.take(4) else { break };
         if size < 8 {
             break;
         }
-        let payload_len = (size as usize - 8).min(c.remaining());
+        let payload_len = size as usize - 8;
+        if payload_len > limit.saturating_sub(c.position()) {
+            break;
+        }
         if kind == b"alac" {
             let Some(cookie) = c.take(payload_len) else {
                 break;
@@ -217,8 +261,100 @@ fn read_stsd(data: &[u8], tags: &mut RawTags) {
             read_alac_cookie(cookie, tags);
             break;
         }
+        if kind == b"esds" && format == *b"mp4a" {
+            let Some(config) = c.take(payload_len) else {
+                break;
+            };
+            if let Some(rate) = high_aac_rate(config) {
+                tags.properties.sample_rate = Some(rate);
+            }
+            continue;
+        }
         c.skip(payload_len);
     }
+}
+
+// The 16.16 sample-entry field cannot represent rates above 65535 Hz. Read
+// those from AAC's decoder configuration. For lower rates retain the existing
+// entry: implicit HE-AAC can declare a core rate below its actual output rate,
+// and parsing that extension requires more than this metadata correction.
+fn high_aac_rate(data: &[u8]) -> Option<u32> {
+    use symphonia::core::io::{BitReaderLtr, ReadBitsLtr};
+
+    fn frequency(bits: &mut BitReaderLtr<'_>) -> Option<u32> {
+        const RATES: [u32; 13] = [
+            96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025,
+            8_000, 7_350,
+        ];
+        let index = bits.read_bits_leq32(4).ok()?;
+        if index == 15 {
+            bits.read_bits_leq32(24).ok().filter(|rate| *rate > 0)
+        } else {
+            RATES.get(index as usize).copied()
+        }
+    }
+
+    let mut outer = Cursor::new(data);
+    if outer.u32_be()? != 0 {
+        return None;
+    }
+    let mut elementary = Cursor::new(descriptor(outer.take(outer.remaining())?, 3)?);
+    elementary.u16_be()?;
+    let flags = elementary.u8()?;
+    if flags & 0x80 != 0 {
+        elementary.take(2)?;
+    }
+    if flags & 0x40 != 0 {
+        let length = elementary.u8()? as usize;
+        elementary.take(length)?;
+    }
+    if flags & 0x20 != 0 {
+        elementary.take(2)?;
+    }
+    let mut decoder = Cursor::new(descriptor(elementary.take(elementary.remaining())?, 4)?);
+    if !matches!(decoder.u8()?, 0x40 | 0x66 | 0x67 | 0x68) {
+        return None;
+    }
+    decoder.take(12)?; // stream type, buffer size, maximum/average bitrate
+    let config = descriptor(decoder.take(decoder.remaining())?, 5)?;
+    let mut bits = BitReaderLtr::new(config);
+    let mut object = bits.read_bits_leq32(5).ok()?;
+    let mut rate = frequency(&mut bits)?;
+    bits.read_bits_leq32(4).ok()?; // channel configuration must be present
+    if matches!(object, 5 | 29) {
+        rate = frequency(&mut bits)?;
+        object = bits.read_bits_leq32(5).ok()?;
+    }
+    // Only the AAC object types whose frequency prefix is handled here.
+    (matches!(object, 1..=4 | 17 | 19 | 20 | 23) && rate > u16::MAX as u32).then_some(rate)
+}
+
+// MPEG-4 descriptor sizes carry seven bits in at most four bytes. Each level
+// is sliced before inspecting children; no recursive walk or resynchronisation
+// into an unrelated descriptor can turn truncated data into a frequency.
+fn descriptor(data: &[u8], wanted: u8) -> Option<&[u8]> {
+    let mut cursor = Cursor::new(data);
+    while cursor.remaining() > 0 {
+        let kind = cursor.u8()?;
+        let mut size = 0usize;
+        let mut complete = false;
+        for _ in 0..4 {
+            let part = cursor.u8()?;
+            size = (size << 7) | usize::from(part & 0x7f);
+            if part & 0x80 == 0 {
+                complete = true;
+                break;
+            }
+        }
+        if !complete {
+            return None;
+        }
+        let value = cursor.take(size)?;
+        if kind == wanted {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn read_alac_cookie(data: &[u8], tags: &mut RawTags) {
@@ -394,6 +530,8 @@ fn read_freeform(payload: &[u8], tags: &mut RawTags) {
     }
 }
 
+// Keep raw aliases until insertion: normalizing a release-track ID twice
+// would reinterpret it as the recording identifier.
 fn freeform_key(name: &str) -> String {
     let lower = name.trim().to_lowercase();
     match lower.as_str() {
@@ -402,6 +540,7 @@ fn freeform_key(name: &str) -> String {
         "musicbrainz album artist id" => "musicbrainz_albumartistid".into(),
         "musicbrainz release group id" => "musicbrainz_releasegroupid".into(),
         "musicbrainz track id" => "musicbrainz_recordingid".into(),
+        "musicbrainz release track id" => "musicbrainz_releasetrackid".into(),
         "musicbrainz work id" => "musicbrainz_workid".into(),
         "musicbrainz label id" => "musicbrainz_labelid".into(),
         "acoustid id" => "acoustid_id".into(),
@@ -409,7 +548,7 @@ fn freeform_key(name: &str) -> String {
         "label" => "label".into(),
         "isrc" => "isrc".into(),
         "barcode" => "barcode".into(),
-        other => super::canonical_key(other),
+        other => other.to_string(),
     }
 }
 

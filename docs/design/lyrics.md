@@ -37,6 +37,8 @@ it exists precisely to shift a timing made against another encoding.
 
 The static lyrics reader reads at most 256 KiB from a sidecar. Repeated timestamps share a text budget across the whole song: 1 MiB for sidecars, and the greater of 1 MiB or four times the input's UTF-8 byte length for tag lyrics. If expanding a line would exceed the remaining budget, that line is kept once as literal, unsynchronized text, including every original timestamp and word. Space is reserved for later lines so an oversized chorus cannot hide the rest of the song. Ordinary twice-timed choruses still produce both timed lines. Invalid timestamps that cannot fit in milliseconds likewise remain readable as literal text. Playback and the native lyrics API use a complete, bounded read and refuse excessive expansion instead of degrading its timing.
 
+The static reader checks for an ordinary file before opening it and checks the opened descriptor again. A catalogued sidecar replaced by a FIFO is refused instead of waiting for a writer; symbolic links to ordinary files remain readable. These checks do not guarantee protection against a concurrent replacement between the metadata check and opening the path.
+
 **Where they live follows the rule the rest of the catalog follows.** Tag lyrics
 are already in it, because raw tags are kept per file. A sidecar is not in the
 file, so storing its text as though it were a tag would make the catalog lie

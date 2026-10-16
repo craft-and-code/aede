@@ -49,9 +49,15 @@ pub fn read_wav(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
                 let rate = c.u32_le().ok_or_else(truncated)?;
                 byte_rate = c.u32_le().ok_or_else(truncated)?;
                 c.u16_le().ok_or_else(truncated)?; // block alignment
-                let bits = c.u16_le().ok_or_else(truncated)?;
+                let mut bits = c.u16_le().ok_or_else(truncated)?;
                 if format == 0xfffe {
-                    format = extensible_subtype(&mut c)?;
+                    let (subtype, valid_bits) = extensible_subtype(&mut c)?;
+                    format = subtype;
+                    // The extensible format separates sample precision from
+                    // the padded storage width used by block alignment.
+                    if format == 1 && valid_bits > 0 && valid_bits <= bits {
+                        bits = valid_bits;
+                    }
                 }
 
                 if channels > 0 {
@@ -106,22 +112,23 @@ pub fn read_wav(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
 /// standard WAVEFORMATEX suffix permits interpreting its first word as a
 /// format tag; an unknown GUID remains unknown and is never called lossless.
 /// See <https://learn.microsoft.com/en-us/windows/win32/api/mmreg/ns-mmreg-waveformatextensible>.
-fn extensible_subtype(cursor: &mut Cursor<'_>) -> Result<u16, TagError> {
+fn extensible_subtype(cursor: &mut Cursor<'_>) -> Result<(u16, u16), TagError> {
     let truncated = || TagError::Malformed("truncated extensible WAV format");
     let extension_size = cursor.u16_le().ok_or_else(truncated)?;
     if extension_size < 22 {
         return Err(TagError::Malformed("undersized extensible WAV format"));
     }
-    cursor.u16_le().ok_or_else(truncated)?; // valid bits per sample
+    let valid_bits = cursor.u16_le().ok_or_else(truncated)?;
     cursor.u32_le().ok_or_else(truncated)?; // channel mask
     let subtype = cursor.u32_le().ok_or_else(truncated)?;
     let suffix = cursor.take(12).ok_or_else(truncated)?;
     const WAVEFORMATEX_SUFFIX: &[u8] = &[0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71];
-    Ok(if suffix == WAVEFORMATEX_SUFFIX {
+    let format = if suffix == WAVEFORMATEX_SUFFIX {
         u16::try_from(subtype).unwrap_or(0xfffe)
     } else {
         0xfffe
-    })
+    };
+    Ok((format, valid_bits))
 }
 
 /// `LIST/INFO` chunk: the handful of standard WAV fields.
@@ -165,7 +172,9 @@ fn read_info_list(data: &[u8], tags: &mut RawTags) {
 /// little, so most real files are described by their `ID3 ` chunk. An AIFC
 /// compression name in `COMM` overrides the `pcm` default. Integer PCM and the
 /// known `fl32`/`fl64` floating PCM encodings remain lossless; other encodings
-/// are not assumed to preserve samples.
+/// are not assumed to preserve samples. Their packet counts and sample-size
+/// fields do not necessarily describe decoded PCM, so duration and bit depth
+/// remain unknown for those codecs.
 pub fn read_aiff(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
     let mut tags = RawTags::default();
     tags.properties.container = "aiff".into();
@@ -195,24 +204,29 @@ pub fn read_aiff(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
                 let bits = c.u16_be().unwrap_or(0);
                 let rate = c.take(10).and_then(extended80_to_f64).unwrap_or(0.0);
 
-                if channels > 0 {
-                    tags.properties.channels = Some(channels);
-                }
-                if bits > 0 {
-                    tags.properties.bit_depth = Some(bits);
-                }
-                if rate > 0.0 {
-                    tags.properties.sample_rate = Some(rate.round() as u32);
-                    tags.properties.duration_ms = Some((frames as f64 * 1000.0 / rate) as u64);
-                    let bitrate = rate * channels as f64 * bits as f64 / 1000.0;
-                    tags.properties.bitrate_kbps = Some(bitrate as u32);
-                }
-                // AIFC: the real codec follows, on 4 bytes.
+                // AIFC: the real codec follows, on 4 bytes. Only known PCM
+                // encodings share the duration and precision rules below.
                 if let Some(codec) = c.take(4) {
                     let name = String::from_utf8_lossy(codec).trim().to_lowercase();
                     if !name.is_empty() && name != "none" && name != "sowt" {
                         tags.properties.lossless = matches!(name.as_str(), "fl32" | "fl64");
                         tags.properties.codec = name;
+                    }
+                }
+                if channels > 0 {
+                    tags.properties.channels = Some(channels);
+                }
+                if rate > 0.0 {
+                    tags.properties.sample_rate = Some(rate.round() as u32);
+                }
+                if tags.properties.lossless {
+                    if bits > 0 {
+                        tags.properties.bit_depth = Some(bits);
+                    }
+                    if rate > 0.0 {
+                        tags.properties.duration_ms = Some((frames as f64 * 1000.0 / rate) as u64);
+                        let bitrate = rate * channels as f64 * bits as f64 / 1000.0;
+                        tags.properties.bitrate_kbps = Some(bitrate as u32);
                     }
                 }
             }
