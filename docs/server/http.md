@@ -70,6 +70,8 @@ Administrative authentication, body validation and task-specific errors are expl
 
 With no [account store](accounts.md) on first access in a fresh local HTTP process, catalog reads need no token and may reveal music paths, comments and names to other processes/users on this computer. Once the process has observed the store, catalog reads require a bearer session or, on local HTTP, administrative token; a missing or unreadable store then fails closed until the process stops. Restarting local HTTP without the store restores anonymous compatibility mode. An unreadable store fails closed even on first access. [HTTPS](remote.md) always requires accounts, accepts only sessions and validates Host and supplied Origin against its configured authority. HTTP stays restricted to loopback. Neither transport grants cross-origin permission.
 
+Native artwork, lyrics and waveform reads recheck the admitted access after their blocking work and before publishing the prepared response. An initially anonymous request is refused if account mode activates while it waits; a captured session must still be valid. The existing local administrative-token route remains separate from HTTPS session-only access.
+
 Never embed a secret in a web page or URL. Legacy administrative-token requests refuse every Origin header; account sessions follow the transport's same-origin check. A future website/player still needs its own login/cookie design.
 
 ## Route map

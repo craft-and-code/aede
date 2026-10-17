@@ -320,6 +320,142 @@ fn labels_sort_track_and_album_counts_independently_with_stable_pages() {
 }
 
 #[test]
+fn sourced_country_exports_keep_sorted_windows_and_numeric_totals() {
+    use aede_core::model::EntityKind;
+    use aede_core::sources::{ArtistFacts, Confidence, Facts, SourceRecord, Sources};
+    use aede_core::user::EntityRef;
+
+    let library = Library::new();
+    let catalog_path = store::catalog_path(&library.0);
+    let mut catalog = store::load(&catalog_path).unwrap().unwrap();
+    for (file, size) in catalog.files.iter_mut().zip([20, 30, 10]) {
+        file.size = size;
+    }
+    for (track, duration) in catalog.tracks.iter_mut().zip([1000, 2000, 10000]) {
+        track.duration_ms = Some(duration);
+    }
+    store::save(&catalog, &catalog_path).unwrap();
+    let mut held = Sources::default();
+    for artist in &catalog.artists {
+        let (area, code) = if artist.name == "Gamma" {
+            ("United Kingdom", "GB")
+        } else {
+            ("France", "FR")
+        };
+        held.set(SourceRecord {
+            key: EntityRef::of(&catalog, EntityKind::Artist, artist.id)
+                .unwrap()
+                .key,
+            source: aede_core::sources::MUSICBRAINZ.into(),
+            source_id: None,
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Artist(ArtistFacts {
+                area: Some(area.into()),
+                country_code: Some(code.into()),
+                ..Default::default()
+            }),
+        });
+    }
+    aede_core::sources::save(&held, &aede_core::sources::sources_path(&library.0)).unwrap();
+    let snapshots = || {
+        [
+            "catalog.json",
+            "conclusions.json",
+            "sources.json",
+            "user.json",
+        ]
+        .map(|name| std::fs::read(library.0.join(name)).ok())
+    };
+    let before = snapshots();
+    let run = |extra: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_aede"))
+            .args(["countries", "--data"])
+            .arg(&library.0)
+            .args(extra)
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap();
+        assert_eq!(snapshots(), before, "changed stores for {extra:?}");
+        output
+    };
+    let text = |extra: &[&str]| {
+        let output = run(extra);
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let names = |report: &json::Json| {
+        report
+            .as_arr()
+            .unwrap()
+            .iter()
+            .map(|row| row.field_str("country").unwrap())
+            .collect::<Vec<_>>()
+    };
+    let page = json::parse(&text(&["--json", "--sort=name", "--offset=1", "--limit=1"])).unwrap();
+    assert_eq!(names(&page), ["United Kingdom"]);
+    let row = &page.as_arr().unwrap()[0];
+    for (key, value) in [
+        ("artists", 1),
+        ("tracks", 1),
+        ("duration_ms", 10000),
+        ("size_bytes", 10),
+    ] {
+        assert_eq!(row.field_u64(key), Some(value));
+    }
+    assert_eq!(row.field_str("iso_code").as_deref(), Some("gb"));
+    assert_eq!(row.field_str("initials").as_deref(), Some("uk"));
+    let header = "country,iso_code,initials,artists,tracks,duration_ms,size_bytes\r\n";
+    assert_eq!(
+        text(&["--csv", "--sort=name", "--offset=1", "--limit=1"]),
+        format!("{header}United Kingdom,gb,uk,1,1,10000,10\r\n")
+    );
+    let human = text(&["--sort=name", "--offset=1", "--limit=1"]);
+    assert!(human.contains("United Kingdom"));
+    assert!(!human.contains("France"));
+    for (sort, expected) in [
+        ("name", ["France", "United Kingdom"]),
+        ("name-", ["United Kingdom", "France"]),
+        ("albums", ["France", "United Kingdom"]),
+        ("albums-", ["United Kingdom", "France"]),
+        ("tracks", ["France", "United Kingdom"]),
+        ("tracks-", ["United Kingdom", "France"]),
+        ("duration", ["United Kingdom", "France"]),
+        ("duration-", ["France", "United Kingdom"]),
+        ("size", ["France", "United Kingdom"]),
+        ("size-", ["United Kingdom", "France"]),
+    ] {
+        let option = format!("--sort={sort}");
+        let all = json::parse(&text(&["--json", &option, "--all"])).unwrap();
+        assert_eq!(names(&all), expected, "{sort}");
+        let tail = json::parse(&text(&["--json", &option, "--all", "--offset=1"])).unwrap();
+        assert_eq!(names(&tail), expected[1..], "{sort}");
+    }
+    let empty = json::parse(&text(&["--json", "--offset=99"])).unwrap();
+    assert!(empty.as_arr().unwrap().is_empty());
+    assert_eq!(text(&["--csv", "--offset=99"]), header);
+    for format in ["--json", "--csv"] {
+        let path = library.0.join(format!("country-page-{format}.txt"));
+        let notice = text(&[
+            format,
+            "--sort=name",
+            "--offset=1",
+            "--limit=1",
+            "--output",
+            path.to_str().unwrap(),
+        ]);
+        assert!(notice.contains("written to"), "{notice}");
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("United Kingdom") && !saved.contains("France"));
+        for window in ["--limit=0", "--offset=-1"] {
+            let output = run(&[format, window, "--output", path.to_str().unwrap()]);
+            assert!(!output.status.success());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        }
+    }
+}
+
+#[test]
 fn genre_and_label_exports_honour_and_validate_track_windows_before_output() {
     let library = Library::new();
     let files = ["Alpha", "Beta", "Gamma"]

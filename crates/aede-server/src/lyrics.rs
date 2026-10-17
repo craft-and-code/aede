@@ -1,5 +1,6 @@
 //! Complete local lyrics delivery, separate from the PCM playback timeline.
 
+use super::auth::confirm_access;
 use super::*;
 use aede_core::lyrics::{self, CurrentTrack, ReadError, Source};
 use std::io::{self, Write};
@@ -152,17 +153,6 @@ fn serialized(selected: &Selected) -> Result<Vec<u8>, ApiError> {
     let mut output = LimitedJson::default();
     serde_json::to_writer(&mut output, &answer).map_err(|_| too_large())?;
     Ok(output.0)
-}
-
-fn confirm_access(state: &ApiState, identity: &auth::SocketIdentity) -> Result<(), ApiError> {
-    if let Some(principal) = &identity.session {
-        auth::recheck(state, principal)
-    } else if identity.administrative || auth::load_accounts(state)?.is_none() {
-        Ok(())
-    } else {
-        // An initially anonymous read must not publish after account activation.
-        Err(auth::unauthorized())
-    }
 }
 
 async fn read(

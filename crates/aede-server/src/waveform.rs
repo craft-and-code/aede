@@ -1,4 +1,5 @@
 //! Authenticated, source-guarded complete-track waveform cache.
+use super::auth::confirm_access;
 use super::playback_api::{source_from_catalog, validate_source};
 use super::*;
 use aede_core::playback::waveform;
@@ -121,15 +122,6 @@ fn cached_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
         return Err(std::io::Error::other("waveform cache too large"));
     }
     Ok(bytes)
-}
-fn confirm_access(state: &ApiState, identity: &auth::SocketIdentity) -> Result<(), ApiError> {
-    if let Some(principal) = &identity.session {
-        auth::recheck(state, principal)
-    } else if identity.administrative || auth::load_accounts(state)?.is_none() {
-        Ok(())
-    } else {
-        Err(auth::unauthorized())
-    }
 }
 fn valid(view: &View) -> bool {
     view.duration_ms > 0

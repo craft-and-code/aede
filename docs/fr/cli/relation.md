@@ -2,9 +2,15 @@
 
 relation ouvre l’identifiant exact copié dans relations et montre extrémités et provenance. --text écrit une note personnelle ; --tag ajoute des étiquettes séparées par virgules. Ces annotations restent dans user.json et ne changent ni extrémités ni assertion de source.
 
+Les métadonnées de source et le contexte personnel sont affichés littéralement, y compris les caractères de contrôle du terminal. Le stockage et les exports JSON du graphe conservent les valeurs originales.
+
 --remove seul retire toute l’annotation. --tag ÉTIQUETTE --remove retire seulement ces étiquettes. Mélanger nouvelle note et retrait est refusé. Si le lien a disparu, l’identifiant de son annotation conservée reste utilisable pour la supprimer.
 
 Un préfixe d’identifiant correspondant à plusieurs liens actuels est ambigu et refusé pour la suppression comme pour la consultation. Une sélection actuelle ambiguë n’est jamais assimilée à un lien disparu.
+
+Les notes et étiquettes d’un crédit restent attachées lorsque le même artiste MusicBrainz exact passe d’une extrémité connue par la source à un artiste du catalogue local. Cela concerne liste, filtre, consultation, modification, suppression, export du graphe et diagnostic des annotations orphelines ; les identifiants du graphe et les références sauvegardées ne sont pas réécrits. La correspondance exacte du propriétaire et de la référence est prioritaire. Seul un crédit équivalent unique, prouvé par le catalogue et gardant le même rôle, la même provenance et le même identifiant de relation source, sert de repli. Les annotations historiques ambiguës sont conservées et leur modification refusée plutôt que fusionnées. Une nouvelle annotation de crédit utilise le MBID d’artiste connu uniquement si cette référence désigne de manière unique le même artiste local sélectionné ; sinon, elle garde la référence sélectionnée. Un MBID résolu de manière unique reste utilisable si cet artiste quitte ensuite les tags locaux. Une ancienne référence limitée au nom sans preuve d’identité actuelle n’est pas devinée depuis un homonyme.
+
+Les anciennes références limitées à un MBID devenu ambigu sont conservées plutôt que réattribuées automatiquement : elles ne prouvent plus quel artiste local avait été sélectionné. Une annotation en attente reste supprimable par son identifiant de relation sauvegardé.
 
 C’est l’endroit pour « vérifier dans le livret » ou « collaboration intéressante ». Cela n’édite pas le graphe : credit corrige/exclut un crédit de source, review choisit la confiance d’une identité proposée.
 

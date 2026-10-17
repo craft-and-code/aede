@@ -54,6 +54,12 @@ pub fn absent<'a>(
     everything: bool,
 ) -> Vec<Absent<'a>> {
     let mut out: Vec<Absent<'a>> = Vec::new();
+    let ids: std::collections::BTreeSet<&str> = catalog
+        .releases
+        .iter()
+        .filter_map(|release| release.release_group_mbid.as_deref())
+        .filter(|id| !id.trim().is_empty())
+        .collect();
     for record in &held.records {
         if record.source != sources::MUSICBRAINZ {
             continue;
@@ -76,17 +82,22 @@ pub fn absent<'a>(
             continue;
         };
 
-        // What is on the shelf, in both spellings the comparison uses.
-        let mut ids: Vec<&str> = Vec::new();
+        // Exact identities apply across the catalog; a title fallback belongs
+        // only to this artist's albums without a known release-group identity.
+        let mut has_shelf = false;
         let mut titles: Vec<String> = Vec::new();
         for release in &catalog.releases {
             if release.album_artist_id != Some(artist_id) {
                 continue;
             }
-            if let Some(group) = release.release_group_mbid.as_deref() {
-                ids.push(group);
+            has_shelf = true;
+            if release
+                .release_group_mbid
+                .as_deref()
+                .is_none_or(|id| id.trim().is_empty())
+            {
+                titles.push(text::normalize(&release.title));
             }
-            titles.push(text::normalize(&release.title));
         }
 
         // **No album of their own, no shelf to have gaps in.** The catalog
@@ -101,7 +112,7 @@ pub fn absent<'a>(
         // one that was started.
         //
         // The same rule decides who is browsed at all — see the discography fetch selection.
-        if titles.is_empty() {
+        if !has_shelf {
             continue;
         }
 
@@ -128,7 +139,7 @@ pub fn absent<'a>(
                 continue;
             }
 
-            let have = ids.iter().any(|id| *id == known.mbid)
+            let have = ids.contains(known.mbid.as_str())
                 || titles.contains(&text::normalize(&known.title));
             if !have {
                 out.push(Absent {
@@ -171,3 +182,7 @@ pub fn absent_for(
         .filter(|record| record.artist_id == artist_id)
         .count()
 }
+
+#[cfg(test)]
+#[path = "missing_tests.rs"]
+mod tests;

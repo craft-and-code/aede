@@ -6,9 +6,13 @@ La recherche locale privilégie un nom canonique exact, puis un alias conservé 
 
 --role limite les contributions, --with sélectionne les pistes communes à un autre artiste local, --members montre les membres datés. Les albums peuvent déduire la formation de leur année à partir des dates sourcées ; aucune formation historique n’est inventée.
 
+Pour un artiste local, --role réunit les crédits des tags et les crédits sourcés fiables portant son MBID exact : crédits d’enregistrement, interprétations concernées par une composition et crédits d’une édition. Plusieurs preuves ne dupliquent pas une piste. Un nom identique ne suffit pas à joindre une autre identité source ; les propositions en attente, rejetées ou exclues individuellement restent hors de la sélection.
+
 Choisir une seule question parmi --role, --with et --members ; les combinaisons sont refusées. Sur la carte locale ordinaire, --limit/--offset paginent chaque tableau d’albums séparément (50 lignes par défaut) et les collaborateurs (20 par défaut). Avec --role ou --with, ils paginent le tableau de pistes ; CSV/JSON/M3U exportent aussi cette sélection de pistes paginée. Les exports ordinaires paginent les pistes interprétées par l’artiste. --all retire ces limites. Les totaux décrivent toujours la sélection complète. --members présente toutes les relations datées et refuse les options d’export et de pagination.
 
 Un contributeur présent seulement dans des crédits de confiance possède une carte de source. Utiliser son MBID si un homonyme local existe. --members/--with exigent des artistes locaux et sont refusés sur cette carte externe. CSV/M3U sélectionnent les pistes pertinentes, pas la biographie. La provenance reste visible ; Continue propose les objets voisins.
+
+Sur cette carte de source, --limit/--offset paginent les exports de pistes et chaque tableau d’albums/crédits indépendamment, avec 30 lignes par défaut. Les crédits sont triés avant la pagination. Les totaux et les liens Continue décrivent toujours la sélection complète ; --all retire la limite en conservant un décalage explicite.
 
 ## Syntaxe et arguments
 

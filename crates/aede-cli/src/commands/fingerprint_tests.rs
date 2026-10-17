@@ -167,3 +167,92 @@ fn a_file_that_already_carries_a_recording_id_is_not_decoded_for_one() {
     // thing nothing else in this program can catch.
     assert_eq!(survey(&catalog, &[], &[], true).targets.len(), 1);
 }
+
+#[test]
+fn a_title_and_explicit_artists_do_not_need_default_acoustic_identification() {
+    type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], bool);
+    let cases: &[Case<'_>] = &[
+        (
+            "plural",
+            &[("title", "Named track"), ("artists", "Ensemble")],
+            true,
+        ),
+        (
+            "several",
+            &[
+                ("title", "Named collaboration"),
+                ("artists", "First musician"),
+                ("artists", "Second musician"),
+            ],
+            true,
+        ),
+        (
+            "single",
+            &[("title", "Named track"), ("artist", "Soloist")],
+            true,
+        ),
+        (
+            "singular-fallback",
+            &[
+                ("title", "Named track"),
+                ("artists", " "),
+                ("artist", "Soloist"),
+            ],
+            true,
+        ),
+        (
+            "album-only",
+            &[("title", "Named track"), ("albumartist", "Album owner")],
+            false,
+        ),
+        (
+            "composer-only",
+            &[("title", "Named track"), ("composer", "Composer")],
+            false,
+        ),
+        (
+            "blank",
+            &[("title", "Named track"), ("artists", " ")],
+            false,
+        ),
+        ("untitled", &[("artists", "Ensemble")], false),
+    ];
+    let scanned = cases
+        .iter()
+        .map(|(folder, fields, _)| {
+            let mut tags = RawTags::default();
+            for (key, value) in *fields {
+                tags.insert(key, *value);
+            }
+            tags.properties.duration_ms = Some(183_000);
+            ScannedFile {
+                path: format!("/music/{folder}/01.flac"),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }
+        })
+        .collect();
+    let catalog = build(scanned, vec!["/music".into()], 1, &[]);
+    assert_eq!(survey(&catalog, &[], &[], false).named, 4);
+    assert_eq!(survey(&catalog, &[], &[], false).targets.len(), 4);
+    assert_eq!(survey(&catalog, &[], &[], true).targets.len(), cases.len());
+    for (folder, _, named) in cases {
+        let scope = [format!("/music/{folder}")];
+        let found = survey(&catalog, &scope, &[], false);
+        assert_eq!(found.named, usize::from(*named), "{folder}");
+        assert_eq!(found.targets.len(), usize::from(!*named), "{folder}");
+    }
+
+    // File metadata alone was sufficient before; neither the singular tag nor
+    // the plural counterpart should start requiring a graph placement.
+    let mut files_only = catalog.clone();
+    files_only.tracks.clear();
+    files_only.credits.clear();
+    assert_eq!(survey(&files_only, &[], &[], false).named, 4);
+    assert_eq!(survey(&files_only, &[], &[], false).targets.len(), 4);
+}

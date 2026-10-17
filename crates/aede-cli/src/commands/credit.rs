@@ -157,7 +157,25 @@ pub fn credit(args: &Args) -> Res {
             _ => Facts::Track(TrackFacts::default()),
         });
     let credits = match (&scope, &mut facts) {
-        (Scope::Recording(_), Facts::Track(facts)) => &mut facts.credits,
+        (Scope::Recording(id), Facts::Track(facts)) => {
+            let recording_mbid = catalog
+                .recording(*id)
+                .and_then(|recording| recording.mbid.clone());
+            // One observation can also carry work credits, whose scope is
+            // independent. Only its direct credits capture this performance.
+            if facts
+                .recording
+                .as_ref()
+                .is_some_and(|held| recording_mbid.as_ref() != Some(held))
+            {
+                return Err(
+                    "manual credits belong to a different recording; refusing to retarget them"
+                        .into(),
+                );
+            }
+            facts.recording = recording_mbid;
+            &mut facts.credits
+        }
         (Scope::Work { mbid, title, .. }, Facts::Track(facts)) => {
             let index = match facts.works.iter().position(|work| work.mbid == *mbid) {
                 Some(index) => index,
@@ -173,9 +191,22 @@ pub fn credit(args: &Args) -> Res {
             &mut facts.works[index].credits
         }
         (Scope::Edition(id), Facts::Release(facts)) => {
-            facts.edition_mbid = catalog
+            let edition_mbid = catalog
                 .release(*id)
                 .and_then(|release| release.mbid.clone());
+            // This snapshot also carries earlier credits. A new assertion
+            // must not move those retained claims onto a different edition.
+            if facts
+                .edition_mbid
+                .as_ref()
+                .is_some_and(|held| edition_mbid.as_ref() != Some(held))
+            {
+                return Err(
+                    "manual credits belong to a different edition; refusing to retarget them"
+                        .into(),
+                );
+            }
+            facts.edition_mbid = edition_mbid;
             &mut facts.credits
         }
         _ => {
@@ -187,6 +218,7 @@ pub fn credit(args: &Args) -> Res {
     if credits
         .iter()
         .any(|held| held.relation_id.as_deref() == Some(&relation_id))
+        || already_attached(&catalog, &held, &scope, &seed, &relation_id)
     {
         return Err("this exact manual credit is already present".into());
     }
@@ -210,6 +242,81 @@ pub fn credit(args: &Args) -> Res {
         .unwrap_or(relation_id);
     println!("{} manual credit saved: {id}", ui::green("→"));
     Ok(())
+}
+
+/// The observation host can change without changing the user's assertion.
+/// Existing projections keep scope/attachment separate from trust/exclusion.
+fn already_attached(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    scope: &Scope,
+    seed: &RelationRef,
+    id: &str,
+) -> bool {
+    // Identifying a previously local recording changes its seed. Retain only
+    // the deterministic IDs of its still-current file placements as aliases.
+    let mut local_ids = if let Scope::Recording(recording_id) = scope
+        && let Some(recording) = catalog
+            .recording(*recording_id)
+            .filter(|recording| recording.mbid.is_some())
+    {
+        let mut local_seed = seed.clone();
+        recording
+            .track_ids
+            .iter()
+            .filter_map(|id| {
+                catalog
+                    .track(*id)
+                    .and_then(|track| catalog.file(track.file_id))
+            })
+            .map(|file| {
+                local_seed.target.key = format!("local:{}", file.path);
+                format!("manual:{}", local_seed.id())
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    local_ids.sort_unstable();
+    local_ids.dedup();
+    let same_id = |credit: &CreditLink| {
+        credit.relation_id.as_deref().is_some_and(|held| {
+            held == id
+                || local_ids
+                    .binary_search_by(|local| local.as_str().cmp(held))
+                    .is_ok()
+        })
+    };
+    // Most additions have a new ID. Avoid allocating projections unless a
+    // retained manual assertion could already supply this exact credit.
+    if !held.records.iter().any(|record| {
+        record.source == MANUAL
+            && match (scope, &record.facts) {
+                (Scope::Recording(_), Facts::Track(facts)) => facts.credits.iter().any(same_id),
+                (Scope::Work { mbid, .. }, Facts::Track(facts)) => facts
+                    .works
+                    .iter()
+                    .filter(|work| work.mbid == *mbid)
+                    .any(|work| work.credits.iter().any(same_id)),
+                _ => false,
+            }
+    }) {
+        return false;
+    }
+    held.credit_links(catalog).iter().any(|link| {
+        link.source == MANUAL
+            && same_id(&link.credit)
+            && match scope {
+                Scope::Recording(recording_id) => {
+                    link.work.is_none() && link.recording_id == *recording_id
+                }
+                Scope::Work { mbid, .. } => {
+                    link.work.as_ref().is_some_and(|work| work.mbid == *mbid)
+                }
+                // Editions retain their existing exact local-key guard.
+                Scope::Edition(_) => false,
+            }
+    })
 }
 
 fn representative_track(catalog: &Catalog, recording_id: Id) -> Result<EntityRef, String> {

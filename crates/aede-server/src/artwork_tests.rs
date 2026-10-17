@@ -68,3 +68,125 @@ fn artist_logo_uses_the_same_confined_asset_and_presence_contract_as_portraits()
     assert!(select(&catalog, &state.data_dir, &params).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn native_artwork_rechecks_anonymous_activation_and_revoked_sessions_before_publication() {
+    use crate::accounts_test_support::{ADMIN_TOKEN, Fixture};
+    use tower::ServiceExt;
+
+    async fn worker_started(state: &ApiState) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while state.inspection_slots.available_permits() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    crate::test_support::test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let folder = fixture.0.data_dir.join("Album");
+        std::fs::create_dir(&folder).unwrap();
+        let png = include_bytes!("../../aede-core/tests/fixtures/images/rgba.png");
+        let cover = folder.join("cover.png");
+        std::fs::write(&cover, png).unwrap();
+        let wanted = {
+            let mut guard = fixture.0.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            catalog.releases[0].folder = folder.to_string_lossy().into_owned();
+            catalog.releases[0].cover_path = Some(cover.to_string_lossy().into_owned());
+            reference(catalog, EntityKind::Release, 0).unwrap()
+        };
+        let protected = [
+            "catalog.json",
+            "sources.json",
+            "user.json",
+            "conclusions.json",
+        ]
+        .map(|name| fixture.0.data_dir.join(name));
+        let before = protected.each_ref().map(|path| std::fs::read(path).ok());
+        let accounts = fixture.accounts();
+        let accounts_path = aede_core::accounts::accounts_path(&fixture.0.data_dir);
+        let accounts_bytes = std::fs::read(&accounts_path).unwrap();
+        std::fs::remove_file(&accounts_path).unwrap();
+
+        // Use the complete Host/authentication/router path without opening a socket.
+        let address: SocketAddr = "127.0.0.1:17897".parse().unwrap();
+        let path = format!(
+            "/api/v1/artwork?ref={}&kind=cover",
+            crate::test_support::encoded(&wanted)
+        );
+        let app = crate::router(fixture.0.clone(), address);
+        let request = |token: Option<&str>| {
+            let mut builder = Request::builder()
+                .uri(&path)
+                .header(header::HOST, address.to_string());
+            if let Some(token) = token {
+                builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+            }
+            builder.body(axum::body::Body::empty()).unwrap()
+        };
+        let anonymous = app.clone().oneshot(request(None)).await.unwrap();
+        assert_eq!(anonymous.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(anonymous.into_body(), 100_000)
+                .await
+                .unwrap()
+                .as_ref(),
+            png
+        );
+
+        // Admit anonymously, then activate account mode while the real worker waits.
+        let gate = fixture.0.catalog.write().await;
+        let waiting = tokio::spawn(app.clone().oneshot(request(None)));
+        worker_started(&fixture.0).await;
+        aede_core::accounts::save(&accounts, &accounts_path).unwrap();
+        assert!(auth::load_accounts(&fixture.0).unwrap().is_some());
+        drop(gate);
+        let refused = waiting.await.unwrap().unwrap();
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        let body = to_bytes(refused.into_body(), 100_000).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"]["code"], "unauthorized");
+
+        let principal =
+            auth::start_session(&fixture.0, &accounts, accounts.find("operator").unwrap())
+                .unwrap()
+                .0;
+        let signed = app
+            .clone()
+            .oneshot(request(Some(auth::session_token(&principal))))
+            .await
+            .unwrap();
+        assert_eq!(signed.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(signed.into_body(), 100_000)
+                .await
+                .unwrap()
+                .as_ref(),
+            png
+        );
+        let gate = fixture.0.catalog.write().await;
+        let waiting = tokio::spawn(
+            app.clone()
+                .oneshot(request(Some(auth::session_token(&principal)))),
+        );
+        worker_started(&fixture.0).await;
+        auth::end_session(&fixture.0, &principal).unwrap();
+        drop(gate);
+        assert_eq!(
+            waiting.await.unwrap().unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let administrative = app.oneshot(request(Some(ADMIN_TOKEN))).await.unwrap();
+        assert_eq!(administrative.status(), StatusCode::OK);
+        drop(administrative);
+        assert_eq!(std::fs::read(cover).unwrap(), png);
+        assert_eq!(std::fs::read(accounts_path).unwrap(), accounts_bytes);
+        assert_eq!(
+            protected.each_ref().map(|path| std::fs::read(path).ok()),
+            before
+        );
+    });
+}

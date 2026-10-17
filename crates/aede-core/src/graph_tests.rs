@@ -205,3 +205,79 @@ fn a_new_exclusion_keeps_the_artist_identity_after_local_tags_disappear() {
     assert!(sources.restore_credit_in(&catalog, &external));
     assert!(sources.credit_links(&catalog)[0].trusted);
 }
+
+#[test]
+fn a_nonunique_artist_identifier_does_not_hide_new_credit_context_or_exclusions() {
+    let files = [
+        ("A Producer", "artist-1"),
+        ("A. P. Producer", "artist-1"),
+        ("A Producer", "artist-2"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(id, (name, mbid))| {
+        let mut tags = crate::tags::RawTags::default();
+        for (key, value) in [
+            ("artist", name),
+            ("musicbrainz_artistid", mbid),
+            ("title", "One Recording"),
+            ("musicbrainz_recordingid", "recording-1"),
+        ] {
+            tags.insert(key, value);
+        }
+        crate::model::ScannedFile {
+            path: format!("/music/{id}.flac"),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }
+    })
+    .collect();
+    let catalog = crate::model::build(files, vec!["/music".into()], 1, &[]);
+    assert_eq!(
+        catalog
+            .artists
+            .iter()
+            .filter(|artist| artist.mbid.as_deref() == Some("artist-1"))
+            .count(),
+        2,
+        "a shared homonymous spelling cannot establish automatic aliases"
+    );
+    assert_eq!(
+        EntityRef::new(EntityKind::Artist, "mbid:artist-1").resolve(&catalog),
+        None,
+        "an ambiguous identifier must not select either local artist"
+    );
+    let mut sources = Sources {
+        records: vec![source(0, Confidence::Identified, 10, "A Producer")],
+        ..Default::default()
+    };
+    let reference = credit_reference(&catalog, &sources.credit_links(&catalog)[0]).unwrap();
+    let mut user = crate::user::UserData::default();
+    user.relation_entry_in(&catalog, crate::user::LOCAL_USER, &reference, 11)
+        .unwrap()
+        .note = Some("retain the selected credit context".into());
+    let context_visible = user
+        .find_relation_in(&catalog, crate::user::LOCAL_USER, &reference)
+        .is_some_and(|annotation| {
+            annotation.note.as_deref() == Some("retain the selected credit context")
+        });
+    let context_removed = user
+        .remove_relation_in(&catalog, crate::user::LOCAL_USER, &reference)
+        .unwrap();
+    sources.exclude_credit_in(&catalog, reference.clone(), 12);
+    let excluded = sources.credit_links(&catalog)[0].excluded;
+    let restored = sources.restore_credit_in(&catalog, &reference);
+    assert_eq!(
+        [context_visible, context_removed, excluded, restored],
+        [true; 4],
+        "new context and exclusion decisions must remain usable through the selected credit"
+    );
+    assert!(user.relation_annotations.is_empty());
+    assert!(sources.credit_exclusions.is_empty());
+    assert!(sources.credit_links(&catalog)[0].trusted);
+}

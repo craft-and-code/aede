@@ -174,3 +174,57 @@ fn a_real_file_fingerprints_the_same_way_twice() {
         false => eprintln!("skipped: this machine does not have both programs"),
     }
 }
+
+#[test]
+fn fpcalc_measures_the_whole_audio_including_changes_after_two_minutes() {
+    if !has_fpcalc() {
+        eprintln!("skipped: fpcalc is not installed");
+        return;
+    }
+    let folder = AudioFolder::new();
+    let mut observed = Vec::new();
+    let ffmpeg_available = has_chromaprint();
+    for (name, seconds, changed_tail) in [
+        ("short.wav", 30, false),
+        ("boundary.wav", 120, false),
+        ("past-boundary.wav", 121, false),
+        ("complete.wav", 150, false),
+        ("changed-tail.wav", 150, true),
+    ] {
+        let path = folder.tone(name, seconds, changed_tail);
+        let original = std::fs::read(&path).expect("the generated source");
+        // An explicit complete-input reference, independent of Aède's command
+        // construction. The short case also retains the ordinary helper's
+        // established output; the distinct tails detect a hidden preview.
+        let output = std::process::Command::new("fpcalc")
+            .args(["-length", "0"])
+            .arg(&path)
+            .output()
+            .expect("run the reference helper");
+        assert!(output.status.success(), "{name}: {:?}", output.stderr);
+        let expected = read_fpcalc(&String::from_utf8(output.stdout).expect("text output"))
+            .expect("a complete reference fingerprint");
+        assert_eq!(
+            expected.seconds, seconds,
+            "the full source duration: {name}"
+        );
+        let found = of(By::Fpcalc, &path, seconds).expect("the production fallback");
+        assert_eq!(
+            std::fs::read(&path).expect("the unchanged source"),
+            original,
+            "fingerprinting never modifies {name}"
+        );
+        if ffmpeg_available {
+            let ffmpeg = of(By::Ffmpeg, &path, seconds).expect("the production FFmpeg path");
+            assert_eq!(ffmpeg, expected, "the complete-input helpers agree: {name}");
+        }
+        observed.push((name, expected, found));
+    }
+    assert_ne!(
+        observed[3].1.data, observed[4].1.data,
+        "the reference must hear the changed final thirty seconds"
+    );
+    for (name, expected, found) in observed {
+        assert_eq!(found, expected, "the whole source is fingerprinted: {name}");
+    }
+}

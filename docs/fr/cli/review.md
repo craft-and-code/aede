@@ -8,6 +8,10 @@ Aucun tag n’est réécrit. Confiance de source et décision personnelle resten
 
 Les cartes et messages de décision affichent noms, faits, chemins et adresses importés littéralement, sans exécuter de caractères de contrôle du terminal. La pagination est vérifiée même si aucune proposition n’attend une décision.
 
+Les liens d’album MusicBrainz utilisent l’identité du groupe de sorties conservée. Si une réponse sans groupe garde explicitement son identifiant d’édition à la place, le lien ouvre cette édition. Cartes de revue et panneaux de sources suivent la même règle d’adresse ; la lecture ne modifie jamais les identifiants enregistrés.
+
+Les propositions AcoustID ouvrent l’identifiant d’interprétation MusicBrainz conservé lors de la recherche. Aucun identifiant de page de piste AcoustID n’est déduit : cet identifiant n’est pas conservé dans cette preuve.
+
 Lire la liste ne prend aucun verrou d’écriture. La revue interactive et les décisions directes conservent ce verrou pendant l’enregistrement des choix.
 
 ## Syntaxe et arguments

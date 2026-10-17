@@ -21,6 +21,7 @@ pub fn show(args: &Args, catalog: &Catalog, sources: &Sources, artist: &SourcedC
     if args.has("with") {
         return Err("--with currently compares artists known in local tags; sourced contributors do not yet have a collaboration comparison".into());
     }
+    let window = args.window(30)?;
     let mut links: Vec<SourcedCreditLink> = sources
         .credit_links(catalog)
         .into_iter()
@@ -73,7 +74,11 @@ pub fn show(args: &Args, catalog: &Catalog, sources: &Sources, artist: &SourcedC
             .then_with(|| left.source.cmp(&right.source))
             .then_with(|| left.credit.relation_id.cmp(&right.credit.relation_id))
     });
-    let recording_ids: BTreeSet<Id> = links.iter().map(|link| link.recording_id).collect();
+    super::sort_sourced_edition_credits(&mut edition_links);
+    let recording_ids: BTreeSet<Id> = links
+        .iter()
+        .flat_map(|link| link.applicable_recording_ids.iter().copied())
+        .collect();
     let tracks: Vec<Id> = recording_ids
         .iter()
         .filter_map(|&id| catalog.recording(id))
@@ -86,12 +91,13 @@ pub fn show(args: &Args, catalog: &Catalog, sources: &Sources, artist: &SourcedC
         )
         .collect::<BTreeSet<_>>()
         .into_iter()
+        .skip(window.offset)
+        .take(window.limit)
         .collect();
     if let Some(result) = selection_output(catalog, &tracks, args) {
         return result;
     }
     super::refuse_output_without_a_format(args)?;
-    let window = args.window(30)?;
 
     println!("{}", ui::section(&artist.name));
     println!(
@@ -128,12 +134,15 @@ pub fn show(args: &Args, catalog: &Catalog, sources: &Sources, artist: &SourcedC
         albums.entry(link.release_id).or_default();
     }
     let mut navigation = Navigation::default();
+    for &release_id in albums.keys() {
+        navigation.entity(catalog, "Album", EntityKind::Release, release_id);
+    }
     if !albums.is_empty() {
         println!("{}", ui::section("Local albums carrying these credits"));
         let mut table = Table::new(&["Year", "Album", "Credited recordings", "Edition credit"])
             .align(2, Align::Right)
             .limit(1, 48);
-        for (release_id, recordings) in &albums {
+        for (release_id, recordings) in albums.iter().skip(window.offset).take(window.limit) {
             if let Some(release) = catalog.release(*release_id) {
                 table.push(vec![
                     release
@@ -150,10 +159,10 @@ pub fn show(args: &Args, catalog: &Catalog, sources: &Sources, artist: &SourcedC
                         "—".to_string()
                     },
                 ]);
-                navigation.entity(catalog, "Album", EntityKind::Release, *release_id);
             }
         }
         print!("{}", table.render());
+        announce_window(window, albums.len(), "local album");
     }
 
     for &recording_id in &recording_ids {
@@ -179,16 +188,29 @@ pub fn show(args: &Args, catalog: &Catalog, sources: &Sources, artist: &SourcedC
         }
     }
     let total = links.len();
-    super::print_sourced_credits(
-        catalog,
-        links
-            .into_iter()
-            .skip(window.offset)
-            .take(window.limit)
-            .collect(),
-    );
-    super::print_sourced_edition_credits(catalog, edition_links);
-    announce_window(window, total, "source credit");
+    if total > 0 {
+        super::print_sourced_credits(
+            catalog,
+            links
+                .into_iter()
+                .skip(window.offset)
+                .take(window.limit)
+                .collect(),
+        );
+        announce_window(window, total, "source credit");
+    }
+    let total = edition_links.len();
+    if total > 0 {
+        super::print_sourced_edition_credits(
+            catalog,
+            edition_links
+                .into_iter()
+                .skip(window.offset)
+                .take(window.limit)
+                .collect(),
+        );
+        announce_window(window, total, "source edition credit");
+    }
     navigation.print();
     Ok(())
 }

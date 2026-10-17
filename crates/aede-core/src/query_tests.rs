@@ -1046,3 +1046,146 @@ fn technical_queries_distinguish_unknown_depth_channels_and_exact_track_identity
     );
     assert!(parse("bitdepth:24..16").is_err());
 }
+
+#[test]
+fn sourced_performer_ids_distinguish_namesakes_and_preserve_identity_fallbacks() {
+    const LOCAL: &str = "11111111-1111-4111-8111-111111111111";
+    const OTHER: &str = "22222222-2222-4222-8222-222222222222";
+    let catalog = model::build(
+        (0..3)
+            .map(|index| {
+                let mut tags = crate::tags::RawTags::default();
+                for (key, value) in [
+                    ("artist", "Alex Smith"),
+                    ("albumartist", "Alex Smith"),
+                    ("musicbrainz_artistid", LOCAL),
+                    ("musicbrainz_albumartistid", LOCAL),
+                ] {
+                    tags.insert(key, value);
+                }
+                tags.insert("title", format!("Performance {index}"));
+                tags.insert("musicbrainz_recordingid", format!("recording-{index}"));
+                if index != 1 {
+                    tags.insert("album", format!("Album {index}"));
+                }
+                if index == 2 {
+                    tags.insert("compilation", "1");
+                }
+                model::ScannedFile {
+                    path: format!("/music/album-{index}/01.flac"),
+                    size: 1,
+                    mtime: 1,
+                    tags,
+                    folder_cover: None,
+                    sidecar: None,
+                    integrity: None,
+                    fingerprint: None,
+                }
+            })
+            .collect(),
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    let data = UserData::default();
+    for (mbid, name, credited_as, separate) in [
+        (OTHER, "Alex Smith", None, true),
+        (OTHER, "Another Player", Some("Alex Smith"), true),
+        (OTHER, "Another Player", None, true),
+        (LOCAL, "Another Player", None, false),
+        ("", "Alex Smith", None, false),
+        ("", "Another Player", Some("Alex Smith"), false),
+    ] {
+        let mut sources = Sources::default();
+        for index in 0..3 {
+            sources.set(SourceRecord {
+                key: format!("/music/album-{index}/01.flac"),
+                source: "manual".into(),
+                source_id: None,
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: Facts::Track(TrackFacts {
+                    credits: vec![CreditLink {
+                        artist_mbid: mbid.into(),
+                        artist_name: name.into(),
+                        credited_as: credited_as.map(str::to_owned),
+                        role: "performer".into(),
+                        relation_id: Some(format!("performer-{index}")),
+                        role_id: None,
+                        direction: None,
+                        attributes: vec![],
+                        began: None,
+                        ended: None,
+                        over: None,
+                        order: None,
+                    }],
+                    ..Default::default()
+                }),
+            });
+        }
+        let encoded = crate::sources::to_json(&sources);
+        let selector = if mbid.is_empty() { name } else { mbid };
+        let selected = |sources: &Sources, field: &str| {
+            let context = Context::new(&catalog, &data, LOCAL_USER).with_sources(sources);
+            run(
+                &parse(&format!("{field}:\"{selector}\"")).unwrap(),
+                &context,
+            )
+        };
+        assert_eq!(selected(&sources, "performer"), [0, 1, 2]);
+        assert_eq!(
+            selected(&sources, "with"),
+            if separate { vec![0, 1, 2] } else { vec![] },
+            "source identity {mbid:?}, name {name:?}, credited-as {credited_as:?}"
+        );
+        assert_eq!(
+            selected(&sources, "guest"),
+            if separate { vec![0] } else { vec![] }
+        );
+        assert_eq!(selected(&sources, "compilationartist"), [2]);
+        assert_eq!(crate::sources::to_json(&sources), encoded);
+        let restored = crate::sources::from_json(&encoded).unwrap();
+        assert_eq!(selected(&restored, "with"), selected(&sources, "with"));
+        if mbid == OTHER && name == "Alex Smith" {
+            let edge = crate::graph::edges(&catalog, &sources)
+                .into_iter()
+                .find(|edge| {
+                    edge.reference.kind == "credit:performer"
+                        && edge.reference.target.resolve(&catalog) == Some(0)
+                })
+                .unwrap();
+            sources.exclude_credit_in(&catalog, edge.reference.clone(), 2);
+            assert_eq!(selected(&sources, "with"), [1, 2]);
+            assert!(selected(&sources, "guest").is_empty());
+            assert!(sources.restore_credit_in(&catalog, &edge.reference));
+            assert_eq!(selected(&sources, "with"), [0, 1, 2]);
+            for record in &mut sources.records {
+                record.confidence = Confidence::matched(42);
+            }
+            assert!(selected(&sources, "with").is_empty());
+            for item in sources.review_items(&catalog) {
+                sources
+                    .decide(
+                        &catalog,
+                        &item.id,
+                        crate::sources::ReviewDecision::Accepted,
+                        3,
+                    )
+                    .unwrap();
+            }
+            assert_eq!(selected(&sources, "with"), [0, 1, 2]);
+            for item in sources.review_items(&catalog) {
+                sources
+                    .decide(
+                        &catalog,
+                        &item.id,
+                        crate::sources::ReviewDecision::Rejected,
+                        4,
+                    )
+                    .unwrap();
+            }
+            assert!(selected(&sources, "with").is_empty());
+            assert!(selected(&sources, "guest").is_empty());
+        }
+    }
+}

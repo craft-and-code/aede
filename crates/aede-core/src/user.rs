@@ -237,6 +237,22 @@ impl EntityRef {
     }
 }
 
+enum RelationAnnotationMatch {
+    Absent,
+    Unique(usize),
+    Ambiguous,
+}
+
+pub(crate) fn same_annotation_relation(
+    catalog: &Catalog,
+    held: &crate::graph::RelationRef,
+    current: &crate::graph::RelationRef,
+) -> bool {
+    held == current
+        || (current.kind.starts_with("credit:")
+            && crate::graph::same_credit_relation(catalog, held, current))
+}
+
 /// Everything one person said about one entity.
 ///
 /// One record per target rather than one per fact: a favourite, a rating, a
@@ -543,6 +559,101 @@ impl UserData {
         self.relation_annotations
             .iter()
             .find(|annotation| annotation.owner == owner && &annotation.relation == relation)
+    }
+
+    /// Finds one owner’s credit context across exact catalog identity aliases.
+    ///
+    /// An exact reference wins. A unique equivalent credit is usable when the
+    /// catalog can resolve both endpoints; ambiguous aliases select nothing.
+    /// Other relationship kinds retain exact-reference behavior.
+    pub fn find_relation_in(
+        &self,
+        catalog: &Catalog,
+        owner: &str,
+        relation: &crate::graph::RelationRef,
+    ) -> Option<&RelationAnnotation> {
+        match self.relation_annotation_match(catalog, owner, relation) {
+            RelationAnnotationMatch::Unique(index) => self.relation_annotations.get(index),
+            RelationAnnotationMatch::Absent | RelationAnnotationMatch::Ambiguous => None,
+        }
+    }
+
+    /// Opens existing credit context without combining historical annotations.
+    /// A new credit keeps its known artist MBID when local tags later disappear.
+    pub fn relation_entry_in(
+        &mut self,
+        catalog: &Catalog,
+        owner: &str,
+        relation: &crate::graph::RelationRef,
+        now: u64,
+    ) -> Result<&mut RelationAnnotation, String> {
+        match self.relation_annotation_match(catalog, owner, relation) {
+            RelationAnnotationMatch::Unique(index) => Ok(&mut self.relation_annotations[index]),
+            RelationAnnotationMatch::Ambiguous => Err(
+                "several saved annotations match this credit; use their exact saved references"
+                    .into(),
+            ),
+            RelationAnnotationMatch::Absent => {
+                let reference = if relation.kind.starts_with("credit:") {
+                    crate::graph::canonical_credit_relation(catalog, relation.clone())
+                } else {
+                    relation.clone()
+                };
+                Ok(self.relation_entry(owner, &reference, now))
+            }
+        }
+    }
+
+    /// Removes one exact or uniquely equivalent owner annotation.
+    /// Ambiguous history is refused without deleting or merging any row.
+    pub fn remove_relation_in(
+        &mut self,
+        catalog: &Catalog,
+        owner: &str,
+        relation: &crate::graph::RelationRef,
+    ) -> Result<bool, String> {
+        match self.relation_annotation_match(catalog, owner, relation) {
+            RelationAnnotationMatch::Unique(index) => {
+                self.relation_annotations.remove(index);
+                Ok(true)
+            }
+            RelationAnnotationMatch::Absent => Ok(false),
+            RelationAnnotationMatch::Ambiguous => Err(
+                "several saved annotations match this credit; use their exact saved references"
+                    .into(),
+            ),
+        }
+    }
+
+    fn relation_annotation_match(
+        &self,
+        catalog: &Catalog,
+        owner: &str,
+        relation: &crate::graph::RelationRef,
+    ) -> RelationAnnotationMatch {
+        if let Some(index) = self
+            .relation_annotations
+            .iter()
+            .position(|annotation| annotation.owner == owner && &annotation.relation == relation)
+        {
+            return RelationAnnotationMatch::Unique(index);
+        }
+        if !relation.kind.starts_with("credit:") {
+            return RelationAnnotationMatch::Absent;
+        }
+        let mut matching =
+            self.relation_annotations
+                .iter()
+                .enumerate()
+                .filter(|(_, annotation)| {
+                    annotation.owner == owner
+                        && same_annotation_relation(catalog, &annotation.relation, relation)
+                });
+        match (matching.next(), matching.next()) {
+            (None, _) => RelationAnnotationMatch::Absent,
+            (Some((index, _)), None) => RelationAnnotationMatch::Unique(index),
+            (Some(_), Some(_)) => RelationAnnotationMatch::Ambiguous,
+        }
     }
 
     /// Opens the personal annotation for one relation.

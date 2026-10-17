@@ -176,6 +176,87 @@ fn a_portrait_answer_for_another_artist_is_not_downloaded_or_cached() {
 }
 
 #[test]
+fn path_shaped_source_identifiers_cannot_choose_a_portrait_destination() {
+    struct PortraitAnswer {
+        requested: Vec<String>,
+    }
+    impl Ask for PortraitAnswer {
+        fn get_json(&mut self, url: &str) -> Result<aede_core::json::Json, Refusal> {
+            self.requested.push(url.to_string());
+            Ok(aede_core::json::parse(
+                r#"{"entities":{"Q11649":{"claims":{"P18":[{"rank":"normal","mainsnak":{"snaktype":"value","datavalue":{"value":"Miles_Davis.jpg"}}}]}}}}"#,
+            )
+            .unwrap())
+        }
+        fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
+            self.requested.push(url.to_string());
+            Ok(include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png").to_vec())
+        }
+    }
+
+    let dir = sandbox("unsafe_asset_identifier");
+    let data = dir.join("data");
+    let outside = dir.join("outside");
+    let catalog = scattered_albums(&dir);
+    for file in &catalog.files {
+        let path = std::path::Path::new(&file.path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"original audio remains unchanged").unwrap();
+    }
+    for mbid in [
+        outside.to_str().unwrap(),
+        "../outside",
+        r"..\outside",
+        ".",
+        "..",
+        "",
+        "nul\0identifier",
+    ] {
+        let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
+        layer.records[0].source_id = Some(mbid.into());
+        let before = sources::to_json(&layer);
+        let mut transport = PortraitAnswer { requested: vec![] };
+        run(
+            &catalog,
+            &mut transport,
+            &[],
+            &mut layer,
+            &sources::sources_path(&data),
+            &data,
+            None,
+            &crate::commands::fetch::Asked {
+                names: &[],
+                scope: &crate::commands::fetch::EVERYTHING,
+                again: false,
+                dry_run: false,
+                size: crate::commands::covers::DEFAULT_SIZE,
+                size_requested: false,
+                images: false,
+                fanart: Default::default(),
+                langs: vec!["en".into()],
+                key: None,
+                portrait_key: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            !outside.exists(),
+            "an imported source identifier must not create an outside destination"
+        );
+        assert!(transport.requested.is_empty(), "invalid path {mbid:?}");
+        assert_eq!(sources::to_json(&layer), before);
+    }
+    assert!(!data.exists());
+    for file in &catalog.files {
+        assert_eq!(
+            std::fs::read(&file.path).unwrap(),
+            b"original audio remains unchanged"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_single_shared_folder_is_the_destination() {
     let dir = sandbox("shared_folder");
     let catalog = one_album(&dir);
@@ -498,4 +579,189 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
         ),
         1
     );
+}
+
+fn portrait_asked(again: bool) -> crate::commands::fetch::Asked<'static> {
+    crate::commands::fetch::Asked {
+        names: &[],
+        scope: &crate::commands::fetch::EVERYTHING,
+        again,
+        dry_run: false,
+        size: crate::commands::covers::DEFAULT_SIZE,
+        size_requested: false,
+        images: false,
+        fanart: Default::default(),
+        langs: vec!["en".into()],
+        key: None,
+        portrait_key: None,
+    }
+}
+
+struct PortraitMetadata {
+    doc: aede_core::json::Json,
+    requested: Vec<String>,
+}
+
+impl Ask for PortraitMetadata {
+    fn get_json(&mut self, url: &str) -> Result<aede_core::json::Json, Refusal> {
+        self.requested.push(url.into());
+        Ok(self.doc.clone())
+    }
+
+    fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
+        self.requested.push(url.into());
+        Ok(include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png").to_vec())
+    }
+}
+
+#[test]
+fn malformed_portrait_metadata_preserves_answers_and_ordinary_retry() {
+    for (case, (wikidata, invalid)) in [
+        (true, r#"{}"#),
+        (true, r#"{"entities":[]}"#),
+        (true, r#"{"entities":{"Q11649":null}}"#),
+        (true, r#"{"entities":{"Q11649":{"claims":[]}}}"#),
+        (true, r#"{"entities":{"Q11649":{"claims":{"P18":{}}}}}"#),
+        (false, r#"{"mbid_id":"mbid-1","artistthumb":{}}"#),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for refresh in [false, true] {
+            let dir = sandbox(&format!("bad_metadata_{case}_{refresh}"));
+            let catalog = one_album(&dir);
+            let mut layer = held(wikidata.then_some("https://www.wikidata.org/wiki/Q11649"));
+            let source = if wikidata {
+                wikipedia::PORTRAIT_SOURCE
+            } else {
+                fanarttv::SOURCE
+            };
+            let key = (!wikidata).then_some("fictitious-key");
+            if refresh {
+                layer.set(SourceRecord {
+                    key: entity().key,
+                    source: source.into(),
+                    source_id: Some("mbid-1".into()),
+                    fetched_at: 7,
+                    confidence: Confidence::Identified,
+                    facts: Facts::Artist(ArtistFacts {
+                        portrait: Some(Picture {
+                            url: "https://retained.example/credited.jpg".into(),
+                        }),
+                        ..Default::default()
+                    }),
+                });
+            }
+            let path = sources::sources_path(&dir);
+            sources::save(&layer, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let before_layer = sources::to_json(&layer);
+            let mut transport = PortraitMetadata {
+                doc: aede_core::json::parse(invalid).unwrap(),
+                requested: vec![],
+            };
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                key,
+                &portrait_asked(refresh),
+            )
+            .unwrap();
+            assert_eq!(transport.requested.len(), 1, "{invalid}");
+            assert_eq!(sources::to_json(&layer), before_layer, "{invalid}");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "{invalid}");
+            layer = sources::load_all(&path).unwrap().unwrap();
+            if !refresh {
+                assert_eq!(
+                    waiting(&catalog, &layer, &dir, key),
+                    1,
+                    "invalid metadata stays retryable"
+                );
+            }
+
+            // Missing optional claims and an empty image pool are genuine absences.
+            transport.doc = aede_core::json::parse(if wikidata {
+                r#"{"entities":{"Q11649":{"sitelinks":{}}}}"#
+            } else {
+                r#"{"mbid_id":"mbid-1","artistthumb":[]}"#
+            })
+            .unwrap();
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                key,
+                &portrait_asked(refresh),
+            )
+            .unwrap();
+            assert_eq!(transport.requested.len(), 2);
+            layer = sources::load_all(&path).unwrap().unwrap();
+            assert!(layer.get(&entity(), source).is_some());
+            assert_eq!(
+                waiting(&catalog, &layer, &dir, key),
+                0,
+                "a valid absence is completed"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_portrait_already_on_disk_is_neither_downloaded_nor_attributed_to_a_provider() {
+    for (extension, image) in [
+        (
+            "jpg",
+            include_bytes!("../../../aede-core/tests/fixtures/images/baseline.jpg").as_slice(),
+        ),
+        (
+            "png",
+            include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png").as_slice(),
+        ),
+    ] {
+        for again in [false, true] {
+            let dir = sandbox(&format!("existing_{extension}_{again}"));
+            let catalog = one_album(&dir);
+            let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
+            let path = sources::sources_path(&dir);
+            sources::save(&layer, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let destination = dir.join("music/Miles Davis");
+            std::fs::create_dir_all(&destination).unwrap();
+            std::fs::write(destination.join(format!("artist.{extension}")), image).unwrap();
+            let mut transport = PortraitMetadata {
+                doc: aede_core::json::parse(r#"{"entities":{"Q11649":{"claims":{"P18":[{"mainsnak":{"datavalue":{"value":"Provider.png"}}}]}}}}"#).unwrap(),
+                requested: vec![],
+            };
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                Some("fictitious-key"),
+                &portrait_asked(again),
+            )
+            .unwrap();
+            assert!(
+                transport.requested.is_empty(),
+                "an existing {extension} portrait is not asked about"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(
+                std::fs::read(destination.join(format!("artist.{extension}"))).unwrap(),
+                image
+            );
+            assert_eq!(std::fs::read_dir(&destination).unwrap().count(), 1);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 }

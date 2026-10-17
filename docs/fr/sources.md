@@ -180,6 +180,10 @@ aede review                     # ambiguous identities needing a decision
 
 `sources --export` conserve les décisions de revue et les exclusions de crédits même si leurs preuves en cache ont disparu. `sources --forget` retire aussi ces décisions conservées, avec un filtre `--source` facultatif. Choisir une seule opération list/export/import/template/forget ; `--source` sert uniquement avec list, forget et template. Les textes, cartes de revue et chemins affichés rendent les caractères de contrôle du terminal littéralement ; les documents mémorisés et les exports machine gardent les valeurs d’origine.
 
+Les snapshots d’artiste, de parution, de piste et de label pris en charge exigent un objet `facts` dans les deux versions de document acceptées. Un conteneur absent, nul, scalaire ou tableau est refusé avant le remplacement des données conservées. L’objet vide `{}` reste un snapshot volontairement vide valide ; les champs internes facultatifs gardent leur sens. Les types d’entité inconnus ou non pris en charge restent ignorés.
+
+Les imports refusent aussi les collections de crédits ou d’œuvres présentes mais illisibles dans un enregistrement ou une édition explicitement marqué `relationships_complete:true`, y compris les crédits des œuvres liées. Ils ne remplacent pas le snapshot précédent. Les collections facultatives absentes, les tableaux vides valides et les anciens snapshots sans ce marqueur de fin gardent leur sens actuel.
+
 L’identifiant figure dans l’URL et peut être copié séparément. L’adresse d’un album pointe vers son **groupe de sorties**, qui représente l’album dans son ensemble plutôt qu’un pressage précis.
 
 Trois situations sont distinguées : une valeur confirmée par vos tags, une valeur contradictoire et une valeur absente de vos tags.

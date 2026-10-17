@@ -8,6 +8,8 @@ Edition coverage uses the same statuses, but requires a non-empty local MusicBra
 
 If a recording or edition is waiting, copy the folder-scoped fetch command printed by the report. --full belongs to fetch when you deliberately repeat a completed answer, not to credits. --json preserves the recording fields and adds edition coverage for tools; no network call occurs.
 
+A completed MusicBrainz recording-credit answer is reused across all local placements of that canonical recording, including a folder-scoped fetch through another edition. Review status remains independent: held or rejected evidence is not made trusted by cache reuse, and `fetch --credits --full` explicitly asks again. Missing or incomplete answers remain eligible. Edition lookups stay separate.
+
 ## Syntax and arguments
 
 ```text

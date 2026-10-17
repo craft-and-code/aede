@@ -51,6 +51,60 @@ fn musicbrainz(held: &mut Sources, entity: &EntityRef) {
         confidence: Confidence::matched(99),
         facts: Facts::Label(LabelFacts::default()),
     });
+    held.set_review(sources::SourceReview {
+        entity: entity.clone(),
+        source: sources::MUSICBRAINZ.to_owned(),
+        source_id: held
+            .records
+            .last()
+            .and_then(|record| record.source_id.clone()),
+        decision: sources::ReviewDecision::Accepted,
+        reviewed_at: 2,
+    });
+}
+
+#[test]
+fn pending_and_rejected_label_identities_cannot_supply_a_discogs_profile() {
+    let catalog = catalog();
+    let entity = entity(&catalog);
+    for rejected in [false, true] {
+        let mut held = Sources::default();
+        musicbrainz(&mut held, &entity);
+        held.reviews.clear();
+        if let Facts::Label(facts) = &mut held.records[0].facts {
+            facts.discogs = Some("https://www.discogs.com/label/33088".into());
+        }
+        if rejected {
+            let selector = held.review_items(&catalog)[0].id.clone();
+            held.decide(&catalog, &selector, sources::ReviewDecision::Rejected, 2)
+                .expect("reject identity");
+        }
+        let path = path(if rejected { "rejected" } else { "pending" });
+        sources::save(&held, &path).expect("initial layer");
+        let before = std::fs::read(&path).expect("source bytes");
+        let mut calls = Vec::new();
+        let result = refresh(
+            &catalog,
+            catalog.labels[0].id,
+            &mut held,
+            &path,
+            &mut |_| panic!("an untrusted identity must not issue a MusicBrainz lookup"),
+            &mut |url| {
+                calls.push(url.to_owned());
+                aede_core::json::parse(
+                    r#"{"id":33088,"name":"Roadracer Records","profile":"An unrelated profile."}"#,
+                )
+                .map_err(|error| error.to_string())
+            },
+        );
+        assert!(result.is_err(), "untrusted identity must be reviewed first");
+        assert!(
+            calls.is_empty(),
+            "untrusted identity issued requests: {calls:?}"
+        );
+        assert_eq!(std::fs::read(&path).expect("source bytes"), before);
+        assert!(held.get(&entity, discogs::SOURCE).is_none());
+    }
 }
 
 #[test]
@@ -99,7 +153,72 @@ fn a_missing_wikipedia_bio_uses_the_musicbrainz_discogs_link_and_saves_the_profi
         facts.summary.as_ref().map(|prose| prose.url.as_str()),
         Some("https://www.discogs.com/label/33088")
     );
-    assert_eq!(record.confidence, Confidence::matched(99));
+    assert_eq!(record.confidence, Confidence::Identified);
+}
+
+#[test]
+fn an_accepted_musicbrainz_match_leads_to_a_trusted_identifier_linked_discogs_profile() {
+    let catalog = catalog();
+    let entity = entity(&catalog);
+    let mut held = Sources::default();
+    musicbrainz(&mut held, &entity);
+    if let Facts::Label(facts) = &mut held.records[0].facts {
+        facts.discogs = Some("https://www.discogs.com/label/33088".into());
+    }
+    let previous = held.get(&entity, sources::MUSICBRAINZ).unwrap().clone();
+    let reviews = held.reviews.clone();
+    let path = path("accepted_lookup");
+    let mut answer = |url: &str| {
+        assert_eq!(url, "https://api.discogs.com/labels/33088");
+        aede_core::json::parse(
+            r#"{"id":33088,"name":"Roadracer Records","profile":"A verified label profile."}"#,
+        )
+        .map_err(|error| error.to_string())
+    };
+    refresh(
+        &catalog,
+        catalog.labels[0].id,
+        &mut held,
+        &path,
+        &mut |_| panic!("the trusted label already names its Discogs ID"),
+        &mut answer,
+    )
+    .unwrap();
+    let saved = sources::load(&path).unwrap().unwrap();
+    let profile = saved.get(&entity, discogs::SOURCE).unwrap();
+    assert!(
+        saved.is_trusted(&catalog, profile),
+        "an exact linked lookup must be displayable after the parent identity is accepted"
+    );
+    assert_eq!(saved.get(&entity, sources::MUSICBRAINZ), Some(&previous));
+    assert_eq!(
+        saved.reviews, reviews,
+        "approval is not copied to a different source"
+    );
+    assert_eq!(previous.confidence, Confidence::matched(99));
+    held.set_review(sources::SourceReview {
+        entity: entity.clone(),
+        source: discogs::SOURCE.into(),
+        source_id: Some("33088".into()),
+        decision: sources::ReviewDecision::Rejected,
+        reviewed_at: 3,
+    });
+    refresh(
+        &catalog,
+        catalog.labels[0].id,
+        &mut held,
+        &path,
+        &mut |_| panic!("the trusted label already names its Discogs ID"),
+        &mut answer,
+    )
+    .unwrap();
+    let saved = sources::load(&path).unwrap().unwrap();
+    let profile = saved.get(&entity, discogs::SOURCE).unwrap();
+    assert!(
+        !saved.is_trusted(&catalog, profile),
+        "an explicit Discogs rejection still wins"
+    );
+    assert_eq!(saved.get(&entity, sources::MUSICBRAINZ), Some(&previous));
 }
 
 #[test]
@@ -373,6 +492,95 @@ impl super::super::fetch::Ask for BatchTransport {
         Err(super::super::fetch::Refusal::Failed(
             "No image request expected".into(),
         ))
+    }
+}
+
+#[test]
+fn only_a_trusted_wikipedia_biography_can_suppress_explicit_discogs_fetching() {
+    let mut catalog = catalog();
+    catalog.labels[0].name = "Control Label".into();
+    catalog.labels[0].key = "control label".into();
+    let entity = entity(&catalog);
+    for mode in ["pending", "rejected", "accepted", "identified"] {
+        let mut original = Sources::default();
+        musicbrainz(&mut original, &entity);
+        if let Facts::Label(facts) = &mut original.records[0].facts {
+            facts.discogs = Some("https://www.discogs.com/label/12345".into());
+        }
+        let wiki = SourceRecord {
+            key: entity.key.clone(),
+            source: "wikipedia".into(),
+            source_id: Some("Q123".into()),
+            fetched_at: 1,
+            confidence: if mode == "identified" {
+                Confidence::Identified
+            } else {
+                Confidence::matched(80)
+            },
+            facts: Facts::Label(LabelFacts {
+                summary: Some(Prose {
+                    text: "An unconfirmed biography.".into(),
+                    url: "https://en.wikipedia.org/wiki/Control_Label".into(),
+                    lang: "en".into(),
+                    licence: "CC BY-SA 4.0".into(),
+                }),
+                ..Default::default()
+            }),
+        };
+        original.set(wiki.clone());
+        if mode == "rejected" || mode == "accepted" {
+            let selector = original
+                .review_items(&catalog)
+                .into_iter()
+                .find(|review| review.source == "wikipedia")
+                .unwrap()
+                .id;
+            let decision = if mode == "accepted" {
+                sources::ReviewDecision::Accepted
+            } else {
+                sources::ReviewDecision::Rejected
+            };
+            original.decide(&catalog, &selector, decision, 3).unwrap();
+        }
+        for batch in [false, true] {
+            let mut held = original.clone();
+            let path = path(&format!("wiki_{mode}_{batch}"));
+            if batch {
+                let asked = super::super::fetch::Asked {
+                    names: &[],
+                    scope: &super::super::fetch::EVERYTHING,
+                    again: false,
+                    dry_run: false,
+                    size: super::super::covers::DEFAULT_SIZE,
+                    size_requested: false,
+                    images: false,
+                    fanart: Default::default(),
+                    langs: vec!["en".into()],
+                    key: None,
+                    portrait_key: None,
+                };
+                run(&catalog, &mut BatchTransport, &[], &mut held, &path, &asked).unwrap();
+            } else {
+                refresh(
+                    &catalog,
+                    catalog.labels[0].id,
+                    &mut held,
+                    &path,
+                    &mut |_| panic!("trusted MusicBrainz link is already held"),
+                    &mut |url| {
+                        super::super::fetch::Ask::get_json(&mut BatchTransport, url)
+                            .map_err(|why| why.to_string())
+                    },
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                held.get(&entity, discogs::SOURCE).is_some(),
+                !["identified", "accepted"].contains(&mode),
+                "{mode}, batch={batch}"
+            );
+            assert_eq!(held.get(&entity, "wikipedia"), Some(&wiki));
+        }
     }
 }
 #[test]

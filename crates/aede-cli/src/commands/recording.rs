@@ -57,7 +57,11 @@ pub fn show_recording(args: &Args) -> Res {
     println!("{}", placements.render());
     for &work_id in &recording.work_ids {
         if let Some(work) = catalog.work(work_id) {
-            println!("  work: {} ({})", work.title, work.mbid);
+            println!(
+                "  work: {} ({})",
+                ui::literal(&work.title),
+                ui::literal(&work.mbid)
+            );
             navigation.entity(&catalog, "Work", EntityKind::Work, work.id);
         }
     }
@@ -75,13 +79,13 @@ pub fn show_recording(args: &Args) -> Res {
             .collect::<Vec<_>>();
         let qualified = match attributes.is_empty() {
             true => String::new(),
-            false => format!(" · {}", attributes.join(", ")),
+            false => format!(" · {}", ui::literal(&attributes.join(", "))),
         };
         println!(
             "  source work: {} ({}){qualified} — {} · {} · {}",
-            link.work.title,
-            link.work.mbid,
-            link.source,
+            ui::literal(&link.work.title),
+            ui::literal(&link.work.mbid),
+            ui::literal(&link.source),
             super::source_status(link.confidence, link.review, link.trusted),
             ui::since(link.fetched_at)
         );
@@ -95,7 +99,7 @@ pub fn show_recording(args: &Args) -> Res {
     let source_credits: Vec<_> = held
         .credit_links(&catalog)
         .into_iter()
-        .filter(|link| link.recording_id == recording.id)
+        .filter(|link| link.applicable_recording_ids.contains(&recording.id))
         .collect();
     for link in &source_credits {
         if !link.trusted {

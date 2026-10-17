@@ -199,7 +199,8 @@ fn listed(catalog: &Catalog, scope: &[String], wanted: &[String]) -> Res {
         );
     }
     // The command to compare against, spelled exactly, **and the flag not to
-    // add**. `fpcalc` numbers the algorithms from one and ffmpeg from zero, so
+    // add**. `-length 0` includes the whole input instead of fpcalc's default
+    // 120-second preview. `fpcalc` numbers algorithms from one and ffmpeg from zero, so
     // `fpcalc -algorithm 1` is a different algorithm and answers a different
     // string — measured, not assumed. A reader told to compare, who reached for
     // the flag whose number they had just been shown, would conclude that Aède
@@ -207,7 +208,7 @@ fn listed(catalog: &Catalog, scope: &[String], wanted: &[String]) -> Res {
     println!(
         "  {}",
         ui::dim(
-            "compare with: fpcalc \"<file>\" — its default, not -algorithm 1, which is another one"
+            "compare with: fpcalc -length 0 \"<file>\" — its default algorithm, not -algorithm 1, which is another one"
         )
     );
     println!(
@@ -274,8 +275,15 @@ fn survey(catalog: &Catalog, scope: &[String], wanted: &[String], full: bool) ->
         }
         // The point of the whole thing: a file whose tags identify it does not
         // need rescuing, and decoding it costs the same as decoding one that
-        // does.
-        if !full && !title.trim().is_empty() && !artist.trim().is_empty() {
+        // does. ARTISTS is the explicit multi-value counterpart of ARTIST;
+        // either can name the track without an acoustic lookup.
+        if !full
+            && !title.trim().is_empty()
+            && (!artist.trim().is_empty()
+                || file
+                    .first_tag("artists")
+                    .is_some_and(|name| !name.trim().is_empty()))
+        {
             out.named += 1;
             continue;
         }

@@ -24,10 +24,12 @@
 //!
 //! # It never touches a track that already has words
 //!
-//! The catalog answers that offline and exactly: a file's tags say whether the
-//! words are inside it, and [`aede_core::model::AudioFile::lyrics_path`] says
-//! whether a `.lrc` sits beside it. Either of them and the track is not asked
-//! about at all — no request, no file, nothing.
+//! The catalog's tags say whether words are inside the audio. Sidecar presence
+//! is checked on disk, both at the remembered
+//! [`aede_core::model::AudioFile::lyrics_path`] and at the standard adjacent
+//! path. A completed download is reused before a rescan; a removed sidecar
+//! does not count as existing words. Existing sidecar entries are left alone
+//! without a request, including ones whose text is unreadable.
 //!
 //! There is deliberately **no `--replace`**. Overwriting a lyrics file somebody
 //! wrote or corrected is not a thing this command should be able to do by
@@ -345,25 +347,35 @@ fn survey(
         // is the one place a track's artists are worked out, and going round
         // it would be a second answer to the same question.
         let artist = super::main_track_artist(catalog, track.id).unwrap_or_default();
-        if !super::fetch::reaches(wanted, &[track.title.as_str(), artist.as_str()]) {
+        let album = track
+            .release_id
+            .and_then(|id| catalog.release(id))
+            .map(|release| release.title.as_str())
+            .unwrap_or_default();
+        if !super::fetch::reaches(wanted, &[track.title.as_str(), artist.as_str(), album]) {
             continue;
         }
         // In the file's own tags: the words are there, and this pass has
         // nothing to add.
-        if file.tags.contains_key("lyrics") {
+        if file
+            .first_tag("lyrics")
+            .is_some_and(|text| !aede_core::lyrics::parse(text).is_empty())
+        {
             skipped.tagged += 1;
             continue;
         }
         let sidecar = aede_core::lyrics::sidecar_of(std::path::Path::new(&file.path));
-        if file.lyrics_path.is_some() || std::fs::symlink_metadata(&sidecar).is_ok() {
+        // The remembered path may have disappeared since scanning. Check both
+        // it and a newly acquired sidecar without opening or replacing either.
+        if file
+            .lyrics_path
+            .as_ref()
+            .is_some_and(|path| std::fs::symlink_metadata(path).is_ok())
+            || std::fs::symlink_metadata(&sidecar).is_ok()
+        {
             skipped.sidecar += 1;
             continue;
         }
-        let album = track
-            .release_id
-            .and_then(|id| catalog.release(id))
-            .map(|r| r.title.clone())
-            .unwrap_or_default();
         // The album may be missing and the question still be a good one — it
         // is simply left out of the address. The length may not: see
         // [`Skipped::unaskable`].
@@ -381,7 +393,7 @@ fn survey(
         }
         targets.push(Target {
             // Seconds, which is what the service matches on.
-            url: lrclib::get_url(&artist, &track.title, &album, duration / 1000),
+            url: lrclib::get_url(&artist, &track.title, album, duration / 1000),
             title: track.title.clone(),
             artist,
             sidecar,

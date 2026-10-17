@@ -457,14 +457,17 @@ pub(crate) fn canonical_credit_relation(
     mut relation: RelationRef,
 ) -> RelationRef {
     if relation.source.kind == EntityKind::Artist
-        && let Some(mbid) = relation
-            .source
-            .resolve(catalog)
-            .and_then(|id| catalog.artist(id))
+        && let Some(artist_id) = relation.source.resolve(catalog)
+        && let Some(mbid) = catalog
+            .artist(artist_id)
             .and_then(|artist| artist.mbid.as_deref())
             .filter(|mbid| !mbid.trim().is_empty())
     {
-        relation.source = EntityRef::new(EntityKind::Artist, format!("mbid:{mbid}"));
+        let canonical = EntityRef::new(EntityKind::Artist, format!("mbid:{mbid}"));
+        // Shared homonyms can leave several local rows carrying the same MBID.
+        if canonical.resolve(catalog) == Some(artist_id) {
+            relation.source = canonical;
+        }
     }
     relation
 }

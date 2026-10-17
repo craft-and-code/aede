@@ -33,7 +33,7 @@ pub fn relations(args: &Args) -> Res {
         })
         .filter(|edge| {
             tag.as_ref().is_none_or(|wanted| {
-                annotation(&user, edge).is_some_and(|annotation| {
+                annotation(&user, &catalog, edge).is_some_and(|annotation| {
                     annotation
                         .tags
                         .iter()
@@ -54,7 +54,7 @@ pub fn relations(args: &Args) -> Res {
             .iter()
             .skip(window.offset)
             .take(window.limit)
-            .map(|edge| edge_json(edge, annotation(&user, edge)))
+            .map(|edge| edge_json(edge, annotation(&user, &catalog, edge)))
             .collect();
         return super::export::emit(args, &Json::Arr(rows).to_string_pretty());
     }
@@ -72,7 +72,8 @@ pub fn relations(args: &Args) -> Res {
         .limit(3, 26)
         .limit(5, 24);
     for edge in edges.iter().skip(window.offset).take(window.limit) {
-        let personal = annotation(&user, edge).map_or_else(String::new, annotation_summary);
+        let personal =
+            annotation(&user, &catalog, edge).map_or_else(String::new, annotation_summary);
         table.push(vec![
             edge.reference.id(),
             edge.source_name.clone(),
@@ -126,11 +127,14 @@ pub fn relation(args: &Args) -> Res {
 
     let changes = args.has("text") || args.has("tag") || args.has("remove");
     if changes {
-        change_annotation(args, &edge, &mut data)?;
+        change_annotation(args, &catalog, &edge, &mut data)?;
         user::save(&data, &path)?;
     }
 
-    print_edge(&edge, data.find_relation(LOCAL_USER, &edge.reference));
+    print_edge(
+        &edge,
+        data.find_relation_in(&catalog, LOCAL_USER, &edge.reference),
+    );
     if changes {
         println!("  {}", ui::dim(&format!("saved in {}", path.display())));
     }
@@ -156,20 +160,22 @@ fn select_annotation(
     Ok(annotation.relation.clone())
 }
 
-fn change_annotation(args: &Args, edge: &GraphEdge, data: &mut user::UserData) -> Res {
+fn change_annotation(
+    args: &Args,
+    catalog: &aede_core::model::Catalog,
+    edge: &GraphEdge,
+    data: &mut user::UserData,
+) -> Res {
     if args.has("remove") && args.has("text") {
         return Err("--text writes a note while --remove removes it; give one".into());
     }
     let now = aede_core::clock::now_seconds();
     if args.has("remove") && !args.has("tag") {
-        let before = data.relation_annotations.len();
-        data.relation_annotations.retain(|annotation| {
-            annotation.owner != LOCAL_USER || annotation.relation != edge.reference
-        });
+        let removed = data.remove_relation_in(catalog, LOCAL_USER, &edge.reference)?;
         println!(
             "{} {}",
             ui::green("→"),
-            if data.relation_annotations.len() < before {
+            if removed {
                 "personal relation annotation removed"
             } else {
                 "this relation had no personal annotation"
@@ -178,7 +184,7 @@ fn change_annotation(args: &Args, edge: &GraphEdge, data: &mut user::UserData) -
         return Ok(());
     }
 
-    let entry = data.relation_entry(LOCAL_USER, &edge.reference, now);
+    let entry = data.relation_entry_in(catalog, LOCAL_USER, &edge.reference, now)?;
     if let Some(text) = args.value("text") {
         if text.trim().is_empty() {
             return Err("--text cannot be blank; use --remove to erase the annotation".into());
@@ -216,8 +222,12 @@ fn parse_tags(value: &str) -> Result<BTreeSet<String>, String> {
     }
 }
 
-fn annotation<'a>(data: &'a user::UserData, edge: &GraphEdge) -> Option<&'a RelationAnnotation> {
-    data.find_relation(LOCAL_USER, &edge.reference)
+fn annotation<'a>(
+    data: &'a user::UserData,
+    catalog: &aede_core::model::Catalog,
+    edge: &GraphEdge,
+) -> Option<&'a RelationAnnotation> {
+    data.find_relation_in(catalog, LOCAL_USER, &edge.reference)
 }
 
 fn annotation_summary(annotation: &RelationAnnotation) -> String {
@@ -245,7 +255,7 @@ fn print_edge(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) {
     println!("    {}", ui::cyan(&edge.reference.kind));
     println!("  {}", ui::bold(&edge.target_name));
     println!("\n  ID          {}", edge.reference.id());
-    println!("  Source      {}", edge.reference.provenance);
+    println!("  Source      {}", ui::literal(&edge.reference.provenance));
     println!(
         "  Trust       {}",
         if edge.excluded {
@@ -274,16 +284,17 @@ fn print_edge(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) {
         println!("  Weight      {}", edge.weight);
     }
     if let Some(source_id) = &edge.reference.source_id {
-        println!("  Source ID   {source_id}");
+        println!("  Source ID   {}", ui::literal(source_id));
     }
     if let Some(type_id) = &edge.relationship_type_id {
+        let type_id = ui::literal(type_id);
         println!("  Type ID     {type_id}");
     }
     if let Some(direction) = &edge.direction {
-        println!("  Direction   {direction}");
+        println!("  Direction   {}", ui::literal(direction));
     }
     if let Some(credited_as) = &edge.credited_as {
-        println!("  Credited as {credited_as}");
+        println!("  Credited as {}", ui::literal(credited_as));
     }
     if !edge.attributes.is_empty() {
         let attributes = edge
@@ -292,7 +303,7 @@ fn print_edge(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) {
             .map(attribute_text)
             .collect::<Vec<_>>()
             .join(", ");
-        println!("  Attributes  {attributes}");
+        println!("  Attributes  {}", ui::literal(&attributes));
     }
     let mut dates = match (&edge.began, &edge.ended) {
         (Some(began), Some(ended)) => format!("{began}–{ended}"),
@@ -315,7 +326,7 @@ fn print_edge(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) {
         dates.push_str("current");
     }
     if !dates.is_empty() {
-        println!("  Dates       {dates}");
+        println!("  Dates       {}", ui::literal(&dates));
     }
     if let Some(order) = edge.order {
         println!("  Order       {order}");
@@ -328,17 +339,19 @@ fn print_edge(edge: &GraphEdge, annotation: Option<&RelationAnnotation>) {
         if !annotation.tags.is_empty() {
             println!(
                 "  Tags        {}",
-                annotation
-                    .tags
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                ui::literal(
+                    &annotation
+                        .tags
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             );
         }
         if let Some(note) = &annotation.note {
             println!("  Note");
-            for line in ui::wrap(note, 72) {
+            for line in ui::wrap(&ui::literal(note), 72) {
                 println!("    {line}");
             }
         }

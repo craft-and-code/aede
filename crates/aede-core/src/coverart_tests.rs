@@ -12,6 +12,73 @@ mod test_support;
 use test_support::{ImageFolder, JPEG, PNG};
 
 #[test]
+fn artwork_asset_identifiers_and_existing_directories_stay_inside_the_cache() {
+    use crate::model::EntityKind;
+    for (kind, family, image_kind) in [
+        (EntityKind::Artist, "artists", Kind::Artist),
+        (EntityKind::Label, "labels", Kind::Logo),
+    ] {
+        let temporary = ImageFolder::new();
+        let data = temporary.path().join("data");
+        let outside = temporary.path().join("outside");
+        for identifier in [
+            outside.to_str().unwrap(),
+            "../outside",
+            r"..\outside",
+            "a/b",
+            r"a\b",
+            ".",
+            "..",
+            "",
+            "nul\0identifier",
+        ] {
+            assert!(asset_destination(&data, kind, identifier).is_none());
+        }
+        assert!(!data.exists());
+        assert!(!outside.exists());
+        let expected = data.join("assets").join(family).join("opaque-id");
+        assert_eq!(
+            asset_destination(&data, kind, "opaque-id"),
+            Some(expected.clone())
+        );
+        assert!(matches!(
+            write_image(&expected, image_kind, (0, 1), PNG),
+            Ok(Written::New(_))
+        ));
+        assert_eq!(asset_destination(&data, kind, "opaque-id"), Some(expected));
+        assert!(asset_destination(&data, EntityKind::Release, "opaque-id").is_none());
+
+        let blocked = temporary.path().join("blocked");
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(blocked.join("assets"), b"unrelated file").unwrap();
+        assert!(asset_destination(&blocked, kind, "opaque-id").is_none());
+        assert_eq!(
+            std::fs::read(blocked.join("assets")).unwrap(),
+            b"unrelated file"
+        );
+
+        #[cfg(unix)]
+        for linked_component in [
+            std::path::PathBuf::from("assets"),
+            std::path::PathBuf::from("assets").join(family),
+            std::path::PathBuf::from("assets")
+                .join(family)
+                .join("opaque-id"),
+        ] {
+            let linked = ImageFolder::new();
+            let outside = linked.path().join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            let data = linked.path().join("data");
+            let alias = data.join(linked_component);
+            std::fs::create_dir_all(alias.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&outside, &alias).unwrap();
+            assert!(asset_destination(&data, kind, "opaque-id").is_none());
+            assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
 fn truncated_images_are_refused_before_any_folder_or_file_is_created() {
     let temporary = ImageFolder::new();
     let folder = temporary.path().join("not-created");

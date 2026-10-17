@@ -132,7 +132,25 @@ pub fn artist_response(response: &Json, mbid: &str) -> Result<(), String> {
             "Fanart.tv returned no artist identifier; the response was not an artist answer"
                 .to_string(),
         ),
+    }?;
+    validate_arrays(
+        response,
+        &[
+            "hdmusiclogo",
+            "musiclogo",
+            "artistthumb",
+            "musicbanner",
+            "artist4kbackground",
+            "artistbackground",
+            "albums",
+        ],
+    )?;
+    if let Some(albums) = response.get("albums").and_then(Json::as_arr) {
+        for album in albums {
+            validate_arrays(album, &["albumcover", "cdart"])?;
+        }
     }
+    Ok(())
 }
 
 /// Refuses a response whose identity does not match the label requested.
@@ -146,7 +164,21 @@ pub fn label_response(response: &Json, mbid: &str) -> Result<(), String> {
             "Fanart.tv returned no label identifier; the response was not a label answer"
                 .to_string(),
         ),
+    }?;
+    validate_arrays(response, &["musiclabel"])
+}
+
+/// Missing and empty image pools are valid absences; unreadable pools are not.
+fn validate_arrays(response: &Json, fields: &[&str]) -> Result<(), String> {
+    for field in fields {
+        if response
+            .get(field)
+            .is_some_and(|value| !matches!(value, Json::Arr(_)))
+        {
+            return Err(format!("Fanart.tv returned no valid {field} array"));
+        }
     }
+    Ok(())
 }
 
 /// One image the service knows of, and how well liked it is.

@@ -39,14 +39,27 @@ pub(super) fn run(
     path: &std::path::Path,
     asked: &super::fetch::Asked,
 ) -> Res {
-    let targets: Vec<_> = catalog.labels.iter().filter(|label| {
-        let Some(entity)=EntityRef::of(catalog,EntityKind::Label,label.id) else { return false; };
-        super::fetch::reaches(asked.names,&[label.name.as_str()])
-            && asked.scope.has_label(&label.key)
-            && (label.mbid.is_some() || held.get(&entity,sources::MUSICBRAINZ).is_some_and(|r| r.source_id.is_some() && held.is_trusted(catalog,r)))
-            && !matches!(held.get(&entity,"wikipedia").map(|r| &r.facts),Some(Facts::Label(f)) if f.summary.is_some())
-            && (asked.again || !held.get(&entity,discogs::SOURCE).is_some_and(|r| discogs::fresh(r.fetched_at,clock::now_seconds()) && matches!(&r.facts,Facts::Label(f) if f.summary.is_some())))
-    }).collect();
+    let targets: Vec<_> = catalog
+        .labels
+        .iter()
+        .filter(|label| {
+            let Some(entity) = EntityRef::of(catalog, EntityKind::Label, label.id) else {
+                return false;
+            };
+            super::fetch::reaches(asked.names, &[label.name.as_str()])
+                && asked.scope.has_label(&label.key)
+                && (label.mbid.is_some()
+                    || held
+                        .get(&entity, sources::MUSICBRAINZ)
+                        .is_some_and(|r| r.source_id.is_some() && held.is_trusted(catalog, r)))
+                && !has_wikipedia_biography(catalog, held, &entity)
+                && (asked.again
+                    || !held.get(&entity, discogs::SOURCE).is_some_and(|r| {
+                        discogs::fresh(r.fetched_at, clock::now_seconds())
+                            && matches!(&r.facts,Facts::Label(f) if f.summary.is_some())
+                    }))
+        })
+        .collect();
     println!("{}", crate::ui::section("Discogs label biographies"));
     println!("  {} to refresh", crate::ui::plural(targets.len(), "label"));
     if super::fetch::asked_nothing(
@@ -177,17 +190,19 @@ fn refresh(
     let entity = EntityRef::of(catalog, EntityKind::Label, label_id)
         .ok_or("label has no stable source key")?;
 
-    if matches!(held.get(&entity, "wikipedia").map(|row| &row.facts),
-        Some(Facts::Label(facts)) if facts.summary.is_some())
-    {
+    if has_wikipedia_biography(catalog, held, &entity) {
         println!("  Wikipedia already has a biography for this label; Discogs was not asked.");
         return Ok(());
     }
     let previous = held.get(&entity, sources::MUSICBRAINZ).cloned();
-    let confidence = previous
+    if previous
         .as_ref()
-        .map(|record| record.confidence)
-        .unwrap_or(sources::Confidence::Identified);
+        .is_some_and(|record| !held.is_trusted(catalog, record))
+    {
+        return Err(
+            "review this label's MusicBrainz identity before fetching its Discogs profile".into(),
+        );
+    }
     let mbid = previous
         .as_ref()
         .and_then(|row| row.source_id.clone())
@@ -277,7 +292,9 @@ fn refresh(
         source: discogs::SOURCE.to_string(),
         source_id: Some(id.to_string()),
         fetched_at: clock::now_seconds(),
-        confidence,
+        // This source was reached by its exact linked numeric identifier.
+        // The reviewed MusicBrainz match keeps its own original confidence.
+        confidence: sources::Confidence::Identified,
         facts: Facts::Label(LabelFacts {
             summary: Some(prose),
             summary_markup: Some(markup),
@@ -286,6 +303,15 @@ fn refresh(
     });
     sources::save(held, path)?;
     Ok(())
+}
+
+/// Only a usable biography can satisfy the Wikipedia-first fallback policy.
+fn has_wikipedia_biography(catalog: &Catalog, held: &Sources, entity: &EntityRef) -> bool {
+    held.get(entity, "wikipedia")
+        .filter(|record| held.is_trusted(catalog, record))
+        .is_some_and(
+            |record| matches!(&record.facts, Facts::Label(facts) if facts.summary.is_some()),
+        )
 }
 
 #[cfg(test)]

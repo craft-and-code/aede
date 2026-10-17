@@ -47,15 +47,15 @@ pub fn show_work(args: &Args) -> Res {
     if let Some(work) = found.first() {
         println!("{}", ui::section(&work.title));
         println!("  {}", ui::dim(&format!("MusicBrainz work: {}", work.mbid)));
-        let recording_ids: BTreeSet<_> = work.recording_ids.iter().copied().collect();
+        let work_links = held.work_links(&catalog);
+        let recording_ids = recordings_of_work(work, &work_links);
         print_recordings(&catalog, &recording_ids);
         let mut navigation = Navigation::default();
         for &recording_id in &recording_ids {
             navigation.entity(&catalog, "Recording", EntityKind::Recording, recording_id);
         }
         print_family(&family, &work.mbid, &mut navigation);
-        for link in held
-            .work_links(&catalog)
+        for link in work_links
             .into_iter()
             .filter(|link| link.work.mbid == work.mbid)
         {
@@ -140,8 +140,9 @@ pub fn show_work(args: &Args) -> Res {
         println!(
             "  {}",
             ui::dim(&format!(
-                "{} · identified · {}{qualified}",
+                "{} · {} · {}{qualified}",
                 link.source,
+                super::source_status(link.confidence, link.review, link.trusted),
                 ui::since(link.fetched_at)
             ))
         );
@@ -163,6 +164,22 @@ pub fn show_work(args: &Args) -> Res {
     super::print_sourced_credits(&catalog, credits);
     navigation.print();
     Ok(())
+}
+
+fn recordings_of_work(
+    work: &aede_core::model::Work,
+    links: &[sources::SourcedWorkLink],
+) -> BTreeSet<u32> {
+    work.recording_ids
+        .iter()
+        .copied()
+        .chain(
+            links
+                .iter()
+                .filter(|link| link.trusted && link.work.mbid == work.mbid)
+                .map(|link| link.recording_id),
+        )
+        .collect()
 }
 
 /// Shows only asserted parent/part identities. A matching title never invents
@@ -298,3 +315,7 @@ fn print_recordings(catalog: &aede_core::model::Catalog, recording_ids: &BTreeSe
     }
     println!("{}", rows.render());
 }
+
+#[cfg(test)]
+#[path = "work_tests.rs"]
+mod tests;

@@ -121,7 +121,7 @@ pub fn show_track(args: &Args) -> Res {
             &catalog,
             sourced_credits
                 .iter()
-                .filter(|link| link.recording_id == track.recording_id)
+                .filter(|link| link.applicable_recording_ids.contains(&track.recording_id))
                 .cloned()
                 .collect(),
         );
@@ -227,19 +227,26 @@ fn print_graph_links(
             );
         }
     }
-    let mut seen_parents = std::collections::BTreeSet::new();
-    for link in held
+    let mut parents: Vec<_> = held
         .work_parent_links(catalog)
         .into_iter()
-        .filter(|link| link.recording_id == recording.id)
-    {
-        if !seen_parents.insert((
-            link.child_mbid.clone(),
-            link.parent.mbid.clone(),
-            link.source.clone(),
-        )) {
-            continue;
-        }
+        .filter(|link| link.applicable_recording_ids.contains(&recording.id))
+        .collect();
+    // A pending observation must not conceal a trusted copy of the same link.
+    parents.sort_by(|left, right| {
+        left.child_mbid
+            .cmp(&right.child_mbid)
+            .then_with(|| left.parent.mbid.cmp(&right.parent.mbid))
+            .then_with(|| left.source.cmp(&right.source))
+            .then_with(|| right.trusted.cmp(&left.trusted))
+            .then_with(|| right.fetched_at.cmp(&left.fetched_at))
+    });
+    parents.dedup_by(|left, right| {
+        left.child_mbid == right.child_mbid
+            && left.parent.mbid == right.parent.mbid
+            && left.source == right.source
+    });
+    for link in parents {
         rows.push(vec![
             "parent work".into(),
             link.parent.title.clone(),
@@ -297,7 +304,7 @@ fn print_graph_links(
     for link in held
         .credit_links(catalog)
         .into_iter()
-        .filter(|link| link.trusted && link.recording_id == recording.id)
+        .filter(|link| link.trusted && link.applicable_recording_ids.contains(&recording.id))
     {
         navigation.source_artist(&link.credit.artist_mbid);
     }
@@ -494,8 +501,8 @@ fn print_lyrics(catalog: &Catalog, track: &Track) {
         println!(
             "  {}",
             ui::dim(&format!(
-                "aede fetch \"{}\" --lyrics asks LRCLIB for them",
-                track.title
+                "aede fetch {} --lyrics asks LRCLIB for them",
+                super::navigation::shell_arg(&track.title)
             ))
         );
         return;
@@ -647,7 +654,7 @@ fn as_json(
         Json::Arr(
             sourced
                 .iter()
-                .filter(|link| link.recording_id == track.recording_id)
+                .filter(|link| link.applicable_recording_ids.contains(&track.recording_id))
                 .map(|link| {
                     let mut credit = Json::obj();
                     credit.set("artist", link.credit.artist_name.clone().into());
@@ -740,7 +747,7 @@ fn as_json(
         Json::Arr(
             parent_works
                 .iter()
-                .filter(|link| link.recording_id == track.recording_id)
+                .filter(|link| link.applicable_recording_ids.contains(&track.recording_id))
                 .map(|link| {
                     let mut parent = Json::obj();
                     parent.set("child_mbid", link.child_mbid.clone().into());

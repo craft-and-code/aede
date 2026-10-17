@@ -2,11 +2,13 @@
 
 fingerprint decodes local audio to compute a Chromaprint acoustic fingerprint. It does not contact AcoustID. That separate lookup is fetch --identify, allowing a network retry without decoding the same audio again.
 
-With no scope, the default focuses on files lacking title/artist identification, avoiding a full-library decode merely to confirm good tags. Names or folders select explicitly; --full includes already identified/fingerprinted files. --list shows stored fingerprints; --dry-run previews without decoding, but the required helper is still validated.
+With no scope, the default focuses on files lacking title/artist identification, avoiding a full-library decode merely to confirm good tags. An explicit nonblank `TITLE` and either `ARTIST` or its multi-value counterpart `ARTISTS` are sufficient; album artists and composers alone do not identify the track artist. Catalogued file or folder paths select explicitly; --full includes already identified/fingerprinted files. --list shows stored fingerprints; --dry-run previews without decoding, but the required helper is still validated.
 
 Inputs must resolve to regular local files before the helper runs; device files, pipes and protocol addresses are refused. Missing, subsecond or out-of-range catalog durations cannot produce a lookup. Human-readable paths and fingerprints display terminal controls literally; the stored and exported values keep their original text. A preview creates neither output files nor a data writer lock.
 
 The helper can be fpcalc or an ffmpeg build supporting Chromaprint; a plain ffmpeg installation does not necessarily include that encoder. Duration is needed for a later AcoustID lookup. Results survive unchanged scans and become stale when files change. Errors identify failed files; successfully computed results remain stored. An acoustic fingerprint is an identification aid, not a byte-integrity checksum.
+
+Both helpers process the complete input. Aède runs `fpcalc -length 0` to remove its default 120-second limit while retaining its default Chromaprint algorithm; `fpcalc -algorithm 1` selects a different algorithm. Earlier results computed with the limited fallback remain readable and are not silently rewritten: use `aede fingerprint --full` (optionally scoped to catalogued paths) to refresh them explicitly. This may take longer for long recordings because their full audio is decoded.
 
 Listing stored fingerprints also takes no writer lock, so it remains available while a collection is running.
 
@@ -16,7 +18,7 @@ Listing stored fingerprints also takes no writer lock, so it remains available w
 aede fingerprint [folder…]
 ```
 
-Optional catalogued folder or artist/album name restrictions.
+Optional catalogued file or folder path restrictions.
 
 ## Options for this command
 

@@ -147,7 +147,7 @@ pub fn best(response: &Json) -> Option<Heard> {
             continue;
         };
         for recording in recordings {
-            let Some(id) = recording.field_str("id").filter(|id| !id.is_empty()) else {
+            let Some(id) = recording.field_str("id").filter(|id| !id.trim().is_empty()) else {
                 continue;
             };
             if found.as_ref().is_some_and(|current| {
@@ -187,6 +187,8 @@ pub fn best(response: &Json) -> Option<Heard> {
 /// file in the library.
 /// Only `ok` with a result array is a successful lookup; an empty array is a
 /// genuine miss, while a missing or malformed array is a failed answer.
+/// Recording metadata is optional, but a present recording table must contain
+/// identified recordings. An unreadable table is not a negative identification.
 pub fn refused(response: &Json) -> Option<String> {
     match response.field_str("status").as_deref() {
         Some("ok") => {
@@ -206,6 +208,19 @@ pub fn refused(response: &Json) -> Option<String> {
                     "the service returned a result without a valid track identifier or score"
                         .to_string(),
                 )
+            } else if results.iter().any(|result| {
+                result.get("recordings").is_some_and(|recordings| {
+                    recordings.as_arr().is_none_or(|recordings| {
+                        recordings.iter().any(|recording| {
+                            recording
+                                .get("id")
+                                .and_then(Json::as_str)
+                                .is_none_or(|id| id.trim().is_empty())
+                        })
+                    })
+                })
+            }) {
+                Some("the service returned invalid recording metadata".to_string())
             } else {
                 None
             }

@@ -456,6 +456,7 @@ fn linked(row: &Json, relation: &str) -> Option<String> {
 /// asking a question that has already been answered, and accepting a guess in
 /// place of a certainty.
 pub fn artist(response: &Json) -> Option<Candidate<ArtistFacts>> {
+    relationship_rows(response)?;
     let mbid = field(response, "id")?;
     Some(Candidate {
         mbid,
@@ -474,6 +475,23 @@ pub fn artist(response: &Json) -> Option<Candidate<ArtistFacts>> {
 /// local canonical graph.
 pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
     let mbid = field(response, "id")?;
+    for relation in credit_relationship_rows(response)? {
+        if relation.field_str("target-type").as_deref() == Some("work") {
+            let work = relation.get("work")?;
+            if !has_nonblank_string(work, "id") {
+                return None;
+            }
+            for nested in credit_relationship_rows(work)? {
+                if is_parent_work_relation(nested)
+                    && !nested
+                        .get("work")
+                        .is_some_and(|parent| has_nonblank_string(parent, "id"))
+                {
+                    return None;
+                }
+            }
+        }
+    }
     let credits = relationship_credits(response);
     let works = response
         .get("relations")
@@ -519,17 +537,11 @@ pub fn recording(response: &Json) -> Option<Candidate<TrackFacts>> {
 /// forward relationship names one of its children, and a derivative is not a
 /// container at all.
 fn work_parent_links(work: &Json) -> Vec<crate::sources::WorkParentLink> {
-    const PARTS_TYPE_ID: &str = "ca8d3642-ce5f-49f8-91f2-125d72524e6a";
     work.get("relations")
         .and_then(Json::as_arr)
         .into_iter()
         .flatten()
-        .filter(|relation| relation.field_str("target-type").as_deref() == Some("work"))
-        .filter(|relation| relation.field_str("direction").as_deref() == Some("backward"))
-        .filter(|relation| match relation.field_str("type-id") {
-            Some(id) => id == PARTS_TYPE_ID,
-            None => relation.field_str("type").as_deref() == Some("parts"),
-        })
+        .filter(|relation| is_parent_work_relation(relation))
         .filter_map(|relation| {
             let parent = relation.get("work")?;
             Some(crate::sources::WorkParentLink {
@@ -543,6 +555,45 @@ fn work_parent_links(work: &Json) -> Vec<crate::sources::WorkParentLink> {
             })
         })
         .collect()
+}
+
+fn is_parent_work_relation(relation: &Json) -> bool {
+    const PARTS_TYPE_ID: &str = "ca8d3642-ce5f-49f8-91f2-125d72524e6a";
+    relation.field_str("target-type").as_deref() == Some("work")
+        && relation.field_str("direction").as_deref() == Some("backward")
+        && match relation.field_str("type-id") {
+            Some(id) => id == PARTS_TYPE_ID,
+            None => relation.field_str("type").as_deref() == Some("parts"),
+        }
+}
+
+/// Do not turn a discarded, unreadable credit into completed empty evidence.
+/// Unknown relationship families and optional display metadata stay optional.
+fn credit_relationship_rows(entity: &Json) -> Option<&[Json]> {
+    let rows = relationship_rows(entity)?;
+    rows.iter()
+        .all(|relation| {
+            relation.field_str("target-type").as_deref() != Some("artist")
+                || (has_nonblank_string(relation, "type")
+                    && relation
+                        .get("artist")
+                        .is_some_and(|artist| has_nonblank_string(artist, "id")))
+        })
+        .then_some(rows)
+}
+
+fn has_nonblank_string(entity: &Json, key: &str) -> bool {
+    matches!(entity.get(key), Some(Json::Str(text)) if !text.trim().is_empty())
+}
+
+/// A malformed present table cannot establish a completed empty lookup.
+/// Missing optional relationships retain their existing empty meaning.
+fn relationship_rows(entity: &Json) -> Option<&[Json]> {
+    match entity.get("relations") {
+        None => Some(&[]),
+        Some(Json::Arr(rows)) if rows.iter().all(|row| matches!(row, Json::Obj(_))) => Some(rows),
+        _ => None,
+    }
 }
 
 /// Artist relationships carried by one recording or work response.
@@ -622,6 +673,7 @@ pub fn artists(response: &Json) -> Vec<Candidate<ArtistFacts>> {
         .unwrap_or(&[]);
     rows.iter()
         .filter_map(|row| {
+            relationship_rows(row)?;
             let mbid = field(row, "id")?;
             Some(Candidate {
                 mbid,
@@ -716,6 +768,7 @@ pub fn release_group(response: &Json) -> Option<Candidate<ReleaseFacts>> {
 /// CD rip with a vinyl one. The edition is what was asked; the album is what
 /// was learnt.
 pub fn release(response: &Json) -> Option<Candidate<ReleaseFacts>> {
+    credit_relationship_rows(response)?;
     let group = response.get("release-group");
     let mut facts = group.map(release_facts).unwrap_or_default();
     facts.edition_mbid = field(response, "id");
@@ -866,6 +919,7 @@ pub fn label_of_release(response: &Json) -> Option<LabelOfRelease> {
 /// No tag ever carries it directly, so unlike [`artist`] this is never asked
 /// with a value read out of the files.
 pub fn label(response: &Json) -> Option<Candidate<LabelFacts>> {
+    relationship_rows(response)?;
     let mbid = field(response, "id")?;
     Some(Candidate {
         mbid,

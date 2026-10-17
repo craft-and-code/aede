@@ -2,7 +2,15 @@
 
 credit stores an explicit attributed manual credit or excludes/restores one exact sourced credit. First inspect relations to copy the stable edge ID, and inspect recording/work/album for a precise target identity.
 
-Choose exactly one action. --add takes one positional scope recording:ID, work:ID or release:ID and requires --artist and --role. A work must be linked to a local recording; an edition must exist locally. --artist-id and --instrument qualify the statement. The same exact manual credit cannot be added twice.
+Choose exactly one action. --add takes one positional scope recording:ID, work:ID or release:ID and requires --artist and --role. A work must be linked to a local recording; an edition must exist locally. --artist-id and --instrument qualify the statement. The same exact manual credit cannot be added twice. Recording/work duplicate checks follow the currently attached musical scope across file placements, so adding an earlier representative does not allow another copy. Excluded credits remain present and are restored with `--undo`; editions retain their exact local scope.
+
+Adding a recording MBID later does not allow a second copy of a CLI credit originally targeted through a still-present local file. Its original relationship ID and exclusion remain intact. This check follows only current placement aliases; it does not infer older MBIDs or collapse arbitrary imported manual relationship IDs.
+
+A `work:ID` credit concerns the composition and reaches all local recordings linked to that exact work MBID by tags or trusted evidence. It remains one attributed claim, with its original host and reversible exclusion; equal titles under different IDs do not extend its scope. A `recording:ID` or `release:ID` credit stays limited to that performance or edition.
+
+If a retained manual edition snapshot already names an edition MBID, changing or removing that tag does not move its earlier credits. Adding another credit to that same local album is refused while its current edition differs, rather than silently reassigning the retained claims. Manual edition snapshots created without an edition identifier retain their existing local attachment behavior.
+
+New direct recording credits retain the recording MBID when it is known. Changing or removing that identifier does not transfer those credits to the file's new performance: the original evidence remains stored, and another direct credit is refused while the captured identity differs. Composition credits on the same observation stay independent. Older or local-only snapshots without a captured recording ID keep their path attachment; reading does not infer or migrate an earlier identity.
 
 --exclude ID removes the chosen sourced assertion from navigation/search while retaining its evidence; tag-read credits cannot be excluded. --undo ID restores an existing exclusion. Direct exclusions/restorations refuse new-credit fields and positional scope. Correct one source credit by excluding it, then adding your attributed correction. These decisions travel with rules; audio tags never change.
 

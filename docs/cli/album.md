@@ -4,6 +4,8 @@ album opens one local release/edition, showing ordered tracks, technical facts, 
 
 Use a MusicBrainz release ID to distinguish exact editions with the same title. The release group links equivalent album identities and other local editions. Classical work/grouping and movement tags stay separate from a sourced parent work; personnel remain separate from composition credits.
 
+A dated album can show the artist's sourced line-up for that year. Memberships without sufficient dates are counted separately, even when nobody can be placed; they are not asserted as performers on the album.
+
 Names match exactly after normalization first, then by substring when no exact title exists. Several matching editions are shown together; a MusicBrainz release ID narrows the result to that identity. --limit and --offset page editions, with five editions by default, in both human output and exports. CSV/JSON/M3U include every track of those selected editions; their tracks are not paged a second time. --all includes every matching edition. Continue commands open recordings, credited artists and the release group.
 
 ## Syntax and arguments

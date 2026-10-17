@@ -525,6 +525,7 @@ Complete guides to Aède's features and architecture:
 - [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
 - [Desktop Branch Review](docs/coding/desktop-branch-review.md) — Integration audit, demonstrated regressions, dependency security and verification limits
 - [M0 Review](docs/coding/m0-review.md) — Local catalogue, personal queries and copy/conversion regressions, resource measurements and verification limits
+- [M1 Review](docs/coding/m1-review.md) — Source trust, enrichment, artwork confinement and sourced navigation regressions
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 

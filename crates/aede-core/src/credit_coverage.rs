@@ -98,10 +98,6 @@ pub fn editions(catalog: &Catalog, sources: &Sources) -> Vec<EditionCreditCovera
             let Some(entity) = EntityRef::of(catalog, EntityKind::Release, release.id) else {
                 return coverage;
             };
-            let group_id = release
-                .release_group_id
-                .and_then(|id| catalog.release_group(id))
-                .map(|group| group.mbid.as_str());
             for source in [MUSICBRAINZ, "manual"] {
                 let Some(record) = records.get(&(entity.key.as_str(), source)) else {
                     continue;
@@ -118,7 +114,10 @@ pub fn editions(catalog: &Catalog, sources: &Sources) -> Vec<EditionCreditCovera
                         record.source_id.as_deref(),
                     ))
                     .copied();
-                let trusted = trusted_with_identity(record, group_id, review);
+                let local_identity = record
+                    .musicbrainz_release_identity()
+                    .and_then(|identity| identity.local_id(catalog, release));
+                let trusted = trusted_with_identity(record, local_identity, review);
                 if source == "manual" {
                     if trusted && (facts.edition_mbid.is_none() || exact_edition) {
                         coverage.manual_credits = facts.credits.len();

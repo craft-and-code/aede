@@ -79,6 +79,15 @@ fn a_result_with_no_recording_is_not_an_answer() {
     // indistinguishable from a real identification at a glance.
     let bare = json(r#"{"status":"ok","results":[{"id":"9ff43b6a","score":1.0}]}"#);
     assert_eq!(best(&bare), None);
+    assert_eq!(refused(&bare), None, "recording metadata is optional");
+    let empty =
+        json(r#"{"status":"ok","results":[{"id":"9ff43b6a","score":1.0,"recordings":[]}]}"#);
+    assert_eq!(best(&empty), None);
+    assert_eq!(
+        refused(&empty),
+        None,
+        "an empty recording table is a genuine miss"
+    );
 
     // Nor is a recording with no identifier.
     let nameless = json(
@@ -86,6 +95,10 @@ fn a_result_with_no_recording_is_not_an_answer() {
              "recordings":[{"title":"So What"}]}]}"#,
     );
     assert_eq!(best(&nameless), None);
+    assert!(
+        refused(&nameless).is_some(),
+        "present metadata must be readable"
+    );
 
     // And a service that found nothing answers with an empty list, which is
     // an answer — "asked, and it does not know" — not a failure.

@@ -184,6 +184,10 @@ aede review                     # ambiguous identities needing a decision
 
 `sources --export` retains review decisions and credit exclusions even when their cached records have gone. `sources --forget` also removes those retained decisions, with an optional `--source` filter. Choose a single list/export/import/template/forget operation; `--source` is meaningful only for list, forget, and template. Human-readable prose, review cards and paths display terminal controls literally; saved source documents and machine exports keep their original values.
 
+Supported artist, release, track and label snapshots require a `facts` object in both supported document versions. An absent, null, scalar or array-valued container is refused before replacing any retained record. An empty object `{}` remains a valid deliberately empty snapshot; inner optional fields retain their existing meaning. Unknown or unsupported entity kinds keep their existing ignored behavior.
+
+Imports also refuse unreadable present credit/work collections in a recording or edition snapshot explicitly marked `relationships_complete:true`, including nested work credits. They do not replace the previous snapshot. Absent optional collections, valid empty arrays and legacy snapshots without that completion marker retain their existing meaning.
+
 The ID is included in the URL and can be copied separately. An album address points to its **release group**, which defines the album as a whole rather than a specific pressing.
 
 Three distinct states are differentiated: a value confirmed by your tags, a value in contradiction, and a value missing from your tags.

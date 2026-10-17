@@ -223,7 +223,7 @@ pub fn show_artist(args: &Args) -> Res {
     // finer, and is the only way to ask "what did Ozzy sing on" as opposed to
     // "what is Ozzy on at all".
     if let Some(role) = args.value("role") {
-        return print_tracks_in_role(&catalog, artist.id, role, args);
+        return print_tracks_in_role(&catalog, &held, artist.id, role, args);
     }
 
     // The tracks the artist is audible on, which is what one wants to hear or
@@ -421,12 +421,14 @@ pub fn show_artist(args: &Args) -> Res {
         if !link.trusted {
             continue;
         }
-        navigation.entity(
-            &catalog,
-            "Sourced recording",
-            EntityKind::Recording,
-            link.recording_id,
-        );
+        for &recording_id in link.applicable_recording_ids.iter() {
+            navigation.entity(
+                &catalog,
+                "Sourced recording",
+                EntityKind::Recording,
+                recording_id,
+            );
+        }
         if let Some(work) = &link.work {
             if let Some(local) = catalog.works.iter().find(|local| local.mbid == work.mbid) {
                 navigation.entity(&catalog, "Credited work", EntityKind::Work, local.id);
@@ -491,11 +493,12 @@ fn say_what_is_missing(args: &Args, catalog: &aede_core::model::Catalog, artist:
         .artist(artist)
         .map(|a| a.name.clone())
         .unwrap_or_default();
+    let quoted_name = super::navigation::shell_arg(&name);
     println!(
         "  {}",
         ui::dim(&format!(
             "{} MusicBrainz credits to them and this shelf does not hold: \
-             aede missing \"{name}\"",
+             aede missing {quoted_name}",
             ui::plural(count, "studio album")
         ))
     );
@@ -527,10 +530,11 @@ fn say_who_played(args: &Args, catalog: &Catalog, artist: Id, name: &str) {
             ui::plural(bands, "band")
         ),
     };
+    let quoted_name = super::navigation::shell_arg(name);
     println!(
         "  {}",
         ui::dim(&format!(
-            "{said}, with dates: aede artist \"{name}\" --members"
+            "{said}, with dates: aede artist {quoted_name} --members"
         ))
     );
 }
@@ -549,8 +553,9 @@ fn print_members(args: &Args, catalog: &Catalog, artist: &Artist) -> Res {
     let facts = super::artist_facts_for(args, catalog, artist.id);
     let Some(facts) = facts else {
         return Err(format!(
-            "nothing has been fetched about {name} yet: aede fetch \"{name}\"",
-            name = artist.name
+            "nothing has been fetched about {name} yet: aede fetch {quoted_name}",
+            name = artist.name,
+            quoted_name = super::navigation::shell_arg(&artist.name)
         )
         .into());
     };
@@ -604,8 +609,8 @@ fn print_members(args: &Args, catalog: &Catalog, artist: &Artist) -> Res {
             ui::dim(&format!(
                 "MusicBrainz lists nobody playing with them. Somebody who never \
                  joined a group and never hired a band has nobody; if you \
-                 expected somebody, aede fetch \"{}\" --full asks again",
-                artist.name
+                 expected somebody, aede fetch {} --full asks again",
+                super::navigation::shell_arg(&artist.name)
             ))
         );
     }
@@ -728,12 +733,43 @@ fn collect_roles(catalog: &Catalog, artist_id: Id) -> Vec<(String, usize)> {
 /// An empty answer names the roles this person *does* hold: told only that
 /// nobody is credited that way, the user cannot tell a wrong spelling from a
 /// library whose tags never carried the field.
-fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Args) -> Res {
+fn print_tracks_in_role(
+    catalog: &Catalog,
+    sources: &aede_core::sources::Sources,
+    artist_id: Id,
+    typed: &str,
+    args: &Args,
+) -> Res {
     let name = catalog
         .artist(artist_id)
         .map(|a| a.name.clone())
         .unwrap_or_default();
-    let held = catalog.roles_of_artist(artist_id);
+    let mbid = catalog
+        .artist(artist_id)
+        .and_then(|artist| artist.mbid.as_deref())
+        .filter(|id| !id.is_empty());
+    let links: Vec<_> = sources
+        .credit_links(catalog)
+        .into_iter()
+        .filter(|link| link.trusted && Some(link.credit.artist_mbid.as_str()) == mbid)
+        .collect();
+    let editions: Vec<_> = sources
+        .edition_credit_links(catalog)
+        .into_iter()
+        .filter(|link| link.trusted && Some(link.credit.artist_mbid.as_str()) == mbid)
+        .collect();
+    let source_roles: Vec<_> = links
+        .iter()
+        .map(|link| link.credit.role.as_str())
+        .chain(editions.iter().map(|link| link.credit.role.as_str()))
+        .collect();
+    let mut counts: std::collections::BTreeMap<_, _> =
+        catalog.roles_of_artist(artist_id).into_iter().collect();
+    for &role in &source_roles {
+        *counts.entry(role).or_default() += 1;
+    }
+    let mut held: Vec<_> = counts.into_iter().collect();
+    held.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
     let listed: Vec<String> = held
         .iter()
         .map(|(role, count)| format!("{} ({count})", role_label(role)))
@@ -741,17 +777,56 @@ fn print_tracks_in_role(catalog: &Catalog, artist_id: Id, typed: &str, args: &Ar
 
     // What the user typed is matched against both spellings of every role,
     // because "album artist" is the only one they have ever been shown.
-    let Some(role) = role_key(catalog, typed) else {
+    let wanted = text::normalize(typed);
+    let matches_role = |role: &str| {
+        text::normalize(role) == wanted || text::normalize(&role_label(role)) == wanted
+    };
+    let Some(role) = role_key(catalog, typed).or_else(|| {
+        source_roles
+            .iter()
+            .find(|role| matches_role(role))
+            .map(|role| role.to_string())
+    }) else {
+        let mut offered = roles_offered(catalog);
+        let local_roles = catalog.roles_in_use();
+        for role in source_roles
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            if !local_roles.contains(&role) {
+                if !offered.is_empty() {
+                    offered.push_str(", ");
+                }
+                offered.push_str(&role_label(role));
+            }
+        }
         return Err(match listed.is_empty() {
             true => format!("{name} carries no credit at all"),
-            false => format!(
-                "no role is called \"{typed}\".\nRoles in use: {}",
-                roles_offered(catalog)
-            ),
+            false => format!("no role is called \"{typed}\".\nRoles in use: {offered}"),
         }
         .into());
     };
-    let tracks = tracks_in_page_order(catalog, &catalog.tracks_of_artist_in_role(artist_id, &role));
+    let mut tracks: std::collections::BTreeSet<_> = catalog
+        .tracks_of_artist_in_role(artist_id, &role)
+        .into_iter()
+        .collect();
+    for link in links.iter().filter(|link| matches_role(&link.credit.role)) {
+        for &recording_id in link.applicable_recording_ids.iter() {
+            if let Some(recording) = catalog.recording(recording_id) {
+                tracks.extend(recording.track_ids.iter().copied());
+            }
+        }
+    }
+    for link in editions
+        .iter()
+        .filter(|link| matches_role(&link.credit.role))
+    {
+        if let Some(release) = catalog.release(link.release_id) {
+            tracks.extend(release.track_ids.iter().copied());
+        }
+    }
+    let tracks = tracks_in_page_order(catalog, &tracks.into_iter().collect::<Vec<_>>());
     if tracks.is_empty() {
         return Err(match listed.is_empty() {
             true => format!("{name} carries no credit at all"),

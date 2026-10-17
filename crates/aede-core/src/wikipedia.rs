@@ -170,6 +170,31 @@ pub fn portrait_file(response: &Json, id: &str) -> Option<String> {
     None
 }
 
+/// Checks portrait tables before a fetch records a completed absence.
+///
+/// Claims and P18 are optional, but a present table must keep its documented
+/// shape. Unreadable tables do not establish that an artist has no portrait.
+pub fn validate_portrait(response: &Json, id: &str) -> Result<(), &'static str> {
+    let entity = response
+        .get("entities")
+        .and_then(|entities| entities.get(id).or_else(|| only_value(entities)))
+        .filter(|entity| matches!(entity, Json::Obj(_)))
+        .ok_or("Wikidata returned no unambiguous portrait entity")?;
+    let Some(claims) = entity.get("claims") else {
+        return Ok(());
+    };
+    let Json::Obj(claims) = claims else {
+        return Err("Wikidata returned no valid claims table");
+    };
+    if claims
+        .get("P18")
+        .is_some_and(|value| !matches!(value, Json::Arr(_)))
+    {
+        return Err("Wikidata returned no valid portrait statements array");
+    }
+    Ok(())
+}
+
 /// Where to download a Commons file, at a given width.
 ///
 /// `Special:FilePath` rather than resolving the MD5-sharded path Commons
@@ -229,6 +254,51 @@ pub fn article(response: &Json, id: &str, preferred: &[&str]) -> Option<Article>
         }
     }
     None
+}
+
+/// Checks the entity response before a fetch records a completed absence.
+///
+/// Empty sitelinks are a valid answer. A missing entity, ambiguous redirect or
+/// malformed table is a failed response, not evidence that no article exists.
+/// As in [`article`], a single redirected entity is accepted.
+pub fn validate_entity(response: &Json, id: &str) -> Result<(), &'static str> {
+    let entity = response
+        .get("entities")
+        .and_then(|entities| entities.get(id).or_else(|| only_value(entities)))
+        .ok_or("Wikidata returned no unambiguous entity")?;
+    let Some(Json::Obj(sitelinks)) = entity.get("sitelinks") else {
+        return Err("Wikidata returned no valid sitelinks table");
+    };
+    if sitelinks.values().any(|link| {
+        link.get("title")
+            .and_then(Json::as_str)
+            .is_none_or(|title| title.trim().is_empty())
+    }) {
+        return Err("Wikidata returned an unreadable sitelink");
+    }
+    Ok(())
+}
+
+/// Distinguishes a readable summary or genuine absence from an invalid body.
+///
+/// A typed standard/stub, disambiguation or main page can have no extract.
+/// Older responses with a string extract and no type remain readable. An
+/// unknown response shape must not erase a biography or prevent a later retry.
+pub fn validate_summary(response: &Json) -> Result<(), &'static str> {
+    let kind = response.get("type");
+    if kind.is_some_and(|value| {
+        !matches!(
+            value.as_str(),
+            Some("standard" | "disambiguation" | "no-extract" | "mainpage")
+        )
+    }) {
+        return Err("Wikipedia returned no recognized summary type");
+    }
+    match response.get("extract") {
+        Some(Json::Str(_)) => Ok(()),
+        None if kind.is_some() => Ok(()),
+        _ => Err("Wikipedia returned no readable summary"),
+    }
 }
 
 /// Where to ask for an article's opening paragraph.

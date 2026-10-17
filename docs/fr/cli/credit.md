@@ -2,7 +2,15 @@
 
 credit enregistre un crédit manuel attribué ou exclut/restaure un crédit de source précis. Consulter relations pour copier l’identifiant stable et recording/work/album pour trouver l’identité exacte de la cible.
 
-Choisir une seule action. --add prend une portée en argument recording:ID, work:ID ou release:ID et exige --artist/--role. L’œuvre doit être liée à un enregistrement local ; l’édition doit être présente. --artist-id et --instrument précisent la déclaration. Un crédit manuel identique ne peut pas être ajouté deux fois.
+Choisir une seule action. --add prend une portée en argument recording:ID, work:ID ou release:ID et exige --artist/--role. L’œuvre doit être liée à un enregistrement local ; l’édition doit être présente. --artist-id et --instrument précisent la déclaration. Un crédit manuel identique ne peut pas être ajouté deux fois. Le contrôle des doublons suit la portée musicale actuellement attachée à l’enregistrement ou à l’œuvre, même si l’ajout d’un fichier change son représentant. Un crédit exclu reste présent et se restaure avec `--undo` ; les éditions conservent leur portée locale exacte.
+
+Ajouter ensuite un MBID d’enregistrement ne permet pas de dupliquer un crédit CLI initialement ciblé par un fichier local encore présent. Son identifiant de relation et son exclusion restent intacts. Ce contrôle suit uniquement les alias des placements actuels ; il ne devine pas d’anciens MBID et ne fusionne pas les identifiants arbitraires de relations manuelles importées.
+
+Un crédit `work:ID` concerne la composition et s’applique aux enregistrements locaux liés à ce MBID d’œuvre exact, par leurs tags ou des preuves fiables. Il reste une seule déclaration attribuée, avec son hôte d’origine et une exclusion réversible ; des titres identiques sous des identifiants différents n’étendent pas sa portée. Un crédit `recording:ID` ou `release:ID` reste limité à cette interprétation ou édition.
+
+Si un instantané manuel d’édition conservé porte déjà un MBID d’édition, modifier ou retirer ce tag ne déplace pas ses anciens crédits. Ajouter un autre crédit au même album local est refusé tant que l’édition courante diffère, afin de ne pas réattribuer les déclarations conservées. Les instantanés manuels créés sans identifiant d’édition gardent leur comportement d’attachement local existant.
+
+Les nouveaux crédits directs d’enregistrement conservent son MBID lorsqu’il est connu. Changer ou retirer cet identifiant ne transfère pas ces crédits à la nouvelle interprétation du fichier : les preuves restent enregistrées et un autre crédit direct est refusé tant que l’identité capturée diffère. Les crédits d’œuvre sur la même observation gardent leur portée indépendante. Les anciens instantanés ou crédits locaux sans identifiant capturé restent attachés au chemin ; une lecture n’infère ni ne migre une identité antérieure.
 
 --exclude ID retire cette assertion de navigation/recherche tout en conservant sa preuve ; les crédits lus dans les tags ne peuvent pas être exclus. --undo ID restaure une exclusion. Ces actions refusent les champs de nouveau crédit et la portée positionnelle. Pour corriger : exclure la source précise, puis ajouter la correction attribuée. Les décisions passent par rules ; les tags restent intacts.
 

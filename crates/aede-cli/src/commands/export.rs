@@ -87,8 +87,11 @@ fn export_graph(args: &Args, catalog: &Catalog) -> Res {
             edges
                 .iter()
                 .map(|edge| {
-                    let annotation =
-                        user.find_relation(aede_core::user::LOCAL_USER, &edge.reference);
+                    let annotation = user.find_relation_in(
+                        catalog,
+                        aede_core::user::LOCAL_USER,
+                        &edge.reference,
+                    );
                     super::relation::edge_json(edge, annotation)
                 })
                 .collect(),

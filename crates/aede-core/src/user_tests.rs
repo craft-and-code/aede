@@ -787,3 +787,296 @@ fn version_one_user_data_migrates_with_no_invented_relation_annotations() {
         Some(USER_FORMAT_VERSION)
     );
 }
+
+#[test]
+fn credit_annotations_keep_exact_owner_precedence_and_only_unique_identity_aliases() {
+    let files = ["/music/edition-a/01.flac", "/music/edition-b/01.flac"]
+        .map(|path| {
+            let mut tags = crate::tags::RawTags::default();
+            for (key, value) in [
+                ("artist", "Known Writer"),
+                ("musicbrainz_artistid", "writer-id"),
+                ("title", "One Recording"),
+                ("musicbrainz_recordingid", "recording-id"),
+            ] {
+                tags.insert(key, value);
+            }
+            model::ScannedFile {
+                path: path.into(),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }
+        })
+        .to_vec();
+    let catalog = model::build(files, vec!["/music".into()], 1, &[]);
+    let named = crate::graph::RelationRef {
+        source: EntityRef::new(EntityKind::Artist, "known writer"),
+        kind: "credit:composer".into(),
+        target: EntityRef::new(EntityKind::Recording, "recording-id"),
+        provenance: "musicbrainz".into(),
+        source_id: Some("same-credit".into()),
+    };
+    let mut exact = named.clone();
+    exact.source = EntityRef::new(EntityKind::Artist, "mbid:writer-id");
+    let mut data = UserData::default();
+    data.relation_entry("other", &named, 1).note = Some("another owner's context".into());
+    data.relation_entry(LOCAL_USER, &exact, 2).note = Some("original context".into());
+    assert_eq!(
+        data.find_relation_in(&catalog, LOCAL_USER, &named)
+            .unwrap()
+            .note
+            .as_deref(),
+        Some("original context")
+    );
+    assert_eq!(
+        data.find_relation_in(&catalog, "other", &exact)
+            .unwrap()
+            .note
+            .as_deref(),
+        Some("another owner's context")
+    );
+    assert!(data.find_relation_in(&catalog, "absent", &named).is_none());
+    let edited = data
+        .relation_entry_in(&catalog, LOCAL_USER, &named, 3)
+        .unwrap();
+    edited.note = Some("edited context".into());
+    assert_eq!(edited.created_at, 2);
+    assert_eq!(edited.relation, exact);
+    assert_eq!(data.relation_annotations.len(), 2);
+    assert!(
+        data.remove_relation_in(&catalog, LOCAL_USER, &named)
+            .unwrap()
+    );
+    assert_eq!(data.relation_annotations.len(), 1);
+    assert_eq!(data.relation_annotations[0].owner, "other");
+
+    // New local credit notes retain the known external artist identity.
+    data.relation_entry_in(&catalog, LOCAL_USER, &named, 4)
+        .unwrap()
+        .note = Some("portable credit context".into());
+    assert_eq!(
+        data.find_relation(LOCAL_USER, &exact).unwrap().created_at,
+        4
+    );
+    let source_only = model::Catalog::default();
+    assert_eq!(
+        data.find_relation_in(&source_only, LOCAL_USER, &exact)
+            .unwrap()
+            .note
+            .as_deref(),
+        Some("portable credit context")
+    );
+    let mut namesake = catalog.clone();
+    namesake.artists[0].mbid = Some("different-writer-id".into());
+    assert!(
+        data.find_relation_in(&namesake, LOCAL_USER, &named)
+            .is_none()
+    );
+
+    // Legacy named notes work when the current catalog proves the equivalence.
+    let mut legacy = UserData::default();
+    legacy.relation_entry(LOCAL_USER, &named, 5).note = Some("legacy context".into());
+    assert_eq!(
+        legacy
+            .find_relation_in(&catalog, LOCAL_USER, &exact)
+            .unwrap()
+            .note
+            .as_deref(),
+        Some("legacy context")
+    );
+    legacy
+        .relation_entry_in(&catalog, LOCAL_USER, &exact, 6)
+        .unwrap()
+        .tags
+        .insert("booklet".into());
+    assert_eq!(legacy.relation_annotations.len(), 1);
+    assert_eq!(legacy.relation_annotations[0].relation, named);
+    assert!(
+        legacy
+            .find_relation_in(&source_only, LOCAL_USER, &exact)
+            .is_none(),
+        "a missing historical ID is not invented"
+    );
+
+    legacy.relation_entry(LOCAL_USER, &exact, 6).note = Some("separate exact context".into());
+    assert_eq!(
+        legacy
+            .find_relation_in(&catalog, LOCAL_USER, &named)
+            .unwrap()
+            .note
+            .as_deref(),
+        Some("legacy context")
+    );
+    assert_eq!(
+        legacy
+            .find_relation_in(&catalog, LOCAL_USER, &exact)
+            .unwrap()
+            .note
+            .as_deref(),
+        Some("separate exact context")
+    );
+    legacy
+        .relation_entry_in(&catalog, LOCAL_USER, &named, 7)
+        .unwrap()
+        .tags
+        .insert("exact only".into());
+    assert_eq!(legacy.relation_annotations.len(), 2);
+    assert!(
+        !legacy
+            .find_relation(LOCAL_USER, &exact)
+            .unwrap()
+            .tags
+            .contains("exact only")
+    );
+    let mut unidentified = catalog.clone();
+    unidentified.artists[0].mbid = None;
+    let mut local_only = UserData::default();
+    assert_eq!(
+        local_only
+            .relation_entry_in(&unidentified, LOCAL_USER, &named, 7)
+            .unwrap()
+            .relation,
+        named
+    );
+
+    let held = crate::sources::Sources {
+        records: vec![crate::sources::SourceRecord {
+            key: "/music/edition-a/01.flac".into(),
+            source: "musicbrainz".into(),
+            source_id: Some("recording-id".into()),
+            fetched_at: 1,
+            confidence: crate::sources::Confidence::Identified,
+            facts: crate::sources::Facts::Track(crate::sources::TrackFacts {
+                credits: vec![crate::sources::CreditLink {
+                    relation_id: Some("same-credit".into()),
+                    role_id: None,
+                    role: "composer".into(),
+                    direction: None,
+                    artist_mbid: "writer-id".into(),
+                    artist_name: "Known Writer".into(),
+                    credited_as: None,
+                    attributes: Vec::new(),
+                    began: None,
+                    ended: None,
+                    over: None,
+                    order: None,
+                }],
+                ..Default::default()
+            }),
+        }],
+        ..Default::default()
+    };
+    let mut diagnostic = UserData::default();
+    diagnostic.relation_entry(LOCAL_USER, &exact, 8).note = Some("still attached".into());
+    assert!(crate::doctor::orphaned_relation_annotations(&catalog, &held, &diagnostic).is_empty());
+    let mut absent = exact.clone();
+    absent.source_id = Some("absent-credit".into());
+    diagnostic.relation_entry(LOCAL_USER, &absent, 8).note = Some("genuinely absent".into());
+    let mut non_credit = exact.clone();
+    non_credit.kind = "membership".into();
+    diagnostic.relation_entry(LOCAL_USER, &non_credit, 8).note = Some("unrelated kind".into());
+    assert_eq!(
+        crate::doctor::orphaned_relation_annotations(&catalog, &held, &diagnostic).len(),
+        2
+    );
+    let mut legacy_diagnostic = UserData::default();
+    legacy_diagnostic.relation_entry(LOCAL_USER, &named, 8).note =
+        Some("historical named artist".into());
+    assert!(
+        crate::doctor::orphaned_relation_annotations(&catalog, &held, &legacy_diagnostic)
+            .is_empty()
+    );
+    assert_eq!(
+        crate::doctor::orphaned_relation_annotations(&unidentified, &held, &legacy_diagnostic)
+            .len(),
+        1,
+        "an unknown old ID is not invented for diagnostics"
+    );
+
+    // Two historical contexts never merge, and an exact selection wins.
+    for path in ["/music/edition-a/01.flac", "/music/edition-b/01.flac"] {
+        let mut alias = exact.clone();
+        alias.target = EntityRef::new(EntityKind::Recording, format!("local:{path}"));
+        data.relation_entry("ambiguous", &alias, 7).note = Some(path.into());
+    }
+    let before = to_json(&data);
+    assert!(
+        data.find_relation_in(&catalog, "ambiguous", &exact)
+            .is_none()
+    );
+    assert!(
+        data.relation_entry_in(&catalog, "ambiguous", &exact, 8)
+            .is_err()
+    );
+    assert!(
+        data.remove_relation_in(&catalog, "ambiguous", &exact)
+            .is_err()
+    );
+    assert_eq!(to_json(&data), before);
+    let alias = data
+        .relation_annotations
+        .iter()
+        .find(|row| row.owner == "ambiguous")
+        .unwrap()
+        .relation
+        .clone();
+    assert_eq!(
+        data.find_relation_in(&catalog, "ambiguous", &alias)
+            .unwrap()
+            .relation,
+        alias
+    );
+    assert!(
+        data.remove_relation_in(&catalog, "ambiguous", &alias)
+            .unwrap()
+    );
+    assert!(
+        data.find_relation_in(&catalog, "ambiguous", &exact)
+            .is_some()
+    );
+
+    for (field, value) in [
+        ("provenance", "other-source"),
+        ("kind", "credit:producer"),
+        ("source_id", "different-credit"),
+        ("artist", "different-writer-id"),
+        ("target", "different-recording"),
+    ] {
+        let mut different = named.clone();
+        match field {
+            "provenance" => different.provenance = value.into(),
+            "kind" => different.kind = value.into(),
+            "source_id" => different.source_id = Some(value.into()),
+            "artist" => {
+                different.source = EntityRef::new(EntityKind::Artist, format!("mbid:{value}"))
+            }
+            "target" => different.target = EntityRef::new(EntityKind::Recording, value),
+            _ => unreachable!(),
+        }
+        assert!(
+            data.find_relation_in(&catalog, LOCAL_USER, &different)
+                .is_none(),
+            "{field} is part of the exact claim"
+        );
+    }
+    let mut unrelated = named.clone();
+    unrelated.kind = "membership".into();
+    let mut unrelated_id = unrelated.clone();
+    unrelated_id.source = exact.source.clone();
+    data.relation_entry(LOCAL_USER, &unrelated_id, 9).note =
+        Some("exact unrelated relationship".into());
+    assert!(
+        data.find_relation_in(&catalog, LOCAL_USER, &unrelated)
+            .is_none()
+    );
+    assert!(
+        !data
+            .remove_relation_in(&catalog, LOCAL_USER, &unrelated)
+            .unwrap()
+    );
+}

@@ -877,6 +877,8 @@ pub fn list_countries(args: &Args) -> Res {
     if args.has("csv") || args.has("json") {
         let table: Vec<Vec<String>> = places
             .iter()
+            .skip(window.offset)
+            .take(window.limit)
             .map(|place| {
                 let tracks = tracks_of_artists(&catalog, &place.artists);
                 let (duration, size) = totals(&catalog, &tracks);

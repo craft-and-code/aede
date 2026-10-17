@@ -54,7 +54,7 @@
 
 use aede_core::coverart::{self, Size};
 use aede_core::model::{Catalog, EntityKind};
-use aede_core::sources::{self, Facts, ReleaseFacts, SourceRecord};
+use aede_core::sources::{self, Facts, MusicBrainzReleaseIdentity, ReleaseFacts, SourceRecord};
 use aede_core::user::EntityRef;
 use aede_core::{clock, musicbrainz};
 
@@ -179,8 +179,8 @@ pub fn run(
         // A known address is the image, so there is nothing to look up.
         if target.known {
             match download(transport, backoff, &target.url, &target.folder) {
-                Ok(()) => {
-                    written += 1;
+                Ok(new) => {
+                    written += usize::from(new);
                     done += 1;
                 }
                 Err(why) if why.must_stop() => return Err(why.into()),
@@ -279,8 +279,8 @@ pub fn run(
         }
 
         match download(transport, backoff, &front.url, &target.folder) {
-            Ok(()) => {
-                written += 1;
+            Ok(new) => {
+                written += usize::from(new);
                 store(held, target, Some(front.url));
                 sources::save(held, path)?;
             }
@@ -316,20 +316,25 @@ pub fn run(
     Ok(())
 }
 
-/// Downloads one image and writes it beside the music, or says why it did not.
+/// Downloads a missing front; `false` means the disk already has one.
 fn download(
     transport: &mut dyn Ask,
     backoff: &[std::time::Duration],
     url: &str,
     folder: &str,
-) -> Result<(), Refusal> {
+) -> Result<bool, Refusal> {
+    // A completed download may be newer than the catalog used by this pass.
+    // Share the writer's cover lookup so every accepted filename is reused.
+    if aede_core::scan::cover_in(std::path::Path::new(folder)).is_some() {
+        return Ok(false);
+    }
     let bytes = ask_bytes(transport, url, backoff)?;
     // Both guards — a recognised image header, and nothing overwritten — live
     // in one place, shared with `aede artwork`. Written twice they would
     // eventually differ, and the difference would only show as a corrupt file
     // in somebody's library.
     coverart::write_beside(std::path::Path::new(folder), &bytes)
-        .map(|_| ())
+        .map(|_| true)
         .map_err(Refusal::Failed)
 }
 
@@ -462,7 +467,14 @@ fn survey(
         // Embedded first, because it is the answer that surprises people: an
         // album can have no `cover.jpg` at all and still not want one.
         let embedded = has_embedded_art(catalog, release);
-        let cover = !embedded && release.cover_path.is_none();
+        // Only established absence releases a sidecar remembered by the scan.
+        let cover = !embedded
+            && release.cover_path.as_deref().is_none_or(|path| {
+                matches!(
+                    std::fs::symlink_metadata(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                )
+            });
         let Some(entity) = EntityRef::of(catalog, EntityKind::Release, release.id) else {
             out.unidentified += 1;
             continue;
@@ -488,7 +500,11 @@ fn survey(
         // have to discover `sources --forget` to get back a file they deleted.
         // With `--images` that shortcut is no use: the stored address is the
         // front and says nothing about the rest, so the index is asked for.
-        if !again && let Some(record) = held.get(&entity, coverart::SOURCE) {
+        if !again
+            && let Some(record) = held
+                .get(&entity, coverart::SOURCE)
+                .filter(|record| held.is_trusted(catalog, record))
+        {
             let stored = match &record.facts {
                 Facts::Release(ReleaseFacts { cover_art, .. }) => cover_art.clone(),
                 _ => None,
@@ -517,12 +533,19 @@ fn survey(
         // artwork. Falling back to the album when the tags name no edition.
         let url = match release.mbid.as_deref() {
             Some(edition) => coverart::release_index_url(edition),
-            None => match release.release_group_mbid.as_deref().or_else(|| {
-                held.get(&entity, sources::MUSICBRAINZ)
-                    .filter(|record| held.is_trusted(catalog, record))
-                    .and_then(|record| record.source_id.as_deref())
-            }) {
-                Some(group) => coverart::index_url(group),
+            None => match release
+                .release_group_mbid
+                .as_deref()
+                .map(MusicBrainzReleaseIdentity::ReleaseGroup)
+                .or_else(|| {
+                    held.get(&entity, sources::MUSICBRAINZ)
+                        .filter(|record| held.is_trusted(catalog, record))
+                        .and_then(SourceRecord::musicbrainz_release_identity)
+                }) {
+                Some(MusicBrainzReleaseIdentity::Edition(edition)) => {
+                    coverart::release_index_url(edition)
+                }
+                Some(MusicBrainzReleaseIdentity::ReleaseGroup(group)) => coverart::index_url(group),
                 None => {
                     out.unidentified += 1;
                     continue;

@@ -6,6 +6,47 @@
 
 use super::*;
 
+#[test]
+fn displaying_a_discography_year_preserves_unreadable_dates_without_panicking() {
+    for (date, expected) in [
+        (None, None),
+        (Some("2000"), Some("2000")),
+        (Some("2000-01-02"), Some("2000")),
+        (Some("200"), Some("200")),
+        (Some(""), Some("")),
+        (Some("éé"), Some("éé")),
+        (Some("二〇〇〇"), None),
+        (Some("20€"), None),
+        (Some("20𐀀"), None),
+    ] {
+        let mut held = Sources::default();
+        held.set(SourceRecord {
+            key: "example artist".into(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".into()),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Artist(ArtistFacts {
+                discography: vec![KnownRelease {
+                    mbid: "11111111-1111-4111-8111-111111111111".into(),
+                    title: "An album".into(),
+                    first_released: date.map(str::to_owned),
+                    primary_type: Some("Album".into()),
+                    secondary_types: vec![],
+                }],
+                ..Default::default()
+            }),
+        });
+        let before = to_json(&held);
+        let reloaded = from_json(&before).unwrap();
+        let Facts::Artist(artist) = &reloaded.records[0].facts else {
+            panic!("the imported artist remains available");
+        };
+        assert_eq!(artist.discography[0].year(), expected, "{date:?}");
+        assert_eq!(to_json(&reloaded), before, "the source date is retained");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn source_save_does_not_follow_a_predictable_temporary_symlink() {
@@ -1419,6 +1460,56 @@ fn malformed_source_tables_are_refused_before_they_can_be_saved_as_empty() {
 }
 
 #[test]
+fn supported_source_snapshots_require_a_facts_object_without_requiring_fields() {
+    let document = |entity: &str, facts: Option<Json>, version: u32| {
+        let mut row = Json::obj();
+        row.set("entity", entity.into());
+        row.set("source", "manual".into());
+        row.set("confidence", "identified".into());
+        if let Some(facts) = facts {
+            row.set("facts", facts);
+        }
+        let mut value = Json::obj();
+        value.set("format_version", version.into());
+        value.set("records", Json::Arr(vec![row]));
+        value
+    };
+    let mut admitted = Vec::new();
+    for version in [1, SOURCES_FORMAT_VERSION] {
+        for entity in ["artist:one", "release:one", "track:one", "label:one"] {
+            for facts in [
+                None,
+                Some(Json::Null),
+                Some(Json::Bool(false)),
+                Some(1u32.into()),
+                Some("facts".into()),
+                Some(Json::Arr(vec![])),
+            ] {
+                let value = document(entity, facts.clone(), version);
+                if from_json(&value).is_ok() {
+                    admitted.push(format!("version {version}, {entity}, {facts:?}"));
+                }
+            }
+            let held = from_json(&document(entity, Some(Json::obj()), version)).unwrap();
+            assert_eq!(
+                held.records.len(),
+                1,
+                "an intentionally empty object is valid"
+            );
+            assert_eq!(held.records[0].entity().to_token(), entity);
+        }
+        for entity in ["nonsense", "genre:jazz", "recording:one", "work:one"] {
+            let held = from_json(&document(entity, Some(Json::Null), version)).unwrap();
+            assert!(held.records.is_empty(), "unsupported rows remain ignored");
+        }
+    }
+    assert!(
+        admitted.is_empty(),
+        "unreadable facts must not become empty replacement snapshots: {admitted:?}"
+    );
+}
+
+#[test]
 fn duplicate_source_snapshots_are_refused_instead_of_picking_the_first() {
     let mut original = Sources::default();
     original.set(record(
@@ -1431,6 +1522,298 @@ fn duplicate_source_snapshots_are_refused_instead_of_picking_the_first() {
     rows.push(rows[0].clone());
     encoded.set("records", Json::Arr(rows));
     assert!(from_json(&encoded).is_err());
+}
+
+#[test]
+fn duplicate_exact_review_keys_are_refused_without_collapsing_decisions() {
+    let claim = record(
+        "someone",
+        MUSICBRAINZ,
+        Facts::Artist(ArtistFacts::default()),
+    );
+    let review = SourceReview {
+        entity: claim.entity(),
+        source: claim.source.clone(),
+        source_id: claim.source_id.clone(),
+        decision: ReviewDecision::Rejected,
+        reviewed_at: 200,
+    };
+    let original = Sources {
+        records: vec![claim],
+        reviews: vec![review.clone()],
+        ..Default::default()
+    };
+    for source_id in [review.source_id.clone(), None] {
+        for decision in [ReviewDecision::Rejected, ReviewDecision::Accepted] {
+            let mut encoded = to_json(&original);
+            let mut first = encoded.get("reviews").unwrap().as_arr().unwrap()[0].clone();
+            first.set("source_id", opt_str(&source_id));
+            let mut second = first.clone();
+            second.set(
+                "decision",
+                match decision {
+                    ReviewDecision::Accepted => "accepted",
+                    ReviewDecision::Rejected => "rejected",
+                }
+                .into(),
+            );
+            second.set("reviewed_at", 100u64.into());
+            encoded.set("reviews", Json::Arr(vec![first, second]));
+            assert!(
+                from_json(&encoded).is_err(),
+                "duplicate exact review key: {source_id:?}, {decision:?}"
+            );
+        }
+    }
+
+    // Decisions about distinct claims remain independent, including retained
+    // decisions whose source snapshot is no longer present.
+    let mut distinct = original.clone();
+    distinct.reviews.extend([
+        SourceReview {
+            source_id: Some("other-identifier".into()),
+            ..review.clone()
+        },
+        SourceReview {
+            source_id: None,
+            ..review.clone()
+        },
+        SourceReview {
+            source: "another-source".into(),
+            ..review.clone()
+        },
+        SourceReview {
+            entity: EntityRef {
+                kind: EntityKind::Artist,
+                key: "someone else".into(),
+            },
+            ..review.clone()
+        },
+        SourceReview {
+            entity: EntityRef {
+                kind: EntityKind::Release,
+                key: "someone".into(),
+            },
+            ..review
+        },
+    ]);
+    assert_eq!(from_json(&to_json(&distinct)).unwrap(), distinct);
+    let mut legacy = to_json(&original);
+    legacy.set("format_version", 1u32.into());
+    let migrated = from_json(&legacy).unwrap();
+    assert_eq!(migrated.records, original.records);
+    assert!(migrated.reviews.is_empty());
+}
+
+#[test]
+fn work_credit_scope_reaches_exact_performances_without_inventing_observations() {
+    use crate::model::ScannedFile;
+    use crate::tags::RawTags;
+    use crate::user::UserData;
+    use crate::{contributors, graph, query};
+
+    const WORK: &str = "11111111-1111-1111-1111-111111111111";
+    let files = [Some(WORK), Some(WORK), Some("different-work-id"), None]
+        .into_iter()
+        .enumerate()
+        .map(|(index, work)| {
+            let mut tags = RawTags::default();
+            for (key, value) in [
+                ("artist", "A Player"),
+                ("albumartist", "A Player"),
+                ("album", "An Album"),
+            ] {
+                tags.insert(key, value);
+            }
+            tags.insert("title", format!("Song {index}"));
+            tags.insert("musicbrainz_recordingid", format!("recording-{index}"));
+            if let Some(work) = work {
+                tags.insert("musicbrainz_workid", work);
+                tags.insert("work", "One shared title");
+            }
+            ScannedFile {
+                path: format!("/music/{index}.flac"),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }
+        })
+        .collect();
+    let catalog = crate::model::build(files, vec!["/music".into()], 1, &[]);
+    let credit = |name: &str, role: &str| CreditLink {
+        relation_id: Some(format!("manual-{role}")),
+        role: role.into(),
+        artist_mbid: format!("{role}-id"),
+        artist_name: name.into(),
+        role_id: None,
+        direction: None,
+        credited_as: None,
+        attributes: vec![],
+        began: None,
+        ended: None,
+        over: None,
+        order: None,
+    };
+    let mut held = Sources::default();
+    held.set(SourceRecord {
+        key: "/music/0.flac".into(),
+        source: "manual".into(),
+        source_id: None,
+        fetched_at: 7,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            credits: vec![credit("A Producer", "producer")],
+            works: vec![WorkLink {
+                mbid: WORK.into(),
+                title: "A different source spelling".into(),
+                credits: vec![credit("A Writer", "composer")],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    });
+    let membership = SourceRecord {
+        key: "/music/3.flac".into(),
+        source: MUSICBRAINZ.into(),
+        source_id: Some("recording-3".into()),
+        fetched_at: 8,
+        confidence: Confidence::matched(90),
+        facts: Facts::Track(TrackFacts {
+            works: vec![WorkLink {
+                mbid: WORK.into(),
+                title: "A sourced realization".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    };
+    held.set(membership.clone());
+    let personal = UserData::default();
+    let query_ids = |held: &Sources, expression: &str| {
+        let context = query::Context::new(&catalog, &personal, "local").with_sources(held);
+        query::run(&query::parse(expression).unwrap(), &context)
+    };
+    let before = to_json(&held);
+    let coverage = crate::credit_coverage::recordings(&catalog, &held);
+    assert!(coverage.iter().all(|recording| {
+        recording.status == crate::credit_coverage::CreditStatus::Waiting
+            && recording.work_credits == 0
+            && recording.recording_credits == 0
+    }));
+    let raw = held.credit_links(&catalog);
+    assert_eq!(
+        raw.len(),
+        2,
+        "one direct and one work assertion, each observed once"
+    );
+    assert!(
+        raw.iter()
+            .all(|link| link.recording_id == 0 && link.fetched_at == 7 && link.source == "manual")
+    );
+    let composer_edge = graph::edges(&catalog, &held)
+        .into_iter()
+        .find(|edge| edge.reference.kind == "credit:composer")
+        .unwrap();
+    assert_eq!(composer_edge.weight, 1);
+    let edge_id = composer_edge.reference.id();
+    assert_eq!(
+        query_ids(&held, "composer:composer-id"),
+        [0, 1],
+        "a composition credit covers both exact local realizations"
+    );
+    assert_eq!(
+        query_ids(&held, "producer:producer-id"),
+        [0],
+        "recording credits stay on their recording"
+    );
+    let writer = contributors::sourced(&catalog, &held)
+        .into_iter()
+        .find(|artist| artist.mbid == "composer-id")
+        .unwrap();
+    assert_eq!(writer.recording_ids, [0, 1]);
+    assert_eq!(
+        crate::credit_coverage::recordings(&catalog, &held),
+        coverage
+    );
+    assert_eq!(
+        to_json(&held),
+        before,
+        "projections do not rewrite source hosts"
+    );
+
+    held.set_review(SourceReview {
+        entity: membership.entity(),
+        source: MUSICBRAINZ.into(),
+        source_id: membership.source_id.clone(),
+        decision: ReviewDecision::Accepted,
+        reviewed_at: 9,
+    });
+    assert_eq!(query_ids(&held, "composer:composer-id"), [0, 1, 3]);
+    held.set_review(SourceReview {
+        entity: membership.entity(),
+        source: MUSICBRAINZ.into(),
+        source_id: membership.source_id,
+        decision: ReviewDecision::Rejected,
+        reviewed_at: 10,
+    });
+    assert_eq!(query_ids(&held, "composer:composer-id"), [0, 1]);
+
+    held.exclude_credit_in(&catalog, composer_edge.reference.clone(), 11);
+    assert!(query_ids(&held, "composer:composer-id").is_empty());
+    let excluded = graph::select(&graph::edges(&catalog, &held), &edge_id).unwrap();
+    assert!(excluded.excluded && !excluded.trusted);
+    assert_eq!(excluded.weight, 1);
+    assert!(held.restore_credit_in(&catalog, &excluded.reference));
+    let restored = from_json(&to_json(&held)).unwrap();
+    assert_eq!(query_ids(&restored, "composer:composer-id"), [0, 1]);
+    assert_eq!(
+        graph::select(&graph::edges(&catalog, &restored), &edge_id)
+            .unwrap()
+            .weight,
+        1
+    );
+    assert_eq!(restored.credit_links(&catalog).len(), 2);
+    assert!(
+        restored
+            .credit_links(&catalog)
+            .iter()
+            .all(|link| link.recording_id == 0)
+    );
+    let mut rejected = restored.clone();
+    rejected.set_review(SourceReview {
+        entity: crate::user::EntityRef::new(EntityKind::Track, "/music/0.flac"),
+        source: "manual".into(),
+        source_id: None,
+        decision: ReviewDecision::Rejected,
+        reviewed_at: 12,
+    });
+    assert!(
+        rejected
+            .credit_links(&catalog)
+            .iter()
+            .all(|link| { !link.trusted && link.applicable_recording_ids.as_ref() == [0] })
+    );
+    assert!(query_ids(&rejected, "composer:composer-id").is_empty());
+    let mut waiting = restored.clone();
+    waiting
+        .records
+        .iter_mut()
+        .find(|record| record.source == "manual")
+        .unwrap()
+        .key = "/not-in-this-catalog/host.flac".into();
+    let waiting_before = to_json(&waiting);
+    assert!(waiting.credit_links(&catalog).is_empty());
+    assert!(query_ids(&waiting, "composer:composer-id").is_empty());
+    assert!(contributors::sourced(&catalog, &waiting).is_empty());
+    assert_eq!(
+        to_json(&waiting),
+        waiting_before,
+        "an orphan claim waits without being rewritten"
+    );
 }
 
 /// One membership, with only the fields a test cares about.
@@ -1565,4 +1948,404 @@ fn two_spells_in_one_band_are_two_rows_and_not_a_span() {
     assert_eq!(facts.line_up_in(1970).0.len(), 1);
     assert_eq!(facts.line_up_in(2013).0.len(), 1);
     assert!(facts.line_up_in(1985).0.is_empty(), "he had left");
+}
+
+#[test]
+fn work_parent_scope_reaches_exact_performances_without_reassigning_observations() {
+    use crate::model::ScannedFile;
+    use crate::tags::RawTags;
+    use crate::user::UserData;
+    use crate::{graph, query};
+    const CHILD: &str = "11111111-1111-4111-8111-111111111111";
+    const PARENT: &str = "22222222-2222-4222-8222-222222222222";
+    let files = [
+        Some(CHILD),
+        Some(CHILD),
+        Some("33333333-3333-4333-8333-333333333333"),
+        None,
+        None,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, work)| {
+        let mut tags = RawTags::default();
+        tags.insert("artist", "An Orchestra");
+        tags.insert("albumartist", "An Orchestra");
+        tags.insert("album", "Performances");
+        tags.insert("title", format!("Performance {index}"));
+        tags.insert("musicbrainz_recordingid", format!("recording-{index}"));
+        if let Some(work) = work {
+            tags.insert("musicbrainz_workid", work);
+            tags.insert("work", "One Movement");
+        }
+        ScannedFile {
+            path: format!("/music/{index}.flac"),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }
+    })
+    .collect();
+    let catalog = crate::model::build(files, vec!["/music".into()], 1, &[]);
+    let mut held = Sources::default();
+    for index in [0, 3, 4] {
+        held.set(SourceRecord {
+            key: format!("/music/{index}.flac"),
+            source: MUSICBRAINZ.into(),
+            source_id: Some(format!("recording-{index}")),
+            fetched_at: 1,
+            confidence: if index == 4 {
+                Confidence::matched(42)
+            } else {
+                Confidence::Identified
+            },
+            facts: Facts::Track(TrackFacts {
+                works: vec![WorkLink {
+                    mbid: CHILD.into(),
+                    title: "A Different Source Spelling".into(),
+                    parents: if index == 0 {
+                        vec![WorkParentLink {
+                            mbid: PARENT.into(),
+                            title: "Whole Symphony".into(),
+                            relation_id: Some("part-relation".into()),
+                            order: Some(2),
+                            ..Default::default()
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        });
+    }
+    let data = UserData::default();
+    let selected = |sources: &Sources, mbid: &str| {
+        let context = query::Context::new(&catalog, &data, "local").with_sources(sources);
+        query::run(&query::parse(&format!("work:{mbid}")).unwrap(), &context)
+    };
+    let before = to_json(&held);
+    let raw = held.work_parent_links(&catalog);
+    assert_eq!(raw.len(), 1);
+    assert_eq!(raw[0].recording_id, 0);
+    assert_eq!(raw[0].parent.order, Some(2));
+    assert_eq!(selected(&held, CHILD), [0, 1, 3]);
+    assert_eq!(
+        selected(&held, PARENT),
+        [0, 1, 3],
+        "a work-to-work relationship covers every exact realization of its child"
+    );
+    assert_eq!(
+        held.work_links(&catalog).len(),
+        3,
+        "recording-to-work observations are not propagated"
+    );
+    let edge = graph::edges(&catalog, &held)
+        .into_iter()
+        .find(|edge| edge.reference.kind == "part_of_work")
+        .unwrap();
+    assert_eq!(edge.weight, 1);
+    let edge_id = edge.reference.id();
+    assert_eq!(to_json(&held), before);
+    let pending = held
+        .review_items(&catalog)
+        .into_iter()
+        .find(|item| item.entity.key == "/music/4.flac")
+        .unwrap()
+        .id;
+    held.decide(&catalog, &pending, ReviewDecision::Accepted, 2)
+        .unwrap();
+    assert_eq!(selected(&held, PARENT), [0, 1, 3, 4]);
+    held.decide(&catalog, &pending, ReviewDecision::Rejected, 3)
+        .unwrap();
+    assert_eq!(selected(&held, PARENT), [0, 1, 3]);
+    let restored = from_json(&to_json(&held)).unwrap();
+    assert_eq!(selected(&restored, PARENT), [0, 1, 3]);
+    assert_eq!(
+        graph::select(&graph::edges(&catalog, &restored), &edge_id)
+            .unwrap()
+            .weight,
+        1
+    );
+    assert_eq!(restored.work_parent_links(&catalog).len(), 1);
+    assert_eq!(restored.work_parent_links(&catalog)[0].recording_id, 0);
+    let mut uncertain = restored.clone();
+    uncertain
+        .records
+        .iter_mut()
+        .find(|record| record.key == "/music/0.flac")
+        .unwrap()
+        .confidence = Confidence::matched(42);
+    let proposal = uncertain
+        .review_items(&catalog)
+        .into_iter()
+        .find(|item| item.entity.key == "/music/0.flac")
+        .unwrap()
+        .id;
+    assert!(selected(&uncertain, PARENT).is_empty());
+    assert_eq!(
+        selected(&uncertain, CHILD),
+        [0, 1, 3],
+        "parent trust does not remove canonical child membership"
+    );
+    uncertain
+        .decide(&catalog, &proposal, ReviewDecision::Accepted, 4)
+        .unwrap();
+    assert_eq!(selected(&uncertain, PARENT), [0, 1, 3]);
+    uncertain
+        .decide(&catalog, &proposal, ReviewDecision::Rejected, 5)
+        .unwrap();
+    assert!(selected(&uncertain, PARENT).is_empty());
+    let mut conflict = restored.clone();
+    conflict
+        .records
+        .iter_mut()
+        .find(|record| record.key == "/music/0.flac")
+        .unwrap()
+        .source_id = Some("conflicting-recording".into());
+    assert!(selected(&conflict, PARENT).is_empty());
+    let conflict_id = conflict
+        .review_items(&catalog)
+        .into_iter()
+        .find(|item| item.entity.key == "/music/0.flac")
+        .unwrap()
+        .id;
+    conflict
+        .decide(&catalog, &conflict_id, ReviewDecision::Accepted, 6)
+        .unwrap();
+    assert_eq!(selected(&conflict, PARENT), [0, 1, 3]);
+    let mut orphan = restored;
+    orphan
+        .records
+        .iter_mut()
+        .find(|record| record.key == "/music/0.flac")
+        .unwrap()
+        .key = "/not-in-this-catalog.flac".into();
+    let orphan_before = to_json(&orphan);
+    assert!(orphan.work_parent_links(&catalog).is_empty());
+    assert!(selected(&orphan, PARENT).is_empty());
+    assert_eq!(to_json(&orphan), orphan_before);
+}
+
+#[test]
+fn complete_credit_snapshots_refuse_unreadable_relationship_collections() {
+    let document = |kind: &str, facts: Json, version: u32| {
+        let mut row = Json::obj();
+        row.set("entity", format!("{kind}:/music/example").into());
+        row.set("source", MUSICBRAINZ.into());
+        row.set("confidence", "identified".into());
+        row.set("facts", facts);
+        let mut value = Json::obj();
+        value.set("format_version", version.into());
+        value.set("records", Json::Arr(vec![row]));
+        value
+    };
+    let direct = [
+        r#"{"credits":{}}"#,
+        r#"{"credits":null}"#,
+        r#"{"credits":[null]}"#,
+        r#"{"credits":[{}]}"#,
+        r#"{"credits":[{"role":"composer"}]}"#,
+        r#"{"credits":[{"role":"composer","artist_mbid":42}]}"#,
+    ];
+    let work = [
+        r#"{"works":{}}"#,
+        r#"{"works":null}"#,
+        r#"{"works":[null]}"#,
+        r#"{"works":[{}]}"#,
+        r#"{"works":[{"mbid":42}]}"#,
+        r#"{"works":[{"mbid":"work-id","credits":{}}]}"#,
+        r#"{"works":[{"mbid":"work-id","credits":null}]}"#,
+        r#"{"works":[{"mbid":"work-id","credits":[null]}]}"#,
+        r#"{"works":[{"mbid":"work-id","credits":[{}]}]}"#,
+    ];
+    for kind in ["track", "release"] {
+        let malformed: Vec<_> = direct
+            .iter()
+            .chain(if kind == "track" {
+                work.as_slice()
+            } else {
+                &[]
+            })
+            .collect();
+        for body in malformed {
+            let original = crate::json::parse(body).unwrap();
+            let mut complete = original.clone();
+            complete.set("relationships_complete", true.into());
+            assert!(
+                from_json(&document(kind, complete, SOURCES_FORMAT_VERSION)).is_err(),
+                "{kind}: {body}"
+            );
+            // Incomplete older snapshots still use their established tolerant reader.
+            assert!(from_json(&document(kind, original.clone(), SOURCES_FORMAT_VERSION)).is_ok());
+            let mut incomplete = original;
+            incomplete.set("relationships_complete", false.into());
+            assert!(from_json(&document(kind, incomplete, SOURCES_FORMAT_VERSION)).is_ok());
+        }
+        for version in [1, SOURCES_FORMAT_VERSION] {
+            for body in [
+                r#"{}"#,
+                r#"{"credits":[],"works":[]}"#,
+                r#"{"credits":[{"role":"composer","artist_mbid":""}]}"#,
+                r#"{"works":[{"mbid":"work-id"}]}"#,
+                r#"{"works":[{"mbid":"work-id","credits":[]}]}"#,
+                r#"{"works":[{"mbid":"work-id","credits":[{"role":"composer","artist_mbid":"artist-id"}]}]}"#,
+            ] {
+                let mut complete = crate::json::parse(body).unwrap();
+                complete.set("relationships_complete", true.into());
+                let held = from_json(&document(kind, complete, version)).unwrap();
+                match &held.records[0].facts {
+                    Facts::Track(facts) => assert!(facts.relationships_complete),
+                    Facts::Release(facts) => assert!(facts.relationships_complete),
+                    _ => panic!("the requested source kind remains available"),
+                }
+                assert_eq!(from_json(&to_json(&held)).unwrap(), held);
+            }
+        }
+    }
+}
+
+#[test]
+fn release_identity_reviews_compare_the_retained_musicbrainz_namespace() {
+    use crate::model::builder::{ScannedFile, build};
+    use crate::tags::RawTags;
+
+    let mut tags = RawTags::default();
+    for (key, value) in [
+        ("artist", "Example Artist"),
+        ("albumartist", "Example Artist"),
+        ("album", "Example Album"),
+        ("title", "Example Track"),
+        ("musicbrainz_albumid", "edition-local"),
+        ("musicbrainz_releasegroupid", "group-local"),
+    ] {
+        tags.insert(key, value);
+    }
+    let catalog = build(
+        vec![ScannedFile {
+            path: "/music/example/01.flac".into(),
+            size: 1,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        }],
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    let entity = EntityRef::of(&catalog, EntityKind::Release, catalog.releases[0].id).unwrap();
+    for (name, response, trusted) in [
+        (
+            "normal exact group",
+            r#"{"id":"edition-local","release-group":{"id":"group-local"}}"#,
+            true,
+        ),
+        ("exact edition fallback", r#"{"id":"edition-local"}"#, true),
+        (
+            "conflicting edition fallback",
+            r#"{"id":"edition-other"}"#,
+            false,
+        ),
+        (
+            "conflicting group",
+            r#"{"id":"edition-local","release-group":{"id":"group-other"}}"#,
+            false,
+        ),
+    ] {
+        let candidate =
+            crate::musicbrainz::release(&crate::json::parse(response).unwrap()).unwrap();
+        let mut held = Sources::default();
+        held.set(SourceRecord {
+            key: entity.key.clone(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some(candidate.mbid),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(candidate.facts),
+        });
+        let before = to_json(&held);
+        assert_eq!(
+            held.is_trusted(&catalog, &held.records[0]),
+            trusted,
+            "{name}"
+        );
+        let items = held.review_items(&catalog);
+        assert_eq!(items.is_empty(), trusted, "{name}");
+        assert_eq!(
+            to_json(&held),
+            before,
+            "reads preserve the evidence: {name}"
+        );
+        assert_eq!(to_json(&from_json(&before).unwrap()), before, "{name}");
+        if !trusted {
+            let item = &items[0];
+            let expected_local = if name == "conflicting edition fallback" {
+                "edition-local"
+            } else {
+                "group-local"
+            };
+            assert!(
+                matches!(
+                    &item.reason,
+                    ReviewReason::IdentityConflict { local_id, .. } if local_id == expected_local
+                ),
+                "{name}: {:?}",
+                item.reason
+            );
+            for (decision, expected) in [
+                (ReviewDecision::Accepted, true),
+                (ReviewDecision::Rejected, false),
+            ] {
+                held.decide(&catalog, &item.id, decision, 2).unwrap();
+                assert_eq!(
+                    held.is_trusted(&catalog, &held.records[0]),
+                    expected,
+                    "{name}"
+                );
+                assert_eq!(
+                    held.records,
+                    from_json(&before).unwrap().records,
+                    "review leaves the claim intact"
+                );
+            }
+            held.clear_review(&catalog, &item.id).unwrap();
+            assert!(!held.is_trusted(&catalog, &held.records[0]), "{name}");
+            assert_eq!(
+                to_json(&held),
+                before,
+                "undo restores the precise prior decision state"
+            );
+        }
+    }
+
+    // Old source documents without an edition field still name the group.
+    for (source_id, trusted) in [("group-local", true), ("group-other", false)] {
+        let held = Sources {
+            records: vec![SourceRecord {
+                key: entity.key.clone(),
+                source: MUSICBRAINZ.into(),
+                source_id: Some(source_id.into()),
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: Facts::Release(ReleaseFacts::default()),
+            }],
+            ..Default::default()
+        };
+        let before = to_json(&held);
+        assert_eq!(held.is_trusted(&catalog, &held.records[0]), trusted);
+        assert_eq!(held.review_items(&catalog).is_empty(), trusted);
+        assert_eq!(
+            to_json(&held),
+            before,
+            "legacy reads do not infer an edition"
+        );
+    }
 }

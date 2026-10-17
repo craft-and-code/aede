@@ -258,6 +258,89 @@ fn a_file_the_service_does_not_know_is_recorded_as_asked() {
 }
 
 #[test]
+fn malformed_recording_metadata_cannot_erase_a_reviewed_identification_or_cache_a_miss() {
+    let catalog = library(true);
+    for (index, recordings) in ["{}", "\"invalid\"", "[null]", "[{}]", r#"[{"id":" "}]"#]
+        .into_iter()
+        .enumerate()
+    {
+        for previous in [false, true] {
+            let dir = sandbox(&format!("recording_metadata_{index}_{previous}"));
+            let path = sources::sources_path(&dir);
+            let mut layer = sources::Sources::default();
+            if previous {
+                let mut transport = Canned {
+                    answers: vec![Ok(HEARD.to_string())],
+                    asked: Vec::new(),
+                };
+                run(
+                    &catalog,
+                    &mut transport,
+                    &[],
+                    &mut layer,
+                    &path,
+                    &asked_for(false, false),
+                )
+                .unwrap();
+                let review = layer.review_items(&catalog)[0].id.clone();
+                layer
+                    .decide(&catalog, &review, sources::ReviewDecision::Accepted, 2)
+                    .unwrap();
+            }
+            sources::save(&layer, &path).unwrap();
+            let original = layer.clone();
+            let bytes = std::fs::read(&path).unwrap();
+            let mut malformed = Canned {
+                answers: vec![Ok(format!(
+                    r#"{{"status":"ok","results":[{{"id":"acoustid-hit","score":1,"recordings":{recordings}}}]}}"#
+                ))],
+                asked: Vec::new(),
+            };
+            assert!(
+                run(
+                    &catalog,
+                    &mut malformed,
+                    &[],
+                    &mut layer,
+                    &path,
+                    &asked_for(true, false)
+                )
+                .is_err(),
+                "invalid recording metadata: {recordings}"
+            );
+            assert_eq!(layer, original);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            let mut retry = Canned {
+                answers: vec![Ok(HEARD.to_string())],
+                asked: Vec::new(),
+            };
+            run(
+                &catalog,
+                &mut retry,
+                &[],
+                &mut layer,
+                &path,
+                &asked_for(previous, false),
+            )
+            .unwrap();
+            assert_eq!(
+                retry.asked.len(),
+                1,
+                "an invalid first lookup must remain retryable"
+            );
+            assert_eq!(layer.records[0].source_id.as_deref(), Some("a3e4f5c6"));
+            if previous {
+                assert_eq!(
+                    layer.reviews, original.reviews,
+                    "same successful identity keeps its review"
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
 fn a_bad_key_stops_the_run_instead_of_condemning_the_whole_library() {
     // AcoustID answers `200 OK` with `"status": "error"` for a bad key. Read
     // as an ordinary empty answer, every file would be filed as "asked, and
@@ -379,4 +462,117 @@ fn no_key_is_refused_before_a_single_request() {
     assert!(error.to_string().contains("acoustid.org/new-application"));
     assert!(transport.asked.is_empty(), "nothing was asked");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn identify_name_candidates_include_artist_and_album_without_bypassing_scope_or_skips() {
+    let dir = crate::commands::canonical(&sandbox("named_selection"));
+    let first = dir.join("first");
+    let second = dir.join("second");
+    let audio = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../aede-core/tests/fixtures/track.flac"
+    ));
+    let mut files = Vec::new();
+    for (folder, artist, album, title) in [
+        (&first, "Miles Davis", "Kind of Blue", "So What"),
+        (&second, "Other Performer", "Other Album", "Another Song"),
+    ] {
+        std::fs::create_dir_all(folder).unwrap();
+        let path = folder.join("01.flac");
+        std::fs::write(&path, audio).unwrap();
+        let mut tags = RawTags::default();
+        for (key, value) in [
+            ("artist", artist),
+            ("albumartist", artist),
+            ("album", album),
+            ("title", title),
+        ] {
+            tags.insert(key, value);
+        }
+        files.push(ScannedFile {
+            path: path.to_string_lossy().into_owned(),
+            size: audio.len() as u64,
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: Some(Fingerprint {
+                data: "AQAA+bc/de".into(),
+                seconds: 1,
+            }),
+        });
+    }
+    let catalog = build(files, vec![dir.to_string_lossy().into_owned()], 1, &[]);
+    let held = sources::Sources::default();
+    let expected_path = first.join("01.flac").to_string_lossy().into_owned();
+    for (name, expected) in [
+        ("miles davis", vec![expected_path.as_str()]),
+        ("kind of blue", vec![expected_path.as_str()]),
+        ("so what", vec![expected_path.as_str()]),
+        ("first", vec![expected_path.as_str()]),
+        ("nobody here", Vec::new()),
+    ] {
+        let found = survey(
+            &catalog,
+            &held,
+            &[name.into()],
+            &crate::commands::fetch::EVERYTHING,
+            false,
+        );
+        assert_eq!(
+            found
+                .targets
+                .iter()
+                .map(|target| target.path.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "name {name}"
+        );
+    }
+    let scope =
+        crate::commands::fetch::Scope::of(&catalog, &[second.to_string_lossy().into_owned()])
+            .unwrap();
+    for (name, expected) in [("miles davis", 0), ("other album", 1)] {
+        assert_eq!(
+            survey(&catalog, &held, &[name.into()], &scope, false)
+                .targets
+                .len(),
+            expected
+        );
+    }
+
+    let mut without_fingerprint = catalog.clone();
+    without_fingerprint.files[0].fingerprint = None;
+    let missing = survey(
+        &without_fingerprint,
+        &held,
+        &["kind of blue".into()],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
+    assert!(missing.targets.is_empty());
+    assert_eq!(missing.no_fingerprint, 1);
+    let found = survey(
+        &catalog,
+        &held,
+        &["miles davis".into()],
+        &crate::commands::fetch::EVERYTHING,
+        false,
+    );
+    let mut cached = held;
+    store(&mut cached, &found.targets[0], None);
+    for (again, expected) in [(false, 0), (true, 1)] {
+        let found = survey(
+            &catalog,
+            &cached,
+            &["kind of blue".into()],
+            &crate::commands::fetch::EVERYTHING,
+            again,
+        );
+        assert_eq!(found.targets.len(), expected);
+        assert_eq!(found.asked, usize::from(!again));
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }

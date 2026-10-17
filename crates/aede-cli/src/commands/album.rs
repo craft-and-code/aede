@@ -121,25 +121,28 @@ fn say_who_was_in_the_band(args: &Args, catalog: &Catalog, release: &Release) {
         return;
     };
     let (placed, undated) = facts.line_up_in(year);
-    if placed.is_empty() {
+    if placed.is_empty() && undated == 0 {
         return;
     }
-    let mut named: Vec<&str> = placed.iter().map(|m| m.name.as_str()).collect();
-    named.sort_unstable();
-    println!(
-        "  {} {}",
-        ui::dim(&format!("line-up in {year}:")),
-        named.join(" · ")
-    );
+    if !placed.is_empty() {
+        let mut named: Vec<&str> = placed.iter().map(|m| m.name.as_str()).collect();
+        named.sort_unstable();
+        println!(
+            "  {} {}",
+            ui::dim(&format!("line-up in {year}:")),
+            ui::literal(&named.join(" · "))
+        );
+    }
     // The filter is named rather than applied in silence. These are members
     // MusicBrainz holds but does not date well enough to place in a year, and
     // a reader who knows one of them was there should be told why the page
     // disagrees rather than left to think the data is wrong.
     if undated > 0 {
+        let prefix = if placed.is_empty() { "" } else { "  and " };
         println!(
             "  {}",
             ui::dim(&format!(
-                "  and {} MusicBrainz does not date closely enough to place",
+                "{prefix}{} MusicBrainz does not date closely enough to place",
                 ui::plural(undated, "musician")
             ))
         );
@@ -356,7 +359,9 @@ fn print_album(
             .unwrap_or_default();
         let mut parents: Vec<_> = parent_works
             .iter()
-            .filter(|link| link.trusted && link.recording_id == track.recording_id)
+            .filter(|link| {
+                link.trusted && link.applicable_recording_ids.contains(&track.recording_id)
+            })
             .collect();
         parents.sort_by(|left, right| left.parent.mbid.cmp(&right.parent.mbid));
         parents.dedup_by(|left, right| left.parent.mbid == right.parent.mbid);
@@ -487,14 +492,21 @@ fn print_album(
         catalog,
         sourced_credits
             .iter()
-            .filter(|link| recording_ids.contains(&link.recording_id))
+            .filter(|link| {
+                link.applicable_recording_ids
+                    .iter()
+                    .any(|id| recording_ids.contains(id))
+            })
             .cloned()
             .collect(),
     );
-    for link in sourced_credits
-        .iter()
-        .filter(|link| link.trusted && recording_ids.contains(&link.recording_id))
-    {
+    for link in sourced_credits.iter().filter(|link| {
+        link.trusted
+            && link
+                .applicable_recording_ids
+                .iter()
+                .any(|id| recording_ids.contains(id))
+    }) {
         navigation.source_artist(&link.credit.artist_mbid);
     }
     super::print_sourced_edition_credits(

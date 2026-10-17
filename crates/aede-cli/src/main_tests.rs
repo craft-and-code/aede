@@ -174,6 +174,34 @@ fn network_options_are_known_and_limited_to_their_commands() {
 }
 
 #[test]
+fn missing_refuses_source_selection_but_keeps_its_set_aside_operations() {
+    let (_, source_commands, _) = OPTION_SCOPE
+        .iter()
+        .find(|(option, _, _)| *option == "source")
+        .unwrap();
+    assert!(
+        !source_commands.contains(&"missing"),
+        "missing cannot honor a source selector"
+    );
+    for command in ["import", "sources", "merge", "review", "relations"] {
+        assert!(
+            source_commands.contains(&command),
+            "{command} still selects sources"
+        );
+    }
+    for option in ["forget", "list"] {
+        let (_, commands, _) = OPTION_SCOPE
+            .iter()
+            .find(|(candidate, _, _)| *candidate == option)
+            .unwrap();
+        assert!(
+            commands.contains(&"missing"),
+            "--{option} still handles missing-album decisions"
+        );
+    }
+}
+
+#[test]
 fn playback_transport_options_are_known_and_limited_to_play() {
     for option in ["seek", "repeat", "shuffle", "seed"] {
         assert!(OPTIONS.contains(&option), "--{option} must be known");

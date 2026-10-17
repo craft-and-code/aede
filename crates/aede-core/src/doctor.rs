@@ -276,7 +276,13 @@ pub fn orphaned_relation_annotations(
         .collect::<BTreeSet<_>>();
     user.relation_annotations
         .iter()
-        .filter(|annotation| !current.contains(&annotation.relation))
+        .filter(|annotation| {
+            !current.contains(&annotation.relation)
+                && (!annotation.relation.kind.starts_with("credit:")
+                    || !current.iter().any(|relation| {
+                        crate::user::same_annotation_relation(catalog, &annotation.relation, relation)
+                    }))
+        })
         .map(|annotation| Issue {
             kind: IssueKind::OrphanedRelationAnnotation,
             detail: format!(

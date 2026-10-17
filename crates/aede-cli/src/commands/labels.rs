@@ -258,7 +258,10 @@ fn targets(
         targets.push(Target {
             entity,
             name: label.name.clone(),
-            known_mbid: label.mbid.clone().or_else(|| known_mbid(held, &label.key)),
+            known_mbid: label
+                .mbid
+                .clone()
+                .or_else(|| known_mbid(catalog, held, &label.key)),
         });
     }
     targets
@@ -269,12 +272,12 @@ fn targets(
 /// Every release this catalog has looked up that named *this* label — by its
 /// normalized name, [`text::normalize`], the same comparison the whole
 /// program uses to decide two spellings are one thing — is searched for the
-/// first one that also carried an identifier. Passive capture (see the module
+/// first trusted one that also carried an identifier. Passive capture (see the module
 /// doc) may have found it on any of them; which release does not matter, only
 /// that one did.
-fn known_mbid(held: &sources::Sources, key: &str) -> Option<String> {
+fn known_mbid(catalog: &Catalog, held: &sources::Sources, key: &str) -> Option<String> {
     held.records.iter().find_map(|record| {
-        if record.source != sources::MUSICBRAINZ {
+        if record.source != sources::MUSICBRAINZ || !held.is_trusted(catalog, record) {
             return None;
         }
         let Facts::Release(facts) = &record.facts else {

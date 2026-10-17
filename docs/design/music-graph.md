@@ -231,6 +231,8 @@ approximately matched source records remain evidence until explicitly accepted.
 Those relationships are indexed once when a query starts rather than re-walked
 for every track.
 
+Participation filters compare sourced performer identities by a supplied MusicBrainz ID before using name fallback for credits without an ID. Distinct explicit IDs remain distinct even when their displayed names or credited spellings match. `guest`, `compilationartist` and `with` share that identity rule; a display name does not establish that a source performer is the release's main artist.
+
 For example, `aede query 'work:"War Pigs" instrument:guitar'` finds guitar
 performances of a composition, while `aede query 'guest:"Zakk Wylde"'` finds
 guest appearances without confusing them with the artist's own discography.
@@ -295,6 +297,8 @@ Notes and labels live in the personal store, not on either endpoint and not in
 the shared catalog. A scan cannot erase them. If a drive, tag or fetched claim
 temporarily removes the edge, the annotation waits and `aede doctor` reports
 it instead of deleting it.
+
+For credit context, catalog-proven endpoint aliases preserve that attachment when an exact MusicBrainz artist becomes local. Personal lookup prefers an exact owner/reference match and accepts only a unique equivalent credit; it never merges historical notes or changes the graph selector. New credit annotations retain a known artist MBID only when its reference resolves uniquely to the same selected local artist; otherwise they keep the selected reference. Other relation kinds keep exact-reference matching; see [relation](../cli/relation.md).
 
 Two exports answer different recovery questions:
 

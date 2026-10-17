@@ -40,9 +40,10 @@
 //! than reading a version string, and the message names both ways out with
 //! the right one first for each platform.
 //!
-//! **The two agree, and that has been checked rather than assumed** — on one
-//! file, `ffmpeg -algorithm 1` and a bare `fpcalc` answer the same string, byte
-//! for byte. They agree only on those exact flags: `fpcalc -algorithm 1` is a
+//! **The two agree on the whole input, not just a preview.** `fpcalc` normally
+//! processes only the first 120 seconds; `-length 0` removes that limit, matching
+//! ffmpeg's complete-input path. On a short file its ordinary default agrees
+//! with `ffmpeg -algorithm 1`, byte for byte. `fpcalc -algorithm 1` is a
 //! *different* algorithm and answers something else — the measurement is beside
 //! the `ALGORITHM` constant below.
 //!
@@ -111,9 +112,10 @@ impl By {
 ///
 /// So ffmpeg's number *is* the version byte the fingerprint begins with, and
 /// fpcalc's is that plus one. Aède's ffmpeg path passes `1` and its fpcalc path
-/// passes **nothing**, and the two therefore agree — which is the whole premise
-/// of having two paths at all. Anything that tells a reader to compare with
-/// `fpcalc` must not tell them to add `-algorithm 1`.
+/// leaves the algorithm at its default, while `-length 0` processes the whole
+/// input. Both choices are needed for the paths to agree on long files too.
+/// Anything that tells a reader to compare with `fpcalc` must name the complete
+/// input and must not tell them to add `-algorithm 1`.
 const ALGORITHM: &str = "1";
 
 /// Whether either program is available, and which.
@@ -191,6 +193,7 @@ pub fn of(by: By, path: &std::path::Path, seconds: u32) -> Result<Fingerprint, S
         }
         By::Fpcalc => {
             let out = Command::new("fpcalc")
+                .args(["-length", "0"])
                 .arg(&path)
                 .output()
                 .map_err(|e| format!("fpcalc could not be run: {e}"))?;

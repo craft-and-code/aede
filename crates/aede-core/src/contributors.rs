@@ -77,7 +77,9 @@ pub fn sourced(catalog: &Catalog, sources: &Sources) -> Vec<SourcedContributor> 
         {
             builder.names.insert(credited_as.trim().to_string());
         }
-        builder.recording_ids.insert(link.recording_id);
+        builder
+            .recording_ids
+            .extend(link.applicable_recording_ids.iter().copied());
         if let Some(work) = &link.work {
             builder.work_mbids.insert(work.mbid.clone());
         }

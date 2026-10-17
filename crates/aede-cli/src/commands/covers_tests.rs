@@ -84,6 +84,9 @@ fn sandbox(name: &str) -> std::path::PathBuf {
 /// A one-album library rooted in `dir`, so the folder really exists on disk.
 fn library(dir: &std::path::Path, embedded: bool, beside: Option<&str>) -> Catalog {
     let folder = dir.join("music/Miles Davis/Kind of Blue");
+    if let Some(name) = beside {
+        std::fs::write(folder.join(name), JPEG).expect("the scanned sidecar exists");
+    }
     let mut tags = RawTags::default();
     tags.insert("artist", "Miles Davis");
     tags.insert("albumartist", "Miles Davis");
@@ -1088,4 +1091,497 @@ fn the_cover_stays_beside_the_music_and_the_rest_goes_one_level_down() {
         3,
         "the same three images, not six"
     );
+}
+
+#[test]
+fn cached_cover_addresses_require_a_trusted_claim() {
+    use aede_core::sources::ReviewDecision;
+
+    for (name, confidence, decision, should_download) in [
+        ("pending", Confidence::matched(42), None, false),
+        (
+            "rejected",
+            Confidence::matched(42),
+            Some(ReviewDecision::Rejected),
+            false,
+        ),
+        (
+            "accepted",
+            Confidence::matched(42),
+            Some(ReviewDecision::Accepted),
+            true,
+        ),
+        ("identified", Confidence::Identified, None, true),
+    ] {
+        let dir = sandbox(name);
+        let mut catalog = library(&dir, false, None);
+        // No separate local identity can justify an archive lookup here.
+        catalog.releases[0].mbid = None;
+        catalog.releases[0].release_group_mbid = None;
+        let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+        let mut layer = Sources::default();
+        let cached_url = "https://example.invalid/cached.jpg";
+        layer.set(SourceRecord {
+            key: entity.key,
+            source: coverart::SOURCE.into(),
+            source_id: Some("cached-image".into()),
+            fetched_at: 1,
+            confidence,
+            facts: Facts::Release(ReleaseFacts {
+                cover_art: Some(cached_url.into()),
+                ..Default::default()
+            }),
+        });
+        if let Some(decision) = decision {
+            let item = layer.review_items(&catalog).remove(0);
+            layer.decide(&catalog, &item.id, decision, 2).unwrap();
+        }
+        let before = sources::to_json(&layer);
+        let source = dir.join("music/Miles Davis/Kind of Blue/01.flac");
+        std::fs::write(&source, b"original audio remains unchanged").unwrap();
+        let mut transport = Canned::new(Vec::new(), vec![Ok(JPEG.to_vec())]);
+        run(
+            &catalog,
+            &mut transport,
+            &[],
+            &mut layer,
+            &sources::sources_path(&dir),
+            &asked(Size::Thumbnail(1200), false, false),
+        )
+        .unwrap();
+        assert_eq!(
+            transport.asked,
+            if should_download {
+                vec![cached_url.to_string()]
+            } else {
+                Vec::new()
+            },
+            "{name}"
+        );
+        assert_eq!(cover_in(&dir).exists(), should_download, "{name}");
+        if should_download {
+            assert_eq!(std::fs::read(cover_in(&dir)).unwrap(), JPEG);
+        }
+        assert_eq!(sources::to_json(&layer), before, "{name}");
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            b"original audio remains unchanged"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn existing_front_covers_are_reused_before_image_transfer_without_a_rescan() {
+    const PNG: &[u8] = include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png");
+    const AUDIO: &[u8] = include_bytes!("../../../aede-core/tests/fixtures/track.flac");
+    let cached_url = "https://coverartarchive.org/saved-front.jpg";
+    let index_url = "https://coverartarchive.org/x/1-1200.jpg";
+    for (filename, original) in [
+        ("cover.jpg", JPEG),
+        ("cover.png", PNG),
+        ("Folder.JPEG", JPEG),
+        ("chosen-art.png", PNG),
+    ] {
+        for cached in [false, true] {
+            for full in [false, true] {
+                let dir = sandbox(&format!("existing_front_{filename}_{cached}_{full}"));
+                let catalog = library(&dir, false, None);
+                let folder = dir.join("music/Miles Davis/Kind of Blue");
+                let image = folder.join(filename);
+                let audio = folder.join("01.flac");
+                std::fs::write(&image, original).unwrap();
+                std::fs::write(&audio, AUDIO).unwrap();
+                let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+                let mut layer = Sources::default();
+                let unrelated = SourceRecord {
+                    key: "unrelated artist".into(),
+                    source: sources::MUSICBRAINZ.into(),
+                    source_id: Some("unrelated-artist-id".into()),
+                    fetched_at: 1,
+                    confidence: Confidence::matched(80),
+                    facts: Facts::Artist(sources::ArtistFacts::default()),
+                };
+                layer.set(unrelated.clone());
+                if cached {
+                    layer.set(SourceRecord {
+                        key: entity.key.clone(),
+                        source: coverart::SOURCE.into(),
+                        source_id: None,
+                        fetched_at: 1,
+                        confidence: Confidence::Identified,
+                        facts: Facts::Release(ReleaseFacts {
+                            cover_art: Some(cached_url.into()),
+                            ..Default::default()
+                        }),
+                    });
+                }
+                let path = sources::sources_path(&dir);
+                sources::save(&layer, &path).unwrap();
+                let before = std::fs::read(&path).unwrap();
+                let mut options = asked(Size::Thumbnail(1200), false, false);
+                options.again = full;
+                let mut transport = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+                run(&catalog, &mut transport, &[], &mut layer, &path, &options).unwrap();
+                assert!(
+                    !transport
+                        .asked
+                        .iter()
+                        .any(|url| url == cached_url || url == index_url),
+                    "{filename}, cached={cached}, full={full}: an existing front was downloaded again: {:?}",
+                    transport.asked
+                );
+                assert_eq!(
+                    transport.asked.len(),
+                    usize::from(!cached || full),
+                    "index metadata selection remains unchanged"
+                );
+                assert_eq!(std::fs::read(&image).unwrap(), original);
+                assert_eq!(std::fs::read(&audio).unwrap(), AUDIO);
+                assert_eq!(
+                    std::fs::read_dir(&folder).unwrap().count(),
+                    2,
+                    "reuse does not add another cover filename"
+                );
+                let saved = sources::load_all(&path).unwrap().unwrap();
+                assert!(saved.records.contains(&unrelated));
+                assert_eq!(saved, layer);
+                if cached && !full {
+                    assert_eq!(std::fs::read(&path).unwrap(), before);
+                } else {
+                    assert!(matches!(
+                        &saved.get(&entity, coverart::SOURCE).unwrap().facts,
+                        Facts::Release(facts) if facts.cover_art.as_deref() == Some(index_url)
+                    ));
+                }
+                std::fs::remove_dir_all(dir).unwrap();
+            }
+        }
+    }
+
+    // The ordinary retry of a successful first pass still sees the old catalog.
+    let dir = sandbox("new_front_then_retry_without_scan");
+    let catalog = library(&dir, false, None);
+    let audio = dir.join("music/Miles Davis/Kind of Blue/01.flac");
+    std::fs::write(&audio, AUDIO).unwrap();
+    let path = sources::sources_path(&dir);
+    let mut layer = Sources::default();
+    let mut first = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+    run(
+        &catalog,
+        &mut first,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), false, false),
+    )
+    .unwrap();
+    assert_eq!(first.asked.len(), 2, "a missing front is still acquired");
+    assert_eq!(std::fs::read(cover_in(&dir)).unwrap(), JPEG);
+    let before = std::fs::read(&path).unwrap();
+    let mut repeat = Canned::new(Vec::new(), Vec::new());
+    run(
+        &catalog,
+        &mut repeat,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), false, false),
+    )
+    .unwrap();
+    assert!(repeat.asked.is_empty(), "completed front bytes are reused");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(std::fs::read(cover_in(&dir)).unwrap(), JPEG);
+    assert_eq!(std::fs::read(&audio).unwrap(), AUDIO);
+    std::fs::remove_dir_all(dir).unwrap();
+
+    let dir = sandbox("existing_front_does_not_complete_missing_extras");
+    let catalog = library(&dir, false, None);
+    let folder = dir.join("music/Miles Davis/Kind of Blue");
+    let image = folder.join("cover.png");
+    let audio = folder.join("01.flac");
+    std::fs::write(&image, PNG).unwrap();
+    std::fs::write(&audio, AUDIO).unwrap();
+    let path = sources::sources_path(&dir);
+    let mut layer = Sources::default();
+    let mut transport = Canned::new(
+        vec![Ok(INDEX_ALL.into())],
+        vec![Ok(JPEG.to_vec()), Ok(JPEG.to_vec()), Ok(JPEG.to_vec())],
+    );
+    run(
+        &catalog,
+        &mut transport,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), true, false),
+    )
+    .unwrap();
+    assert_eq!(transport.asked.len(), 4, "index and three missing extras");
+    assert!(
+        !transport
+            .asked
+            .iter()
+            .any(|url| url == "https://x/1-1200.jpg"),
+        "the front on disk does not need another transfer"
+    );
+    for name in ["back.jpg", "booklet-01.jpg", "booklet-02.jpg"] {
+        assert_eq!(
+            std::fs::read(folder.join("artwork").join(name)).unwrap(),
+            JPEG
+        );
+    }
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    assert!(layer.get(&entity, ARTWORK_SOURCE).is_some());
+    let before = std::fs::read(&path).unwrap();
+    let mut completed = Canned::new(Vec::new(), Vec::new());
+    run(
+        &catalog,
+        &mut completed,
+        &[],
+        &mut layer,
+        &path,
+        &asked(Size::Thumbnail(1200), true, false),
+    )
+    .unwrap();
+    assert!(
+        completed.asked.is_empty(),
+        "completed extras retain their receipt"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(std::fs::read(&image).unwrap(), PNG);
+    assert_eq!(std::fs::read(&audio).unwrap(), AUDIO);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_removed_catalogued_front_is_recovered_before_a_rescan() {
+    const PNG: &[u8] = include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png");
+    const AUDIO: &[u8] = include_bytes!("../../../aede-core/tests/fixtures/track.flac");
+    let saved_url = "https://coverartarchive.org/saved-front.jpg";
+    for (filename, original) in [
+        ("cover.jpg", JPEG),
+        ("cover.png", PNG),
+        ("Folder.JPEG", JPEG),
+    ] {
+        for full in [false, true] {
+            for cached in [false, true] {
+                for scoped in [false, true] {
+                    let dir = sandbox(&format!(
+                        "removed_front_{filename}_{full}_{cached}_{scoped}"
+                    ))
+                    .canonicalize()
+                    .unwrap();
+                    let catalog = library(&dir, false, Some(filename));
+                    let folder = dir.join("music/Miles Davis/Kind of Blue");
+                    let front = folder.join(filename);
+                    let audio = folder.join("01.flac");
+                    std::fs::write(&front, original).unwrap();
+                    std::fs::write(&audio, AUDIO).unwrap();
+                    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+                    let mut held = Sources::default();
+                    if cached {
+                        held.set(SourceRecord {
+                            key: entity.key.clone(),
+                            source: coverart::SOURCE.into(),
+                            source_id: None,
+                            fetched_at: 1,
+                            confidence: Confidence::Identified,
+                            facts: Facts::Release(ReleaseFacts {
+                                cover_art: Some(saved_url.into()),
+                                ..Default::default()
+                            }),
+                        });
+                    }
+                    let source_path = sources::sources_path(&dir);
+                    sources::save(&held, &source_path).unwrap();
+                    let source_before = std::fs::read(&source_path).unwrap();
+                    let catalog_path = aede_core::store::catalog_path(&dir);
+                    aede_core::store::save(&catalog, &catalog_path).unwrap();
+                    let catalog_before = std::fs::read(&catalog_path).unwrap();
+                    let folders = if scoped {
+                        vec![folder.to_string_lossy().into_owned()]
+                    } else {
+                        Vec::new()
+                    };
+                    let scope = super::super::fetch::Scope::of(&catalog, &folders).unwrap();
+                    let mut options = asked(Size::Thumbnail(1200), false, false);
+                    options.scope = &scope;
+                    options.again = full;
+                    let mut present = Canned::new(Vec::new(), Vec::new());
+                    run(
+                        &catalog,
+                        &mut present,
+                        &[],
+                        &mut held,
+                        &source_path,
+                        &options,
+                    )
+                    .unwrap();
+                    assert!(
+                        present.asked.is_empty(),
+                        "an existing scanned front is kept"
+                    );
+                    assert_eq!(std::fs::read(&front).unwrap(), original);
+                    assert_eq!(std::fs::read(&source_path).unwrap(), source_before);
+
+                    std::fs::remove_file(&front).unwrap();
+                    let missing = survey(&catalog, &held, &[], &scope, false, full);
+                    assert_eq!(
+                        missing.targets.len(),
+                        1,
+                        "a remembered path is not a current front: {filename}, full={full}, cached={cached}, scoped={scoped}"
+                    );
+                    assert_eq!(missing.beside, 0);
+                    assert_eq!(missing.targets[0].known, cached && !full);
+                    options.dry_run = true;
+                    let mut preview = Canned::new(Vec::new(), Vec::new());
+                    run(
+                        &catalog,
+                        &mut preview,
+                        &[],
+                        &mut held,
+                        &source_path,
+                        &options,
+                    )
+                    .unwrap();
+                    assert!(preview.asked.is_empty());
+                    assert!(!front.exists());
+                    assert_eq!(std::fs::read(&source_path).unwrap(), source_before);
+                    options.dry_run = false;
+                    let mut recovery = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+                    run(
+                        &catalog,
+                        &mut recovery,
+                        &[],
+                        &mut held,
+                        &source_path,
+                        &options,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        recovery.asked,
+                        if cached && !full {
+                            vec![saved_url.to_string()]
+                        } else {
+                            vec![
+                                coverart::release_index_url("59211ea4"),
+                                "https://coverartarchive.org/x/1-1200.jpg".to_string(),
+                            ]
+                        },
+                        "recovery reuses the address or asks the requested index"
+                    );
+                    assert_eq!(std::fs::read(cover_in(&dir)).unwrap(), JPEG);
+                    let completed_before = std::fs::read(&source_path).unwrap();
+                    let mut repeat = Canned::new(Vec::new(), Vec::new());
+                    options.again = false;
+                    run(
+                        &catalog,
+                        &mut repeat,
+                        &[],
+                        &mut held,
+                        &source_path,
+                        &options,
+                    )
+                    .unwrap();
+                    assert!(
+                        repeat.asked.is_empty(),
+                        "successful recovery is reused immediately"
+                    );
+                    assert_eq!(std::fs::read(&source_path).unwrap(), completed_before);
+                    assert_eq!(std::fs::read(&audio).unwrap(), AUDIO);
+                    assert_eq!(std::fs::read(&catalog_path).unwrap(), catalog_before);
+                    std::fs::remove_dir_all(dir).unwrap();
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+
+        let dir = sandbox("unresolved_catalogued_front");
+        let mut catalog = library(&dir, false, None);
+        let cycle = dir.join("cycle");
+        symlink("cycle", &cycle).unwrap();
+        let unresolved = cycle.join("cover.jpg");
+        let error = std::fs::symlink_metadata(&unresolved).unwrap_err();
+        assert_ne!(error.kind(), std::io::ErrorKind::NotFound);
+        let dangling = dir.join("remembered-cover.jpg");
+        symlink("absent-cover.jpg", &dangling).unwrap();
+        for remembered in [&unresolved, &dangling] {
+            catalog.releases[0].cover_path = Some(remembered.to_string_lossy().into_owned());
+            for full in [false, true] {
+                let held = Sources::default();
+                let found = survey(
+                    &catalog,
+                    &held,
+                    &[],
+                    &super::super::fetch::EVERYTHING,
+                    false,
+                    full,
+                );
+                assert!(
+                    found.targets.is_empty(),
+                    "only established absence releases a remembered front: {remembered:?}"
+                );
+                assert_eq!(found.beside, 1);
+            }
+        }
+        assert!(
+            std::fs::symlink_metadata(&dangling)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn a_retained_edition_fallback_asks_the_edition_artwork_namespace() {
+    let dir = sandbox("retained_edition_namespace");
+    let mut catalog = library(&dir, false, None);
+    // The source answer remains after an edition tag is removed. Its retained
+    // identifier still names an edition, not a newly inferred release group.
+    catalog.releases[0].mbid = None;
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    let candidate = musicbrainz::release(
+        &aede_core::json::parse(r#"{"id":"59211ea4","title":"Kind of Blue"}"#).unwrap(),
+    )
+    .unwrap();
+    let mut layer = Sources::default();
+    let claim = SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some(candidate.mbid),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Release(candidate.facts),
+    };
+    layer.set(claim.clone());
+    let before = sources::to_json(&layer);
+    let selected = targets(&catalog, &layer);
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].url, coverart::release_index_url("59211ea4"));
+    assert_eq!(sources::to_json(&layer), before, "planning is read-only");
+
+    let mut transport = Canned::new(vec![Ok(r#"{"images":[]}"#.into())], vec![]);
+    run(
+        &catalog,
+        &mut transport,
+        &[],
+        &mut layer,
+        &sources::sources_path(&dir),
+        &asked(Size::Thumbnail(1200), false, false),
+    )
+    .unwrap();
+    assert_eq!(transport.asked, [coverart::release_index_url("59211ea4")]);
+    assert_eq!(layer.get(&entity, sources::MUSICBRAINZ), Some(&claim));
+    assert!(
+        !cover_in(&dir).exists(),
+        "a completed empty answer creates no image"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }

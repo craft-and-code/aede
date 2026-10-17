@@ -8,6 +8,10 @@ No tags are rewritten. Trust and source confidence remain separate: accepting a 
 
 Cards and decision messages display imported names, facts, paths and URLs literally, without executing terminal controls. List pagination is validated even when no claim needs review.
 
+MusicBrainz album links use the retained release-group identity. If a lookup has no group and explicitly retains its edition ID instead, the link opens that edition. Review cards and source panels use the same address rule; reading never changes the stored identifiers.
+
+AcoustID proposals link to the MusicBrainz recording ID retained from the lookup. An AcoustID track-page identifier is not retained by this source record and is not inferred.
+
 Reading the list takes no writer lock. Interactive review and direct decisions keep the lock while saving choices.
 
 ## Syntax and arguments

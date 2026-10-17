@@ -8,6 +8,8 @@ La couverture d’édition utilise les mêmes états, mais exige un identifiant 
 
 Pour un enregistrement ou une édition en attente, copier la commande fetch ciblée affichée. --full appartient à fetch si vous voulez répéter une réponse terminée, pas à credits. --json conserve les champs d’enregistrement et ajoute la couverture d’édition pour les outils ; aucune demande réseau.
 
+Une réponse MusicBrainz terminée pour les crédits d’un enregistrement est réutilisée pour toutes ses présences locales, y compris lors d’une récupération limitée au dossier d’une autre édition. La décision de revue reste indépendante : une preuve en attente ou rejetée ne devient pas fiable par réutilisation du cache, et `fetch --credits --full` redemande explicitement. Une réponse absente ou incomplète reste récupérable. Les interrogations d’édition restent distinctes.
+
 ## Syntaxe et arguments
 
 ```text

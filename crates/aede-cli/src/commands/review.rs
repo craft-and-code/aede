@@ -391,7 +391,7 @@ fn render_card(
     for (label, value) in source_facts(record) {
         card_field(output, label, &value)?;
     }
-    if let Some(url) = source_url(item) {
+    if let Some(url) = source_url(item, record) {
         card_field(output, "Check", &url)?;
     }
 
@@ -666,13 +666,13 @@ fn plain_status(item: &ReviewItem) -> String {
     }
 }
 
-fn source_url(item: &ReviewItem) -> Option<String> {
+fn source_url(item: &ReviewItem, record: &SourceRecord) -> Option<String> {
     let id = item.source_id.as_deref()?;
     match item.source.as_str() {
         sources::MUSICBRAINZ => {
             let kind = match item.entity.kind {
                 EntityKind::Artist => "artist",
-                EntityKind::Release => "release",
+                EntityKind::Release => return super::sources::address_of(record),
                 EntityKind::Track | EntityKind::Recording => "recording",
                 EntityKind::Work => "work",
                 EntityKind::ReleaseGroup => "release-group",
@@ -681,7 +681,7 @@ fn source_url(item: &ReviewItem) -> Option<String> {
             };
             Some(format!("https://musicbrainz.org/{kind}/{id}"))
         }
-        "acoustid" => Some(format!("https://acoustid.org/track/{id}")),
+        "acoustid" => Some(format!("https://musicbrainz.org/recording/{id}")),
         _ => None,
     }
 }
@@ -758,3 +758,7 @@ fn print_decision(action: &str, item: &ReviewItem, path: &std::path::Path) {
     );
     println!("  {}", ui::dim(&ui::literal(&path.display().to_string())));
 }
+
+#[cfg(test)]
+#[path = "review_tests.rs"]
+mod tests;

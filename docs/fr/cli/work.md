@@ -4,6 +4,12 @@ work ouvre une identité de composition et ses enregistrements. Compositeurs, pa
 
 Une œuvre présente seulement par récupération est identifiée comme preuve externe. Le partage d’un tag WORK ne crée pas d’identité commune canonique. query work:ID_PARENT sélectionne les parties identifiées ; les textes locaux restent cherchables sans inventer des relations.
 
+Les pages d’œuvres locales ou seulement sourcées conservent la confiance et la décision propres à chaque déclaration. Accepter un rapprochement permet sa navigation ; cela ne remplace pas son score par une identification certaine.
+
+Une relation partie-d’œuvre fiable s’applique aux interprétations locales portant le MBID exact de son œuvre enfant, y compris les rattachements sourcés fiables. Navigation vers le parent et recherche partagent cette portée ; l’enregistrement d’origine reste l’hôte de la preuve. Cela ne rapproche pas des œuvres homonymes, n’infère pas d’ascendance transitive et ne multiplie pas la relation conservée.
+
+Quand les tags locaux et des sources fiables désignent le même identifiant d’œuvre, sa liste et les liens Continue réunissent leurs enregistrements, chacun affiché une seule fois. Une proposition en attente, refusée ou conflictuelle reste une preuve ; elle ne peut ajouter d’enregistrement sans acceptation explicite.
+
 Continue propose des commandes copiables vers les entités voisines. Ces pages n’ont ni CSV/JSON/M3U, pagination ou --output dans la CLI actuelle ; query/export fournissent sélections/graphe structurés.
 
 ## Syntaxe et arguments

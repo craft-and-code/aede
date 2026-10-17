@@ -2,6 +2,8 @@
 
 sources keeps a second layer of attributed claims beside local tags. The summary counts records attached to catalog objects and those still waiting. --list displays each source record, confidence and attachment. Approximate matches do not silently become local truth.
 
+The list indicates retained credits, artwork and biography presence rather than printing unattributed prose extracts. Entity cards show the complete biographies with their source and licence, and show retained picture addresses and credits even when no descriptive metadata accompanies them. A completed empty answer still differs from a source never asked.
+
 --export writes the stored source document, including retained reviews and credit exclusions even when no fetched record remains; --import merges a document in the same format. --template creates blank keyed records, optionally narrowed by a positional name, for carefully authored manual data. Choose one operation: list, export, import, template, or forget. --output is meaningful with export/template. --source filters list/forget or names the source for template; it is refused with the summary, export, or import, which retain all sources.
 
 --forget removes source records and their review/exclusion decisions in the selected scope, including decisions retained without a cached record. It reports removed records and decisions separately and never deletes tags or music. The command takes no positional name except with --template NAME: open album/artist/track to inspect one entity. Use review for trusting a proposal, credit for a precise credit correction, and backup for a complete recovery bundle.

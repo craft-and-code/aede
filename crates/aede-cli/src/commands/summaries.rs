@@ -127,6 +127,12 @@ pub fn run(
                     continue;
                 }
             };
+        if let Err(why) = wikipedia::validate_entity(&entity_doc, &target.id) {
+            failed += 1;
+            done += 1;
+            super::fetch::report_failed(&target.name, &why);
+            continue;
+        }
         let Some(article) = wikipedia::article(&entity_doc, &target.id, &langs) else {
             // An entity with no article in any language asked for is a real
             // answer, and recording it is what stops the next run asking again.
@@ -151,6 +157,12 @@ pub fn run(
                     continue;
                 }
             };
+        if let Err(why) = wikipedia::validate_summary(&summary_doc) {
+            failed += 1;
+            done += 1;
+            super::fetch::report_failed(&target.name, &why);
+            continue;
+        }
         match wikipedia::prose(&summary_doc, &article) {
             Some(prose) => {
                 stored += 1;

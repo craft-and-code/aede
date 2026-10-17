@@ -2,6 +2,8 @@
 
 sources conserve une seconde couche de propositions attribuées à côté des tags. Le résumé compte les éléments rattachés au catalogue et ceux en attente. --list montre chaque source, confiance et rattachement. Une correspondance approximative ne devient jamais silencieusement vérité locale.
 
+La liste signale les crédits, les images et la présence de biographies, sans afficher d’extrait de texte privé de son attribution. Les fiches montrent les biographies complètes avec leur source et leur licence, ainsi que les adresses d’images et les crédits conservés même sans métadonnées descriptives. Une réponse vide terminée reste distincte d’une source jamais interrogée.
+
 --export écrit le document de sources, y compris les décisions de revue et les exclusions de crédits lorsqu’aucune preuve récupérée ne reste ; --import fusionne un document du même format. --template crée des entrées vides munies de clés, éventuellement limitées à un nom en argument, pour une saisie manuelle précise. Choisir une seule opération : list, export, import, template ou forget. --output sert avec export/template. --source filtre list/forget ou nomme la source du modèle ; il est refusé avec le résumé, l’export ou l’import, qui concernent toutes les sources.
 
 --forget retire les preuves et leurs décisions de revue/exclusion dans la portée choisie, y compris les décisions conservées sans preuve en cache. Les preuves et décisions supprimées sont comptées séparément ; aucun tag ni fichier musical ne change. Aucun nom positionnel sauf avec --template NOM : ouvrir album/artist/track pour consulter une entité. review accepte une proposition, credit corrige un crédit précis, backup sauvegarde tout.

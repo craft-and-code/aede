@@ -263,6 +263,10 @@ fn attempt(
             Err(Refusal::Missing) => None,
             Err(why) => return Err(why),
         };
+        if let Some(response) = &doc {
+            wikipedia::validate_portrait(response, id)
+                .map_err(|why| Refusal::Failed(why.into()))?;
+        }
         if let Some(file) = doc
             .as_ref()
             .and_then(|doc| wikipedia::portrait_file(doc, id))
@@ -426,7 +430,7 @@ fn targets(
             continue;
         }
 
-        let destination = super::artist_artwork_destination(
+        let Some(destination) = super::artist_artwork_destination(
             catalog,
             releases_by_artist
                 .get(&artist_row.id)
@@ -434,7 +438,12 @@ fn targets(
                 .unwrap_or_default(),
             data_dir,
             mbid,
-        );
+        ) else {
+            continue;
+        };
+        if coverart::exists_beside(&destination, Kind::Artist) {
+            continue;
+        }
 
         targets.push(Target {
             entity,

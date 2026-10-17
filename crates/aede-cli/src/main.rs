@@ -974,14 +974,7 @@ const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing", "merg
 /// Commands where one external source can be selected. Review joins the
 /// attributed-data commands here without inheriting their destructive
 /// `--forget` option.
-const SOURCE_COMMANDS: &[&str] = &[
-    "import",
-    "sources",
-    "missing",
-    "merge",
-    "review",
-    "relations",
-];
+const SOURCE_COMMANDS: &[&str] = &["import", "sources", "merge", "review", "relations"];
 
 /// Commands that can list what they hold rather than go and get more.
 ///

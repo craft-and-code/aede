@@ -238,8 +238,16 @@ fn survey(
         if !scope.has_track(track.id) {
             continue;
         }
-        if !super::fetch::reaches(wanted, &[&track.title, &file.path]) {
-            continue;
+        if !wanted.is_empty() {
+            let artist = super::main_track_artist(catalog, track.id).unwrap_or_default();
+            let album = track
+                .release_id
+                .and_then(|id| catalog.release(id))
+                .map(|release| release.title.as_str())
+                .unwrap_or_default();
+            if !super::fetch::reaches(wanted, &[&track.title, &file.path, &artist, album]) {
+                continue;
+            }
         }
         let Some(fingerprint) = file.fingerprint.clone() else {
             out.no_fingerprint += 1;

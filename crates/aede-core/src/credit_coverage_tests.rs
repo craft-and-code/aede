@@ -432,3 +432,83 @@ fn manual_edition_corrections_are_visible_without_fabricating_a_completed_lookup
     held.set(scoped);
     assert_eq!(editions(&catalog, &held)[0].manual_credits, 0);
 }
+
+#[test]
+fn edition_coverage_accepts_exact_fallbacks_without_confusing_group_identifiers() {
+    let catalog = Catalog {
+        releases: vec![Release {
+            id: 0,
+            key: "example artist|example album|/music/example".into(),
+            title: "Example Album".into(),
+            mbid: Some("edition-local".into()),
+            release_group_mbid: Some("group-local".into()),
+            release_group_id: Some(0),
+            ..Default::default()
+        }],
+        release_groups: vec![ReleaseGroup {
+            id: 0,
+            mbid: "group-local".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+    for (name, response, expected) in [
+        (
+            "exact group and edition",
+            r#"{"id":"edition-local","release-group":{"id":"group-local"}}"#,
+            CreditStatus::Credited,
+        ),
+        (
+            "exact edition fallback",
+            r#"{"id":"edition-local"}"#,
+            CreditStatus::Credited,
+        ),
+        (
+            "different group",
+            r#"{"id":"edition-local","release-group":{"id":"group-other"}}"#,
+            CreditStatus::Untrusted,
+        ),
+        (
+            "different edition fallback",
+            r#"{"id":"edition-other"}"#,
+            CreditStatus::Waiting,
+        ),
+    ] {
+        let mut answer = crate::json::parse(response).unwrap();
+        answer.set("relations", crate::json::parse(r#"[{"type":"producer","target-type":"artist","artist":{"id":"producer-id","name":"Example Producer"}}]"#).unwrap());
+        let candidate = crate::musicbrainz::release(&answer).unwrap();
+        let mut held = Sources::default();
+        held.set(SourceRecord {
+            key: entity.key.clone(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some(candidate.mbid),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(candidate.facts),
+        });
+        let before = crate::sources::to_json(&held);
+        let row = editions(&catalog, &held)[0];
+        assert_eq!(row.status, expected, "{name}");
+        assert_eq!(
+            row.edition_credits,
+            usize::from(expected == CreditStatus::Credited),
+            "{name}"
+        );
+        assert_eq!(row.manual_credits, 0, "{name}");
+        let links = held.edition_credit_links(&catalog);
+        assert_eq!(
+            links.len(),
+            usize::from(expected != CreditStatus::Waiting),
+            "{name}"
+        );
+        if let Some(link) = links.first() {
+            assert_eq!(link.trusted, expected == CreditStatus::Credited, "{name}");
+        }
+        assert_eq!(
+            crate::sources::to_json(&held),
+            before,
+            "{name}: reads retain the claims"
+        );
+    }
+}

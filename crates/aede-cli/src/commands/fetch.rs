@@ -837,6 +837,17 @@ fn rich_credits(
     asked: &Asked,
     args: &Args,
 ) -> Result<bool, Box<dyn std::error::Error>> {
+    // A recording lookup can be stored under any one of its placements.
+    // Completion is a receipt; source trust still governs how credits are used.
+    let completed: BTreeSet<_> = held
+        .records
+        .iter()
+        .filter(|record| record.source == sources::MUSICBRAINZ)
+        .filter_map(|record| match &record.facts {
+            Facts::Track(facts) if facts.relationships_complete => Some(record.key.as_str()),
+            _ => None,
+        })
+        .collect();
     let mut targets = Vec::new();
     for recording in &catalog.recordings {
         let Some(mbid) = recording.mbid.as_deref() else {
@@ -853,7 +864,12 @@ fn rich_credits(
                 .and_then(|id| catalog.release(id))
                 .map(|release| release.title.as_str())
                 .unwrap_or_default();
-            reaches(asked.names, &[&recording.title, &artist, album])
+            // One recording can have differently titled local placements.
+            let title = catalog
+                .track(track_id)
+                .map(|track| track.title.as_str())
+                .unwrap_or_default();
+            reaches(asked.names, &[title, &recording.title, &artist, album])
         }) else {
             continue;
         };
@@ -861,11 +877,12 @@ fn rich_credits(
             continue;
         };
         if !asked.again
-            && held
-                .get(&entity, sources::MUSICBRAINZ)
-                .is_some_and(|record| {
-                    matches!(&record.facts, Facts::Track(facts) if facts.relationships_complete)
-                })
+            && recording.track_ids.iter().any(|&id| {
+                catalog
+                    .track(id)
+                    .and_then(|track| catalog.file(track.file_id))
+                    .is_some_and(|file| completed.contains(file.path.as_str()))
+            })
         {
             continue;
         }

@@ -4,6 +4,12 @@ work opens a composition identity and the recordings that realize it. It shows s
 
 A fetched source-only work is labeled as external evidence. A shared WORK title tag does not create a canonical shared identity. query work:PARENT_ID can select local recordings of identified parts; local work/movement text can also be queried without inferring relationships.
 
+Both local and source-only work pages retain each claim's original confidence and review. Accepting a matched claim makes it navigable; it does not relabel its score as an exact identification.
+
+A trusted part-of-work claim applies to the local performances of its exact child-work MBID, including trusted source attachments. Parent navigation and queries share that scope; the original recording remains the observation host. This does not join homonymous works, infer transitive ancestry or multiply the retained relationship.
+
+When local tags and trusted source claims name the same work ID, its recording list and Continue links include their union, with each canonical recording shown once. Pending, rejected or conflicting claims remain evidence and cannot add a recording until explicitly accepted.
+
 The Continue section provides copyable commands for adjacent entities. These graph pages have no CSV/JSON/M3U, paging or --output options in the current CLI; use query/export for machine-readable selections or graph data.
 
 ## Syntax and arguments

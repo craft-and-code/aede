@@ -41,7 +41,7 @@ pub(super) fn artist_folder(catalog: &Catalog, id: Id, data_dir: &Path) -> Optio
     {
         return Some(folder);
     }
-    mbid.map(|mbid| coverart::artist_destination(catalog, &releases, data_dir, mbid))
+    mbid.and_then(|mbid| coverart::artist_destination(catalog, &releases, data_dir, mbid))
 }
 
 pub(super) fn beside(folder: PathBuf, kind: Kind) -> Option<Source> {
@@ -105,7 +105,13 @@ async fn read(
     {
         return Err(invalid_query("invalid artwork reference or size"));
     }
-    let principal = request.extensions().get::<auth::Principal>().cloned();
+    let identity = auth::SocketIdentity {
+        session: request.extensions().get::<auth::Principal>().cloned(),
+        administrative: request
+            .extensions()
+            .get::<auth::AdministrativeAccess>()
+            .is_some(),
+    };
     let transfer = state
         .playback_slots
         .clone()
@@ -132,9 +138,7 @@ async fn read(
                     "artwork is unavailable, unsupported or changed",
                 )
             })?;
-            if let Some(principal) = principal.as_ref() {
-                auth::recheck(state, principal)?;
-            }
+            auth::confirm_access(state, &identity)?;
             Ok(rendered)
         }),
     )

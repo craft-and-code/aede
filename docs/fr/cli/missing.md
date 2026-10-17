@@ -2,9 +2,11 @@
 
 missing compare les discographies MusicBrainz de confiance déjà récupérées à la collection locale. Lancer d’abord fetch --discography. Sans ces preuves, il explique que la comparaison est indisponible plutôt que prétendre la collection complète.
 
+Un identifiant exact de groupe de parutions déjà présent dans le catalogue suffit à reconnaître un album possédé, y compris une édition classée sous un autre artiste principal. Le titre sert seulement de repli pour les albums de cet artiste sans identifiant de groupe de parutions ; deux titres identiques ne remplacent pas deux identifiants explicites différents. L’artiste doit toujours avoir un rayon commencé avant cette comparaison.
+
 Normalement, il liste les albums studio absents et laisse de côté singles, concerts, compilations/démos et vos exclusions. --all lève ces exclusions et la pagination, avec leur raison. C’est une comparaison de métadonnées, pas un gestionnaire d’achats, possession ou prêts ; identification d’édition et discographies incomplètes peuvent affecter le résultat.
 
---forget TITRE met une parution de côté sans effacer la source. --list montre ces décisions. --forget --remove TITRE la remet. Plusieurs parutions également correspondantes sont refusées pour éviter de masquer le mauvais album. L’option --source acceptée n’est actuellement pas appliquée ; donner un nom précis et lire la portée affichée.
+--forget TITRE met une parution de côté sans effacer la source. --list montre ces décisions. --forget --remove TITRE la remet. Plusieurs parutions également correspondantes sont refusées pour éviter de masquer le mauvais album. Cette comparaison utilise les discographies MusicBrainz ; --source est refusé au lieu d’être ignoré silencieusement.
 
 La CLI liste, retire et applique uniquement les décisions du propriétaire `local`, y compris dans l’indication d’albums manquants des pages artiste. Les choix d’un autre compte restent privés et ne masquent aucun album dans ce rapport. Une sauvegarde complète de l’opérateur conserve toujours les données personnelles de tous les propriétaires.
 
@@ -22,7 +24,6 @@ Noms d’artistes/albums facultatifs ; la mise de côté exige une parution manq
 | --- | --- |
 | `--forget` | Retirer les données/décisions mémorisées dans cette portée. Aucun fichier audio n’est supprimé ni retagué. |
 | `--list` | Lister les enregistrements ou décisions mémorisés au lieu du résumé/de l’opération habituelle. |
-| `--source NAME` | Reconnu par la portée, mais le traitement missing actuel n’applique pas ce filtre. Ne pas compter dessus pour limiter le rapport. |
 | `--limit N` | Afficher au plus N lignes ; entier strictement positif. La limite par défaut dépend de la page, généralement 50. |
 | `--offset N` | Ignorer N lignes avant le résultat ; N commence à 0. L’ordre reste déterministe. |
 | `--all` | Inclure les parutions hors studio et mises de côté ainsi que toutes les lignes ; préciser leur exclusion habituelle. |

@@ -178,6 +178,86 @@ fn stored(sources: &Sources) -> Option<Prose> {
 }
 
 #[test]
+fn malformed_provider_documents_preserve_biographies_and_remain_retryable() {
+    for (stage, malformed) in [
+        ("entity", "{}"),
+        ("entity", r#"{"entities":[]}"#),
+        ("entity", r#"{"entities":{"Q11649":{"sitelinks":[]}}}"#),
+        ("summary", "{}"),
+        ("summary", r#"{"type":"standard","extract":[]}"#),
+    ] {
+        for previous in [false, true] {
+            let dir = sandbox(&format!("invalid_{stage}_{previous}_{}", malformed.len()));
+            let path = sources::sources_path(&dir);
+            let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
+            if previous {
+                let target =
+                    targets(&layer, &[], &crate::commands::fetch::EVERYTHING, true, None).remove(0);
+                store(
+                    &mut layer,
+                    &target,
+                    Some(Prose {
+                        text: "Retained biography.".into(),
+                        url: "https://en.wikipedia.org/wiki/Retained".into(),
+                        lang: "en".into(),
+                        licence: wikipedia::LICENCE.into(),
+                    }),
+                );
+            }
+            sources::save(&layer, &path).expect("initial sources");
+            let before = std::fs::read(&path).expect("original bytes");
+            let original = layer.clone();
+            let answers = if stage == "entity" {
+                vec![Ok(malformed.to_string())]
+            } else {
+                vec![Ok(ENTITY.to_string()), Ok(malformed.to_string())]
+            };
+            let mut transport = Canned {
+                answers,
+                asked: Vec::new(),
+            };
+            run(
+                &mut transport,
+                &[],
+                &["en".into()],
+                &mut layer,
+                &path,
+                &asked(true),
+                None,
+            )
+            .expect("failed responses are counted by the pass");
+            assert_eq!(layer, original, "malformed {stage}: {malformed}");
+            assert_eq!(std::fs::read(&path).expect("source bytes"), before);
+
+            let mut retry = Canned {
+                answers: vec![Ok(ENTITY.to_string()), Ok(SUMMARY.to_string())],
+                asked: Vec::new(),
+            };
+            run(
+                &mut retry,
+                &[],
+                &["en".into()],
+                &mut layer,
+                &path,
+                &asked(previous),
+                None,
+            )
+            .expect("valid retry");
+            assert_eq!(
+                retry.asked.len(),
+                2,
+                "failed first fetch was not cached as an absence"
+            );
+            assert_eq!(
+                stored(&layer).expect("biography").text,
+                "An American rock band."
+            );
+            std::fs::remove_dir_all(dir).expect("clean sandbox");
+        }
+    }
+}
+
+#[test]
 fn a_label_summary_is_fetched_and_saved_with_its_credit() {
     let dir = sandbox("label_summary");
     let path = sources::sources_path(&dir);

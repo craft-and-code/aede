@@ -26,6 +26,60 @@ fn malformed_success_bodies_are_not_reported_as_a_normal_lyrics_miss() {
 }
 
 #[test]
+fn metadata_only_lyrics_do_not_hide_plain_words_or_become_a_words_answer() {
+    for body in [
+        r#"{"instrumental":false,"plainLyrics":null,"syncedLyrics":"[ar:Fixture]\n[ti:Title]\n[by:Editor]\n[offset:10]"}"#,
+        r#"{"instrumental":false,"plainLyrics":"[ar:Fixture]\n[ti:Title]","syncedLyrics":null}"#,
+        r#"{"instrumental":false,"plainLyrics":"[ar:Fixture]","syncedLyrics":"[ti:Title]"}"#,
+    ] {
+        let value = parse(body).unwrap();
+        assert_eq!(read(&value), Found::Nothing);
+        assert_eq!(read_checked(&value), Ok(Found::Nothing));
+    }
+    for (plain, synced, expected) in [
+        (
+            "Plain words remain intact",
+            "[ar:Fixture]\n[ti:Title]",
+            Words {
+                text: "Plain words remain intact".into(),
+                synced: false,
+            },
+        ),
+        (
+            "Plain alternative",
+            "[ar:Fixture]\n[00:01]Timed words",
+            Words {
+                text: "[ar:Fixture]\n[00:01]Timed words".into(),
+                synced: true,
+            },
+        ),
+        (
+            "Plain alternative",
+            "[00:01]",
+            Words {
+                text: "[00:01]".into(),
+                synced: true,
+            },
+        ),
+        (
+            "Plain alternative",
+            "[unrecognized] literal words",
+            Words {
+                text: "[unrecognized] literal words".into(),
+                synced: true,
+            },
+        ),
+    ] {
+        let mut value = Json::obj();
+        value.set("instrumental", false.into());
+        value.set("plainLyrics", plain.into());
+        value.set("syncedLyrics", synced.into());
+        assert_eq!(read(&value), Found::Words(expected.clone()));
+        assert_eq!(read_checked(&value), Ok(Found::Words(expected)));
+    }
+}
+
+#[test]
 fn the_address_carries_every_criterion_encoded() {
     // This is the address that was actually sent, and answered.
     let url = get_url("Ozzy Osbourne", "Crazy Train", "Blizzard of Ozz", 296);

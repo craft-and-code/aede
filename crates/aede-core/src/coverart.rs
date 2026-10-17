@@ -534,14 +534,52 @@ pub fn shared_artist_folder(releases: &[&crate::model::Release]) -> Option<std::
     shared
 }
 
+/// Confined cache directory for an artist or label's opaque identifier.
+///
+/// A source identifier is data, never a path. Existing directories below the
+/// configured data folder must be ordinary directories; these static checks
+/// do not prevent another process replacing them concurrently.
+pub fn asset_destination(
+    data_dir: &std::path::Path,
+    kind: crate::model::EntityKind,
+    identifier: &str,
+) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    if identifier.is_empty()
+        || identifier.contains(['/', '\\', '\0'])
+        || !matches!(
+            std::path::Path::new(identifier).components().next(),
+            Some(Component::Normal(_))
+        )
+    {
+        return None;
+    }
+    let family = match kind {
+        crate::model::EntityKind::Artist => "artists",
+        crate::model::EntityKind::Label => "labels",
+        _ => return None,
+    };
+    let assets = crate::store::assets_dir(data_dir);
+    let family = assets.join(family);
+    let target = family.join(identifier);
+    for directory in [&assets, &family, &target] {
+        match std::fs::symlink_metadata(directory) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return None,
+        }
+    }
+    Some(target)
+}
+
 /// Existing artist artwork location; watched roots are never artist folders.
-/// The fallback identifier must already be validated by the caller.
+/// An unavailable or path-shaped fallback identifier has no cache destination.
 pub fn artist_destination(
     catalog: &crate::model::Catalog,
     releases: &[&crate::model::Release],
     data_dir: &std::path::Path,
     mbid: &str,
-) -> std::path::PathBuf {
+) -> Option<std::path::PathBuf> {
     shared_artist_folder(releases)
         .filter(|folder| {
             !catalog
@@ -549,9 +587,5 @@ pub fn artist_destination(
                 .iter()
                 .any(|root| root == folder.to_string_lossy().as_ref())
         })
-        .unwrap_or_else(|| {
-            crate::store::assets_dir(data_dir)
-                .join("artists")
-                .join(mbid)
-        })
+        .or_else(|| asset_destination(data_dir, crate::model::EntityKind::Artist, mbid))
 }

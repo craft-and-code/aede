@@ -299,7 +299,7 @@ fn artist_artwork_destination(
     releases: &[&Release],
     data_dir: &Path,
     mbid: &str,
-) -> PathBuf {
+) -> Option<PathBuf> {
     aede_core::coverart::artist_destination(catalog, releases, data_dir, mbid)
 }
 
@@ -558,7 +558,7 @@ fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::Sourc
             .unwrap_or("unknown recording");
         let scope = link.work.as_ref().map_or_else(
             || format!("recording: {recording}"),
-            |work| format!("work: {} · recording: {recording}", work.title),
+            |work| format!("work: {} · source recording: {recording}", work.title),
         );
         let mut dates = match (&link.credit.began, &link.credit.ended) {
             (Some(begin), Some(end)) => format!("{begin}–{end}"),
@@ -601,13 +601,7 @@ fn print_sourced_credits(catalog: &Catalog, mut credits: Vec<core_sources::Sourc
     print!("{}", table.render());
 }
 
-fn print_sourced_edition_credits(
-    catalog: &Catalog,
-    mut credits: Vec<core_sources::SourcedEditionCreditLink>,
-) {
-    if credits.is_empty() {
-        return;
-    }
+fn sort_sourced_edition_credits(credits: &mut [core_sources::SourcedEditionCreditLink]) {
     credits.sort_by(|a, b| {
         a.credit
             .order
@@ -615,6 +609,16 @@ fn print_sourced_edition_credits(
             .then_with(|| a.credit.role.cmp(&b.credit.role))
             .then_with(|| a.credit.artist_name.cmp(&b.credit.artist_name))
     });
+}
+
+fn print_sourced_edition_credits(
+    catalog: &Catalog,
+    mut credits: Vec<core_sources::SourcedEditionCreditLink>,
+) {
+    if credits.is_empty() {
+        return;
+    }
+    sort_sourced_edition_credits(&mut credits);
     println!("{}", ui::section("Edition credits from sources"));
     let mut table = Table::new(&[
         "Artist",

@@ -19,8 +19,9 @@ use crate::graph::RelationRef;
 use crate::json::Json;
 use crate::model::{CreditAttribute, EntityKind, Id};
 use crate::user::EntityRef;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::Arc;
 
 /// Version of the `sources.json` document this build writes. Version 1 is
 /// accepted as the review-free predecessor and migrated on the next save.
@@ -564,7 +565,9 @@ impl KnownRelease {
 
     /// The year, for a date that may be a year, a month or a full date.
     pub fn year(&self) -> Option<&str> {
-        self.first_released.as_deref().map(|d| &d[..4.min(d.len())])
+        self.first_released
+            .as_deref()
+            .and_then(|d| d.get(..4.min(d.len())))
     }
 }
 
@@ -846,6 +849,8 @@ pub struct SourcedWorkLink {
 pub struct SourcedWorkParentLink {
     /// The local recording through which the child work was discovered.
     pub recording_id: Id,
+    /// Performances of the child work to which this relationship applies.
+    pub applicable_recording_ids: Arc<[Id]>,
     /// Exact identity of the child work.
     pub child_mbid: String,
     /// Title supplied for the child work.
@@ -883,8 +888,10 @@ pub struct SourcedWork {
 /// A rich external credit placed on a local recording or one of its works.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcedCreditLink {
-    /// Local recorded performance reached through the source record's track.
+    /// Local observation host reached through the source record's track.
     pub recording_id: Id,
+    /// Performances to which this credit applies, without duplicating evidence.
+    pub applicable_recording_ids: Arc<[Id]>,
     /// Work carrying the credit; absent for recording-level credits.
     pub work: Option<WorkLink>,
     /// Who did what, with the relationship's own details.
@@ -1075,6 +1082,35 @@ pub struct SourceRecord {
     pub facts: Facts,
 }
 
+/// The MusicBrainz entity actually named by an album source snapshot.
+///
+/// Ordinary release lookups retain the release-group ID. A lookup without a
+/// group retains the edition ID instead; these namespaces are not interchangeable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MusicBrainzReleaseIdentity<'a> {
+    /// A release edition, retained when the lookup supplied no group identity.
+    Edition(&'a str),
+    /// The release group shared by the album's editions.
+    ReleaseGroup(&'a str),
+}
+
+impl MusicBrainzReleaseIdentity<'_> {
+    /// Resolve only the corresponding local namespace, without deciding trust.
+    pub(crate) fn local_id<'a>(
+        self,
+        catalog: &'a crate::model::Catalog,
+        release: &'a crate::model::Release,
+    ) -> Option<&'a str> {
+        match self {
+            Self::Edition(_) => release.mbid.as_deref(),
+            Self::ReleaseGroup(_) => release
+                .release_group_id
+                .and_then(|group| catalog.release_group(group))
+                .map(|group| group.mbid.as_str()),
+        }
+    }
+}
+
 impl SourceRecord {
     /// The entity this record describes.
     pub fn entity(&self) -> EntityRef {
@@ -1082,6 +1118,28 @@ impl SourceRecord {
             kind: self.facts.kind(),
             key: self.key.clone(),
         }
+    }
+
+    /// The retained MusicBrainz album identifier with its original namespace.
+    ///
+    /// An edition fallback is identified by the same ID in `source_id` and
+    /// [`ReleaseFacts::edition_mbid`], as stored by [`crate::musicbrainz::release`].
+    /// Older snapshots without an edition ID retain their established group
+    /// interpretation. This classifies the stored claim; it neither establishes
+    /// trust nor invents a missing group identifier.
+    pub fn musicbrainz_release_identity(&self) -> Option<MusicBrainzReleaseIdentity<'_>> {
+        if self.source != MUSICBRAINZ {
+            return None;
+        }
+        let Facts::Release(facts) = &self.facts else {
+            return None;
+        };
+        let id = self.source_id.as_deref()?;
+        Some(if facts.edition_mbid.as_deref() == Some(id) {
+            MusicBrainzReleaseIdentity::Edition(id)
+        } else {
+            MusicBrainzReleaseIdentity::ReleaseGroup(id)
+        })
     }
 }
 
@@ -1139,11 +1197,11 @@ impl Sources {
             return trusted_with_identity(record, None, Some(review.decision));
         }
         let local_id = if record.source == MUSICBRAINZ && record.confidence.is_certain() {
-            local_musicbrainz_id(catalog, &record.entity())
+            local_musicbrainz_id(catalog, record)
         } else {
             None
         };
-        trusted_with_identity(record, local_id.as_deref(), None)
+        trusted_with_identity(record, local_id, None)
     }
 
     /// Trust a track claim whose canonical recording is already resolved.
@@ -1341,15 +1399,31 @@ impl Sources {
 
     /// Explicit part-of-work assertions, retaining the attachment's trust.
     pub fn work_parent_links(&self, catalog: &crate::model::Catalog) -> Vec<SourcedWorkParentLink> {
-        self.work_links(catalog)
-            .into_iter()
+        let links = self.work_links(catalog);
+        if !links.iter().any(|link| !link.work.parents.is_empty()) {
+            return Vec::new();
+        }
+        let work_recordings = recordings_by_work(
+            catalog,
+            links
+                .iter()
+                .filter(|link| link.trusted)
+                .map(|link| (link.recording_id, link.work.mbid.as_str())),
+        );
+        links
+            .iter()
             .flat_map(|link| {
+                let applicable_recording_ids = match work_recordings.get(link.work.mbid.as_str()) {
+                    Some(recordings) if link.trusted => Arc::clone(recordings),
+                    _ => vec![link.recording_id].into(),
+                };
                 link.work
                     .parents
                     .iter()
                     .cloned()
                     .map(move |parent| SourcedWorkParentLink {
                         recording_id: link.recording_id,
+                        applicable_recording_ids: Arc::clone(&applicable_recording_ids),
                         child_mbid: link.work.mbid.clone(),
                         child_title: link.work.title.clone(),
                         parent,
@@ -1379,6 +1453,7 @@ impl Sources {
             return links;
         }
         let recordings = recordings_by_path(catalog);
+        let mut sourced_works = Vec::new();
         for record in &self.records {
             let Facts::Track(facts) = &record.facts else {
                 continue;
@@ -1388,9 +1463,20 @@ impl Sources {
             };
             let review = self.review_for(record).map(|review| review.decision);
             let trusted = self.is_trusted_recording(catalog, record, recording_id);
-            for credit in &facts.credits {
+            // A known manual performance must not follow its observation
+            // file onto a different recording. Legacy local-only snapshots
+            // still attach by path, and composition claims stay independent.
+            let direct_scope_matches = record.source != "manual"
+                || facts.recording.as_deref().is_none_or(|held| {
+                    catalog
+                        .recording(recording_id)
+                        .and_then(|recording| recording.mbid.as_deref())
+                        == Some(held)
+                });
+            for credit in facts.credits.iter().filter(|_| direct_scope_matches) {
                 links.push(SourcedCreditLink {
                     recording_id,
+                    applicable_recording_ids: vec![recording_id].into(),
                     work: None,
                     credit: credit.clone(),
                     source: record.source.clone(),
@@ -1402,9 +1488,13 @@ impl Sources {
                 });
             }
             for work in &facts.works {
+                if trusted && !work.mbid.is_empty() {
+                    sourced_works.push((recording_id, work.mbid.as_str()));
+                }
                 for credit in &work.credits {
                     links.push(SourcedCreditLink {
                         recording_id,
+                        applicable_recording_ids: vec![recording_id].into(),
                         work: Some(work.clone()),
                         credit: credit.clone(),
                         source: record.source.clone(),
@@ -1417,17 +1507,29 @@ impl Sources {
                 }
             }
         }
-        if self.credit_exclusions.is_empty() {
-            return links;
-        }
+        let work_recordings = recordings_by_work(catalog, sourced_works);
         for link in &mut links {
-            link.excluded =
-                crate::graph::credit_reference(catalog, link).is_some_and(|reference| {
-                    self.credit_exclusions.iter().any(|decision| {
-                        crate::graph::same_credit_relation(catalog, &decision.relation, &reference)
-                    })
-                });
-            link.trusted &= !link.excluded;
+            if !self.credit_exclusions.is_empty() {
+                link.excluded =
+                    crate::graph::credit_reference(catalog, link).is_some_and(|reference| {
+                        self.credit_exclusions.iter().any(|decision| {
+                            crate::graph::same_credit_relation(
+                                catalog,
+                                &decision.relation,
+                                &reference,
+                            )
+                        })
+                    });
+                link.trusted &= !link.excluded;
+            }
+            if link.trusted
+                && let Some(recordings) = link
+                    .work
+                    .as_ref()
+                    .and_then(|work| work_recordings.get(work.mbid.as_str()))
+            {
+                link.applicable_recording_ids = Arc::clone(recordings);
+            }
         }
         links
     }
@@ -1744,20 +1846,22 @@ impl Sources {
     }
 }
 
-fn local_musicbrainz_id(catalog: &crate::model::Catalog, entity: &EntityRef) -> Option<String> {
+fn local_musicbrainz_id<'a>(
+    catalog: &'a crate::model::Catalog,
+    record: &SourceRecord,
+) -> Option<&'a str> {
+    let entity = record.entity();
     let id = entity.resolve(catalog)?;
     match entity.kind {
-        EntityKind::Artist => catalog.artist(id)?.mbid.clone(),
-        EntityKind::Release => catalog
-            .release(id)?
-            .release_group_id
-            .and_then(|group| catalog.release_group(group))
-            .map(|group| group.mbid.clone()),
+        EntityKind::Artist => catalog.artist(id)?.mbid.as_deref(),
+        EntityKind::Release => record
+            .musicbrainz_release_identity()?
+            .local_id(catalog, catalog.release(id)?),
         EntityKind::Track => catalog
             .track(id)
             .and_then(|track| catalog.recording(track.recording_id))
-            .and_then(|recording| recording.mbid.clone()),
-        EntityKind::Label => catalog.label(id)?.mbid.clone(),
+            .and_then(|recording| recording.mbid.as_deref()),
+        EntityKind::Label => catalog.label(id)?.mbid.as_deref(),
         _ => None,
     }
 }
@@ -1775,6 +1879,32 @@ fn recordings_by_path(catalog: &crate::model::Catalog) -> BTreeMap<&str, Id> {
         .collect()
 }
 
+fn recordings_by_work<'a>(
+    catalog: &'a crate::model::Catalog,
+    sourced: impl IntoIterator<Item = (Id, &'a str)>,
+) -> BTreeMap<&'a str, Arc<[Id]>> {
+    let mut recordings: BTreeMap<&str, BTreeSet<Id>> = catalog
+        .works
+        .iter()
+        .filter(|work| !work.mbid.is_empty())
+        .map(|work| {
+            (
+                work.mbid.as_str(),
+                work.recording_ids.iter().copied().collect(),
+            )
+        })
+        .collect();
+    for (recording_id, mbid) in sourced {
+        if !mbid.is_empty() {
+            recordings.entry(mbid).or_default().insert(recording_id);
+        }
+    }
+    recordings
+        .into_iter()
+        .map(|(mbid, ids)| (mbid, ids.into_iter().collect::<Vec<_>>().into()))
+        .collect()
+}
+
 fn identity_conflict(
     catalog: &crate::model::Catalog,
     record: &SourceRecord,
@@ -1782,8 +1912,8 @@ fn identity_conflict(
     if record.source != MUSICBRAINZ {
         return None;
     }
-    let local = local_musicbrainz_id(catalog, &record.entity());
-    identity_conflict_with_id(record, local.as_deref())
+    let local = local_musicbrainz_id(catalog, record);
+    identity_conflict_with_id(record, local)
 }
 
 fn identity_conflict_with_id(
@@ -2160,13 +2290,21 @@ fn credit_attribute_from_json(row: &Json) -> Option<CreditAttribute> {
     })
 }
 
+fn credit_required_fields(row: &Json) -> Option<(&str, &str)> {
+    Some((
+        row.get("role")?.as_str()?,
+        row.get("artist_mbid")?.as_str()?,
+    ))
+}
+
 fn credit_link_from_json(row: &Json) -> Option<CreditLink> {
+    let (role, artist_mbid) = credit_required_fields(row)?;
     Some(CreditLink {
         relation_id: row.field_str("relation_id"),
         role_id: row.field_str("role_id"),
-        role: row.field_str("role")?,
+        role: role.to_string(),
         direction: row.field_str("direction"),
-        artist_mbid: row.field_str("artist_mbid")?,
+        artist_mbid: artist_mbid.to_string(),
         artist_name: row.field_str("artist_name").unwrap_or_default(),
         credited_as: row.field_str("credited_as"),
         attributes: row
@@ -2179,6 +2317,25 @@ fn credit_link_from_json(row: &Json) -> Option<CreditLink> {
         over: row.field_optional_bool("over"),
         order: row.field_u32("order"),
     })
+}
+
+fn readable_credit_snapshot(facts: &Json, kind: EntityKind) -> bool {
+    let readable_credits = |value: &Json| {
+        value.get("credits").is_none_or(|credits| {
+            credits
+                .as_arr()
+                .is_some_and(|rows| rows.iter().all(|row| credit_required_fields(row).is_some()))
+        })
+    };
+    readable_credits(facts)
+        && (kind != EntityKind::Track
+            || facts.get("works").is_none_or(|works| {
+                works.as_arr().is_some_and(|rows| {
+                    rows.iter().all(|work| {
+                        work.get("mbid").and_then(Json::as_str).is_some() && readable_credits(work)
+                    })
+                })
+            }))
 }
 
 /// The document: a version, and one array of records.
@@ -2527,8 +2684,9 @@ pub fn to_json(sources: &Sources) -> Json {
 /// the one explicit migration: its record shape is unchanged and it simply
 /// predates the `reviews` array.
 ///
-/// Malformed tables and duplicate entity/source snapshots are refused so a
-/// subsequent save cannot discard data or preserve an arbitrary first answer.
+/// Malformed tables, unreadable facts objects for supported entities and
+/// duplicate entity/source snapshots are refused so a subsequent save cannot
+/// discard data or preserve an arbitrary first answer.
 /// An unreadable confidence remains evidence with a zero-score match, never
 /// an inferred exact attachment.
 pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
@@ -2556,10 +2714,9 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
     let mut record_keys = std::collections::BTreeSet::new();
     let rows = value.get("records").and_then(Json::as_arr).unwrap_or(&[]);
     for row in rows {
-        // A row naming an entity kind this build does not know, or carrying no
-        // facts of a shape it understands, is skipped rather than fatal: the
-        // layer is additional by nature, and refusing to start because one
-        // fetched fact is unreadable would be a poor trade.
+        // Unknown and unsupported entity kinds stay outside this reader.
+        // A supported snapshot must retain its facts object: manufacturing
+        // defaults from an unreadable container would erase an earlier claim.
         let Some(entity) = row
             .field_str("entity")
             .and_then(|t| EntityRef::parse_token(&t))
@@ -2567,6 +2724,23 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
             continue;
         };
         let facts = row.get("facts");
+        if matches!(
+            entity.kind,
+            EntityKind::Artist | EntityKind::Release | EntityKind::Track | EntityKind::Label
+        ) && !matches!(facts, Some(Json::Obj(_)))
+        {
+            return Err(StoreError::Invalid("source facts must be an object"));
+        }
+        if matches!(entity.kind, EntityKind::Track | EntityKind::Release)
+            && facts.is_some_and(|facts| {
+                facts.field_optional_bool("relationships_complete") == Some(true)
+                    && !readable_credit_snapshot(facts, entity.kind)
+            })
+        {
+            return Err(StoreError::Invalid(
+                "completed credit collections must be readable",
+            ));
+        }
         let facts = match entity.kind {
             EntityKind::Artist => Facts::Artist(ArtistFacts {
                 area: facts.and_then(|f| f.field_str("area")),
@@ -2838,13 +3012,15 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 Some("rejected") => ReviewDecision::Rejected,
                 _ => continue,
             };
-            sources.set_review(SourceReview {
+            if sources.set_review(SourceReview {
                 entity,
                 source: row.field_str("source").unwrap_or_default(),
                 source_id: row.field_str("source_id"),
                 decision,
                 reviewed_at: row.field_u64("reviewed_at").unwrap_or(0),
-            });
+            }) {
+                return Err(StoreError::Invalid("duplicate source reviews"));
+            }
         }
         for row in value
             .get("credit_exclusions")

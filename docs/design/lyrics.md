@@ -111,13 +111,16 @@ than printing it plainly does. A long run is still agreed to, on the same
 threshold as the ordinary fetch, and that is about the ten minutes rather than
 about the rights.
 
-**A track that already has words is never asked about.** The catalog answers
-that offline and exactly — the words are in the file's tags, or a `.lrc` is
-beside it — and the header says how many were left out for each reason, because
+**A track that already has words is never asked about.** Embedded words are
+read from the catalog's tags. Sidecar presence is checked on disk at both the
+remembered path and the usual `.lrc` destination, so deleting a sidecar permits
+a new fetch before a rescan. The header says how many were left out for each reason, because
 a filter the reader cannot see is a trap. There is deliberately no `--replace`:
 overwriting a lyrics file somebody wrote or corrected is not something this
 should be able to do by accident, which is the refusal `--covers` already makes
 about artwork.
+
+Presence uses the same parser as display. Metadata-only LRC tags do not hide a missing lyric from acquisition. LRCLIB's synced answer is preferred only when that parser retains content; otherwise readable plain lyrics are used. Metadata-only answers with neither form create no sidecar and no negative cache. Timed empty cues remain meaningful clearing instructions. This does not authorize replacing an existing local sidecar, even if that file contains only headers.
 
 **Each answer is written as a `.lrc` beside its track**, which is the file every
 player already looks for and the one the walk already picks up. It is

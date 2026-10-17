@@ -564,7 +564,7 @@ fn set_aside(
         }
         aede_core::user::save(user, path)?;
         for title in &put_back {
-            println!("  {} {title}", ui::green("→"));
+            println!("  {} {}", ui::green("→"), ui::literal(title));
         }
         println!("  {}", ui::dim("back on the list"));
         return Ok(());
@@ -599,7 +599,12 @@ fn set_aside(
             });
             aede_core::user::save(user, path)?;
             println!("{}", ui::section("Missing"));
-            println!("  {} {} — {}", ui::green("→"), one.artist, one.known.title);
+            println!(
+                "  {} {} — {}",
+                ui::green("→"),
+                ui::literal(&one.artist),
+                ui::literal(&one.known.title)
+            );
             println!(
                 "  {}",
                 ui::dim(

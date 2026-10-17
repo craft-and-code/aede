@@ -62,8 +62,9 @@ use std::path::{Path, PathBuf};
 
 use aede_core::coverart::{self, Kind};
 use aede_core::model::{Catalog, EntityKind};
-use aede_core::sources::{self, Facts, LabelFacts, Picture, ReleaseFacts, SourceRecord};
-use aede_core::store;
+use aede_core::sources::{
+    self, Facts, LabelFacts, MusicBrainzReleaseIdentity, Picture, ReleaseFacts, SourceRecord,
+};
 use aede_core::user::EntityRef;
 use aede_core::{clock, fanarttv};
 
@@ -620,7 +621,7 @@ fn targets(
         // Computed before the skip decision, not after: whether a banner is
         // still wanted is a question about this very folder, the same
         // ordering `covers::survey` uses for `--images`.
-        let destination = super::artist_artwork_destination(
+        let Some(destination) = super::artist_artwork_destination(
             catalog,
             releases_by_artist
                 .get(&artist_row.id)
@@ -628,7 +629,9 @@ fn targets(
                 .unwrap_or_default(),
             data_dir,
             mbid,
-        );
+        ) else {
+            continue;
+        };
 
         let albums = releases_by_artist
             .get(&artist_row.id)
@@ -640,7 +643,13 @@ fn targets(
                 let release_group = release.release_group_mbid.clone().or_else(|| {
                     held.get(&album_entity, sources::MUSICBRAINZ)
                         .filter(|record| held.is_trusted(catalog, record))
-                        .and_then(|record| record.source_id.clone())
+                        .and_then(SourceRecord::musicbrainz_release_identity)
+                        .and_then(|identity| match identity {
+                            MusicBrainzReleaseIdentity::ReleaseGroup(group) => {
+                                Some(group.to_string())
+                            }
+                            MusicBrainzReleaseIdentity::Edition(_) => None,
+                        })
                 })?;
                 Some(AlbumTarget {
                     entity: album_entity,
@@ -791,6 +800,9 @@ fn attempt_label(
     let Some(url) = fanarttv::label_logo_url(&doc) else {
         return Ok(Outcome::Nothing);
     };
+    if coverart::exists_beside(&target.destination, Kind::Logo) {
+        return Ok(Outcome::Written { url, new: false });
+    }
     let bytes = ask_bytes(transport, &url, backoff)?;
     let new = match coverart::write_image(&target.destination, Kind::Logo, (0, 1), &bytes) {
         Ok(coverart::Written::New(_)) => true,
@@ -855,7 +867,7 @@ fn label_targets(
             Some(LabelTarget {
                 entity,
                 name: label.name.clone(),
-                destination: store::assets_dir(data_dir).join("labels").join(&mbid),
+                destination: coverart::asset_destination(data_dir, EntityKind::Label, &mbid)?,
                 mbid,
             })
         })

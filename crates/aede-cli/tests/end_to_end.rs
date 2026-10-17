@@ -1473,6 +1473,212 @@ fn a_query_expresses_what_options_never_could() {
 }
 
 #[test]
+fn source_only_artist_pagination_applies_to_exports_and_each_credit_table() {
+    use aede_core::model::{self, EntityKind, ScannedFile};
+    use aede_core::sources::{
+        self, Confidence, CreditLink, Facts, ReleaseFacts, SourceRecord, Sources, TrackFacts,
+    };
+    use aede_core::tags::RawTags;
+    use aede_core::user::EntityRef;
+
+    let sandbox = Sandbox::new("source_artist_paging");
+    let mut scanned = Vec::new();
+    let mut audio = Vec::new();
+    for index in 1..=3 {
+        let folder = sandbox.dir.join(format!("music/Edition {index}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("01.flac");
+        std::fs::copy(library_flac(), &path).unwrap();
+        audio.push((path.clone(), std::fs::read(&path).unwrap()));
+        let mut tags = RawTags::default();
+        tags.insert("title", format!("Track {index}"));
+        tags.insert("album", format!("Edition {index}"));
+        tags.insert("artist", "Local Fixture");
+        tags.insert("musicbrainz_recordingid", format!("recording-{index}"));
+        scanned.push(ScannedFile {
+            path: path.to_str().unwrap().into(),
+            size: std::fs::metadata(path).unwrap().len(),
+            mtime: 1,
+            tags,
+            folder_cover: None,
+            sidecar: None,
+            integrity: None,
+            fingerprint: None,
+        });
+    }
+    let catalog = model::build(scanned, vec![], 1, &[]);
+    aede_core::store::save(&catalog, &aede_core::store::catalog_path(&sandbox.dir)).unwrap();
+    let mut held = Sources::default();
+    for release in &catalog.releases {
+        let credit = CreditLink {
+            relation_id: Some(format!("edition-credit-{}", release.id)),
+            role: "producer".into(),
+            role_id: None,
+            direction: None,
+            artist_mbid: "fixture-source-person".into(),
+            artist_name: "Fixture Producer".into(),
+            credited_as: None,
+            attributes: vec![],
+            began: None,
+            ended: None,
+            over: None,
+            order: Some(3 - release.id),
+        };
+        held.set(SourceRecord {
+            key: EntityRef::of(&catalog, EntityKind::Release, release.id)
+                .unwrap()
+                .key,
+            source: "manual".into(),
+            source_id: None,
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(ReleaseFacts {
+                credits: vec![credit.clone()],
+                ..Default::default()
+            }),
+        });
+        let track = catalog.track(release.track_ids[0]).unwrap();
+        let recording = catalog.recording(track.recording_id).unwrap();
+        held.set(SourceRecord {
+            key: EntityRef::of(&catalog, EntityKind::Track, track.id)
+                .unwrap()
+                .key,
+            source: "manual".into(),
+            source_id: recording.mbid.clone(),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Track(TrackFacts {
+                recording: recording.mbid.clone(),
+                credits: vec![CreditLink {
+                    relation_id: Some(format!("recording-credit-{}", release.id)),
+                    ..credit
+                }],
+                ..Default::default()
+            }),
+        });
+    }
+    sources::save(&held, &sources::sources_path(&sandbox.dir)).unwrap();
+    let snapshots = || {
+        [
+            "catalog.json",
+            "sources.json",
+            "user.json",
+            "conclusions.json",
+        ]
+        .map(|name| std::fs::read(sandbox.dir.join(name)).ok())
+    };
+    let before = snapshots();
+    for format in ["--json", "--csv", "--m3u"] {
+        let (out, err, ok) = sandbox.run(&[
+            "artist",
+            "fixture-source-person",
+            format,
+            "--limit=1",
+            "--offset=1",
+        ]);
+        assert!(ok, "{format}: {err}\n{out}");
+        assert!(out.contains("Track 2"), "{format}: {out}");
+        assert!(
+            !out.contains("Track 1") && !out.contains("Track 3"),
+            "{format}: {out}"
+        );
+        let (out, err, ok) = sandbox.run(&[
+            "artist",
+            "fixture-source-person",
+            format,
+            "--limit=1",
+            "--offset=999",
+        ]);
+        if format == "--m3u" {
+            assert!(
+                !ok && err.contains("nothing to put in a playlist"),
+                "{out}\n{err}"
+            );
+        } else {
+            assert!(ok, "{format}: {err}\n{out}");
+        }
+        assert!(
+            !out.contains("Track 1") && !out.contains("Track 2") && !out.contains("Track 3"),
+            "{format}: {out}"
+        );
+    }
+    for (options, expected) in [
+        (vec!["--limit=1"], 1),
+        (vec!["--limit=1", "--offset=999"], 0),
+        (vec!["--all"], 3),
+        (vec!["--all", "--offset=1"], 2),
+    ] {
+        let mut args = vec!["artist", "fixture-source-person"];
+        args.extend(options);
+        let (out, err, ok) = sandbox.run(&args);
+        assert!(ok, "{args:?}: {err}\n{out}");
+        let albums = out
+            .split("Local albums carrying these credits")
+            .nth(1)
+            .unwrap()
+            .split("Sourced credits")
+            .next()
+            .unwrap()
+            .split("Continue")
+            .next()
+            .unwrap();
+        assert_eq!(
+            albums
+                .lines()
+                .filter(|row| (1..=3).any(|index| row.contains(&format!("Edition {index}"))))
+                .count(),
+            expected,
+            "{out}"
+        );
+        let recordings = out
+            .split("Sourced credits")
+            .nth(1)
+            .unwrap_or("")
+            .split("Edition credits from sources")
+            .next()
+            .unwrap();
+        assert_eq!(
+            recordings
+                .lines()
+                .filter(|row| row.trim_start().starts_with("Fixture Producer"))
+                .count(),
+            expected,
+            "{out}"
+        );
+        let editions = out
+            .split("Edition credits from sources")
+            .nth(1)
+            .unwrap_or("")
+            .split("Continue")
+            .next()
+            .unwrap();
+        assert_eq!(
+            editions
+                .lines()
+                .filter(|row| row.trim_start().starts_with("Fixture Producer"))
+                .count(),
+            expected,
+            "{out}"
+        );
+        if expected == 1 {
+            assert!(out.contains("3 credited local recordings"), "{out}");
+            assert!(albums.contains("Edition 1"), "{out}");
+            assert!(recordings.contains("Track 3"), "{out}");
+            assert!(editions.contains("Edition 3"), "{out}");
+            let continuation = out.split("Continue").nth(1).unwrap();
+            assert_eq!(continuation.matches("aede recording ").count(), 3, "{out}");
+            assert_eq!(continuation.matches("aede album ").count(), 3, "{out}");
+        }
+    }
+    let (_, err, ok) = sandbox.run(&["artist", "fixture-source-person", "--limit=0"]);
+    assert!(!ok && err.contains("--limit"), "{err}");
+    assert_eq!(snapshots(), before);
+    for (path, bytes) in audio {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+}
+
+#[test]
 fn source_only_contributors_are_searchable_and_open_from_credit_pages() {
     let sandbox = Sandbox::new("source_only_contributors");
     let root = library();
@@ -8002,7 +8208,7 @@ fn a_line_up_is_dated_and_the_album_page_names_the_band_of_its_year() {
     let (out, _, ok) = sandbox.run(&["artist", "Black Sabbath"]);
     assert!(ok);
     assert!(
-        out.contains("aede artist \"Black Sabbath\" --members"),
+        out.contains("aede artist 'Black Sabbath' --members"),
         "{out}"
     );
 }
@@ -8148,7 +8354,7 @@ fn fetching_the_words_says_what_it_is_before_it_asks_anything() {
     // moment they want it.
     let (out, _, ok) = sandbox.run(&["track", "Crazy Train", "--lyrics"]);
     assert!(ok);
-    assert!(out.contains("aede fetch \"Crazy Train\" --lyrics"), "{out}");
+    assert!(out.contains("aede fetch 'Crazy Train' --lyrics"), "{out}");
 }
 
 /// Replace only known complete fixture paths. Replacing a folder prefix leaves

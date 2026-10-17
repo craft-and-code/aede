@@ -70,6 +70,8 @@ Les erreurs d’authentification, de corps JSON et de tâches sont expliquées d
 
 Sans [magasin de comptes](accounts.md) à la première lecture dans un nouveau processus HTTP local, les lectures du catalogue ne demandent aucun jeton et peuvent révéler chemins, commentaires et noms aux autres processus/utilisateurs. Dès que le processus a observé le magasin, elles exigent une session Bearer ou, en HTTP local, le jeton administratif ; un magasin ensuite absent ou illisible ferme l’accès jusqu’à l’arrêt du processus. Redémarrer HTTP local sans magasin rétablit le mode de compatibilité anonyme. Un magasin illisible ferme l’accès même à la première lecture. [HTTPS](remote.md) exige toujours des comptes, accepte seulement les sessions et valide Host/Origin contre son adresse configurée. HTTP reste limité à la boucle locale. Aucun transport n’autorise les origines tierces.
 
+Les lectures natives de pochettes, paroles et formes d’onde revérifient l’accès après leur travail bloquant, avant de publier la réponse préparée. Une requête admise anonymement est refusée si les comptes sont activés pendant son attente ; une session capturée doit rester valide. Le jeton administratif local conserve son accès distinct du mode HTTPS, réservé aux sessions.
+
 Aucun secret dans une page web ou URL. Le jeton administratif historique refuse toute Origin ; les sessions suivent la vérification d’origine du transport. Un futur lecteur/site nécessite encore une conception de connexion/cookies.
 
 ## Choisir les routes

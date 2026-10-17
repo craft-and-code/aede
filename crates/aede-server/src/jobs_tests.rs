@@ -194,6 +194,65 @@ fn invalid_json_options_are_rejected_before_any_job_starts() {
 }
 
 #[test]
+fn contradictory_label_logo_requests_are_refused_before_enrichment_admission() {
+    runtime().block_on(async {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let received = requests.clone();
+        let state = state(move |request, _| {
+            received.lock().unwrap().push(request);
+            Ok(JobOutput::default())
+        });
+        for musicbrainz in [false, true] {
+            let payload = serde_json::json!({
+                "fanart": true,
+                "logos": true,
+                "no_label_logo": true,
+                "musicbrainz": musicbrainz,
+                "dry_run": true,
+            })
+            .to_string();
+            let error = fetch_route(
+                State(state.clone()),
+                request("POST", "/api/admin/v1/fetch", payload),
+            )
+            .await
+            .expect_err("the requested logo family is also excluded");
+            assert_eq!(error.status, StatusCode::BAD_REQUEST);
+            assert_eq!(error.code, "invalid_parameters");
+        }
+        assert!(requests.lock().unwrap().is_empty());
+        assert!(state.jobs.data.lock().unwrap().tasks.is_empty());
+
+        for musicbrainz in [false, true] {
+            let payload = serde_json::json!({
+                "fanart": true,
+                "no_label_logo": true,
+                "musicbrainz": musicbrainz,
+                "dry_run": true,
+            })
+            .to_string();
+            let response = fetch_route(
+                State(state.clone()),
+                request("POST", "/api/admin/v1/fetch", payload),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("a family may be excluded without also requesting logos"));
+            accepted_id(response).await;
+        }
+        wait_for_jobs(&state).await;
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for musicbrainz in [false, true] {
+            assert!(requests.iter().any(|request| {
+                matches!(request, JobRequest::Fetch(fetch)
+                    if fetch.fanart && fetch.no_label_logo && !fetch.logos
+                    && fetch.musicbrainz == musicbrainz && fetch.dry_run)
+            }));
+        }
+    });
+}
+
+#[test]
 fn parameterized_scans_and_fetches_use_the_typed_requests() {
     runtime().block_on(async {
         let requests = Arc::new(Mutex::new(Vec::new()));

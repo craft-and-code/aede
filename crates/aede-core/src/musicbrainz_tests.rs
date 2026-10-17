@@ -6,8 +6,116 @@
 
 use super::*;
 
+#[test]
+fn unreadable_artist_and_label_relationships_cannot_become_empty_facts() {
+    for malformed in ["null", "false", "1", "\"relations\"", "{}", "[null]", "[1]"] {
+        let response = parse(&format!(
+            r#"{{"id":"fixture-id","name":"Example","score":100,"relations":{malformed}}}"#
+        ));
+        assert!(artist(&response).is_none(), "artist: {malformed}");
+        assert!(label(&response).is_none(), "label: {malformed}");
+        let mut search = Json::obj();
+        search.set("artists", Json::Arr(vec![response]));
+        assert!(artists(&search).is_empty(), "artist search: {malformed}");
+    }
+    for suffix in [
+        "",
+        r#", "relations":[]"#,
+        r#", "relations":[{"target-type":"unknown","type":"future relationship"}]"#,
+    ] {
+        let response = parse(&format!(
+            r#"{{"id":"fixture-id","name":"Example","score":100{suffix}}}"#
+        ));
+        assert!(artist(&response).is_some());
+        assert!(label(&response).is_some());
+        let mut search = Json::obj();
+        search.set("artists", Json::Arr(vec![response]));
+        assert_eq!(artists(&search).len(), 1);
+    }
+}
+
 fn parse(text: &str) -> Json {
     crate::json::parse(text).expect("valid JSON")
+}
+
+#[test]
+fn unreadable_consumed_credit_targets_do_not_complete_a_lookup() {
+    let mut admitted = Vec::new();
+    for target in [
+        "null",
+        "false",
+        "1",
+        "\"target\"",
+        "[]",
+        "{}",
+        r#"{"id":null}"#,
+        r#"{"id":1}"#,
+        r#"{"id":"  "}"#,
+    ] {
+        let artist =
+            format!(r#"[{{"target-type":"artist","type":"performer","artist":{target}}}]"#);
+        let recording_answer = |relations: &str| {
+            parse(&format!(
+                r#"{{"id":"recording","title":"A song","relations":{relations}}}"#
+            ))
+        };
+        if recording(&recording_answer(&artist)).is_some() {
+            admitted.push(format!("recording artist: {target}"));
+        }
+        if release(&parse(&format!(
+            r#"{{"id":"edition","relations":{artist}}}"#
+        )))
+        .is_some()
+        {
+            admitted.push(format!("edition artist: {target}"));
+        }
+        let work = format!(r#"[{{"target-type":"work","type":"performance","work":{target}}}]"#);
+        if recording(&recording_answer(&work)).is_some() {
+            admitted.push(format!("recording work: {target}"));
+        }
+        for (family, relations) in [
+            ("work composer", artist),
+            (
+                "parent work",
+                format!(
+                    r#"[{{"target-type":"work","type":"parts","direction":"backward","work":{target}}}]"#
+                ),
+            ),
+        ] {
+            let works = format!(
+                r#"[{{"target-type":"work","type":"performance","work":{{"id":"child","relations":{relations}}}}}]"#
+            );
+            if recording(&recording_answer(&works)).is_some() {
+                admitted.push(format!("{family}: {target}"));
+            }
+        }
+    }
+    for role in ["", r#", "type":null"#, r#", "type":1"#, r#", "type":" ""#] {
+        let response = parse(&format!(
+            r#"{{"id":"recording-or-edition","relations":[{{"target-type":"artist","artist":{{"id":"person"}}{role}}}]}}"#
+        ));
+        if recording(&response).is_some() || release(&response).is_some() {
+            admitted.push(format!("unreadable role: {role}"));
+        }
+    }
+    assert!(
+        admitted.is_empty(),
+        "unreadable targets completed lookup: {admitted:?}"
+    );
+
+    for relations in [
+        "[]",
+        r#"[{"target-type":"place","place":null}]"#,
+        r#"[{"target-type":"artist","type":"future role","artist":{"id":"person"}}]"#,
+        r#"[{"target-type":"work","type":"performance","work":{"id":"child"}}]"#,
+        r#"[{"target-type":"work","type":"performance","work":{"id":"child","relations":[{"target-type":"work","type":"derivative","direction":"forward","work":null}]}}]"#,
+    ] {
+        let response = parse(&format!(r#"{{"id":"recording","relations":{relations}}}"#));
+        assert!(
+            recording(&response).is_some(),
+            "compatible relation: {relations}"
+        );
+    }
 }
 
 #[test]
@@ -135,6 +243,48 @@ fn a_recording_lookup_keeps_only_explicit_work_relationships() {
         Some("Fender Stratocaster")
     );
     assert!(found.facts.relationships_complete);
+}
+
+#[test]
+fn malformed_relationship_lists_are_not_completed_empty_credit_answers() {
+    for malformed in ["null", "false", "1", "\"relations\"", "{}", "[null]", "[1]"] {
+        let response = parse(&format!(
+            r#"{{"id":"edition-or-recording","title":"A title","relations":{malformed}}}"#
+        ));
+        assert!(recording(&response).is_none(), "recording: {malformed}");
+        assert!(release(&response).is_none(), "edition: {malformed}");
+
+        let nested = parse(&format!(
+            r#"{{"id":"recording","title":"A title","relations":[{{"target-type":"work","type":"performance","work":{{"id":"work","title":"A work","relations":{malformed}}}}}]}}"#
+        ));
+        assert!(recording(&nested).is_none(), "linked work: {malformed}");
+    }
+
+    for response in [
+        r#"{"id":"resolved-id","title":"A title"}"#,
+        r#"{"id":"resolved-id","title":"A title","relations":[]}"#,
+        r#"{"id":"resolved-id","title":"A title","relations":[{"target-type":"url","url":{"resource":"https://example.invalid/"}}]}"#,
+    ] {
+        let response = parse(response);
+        let found = recording(&response).expect("a compatible completed recording answer");
+        assert_eq!(found.mbid, "resolved-id");
+        assert!(found.facts.relationships_complete);
+        assert!(found.facts.credits.is_empty());
+        let found = release(&response).expect("a compatible completed edition answer");
+        assert_eq!(found.facts.edition_mbid.as_deref(), Some("resolved-id"));
+        assert!(found.facts.relationships_complete);
+        assert!(found.facts.credits.is_empty());
+    }
+
+    for suffix in ["", ",\"relations\":[]"] {
+        let response = parse(&format!(
+            r#"{{"id":"recording","title":"A title","relations":[{{"target-type":"work","type":"performance","work":{{"id":"work","title":"A work"{suffix}}}}}]}}"#
+        ));
+        let found = recording(&response).expect("a work without artist relationships");
+        assert_eq!(found.facts.works.len(), 1);
+        assert_eq!(found.facts.works[0].mbid, "work");
+        assert!(found.facts.works[0].credits.is_empty());
+    }
 }
 
 #[test]

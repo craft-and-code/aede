@@ -325,7 +325,8 @@ impl JobRequest {
                     return Err(invalid("no_* artwork exclusions require fanart"));
                 }
                 if fetch.fanart
-                    && ((fetch.logos && fetch.no_logo) || (fetch.banners && fetch.no_banner))
+                    && ((fetch.logos && (fetch.no_logo || fetch.no_label_logo))
+                        || (fetch.banners && fetch.no_banner))
                 {
                     return Err(invalid(
                         "positive artwork options conflict with their exclusions",

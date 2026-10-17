@@ -222,6 +222,12 @@ fn says(facts: &Facts) -> String {
             if !t.works.is_empty() {
                 parts.push(format!("{} work link(s)", t.works.len()));
             }
+            if !t.credits.is_empty() {
+                parts.push(ui::plural(t.credits.len(), "recording credit"));
+            }
+            if let Some(recording) = &t.recording {
+                parts.push(format!("recording: {recording}"));
+            }
             if let Some(score) = t.score {
                 parts.push(format!("{score}% sure"));
             }
@@ -233,12 +239,13 @@ fn says(facts: &Facts) -> String {
             if let Some(known) = &a.disambiguation {
                 parts.push(known.clone());
             }
-            if let Some(area) = &a.area {
+            if let Some(area) = a.area.as_ref().or(a.country_code.as_ref()) {
                 parts.push(area.clone());
             }
             match (&a.began, &a.ended) {
                 (Some(from), Some(to)) => parts.push(format!("{from}–{to}")),
                 (Some(from), None) => parts.push(format!("{from}–")),
+                (None, Some(to)) => parts.push(format!("ended {to}")),
                 _ => {}
             }
             if let Some(active) = a.active {
@@ -250,12 +257,34 @@ fn says(facts: &Facts) -> String {
             if a.portrait.is_some() {
                 parts.push("has a portrait".to_string());
             }
-            // Last, and left to the column's own limit. A truncated opening
-            // line says more about what was stored than the word "summary"
-            // would, and the whole of it is on the artist's own card, where it
-            // is wrapped and credited.
-            if let Some(prose) = &a.summary {
-                parts.push(prose.text.clone());
+            if a.logo.is_some() {
+                parts.push("has a logo".to_string());
+            }
+            if !a.genres.is_empty() {
+                parts.push(a.genres.join(", "));
+            }
+            if !a.aliases.is_empty() {
+                parts.push(format!("also called {}", a.aliases.join(", ")));
+            }
+            if !a.members.is_empty() {
+                parts.push(ui::plural(a.members.len(), "membership"));
+            }
+            if !a.discography.is_empty() {
+                parts.push(ui::plural(a.discography.len(), "release"));
+            }
+            for (present, description) in [
+                (a.wikidata.is_some(), "has a Wikidata link"),
+                (a.discogs.is_some(), "has a Discogs link"),
+                (a.homepage.is_some(), "has a homepage"),
+            ] {
+                if present {
+                    parts.push(description.to_string());
+                }
+            }
+            // The detail card prints the prose with its complete credit. This
+            // short table cannot return an extract without that attribution.
+            if a.summary.is_some() {
+                parts.push("has a biography".to_string());
             }
         }
         Facts::Release(r) => {
@@ -268,6 +297,20 @@ fn says(facts: &Facts) -> String {
             }
             if let Some(label) = &r.label {
                 parts.push(label.clone());
+            }
+            if r.label.is_none()
+                && let Some(label) = &r.label_mbid
+            {
+                parts.push(format!("label: {label}"));
+            }
+            if r.cover_art.is_some() {
+                parts.push("has a cover".to_string());
+            }
+            if !r.credits.is_empty() {
+                parts.push(ui::plural(r.credits.len(), "edition credit"));
+            }
+            if let Some(edition) = &r.edition_mbid {
+                parts.push(format!("edition: {edition}"));
             }
         }
         Facts::Label(LabelFacts {
@@ -283,8 +326,8 @@ fn says(facts: &Facts) -> String {
             if let Some(url) = discogs {
                 parts.push(url.clone());
             }
-            if let Some(prose) = summary {
-                parts.push(prose.text.clone());
+            if summary.is_some() {
+                parts.push("has a profile".to_string());
             }
             if let Some(logo) = logo {
                 parts.push(format!("logo: {}", logo.url));
@@ -727,13 +770,21 @@ fn whence(records: &[&SourceRecord]) {
 /// Split from the printing so the decision is testable: which path a
 /// MusicBrainz album takes is the sort of thing that is wrong once and then
 /// wrong for a year, because a link that 404s looks like the service's fault.
-fn address_of(record: &SourceRecord) -> Option<String> {
+pub(super) fn address_of(record: &SourceRecord) -> Option<String> {
     let id = record.source_id.as_deref()?;
     let kind = match record.facts.kind() {
         EntityKind::Artist => "artist",
-        // The identifier kept for an album is the release group's, not the
-        // edition's — see `musicbrainz::release`. Naming the wrong path here
-        // would produce a link that 404s on the one page a reader came to open.
+        // Album snapshots normally name the group. A lookup without a group
+        // instead retains the edition ID in both fields — see
+        // `musicbrainz::release`. Do not send that fallback to the group route.
+        EntityKind::Release
+            if matches!(
+                record.musicbrainz_release_identity(),
+                Some(aede_core::sources::MusicBrainzReleaseIdentity::Edition(_))
+            ) =>
+        {
+            "release"
+        }
         EntityKind::Release => "release-group",
         EntityKind::Label => "label",
         // Other entity kinds have no known MusicBrainz URL here.
@@ -866,6 +917,7 @@ fn compared(
             for (field, value) in [
                 ("type", &a.kind),
                 ("from", &a.area),
+                ("country code", &a.country_code),
                 ("formed", &a.began),
                 ("ended", &a.ended),
                 ("note", &a.disambiguation),
@@ -897,6 +949,20 @@ fn compared(
             if !a.aliases.is_empty() {
                 rows.push(("also called", a.aliases.join(", "), None));
             }
+            if !a.members.is_empty() {
+                rows.push((
+                    "memberships",
+                    ui::plural(a.members.len(), "membership"),
+                    None,
+                ));
+            }
+            if !a.discography.is_empty() {
+                rows.push((
+                    "discography",
+                    ui::plural(a.discography.len(), "release"),
+                    None,
+                ));
+            }
             // Shown even when there is no end date, because that is the case
             // it answers: a band with no end may have never stopped, or may
             // be one nobody filled in, and the reader cannot tell otherwise.
@@ -915,6 +981,9 @@ fn compared(
             // discography and the members above it.
             if let Some(picture) = &a.portrait {
                 rows.push(("portrait", picture.url.clone(), None));
+            }
+            if let Some(picture) = &a.logo {
+                rows.push(("logo", picture.url.clone(), None));
             }
         }
         Facts::Release(r) => {
@@ -945,6 +1014,8 @@ fn compared(
                         tag("releasetype").as_deref(),
                     )),
                 ));
+            } else if !r.secondary_types.is_empty() {
+                rows.push(("release type", r.secondary_types.join(" · "), None));
             }
             if let Some(date) = &r.first_released {
                 let yours = release.as_ref().and_then(|rel| rel.date.clone());
@@ -967,16 +1038,29 @@ fn compared(
                     Some(aede_core::sources::verdict(label, yours.as_deref())),
                 ));
             }
+            for (field, value) in [
+                ("label ID", &r.label_mbid),
+                ("edition", &r.edition_mbid),
+                ("cover", &r.cover_art),
+            ] {
+                if let Some(value) = value {
+                    rows.push((field, value.clone(), None));
+                }
+            }
+            for credit in &r.credits {
+                rows.push(("edition credit", credit_summary(credit), None));
+            }
         }
-        // Nothing to show — see `LabelFacts`. There is no tag for a label's
-        // own identifier to be compared against, the same reason an
-        // artist's row above compares no name either.
+        // Label links and artwork have no audio-tag counterpart to judge.
         Facts::Label(label) => {
             if let Some(url) = &label.wikidata {
                 rows.push(("wikidata", url.clone(), None));
             }
             if let Some(url) = &label.discogs {
                 rows.push(("discogs", url.clone(), None));
+            }
+            if let Some(picture) = &label.logo {
+                rows.push(("logo", picture.url.clone(), None));
             }
         }
     }

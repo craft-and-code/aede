@@ -184,6 +184,43 @@ fn known_mbid_ignores_a_release_named_but_with_no_identifier() {
 }
 
 #[test]
+fn a_release_label_identifier_requires_trust_before_it_can_identify_a_label() {
+    let catalog = catalog_with_label("Columbia");
+    let release = EntityRef::of(&catalog, EntityKind::Release, catalog.releases[0].id)
+        .expect("local release");
+    let mut record = release_record(&release.key, "Columbia", Some("columbia-mbid"));
+    record.confidence = Confidence::matched(95);
+    let mut held = Sources::default();
+    held.set(record.clone());
+    assert!(targets_over(&catalog, &held, false)[0].known_mbid.is_none());
+
+    let selector = held.review_items(&catalog)[0].id.clone();
+    held.decide(&catalog, &selector, sources::ReviewDecision::Accepted, 2)
+        .expect("accept exact claim");
+    assert_eq!(
+        targets_over(&catalog, &held, false)[0]
+            .known_mbid
+            .as_deref(),
+        Some("columbia-mbid")
+    );
+    held.decide(&catalog, &selector, sources::ReviewDecision::Rejected, 3)
+        .expect("reject exact claim");
+    assert!(targets_over(&catalog, &held, false)[0].known_mbid.is_none());
+
+    record.confidence = Confidence::Identified;
+    held.set(record);
+    assert!(targets_over(&catalog, &held, false)[0].known_mbid.is_none());
+    held.clear_review(&catalog, &selector)
+        .expect("clear rejection");
+    assert_eq!(
+        targets_over(&catalog, &held, false)[0]
+            .known_mbid
+            .as_deref(),
+        Some("columbia-mbid")
+    );
+}
+
+#[test]
 fn a_label_already_answered_is_not_a_target_again() {
     let catalog = catalog_with_label("Columbia");
     let mut held = Sources::default();

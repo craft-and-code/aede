@@ -107,6 +107,7 @@ fn a_track_that_already_has_words_is_never_asked_about() {
     let with_tag = track(&dir, "Tagged", &[("lyrics", "All aboard")]);
     let mut with_sidecar = track(&dir, "Sidecarred", &[]);
     with_sidecar.sidecar = Some(dir.join("Sidecarred.lrc").to_string_lossy().to_string());
+    std::fs::write(dir.join("Sidecarred.lrc"), "All aboard\n").unwrap();
     let catalog = shelf(&dir, vec![with_tag, with_sidecar]);
 
     let mut transport = Canned {
@@ -115,6 +116,122 @@ fn a_track_that_already_has_words_is_never_asked_about() {
     };
     run(&args(), &catalog, &mut transport, &[], &asked_for(&[])).expect("a run");
     assert!(transport.asked.is_empty(), "asked: {:?}", transport.asked);
+}
+
+#[test]
+fn metadata_only_lyrics_do_not_hide_missing_or_readable_words_during_acquisition() {
+    let dir = scratch("metadata_only_tag");
+    let headers = "[ar:Fixture]\n[ti:Header only]\n[by:Fixture editor]\n[offset:10]";
+    let files = vec![
+        track(&dir, "Header only", &[("lyrics", headers)]),
+        track(&dir, "Plain words", &[("lyrics", "A retained line")]),
+        track(&dir, "Timed clearing", &[("lyrics", "[00:01]")]),
+        track(&dir, "Existing sidecar", &[("lyrics", headers)]),
+    ];
+    let audio_before: Vec<_> = files
+        .iter()
+        .map(|file| (file.path.clone(), std::fs::read(&file.path).unwrap()))
+        .collect();
+    let existing_sidecar = dir.join("Existing sidecar.lrc");
+    std::fs::write(&existing_sidecar, "Existing words stay mine\n").unwrap();
+    let catalog = shelf(&dir, files);
+    let header_track = catalog
+        .tracks
+        .iter()
+        .find(|track| track.title == "Header only")
+        .unwrap();
+    assert!(catalog.lyrics_of_track(header_track.id).is_none());
+    let tags_before = catalog
+        .files
+        .iter()
+        .map(|file| file.tags.clone())
+        .collect::<Vec<_>>();
+    let mut transport = Canned {
+        answers: vec![Ok(CRAZY.to_string())],
+        asked: Vec::new(),
+    };
+    run(&args(), &catalog, &mut transport, &[], &asked_for(&[])).unwrap();
+    assert_eq!(transport.asked.len(), 1);
+    assert!(transport.asked[0].contains("Header%20only"));
+    let acquired = dir.join("Header only.lrc");
+    assert_eq!(
+        aede_core::lyrics::read(&acquired).unwrap().text(),
+        "All aboard"
+    );
+    assert!(!dir.join("Plain words.lrc").exists());
+    assert!(!dir.join("Timed clearing.lrc").exists());
+    assert_eq!(
+        std::fs::read_to_string(&existing_sidecar).unwrap(),
+        "Existing words stay mine\n"
+    );
+    let (targets, skipped) = survey(&catalog, &[], &crate::commands::fetch::EVERYTHING);
+    assert!(
+        targets.is_empty(),
+        "the new sidecar suppresses another request"
+    );
+    assert_eq!(skipped.tagged, 2);
+    assert_eq!(skipped.sidecar, 2);
+    assert_eq!(
+        catalog
+            .files
+            .iter()
+            .map(|file| file.tags.clone())
+            .collect::<Vec<_>>(),
+        tags_before
+    );
+    for (path, bytes) in audio_before {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    let _ = std::fs::remove_dir_all(dir);
+
+    for (name, answer, expected) in [
+        (
+            "plain_fallback",
+            r#"{"instrumental":false,"plainLyrics":"Plain words remain intact","syncedLyrics":"[ar:Fixture]\n[ti:Title]"}"#,
+            Some("Plain words remain intact\n"),
+        ),
+        (
+            "metadata_response",
+            r#"{"instrumental":false,"plainLyrics":null,"syncedLyrics":"[ar:Fixture]\n[ti:Title]"}"#,
+            None,
+        ),
+        (
+            "clearing_response",
+            r#"{"instrumental":false,"plainLyrics":null,"syncedLyrics":"[00:01]"}"#,
+            Some("[00:01]\n"),
+        ),
+    ] {
+        let dir = scratch(name);
+        let file = track(&dir, name, &[]);
+        let audio_before = std::fs::read(&file.path).unwrap();
+        let path = file.path.clone();
+        let catalog = shelf(&dir, vec![file]);
+        let mut transport = Canned {
+            answers: vec![Ok(answer.into())],
+            asked: Vec::new(),
+        };
+        run(&args(), &catalog, &mut transport, &[], &asked_for(&[])).unwrap();
+        assert_eq!(transport.asked.len(), 1);
+        let sidecar = dir.join(format!("{name}.lrc"));
+        if let Some(expected) = expected {
+            assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), expected);
+            assert!(aede_core::lyrics::read(&sidecar).is_some());
+        } else {
+            assert!(!sidecar.exists(), "metadata is not a completed lyrics file");
+            let mut retry = Canned {
+                answers: vec![Ok(CRAZY.into())],
+                asked: Vec::new(),
+            };
+            run(&args(), &catalog, &mut retry, &[], &asked_for(&[])).unwrap();
+            assert_eq!(retry.asked.len(), 1);
+            assert_eq!(
+                aede_core::lyrics::read(&sidecar).unwrap().text(),
+                "All aboard"
+            );
+        }
+        assert_eq!(std::fs::read(path).unwrap(), audio_before);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 #[test]
@@ -340,4 +457,165 @@ fn a_folder_narrows_the_pass_to_the_tracks_under_it() {
     // And without one, the whole shelf — the folder narrowed it, nothing else.
     let (all, _) = survey(&catalog, &[], &crate::commands::fetch::EVERYTHING);
     assert_eq!(all.len(), 2);
+}
+
+#[test]
+fn a_removed_catalogued_sidecar_does_not_hide_missing_lyrics_from_acquisition() {
+    let cases = [
+        ("removed", true, false, "absent"),
+        ("removed_uppercase", true, true, "absent"),
+        ("never_present", false, false, "absent"),
+        ("present", true, false, "file"),
+        ("present_uppercase", true, true, "file"),
+        ("present_unremembered", false, false, "file"),
+        ("directory", true, false, "directory"),
+        ("directory_unremembered", false, false, "directory"),
+    ];
+    #[cfg(unix)]
+    let cases = cases.into_iter().chain([
+        ("dangling_link", true, false, "link"),
+        ("dangling_link_unremembered", false, false, "link"),
+    ]);
+    for (name, remembered, uppercase, kind) in cases {
+        for again in [false, true] {
+            let dir = scratch(&format!("{name}_{again}"));
+            let mut file = track(&dir, "Retry Track", &[]);
+            let audio = include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../aede-core/tests/fixtures/track.flac"
+            ));
+            std::fs::write(&file.path, audio).unwrap();
+            let canonical = aede_core::lyrics::sidecar_of(std::path::Path::new(&file.path));
+            let sidecar = canonical.with_extension(if uppercase { "LRC" } else { "lrc" });
+            let original = "[00:01]Words supplied by the user\n";
+            if remembered {
+                std::fs::write(&sidecar, original).unwrap();
+                file.sidecar = Some(sidecar.to_string_lossy().into_owned());
+                std::fs::remove_file(&sidecar).unwrap();
+            }
+            match kind {
+                "file" => std::fs::write(&sidecar, original).unwrap(),
+                "directory" => std::fs::create_dir(&sidecar).unwrap(),
+                #[cfg(unix)]
+                "link" => std::os::unix::fs::symlink(dir.join("absent_target"), &sidecar).unwrap(),
+                _ => {}
+            }
+            let catalog = shelf(&dir, vec![file]);
+            let catalog_path = aede_core::store::catalog_path(&dir.join("data"));
+            aede_core::store::save(&catalog, &catalog_path).unwrap();
+            let catalog_before = std::fs::read(&catalog_path).unwrap();
+            let tags_before = catalog.files[0].tags.clone();
+            let mut transport = Canned {
+                answers: vec![Ok(CRAZY.into())],
+                asked: Vec::new(),
+            };
+            let mut asked = asked_for(&[]);
+            asked.again = again;
+            run(&args(), &catalog, &mut transport, &[], &asked).unwrap();
+            if kind == "absent" {
+                assert_eq!(
+                    transport.asked.len(),
+                    1,
+                    "{name}/{again}: a removed path is not existing lyrics"
+                );
+                assert_eq!(
+                    aede_core::lyrics::read(&canonical).unwrap().text(),
+                    "All aboard"
+                );
+                let words_before = std::fs::read(&canonical).unwrap();
+                let mut retry = Canned {
+                    answers: Vec::new(),
+                    asked: Vec::new(),
+                };
+                run(&args(), &catalog, &mut retry, &[], &asked).unwrap();
+                assert!(retry.asked.is_empty(), "a successful retry is reused");
+                assert_eq!(std::fs::read(&canonical).unwrap(), words_before);
+            } else {
+                assert!(transport.asked.is_empty(), "{name}/{again}");
+                match kind {
+                    "file" => assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), original),
+                    "directory" => assert!(sidecar.is_dir()),
+                    #[cfg(unix)]
+                    "link" => assert_eq!(
+                        std::fs::read_link(&sidecar).unwrap(),
+                        dir.join("absent_target")
+                    ),
+                    _ => unreachable!(),
+                }
+            }
+            assert_eq!(std::fs::read(&catalog.files[0].path).unwrap(), audio);
+            assert_eq!(catalog.files[0].tags, tags_before);
+            assert_eq!(std::fs::read(&catalog_path).unwrap(), catalog_before);
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+#[test]
+fn lyrics_album_names_select_tracks_without_bypassing_folder_or_existing_words() {
+    let dir = crate::commands::canonical(&scratch("album_selection"));
+    let first = dir.join("first");
+    let second = dir.join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let mut other = track(&second, "Another Song", &[]);
+    for (field, value) in [
+        ("artist", "Other Performer"),
+        ("albumartist", "Other Performer"),
+        ("album", "Other Album"),
+    ] {
+        other.tags.fields.insert(field.into(), vec![value.into()]);
+    }
+    let catalog = shelf(
+        &dir,
+        vec![
+            track(&first, "Crazy Train", &[]),
+            track(
+                &first,
+                "Saved Song",
+                &[("lyrics", "[00:01]Already supplied")],
+            ),
+            other,
+        ],
+    );
+    for (name, expected, tagged) in [
+        ("blizzard of ozz", vec!["Crazy Train"], 1),
+        ("ozzy osbourne", vec!["Crazy Train"], 1),
+        ("crazy train", vec!["Crazy Train"], 0),
+        ("nobody here", Vec::new(), 0),
+    ] {
+        let (targets, skipped) = survey(
+            &catalog,
+            &[name.into()],
+            &crate::commands::fetch::EVERYTHING,
+        );
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.title.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "name {name}"
+        );
+        assert_eq!(skipped.tagged, tagged);
+    }
+    let scope =
+        crate::commands::fetch::Scope::of(&catalog, &[second.to_string_lossy().into_owned()])
+            .unwrap();
+    for (name, expected) in [("blizzard of ozz", 0), ("other album", 1)] {
+        assert_eq!(survey(&catalog, &[name.into()], &scope).0.len(), expected);
+    }
+    let sidecar = first.join("Crazy Train.lrc");
+    let words = "[00:01]Words retained on disk\n";
+    std::fs::write(&sidecar, words).unwrap();
+    let (targets, skipped) = survey(
+        &catalog,
+        &["blizzard of ozz".into()],
+        &crate::commands::fetch::EVERYTHING,
+    );
+    assert!(targets.is_empty());
+    assert_eq!(skipped.sidecar, 1);
+    assert_eq!(skipped.tagged, 1);
+    assert_eq!(std::fs::read_to_string(sidecar).unwrap(), words);
+    let _ = std::fs::remove_dir_all(dir);
 }

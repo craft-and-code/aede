@@ -576,6 +576,7 @@ impl<'a> Context<'a> {
 #[derive(Default)]
 struct SourcedRelations {
     works: BTreeMap<Id, Vec<crate::sources::WorkLink>>,
+    work_parents: BTreeMap<Id, Vec<crate::sources::WorkParentLink>>,
     credits: BTreeMap<Id, Vec<crate::sources::CreditLink>>,
     edition_credits: BTreeMap<Id, Vec<crate::sources::CreditLink>>,
     label_mbids: BTreeMap<Id, String>,
@@ -595,13 +596,27 @@ impl SourcedRelations {
             }
         }
         for link in sources
+            .work_parent_links(catalog)
+            .into_iter()
+            .filter(|link| link.trusted)
+        {
+            for &recording_id in link.applicable_recording_ids.iter() {
+                let parents = indexed.work_parents.entry(recording_id).or_default();
+                if !parents.contains(&link.parent) {
+                    parents.push(link.parent.clone());
+                }
+            }
+        }
+        for link in sources
             .credit_links(catalog)
             .into_iter()
             .filter(|link| link.trusted)
         {
-            let credits = indexed.credits.entry(link.recording_id).or_default();
-            if !credits.contains(&link.credit) {
-                credits.push(link.credit);
+            for &recording_id in link.applicable_recording_ids.iter() {
+                let credits = indexed.credits.entry(recording_id).or_default();
+                if !credits.contains(&link.credit) {
+                    credits.push(link.credit.clone());
+                }
             }
         }
         for link in sources
@@ -884,10 +899,12 @@ fn texts_of(field: &Field, context: &Context, track: Id) -> Vec<String> {
                 for work in works {
                     push_unique(&mut values, work.title.clone());
                     push_unique(&mut values, work.mbid.clone());
-                    for parent in &work.parents {
-                        push_unique(&mut values, parent.title.clone());
-                        push_unique(&mut values, parent.mbid.clone());
-                    }
+                }
+            }
+            if let Some(parents) = context.sourced.work_parents.get(&track_row.recording_id) {
+                for parent in parents {
+                    push_unique(&mut values, parent.title.clone());
+                    push_unique(&mut values, parent.mbid.clone());
                 }
             }
             values
@@ -1218,19 +1235,17 @@ fn local_artist_key(catalog: &Catalog, artist_id: Id) -> String {
 }
 
 fn sourced_artist_key(catalog: &Catalog, credit: &crate::sources::CreditLink) -> String {
+    if !credit.artist_mbid.trim().is_empty() {
+        return credit.artist_mbid.clone();
+    }
     let credited_key = credit.credited_as.as_deref().map(text::normalize);
     if let Some(artist) = catalog.artists.iter().find(|artist| {
-        artist.mbid.as_deref() == Some(credit.artist_mbid.as_str())
-            || artist.key == text::normalize(&credit.artist_name)
+        artist.key == text::normalize(&credit.artist_name)
             || credited_key.as_deref() == Some(artist.key.as_str())
     }) {
         return local_artist_key(catalog, artist.id);
     }
-    if credit.artist_mbid.trim().is_empty() {
-        format!("name:{}", text::normalize(&credit.artist_name))
-    } else {
-        credit.artist_mbid.clone()
-    }
+    format!("name:{}", text::normalize(&credit.artist_name))
 }
 
 fn is_album_artist(
@@ -1241,12 +1256,7 @@ fn is_album_artist(
     let Some(artist) = release.album_artist_id.and_then(|id| catalog.artist(id)) else {
         return false;
     };
-    artist.mbid.as_deref() == Some(credit.artist_mbid.as_str())
-        || artist.key == text::normalize(&credit.artist_name)
-        || credit
-            .credited_as
-            .as_deref()
-            .is_some_and(|name| artist.key == text::normalize(name))
+    local_artist_key(catalog, artist.id) == sourced_artist_key(catalog, credit)
 }
 
 fn performer_values(

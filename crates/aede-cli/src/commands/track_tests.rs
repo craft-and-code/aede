@@ -71,6 +71,7 @@ fn json_keeps_every_rich_credit_detail_and_its_scope() {
     let track = &catalog.tracks[0];
     let sourced = vec![SourcedCreditLink {
         recording_id: track.recording_id,
+        applicable_recording_ids: vec![track.recording_id].into(),
         work: Some(WorkLink {
             mbid: "work-id".into(),
             title: "Song Work".into(),

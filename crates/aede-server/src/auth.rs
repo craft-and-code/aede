@@ -220,6 +220,18 @@ pub(super) fn recheck(state: &ApiState, captured: &Principal) -> Result<(), ApiE
     principal(state, &accounts, &captured.token, false, Instant::now()).map(|_| ())
 }
 
+/// Confirm the captured read identity immediately before publishing local media.
+pub(super) fn confirm_access(state: &ApiState, identity: &SocketIdentity) -> Result<(), ApiError> {
+    if let Some(principal) = &identity.session {
+        recheck(state, principal)
+    } else if identity.administrative || load_accounts(state)?.is_none() {
+        Ok(())
+    } else {
+        // An initially anonymous read must not publish after account activation.
+        Err(unauthorized())
+    }
+}
+
 pub(super) fn request_principal(request: &Request) -> Result<Principal, ApiError> {
     request
         .extensions()

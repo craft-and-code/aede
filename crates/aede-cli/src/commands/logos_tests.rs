@@ -13,6 +13,7 @@
 use super::*;
 use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{ArtistFacts, Confidence, Sources};
+use aede_core::store;
 use aede_core::tags::RawTags;
 
 #[test]
@@ -710,6 +711,28 @@ fn an_identified_label_becomes_a_fanart_label_target() {
         targets[0].destination,
         store::assets_dir(&dir).join("labels/label-mbid")
     );
+    for unsafe_id in [
+        "../outside",
+        r"..\outside",
+        ".",
+        "..",
+        "",
+        "nul\0identifier",
+    ] {
+        layer.records[0].source_id = Some(unsafe_id.into());
+        assert!(
+            label_targets(
+                &catalog,
+                &layer,
+                &[],
+                &crate::commands::fetch::EVERYTHING,
+                &dir,
+                false,
+            )
+            .is_empty(),
+            "a label identifier is never a cache path: {unsafe_id:?}"
+        );
+    }
 }
 
 #[test]
@@ -766,6 +789,117 @@ fn an_approximate_label_match_never_becomes_a_fanart_target() {
 }
 
 #[test]
+fn existing_label_logos_are_reused_before_image_transfer() {
+    struct Metadata {
+        metadata_requests: usize,
+        image_requests: usize,
+    }
+    impl Ask for Metadata {
+        fn get_json(&mut self, url: &str) -> Result<aede_core::json::Json, Refusal> {
+            assert_eq!(url, fanarttv::label_lookup_url("label-mbid", "fixture-key"));
+            self.metadata_requests += 1;
+            Ok(aede_core::json::parse(
+                r#"{"id":"label-mbid","musiclabel":[{"url":"https://images.example/logo.png"}]}"#,
+            )
+            .expect("canned Fanart label response"))
+        }
+
+        fn get_bytes(&mut self, url: &str) -> Result<Vec<u8>, Refusal> {
+            assert_eq!(url, "https://images.example/logo.png");
+            self.image_requests += 1;
+            Ok(include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png").to_vec())
+        }
+    }
+
+    for existing in [Some("jpg"), Some("png"), None] {
+        let dir = sandbox(&format!("reuse_label_{}", existing.unwrap_or("absent")));
+        let mut catalog = one_album(&dir);
+        catalog.labels.push(aede_core::model::Label {
+            id: 0,
+            name: "Columbia".into(),
+            key: "columbia".into(),
+            mbid: Some("label-mbid".into()),
+        });
+        let label = EntityRef::of(&catalog, EntityKind::Label, 0).expect("label");
+        let destination = coverart::asset_destination(&dir, EntityKind::Label, "label-mbid")
+            .expect("safe target");
+        let previous = existing.map(|ext| {
+            std::fs::create_dir_all(&destination).expect("existing assets folder");
+            let path = destination.join(format!("logo.{ext}"));
+            let bytes = if ext == "jpg" {
+                &include_bytes!("../../../aede-core/tests/fixtures/images/baseline.jpg")[..]
+            } else {
+                &include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png")[..]
+            };
+            std::fs::write(&path, bytes).expect("existing valid image");
+            (path, bytes.to_vec())
+        });
+        let mut layer = Sources::default();
+        let path = sources::sources_path(&dir);
+        let mut transport = Metadata {
+            metadata_requests: 0,
+            image_requests: 0,
+        };
+        let mut asked = crate::commands::fetch::Asked {
+            names: &[],
+            scope: &crate::commands::fetch::EVERYTHING,
+            again: false,
+            dry_run: false,
+            size: crate::commands::covers::DEFAULT_SIZE,
+            size_requested: false,
+            images: false,
+            fanart: FanartOptions {
+                label_logo: true,
+                ..Default::default()
+            },
+            langs: vec!["en".into()],
+            key: None,
+            portrait_key: None,
+        };
+
+        for refresh in [false, false, true] {
+            asked.again = refresh;
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                Some("fixture-key"),
+                &asked,
+            )
+            .expect("label artwork pass");
+            assert_eq!(transport.metadata_requests, if refresh { 2 } else { 1 });
+            assert_eq!(
+                transport.image_requests,
+                usize::from(existing.is_none()),
+                "an existing label image needs no transfer, including a forced refresh"
+            );
+            if let Some((path, bytes)) = &previous {
+                assert_eq!(std::fs::read(path).expect("retained image"), *bytes);
+            } else {
+                assert_eq!(
+                    std::fs::read(destination.join("logo.png")).expect("downloaded image"),
+                    include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png")
+                );
+            }
+            layer = sources::load_all(&path)
+                .expect("read saved receipt")
+                .expect("receipt");
+            assert!(matches!(
+                layer.get(&label, fanarttv::LABEL_LOGO_SOURCE),
+                Some(SourceRecord {
+                    facts: Facts::Label(LabelFacts { logo: Some(_), .. }),
+                    ..
+                })
+            ));
+        }
+        std::fs::remove_dir_all(dir).expect("remove isolated assets");
+    }
+}
+
+#[test]
 fn an_explicit_local_label_id_is_enough_for_a_fanart_target() {
     let dir = sandbox("label_local_id");
     let mut tags = RawTags::default();
@@ -819,4 +953,249 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
     let dir = sandbox("waiting");
     let catalog = one_album(&dir);
     assert_eq!(waiting(&catalog, &held(), &dir, Some("key")), 1);
+}
+
+#[test]
+fn malformed_fanart_families_preserve_answers_and_completion_eligibility() {
+    struct Metadata {
+        doc: aede_core::json::Json,
+        requested: usize,
+    }
+    impl Ask for Metadata {
+        fn get_json(&mut self, _url: &str) -> Result<aede_core::json::Json, Refusal> {
+            self.requested += 1;
+            Ok(self.doc.clone())
+        }
+        fn get_bytes(&mut self, _url: &str) -> Result<Vec<u8>, Refusal> {
+            panic!("unreadable or empty metadata supplies no image address")
+        }
+    }
+
+    let mut cases = [
+        "hdmusiclogo",
+        "musiclogo",
+        "artistthumb",
+        "musicbanner",
+        "artist4kbackground",
+        "artistbackground",
+        "albums",
+    ]
+    .into_iter()
+    .map(|field| (false, format!(r#"{{"mbid_id":"mbid-1","{field}":{{}}}}"#)))
+    .collect::<Vec<_>>();
+    for field in ["albumcover", "cdart"] {
+        cases.push((false, format!(r#"{{"mbid_id":"mbid-1","albums":[{{"release_group_id":"release-group-1","{field}":{{}}}}]}}"#)));
+    }
+    cases.push((true, r#"{"id":"label-mbid","musiclabel":{}}"#.into()));
+
+    for (case, (label, invalid)) in cases.into_iter().enumerate() {
+        for refresh in [false, true] {
+            let dir = sandbox(&format!("malformed_family_{case}_{refresh}"));
+            let mut catalog = one_album(&dir);
+            let mut layer = held();
+            let target_entity = if label {
+                catalog.labels.push(aede_core::model::Label {
+                    id: 0,
+                    name: "Columbia".into(),
+                    key: "columbia".into(),
+                    mbid: Some("label-mbid".into()),
+                });
+                EntityRef::of(&catalog, aede_core::model::EntityKind::Label, 0).unwrap()
+            } else {
+                entity()
+            };
+            if refresh {
+                let picture = Some(Picture {
+                    url: "https://retained.example/credited.png".into(),
+                });
+                layer.set(SourceRecord {
+                    key: target_entity.key.clone(),
+                    source: if label {
+                        fanarttv::LABEL_LOGO_SOURCE
+                    } else {
+                        fanarttv::LOGO_SOURCE
+                    }
+                    .into(),
+                    source_id: Some(if label { "label-mbid" } else { "mbid-1" }.into()),
+                    fetched_at: 7,
+                    confidence: Confidence::Identified,
+                    facts: if label {
+                        Facts::Label(LabelFacts {
+                            logo: picture,
+                            ..Default::default()
+                        })
+                    } else {
+                        Facts::Artist(ArtistFacts {
+                            logo: picture,
+                            ..Default::default()
+                        })
+                    },
+                });
+            }
+            let path = sources::sources_path(&dir);
+            sources::save(&layer, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let before_layer = sources::to_json(&layer);
+            let options = if label {
+                FanartOptions {
+                    label_logo: true,
+                    ..Default::default()
+                }
+            } else {
+                FanartOptions {
+                    label_logo: false,
+                    ..all_options()
+                }
+            };
+            let mut asked = crate::commands::fetch::Asked {
+                names: &[],
+                scope: &crate::commands::fetch::EVERYTHING,
+                again: refresh,
+                dry_run: false,
+                size: crate::commands::covers::DEFAULT_SIZE,
+                size_requested: false,
+                images: false,
+                fanart: options,
+                langs: vec!["en".into()],
+                key: None,
+                portrait_key: None,
+            };
+            let mut transport = Metadata {
+                doc: aede_core::json::parse(&invalid).unwrap(),
+                requested: 0,
+            };
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                Some("fictitious-key"),
+                &asked,
+            )
+            .unwrap();
+            assert_eq!(transport.requested, 1, "{invalid}");
+            assert_eq!(sources::to_json(&layer), before_layer, "{invalid}");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "{invalid}");
+            layer = sources::load_all(&path).unwrap().unwrap();
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                Some("fictitious-key"),
+                &asked,
+            )
+            .unwrap();
+            assert_eq!(
+                transport.requested, 2,
+                "an invalid family never completes: {invalid}"
+            );
+
+            // Omitted optional families and empty arrays remain valid absences.
+            transport.doc = aede_core::json::parse(if label {
+                r#"{"id":"label-mbid","musiclabel":[]}"#
+            } else {
+                r#"{"mbid_id":"mbid-1","albums":[{"release_group_id":"release-group-1","albumcover":[],"cdart":[]}] }"#
+            }).unwrap();
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                Some("fictitious-key"),
+                &asked,
+            )
+            .unwrap();
+            assert_eq!(transport.requested, 3);
+            layer = sources::load_all(&path).unwrap().unwrap();
+            asked.again = false;
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                Some("fictitious-key"),
+                &asked,
+            )
+            .unwrap();
+            assert_eq!(transport.requested, 3, "a valid empty answer is completed");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn album_fanart_never_treats_a_retained_edition_as_a_release_group() {
+    let dir = sandbox("album_identity_namespace");
+    for (name, response, local_group, expected_group) in [
+        (
+            "normal group answer",
+            r#"{"id":"edition-local","release-group":{"id":"source-group"}}"#,
+            None,
+            Some("source-group"),
+        ),
+        (
+            "edition fallback only",
+            r#"{"id":"edition-local"}"#,
+            None,
+            None,
+        ),
+        (
+            "local group takes precedence",
+            r#"{"id":"edition-local"}"#,
+            Some("local-group"),
+            Some("local-group"),
+        ),
+    ] {
+        let mut catalog = one_album(&dir);
+        catalog.releases[0].mbid = Some("edition-local".into());
+        catalog.releases[0].release_group_mbid = local_group.map(str::to_owned);
+        catalog.releases[0].release_group_id = None;
+        catalog.release_groups.clear();
+        let candidate =
+            aede_core::musicbrainz::release(&aede_core::json::parse(response).unwrap()).unwrap();
+        let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+        let mut layer = held();
+        layer.set(SourceRecord {
+            key: entity.key,
+            source: sources::MUSICBRAINZ.into(),
+            source_id: Some(candidate.mbid),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Release(candidate.facts),
+        });
+        let before = sources::to_json(&layer);
+        let list = targets(
+            &catalog,
+            &layer,
+            &[],
+            &crate::commands::fetch::EVERYTHING,
+            &dir,
+            false,
+            all_options(),
+        );
+        assert_eq!(list.len(), 1, "artist artwork remains available: {name}");
+        assert_eq!(
+            list[0].albums.len(),
+            usize::from(expected_group.is_some()),
+            "{name}"
+        );
+        if let Some(expected) = expected_group {
+            assert_eq!(list[0].albums[0].release_group, expected, "{name}");
+        }
+        assert_eq!(
+            sources::to_json(&layer),
+            before,
+            "planning does not change source evidence"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }

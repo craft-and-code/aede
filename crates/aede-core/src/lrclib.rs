@@ -100,30 +100,25 @@ pub fn get_url(artist: &str, title: &str, album: &str, duration_secs: u64) -> St
 /// timings dropped. Taking the plain form when a timed one exists would throw
 /// away something that cannot be recovered.
 ///
-/// A non-instrumental answer whose text is empty is [`Found::Nothing`]: a
-/// record with no words in it is not an answer about the words. Use
-/// [`read_checked`] at the network boundary to distinguish that from a
-/// malformed success body.
+/// A non-instrumental answer whose text is empty or only LRC metadata is
+/// [`Found::Nothing`]: a record with no words in it is not an answer about the
+/// words. Use [`read_checked`] at the network boundary to distinguish that from
+/// a malformed success body.
 pub fn read(value: &Json) -> Found {
     // Asked before the text, because it is an answer *about* the absence of
     // text and would otherwise be read as a service that failed to have any.
     if value.field_optional_bool("instrumental") == Some(true) {
         return Found::Instrumental;
     }
-    let synced = value
-        .field_str("syncedLyrics")
-        .filter(|t| !t.trim().is_empty());
-    let plain = value
-        .field_str("plainLyrics")
-        .filter(|t| !t.trim().is_empty());
-    match (synced, plain) {
-        (Some(text), _) => Found::Words(Words { text, synced: true }),
-        (None, Some(text)) => Found::Words(Words {
-            text,
-            synced: false,
-        }),
-        (None, None) => Found::Nothing,
+    for (field, synced) in [("syncedLyrics", true), ("plainLyrics", false)] {
+        if let Some(text) = value
+            .field_str(field)
+            .filter(|text| !crate::lyrics::parse(text).is_empty())
+        {
+            return Found::Words(Words { text, synced });
+        }
     }
+    Found::Nothing
 }
 
 /// Reads a service response, refusing missing or wrongly typed answer fields.
