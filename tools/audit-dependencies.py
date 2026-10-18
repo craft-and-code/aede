@@ -7,6 +7,7 @@ API contract: https://google.github.io/osv.dev/post-v1-querybatch/
 Run separately from the offline tools/check.sh gate.
 """
 
+import argparse
 import json
 from pathlib import Path
 import re
@@ -132,10 +133,13 @@ def classify(findings):
     return warnings, failures
 
 
-def main():
+def main(argv=()):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest-path", type=Path, default=Path(__file__).resolve().parent.parent / "Cargo.toml")
+    args = parser.parse_args(argv)
     try:
         completed = subprocess.run(
-            ["cargo", "metadata", "--format-version", "1", "--locked", "--offline", "--all-features"],
+            ["cargo", "metadata", "--format-version", "1", "--locked", "--offline", "--all-features", "--manifest-path", str(args.manifest_path.resolve())],
             cwd=Path(__file__).resolve().parent.parent,
             check=True, capture_output=True, text=True, timeout=120,
         )
@@ -158,4 +162,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

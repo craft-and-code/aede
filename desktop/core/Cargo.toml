@@ -1,0 +1,16 @@
+[package]
+name = "aede-desktop-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "=3.4.0"
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring", "pem"] }
+getrandom = "=0.4.3"
+
+[features]
+engine-tests = []
+phemios-acceptance = ["engine-tests"]

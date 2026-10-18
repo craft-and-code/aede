@@ -78,8 +78,8 @@ pub fn serve(args: &Args) -> Res {
         }
     };
     let owner_lease = if std::env::var("AEDE_DESKTOP_LEASE").as_deref() == Ok("1") {
-        if options.tls.is_some() || options.bind.port() != 0 || !options.bind.ip().is_loopback() {
-            return Err("desktop hosting requires an ephemeral loopback HTTP listener".into());
+        if options.tls.is_some() || !options.bind.ip().is_loopback() {
+            return Err("desktop hosting requires a loopback listener with TLS supplied through its bootstrap".into());
         }
         Some(desktop::prepare(&super::data_dir(args))?)
     } else {

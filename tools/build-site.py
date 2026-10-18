@@ -23,6 +23,7 @@ REPOSITORY = "https://github.com/craft-and-code/aede"
 REPOSITORY_BRANCH = "master"
 BASE_URL = "https://craft-and-code.github.io/aede/"
 TOPICS = {
+    "desktop": ("server", "Desktop server application", "Application serveur desktop"),
     "library": ("manual", "Understanding your library", "Comprendre sa bibliothèque"),
     "querying": ("cli", "Query language", "Langage de requête"),
     "browsing": ("cli", "Browsing the catalog", "Parcourir le catalogue"),

@@ -323,3 +323,9 @@ catalog.json
 
 # Generated bilingual website
 /dist-site/
+
+# Independent Tauri server app
+/desktop/node_modules/
+/desktop/target/
+/desktop/dist/
+/desktop/src-tauri/binaries/

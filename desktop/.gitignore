@@ -1,0 +1,7 @@
+/node_modules/
+/target/
+/dist/
+/src-tauri/binaries/
+/src-tauri/gen/
+
+/dist-docs/

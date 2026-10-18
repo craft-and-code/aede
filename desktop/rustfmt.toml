@@ -1,0 +1,41 @@
+# Formatting rules. Run `cargo fmt --all`, or `cargo fmt -- --check` in CI.
+
+edition = "2024"
+
+# 100 columns is rustfmt's default and the de facto standard across the
+# ecosystem. Do not raise it: long lines hide complexity instead of removing it.
+max_width = 100
+tab_spaces = 4
+hard_tabs = false
+newline_style = "Unix"
+
+use_small_heuristics = "Default"
+
+# Imports are sorted and merged automatically, which keeps merge conflicts out
+# of the `use` blocks.
+reorder_imports = true
+reorder_modules = true
+
+merge_derives = true
+remove_nested_parens = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# `extern "C"` blocks must carry their ABI explicitly.
+force_explicit_abi = true
+
+# ---------------------------------------------------------------------------
+# Nightly-only options.
+#
+# They improve the result noticeably (comment wrapping, import grouping), but
+# stable rustfmt refuses to apply them and warns instead. Uncomment only if the
+# project moves to `cargo +nightly fmt`.
+# ---------------------------------------------------------------------------
+
+# group_imports = "StdExternalCrate"
+# imports_granularity = "Module"
+# wrap_comments = true
+# comment_width = 79
+# format_code_in_doc_comments = true
+# normalize_comments = true
+# format_strings = false

@@ -686,7 +686,7 @@ pub fn serve_with_owner_lease(
     )
 }
 
-/// Serve an authenticated ephemeral HTTPS engine owned by one desktop stdin lease.
+/// Serve an authenticated loopback HTTPS engine owned by one desktop stdin lease.
 pub fn serve_with_desktop_tls(
     data_dir: &Path,
     options: ServerOptions,
@@ -700,8 +700,8 @@ pub fn serve_with_desktop_tls(
     owner_closed: Arc<std::sync::atomic::AtomicBool>,
     identity: super::tls::DesktopTls,
 ) -> Result<(), Box<dyn Error>> {
-    if options.tls.is_some() || !options.bind.ip().is_loopback() || options.bind.port() != 0 {
-        return Err("owned desktop TLS requires an ephemeral loopback address".into());
+    if options.tls.is_some() || !options.bind.ip().is_loopback() {
+        return Err("owned desktop TLS requires a loopback address without file-based TLS".into());
     }
     serve_with_owner_transport(
         data_dir,

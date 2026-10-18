@@ -1,10 +1,10 @@
 name: Release
 
-# Builds the command-line tool for every platform and publishes them as a
+# Builds distinct CLI and desktop App artifacts for every platform into a
 # GitHub Release. Trigger by pushing a version tag:
 #
-#     git tag v0.4.0
-#     git push origin v0.4.0
+#     git tag v0.5.0
+#     git push origin v0.5.0
 #
 # or run it manually from the Actions tab (workflow_dispatch), which builds the
 # binaries without publishing anything.
@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           [ "${{ github.ref_type }}" = "tag" ] || version="$(git rev-parse --short HEAD)"
-          name="aede-${version}-${{ matrix.label }}"
+          name="aede-CLI-${version}-${{ matrix.label }}"
           mkdir -p "dist/${name}"
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp "target/${{ matrix.target }}/release/aede.exe" "dist/${name}/"
@@ -119,7 +119,7 @@ jobs:
       - name: Upload the archive
         uses: actions/upload-artifact@v4
         with:
-          name: aede-${{ matrix.label }}
+          name: aede-CLI-${{ matrix.label }}
           path: |
             dist/*.tar.gz
             dist/*.zip
@@ -127,10 +127,63 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS-AppleSilicon
+          - os: ubuntu-22.04
+            label: Linux-x86_64
+          - os: windows-latest
+            label: Windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            desktop -> target
+      - name: Install desktop prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libasound2-dev
+      - name: Fetch exact engine and app dependencies
+        shell: bash
+        run: |
+          cargo fetch --locked
+          cargo fetch --manifest-path desktop/Cargo.toml --locked
+          npm ci --prefix desktop
+      - name: Verify the release versions before building
+        run: python tools/check-release.py
+      - name: Verify the native server application
+        shell: bash
+        run: bash desktop/tools/check.sh
+      - name: Build desktop installers
+        working-directory: desktop
+        run: npm run build:native
+      - name: Name and checksum the App packages
+        run: python tools/package-desktop.py --label ${{ matrix.label }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aede-App-${{ matrix.label }}
+          path: dist-desktop/*
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     permissions:
       contents: write
-    needs: build
+    needs: [build, desktop]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     steps:
@@ -190,9 +243,16 @@ jobs:
 
           | Your system | Download |
           | --- | --- |
-          | **macOS** (M1 and later) | `aede-*-macOS-AppleSilicon.tar.gz` |
-          | **Linux** (x86_64, musl-compatible) | `aede-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
-          | **Windows** (x64) | `aede-*-Windows-x64.zip` |
+          | **macOS** (M1 and later) | `aede-CLI-*-macOS-AppleSilicon.tar.gz` |
+          | **Linux** (x86_64, musl-compatible) | `aede-CLI-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
+          | **Windows** (x64) | `aede-CLI-*-Windows-x64.zip` |
+
+          The **App** packages are separate: `aede-App-*-macOS-AppleSilicon.dmg`,
+          `aede-App-*-Linux-x86_64.AppImage` / `.deb` / `.rpm`, and
+          `aede-App-*-Windows-x64.msi` / `.exe`. Open Aède to add folders,
+          start its local HTTPS server and export its public connection for Phémios.
+          The App uses its own private data directory, separate from ordinary CLI data.
+          See the desktop-server guide in the project documentation.
 
           Windows archives are built and tested on a native Windows runner.
           Terminal playback controls and local writer delegation are currently
@@ -200,8 +260,8 @@ jobs:
           install FFmpeg to use `aede play` on Linux.
 
           ```sh
-          tar xzf aede-*-macOS-AppleSilicon.tar.gz
-          cd aede-*-macOS-AppleSilicon
+          tar xzf aede-CLI-*-macOS-AppleSilicon.tar.gz
+          cd aede-CLI-*-macOS-AppleSilicon
           ./aede scan ~/Music
           ./aede stats
           ```

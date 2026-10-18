@@ -28,3 +28,23 @@ jobs:
       # Only crates.io package names/versions are sent; Git coverage is reported.
       - name: Check locked registry dependencies against OSV
         run: python3 -B tools/audit-dependencies.py
+
+  desktop-advisories:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Fetch the locked desktop tree
+        run: |
+          cargo fetch --manifest-path desktop/Cargo.toml --locked
+          npm ci --prefix desktop --ignore-scripts
+      - name: Audit native desktop registry dependencies
+        run: python3 -B tools/audit-dependencies.py --manifest-path desktop/Cargo.toml
+      - name: Audit desktop npm dependencies
+        run: npm audit --prefix desktop

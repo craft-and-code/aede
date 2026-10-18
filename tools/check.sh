@@ -18,6 +18,8 @@ python3 tools/bit_perfect_tests.py
 
 echo "-> Website renderer and bilingual documentation"
 python3 tools/build_site_tests.py
+python3 tools/desktop_release_tests.py
+python3 tools/check-release.py
 
 echo "-> Formatting"
 # Format every authored workspace member, preserving vendored upstream style.

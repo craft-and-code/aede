@@ -1,0 +1,42 @@
+{
+  "name": "aede-desktop",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "tauri": "node scripts/tauri.mjs",
+    "build:native": "node scripts/tauri.mjs build",
+    "test": "node --test tests/*.test.mjs && vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint src scripts tests docs/components vite.config.ts vitest.config.ts",
+    "check:tauri": "node scripts/check-tauri-versions.mjs",
+    "check": "bash tools/check.sh",
+    "docs:ts": "node scripts/typescript-docs.mjs",
+    "components:dev": "node scripts/component-explorer.mjs dev",
+    "components:build": "node scripts/component-explorer.mjs build",
+    "components:check": "tsc --noEmit -p docs/components/tsconfig.json && npm run components:build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.1",
+    "solid-js": "1.9.17"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1",
+    "@types/node": "26.6.4",
+    "oxlint": "1.87.0",
+    "prettier": "3.9.9",
+    "typescript": "7.0.2",
+    "vite": "8.3.3",
+    "vite-plugin-solid": "2.11.14",
+    "vitest": "5.0.3",
+    "storybook": "10.6.1",
+    "storybook-solidjs-vite": "10.7.2",
+    "@storybook/addon-docs": "10.6.1"
+  }
+}

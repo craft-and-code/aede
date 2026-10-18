@@ -151,6 +151,15 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("unmaintained", warnings[0])
         self.assertEqual(len(failures), 2)
 
+    def test_explicit_desktop_manifest_uses_the_same_strict_audit(self):
+        metadata = subprocess.CompletedProcess([], 0, json.dumps({"packages": [package()]}))
+        with patch.object(audit.subprocess, "run", return_value=metadata) as run:
+            with patch.object(audit, "lookup", return_value={}), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(audit.main(["--manifest-path", "desktop/Cargo.toml"]), 0)
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2], "--manifest-path")
+        self.assertTrue(command[-1].endswith(str(Path("desktop") / "Cargo.toml")))
+
     def test_command_fails_on_metadata_errors_lookup_errors_and_new_advisories(self):
         metadata = subprocess.CompletedProcess([], 0, json.dumps({"packages": [package()]}))
         cases = [
