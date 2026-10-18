@@ -1,5 +1,7 @@
 # Native desktop library and media work
 
+For the graphical server application, its folder controls, HTTPS connection, status and logs, read the [Aède App guide](../desktop.md). This page documents the native client API used by applications such as Phémios.
+
 Native clients use the existing account bearer authentication, JSON errors and bounded inspection workers. No origin exception or automatic enrichment is added.
 
 ## Local catalog projection

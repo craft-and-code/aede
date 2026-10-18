@@ -1,5 +1,7 @@
 # Bibliothèque native et travaux sur les médias
 
+Pour l’application graphique serveur, le choix des dossiers, la connexion HTTPS, le statut et les journaux, consultez le [guide de l’App Aède](../desktop.md). Cette page décrit l’API des clients natifs comme Phémios.
+
 Ces routes utilisent l’authentification par session Aède et les limites des travailleurs existants. Les lectures ne récupèrent jamais de données externes automatiquement.
 
 - `GET /api/v1/presentation/artists` et `GET /api/v1/presentation/albums` : pages du catalogue, références stables, participations, compilations, origines attribuées, biographies avec leurs crédits et disponibilité des images locales. Pagination `offset` et `limit` de 1 à 200. Les annotations personnelles sont exclues.

@@ -1,8 +1,15 @@
 [
   {
+    "slug": "server/reference/desktop",
+    "section": "server",
+    "title": { "en": "Aède server App", "fr": "Application serveur Aède" },
+    "description": { "en": "Choose music folders, start the encrypted server, connect Phémios and inspect status and logs without a terminal.", "fr": "Choisir ses dossiers, démarrer le serveur chiffré, connecter Phémios et consulter statut et journaux sans Terminal." },
+    "source": { "en": "docs/desktop.md", "fr": "docs/fr/desktop.md" }
+  },
+  {
     "slug": "server/presentation",
     "section": "server",
-    "title": { "en": "Native desktop presentation", "fr": "Interface desktop native" },
+    "title": { "en": "Native client API", "fr": "API des clients natifs" },
     "description": { "en": "Read attributed library projections and local artwork, publish private M3U lists and run catalog-scoped media jobs.", "fr": "Afficher le catalogue et les images locales, enregistrer les M3U privés et lancer les analyses ciblées." },
     "source": { "en": "docs/server/presentation.md", "fr": "docs/fr/server/presentation.md" }
   },

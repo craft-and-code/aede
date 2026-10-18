@@ -41,8 +41,8 @@ TOPICS = {
     "operating": ("server", "Operating reference", "Référence d’exploitation"),
 }
 GROUPS = {
-    "fr": [("manual", "Manuel utilisateur"), ("cli", "CLI — Commandes"), ("server", "Serveur — API"), ("dsp", "DSP — Audio"), ("compatibility", "Compatible Aède")],
-    "en": [("manual", "User manual"), ("cli", "CLI — Commands"), ("server", "Server — API"), ("dsp", "DSP — Audio"), ("compatibility", "Compatible Aède")],
+    "fr": [("manual", "Manuel utilisateur"), ("cli", "CLI — Commandes"), ("server", "Serveur — App et API"), ("dsp", "DSP — Audio"), ("compatibility", "Compatible Aède")],
+    "en": [("manual", "User manual"), ("cli", "CLI — Commands"), ("server", "Server — App and API"), ("dsp", "DSP — Audio"), ("compatibility", "Compatible Aède")],
 }
 PROJECT_STATS_MARKER = "<!-- project-statistics -->"
 COMMAND_GROUPS = {
@@ -475,7 +475,7 @@ def overview(pages: list[dict], language: str) -> Rendered:
         visible = [p for p in pages if p["section"] == section and p.get("navigation", True)]
         if not visible: continue
         first = candidates[0] if candidates else visible[0]
-        description = {"manual": ("Installer, démarrer, comprendre et préserver sa collection.", "Install, start, understand and preserve your collection."), "cli": ("Chaque commande, ses arguments, ses options et des exemples.", "Every command, its arguments, options and examples."), "server": ("Démarrer l’API locale et comprendre chaque route HTTP.", "Start the local API and understand every HTTP route."), "dsp": ("Comprendre le traitement audio, les mesures et leurs limites.", "Understand audio processing, measurements and their limits."), "compatibility": ("Adapter un lecteur à Aède et vérifier sa compatibilité.", "Adapt a player to Aède and verify its compatibility.")}[section][0 if language == "fr" else 1]
+        description = {"manual": ("Installer, démarrer, comprendre et préserver sa collection.", "Install, start, understand and preserve your collection."), "cli": ("Chaque commande, ses arguments, ses options et des exemples.", "Every command, its arguments, options and examples."), "server": ("Lancer l’App serveur, connecter Phémios et comprendre l’API.", "Launch the server App, connect Phémios and understand the API."), "dsp": ("Comprendre le traitement audio, les mesures et leurs limites.", "Understand audio processing, measurements and their limits."), "compatibility": ("Adapter un lecteur à Aède et vérifier sa compatibilité.", "Adapt a player to Aède and verify its compatibility.")}[section][0 if language == "fr" else 1]
         cards.append(f'<a class="guide-card" data-card-section="{section}" href="{esc(first["slug"])}.html"><small>{len(candidates)} {"guides" if language == "fr" else "guides"}</small><h2>{title}</h2><p>{description}</p><span aria-hidden="true">→</span></a>')
     desktop = next((p for p in pages if p.get("source", {}).get("en") == "docs/desktop.md"), None)
     desktop_intro = ('L’application Aède a été créée pour démarrer un serveur HTTPS et choisir ses dossiers sans Terminal. Elle permet notamment de tester Aède et Phémios côte à côte sur un même ordinateur.' if language == "fr" else 'The Aède App was created to start an HTTPS server and choose music folders without a terminal. It also makes testing Aède and Phémios side by side on one computer straightforward.')
