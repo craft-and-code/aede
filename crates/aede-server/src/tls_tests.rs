@@ -622,7 +622,12 @@ fn tls_response_without_write_progress_releases_its_admission_slot() {
             application,
             state.clone(),
         ));
-        let mut client = tls_stream(address, &fixture).await;
+        // Fix the receiver window before connecting: OS autotuning otherwise
+        // allows intermittent progress beyond this test's overall wait budget.
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_recv_buffer_size(4096).unwrap();
+        let stream = socket.connect(address).await.unwrap();
+        let mut client = tls_stream_from_tcp(stream, &fixture).await;
         client
             .write_all(b"GET /large HTTP/1.1\r\nHost: aede.test:443\r\nConnection: close\r\n\r\n")
             .await
@@ -726,6 +731,14 @@ async fn tls_stream(
     address: SocketAddr,
     fixture: &CertificateFixture,
 ) -> tokio_rustls::client::TlsStream<tokio::net::TcpStream> {
+    let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    tls_stream_from_tcp(stream, fixture).await
+}
+
+async fn tls_stream_from_tcp(
+    stream: tokio::net::TcpStream,
+    fixture: &CertificateFixture,
+) -> tokio_rustls::client::TlsStream<tokio::net::TcpStream> {
     let certificate =
         CertificateDer::from_pem_slice(&fs::read(&fixture.certificate).unwrap()).unwrap();
     let mut roots = rustls::RootCertStore::empty();
@@ -733,7 +746,6 @@ async fn tls_stream(
     let configuration = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
-    let stream = tokio::net::TcpStream::connect(address).await.unwrap();
     tokio_rustls::TlsConnector::from(Arc::new(configuration))
         .connect(
             ServerName::try_from("aede.test").unwrap().to_owned(),

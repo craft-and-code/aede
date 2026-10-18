@@ -202,7 +202,9 @@ fn a_cache_that_becomes_reusable_during_decode_cannot_replace_the_new_measuremen
         },
     )
     .unwrap();
-    std::fs::File::open(&destination)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&destination)
         .unwrap()
         .set_times(
             std::fs::FileTimes::new()
@@ -210,7 +212,9 @@ fn a_cache_that_becomes_reusable_during_decode_cannot_replace_the_new_measuremen
         )
         .unwrap();
     store::save(&catalog, &store::catalog_path(&dir)).unwrap();
-    std::fs::File::open(&path)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
         .unwrap()
         .set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
         .unwrap();
@@ -222,7 +226,9 @@ fn a_cache_that_becomes_reusable_during_decode_cannot_replace_the_new_measuremen
     ]);
     analyze_with_progress(&args, |_, _, selected| {
         assert_eq!(selected, path.as_path());
-        std::fs::File::open(&path)
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
             .unwrap()
             .set_times(std::fs::FileTimes::new().set_modified(original_mtime))
             .unwrap();
@@ -477,7 +483,9 @@ fn reused_reports_do_not_replace_newer_measurements_during_publication_or_rescan
         fc::report::write_json(&destination, &saved_report).unwrap();
         let set_date =
             |path: &Path, seconds| {
-                std::fs::File::open(path)
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(path)
                     .unwrap()
                     .set_times(std::fs::FileTimes::new().set_modified(
                         std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds),

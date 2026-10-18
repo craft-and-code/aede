@@ -31,16 +31,16 @@ impl Fixture {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        if let Some(password) = password {
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(password.as_bytes())
-                .unwrap();
-        }
+        let written =
+            password.map(|password| child.stdin.take().unwrap().write_all(password.as_bytes()));
         drop(child.stdin.take());
-        child.wait_with_output().unwrap()
+        let output = child.wait_with_output().unwrap();
+        if let Some(Err(error)) = written {
+            // Invalid arguments can be rejected before the child reads any password.
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+            assert!(!output.status.success(), "credentials were not delivered");
+        }
+        output
     }
 
     fn init(&self) {
@@ -205,6 +205,20 @@ fn invalid_arguments_and_passwords_never_publish_credentials() {
         assert!(!fixture.run(&arguments, password).status.success());
         assert!(!accounts::accounts_path(&fixture.0).exists());
     }
+}
+
+#[test]
+fn early_argument_refusal_can_close_stdin_before_the_parent_finishes_writing() {
+    let fixture = Fixture::new();
+    let pending = "x".repeat(256 * 1024);
+    let result = fixture.run(
+        &["accounts", "init", "../invalid", "--password-stdin"],
+        Some(&pending),
+    );
+    assert!(!result.status.success());
+    assert!(!accounts::accounts_path(&fixture.0).exists());
+    let error = String::from_utf8(result.stderr).unwrap();
+    assert!(!error.contains(&pending));
 }
 
 #[test]
