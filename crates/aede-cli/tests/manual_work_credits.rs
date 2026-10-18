@@ -543,7 +543,9 @@ fn local_artist_role_unites_exact_trusted_scopes_and_preserves_tag_credits() {
     held.set(sources::SourceRecord {
         key: library
             .0
-            .join("music/Other Album/01.flac")
+            .join("music")
+            .join("Other Album")
+            .join("01.flac")
             .to_string_lossy()
             .into_owned(),
         source: sources::MUSICBRAINZ.into(),
@@ -690,7 +692,9 @@ fn parent_work_navigation_reaches_exact_child_performances_without_new_observati
     held.set(sources::SourceRecord {
         key: library
             .0
-            .join("music/First Album/01.flac")
+            .join("music")
+            .join("First Album")
+            .join("01.flac")
             .to_string_lossy()
             .into_owned(),
         source: sources::MUSICBRAINZ.into(),
@@ -957,7 +961,8 @@ fn an_attached_manual_credit_cannot_be_duplicated_after_its_representative_chang
         assert!(
             held.records
                 .iter()
-                .any(|record| record.key == library.0.join("music/B/01.flac").to_string_lossy())
+                .any(|record| std::path::Path::new(&record.key)
+                    == library.0.join("music").join("B").join("01.flac"))
         );
         for album in ["A", "B"] {
             assert_eq!(
@@ -978,7 +983,7 @@ fn adding_an_edition_credit_cannot_retarget_retained_credits_to_another_edition(
         (None, None, true),
     ] {
         let library = Library::new();
-        let audio = library.0.join("music/One Album/01.flac");
+        let audio = library.0.join("music").join("One Album").join("01.flac");
         std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
         let bytes = include_bytes!("../../aede-core/tests/fixtures/track.flac");
         std::fs::write(&audio, bytes).unwrap();
@@ -1095,8 +1100,8 @@ fn an_attached_manual_credit_cannot_be_duplicated_when_a_recording_gains_an_iden
         for excluded in [false, true] {
             let library = Library::new();
             let files = [
-                library.0.join("music/One Album/01.flac"),
-                library.0.join("music/One Album/02.flac"),
+                library.0.join("music").join("One Album").join("01.flac"),
+                library.0.join("music").join("One Album").join("02.flac"),
             ];
             let bytes = include_bytes!("../../aede-core/tests/fixtures/track.flac");
             std::fs::create_dir_all(files[0].parent().unwrap()).unwrap();
@@ -1373,7 +1378,7 @@ fn manual_recording_credits_keep_their_known_performance_when_file_identity_chan
             (None, None),
         ] {
             let library = Library::new();
-            let audio = library.0.join("music/One Album/01.flac");
+            let audio = library.0.join("music").join("One Album").join("01.flac");
             std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
             let bytes = include_bytes!("../../aede-core/tests/fixtures/track.flac");
             std::fs::write(&audio, bytes).unwrap();
