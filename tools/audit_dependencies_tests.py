@@ -151,6 +151,20 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("unmaintained", warnings[0])
         self.assertEqual(len(failures), 2)
 
+    def test_desktop_exceptions_are_exact_and_opt_in(self):
+        known = {("glib", "0.18.5"): {"RUSTSEC-2024-0429", "GHSA-wrw7-89jp-8q8g"}, ("proc-macro-error", "1.0.4"): {"RUSTSEC-2024-0370"}}
+        self.assertEqual(len(audit.classify(known)[1]), 3)
+        warnings, failures = audit.classify(known, desktop_warnings=True)
+        self.assertEqual(len(warnings), 3)
+        self.assertEqual(failures, [])
+        changed = {("glib", "0.18.6"): {"RUSTSEC-2024-0429"}, ("glib", "0.18.5"): {"RUSTSEC-new"}, ("rustls", "0.23.45"): {"RUSTSEC-2026-0346"}}
+        self.assertEqual(len(audit.classify(changed, desktop_warnings=True)[1]), 3)
+
+    def test_desktop_exceptions_cannot_be_applied_to_another_manifest(self):
+        with patch.object(audit.subprocess, "run") as run, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(audit.main(["--desktop-compatibility-warnings", "--manifest-path", "Cargo.toml"]), 2)
+        run.assert_not_called()
+
     def test_explicit_desktop_manifest_uses_the_same_strict_audit(self):
         metadata = subprocess.CompletedProcess([], 0, json.dumps({"packages": [package()]}))
         with patch.object(audit.subprocess, "run", return_value=metadata) as run:

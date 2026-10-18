@@ -121,12 +121,23 @@ def lookup(packages, post=post_json):
     return findings
 
 
-def classify(findings):
+# Exact GTK3 compatibility decisions, only in an explicitly selected desktop audit.
+# These are visible warnings, not a claim that upstream GLib is patched.
+DESKTOP_WARNINGS = {
+    ("glib", "0.18.5", "RUSTSEC-2024-0429"): "approved GTK3 compatibility warning: reviewed callers do not use VariantStrIter",
+    ("glib", "0.18.5", "GHSA-wrw7-89jp-8q8g"): "approved alias of the same GTK3 VariantStrIter finding",
+    ("proc-macro-error", "1.0.4", "RUSTSEC-2024-0370"): "approved GTK3 build dependency maintenance warning",
+}
+
+
+def classify(findings, desktop_warnings=False):
     warnings, failures = [], []
     for (name, version), identifiers in sorted(findings.items()):
         for identifier in sorted(identifiers):
             detail = f"{name} {version}: {identifier} https://osv.dev/vulnerability/{identifier}"
-            if (name, identifier) == ALLOWED_WARNING:
+            if desktop_warnings and (name, version, identifier) in DESKTOP_WARNINGS:
+                warnings.append(f"{detail} ({DESKTOP_WARNINGS[(name, version, identifier)]}; see desktop-dependencies.md)")
+            elif (name, identifier) == ALLOWED_WARNING:
                 warnings.append(f"{detail} (accepted maintenance warning: paste is unmaintained)")
             else:
                 failures.append(detail)
@@ -136,8 +147,11 @@ def classify(findings):
 def main(argv=()):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest-path", type=Path, default=Path(__file__).resolve().parent.parent / "Cargo.toml")
+    parser.add_argument("--desktop-compatibility-warnings", action="store_true", help="Report only the approved exact GTK3 findings as visible warnings")
     args = parser.parse_args(argv)
     try:
+        if args.desktop_compatibility_warnings and args.manifest_path.resolve() != Path(__file__).resolve().parent.parent / "desktop/Cargo.toml":
+            raise AuditError("GTK3 compatibility warnings apply only to this repository's desktop manifest")
         completed = subprocess.run(
             ["cargo", "metadata", "--format-version", "1", "--locked", "--offline", "--all-features", "--manifest-path", str(args.manifest_path.resolve())],
             cwd=Path(__file__).resolve().parent.parent,
@@ -147,7 +161,7 @@ def main(argv=()):
         for excluded in unsupported:
             print(f"WARNING: {excluded}; review its pinned source separately.", flush=True)
         print(f"Querying OSV for {len(packages)} locked crates.io package versions (names and versions only).", flush=True)
-        warnings, failures = classify(lookup(packages))
+        warnings, failures = classify(lookup(packages), args.desktop_compatibility_warnings)
         for warning in warnings:
             print(f"WARNING: {warning}")
         for failure in failures:
