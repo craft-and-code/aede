@@ -21,6 +21,7 @@ pub struct Filter {
     ratings: Option<[u64; 2]>,
     tags: Vec<String>,
     label: Option<EntityRef>,
+    composers: Vec<EntityRef>,
 }
 /// Parse the bounded JSON payload following `browse-v1:`. Unknown keys are errors.
 pub fn parse(input: &str) -> Result<Filter, QueryError> {
@@ -46,6 +47,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             "ratings",
             "tags",
             "label",
+            "composers",
         ]
         .contains(&k.as_str())
     }) {
@@ -80,6 +82,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         "compilations",
         "countries",
         "genres",
+        "composers",
         "rated",
         "favourites",
         "tags",
@@ -108,6 +111,28 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
             return Err(error("label requires the label view"));
         }
         None
+    };
+    let composers = if view == "composers" {
+        v["composers"]
+            .as_array()
+            .filter(|rows| rows.len() <= 100)
+            .ok_or_else(|| error("invalid browse composers"))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .and_then(EntityRef::parse_token)
+                    .filter(|reference| {
+                        reference.kind == EntityKind::Artist && reference.key.len() <= 4096
+                    })
+                    .ok_or_else(|| error("invalid browse composer reference"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        if o.contains_key("composers") {
+            return Err(error("composers require the composers view"));
+        }
+        Vec::new()
     };
     let ratings = if view == "rated" {
         let bounds = interval("ratings", 5)?;
@@ -220,6 +245,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
         ratings,
         tags,
         label,
+        composers,
     })
 }
 #[derive(Default)]
@@ -304,6 +330,12 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     if f.label.is_some() && label.is_none() {
         return Vec::new();
     }
+    let composer_index = (f.view == "composers").then(|| c.composers_by_release());
+    let selected_composers: BTreeSet<_> = f
+        .composers
+        .iter()
+        .filter_map(|reference| reference.resolve(c))
+        .collect();
     let artist_view = ["artists", "countries", "genres"].contains(&f.view.as_str());
     let principal: BTreeSet<_> = c
         .releases
@@ -363,6 +395,14 @@ pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     let term = folded(&f.query);
     let mut tracks = Vec::new();
     for release in &c.releases {
+        if let Some(index) = &composer_index {
+            let Some(credited) = index.get(&release.id) else {
+                continue;
+            };
+            if !f.composers.is_empty() && credited.is_disjoint(&selected_composers) {
+                continue;
+            }
+        }
         if label.is_some_and(|id| !release.label_ids.contains(&id)) {
             continue;
         }

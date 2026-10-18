@@ -92,3 +92,9 @@ The release must resolve in the current catalog. Its folder must remain inside p
 
 
 Artist media also reports the optional `logo` presence alongside banner, background and portrait. The same confined, read-only artwork endpoint accepts artist `kind=logo` with its existing bounded thumbnail size. Existing logos are read without external enrichment or original-file changes. Older clients ignore the additive hint; older servers omit it.
+
+## Composer album browsing
+
+Album presentation adds `composers`, a deduplicated array of `{reference}` rows carrying stable artist identities with an exact local `composer` credit on the edition or one of its tracks, recordings or works. A principal artist, performer or lyricist is never inferred to be a composer. The graph index is built once per page/evaluation, without opening audio or fetching external data. This projection uses local graph facts, not unaccepted external claims. An empty array confirms no such credit; older servers omit the field.
+
+`dynamic_browse_composers` advertises a `browse-v1` view `composers`, requiring a bounded array `composers` of up to 100 original artist references. An empty selection includes all editions with composer credits. Multiple identities form a union, intersected with ordinary title-initial, year, genre, origin and search filters; matching an edition selects its whole track order. A removed selected identity matches nothing. Other views reject this field. The API and on-disk catalog format remain unchanged; update/restart the engine and explicitly synchronize desktop projections to retain these associations offline.

@@ -59,6 +59,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "dynamic_browse_tags",
         "dynamic_browse_label",
         "dynamic_browse_tracks",
+        "dynamic_browse_composers",
         "label_playback",
         "label_album_sort",
         "account_preferences",

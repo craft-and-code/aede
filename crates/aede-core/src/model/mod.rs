@@ -37,6 +37,7 @@ use crate::tags::AudioProperties;
 use crate::text;
 
 pub mod builder;
+mod composers;
 pub mod identity;
 pub mod query;
 pub mod relations;

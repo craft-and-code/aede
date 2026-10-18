@@ -63,7 +63,12 @@ fn presentation_preserves_compilations_and_contributor_only_artists() {
     });
     catalog.releases[0].album_artist_id = None;
     catalog.releases[0].is_compilation = true;
-    let album = album_row(&catalog, &catalog.releases[0]).unwrap();
+    let album = album_row(
+        &catalog,
+        &catalog.releases[0],
+        &catalog.composers_by_release(),
+    )
+    .unwrap();
     assert!(album["artist"].is_null());
     assert_eq!(album["compilation"], true);
     assert!(
@@ -91,7 +96,12 @@ fn presentation_indexes_every_local_tag_without_path_based_identity() {
     catalog.files[0]
         .tags
         .insert("custom-field".into(), vec!["A rare description".into()]);
-    let album = album_row(&catalog, &catalog.releases[0]).unwrap();
+    let album = album_row(
+        &catalog,
+        &catalog.releases[0],
+        &catalog.composers_by_release(),
+    )
+    .unwrap();
     assert!(
         album["search_fields"]
             .as_array()
@@ -123,7 +133,12 @@ fn stale_cover_metadata_does_not_advertise_an_available_image() {
     catalog.releases[0].folder = "/definitely-missing-phemios-library/album".into();
     catalog.releases[0].cover_path =
         Some("/definitely-missing-phemios-library/album/cover.jpg".into());
-    let album = album_row(&catalog, &catalog.releases[0]).unwrap();
+    let album = album_row(
+        &catalog,
+        &catalog.releases[0],
+        &catalog.composers_by_release(),
+    )
+    .unwrap();
     assert_eq!(album["cover"], false);
 }
 
@@ -452,4 +467,85 @@ fn presentation_distinguishes_present_and_missing_artist_logos() {
     let present = artist_row(&catalog, &sources, &state.data_dir, &catalog.artists[0]).unwrap();
     assert_eq!(present["media"]["logo"], true);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn album_projection_distinguishes_composers_from_performers_and_deduplicates_credits() {
+    let state = sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    c.credits.clear();
+    let credit = aede_core::model::Credit {
+        artist_id: 0,
+        entity_kind: EntityKind::Track,
+        entity_id: 0,
+        role: "performer".into(),
+        attributes: vec![],
+        credited_as: None,
+        began: None,
+        ended: None,
+        order: None,
+        source: "tags".into(),
+        source_id: None,
+    };
+    c.credits.push(credit.clone());
+    assert_eq!(
+        album_row(&c, &c.releases[0], &c.composers_by_release()).unwrap()["composers"],
+        json!([])
+    );
+    let mut composer = credit;
+    composer.role = "composer".into();
+    c.credits.extend([composer.clone(), composer]);
+    let expected = json!([{"reference":reference_of(&c, EntityKind::Artist, 0).unwrap()}]);
+    assert!(
+        album_row(&c, &c.releases[0], &c.composers_by_release()).unwrap()["search_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(c.artists[0].name))
+    );
+    assert_eq!(
+        album_row(&c, &c.releases[0], &c.composers_by_release()).unwrap()["composers"],
+        expected
+    );
+}
+
+#[test]
+fn composer_index_follows_recording_and_work_placements_without_performer_inference() {
+    let state = sample_state();
+    let mut c = state.catalog.blocking_read().clone().unwrap();
+    let recording = c.tracks[0].recording_id;
+    c.works = vec![aede_core::model::Work {
+        id: 0,
+        mbid: "55555555-5555-5555-5555-555555555555".into(),
+        title: "Composition".into(),
+        recording_ids: vec![recording],
+        ..Default::default()
+    }];
+    c.recordings[recording as usize].work_ids.push(0);
+    c.credits.clear();
+    let mut credit = aede_core::model::Credit {
+        artist_id: 0,
+        entity_kind: EntityKind::Work,
+        entity_id: 0,
+        role: "composer".into(),
+        attributes: vec![],
+        credited_as: None,
+        began: None,
+        ended: None,
+        order: None,
+        source: "tags".into(),
+        source_id: None,
+    };
+    for kind in [EntityKind::Work, EntityKind::Recording, EntityKind::Release] {
+        credit.entity_kind = kind;
+        credit.entity_id = if kind == EntityKind::Recording {
+            recording
+        } else {
+            0
+        };
+        c.credits = vec![credit.clone()];
+        assert_eq!(c.composers_by_release()[&0], BTreeSet::from([0]));
+    }
+    credit.role = "performer".into();
+    c.credits = vec![credit];
+    assert!(c.composers_by_release().is_empty());
 }

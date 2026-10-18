@@ -483,3 +483,91 @@ fn track_filters_keep_individual_membership_unknown_years_and_numeric_order() {
     value["reverse"] = json!("yes");
     assert!(parse(&value.to_string()).is_err());
 }
+
+#[test]
+fn composer_collections_select_whole_editions_by_exact_credit_and_year() {
+    let mut c = Catalog {
+        artists: vec![Artist {
+            id: 0,
+            key: "writer".into(),
+            name: "Writer".into(),
+            ..Default::default()
+        }],
+        releases: vec![Release {
+            id: 0,
+            key: "first".into(),
+            title: "First".into(),
+            year: Some(1995),
+            track_ids: vec![0, 1],
+            ..Default::default()
+        }],
+        tracks: vec![
+            Track {
+                id: 0,
+                release_id: Some(0),
+                ..Default::default()
+            },
+            Track {
+                id: 1,
+                release_id: Some(0),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let d = UserData::default();
+    let mut f = filters();
+    f["view"] = json!("composers");
+    f["composers"] = json!(["artist:writer"]);
+    let rule = parse(&f.to_string()).unwrap();
+    assert!(tracks(&rule, &Context::new(&c, &d, "owner")).is_empty());
+    c.credits.push(crate::model::Credit {
+        artist_id: 0,
+        entity_kind: EntityKind::Track,
+        entity_id: 0,
+        role: "composer".into(),
+        credited_as: None,
+        attributes: vec![],
+        began: None,
+        ended: None,
+        order: None,
+        source: "tags".into(),
+        source_id: None,
+    });
+    assert_eq!(tracks(&rule, &Context::new(&c, &d, "owner")), [0, 1]);
+    f["composers"] = json!(["artist:absent"]);
+    assert!(
+        tracks(
+            &parse(&f.to_string()).unwrap(),
+            &Context::new(&c, &d, "owner")
+        )
+        .is_empty()
+    );
+    f["composers"] = json!([]);
+    assert_eq!(
+        tracks(
+            &parse(&f.to_string()).unwrap(),
+            &Context::new(&c, &d, "owner")
+        ),
+        [0, 1]
+    );
+    f["years"] = json!([2000, 2020]);
+    assert!(
+        tracks(
+            &parse(&f.to_string()).unwrap(),
+            &Context::new(&c, &d, "owner")
+        )
+        .is_empty()
+    );
+    for invalid in [
+        json!(["release:first"]),
+        json!([42]),
+        json!(vec!["artist:writer"; 101]),
+    ] {
+        f["composers"] = invalid;
+        assert!(parse(&f.to_string()).is_err());
+    }
+    f["view"] = json!("albums");
+    f["composers"] = json!([]);
+    assert!(parse(&f.to_string()).is_err());
+}
