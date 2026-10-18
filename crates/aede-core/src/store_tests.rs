@@ -126,6 +126,173 @@ fn full_round_trip() {
 }
 
 #[test]
+fn stored_audio_precision_and_channels_refuse_truncation_and_keep_legacy_absence() {
+    let original = to_json(&example_catalog());
+    let file = original.get("file").unwrap().as_arr().unwrap()[0].clone();
+    for field in ["bit_depth", "channels"] {
+        for invalid in [
+            Json::from(65_536u32),
+            Json::from(65_552u32),
+            Json::from(u32::MAX),
+            Json::from(u64::from(u32::MAX) + 1),
+            Json::from(-1i64),
+            Json::from(1.5f64),
+            Json::from("16"),
+            Json::Bool(true),
+            Json::Arr(vec![]),
+            Json::obj(),
+        ] {
+            let mut document = original.clone();
+            let mut row = file.clone();
+            row.set(field, invalid.clone());
+            document.set("file", Json::Arr(vec![row]));
+            assert!(
+                from_json(&document).is_err(),
+                "{field} must refuse {invalid:?} instead of narrowing or discarding it"
+            );
+        }
+        for valid in [0u16, 2, 16, 24, u16::MAX] {
+            let mut document = original.clone();
+            let mut row = file.clone();
+            row.set(field, u32::from(valid).into());
+            document.set("file", Json::Arr(vec![row]));
+            let loaded = from_json(&document).unwrap();
+            let properties = &loaded.files[0].properties;
+            let actual = if field == "bit_depth" {
+                properties.bit_depth
+            } else {
+                properties.channels
+            };
+            assert_eq!(actual, Some(valid));
+        }
+    }
+    for absent in [false, true] {
+        let mut document = original.clone();
+        let mut row = file.clone();
+        if absent {
+            let Json::Obj(fields) = &mut row else {
+                unreachable!()
+            };
+            fields.remove("bit_depth");
+            fields.remove("channels");
+        } else {
+            row.set("bit_depth", Json::Null);
+            row.set("channels", Json::Null);
+        }
+        document.set("file", Json::Arr(vec![row]));
+        let loaded = from_json(&document).unwrap();
+        assert_eq!(loaded.files[0].properties.bit_depth, None);
+        assert_eq!(loaded.files[0].properties.channels, None);
+    }
+}
+
+#[test]
+fn malformed_file_fields_are_refused_without_losing_legacy_defaults() {
+    let original = to_json(&example_catalog());
+    let file = original.get("file").unwrap().as_arr().unwrap()[0].clone();
+    let mut cases = Vec::new();
+    for field in [
+        "size",
+        "mtime",
+        "duration_ms",
+        "sample_rate",
+        "bitrate_kbps",
+    ] {
+        for value in [
+            Json::from("42"),
+            Json::from(-1i64),
+            Json::from(1.5f64),
+            Json::Bool(true),
+            Json::Arr(vec![]),
+            Json::obj(),
+        ] {
+            cases.push((field, value));
+        }
+    }
+    for field in ["sample_rate", "bitrate_kbps"] {
+        cases.push((field, (u64::from(u32::MAX) + 1).into()));
+    }
+    for field in ["size", "mtime", "duration_ms"] {
+        cases.push((field, Json::Num(u64::MAX as f64)));
+    }
+    for field in ["codec", "container", "lyrics_path"] {
+        for value in [Json::from(42u32), Json::Bool(false), Json::Arr(vec![])] {
+            cases.push((field, value));
+        }
+    }
+    for field in ["lossless", "has_embedded_art"] {
+        for value in [Json::from("true"), Json::from(1u32), Json::obj()] {
+            cases.push((field, value));
+        }
+    }
+    for value in [Json::from("tags"), Json::from(1u32), Json::Arr(vec![])] {
+        cases.push(("tags", value));
+    }
+    for (field, invalid) in cases {
+        let mut document = original.clone();
+        let mut row = file.clone();
+        row.set(field, invalid.clone());
+        document.set("file", Json::Arr(vec![row]));
+        assert!(
+            from_json(&document).is_err(),
+            "{field} must refuse {invalid:?} instead of replacing it with a default"
+        );
+    }
+    let optional = [
+        "size",
+        "mtime",
+        "duration_ms",
+        "sample_rate",
+        "bitrate_kbps",
+        "codec",
+        "container",
+        "lyrics_path",
+        "lossless",
+        "has_embedded_art",
+        "tags",
+    ];
+    for absent in [false, true] {
+        let mut document = original.clone();
+        let mut row = file.clone();
+        for field in optional {
+            if absent {
+                let Json::Obj(fields) = &mut row else {
+                    unreachable!()
+                };
+                fields.remove(field);
+            } else {
+                row.set(field, Json::Null);
+            }
+        }
+        document.set("file", Json::Arr(vec![row]));
+        let loaded = from_json(&document).unwrap();
+        let file = &loaded.files[0];
+        assert_eq!((file.size, file.mtime), (0, 0));
+        assert!(file.properties.codec.is_empty());
+        assert!(file.properties.container.is_empty());
+        assert!(file.properties.sample_rate.is_none());
+        assert!(file.properties.duration_ms.is_none());
+        assert!(file.properties.bitrate_kbps.is_none());
+        assert!(!file.properties.lossless);
+        assert!(!file.has_embedded_art);
+        assert!(file.lyrics_path.is_none());
+        assert!(file.tags.is_empty());
+    }
+    let mut row = file;
+    row.set("sample_rate", u32::MAX.into());
+    row.set("bitrate_kbps", u32::MAX.into());
+    row.set("size", 0u64.into());
+    row.set("mtime", 0u64.into());
+    row.set("duration_ms", 0u64.into());
+    let mut document = original;
+    document.set("file", Json::Arr(vec![row]));
+    let loaded = from_json(&document).unwrap();
+    assert_eq!(loaded.files[0].properties.sample_rate, Some(u32::MAX));
+    assert_eq!(loaded.files[0].properties.bitrate_kbps, Some(u32::MAX));
+    assert_eq!(loaded.files[0].properties.duration_ms, Some(0));
+}
+
+#[test]
 fn duplicate_file_paths_are_refused_before_their_identity_maps_can_collide() {
     let mut value = to_json(&example_catalog());
     let first = value.get("file").unwrap().as_arr().unwrap()[0].clone();

@@ -227,6 +227,49 @@ fn singular_navigation_prefers_exact_names_and_returns_usable_ambiguity_candidat
 }
 
 #[test]
+fn album_reference_filters_do_not_expand_to_homonymous_artists_or_labels() {
+    runtime().block_on(async {
+        let state = fixture().await;
+        {
+            let mut guard = state.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            catalog.artists[1].name = catalog.artists[0].name.clone();
+            catalog.artists[1].key = "mbid:other-artist".into();
+            catalog.labels[1].name = catalog.labels[0].name.clone();
+            catalog.labels[1].key = "mbid:other-label".into();
+        }
+        let (address, server) = start(state).await;
+        for (field, selected, other) in [
+            ("artist", "artist:ac dc", "artist:mbid:other-artist"),
+            ("label", "label:atlantic", "label:mbid:other-label"),
+        ] {
+            let page = json_response(
+                address,
+                &format!("/api/v1/albums?{field}={}", encoded(selected)),
+            );
+            assert_eq!(page["total"], 2, "{field} must preserve identity");
+            let other = json_response(
+                address,
+                &format!("/api/v1/albums?{field}={}", encoded(other)),
+            );
+            assert_eq!(other["total"], 1);
+            assert_eq!(other["items"][0]["title"], "Black Album");
+        }
+        let composed = json_response(
+            address,
+            "/api/v1/albums?artist=artist%3Aac%20dc&genre=hard&label=Atlantic&year=1990",
+        );
+        assert_eq!(composed["total"], 1);
+        assert_eq!(composed["items"][0]["title"], "Back in Black Live");
+        assert_eq!(
+            json_response(address, "/api/v1/albums?artist=AC%2FDC")["total"],
+            3
+        );
+        server.abort();
+    });
+}
+
+#[test]
 fn catalog_lists_compose_cli_filters_before_sorting_and_pagination() {
     runtime().block_on(async {
         let (address, server) = start(fixture().await).await;
@@ -288,6 +331,42 @@ fn navigation_rejects_unsupported_duplicate_and_incompatible_options() {
         let missing = request(address, "/api/v1/albums?genre=not-a-genre");
         assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
         server.abort();
+    });
+}
+
+#[test]
+fn artist_mbid_reference_aliases_retain_canonical_origin_attribution() {
+    runtime().block_on(async {
+        let state = fixture().await;
+        let dir = state.data_dir.clone();
+        let mut held = Sources::default();
+        held.set(SourceRecord {
+            key: text::normalize("AC/DC"),
+            source: sources::MUSICBRAINZ.into(),
+            source_id: Some("artist-1".into()),
+            fetched_at: 123,
+            confidence: Confidence::Identified,
+            facts: Facts::Artist(ArtistFacts {
+                country_code: Some("AU".into()),
+                ..Default::default()
+            }),
+        });
+        sources::save(&held, &sources::sources_path(&dir)).unwrap();
+        let before = std::fs::read(sources::sources_path(&dir)).unwrap();
+        let (address, server) = start(state).await;
+        for route in ["artist", "from"] {
+            let named = json_response(address, &format!("/api/v1/{route}?name=AC%2FDC"));
+            let alias = json_response(
+                address,
+                &format!("/api/v1/{route}?ref=artist%3Ambid%3Aartist-1"),
+            );
+            assert_eq!(alias["origin"], named["origin"], "{route}");
+            assert_eq!(alias["reference"], named["reference"]);
+            assert_eq!(alias["origin"]["country_code"], "AU");
+        }
+        assert_eq!(std::fs::read(sources::sources_path(&dir)).unwrap(), before);
+        server.abort();
+        std::fs::remove_dir_all(dir).unwrap();
     });
 }
 

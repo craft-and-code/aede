@@ -6,6 +6,14 @@ Unchanged tracks with valid reports are reused. --force measures selected albums
 
 --show-results prints track measurements. --threads controls album-analysis workers. Imported artist reports can cover several albums; scan the report’s folder or import it to attach results. Newer dated results win for overlapping files. Deleting a report does not erase measurements already imported; changing audio makes them stale. Some album analyses/report writes may succeed before another fails: the command retains completed results and returns an error summary.
 
+Reused measurements keep their original dates, including in rewritten JSON reports and on later scans. Each Aède-written entry carries an additive exact `aede_result_at_ns` decimal string; reports without it use their file modification time. Human progress/results escape terminal control characters without changing retained measurements or JSON exports. See the [report contract](../imported-analyses.md#re-running-an-analysis-and-keeping-its-results).
+
+Reusing a result preserves its complete source entry, including unknown nested measurements. Reports explicitly limited to a partial `analyses_run` selection are analyzed again to fulfill this command's complete measurement request. Older reports without coverage metadata retain the upstream complete-report convention; importing a partial report remains supported.
+
+If a file selected for cache reuse changes or disappears while other files are decoded, the command reports that path and finishes with an error. Completed measurements remain stored in Aède, but the affected album report is not created or replaced with an incomplete subset. Scan the changed audio and retry. A newly decoded file is emitted once; an older cache that becomes compatible again during decoding cannot override its result or measurement date.
+
+Before decoding, report-writing requests check all resolvable destinations and refuse the reserved catalog, conclusions, sources, personal, accounts and parental JSON names in this installation's data directory, even with `--force`. This includes parent-directory aliases and case variants. A report layout must not replace Aède's own stores; choose another layout or data directory if their paths collide. Ordinary report names in the same directory remain supported. An unavailable album folder does not prevent other albums from being analyzed; its failure is reported and the command ultimately fails while retaining completed work. Each report destination is checked again before publication, without recreating an unavailable album directory.
+
 ## Syntax and arguments
 
 ```text

@@ -14,6 +14,8 @@ curl --get 'http://127.0.0.1:8787/api/admin/v1/annotation' \
 
 Remplacez le jeton illustratif par une vraie référence. Renvoie HTTP 200 `{reference,annotation}`. Annotation vaut null sans valeur personnelle ; sinon ses champs sont `reference,loved,rating,note,tags,created_at,updated_at`. Les dates sont en secondes Unix ; rating/note absents sont null et tags est un tableau. Les lectures publiques `/artist` ou `/track` n’exposent jamais ces valeurs privées. Référence invalide : 400 ; entité valide absente : 404.
 
+Les références alternatives acceptées (anciens dossiers de CD, références locales d’enregistrement après identification et MBID d’artiste non ambigus) désignent l’entité canonique actuelle. Lectures et écritures renvoient sa `reference` canonique et partagent une seule annotation par propriétaire. La réconciliation reconnaît aussi les anciens alias MBID d’artiste non ambigus ; un enregistrement personnel déjà présent et en conflit est conservé sans être écrasé.
+
 ### HEAD /api/admin/v1/annotation
 
 Même validation de secret/référence/verrou sans corps d’annotation.

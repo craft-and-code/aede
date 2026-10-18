@@ -65,7 +65,15 @@ pub fn playlist(args: &Args) -> Res {
     let mut written = 0usize;
     let mut failures: Vec<(String, String)> = Vec::new();
     for (path, text) in &to_write {
-        match playlist::write_atomic(path, text) {
+        // Catalogued folders may be on an unavailable volume. The generic
+        // export writer creates parents, but a library sidecar must not
+        // recreate a missing album/artist directory from retained metadata.
+        let result = if path.parent().is_some_and(std::path::Path::is_dir) {
+            playlist::write_atomic(path, text)
+        } else {
+            Err("playlist folder is unavailable; scan and retry".into())
+        };
+        match result {
             Ok(()) => written += 1,
             Err(e) => failures.push((path.display().to_string(), e.to_string())),
         }

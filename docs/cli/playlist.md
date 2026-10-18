@@ -37,6 +37,8 @@ A selected path containing a carriage return or newline is refused before any pl
 
 The summary distinguishes playlists to write, written, already up to date and failed. --dry-run lists at most the first 20 planned paths and counts the rest without writing; unchanged playlists retain their timestamps. Releases sharing a physical folder contribute to one combined playlist. Changed files are published from isolated temporary output only after a complete write. No selected catalog album returns an explanatory message and succeeds. Per-playlist filesystem errors are listed and counted, and any failure gives a nonzero exit status. Playlist output is UTF-8 text with a .m3u filename; the command copies no audio.
 
+The unchanged-file check accepts only regular destination files and compares bytes with a fixed-size buffer, without reading an arbitrary existing file into memory. A destination link or special file is refused rather than accepted as current output or opened waiting for data. An unavailable album/artist folder is reported as a failure and is not recreated from retained catalog metadata; other available folders still receive their playlists. Explicit selection exports may still create their chosen output directories.
+
 ## Related reading
 
 [play](play.md), [query](query.md), [collection](collection.md).

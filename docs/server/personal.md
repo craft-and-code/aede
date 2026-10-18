@@ -14,6 +14,8 @@ curl --get 'http://127.0.0.1:8787/api/admin/v1/annotation' \
 
 Replace the illustrative token with a response's actual reference. Returns HTTP 200 `{reference,annotation}`. Annotation is null if no personal values were written; otherwise its fields are `reference,loved,rating,note,tags,created_at,updated_at`. The two dates use Unix seconds; absent rating/note are null and tags is an array. Public `/artist` or `/track` reads never include these private values. Invalid reference gives 400; a valid entity absent from the current catalog gives 404.
 
+Accepted alternate references (former album disc folders, local recording references after identification, and unambiguous artist MBIDs) address the current canonical entity. Reads and writes return its canonical `reference` and share one owner-scoped annotation. Reconciliation also recognizes previously stored unambiguous artist MBID aliases; an existing conflicting record for that owner is preserved rather than overwritten.
+
 ### HEAD /api/admin/v1/annotation
 
 Same token/reference/lock validation without an annotation body.

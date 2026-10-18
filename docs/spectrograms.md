@@ -24,6 +24,8 @@ There is zero penalty for stopping halfway through a massive run. If you cancel 
 
 Each rendered image is deposited as a PNG into a dedicated `spectrograms/` subdirectory, sitting immediately beside the master audio files it describes.
 
+FFmpeg writes into a private temporary directory beside the destination. A successful render is published by replacing the final picture; a failed render leaves an existing picture intact. Aède refuses destination links and special files before rendering and again before publication. This uses the same temporary-output policy as playlist/copy writes, not a filesystem sandbox against hostile concurrent parent-directory replacement. Failures do not abandon other selected tracks, but the final command and its administrative task report failure rather than success. Completed images remain available.
+
 Crucially, these are drawn using the **exact same ffmpeg filter and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**. This is a deliberate, uncompromising design choice. An archivist often relies on both tools, and spectrograms that differ in gain or colour mapping from one program to the other would be impossible to read _as a pair_. We ensure the acoustic reality looks mathematically identical across your entire forensic suite.
 
 ## Frame Size and Storage Footprint

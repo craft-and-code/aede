@@ -192,6 +192,8 @@ CREATE TABLE analysis (
     source           TEXT    NOT NULL,   -- 'flaccompagnon'
     source_version   INTEGER NOT NULL,   -- version of that tool's report format
     imported_at      INTEGER NOT NULL,   -- Unix epoch in seconds
+    -- JSON retains the same value in an additive result_at_ns_exact decimal
+    -- string as well, avoiding f64 rounding without removing the legacy number.
     result_at_ns     INTEGER NOT NULL DEFAULT 0, -- report mtime or measurement completion; zero = unknown
     size_bytes       INTEGER NOT NULL,
     modified_unix    INTEGER NOT NULL,

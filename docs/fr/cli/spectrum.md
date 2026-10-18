@@ -1,10 +1,12 @@
 # spectrum — Créer des spectrogrammes
 
-spectrum dessine des spectrogrammes à côté de la musique cataloguée via le moteur FlacCompagnon. Ils montrent les fréquences dans le temps ; une coupure visuelle aide l’enquête mais ne prouve pas à elle seule un transcodage.
+spectrum dessine des spectrogrammes à côté de la musique cataloguée avec FFmpeg, en reprenant le filtre et la palette de FlacCompagnon. Ils montrent les fréquences dans le temps ; une coupure visuelle aide l’enquête mais ne prouve pas à elle seule un transcodage.
 
 Les images sont en demi-taille par défaut ; --size full choisit la taille complète. Les images existantes sont ignorées sans --full, même si la taille demandée a changé. --dry-run liste les résultats prévus sans dessin ; --threads règle le parallélisme.
 
 La commande crée des images annexes et exige les droits d’écriture dans ces dossiers ; les originaux restent en lecture seule. En cas d’échec, consulter le fichier signalé et vérifier format/outils avant de relancer. analyze fournit les mesures numériques ; une image n’est pas une somme d’intégrité.
+
+Le dessin utilise une sortie temporaire isolée, puis remplace l’image finale uniquement après réussite. Les liens et fichiers spéciaux existant à destination sont refusés avant le dessin et la publication. Un échec préserve l’ancienne image ; les autres pistes sélectionnées sont traitées. Toute image en échec fait échouer la commande et sa tâche d’administration serveur, tout en conservant les images terminées.
 
 ## Syntaxe et arguments
 

@@ -31,6 +31,38 @@ fn fixture() -> Catalog {
     });
     catalog
 }
+
+#[test]
+fn downloaded_reports_keep_legacy_measurement_dates_when_imported_again() {
+    let mut catalog = fixture();
+    let date = 1_750_000_000_000_000_100;
+    catalog.analyses[0].result_at_ns = date;
+    let original = catalog.analyses[0].clone();
+    let downloaded = report(&catalog, EntityKind::Track, 0).unwrap();
+    assert_eq!(catalog.analyses[0], original, "export remains read-only");
+    let imported = crate::analysis::parse_report_at(&downloaded, date + 200).unwrap();
+    assert_eq!(imported.files[0].result_at_ns, date);
+    let mut entry = imported.files[0].source_data.clone().unwrap();
+    if let json::Json::Obj(fields) = &mut entry {
+        fields.remove(crate::analysis::RESULT_DATE_FIELD);
+    }
+    assert_eq!(entry, original.source_data.clone().unwrap());
+    catalog.analyses[0].result_at_ns = date + 100;
+    let outcome = crate::analysis::merge_into(&mut catalog, imported.files, 42);
+    assert_eq!(outcome.older, 1);
+    assert_eq!(catalog.analyses[0].result_at_ns, date + 100);
+
+    let undated = report(&fixture(), EntityKind::Track, 0).unwrap();
+    assert_eq!(
+        crate::analysis::parse_report_at(&undated, date)
+            .unwrap()
+            .files[0]
+            .result_at_ns,
+        0,
+        "an explicit unknown date must not become the download date"
+    );
+}
+
 #[test]
 fn extracts_one_track_from_an_album_or_artist_import_without_losing_source_fields() {
     let c = fixture();
@@ -40,10 +72,9 @@ fn extracts_one_track_from_an_album_or_artist_import_without_losing_source_field
         Some("flaccompagnon-report")
     );
     let inner = output.get("report").unwrap();
-    assert_eq!(
-        inner.get("files").unwrap().as_arr().unwrap(),
-        &[c.analyses[1].source_data.clone().unwrap()]
-    );
+    let mut expected = c.analyses[1].source_data.clone().unwrap();
+    expected.set("aede_result_at_ns", "0".into());
+    assert_eq!(inner.get("files").unwrap().as_arr().unwrap(), &[expected]);
     assert_eq!(inner.get("has_flac").unwrap().as_bool(), Some(true));
     assert_eq!(
         crate::analysis::parse_report(&report(&c, EntityKind::Track, 1).unwrap())
@@ -57,6 +88,10 @@ fn extracts_one_track_from_an_album_or_artist_import_without_losing_source_field
 fn combines_individual_track_reports_in_album_order_without_unrelated_files() {
     let c = fixture();
     let output = json::parse(&report(&c, EntityKind::Release, 0).unwrap()).unwrap();
+    let mut expected_first = c.analyses[1].source_data.clone().unwrap();
+    expected_first.set("aede_result_at_ns", "0".into());
+    let mut expected_second = c.analyses[0].source_data.clone().unwrap();
+    expected_second.set("aede_result_at_ns", "0".into());
     assert_eq!(
         output
             .get("report")
@@ -65,10 +100,7 @@ fn combines_individual_track_reports_in_album_order_without_unrelated_files() {
             .unwrap()
             .as_arr()
             .unwrap(),
-        &[
-            c.analyses[1].source_data.clone().unwrap(),
-            c.analyses[0].source_data.clone().unwrap()
-        ]
+        &[expected_first, expected_second]
     );
     assert_eq!(
         output.get("report").unwrap().field_str("root").as_deref(),

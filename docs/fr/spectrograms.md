@@ -30,6 +30,8 @@ Arrêter une longue exécution en cours ne supprime pas le travail déjà termin
 
 Chaque image est enregistrée en PNG dans un sous-dossier `spectrograms/`, à côté des fichiers audio qu’elle décrit.
 
+FFmpeg écrit dans un dossier temporaire privé à côté de la destination. Le dessin réussi remplace l’image finale ; un échec laisse l’ancienne image intacte. Aède refuse les liens et fichiers spéciaux à destination avant le dessin, puis avant la publication. Cette règle réutilise les sorties temporaires des listes de lecture et des copies ; elle ne constitue pas un bac à sable contre un remplacement concurrent hostile du dossier parent. Les autres pistes sélectionnées restent traitées, mais la commande et sa tâche d’administration signalent finalement un échec. Les images terminées restent disponibles.
+
 Les images sont produites avec **le même filtre FFmpeg et la même palette que [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**. Ce choix facilite l’utilisation des deux outils : des spectrogrammes utilisant des gains ou des palettes différents seraient difficiles à lire _ensemble_. La même méthode permet une représentation acoustique cohérente entre les outils.
 
 <div id="frame-size-and-storage-footprint" data-legacy-anchor></div>

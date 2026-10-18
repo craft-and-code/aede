@@ -35,6 +35,8 @@ When `--artists` is passed, Aède attempts to create a master playlist for an ar
 
 ## The Second Run: Silent and Safe
 
+Only ordinary destination files are compared for an unchanged result, with a fixed-size byte buffer. Links and special files are refused, including a named pipe that would otherwise wait for a writer. Catalog-driven generation does not recreate missing album or artist folders: it reports those failures, continues with available folders and returns a nonzero exit status. This does not change explicit selection exports or provide a sandbox against concurrent parent-directory replacement.
+
 **A second run writes nothing.**
 
 Aède does not simply check if the `.m3u` file exists; it tests the _text_. A playlist's truth is derived from the current set of tracks in the catalog, not from the physical bytes on disk. If you add a missing track to an album and re-run the command, Aède compares the newly rendered text against what is already on disk.

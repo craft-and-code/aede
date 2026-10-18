@@ -374,6 +374,90 @@ fn http_request(
 }
 
 #[test]
+fn accepted_annotation_aliases_share_one_canonical_record() {
+    crate::test_support::test_runtime().block_on(async {
+        let state = state();
+        let mut catalog = state.catalog.read().await.clone().unwrap();
+        catalog.artists[0].mbid = Some("artist-1".into());
+        catalog.releases[0].folder = "/music/album".into();
+        store::save_catalog_only(&catalog, &store::catalog_path(&state.data_dir)).unwrap();
+        for (kind, alias) in [
+            (EntityKind::Artist, "artist:mbid:artist-1".to_owned()),
+            (
+                EntityKind::Recording,
+                "recording:local:/music/album/01.flac".to_owned(),
+            ),
+            (
+                EntityKind::Release,
+                format!(
+                    "{}/CD1",
+                    EntityRef::of(&catalog, EntityKind::Release, 0)
+                        .unwrap()
+                        .to_token()
+                ),
+            ),
+        ] {
+            let canonical = EntityRef::of(&catalog, kind, 0).unwrap();
+            assert_eq!(
+                EntityRef::parse_token(&alias).unwrap().resolve(&catalog),
+                Some(0)
+            );
+            let write = update_annotation(
+                State(state.clone()),
+                Ok(Query(RefQuery {
+                    reference: alias.clone(),
+                })),
+                request("/api/admin/v1/annotation", r#"{"rating":4}"#),
+            )
+            .await
+            .unwrap();
+            for reference in [&alias, &canonical.to_token()] {
+                let read = annotation(
+                    State(state.clone()),
+                    Ok(Query(RefQuery {
+                        reference: reference.clone(),
+                    })),
+                    request("/api/admin/v1/annotation", ""),
+                )
+                .await
+                .unwrap();
+                assert_eq!(read.0.annotation.unwrap().rating, Some(4));
+            }
+            assert_eq!(write.0.reference, canonical.to_token());
+            let _ = update_annotation(
+                State(state.clone()),
+                Ok(Query(RefQuery {
+                    reference: canonical.to_token(),
+                })),
+                request("/api/admin/v1/annotation", r#"{"tags":["shared"]}"#),
+            )
+            .await
+            .unwrap();
+            let data = user::load(&user::user_path(&state.data_dir))
+                .unwrap()
+                .unwrap();
+            let rows: Vec<_> = data
+                .annotations
+                .iter()
+                .filter(|row| row.owner == LOCAL_USER && row.target.kind == kind)
+                .collect();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].rating, Some(4));
+            assert!(rows[0].tags.contains("shared"));
+            let cleared = update_annotation(
+                State(state.clone()),
+                Ok(Query(RefQuery { reference: alias })),
+                request("/api/admin/v1/annotation", r#"{"rating":null,"tags":null}"#),
+            )
+            .await
+            .unwrap();
+            assert!(cleared.0.annotation.is_none());
+        }
+        cleanup(&state);
+    });
+}
+
+#[test]
 fn annotation_patch_updates_one_local_owner_and_explicit_null_removes_fields() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {

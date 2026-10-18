@@ -12,6 +12,56 @@ fn malformed_present_tables_are_not_read_as_empty_conclusions() {
     }
 }
 
+#[test]
+fn malformed_analysis_rows_are_refused_without_rewriting_either_store() {
+    #[cfg(unix)]
+    let directory = crate::store_lock::test_support::Directory::new("analysis_rows");
+    #[cfg(unix)]
+    let catalog_path = store::catalog_path(directory.path());
+    #[cfg(unix)]
+    let held_path = conclusions_path(directory.path());
+    let catalog = Catalog::default();
+    #[cfg(unix)]
+    let catalog_bytes = store::to_json(&catalog).to_string_compact();
+    #[cfg(unix)]
+    std::fs::write(&catalog_path, &catalog_bytes).unwrap();
+    for row in [
+        "null",
+        "{}",
+        r#"{"path":12}"#,
+        r#"{"path":"/music/a.flac","real_bit_depth":65552}"#,
+        r#"{"path":"/music/a.flac","size_bytes":"42"}"#,
+        r#"{"path":"/music/a.flac","fake_stereo":"false"}"#,
+        r#"{"path":"/music/a.flac","source_data":[]}"#,
+        r#"{"path":"/music/a.flac","summary":12}"#,
+        r#"{"path":"/music/a.flac","result_at_ns":1,"result_at_ns_exact":"2"}"#,
+        r#"{"path":"/music/a.flac","result_at_ns":1,"result_at_ns_exact":"+1"}"#,
+        r#"{"path":"/music/a.flac","result_at_ns":1,"result_at_ns_exact":null}"#,
+        r#"{"path":"/music/a.flac","result_at_ns":1,"result_at_ns_exact":"18446744073709551616"}"#,
+    ] {
+        let mut document = to_json(&Conclusions::default());
+        document.set("analysis", Json::Arr(vec![json::parse(row).unwrap()]));
+        assert!(from_json(&document).is_err(), "invalid analysis: {row}");
+        #[cfg(unix)]
+        {
+            let bytes = document.to_string_compact();
+            std::fs::write(&held_path, &bytes).unwrap();
+            assert!(store::save(&catalog, &catalog_path).is_err());
+            assert_eq!(std::fs::read_to_string(&held_path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::read_to_string(&catalog_path).unwrap(),
+                catalog_bytes
+            );
+        }
+        let mut legacy = store::to_json(&catalog);
+        legacy.set("analysis", document.get("analysis").unwrap().clone());
+        assert!(
+            store::from_json(&legacy).is_err(),
+            "invalid legacy analysis: {row}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn conclusions_save_cannot_follow_a_preexisting_temporary_symlink() {
@@ -40,6 +90,74 @@ fn conclusions_save_cannot_follow_a_preexisting_temporary_symlink() {
     assert!(load(&path).unwrap().is_some());
     assert_eq!(std::fs::read_link(temporary).unwrap(), protected);
     std::fs::remove_dir_all(sandbox).unwrap();
+}
+
+#[test]
+fn persisted_analysis_retains_measurements_and_legacy_absence() {
+    let analysis = FileAnalysis {
+        path: "/music/one.flac".into(),
+        source: "flaccompagnon".into(),
+        source_version: 8,
+        imported_at: 10,
+        result_at_ns: 9_007_199_254_740_993,
+        size_bytes: 42,
+        modified_unix: 7,
+        file_md5: Some("0123456789abcdef0123456789abcdef".into()),
+        source_data: Some(json::parse(r#"{"future_measurement":[1,2,3]}"#).unwrap()),
+        md5_state: Some("Match".into()),
+        md5_detail: Some("verified".into()),
+        real_bit_depth: Some(24),
+        requant_rate: Some(0.0),
+        fake_stereo: Some(false),
+        ext_mismatch: Some(false),
+        transcoding: Some("none".into()),
+        upscaling: Some(false),
+        upsampling: Some(false),
+        summary: Some("lossless".into()),
+        detail: Some("retained source wording".into()),
+        cutoff_hz: Some(20_000.0),
+        cutoff_ratio: Some(0.9),
+        dr_db: Some(12.0),
+        peak_dbfs: Some(-1.0),
+        true_peak_dbtp: Some(-0.5),
+        integrated_lufs: Some(-14.0),
+        clipped_samples: Some(0),
+        clip_events: Some(0),
+        clipped: Some(false),
+        error: None,
+    };
+    let stored = Conclusions {
+        analyses: vec![analysis.clone()],
+        ..Default::default()
+    };
+    let serialized = to_json(&stored).to_string_compact();
+    assert_eq!(
+        from_json(&json::parse(&serialized).unwrap())
+            .unwrap()
+            .analyses,
+        vec![analysis]
+    );
+    let legacy = store::analysis_from_json(
+        &json::parse(r#"{"path":"/music/old.flac","fake_stereo":null}"#).unwrap(),
+    )
+    .unwrap();
+    assert!(legacy.fake_stereo.is_none());
+    assert!(legacy.real_bit_depth.is_none());
+    assert_eq!(legacy.result_at_ns, 0);
+    for date in [0, 1, (1 << 53) - 1, (1 << 53) + 1, u64::MAX] {
+        let original = FileAnalysis {
+            path: "/music/date.flac".into(),
+            result_at_ns: date,
+            ..Default::default()
+        };
+        let bytes = store::analysis_to_json(&original).to_string_compact();
+        assert_eq!(
+            store::analysis_from_json(&json::parse(&bytes).unwrap())
+                .unwrap()
+                .result_at_ns,
+            date
+        );
+    }
 }
 use crate::audit::integrity::Verdict;
 use crate::model::{AudioFile, IntegrityRecord};

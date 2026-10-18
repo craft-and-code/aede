@@ -177,7 +177,7 @@ pub(super) fn resolve_release(reference: &EntityRef, catalog: &Catalog) -> Optio
     matches.next().is_none().then_some(found.id)
 }
 
-/// Resolution for a reconciliation pass, including legacy recording aliases.
+/// Resolution for a reconciliation pass, including artist MBIDs and legacy recording aliases.
 /// Building once keeps a referenced library from being walked for every record.
 struct ReferenceIndex {
     current: BTreeMap<EntityRef, (Id, usize)>,
@@ -205,6 +205,26 @@ impl ReferenceIndex {
                         .entry(reference)
                         .and_modify(|value| value.1 += 1)
                         .or_insert((id, 1));
+                }
+            }
+            if kind == EntityKind::Artist {
+                let mut by_mbid = BTreeMap::<&str, (Id, usize)>::new();
+                for artist in &catalog.artists {
+                    if let Some(mbid) = artist.mbid.as_deref() {
+                        by_mbid
+                            .entry(mbid)
+                            .and_modify(|row| row.1 += 1)
+                            .or_insert((artist.id, 1));
+                    }
+                }
+                for (mbid, (id, count)) in by_mbid {
+                    if count == 1 {
+                        // Match EntityRef::resolve: exact keys win, and a
+                        // fallback MBID must identify precisely one artist.
+                        current
+                            .entry(EntityRef::new(kind, format!("mbid:{mbid}")))
+                            .or_insert((id, 1));
+                    }
                 }
             }
             if kind == EntityKind::Recording {
@@ -251,6 +271,8 @@ impl ReferenceIndex {
 /// data already at the destination for that owner. Legacy references lacking
 /// evidence remain waiting. Album references using a former disc folder migrate
 /// to the release's canonical folder only when their resolution is unambiguous.
+/// Artist MBID aliases follow the same unique-identity rule as direct lookup;
+/// canonical keys and conflicting personal records retain their precedence.
 /// No annotation, play or counter is deleted.
 pub fn reconcile(data: &mut UserData, catalog: &Catalog) -> Attachment {
     let mut report = Attachment::default();

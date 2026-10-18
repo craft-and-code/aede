@@ -378,14 +378,17 @@ fn reference(query: RefQuery) -> Result<EntityRef, ApiError> {
         .ok_or_else(|| invalid_reference("ref must be a nonempty entity reference"))
 }
 
-fn existing_target(catalog: &Catalog, reference: &EntityRef) -> Result<(), ApiError> {
-    reference.resolve(catalog).map(|_| ()).ok_or_else(|| {
+fn canonical_target(catalog: &Catalog, reference: &EntityRef) -> Result<EntityRef, ApiError> {
+    let id = reference.resolve(catalog).ok_or_else(|| {
         error(
             StatusCode::NOT_FOUND,
             "entity_not_found",
             "no entity matches this reference",
         )
-    })
+    })?;
+    // Accepted legacy aliases must address the same personal row as current
+    // catalog responses, including after reconciliation or identification.
+    EntityRef::of(catalog, reference.kind, id).ok_or_else(unavailable)
 }
 
 fn load_personal(data_dir: &Path, catalog: &Catalog) -> Result<UserData, ApiError> {
@@ -514,7 +517,7 @@ async fn annotation(
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        existing_target(&catalog, &reference)?;
+        let reference = canonical_target(&catalog, &reference)?;
         owner.admit(
             &state,
             Json(AnnotationResponse {
@@ -547,7 +550,7 @@ async fn update_annotation(
     spawn_personal(state.inspection_slots.clone(), move || {
         let now = clock::now_seconds();
         let saved = locked_update(&data_dir, &state, &owner, |catalog, data| {
-            existing_target(catalog, &reference)?;
+            let reference = canonical_target(catalog, &reference)?;
             let entry = data.entry(&owner.id, &reference, now);
             if let Field::Value(Some(loved)) = patch.loved {
                 entry.loved = loved;
@@ -565,7 +568,7 @@ async fn update_annotation(
             Ok(entry.clone())
         })?;
         Ok(Json(AnnotationResponse {
-            reference: reference.to_token(),
+            reference: saved.target.to_token(),
             annotation: (!saved.is_empty()).then(|| annotation_view(&saved)),
         }))
     })?
@@ -693,7 +696,7 @@ async fn record_history(
     spawn_personal(state.inspection_slots.clone(), move || {
         let at = input.at.unwrap_or(now);
         locked_update(&data_dir, &state, &owner, |catalog, data| {
-            existing_target(catalog, &track)?;
+            let track = canonical_target(catalog, &track)?;
             let play = Play {
                 owner: owner.id.clone(),
                 track: track.clone(),

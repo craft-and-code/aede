@@ -37,6 +37,8 @@ Un chemin contenant un retour chariot ou saut de ligne est refusé avant toute �
 
 Le bilan distingue playlists prévues, écrites, à jour et échouées. --dry-run liste au plus les 20 premiers chemins prévus et compte la suite sans écrire ; les playlists identiques gardent leur date. Les éditions partageant un dossier contribuent à une playlist commune. Un fichier modifié est publié depuis une sortie temporaire isolée après écriture complète. Aucun album catalogué sélectionné : message explicatif et réussite. Les erreurs de fichiers sont listées et comptées, et tout échec produit un code de sortie non nul. La playlist est du texte UTF-8 avec un nom .m3u ; aucun audio copié.
 
+La vérification du contenu existant accepte uniquement un fichier ordinaire et compare ses octets avec un tampon de taille fixe, sans charger un fichier arbitraire en mémoire. Un lien ou fichier spécial à destination est refusé, plutôt que considéré comme à jour ou ouvert en attendant des données. Un dossier d’album ou d’artiste indisponible est signalé en échec et n’est pas recréé depuis le catalogue conservé ; les autres dossiers disponibles reçoivent leurs playlists. Les exports explicites de sélection peuvent toujours créer leur dossier de destination choisi.
+
 ## Pour continuer
 
 [play](play.md), [query](query.md), [collection](collection.md).

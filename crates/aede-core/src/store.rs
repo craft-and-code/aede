@@ -402,6 +402,10 @@ fn file_to_json(file: &AudioFile) -> Json {
 /// Absent measurements are written as `null` rather than left out: the reader
 /// then distinguishes "not measured" from "measured as zero", which for a peak
 /// or a dynamic range is the whole difference.
+/// Serializes an attributed analysis without dropping unknown source data.
+///
+/// Dated rows retain the legacy numeric `result_at_ns` and an additive decimal
+/// `result_at_ns_exact` for precision beyond the JSON model's `f64` range.
 pub fn analysis_to_json(a: &FileAnalysis) -> Json {
     let mut o = Json::obj();
     o.set("path", a.path.clone().into());
@@ -409,6 +413,11 @@ pub fn analysis_to_json(a: &FileAnalysis) -> Json {
     o.set("source_version", a.source_version.into());
     o.set("imported_at", a.imported_at.into());
     o.set("result_at_ns", a.result_at_ns.into());
+    if a.result_at_ns != 0 {
+        // Keep the legacy numeric field for older readers. Nanosecond dates
+        // exceed the JSON model's exact f64 integer range.
+        o.set("result_at_ns_exact", a.result_at_ns.to_string().into());
+    }
     o.set("size_bytes", a.size_bytes.into());
     o.set("modified_unix", a.modified_unix.into());
     o.set("file_md5", opt_str(&a.file_md5));
@@ -437,13 +446,94 @@ pub fn analysis_to_json(a: &FileAnalysis) -> Json {
     o
 }
 
-pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
-    FileAnalysis {
-        path: item.field_str("path").unwrap_or_default(),
+pub(crate) fn analysis_from_json(item: &Json) -> Result<FileAnalysis, StoreError> {
+    let path = item
+        .field_str("path")
+        .filter(|path| !path.is_empty())
+        .ok_or(StoreError::Invalid("analysis without path"))?;
+    // Missing/null optional measurements are legacy-compatible. A present
+    // value of the wrong type must not be lost on the next protected save.
+    stored_fields(
+        item,
+        &[
+            "source",
+            "file_md5",
+            "md5_state",
+            "md5_detail",
+            "transcoding",
+            "summary",
+            "detail",
+            "error",
+        ],
+        |value| value.as_str().is_some(),
+        "invalid stored analysis field",
+    )?;
+    stored_fields(
+        item,
+        &[
+            "imported_at",
+            "size_bytes",
+            "modified_unix",
+            "clipped_samples",
+            "clip_events",
+        ],
+        |value| value.as_u64().is_some(),
+        "invalid stored analysis field",
+    )?;
+    stored_fields(
+        item,
+        &["source_version"],
+        |value| value.as_u32().is_some(),
+        "invalid stored analysis field",
+    )?;
+    stored_fields(
+        item,
+        &["real_bit_depth"],
+        |value| {
+            value
+                .as_u32()
+                .is_some_and(|depth| u16::try_from(depth).is_ok())
+        },
+        "invalid stored analysis field",
+    )?;
+    stored_fields(
+        item,
+        &[
+            "requant_rate",
+            "cutoff_hz",
+            "cutoff_ratio",
+            "dr_db",
+            "peak_dbfs",
+            "true_peak_dbtp",
+            "integrated_lufs",
+        ],
+        |value| value.as_f64().is_some_and(f64::is_finite),
+        "invalid stored analysis field",
+    )?;
+    stored_fields(
+        item,
+        &[
+            "fake_stereo",
+            "ext_mismatch",
+            "upscaling",
+            "upsampling",
+            "clipped",
+        ],
+        |value| value.as_bool().is_some(),
+        "invalid stored analysis field",
+    )?;
+    stored_fields(
+        item,
+        &["source_data"],
+        |value| matches!(value, Json::Obj(_)),
+        "invalid stored analysis field",
+    )?;
+    Ok(FileAnalysis {
+        path,
         source: item.field_str("source").unwrap_or_default(),
         source_version: item.field_u32("source_version").unwrap_or(0),
         imported_at: item.field_u64("imported_at").unwrap_or(0),
-        result_at_ns: item.field_u64("result_at_ns").unwrap_or(0),
+        result_at_ns: analysis_result_date(item)?,
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
         file_md5: item.field_str("file_md5"),
@@ -453,7 +543,9 @@ pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
             .cloned(),
         md5_state: item.field_str("md5_state"),
         md5_detail: item.field_str("md5_detail"),
-        real_bit_depth: item.field_u32("real_bit_depth").map(|v| v as u16),
+        real_bit_depth: item
+            .field_u32("real_bit_depth")
+            .and_then(|v| u16::try_from(v).ok()),
         requant_rate: item.field_f64("requant_rate"),
         fake_stereo: item.field_optional_bool("fake_stereo"),
         ext_mismatch: item.field_optional_bool("ext_mismatch"),
@@ -472,6 +564,40 @@ pub(crate) fn analysis_from_json(item: &Json) -> FileAnalysis {
         clip_events: item.field_u64("clip_events"),
         clipped: item.field_optional_bool("clipped"),
         error: item.field_str("error"),
+    })
+}
+
+fn stored_fields(
+    item: &Json,
+    fields: &[&str],
+    valid: impl Fn(&Json) -> bool,
+    message: &'static str,
+) -> Result<(), StoreError> {
+    if fields.iter().any(|field| {
+        item.get(field)
+            .is_some_and(|value| *value != Json::Null && !valid(value))
+    }) {
+        return Err(StoreError::Invalid(message));
+    }
+    Ok(())
+}
+
+fn analysis_result_date(item: &Json) -> Result<u64, StoreError> {
+    let invalid = || StoreError::Invalid("invalid analysis result date");
+    if let Some(exact) = item.get("result_at_ns_exact") {
+        let date = exact
+            .as_str()
+            .filter(|text| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+            .and_then(|text| text.parse::<u64>().ok())
+            .ok_or_else(invalid)?;
+        if item.field_f64("result_at_ns") != Some(date as f64) {
+            return Err(invalid());
+        }
+        return Ok(date);
+    }
+    match item.get("result_at_ns") {
+        None | Some(Json::Null) => Ok(0),
+        Some(value) => value.as_u64().ok_or_else(invalid),
     }
 }
 
@@ -696,6 +822,10 @@ fn genre_link_to_json(g: &GenreLink) -> Json {
 /// the model indexes entities by position, and a gap would silently shift
 /// every relation. Present tables, lists and polymorphic references must be
 /// well formed; absent optional legacy fields retain their migration defaults.
+/// Optional audio precision/channel counts accept absence or `null`, but
+/// present values must be integral `u16` values rather than truncated numbers.
+/// Known file scalars and tag tables must have their declared JSON types;
+/// malformed values cannot be rewritten as empty/default file metadata.
 pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     let version = value.field_u32("format_version").unwrap_or(0);
     if version != FORMAT_VERSION {
@@ -964,7 +1094,7 @@ pub fn from_json(value: &Json) -> Result<Catalog, StoreError> {
     }
 
     for item in rows(value, "analysis") {
-        catalog.analyses.push(analysis_from_json(item));
+        catalog.analyses.push(analysis_from_json(item)?);
     }
 
     verify_integrity(&catalog)?;
@@ -1245,7 +1375,48 @@ fn rebuild_legacy_recordings(catalog: &mut Catalog) {
     }
 }
 
+fn file_optional_u16(item: &Json, field: &str) -> Result<Option<u16>, StoreError> {
+    match item.get(field) {
+        None | Some(Json::Null) => Ok(None),
+        Some(value) => value
+            .as_u32()
+            .and_then(|value| u16::try_from(value).ok())
+            .map(Some)
+            .ok_or(StoreError::Invalid("invalid stored audio property")),
+    }
+}
+
 fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
+    stored_fields(
+        item,
+        &["codec", "container", "lyrics_path"],
+        |value| value.as_str().is_some(),
+        "invalid stored file field",
+    )?;
+    stored_fields(
+        item,
+        &["size", "mtime", "duration_ms"],
+        |value| value.as_u64().is_some(),
+        "invalid stored file field",
+    )?;
+    stored_fields(
+        item,
+        &["sample_rate", "bitrate_kbps"],
+        |value| value.as_u32().is_some(),
+        "invalid stored file field",
+    )?;
+    stored_fields(
+        item,
+        &["lossless", "has_embedded_art"],
+        |value| value.as_bool().is_some(),
+        "invalid stored file field",
+    )?;
+    stored_fields(
+        item,
+        &["tags"],
+        |value| matches!(value, Json::Obj(_)),
+        "file tags must be an object",
+    )?;
     let mut tags: BTreeMap<String, Vec<String>> = BTreeMap::new();
     if let Some(Json::Obj(map)) = item.get("tags") {
         for (key, values) in map {
@@ -1266,8 +1437,8 @@ fn file_from_json(item: &Json) -> Result<AudioFile, StoreError> {
             codec: item.field_str("codec").unwrap_or_default(),
             container: item.field_str("container").unwrap_or_default(),
             sample_rate: item.field_u32("sample_rate"),
-            bit_depth: item.field_u32("bit_depth").map(|v| v as u16),
-            channels: item.field_u32("channels").map(|v| v as u16),
+            bit_depth: file_optional_u16(item, "bit_depth")?,
+            channels: file_optional_u16(item, "channels")?,
             duration_ms: item.field_u64("duration_ms"),
             bitrate_kbps: item.field_u32("bitrate_kbps"),
             lossless: item.field_bool("lossless"),

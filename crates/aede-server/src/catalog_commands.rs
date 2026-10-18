@@ -278,14 +278,16 @@ fn resolve_selection(
                     format!("ref must name a {}", kind.as_str()),
                 )
             })?;
-        requested.resolve(catalog).ok_or_else(|| {
+        let id = requested.resolve(catalog).ok_or_else(|| {
             error(
                 StatusCode::NOT_FOUND,
                 "entity_not_found",
                 "no entity matches this reference",
             )
         })?;
-        return Ok(requested);
+        // Source attribution is stored under the catalog's canonical key;
+        // an accepted alternate reference must not hide an existing claim.
+        return EntityRef::of(catalog, kind, id).ok_or_else(unavailable);
     }
     let name = query
         .name
@@ -525,6 +527,7 @@ fn browse_options(query: &BrowseQuery, kind: EntityKind) -> Result<BrowseOptions
 
 fn album_filter(catalog: &Catalog, query: &BrowseQuery) -> Result<Option<BTreeSet<Id>>, ApiError> {
     let mut terms = Vec::new();
+    let mut exact_tracks: Option<BTreeSet<Id>> = None;
     for (value, field, kind) in [
         (
             &query.artist,
@@ -535,28 +538,34 @@ fn album_filter(catalog: &Catalog, query: &BrowseQuery) -> Result<Option<BTreeSe
         (&query.label, catalog_query::Field::Label, EntityKind::Label),
     ] {
         if let Some(value) = value {
-            let (value, exact) = if EntityRef::parse_token(value).is_some() {
+            if EntityRef::parse_token(value).is_some() {
                 let id = filter_reference(catalog, value, kind)?;
-                (
-                    entity_name(catalog, kind, id)
-                        .ok_or_else(unavailable)?
-                        .to_string(),
-                    true,
-                )
-            } else {
-                (value.clone(), false)
-            };
-            let value = text::normalize(&value);
+                // A stable reference selects identity, including homonyms;
+                // translating it to a name would widen the requested scope.
+                let tracks: BTreeSet<_> = match kind {
+                    EntityKind::Artist => catalog
+                        .releases
+                        .iter()
+                        .filter(|release| release.album_artist_id == Some(id))
+                        .flat_map(|release| release.track_ids.iter().copied())
+                        .collect(),
+                    EntityKind::Genre => catalog.tracks_of_genre(id).into_iter().collect(),
+                    EntityKind::Label => catalog.tracks_of_label(id).into_iter().collect(),
+                    _ => return Err(invalid_query("unsupported album filter kind")),
+                };
+                match &mut exact_tracks {
+                    Some(selected) => selected.retain(|id| tracks.contains(id)),
+                    None => exact_tracks = Some(tracks),
+                }
+                continue;
+            }
+            let value = text::normalize(value);
             if value.is_empty() {
                 return Err(invalid_query("filter values cannot be empty"));
             }
             terms.push(catalog_query::Query::Term(catalog_query::Term {
                 field,
-                test: if exact {
-                    catalog_query::Test::Is(value)
-                } else {
-                    catalog_query::Test::Contains(value)
-                },
+                test: catalog_query::Test::Contains(value),
             }));
         }
     }
@@ -569,7 +578,12 @@ fn album_filter(catalog: &Catalog, query: &BrowseQuery) -> Result<Option<BTreeSe
         }));
     }
     if terms.is_empty() {
-        return Ok(None);
+        return Ok(exact_tracks.map(|tracks| {
+            tracks
+                .into_iter()
+                .filter_map(|id| catalog.track(id).and_then(|track| track.release_id))
+                .collect()
+        }));
     }
     let expression = catalog_query::Query::And(terms);
     // Only public catalog fields are constructed above. User predicates and
@@ -586,6 +600,11 @@ fn album_filter(catalog: &Catalog, query: &BrowseQuery) -> Result<Option<BTreeSe
     Ok(Some(
         catalog_query::run(&expression, &context)
             .into_iter()
+            .filter(|id| {
+                exact_tracks
+                    .as_ref()
+                    .is_none_or(|tracks| tracks.contains(id))
+            })
             .filter_map(|id| catalog.track(id).and_then(|track| track.release_id))
             .collect(),
     ))

@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn dated_reports_remain_readable_upstream_without_losing_integer_precision() {
+    let folder = std::env::temp_dir().join(format!("aede_dated_report_{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("track.flac");
+    std::fs::write(&path, include_bytes!("../tests/fixtures/track.flac")).unwrap();
+    let mut report = analyze_album(
+        &folder,
+        std::slice::from_ref(&path),
+        &ScanOptions::default(),
+        1,
+    );
+    assert!(report.files[0].error.is_none());
+    report.files[0].size_bytes = u64::MAX;
+    let date = 1_750_000_000_000_000_100;
+    let dates = BTreeMap::from([(report.files[0].path.clone(), date)]);
+    let output = report_json_with_dates(&report, &dates, &BTreeMap::new()).unwrap();
+    let upstream = fc::report::parse_json(&output).unwrap();
+    assert_eq!(upstream.files[0].size_bytes, u64::MAX);
+    assert_eq!(
+        upstream.files[0].dr_db,
+        report.files[0]
+            .dr_db
+            .map(|value| (value * 1e9).round() / 1e9)
+    );
+    let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let exact_date = date.to_string();
+    assert_eq!(
+        value["report"]["files"][0]["aede_result_at_ns"].as_str(),
+        Some(exact_date.as_str())
+    );
+    let mut extended = value;
+    extended["report"]["files"][0]["future_integer"] = serde_json::json!(u64::MAX);
+    extended["report"]["files"][0]["clipping"]["future_peak"] = serde_json::json!(0.125);
+    let text = serde_json::to_string(&extended).unwrap();
+    let saved = saved_report(&text, date + 100).unwrap();
+    assert_eq!(saved[0].result_at_ns, date);
+    let reused = BTreeMap::from([(saved[0].analysis.path.clone(), &saved[0])]);
+    let output = report_json_with_dates(&report, &dates, &reused).unwrap();
+    let reused_value: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(reused_value, extended);
+    assert!(report_json_with_dates(&report, &BTreeMap::new(), &BTreeMap::new()).is_err());
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[test]
 fn a_multi_disc_release_writes_one_report_in_its_album_folder() {
     use crate::model::{AudioFile, Release, Track};
 

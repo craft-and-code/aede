@@ -2,6 +2,9 @@
 use crate::json::Json;
 use crate::model::{Catalog, EntityKind, Id};
 use std::collections::BTreeSet;
+
+const MAX_REPORT_BYTES: usize = 16 * 1024 * 1024;
+
 /// Why the selected catalog entity cannot supply a complete current report.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExportError {
@@ -78,12 +81,22 @@ pub fn report(catalog: &Catalog, kind: EntityKind, id: Id) -> Result<String, Exp
                 matches!(entry, Json::Obj(_)) && entry.get("path").and_then(Json::as_str).is_some()
             })
             .ok_or(ExportError::IncompleteAnalysis)?;
-        total_bytes += entry.to_string_pretty().len();
-        if total_bytes > 16 * 1024 * 1024 {
-            return Err(ExportError::TooLarge);
-        }
+        // Bound expansion while rendering, before an oversized retained entry
+        // can allocate an unbounded temporary JSON string.
+        total_bytes += entry
+            .to_string_pretty_bounded(MAX_REPORT_BYTES - total_bytes)
+            .map_err(|_| ExportError::TooLarge)?
+            .len();
+        // The download is a newly built report, not a new measurement. Legacy
+        // source entries need the retained date just as native report rewrites do.
+        // Clone only after the size check; the final bound also covers metadata.
+        let mut entry = entry.clone();
+        entry.set(
+            super::RESULT_DATE_FIELD,
+            record.result_at_ns.to_string().into(),
+        );
         version = version.max(record.source_version);
-        entries.push(entry.clone());
+        entries.push(entry);
     }
     let has_flac = entries.iter().any(|entry| {
         entry
@@ -98,11 +111,9 @@ pub fn report(catalog: &Catalog, kind: EntityKind, id: Id) -> Result<String, Exp
     outer.set("format", Json::Str(super::FLACCOMPAGNON_FORMAT.into()));
     outer.set("version", Json::Num(f64::from(version)));
     outer.set("report", inner);
-    let content = outer.to_string_pretty();
-    if content.len() > 16 * 1024 * 1024 {
-        return Err(ExportError::TooLarge);
-    }
-    Ok(content)
+    outer
+        .to_string_pretty_bounded(MAX_REPORT_BYTES)
+        .map_err(|_| ExportError::TooLarge)
 }
 #[cfg(test)]
 #[path = "export_tests.rs"]

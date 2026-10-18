@@ -7,6 +7,91 @@
 use super::*;
 
 #[test]
+fn imported_bit_depth_never_wraps_into_a_plausible_measurement() {
+    for invalid in ["65552", "4294967295", "-1", "16.5", "\"16\"", "true"] {
+        let text = example("").replace(
+            "\"real_bit_depth\": 16",
+            &format!("\"real_bit_depth\": {invalid}"),
+        );
+        assert!(parse_report(&text).is_err(), "accepted depth {invalid}");
+    }
+    for (field, expected) in [("0", Some(0)), ("65535", Some(u16::MAX)), ("null", None)] {
+        let text = example("").replace(
+            "\"real_bit_depth\": 16",
+            &format!("\"real_bit_depth\": {field}"),
+        );
+        assert_eq!(
+            parse_report(&text).unwrap().files[0].real_bit_depth,
+            expected
+        );
+    }
+    let legacy = example("").replace("\"real_bit_depth\": 16,", "");
+    assert_eq!(parse_report(&legacy).unwrap().files[0].real_bit_depth, None);
+}
+
+#[test]
+fn report_rewrites_keep_per_entry_dates_and_legacy_reports_use_the_file_date() {
+    let dir = TestDirectory::new("per_entry_dates");
+    let date = 1_750_000_000_000_000_100_u64;
+    let text = example(&format!(", \"aede_result_at_ns\": \"{date}\""));
+    let path = dir.file("report.json", text.as_bytes());
+    let metadata = std::fs::metadata(&path).unwrap();
+    assert_ne!(crate::clock::mtime_nanoseconds(&metadata), date);
+    assert_eq!(
+        read_report(Path::new(&path)).unwrap().files[0].result_at_ns,
+        date
+    );
+    assert_eq!(parse_report(&text).unwrap().files[0].result_at_ns, date);
+    assert_eq!(
+        parse_report_at(&example(""), 123).unwrap().files[0].result_at_ns,
+        123
+    );
+    assert_eq!(parse_report(&example("")).unwrap().files[0].result_at_ns, 0);
+    let legacy = dir.file("legacy.json", example("").as_bytes());
+    let file_date = crate::clock::mtime_nanoseconds(&std::fs::metadata(&legacy).unwrap());
+    assert_eq!(
+        read_report(Path::new(&legacy)).unwrap().files[0].result_at_ns,
+        file_date
+    );
+    for invalid in ["null", "123", "\"-1\"", "\"18446744073709551616\"", "\"\""] {
+        assert!(parse_report(&example(&format!(", \"aede_result_at_ns\": {invalid}"))).is_err());
+    }
+    assert_eq!(
+        parse_report_at(&example(", \"aede_result_at_ns\": \"0\""), 123)
+            .unwrap()
+            .files[0]
+            .result_at_ns,
+        0
+    );
+}
+
+#[test]
+fn an_older_report_cannot_replace_a_newer_result_after_a_storage_roundtrip() {
+    let newer = FileAnalysis {
+        path: "/music/one.flac".into(),
+        source: "flaccompagnon".into(),
+        result_at_ns: 1_750_000_000_000_000_100,
+        summary: Some("newer".into()),
+        ..Default::default()
+    };
+    let stored = crate::conclusions::Conclusions {
+        analyses: vec![newer.clone()],
+        ..Default::default()
+    };
+    let json = crate::conclusions::to_json(&stored).to_string_compact();
+    let read = crate::conclusions::from_json(&crate::json::parse(&json).unwrap()).unwrap();
+    let mut catalog = Catalog::default();
+    read.attach(&mut catalog);
+    let older = FileAnalysis {
+        result_at_ns: newer.result_at_ns - 100,
+        summary: Some("older".into()),
+        ..newer.clone()
+    };
+    assert_eq!(merge_into(&mut catalog, vec![older], 20).older, 1);
+    assert_eq!(catalog.analyses, vec![newer]);
+}
+
+#[test]
 fn the_newest_report_result_wins_independently_of_import_order() {
     let older = FileAnalysis {
         path: "/music/Artist/Album/01.flac".into(),
@@ -43,7 +128,8 @@ fn the_newest_report_result_wins_independently_of_import_order() {
             r#"{"path":"/music/01.flac","source":"flaccompagnon","imported_at":10}"#,
         )
         .unwrap(),
-    );
+    )
+    .unwrap();
     assert_eq!(
         legacy.result_at_ns, 0,
         "older stored records remain readable"

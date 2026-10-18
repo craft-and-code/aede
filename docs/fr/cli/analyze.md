@@ -6,6 +6,14 @@ Les pistes inchangées avec un rapport valable sont réutilisées. --force relan
 
 --show-results affiche les mesures par piste. --threads contrôle les analyses parallèles. Les rapports d’artiste peuvent couvrir plusieurs albums ; scanner leur dossier ou les importer pour rattacher les résultats. Le résultat daté le plus récent gagne en cas de recouvrement. Supprimer un rapport n’efface pas les mesures déjà importées ; modifier l’audio les rend obsolètes. Certains résultats peuvent être enregistrés avant un échec : le travail terminé est gardé et l’erreur récapitulée.
 
+Les mesures réutilisées gardent leur date d’origine, y compris dans les rapports JSON réécrits et lors des scans suivants. Chaque entrée écrite par Aède contient une chaîne décimale exacte `aede_result_at_ns` ; les rapports sans ce champ utilisent leur date de modification. L’affichage de progression et de résultats neutralise les caractères de contrôle du terminal sans modifier les mesures conservées ni les exports JSON. Voir le [contrat des rapports](../../imported-analyses.md#re-running-an-analysis-and-keeping-its-results).
+
+La réutilisation conserve l’entrée source complète, y compris les mesures imbriquées inconnues. Un rapport explicitement limité à une sélection partielle `analyses_run` est réanalysé pour fournir toutes les mesures demandées par cette commande. Les anciens rapports sans cette métadonnée gardent la convention de couverture complète de FlacCompagnon ; l’import d’un rapport partiel reste pris en charge.
+
+Si un fichier prévu pour réutilisation change ou disparaît pendant le décodage d’autres fichiers, la commande indique ce chemin et se termine en erreur. Les mesures terminées restent enregistrées dans Aède, mais le rapport de l’album concerné n’est ni créé ni remplacé par un sous-ensemble incomplet. Scanner les fichiers modifiés puis réessayer. Un fichier nouvellement décodé n’apparaît qu’une fois ; un ancien cache redevenu compatible pendant le décodage ne peut remplacer ni son résultat ni sa date de mesure.
+
+Avant le décodage, les demandes d’écriture de rapports vérifient toutes les destinations résolubles et refusent les noms JSON réservés au catalogue, aux conclusions, aux sources, aux données personnelles, aux comptes et au contrôle parental dans le dossier de données de cette installation, même avec `--force`. Cela couvre les alias du dossier parent et les variantes de casse. Choisir une autre disposition JSON ou un autre dossier de données si les chemins se confondent. Les noms ordinaires de rapports dans ce même dossier restent autorisés. Un dossier d’album indisponible n’empêche pas l’analyse des autres albums : son échec est signalé et la commande termine en échec tout en conservant le travail terminé. Chaque destination est revérifiée avant publication, sans recréer un dossier d’album indisponible.
+
 ## Syntaxe et arguments
 
 ```text

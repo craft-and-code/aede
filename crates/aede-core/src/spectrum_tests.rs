@@ -1,5 +1,95 @@
 use super::*;
 
+#[test]
+fn rendering_publishes_only_a_completed_picture_after_caption_fallback() {
+    for succeeds in [false, true] {
+        let dir = std::env::temp_dir().join(format!(
+            "aede_spectrum_publication_{}_{succeeds}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let picture = dir.join("one.png");
+        std::fs::write(&picture, b"previous picture").unwrap();
+        let mut attempts = 0;
+        let mut staged = None;
+        let result = render_with(&picture, Size::Half, Some("caption"), |filter, output| {
+            attempts += 1;
+            assert_ne!(output, picture.as_path());
+            assert_eq!(output.extension().unwrap(), "png");
+            assert_eq!(std::fs::read(&picture).unwrap(), b"previous picture");
+            staged = Some(output.to_path_buf());
+            if attempts == 1 {
+                assert!(filter.contains("drawtext="));
+                std::fs::write(output, b"partial caption attempt").unwrap();
+                return Err("caption failed".into());
+            }
+            assert!(!filter.contains("drawtext="));
+            std::fs::write(output, b"completed picture").unwrap();
+            if succeeds {
+                Ok(())
+            } else {
+                Err("render failed".into())
+            }
+        });
+        assert_eq!(attempts, 2);
+        assert_eq!(result.is_ok(), succeeds);
+        assert_eq!(
+            std::fs::read(&picture).unwrap(),
+            if succeeds {
+                b"completed picture".as_slice()
+            } else {
+                b"previous picture".as_slice()
+            }
+        );
+        assert!(!staged.unwrap().exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn rendering_refuses_destination_links_before_work_and_before_publication() {
+    let dir = std::env::temp_dir().join(format!(
+        "aede_spectrum_destination_links_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let private = dir.join("accounts.json");
+    let picture = dir.join("one.png");
+    std::fs::write(&private, b"private account state").unwrap();
+    std::os::unix::fs::symlink(&private, &picture).unwrap();
+    let error = render_with(&picture, Size::Half, None, |_, _| {
+        panic!("a linked destination must be refused before starting the renderer")
+    })
+    .unwrap_err();
+    assert!(error.contains("non-regular destination"), "{error}");
+    assert_eq!(std::fs::read(&private).unwrap(), b"private account state");
+    std::fs::remove_file(&picture).unwrap();
+
+    let mut staged = None;
+    let error = render_with(&picture, Size::Half, None, |_, output| {
+        staged = Some(output.to_path_buf());
+        std::fs::write(output, b"new picture").unwrap();
+        std::os::unix::fs::symlink(&private, &picture).unwrap();
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(error.contains("non-regular destination"), "{error}");
+    assert_eq!(std::fs::read(&private).unwrap(), b"private account state");
+    assert!(
+        std::fs::symlink_metadata(&picture)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(!staged.unwrap().exists());
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 fn properties(codec: &str, bits: Option<u16>) -> AudioProperties {
     AudioProperties {
         codec: codec.to_string(),

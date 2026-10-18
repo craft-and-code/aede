@@ -43,6 +43,8 @@ Avec `--artists`, Aède cherche aussi un dossier commun aux albums d’un artist
 
 ## Relancer sans réécrire inutilement
 
+Seuls les fichiers ordinaires à destination sont comparés avec un tampon d’octets de taille fixe. Les liens et fichiers spéciaux sont refusés, notamment un tube nommé qui attendrait sinon un émetteur. La génération depuis le catalogue ne recrée pas les dossiers d’album ou d’artiste absents : elle signale ces échecs, continue avec les dossiers disponibles et renvoie un code de sortie non nul. Cela ne modifie pas les exports explicites de sélection et ne constitue pas un bac à sable contre un remplacement concurrent des dossiers parents.
+
 **Une seconde exécution sur des données inchangées n’écrit rien.**
 
 Aède compare le **texte** de la playlist, pas seulement l’existence du `.m3u`. Son contenu est calculé depuis les pistes actuelles du catalogue. Ajouter une piste, la scanner puis relancer la commande permet donc de mettre à jour la playlist si le nouveau texte diffère.

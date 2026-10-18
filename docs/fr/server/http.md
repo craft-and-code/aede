@@ -33,9 +33,13 @@ Les routes au singulier acceptent exactement l’un de `ref` ou `name`. La compa
 
 Si plusieurs entités correspondent, Aède renvoie `409 ambiguous_entity`, avec au plus 200 candidats `{reference,name}` dans `error.candidates`. Répétez la requête avec le `ref` souhaité. Sans résultat, la réponse est `404 entity_not_found`. Fournir les deux sélecteurs, aucun sélecteur, une référence du mauvais type ou des paramètres non pris en charge produit une erreur.
 
+La navigation au singulier reprenant les commandes CLI résout les références alternatives acceptées vers la référence canonique actuelle avant de chercher l’attribution des sources. Choisir un artiste par un alias MBID non ambigu conserve donc la même origine sourcée qu’une sélection par nom.
+
 ## Filtres et ordre
 
 Les filtres se combinent avec ET. Les listes ordinaires utilisent `sort=catalog&order=asc` par défaut : l’ordre déterministe enregistré lors du scan. Chaque route précise les autres tris acceptés. Les égalités de texte conservent l’ordre du catalogue. Les années inconnues d’albums restent à la fin dans les deux sens ; les années égales se départagent par titre normalisé, puis ordre du catalogue. Les filtres exacts `mbid` distinguent la casse. Pays et années ont un ordre fixe et refusent un autre tri.
+
+Sur `/albums`, une référence stable `artist`, `label` ou `genre` sélectionne l’entité résolue, même si une autre entité porte le même nom. Les filtres par nom conservent leur correspondance partielle normalisée.
 
 Les paramètres inconnus, répétés ou incompatibles sont refusés. `/status` et `/library` sont des exceptions historiques qui n’interprètent pas les paramètres ; n’en ajoutez pas plutôt que de dépendre de cette exception.
 

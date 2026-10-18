@@ -313,7 +313,7 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
         }
     }
     for row in value.get("analysis").and_then(Json::as_arr).unwrap_or(&[]) {
-        result.analyses.push(store::analysis_from_json(row));
+        result.analyses.push(store::analysis_from_json(row)?);
     }
     if value.field_u32("loudness_method_version") == Some(LOUDNESS_METHOD_VERSION) {
         for row in value

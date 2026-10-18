@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn artist_mbid_aliases_reconcile_without_crossing_owners_or_ambiguous_identities() {
+    let mut catalog = super::super::test_support::library(&["/m/Legion/01.flac"]);
+    catalog.artists[0].mbid = Some("artist-id".into());
+    let alias = EntityRef::new(EntityKind::Artist, "mbid:artist-id");
+    let canonical = EntityRef::of(&catalog, EntityKind::Artist, 0).unwrap();
+    let mut data = UserData::default();
+    data.entry("first", &alias, 1).note = Some("old reference".into());
+    data.entry("second", &canonical, 2).rating = Some(5);
+    let report = reconcile(&mut data, &catalog);
+    assert_eq!((report.moved, report.waiting), (1, 0));
+    assert_eq!(
+        data.find("first", &canonical).unwrap().note.as_deref(),
+        Some("old reference")
+    );
+    assert_eq!(data.find("second", &canonical).unwrap().rating, Some(5));
+    assert!(data.find("first", &alias).is_none());
+
+    data.entry("first", &alias, 3).rating = Some(3);
+    assert_eq!(
+        reconcile(&mut data, &catalog).moved,
+        0,
+        "conflicting records remain intact"
+    );
+    assert_eq!(data.find("first", &alias).unwrap().rating, Some(3));
+
+    let mut other = catalog.artists[0].clone();
+    other.id = catalog.artists.len() as u32;
+    other.key = "different-artist".into();
+    catalog.artists.push(other);
+    let mut waiting = UserData::default();
+    waiting.entry("first", &alias, 1).rating = Some(4);
+    assert!(alias.resolve(&catalog).is_none());
+    let report = reconcile(&mut waiting, &catalog);
+    assert_eq!((report.moved, report.waiting), (0, 1));
+    assert_eq!(waiting.find("first", &alias).unwrap().rating, Some(4));
+
+    catalog.artists[1].key = alias.key.clone();
+    assert_eq!(alias.resolve(&catalog), Some(1));
+    let index = ReferenceIndex::new(&catalog, [EntityKind::Artist].into_iter().collect());
+    assert_eq!(
+        index.resolve(&alias),
+        Some(1),
+        "an exact key takes precedence over MBID fallback"
+    );
+}
+
+#[test]
 fn indexed_resolution_keeps_canonical_and_legacy_reference_behaviour() {
     let mut catalog = super::super::test_support::library(&["/m/Legion/Disc 2/02.flac"]);
     catalog.recordings[0].mbid = Some("recording-id".into());

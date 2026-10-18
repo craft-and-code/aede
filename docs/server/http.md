@@ -33,9 +33,13 @@ Singular routes accept exactly one of `ref` or `name`. Names compare without cas
 
 If several entities match, Aède returns `409 ambiguous_entity` and up to 200 `{reference,name}` candidates in `error.candidates`. Repeat the request with the desired candidate's `ref`. No match returns `404 entity_not_found`. Supplying both selectors, neither selector, a wrong-kind reference or unsupported parameters is an error.
 
+CLI-shaped singular navigation resolves accepted alternate references to the current canonical reference before looking up source attribution. Selecting an artist by an unambiguous MBID alias therefore retains the same sourced origin as selecting it by name.
+
 ## Filters and order
 
 Filters combine with AND. Ordinary browse lists default to `sort=catalog&order=asc`; catalog order is the deterministic saved scan order. Each route specifies its accepted alternatives. Text ties retain catalog order. Missing album years remain last in either direction; equal years are ordered by normalized title, then catalog order. Exact `mbid` filters are case-sensitive. Countries and years have fixed ordering and refuse sort overrides.
+
+On `/albums`, a stable `artist`, `label` or `genre` reference selects the resolved entity, including when another entity has the same display name. Name filters retain their partial normalized matching.
 
 Unknown/duplicate parameters and unsupported combinations are refused. `/status` and `/library` are older exceptions that do not interpret query parameters; omit parameters on both rather than relying on that exception.
 

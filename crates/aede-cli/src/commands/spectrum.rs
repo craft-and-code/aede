@@ -5,7 +5,7 @@
 //! when they were last read. Walking the filesystem again would be a second
 //! answer to a question already answered, and the two would drift.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -90,6 +90,17 @@ pub fn spectrum(args: &Args) -> Res {
     // question, down to `--threads` meaning the same thing.
     let total = work.len();
     let threads = aede_core::scan::resolve_threads(args.number_or("threads", 0)?).min(total.max(1));
+    draw_pictures(work, threads, |audio, picture, caption| {
+        spectrum::render(&program, audio, picture, size, Some(caption))
+    })
+}
+
+fn draw_pictures(
+    work: Vec<(PathBuf, PathBuf, String)>,
+    threads: usize,
+    draw: impl Fn(&Path, &Path, &str) -> Result<(), String> + Sync,
+) -> Res {
+    let total = work.len();
     let queue = Mutex::new(work);
     let failures: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
     let done = AtomicUsize::new(0);
@@ -100,9 +111,7 @@ pub fn spectrum(args: &Args) -> Res {
                 // A poisoned lock must not abandon the rest of the work:
                 // one ffmpeg that panicked is not a reason to stop drawing.
                 while let Some((audio, picture, caption)) = super::take_queued(&queue) {
-                    if let Err(said) =
-                        spectrum::render(&program, &audio, &picture, size, Some(caption.as_str()))
-                    {
+                    if let Err(said) = draw(&audio, &picture, &caption) {
                         failures
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -145,6 +154,7 @@ pub fn spectrum(args: &Args) -> Res {
                 ui::dim(&format!("  … and {} more", failures.len() - 20))
             );
         }
+        return Err(format!("{} spectrogram(s) could not be drawn", failures.len()).into());
     }
     Ok(())
 }
@@ -170,3 +180,7 @@ fn to_draw(
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "spectrum_tests.rs"]
+mod tests;

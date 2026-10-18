@@ -169,5 +169,83 @@ fn an_unchanged_playlist_is_recognised_and_a_changed_one_is_not() {
     std::fs::write(&path, "#EXTM3U\n01.flac\n").unwrap();
     assert!(already_says(&path, "#EXTM3U\n01.flac\n"));
     assert!(!already_says(&path, "#EXTM3U\n01.flac\n02.flac\n"));
+    let long = "album/track.flac\n".repeat(2048);
+    std::fs::write(&path, &long).unwrap();
+    assert!(already_says(&path, &long));
+    let mut changed = long.clone().into_bytes();
+    changed[8192] = b'X';
+    std::fs::write(&path, changed).unwrap();
+    assert!(!already_says(&path, &long), "a later chunk differs");
+    std::fs::write(&path, format!("{long}extra")).unwrap();
+    assert!(!already_says(&path, &long), "extra bytes are not ignored");
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(128 * 1024 * 1024)
+        .unwrap();
+    assert!(!already_says(&path, "#EXTM3U\n"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn special_playlist_destinations_are_not_opened_or_treated_as_current() {
+    const CHILD_PATH: &str = "AEDE_PLAYLIST_SPECIAL_TEST_PATH";
+    if let Some(path) = std::env::var_os(CHILD_PATH) {
+        assert!(!already_says(Path::new(&path), ""));
+        return;
+    }
+
+    let directory = crate::store_lock::test_support::Directory::new("playlist_special");
+    let fifo = directory.path().join("pipe.m3u");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    // An older blocking reader must not leave the test suite stuck on open.
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "playlist::tests::special_playlist_destinations_are_not_opened_or_treated_as_current",
+            "--nocapture",
+        ])
+        .env(CHILD_PATH, &fifo)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let timed_out = loop {
+        if child.try_wait().unwrap().is_some() {
+            break false;
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill().unwrap();
+            break true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    let output = child.wait_with_output().unwrap();
+    assert!(!timed_out, "the playlist comparison blocked on a FIFO");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let regular = directory.path().join("regular.m3u");
+    let link = directory.path().join("linked.m3u");
+    let content = "#EXTM3U\n01.flac\n";
+    std::fs::write(&regular, content).unwrap();
+    std::os::unix::fs::symlink(&regular, &link).unwrap();
+    assert!(already_says(&regular, content));
+    assert!(
+        !already_says(&link, content),
+        "a link is not an accepted output"
+    );
+    assert!(write_atomic(&link, content).is_err());
+    assert_eq!(std::fs::read_to_string(&regular).unwrap(), content);
+    assert!(!already_says(directory.path(), content));
 }

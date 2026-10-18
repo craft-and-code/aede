@@ -29,6 +29,9 @@ use md5::{Digest, Md5};
 /// The report format this reader understands.
 pub const FLACCOMPAGNON_FORMAT: &str = "flaccompagnon-report";
 
+/// Exact per-entry measurement date retained when Aède rewrites reused results.
+pub const RESULT_DATE_FIELD: &str = "aede_result_at_ns";
+
 /// One file, as FlacCompagnon measured it.
 ///
 /// Every measurement is optional: a report may predate a field, omit one, or
@@ -53,7 +56,7 @@ pub struct FileAnalysis {
     pub source_version: u32,
     /// When it was imported, in seconds since the Unix epoch.
     pub imported_at: u64,
-    /// Report modification time, or in-process measurement completion, in
+    /// Original report modification time, or in-process measurement completion, in
     /// nanoseconds since the Unix epoch. Zero means an older stored result
     /// whose date is unknown. Distinct from the audio file's own mtime.
     pub result_at_ns: u64,
@@ -532,7 +535,7 @@ pub enum ImportError {
     Io(std::io::Error),
     /// The text is not valid JSON.
     Json(String),
-    /// A recognized report has an invalid envelope or file-list shape.
+    /// A recognized report has an invalid envelope, file list or known measurement.
     Malformed(&'static str),
     /// Valid JSON, but not a report this reader knows.
     NotAReport {
@@ -581,16 +584,21 @@ const SUPPORTED_VERSION: u32 = 1;
 /// measurements, and a report carrying one must still import the rest.
 pub fn read_report(path: &Path) -> Result<Report, ImportError> {
     let text = std::fs::read_to_string(path)?;
-    let mut report = parse_report(&text)?;
     let result_at_ns = crate::clock::mtime_nanoseconds(&std::fs::metadata(path)?);
-    for file in &mut report.files {
-        file.result_at_ns = result_at_ns;
-    }
-    Ok(report)
+    parse_report_at(&text, result_at_ns)
 }
 
 /// Parse a report already held in memory, including a newly produced analysis.
 pub fn parse_report(text: &str) -> Result<Report, ImportError> {
+    parse_report_at(text, 0)
+}
+
+/// Parse a report with its file date as fallback for entries without an exact date.
+///
+/// Rewriting cached measurements must not promote their date to the rewrite time.
+/// A present [`RESULT_DATE_FIELD`] is a decimal `u64` string, including zero for
+/// an explicitly undated result; ordinary upstream reports use the fallback.
+pub fn parse_report_at(text: &str, report_date: u64) -> Result<Report, ImportError> {
     let value = json::parse(text).map_err(|e| ImportError::Json(e.to_string()))?;
 
     let format = value.field_str("format").unwrap_or_default();
@@ -623,8 +631,8 @@ pub fn parse_report(text: &str) -> Result<Report, ImportError> {
     let files = entries
         .iter()
         .filter(|item| item.field_str("path").is_some())
-        .map(|item| from_json(item, version))
-        .collect();
+        .map(|item| from_json(item, version, report_date))
+        .collect::<Result<_, _>>()?;
 
     Ok(Report {
         root,
@@ -657,17 +665,39 @@ pub fn looks_like_a_report(path: &Path) -> bool {
 }
 
 /// Maps one entry of a report onto [`FileAnalysis`].
-fn from_json(item: &Json, version: u32) -> FileAnalysis {
+fn from_json(item: &Json, version: u32, report_date: u64) -> Result<FileAnalysis, ImportError> {
     let detections = item.get("detections");
     let clipping = item.get("clipping");
     let md5 = item.get("flac_md5");
 
-    FileAnalysis {
+    let real_bit_depth = match item.get("real_bit_depth") {
+        None | Some(Json::Null) => None,
+        Some(value) => Some(
+            value
+                .as_u32()
+                .and_then(|value| u16::try_from(value).ok())
+                .ok_or(ImportError::Malformed(
+                    "real_bit_depth must fit an unsigned 16-bit integer",
+                ))?,
+        ),
+    };
+    let result_at_ns = match item.get(RESULT_DATE_FIELD) {
+        None => report_date,
+        Some(value) => value
+            .as_str()
+            .filter(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or(ImportError::Malformed(
+                "aede_result_at_ns must be a decimal u64 string",
+            ))?,
+    };
+
+    Ok(FileAnalysis {
         path: item.field_str("path").unwrap_or_default(),
         source: "flaccompagnon".to_string(),
         source_version: version,
         imported_at: 0,
-        result_at_ns: 0,
+        result_at_ns,
         size_bytes: item.field_u64("size_bytes").unwrap_or(0),
         modified_unix: item.field_u64("modified_unix").unwrap_or(0),
         file_md5: item.field_str("file_md5"),
@@ -675,7 +705,7 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
         md5_state: md5.and_then(|m| m.field_str("state")),
         md5_detail: md5.and_then(|m| m.field_str("detail")),
 
-        real_bit_depth: item.field_u32("real_bit_depth").map(|v| v as u16),
+        real_bit_depth,
         requant_rate: item.field_f64("requant_rate"),
         fake_stereo: item.field_optional_bool("fake_stereo"),
         ext_mismatch: item.field_optional_bool("ext_mismatch"),
@@ -706,7 +736,7 @@ fn from_json(item: &Json, version: u32) -> FileAnalysis {
 
         error: item.field_str("error"),
         source_data: Some(item.clone()),
-    }
+    })
 }
 
 #[cfg(test)]

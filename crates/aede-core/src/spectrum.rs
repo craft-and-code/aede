@@ -165,6 +165,10 @@ pub fn caption(properties: &AudioProperties) -> String {
 /// an installation that has none fails the whole filter graph — losing the
 /// picture over a line of text would be a poor trade, and the legend still
 /// carries the axis that matters.
+///
+/// Both attempts write inside a private temporary directory beside the
+/// destination. Only a completed picture replaces the old one; destination
+/// links and special files are refused before rendering and publication.
 pub fn render(
     ffmpeg: &str,
     audio: &Path,
@@ -172,9 +176,18 @@ pub fn render(
     size: Size,
     caption: Option<&str>,
 ) -> Result<(), String> {
-    if let Some(parent) = picture.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    }
+    render_with(picture, size, caption, |filter, output| {
+        run(ffmpeg, audio, filter, output)
+    })
+}
+
+fn render_with(
+    picture: &Path,
+    size: Size,
+    caption: Option<&str>,
+    mut render: impl FnMut(&str, &Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let output = crate::copy::TemporaryOutput::new(picture)?;
     let base = filter(size);
     let with_text = caption.map(|text| {
         format!(
@@ -183,11 +196,12 @@ pub fn render(
         )
     });
     if let Some(with_text) = &with_text
-        && run(ffmpeg, audio, with_text, picture).is_ok()
+        && render(with_text, output.path()).is_ok()
     {
-        return Ok(());
+        return output.publish();
     }
-    run(ffmpeg, audio, &base, picture)
+    render(&base, output.path())?;
+    output.publish()
 }
 
 fn run(ffmpeg: &str, audio: &Path, filter: &str, picture: &Path) -> Result<(), String> {

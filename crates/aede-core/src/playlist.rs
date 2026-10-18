@@ -165,8 +165,32 @@ pub fn file_name(folder: &Path) -> String {
 /// already names. Comparing the text answers both questions at once, and
 /// leaves the file's date alone when nothing changed — which matters to
 /// whatever syncs the folder afterwards.
+///
+/// Only regular destination files are compared, using a fixed-size buffer.
+/// Existing links/special files are not accepted as current output. As with
+/// the replacement writer, this is not a sandbox against concurrent path changes.
 pub fn already_says(path: &Path, content: &str) -> bool {
-    std::fs::read_to_string(path).is_ok_and(|held| held == content)
+    use std::io::Read;
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() != content.len() as u64
+    {
+        return false;
+    }
+    let Ok(mut file) = crate::tags::bytes::open_regular(path) else {
+        return false;
+    };
+    let mut buffer = [0; 8192];
+    for expected in content.as_bytes().chunks(buffer.len()) {
+        let held = &mut buffer[..expected.len()];
+        if file.read_exact(held).is_err() || held[..] != *expected {
+            return false;
+        }
+    }
+    file.read(&mut buffer[..1]).is_ok_and(|read| read == 0)
 }
 
 /// Replaces a playlist only after its complete text has been written.
