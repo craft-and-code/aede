@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Filter {
     view: String,
+    reverse: bool,
     mode: String,
     years: [u64; 2],
     alphabet: [u64; 2],
@@ -33,6 +34,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
     if o.keys().any(|k| {
         ![
             "view",
+            "reverse",
             "mode",
             "years",
             "alphabet",
@@ -73,6 +75,7 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
     let mode = string("mode")?;
     if ![
         "artists",
+        "tracks",
         "albums",
         "compilations",
         "countries",
@@ -87,6 +90,13 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
     {
         return Err(error("invalid browse view or mode"));
     }
+    let reverse = match v.get("reverse") {
+        None => false,
+        Some(value) if view == "tracks" => value
+            .as_bool()
+            .ok_or_else(|| error("invalid track order"))?,
+        Some(_) => return Err(error("reverse requires the tracks view")),
+    };
     let label = if view == "label" {
         Some(
             EntityRef::parse_token(&string("label")?)
@@ -190,8 +200,14 @@ pub fn parse(input: &str) -> Result<Filter, QueryError> {
     if query.len() > 2048 {
         return Err(error("browse search exceeds 2048 bytes"));
     }
+    if view == "tracks" && (!countries.is_empty() || !genres.is_empty()) {
+        return Err(error(
+            "track filters do not support country or genre facets",
+        ));
+    }
     Ok(Filter {
         view,
+        reverse,
         mode,
         years: interval("years", 9999)?,
         alphabet: interval("alphabet", 26)?,
@@ -278,6 +294,9 @@ fn annotation(context: &Context, kind: EntityKind, id: Id) -> String {
 /// Evaluate once per collection; each matching edition contributes its complete track order.
 pub(super) fn tracks(f: &Filter, context: &Context) -> Vec<Id> {
     let c = context.catalog;
+    if f.view == "tracks" {
+        return track_selection(f, context);
+    }
     if f.view == "tags" {
         return tagged_tracks(f, context);
     }
@@ -461,3 +480,57 @@ fn tagged_tracks(f: &Filter, context: &Context) -> Vec<Id> {
 #[cfg(test)]
 #[path = "browse_tests.rs"]
 mod tests;
+
+// Track selections retain individual membership, including albumless placements.
+fn track_selection(f: &Filter, context: &Context) -> Vec<Id> {
+    let c = context.catalog;
+    let term = folded(&f.query);
+    let has = |value: &str| folded(value).contains(&term);
+    let mut credited = BTreeSet::new();
+    if !term.is_empty() {
+        for credit in &c.credits {
+            if credit.entity_kind == EntityKind::Track
+                && (has(&credit.role)
+                    || c.artist(credit.artist_id)
+                        .is_some_and(|artist| has(&artist.name)))
+            {
+                credited.insert(credit.entity_id);
+            }
+        }
+    }
+    let mut rows: Vec<_> = c
+        .tracks
+        .iter()
+        .filter(|track| {
+            let release = track.release_id.and_then(|id| c.release(id));
+            if !alphabet(&track.title, f)
+                || (["years", "both"].contains(&f.mode.as_str())
+                    && !release.and_then(|r| r.year).map_or(f.unknown, |y| {
+                        (f.years[0]..=f.years[1]).contains(&u64::from(y))
+                    }))
+            {
+                return false;
+            }
+            term.is_empty()
+                || has(&track.title)
+                || credited.contains(&track.id)
+                || release.is_some_and(|release| {
+                    has(&release.title)
+                        || release
+                            .album_artist_id
+                            .and_then(|id| c.artist(id))
+                            .is_some_and(|artist| has(&artist.name))
+                })
+                || c.file(track.file_id).is_some_and(|file| {
+                    file.tags
+                        .iter()
+                        .any(|(key, values)| has(key) || values.iter().any(|value| has(value)))
+                })
+        })
+        .map(|track| track.id)
+        .collect();
+    if f.reverse {
+        rows.reverse();
+    }
+    rows
+}

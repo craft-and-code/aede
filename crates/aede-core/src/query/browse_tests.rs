@@ -422,3 +422,64 @@ fn label_collections_keep_stable_membership_and_include_future_matching_editions
     value["label"] = json!("label:test-label");
     assert!(parse(&value.to_string()).is_err());
 }
+
+#[test]
+fn track_filters_keep_individual_membership_unknown_years_and_numeric_order() {
+    let mut c = Catalog {
+        releases: vec![Release {
+            id: 0,
+            title: "Shared album".into(),
+            year: Some(1995),
+            track_ids: vec![0, 1],
+            ..Default::default()
+        }],
+        tracks: vec![
+            Track {
+                id: 0,
+                title: "Alpha".into(),
+                release_id: Some(0),
+                ..Default::default()
+            },
+            Track {
+                id: 1,
+                title: "Beta".into(),
+                release_id: Some(0),
+                ..Default::default()
+            },
+            Track {
+                id: 2,
+                title: "Albumless".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let data = UserData::default();
+    let mut value = filters();
+    value["view"] = json!("tracks");
+    value["query"] = json!("Alpha");
+    let selected = |c: &Catalog, v: &Value| {
+        tracks(
+            &parse(&v.to_string()).unwrap(),
+            &Context::new(c, &data, "owner"),
+        )
+    };
+    assert_eq!(selected(&c, &value), vec![0]);
+    value["query"] = json!("");
+    value["mode"] = json!("both");
+    value["alphabet"] = json!([1, 1]);
+    assert_eq!(selected(&c, &value), vec![0]);
+    value["includeUnknownYear"] = json!(true);
+    assert_eq!(selected(&c, &value), vec![0, 2]);
+    value["reverse"] = json!(true);
+    assert_eq!(selected(&c, &value), vec![2, 0]);
+    c.tracks.push(Track {
+        id: 3,
+        title: "Another".into(),
+        release_id: Some(0),
+        ..Default::default()
+    });
+    assert_eq!(selected(&c, &value), vec![3, 2, 0]);
+    value["reverse"] = json!("yes");
+    assert!(parse(&value.to_string()).is_err());
+}
