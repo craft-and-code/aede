@@ -115,23 +115,27 @@
 <a href=#115 id=115 data-nosnippet>115</a>    </span><span class="kw">let </span>_reload = state.reload_gate.lock().<span class="kw">await</span>;
 <a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">let </span>scanned_at = catalog.scanned_at;
 <a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">let </span>files = catalog.files.len();
-<a href=#118 id=118 data-nosnippet>118</a>    <span class="kw-2">*</span>state.catalog.write().<span class="kw">await </span>= <span class="prelude-val">Some</span>(catalog);
-<a href=#119 id=119 data-nosnippet>119</a>    <span class="kw-2">*</span>state.loaded_stamp.write().<span class="kw">await </span>= saved_stamp;
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="kw">let _ </span>= state.events.send(CatalogEvent::CatalogChanged {
-<a href=#121 id=121 data-nosnippet>121</a>        scanned_at: <span class="prelude-val">Some</span>(scanned_at),
-<a href=#122 id=122 data-nosnippet>122</a>    });
-<a href=#123 id=123 data-nosnippet>123</a>    <span class="kw">let _ </span>= state.events.send(CatalogEvent::TaskCompleted {
-<a href=#124 id=124 data-nosnippet>124</a>        task_id,
-<a href=#125 id=125 data-nosnippet>125</a>        task_kind: <span class="string">"scan"</span>,
-<a href=#126 id=126 data-nosnippet>126</a>        scanned_at: <span class="prelude-val">Some</span>(scanned_at),
-<a href=#127 id=127 data-nosnippet>127</a>    });
-<a href=#128 id=128 data-nosnippet>128</a>    <span class="prelude-val">Ok</span>(Json(ScanResult {
-<a href=#129 id=129 data-nosnippet>129</a>        status: <span class="string">"completed"</span>,
-<a href=#130 id=130 data-nosnippet>130</a>        scanned_at,
-<a href=#131 id=131 data-nosnippet>131</a>        files,
-<a href=#132 id=132 data-nosnippet>132</a>    }))
-<a href=#133 id=133 data-nosnippet>133</a>}
-<a href=#134 id=134 data-nosnippet>134</a>
-<a href=#135 id=135 data-nosnippet>135</a><span class="attr">#[cfg(test)]
-<a href=#136 id=136 data-nosnippet>136</a>#[path = <span class="string">"admin_tests.rs"</span>]
-<a href=#137 id=137 data-nosnippet>137</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#118 id=118 data-nosnippet>118</a>    {
+<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">let </span><span class="kw-2">mut </span>published = state.catalog.write().<span class="kw">await</span>;
+<a href=#120 id=120 data-nosnippet>120</a>        <span class="kw-2">*</span>published = <span class="prelude-val">Some</span>(catalog);
+<a href=#121 id=121 data-nosnippet>121</a>        state.parental.invalidate();
+<a href=#122 id=122 data-nosnippet>122</a>    }
+<a href=#123 id=123 data-nosnippet>123</a>    <span class="kw-2">*</span>state.loaded_stamp.write().<span class="kw">await </span>= saved_stamp;
+<a href=#124 id=124 data-nosnippet>124</a>    <span class="kw">let _ </span>= state.events.send(CatalogEvent::CatalogChanged {
+<a href=#125 id=125 data-nosnippet>125</a>        scanned_at: <span class="prelude-val">Some</span>(scanned_at),
+<a href=#126 id=126 data-nosnippet>126</a>    });
+<a href=#127 id=127 data-nosnippet>127</a>    <span class="kw">let _ </span>= state.events.send(CatalogEvent::TaskCompleted {
+<a href=#128 id=128 data-nosnippet>128</a>        task_id,
+<a href=#129 id=129 data-nosnippet>129</a>        task_kind: <span class="string">"scan"</span>,
+<a href=#130 id=130 data-nosnippet>130</a>        scanned_at: <span class="prelude-val">Some</span>(scanned_at),
+<a href=#131 id=131 data-nosnippet>131</a>    });
+<a href=#132 id=132 data-nosnippet>132</a>    <span class="prelude-val">Ok</span>(Json(ScanResult {
+<a href=#133 id=133 data-nosnippet>133</a>        status: <span class="string">"completed"</span>,
+<a href=#134 id=134 data-nosnippet>134</a>        scanned_at,
+<a href=#135 id=135 data-nosnippet>135</a>        files,
+<a href=#136 id=136 data-nosnippet>136</a>    }))
+<a href=#137 id=137 data-nosnippet>137</a>}
+<a href=#138 id=138 data-nosnippet>138</a>
+<a href=#139 id=139 data-nosnippet>139</a><span class="attr">#[cfg(test)]
+<a href=#140 id=140 data-nosnippet>140</a>#[path = <span class="string">"admin_tests.rs"</span>]
+<a href=#141 id=141 data-nosnippet>141</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

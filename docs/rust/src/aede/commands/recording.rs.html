@@ -57,54 +57,58 @@
 <a href=#57 id=57 data-nosnippet>57</a>    <span class="macro">println!</span>(<span class="string">"{}"</span>, placements.render());
 <a href=#58 id=58 data-nosnippet>58</a>    <span class="kw">for </span><span class="kw-2">&amp;</span>work_id <span class="kw">in </span><span class="kw-2">&amp;</span>recording.work_ids {
 <a href=#59 id=59 data-nosnippet>59</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(work) = catalog.work(work_id) {
-<a href=#60 id=60 data-nosnippet>60</a>            <span class="macro">println!</span>(<span class="string">"  work: {} ({})"</span>, work.title, work.mbid);
-<a href=#61 id=61 data-nosnippet>61</a>            navigation.entity(<span class="kw-2">&amp;</span>catalog, <span class="string">"Work"</span>, EntityKind::Work, work.id);
-<a href=#62 id=62 data-nosnippet>62</a>        }
-<a href=#63 id=63 data-nosnippet>63</a>    }
-<a href=#64 id=64 data-nosnippet>64</a>    <span class="kw">let </span>held = sources::load(<span class="kw-2">&amp;</span>sources::sources_path(<span class="kw-2">&amp;</span>data_dir(args)))<span class="question-mark">?</span>.unwrap_or_default();
-<a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">for </span>link <span class="kw">in </span>held
-<a href=#66 id=66 data-nosnippet>66</a>        .work_links(<span class="kw-2">&amp;</span>catalog)
-<a href=#67 id=67 data-nosnippet>67</a>        .into_iter()
-<a href=#68 id=68 data-nosnippet>68</a>        .filter(|link| link.recording_id == recording.id)
-<a href=#69 id=69 data-nosnippet>69</a>    {
-<a href=#70 id=70 data-nosnippet>70</a>        <span class="kw">let </span>attributes = link
-<a href=#71 id=71 data-nosnippet>71</a>            .work
-<a href=#72 id=72 data-nosnippet>72</a>            .attributes
-<a href=#73 id=73 data-nosnippet>73</a>            .iter()
-<a href=#74 id=74 data-nosnippet>74</a>            .map(|attribute| attribute.name.as_str())
-<a href=#75 id=75 data-nosnippet>75</a>            .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-<a href=#76 id=76 data-nosnippet>76</a>        <span class="kw">let </span>qualified = <span class="kw">match </span>attributes.is_empty() {
-<a href=#77 id=77 data-nosnippet>77</a>            <span class="bool-val">true </span>=&gt; String::new(),
-<a href=#78 id=78 data-nosnippet>78</a>            <span class="bool-val">false </span>=&gt; <span class="macro">format!</span>(<span class="string">" · {}"</span>, attributes.join(<span class="string">", "</span>)),
-<a href=#79 id=79 data-nosnippet>79</a>        };
-<a href=#80 id=80 data-nosnippet>80</a>        <span class="macro">println!</span>(
-<a href=#81 id=81 data-nosnippet>81</a>            <span class="string">"  source work: {} ({}){qualified} — {} · {} · {}"</span>,
-<a href=#82 id=82 data-nosnippet>82</a>            link.work.title,
-<a href=#83 id=83 data-nosnippet>83</a>            link.work.mbid,
-<a href=#84 id=84 data-nosnippet>84</a>            link.source,
-<a href=#85 id=85 data-nosnippet>85</a>            <span class="kw">super</span>::source_status(link.confidence, link.review, link.trusted),
-<a href=#86 id=86 data-nosnippet>86</a>            ui::since(link.fetched_at)
-<a href=#87 id=87 data-nosnippet>87</a>        );
-<a href=#88 id=88 data-nosnippet>88</a>        <span class="kw">if </span>link.trusted {
-<a href=#89 id=89 data-nosnippet>89</a>            navigation.add(
-<a href=#90 id=90 data-nosnippet>90</a>                <span class="string">"Source work"</span>,
-<a href=#91 id=91 data-nosnippet>91</a>                <span class="macro">format!</span>(<span class="string">"aede work {}"</span>, shell_arg(<span class="kw-2">&amp;</span>link.work.mbid)),
-<a href=#92 id=92 data-nosnippet>92</a>            );
-<a href=#93 id=93 data-nosnippet>93</a>        }
-<a href=#94 id=94 data-nosnippet>94</a>    }
-<a href=#95 id=95 data-nosnippet>95</a>    <span class="kw">let </span>source_credits: Vec&lt;<span class="kw">_</span>&gt; = held
-<a href=#96 id=96 data-nosnippet>96</a>        .credit_links(<span class="kw-2">&amp;</span>catalog)
-<a href=#97 id=97 data-nosnippet>97</a>        .into_iter()
-<a href=#98 id=98 data-nosnippet>98</a>        .filter(|link| link.recording_id == recording.id)
-<a href=#99 id=99 data-nosnippet>99</a>        .collect();
-<a href=#100 id=100 data-nosnippet>100</a>    <span class="kw">for </span>link <span class="kw">in </span><span class="kw-2">&amp;</span>source_credits {
-<a href=#101 id=101 data-nosnippet>101</a>        <span class="kw">if </span>!link.trusted {
-<a href=#102 id=102 data-nosnippet>102</a>            <span class="kw">continue</span>;
-<a href=#103 id=103 data-nosnippet>103</a>        }
-<a href=#104 id=104 data-nosnippet>104</a>        navigation.source_artist(<span class="kw-2">&amp;</span>link.credit.artist_mbid);
-<a href=#105 id=105 data-nosnippet>105</a>    }
-<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">super</span>::print_sourced_credits(<span class="kw-2">&amp;</span>catalog, source_credits);
-<a href=#107 id=107 data-nosnippet>107</a>    <span class="kw">super</span>::panel_for(args, <span class="kw-2">&amp;</span>catalog, EntityKind::Recording, recording.id);
-<a href=#108 id=108 data-nosnippet>108</a>    navigation.print();
-<a href=#109 id=109 data-nosnippet>109</a>    <span class="prelude-val">Ok</span>(())
-<a href=#110 id=110 data-nosnippet>110</a>}</code></pre></div></section></main></body></html>
+<a href=#60 id=60 data-nosnippet>60</a>            <span class="macro">println!</span>(
+<a href=#61 id=61 data-nosnippet>61</a>                <span class="string">"  work: {} ({})"</span>,
+<a href=#62 id=62 data-nosnippet>62</a>                ui::literal(<span class="kw-2">&amp;</span>work.title),
+<a href=#63 id=63 data-nosnippet>63</a>                ui::literal(<span class="kw-2">&amp;</span>work.mbid)
+<a href=#64 id=64 data-nosnippet>64</a>            );
+<a href=#65 id=65 data-nosnippet>65</a>            navigation.entity(<span class="kw-2">&amp;</span>catalog, <span class="string">"Work"</span>, EntityKind::Work, work.id);
+<a href=#66 id=66 data-nosnippet>66</a>        }
+<a href=#67 id=67 data-nosnippet>67</a>    }
+<a href=#68 id=68 data-nosnippet>68</a>    <span class="kw">let </span>held = sources::load(<span class="kw-2">&amp;</span>sources::sources_path(<span class="kw-2">&amp;</span>data_dir(args)))<span class="question-mark">?</span>.unwrap_or_default();
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="kw">for </span>link <span class="kw">in </span>held
+<a href=#70 id=70 data-nosnippet>70</a>        .work_links(<span class="kw-2">&amp;</span>catalog)
+<a href=#71 id=71 data-nosnippet>71</a>        .into_iter()
+<a href=#72 id=72 data-nosnippet>72</a>        .filter(|link| link.recording_id == recording.id)
+<a href=#73 id=73 data-nosnippet>73</a>    {
+<a href=#74 id=74 data-nosnippet>74</a>        <span class="kw">let </span>attributes = link
+<a href=#75 id=75 data-nosnippet>75</a>            .work
+<a href=#76 id=76 data-nosnippet>76</a>            .attributes
+<a href=#77 id=77 data-nosnippet>77</a>            .iter()
+<a href=#78 id=78 data-nosnippet>78</a>            .map(|attribute| attribute.name.as_str())
+<a href=#79 id=79 data-nosnippet>79</a>            .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#80 id=80 data-nosnippet>80</a>        <span class="kw">let </span>qualified = <span class="kw">match </span>attributes.is_empty() {
+<a href=#81 id=81 data-nosnippet>81</a>            <span class="bool-val">true </span>=&gt; String::new(),
+<a href=#82 id=82 data-nosnippet>82</a>            <span class="bool-val">false </span>=&gt; <span class="macro">format!</span>(<span class="string">" · {}"</span>, ui::literal(<span class="kw-2">&amp;</span>attributes.join(<span class="string">", "</span>))),
+<a href=#83 id=83 data-nosnippet>83</a>        };
+<a href=#84 id=84 data-nosnippet>84</a>        <span class="macro">println!</span>(
+<a href=#85 id=85 data-nosnippet>85</a>            <span class="string">"  source work: {} ({}){qualified} — {} · {} · {}"</span>,
+<a href=#86 id=86 data-nosnippet>86</a>            ui::literal(<span class="kw-2">&amp;</span>link.work.title),
+<a href=#87 id=87 data-nosnippet>87</a>            ui::literal(<span class="kw-2">&amp;</span>link.work.mbid),
+<a href=#88 id=88 data-nosnippet>88</a>            ui::literal(<span class="kw-2">&amp;</span>link.source),
+<a href=#89 id=89 data-nosnippet>89</a>            <span class="kw">super</span>::source_status(link.confidence, link.review, link.trusted),
+<a href=#90 id=90 data-nosnippet>90</a>            ui::since(link.fetched_at)
+<a href=#91 id=91 data-nosnippet>91</a>        );
+<a href=#92 id=92 data-nosnippet>92</a>        <span class="kw">if </span>link.trusted {
+<a href=#93 id=93 data-nosnippet>93</a>            navigation.add(
+<a href=#94 id=94 data-nosnippet>94</a>                <span class="string">"Source work"</span>,
+<a href=#95 id=95 data-nosnippet>95</a>                <span class="macro">format!</span>(<span class="string">"aede work {}"</span>, shell_arg(<span class="kw-2">&amp;</span>link.work.mbid)),
+<a href=#96 id=96 data-nosnippet>96</a>            );
+<a href=#97 id=97 data-nosnippet>97</a>        }
+<a href=#98 id=98 data-nosnippet>98</a>    }
+<a href=#99 id=99 data-nosnippet>99</a>    <span class="kw">let </span>source_credits: Vec&lt;<span class="kw">_</span>&gt; = held
+<a href=#100 id=100 data-nosnippet>100</a>        .credit_links(<span class="kw-2">&amp;</span>catalog)
+<a href=#101 id=101 data-nosnippet>101</a>        .into_iter()
+<a href=#102 id=102 data-nosnippet>102</a>        .filter(|link| link.applicable_recording_ids.contains(<span class="kw-2">&amp;</span>recording.id))
+<a href=#103 id=103 data-nosnippet>103</a>        .collect();
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="kw">for </span>link <span class="kw">in </span><span class="kw-2">&amp;</span>source_credits {
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="kw">if </span>!link.trusted {
+<a href=#106 id=106 data-nosnippet>106</a>            <span class="kw">continue</span>;
+<a href=#107 id=107 data-nosnippet>107</a>        }
+<a href=#108 id=108 data-nosnippet>108</a>        navigation.source_artist(<span class="kw-2">&amp;</span>link.credit.artist_mbid);
+<a href=#109 id=109 data-nosnippet>109</a>    }
+<a href=#110 id=110 data-nosnippet>110</a>    <span class="kw">super</span>::print_sourced_credits(<span class="kw-2">&amp;</span>catalog, source_credits);
+<a href=#111 id=111 data-nosnippet>111</a>    <span class="kw">super</span>::panel_for(args, <span class="kw-2">&amp;</span>catalog, EntityKind::Recording, recording.id);
+<a href=#112 id=112 data-nosnippet>112</a>    navigation.print();
+<a href=#113 id=113 data-nosnippet>113</a>    <span class="prelude-val">Ok</span>(())
+<a href=#114 id=114 data-nosnippet>114</a>}</code></pre></div></section></main></body></html>

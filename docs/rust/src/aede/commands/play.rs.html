@@ -714,77 +714,72 @@
 <a href=#714 id=714 data-nosnippet>714</a>
 <a href=#715 id=715 data-nosnippet>715</a><span class="kw">fn </span>paths_for_releases(
 <a href=#716 id=716 data-nosnippet>716</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
-<a href=#717 id=717 data-nosnippet>717</a>    <span class="kw-2">mut </span>ids: Vec&lt;Id&gt;,
+<a href=#717 id=717 data-nosnippet>717</a>    ids: Vec&lt;Id&gt;,
 <a href=#718 id=718 data-nosnippet>718</a>    name: <span class="kw-2">&amp;</span>str,
 <a href=#719 id=719 data-nosnippet>719</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;PathBuf&gt;, Box&lt;<span class="kw">dyn </span>Error&gt;&gt; {
-<a href=#720 id=720 data-nosnippet>720</a>    ids.sort_by(|a, b| {
-<a href=#721 id=721 data-nosnippet>721</a>        <span class="kw">let </span>left = catalog.release(<span class="kw-2">*</span>a);
-<a href=#722 id=722 data-nosnippet>722</a>        <span class="kw">let </span>right = catalog.release(<span class="kw-2">*</span>b);
-<a href=#723 id=723 data-nosnippet>723</a>        left.map(|r| (r.year.unwrap_or(u32::MAX), <span class="kw-2">&amp;</span>r.folder, <span class="kw-2">&amp;</span>r.title))
-<a href=#724 id=724 data-nosnippet>724</a>            .cmp(<span class="kw-2">&amp;</span>right.map(|r| (r.year.unwrap_or(u32::MAX), <span class="kw-2">&amp;</span>r.folder, <span class="kw-2">&amp;</span>r.title)))
-<a href=#725 id=725 data-nosnippet>725</a>    });
-<a href=#726 id=726 data-nosnippet>726</a>    <span class="kw">let </span><span class="kw-2">mut </span>paths = Vec::new();
-<a href=#727 id=727 data-nosnippet>727</a>    <span class="kw">for </span>id <span class="kw">in </span>ids {
-<a href=#728 id=728 data-nosnippet>728</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(release) = catalog.release(id) {
-<a href=#729 id=729 data-nosnippet>729</a>            <span class="kw">for </span>track_id <span class="kw">in </span><span class="kw-2">&amp;</span>release.track_ids {
-<a href=#730 id=730 data-nosnippet>730</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(path) = catalog
-<a href=#731 id=731 data-nosnippet>731</a>                    .track(<span class="kw-2">*</span>track_id)
-<a href=#732 id=732 data-nosnippet>732</a>                    .and_then(|track| catalog.file(track.file_id))
-<a href=#733 id=733 data-nosnippet>733</a>                    .map(|file| PathBuf::from(<span class="kw-2">&amp;</span>file.path))
-<a href=#734 id=734 data-nosnippet>734</a>                {
-<a href=#735 id=735 data-nosnippet>735</a>                    paths.push(path);
-<a href=#736 id=736 data-nosnippet>736</a>                }
-<a href=#737 id=737 data-nosnippet>737</a>            }
-<a href=#738 id=738 data-nosnippet>738</a>        }
-<a href=#739 id=739 data-nosnippet>739</a>    }
-<a href=#740 id=740 data-nosnippet>740</a>    <span class="kw">if </span>paths.is_empty() {
-<a href=#741 id=741 data-nosnippet>741</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">format!</span>(<span class="string">"no playable tracks for \"{name}\""</span>).into());
-<a href=#742 id=742 data-nosnippet>742</a>    }
-<a href=#743 id=743 data-nosnippet>743</a>    <span class="prelude-val">Ok</span>(paths)
-<a href=#744 id=744 data-nosnippet>744</a>}
-<a href=#745 id=745 data-nosnippet>745</a>
-<a href=#746 id=746 data-nosnippet>746</a><span class="kw">fn </span>collect_audio(folder: <span class="kw-2">&amp;</span>Path, paths: <span class="kw-2">&amp;mut </span>Vec&lt;PathBuf&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;(), Box&lt;<span class="kw">dyn </span>Error&gt;&gt; {
-<a href=#747 id=747 data-nosnippet>747</a>    <span class="kw">let </span><span class="kw-2">mut </span>entries = fs::read_dir(folder)<span class="question-mark">?</span>.collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()<span class="question-mark">?</span>;
-<a href=#748 id=748 data-nosnippet>748</a>    entries.sort_by_key(|entry| entry.file_name());
-<a href=#749 id=749 data-nosnippet>749</a>    <span class="kw">for </span>entry <span class="kw">in </span>entries {
-<a href=#750 id=750 data-nosnippet>750</a>        <span class="kw">let </span>kind = entry.file_type()<span class="question-mark">?</span>;
-<a href=#751 id=751 data-nosnippet>751</a>        <span class="kw">let </span>path = entry.path();
-<a href=#752 id=752 data-nosnippet>752</a>        <span class="kw">if </span>kind.is_dir() {
-<a href=#753 id=753 data-nosnippet>753</a>            collect_audio(<span class="kw-2">&amp;</span>path, paths)<span class="question-mark">?</span>;
-<a href=#754 id=754 data-nosnippet>754</a>        } <span class="kw">else if </span>kind.is_file() &amp;&amp; tags::is_audio_path(<span class="kw-2">&amp;</span>path) {
-<a href=#755 id=755 data-nosnippet>755</a>            paths.push(<span class="kw">super</span>::canonical(<span class="kw-2">&amp;</span>path));
-<a href=#756 id=756 data-nosnippet>756</a>        }
-<a href=#757 id=757 data-nosnippet>757</a>    }
-<a href=#758 id=758 data-nosnippet>758</a>    <span class="prelude-val">Ok</span>(())
-<a href=#759 id=759 data-nosnippet>759</a>}
-<a href=#760 id=760 data-nosnippet>760</a>
-<a href=#761 id=761 data-nosnippet>761</a><span class="kw">fn </span>record_play(args: <span class="kw-2">&amp;</span>Args, path: <span class="kw-2">&amp;</span>Path, started: u64, played_ms: u64, completed: bool) -&gt; Res {
-<a href=#762 id=762 data-nosnippet>762</a>    <span class="kw">let </span>key = path
-<a href=#763 id=763 data-nosnippet>763</a>        .to_str()
-<a href=#764 id=764 data-nosnippet>764</a>        .ok_or(<span class="string">"audio history requires a UTF-8 source path"</span>)<span class="question-mark">?</span>;
-<a href=#765 id=765 data-nosnippet>765</a>    <span class="kw">let </span>directory = data_dir(args);
-<a href=#766 id=766 data-nosnippet>766</a>    <span class="kw">let </span>_lock = StoreLock::acquire(<span class="kw-2">&amp;</span>directory)<span class="question-mark">?</span>;
-<a href=#767 id=767 data-nosnippet>767</a>    <span class="kw">let </span>user_path = user::user_path(<span class="kw-2">&amp;</span>directory);
-<a href=#768 id=768 data-nosnippet>768</a>    <span class="kw">let </span><span class="kw-2">mut </span>data = user::load(<span class="kw-2">&amp;</span>user_path)<span class="question-mark">?</span>.unwrap_or_default();
-<a href=#769 id=769 data-nosnippet>769</a>    data.record_play(Play {
-<a href=#770 id=770 data-nosnippet>770</a>        owner: LOCAL_USER.to_string(),
-<a href=#771 id=771 data-nosnippet>771</a>        track: EntityRef::new(EntityKind::Track, key.to_owned()),
-<a href=#772 id=772 data-nosnippet>772</a>        at: started,
-<a href=#773 id=773 data-nosnippet>773</a>        ms_played: played_ms,
-<a href=#774 id=774 data-nosnippet>774</a>        completed,
-<a href=#775 id=775 data-nosnippet>775</a>    });
-<a href=#776 id=776 data-nosnippet>776</a>    user::save(<span class="kw-2">&amp;</span>data, <span class="kw-2">&amp;</span>user_path)<span class="question-mark">?</span>;
-<a href=#777 id=777 data-nosnippet>777</a>    <span class="prelude-val">Ok</span>(())
-<a href=#778 id=778 data-nosnippet>778</a>}
-<a href=#779 id=779 data-nosnippet>779</a>
-<a href=#780 id=780 data-nosnippet>780</a><span class="kw">fn </span>peak_db(peak: f32) -&gt; String {
-<a href=#781 id=781 data-nosnippet>781</a>    <span class="kw">if </span>peak == <span class="number">0.0 </span>{
-<a href=#782 id=782 data-nosnippet>782</a>        <span class="string">"−∞"</span>.to_string()
-<a href=#783 id=783 data-nosnippet>783</a>    } <span class="kw">else </span>{
-<a href=#784 id=784 data-nosnippet>784</a>        <span class="macro">format!</span>(<span class="string">"{:+.2}"</span>, <span class="number">20.0 </span>* peak.log10())
-<a href=#785 id=785 data-nosnippet>785</a>    }
-<a href=#786 id=786 data-nosnippet>786</a>}
-<a href=#787 id=787 data-nosnippet>787</a>
-<a href=#788 id=788 data-nosnippet>788</a><span class="attr">#[cfg(test)]
-<a href=#789 id=789 data-nosnippet>789</a>#[path = <span class="string">"play_tests.rs"</span>]
-<a href=#790 id=790 data-nosnippet>790</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#720 id=720 data-nosnippet>720</a>    <span class="kw">let </span>ids = catalog.playback_release_order(ids);
+<a href=#721 id=721 data-nosnippet>721</a>    <span class="kw">let </span><span class="kw-2">mut </span>paths = Vec::new();
+<a href=#722 id=722 data-nosnippet>722</a>    <span class="kw">for </span>id <span class="kw">in </span>ids {
+<a href=#723 id=723 data-nosnippet>723</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(release) = catalog.release(id) {
+<a href=#724 id=724 data-nosnippet>724</a>            <span class="kw">for </span>track_id <span class="kw">in </span><span class="kw-2">&amp;</span>release.track_ids {
+<a href=#725 id=725 data-nosnippet>725</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(path) = catalog
+<a href=#726 id=726 data-nosnippet>726</a>                    .track(<span class="kw-2">*</span>track_id)
+<a href=#727 id=727 data-nosnippet>727</a>                    .and_then(|track| catalog.file(track.file_id))
+<a href=#728 id=728 data-nosnippet>728</a>                    .map(|file| PathBuf::from(<span class="kw-2">&amp;</span>file.path))
+<a href=#729 id=729 data-nosnippet>729</a>                {
+<a href=#730 id=730 data-nosnippet>730</a>                    paths.push(path);
+<a href=#731 id=731 data-nosnippet>731</a>                }
+<a href=#732 id=732 data-nosnippet>732</a>            }
+<a href=#733 id=733 data-nosnippet>733</a>        }
+<a href=#734 id=734 data-nosnippet>734</a>    }
+<a href=#735 id=735 data-nosnippet>735</a>    <span class="kw">if </span>paths.is_empty() {
+<a href=#736 id=736 data-nosnippet>736</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">format!</span>(<span class="string">"no playable tracks for \"{name}\""</span>).into());
+<a href=#737 id=737 data-nosnippet>737</a>    }
+<a href=#738 id=738 data-nosnippet>738</a>    <span class="prelude-val">Ok</span>(paths)
+<a href=#739 id=739 data-nosnippet>739</a>}
+<a href=#740 id=740 data-nosnippet>740</a>
+<a href=#741 id=741 data-nosnippet>741</a><span class="kw">fn </span>collect_audio(folder: <span class="kw-2">&amp;</span>Path, paths: <span class="kw-2">&amp;mut </span>Vec&lt;PathBuf&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;(), Box&lt;<span class="kw">dyn </span>Error&gt;&gt; {
+<a href=#742 id=742 data-nosnippet>742</a>    <span class="kw">let </span><span class="kw-2">mut </span>entries = fs::read_dir(folder)<span class="question-mark">?</span>.collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()<span class="question-mark">?</span>;
+<a href=#743 id=743 data-nosnippet>743</a>    entries.sort_by_key(|entry| entry.file_name());
+<a href=#744 id=744 data-nosnippet>744</a>    <span class="kw">for </span>entry <span class="kw">in </span>entries {
+<a href=#745 id=745 data-nosnippet>745</a>        <span class="kw">let </span>kind = entry.file_type()<span class="question-mark">?</span>;
+<a href=#746 id=746 data-nosnippet>746</a>        <span class="kw">let </span>path = entry.path();
+<a href=#747 id=747 data-nosnippet>747</a>        <span class="kw">if </span>kind.is_dir() {
+<a href=#748 id=748 data-nosnippet>748</a>            collect_audio(<span class="kw-2">&amp;</span>path, paths)<span class="question-mark">?</span>;
+<a href=#749 id=749 data-nosnippet>749</a>        } <span class="kw">else if </span>kind.is_file() &amp;&amp; tags::is_audio_path(<span class="kw-2">&amp;</span>path) {
+<a href=#750 id=750 data-nosnippet>750</a>            paths.push(<span class="kw">super</span>::canonical(<span class="kw-2">&amp;</span>path));
+<a href=#751 id=751 data-nosnippet>751</a>        }
+<a href=#752 id=752 data-nosnippet>752</a>    }
+<a href=#753 id=753 data-nosnippet>753</a>    <span class="prelude-val">Ok</span>(())
+<a href=#754 id=754 data-nosnippet>754</a>}
+<a href=#755 id=755 data-nosnippet>755</a>
+<a href=#756 id=756 data-nosnippet>756</a><span class="kw">fn </span>record_play(args: <span class="kw-2">&amp;</span>Args, path: <span class="kw-2">&amp;</span>Path, started: u64, played_ms: u64, completed: bool) -&gt; Res {
+<a href=#757 id=757 data-nosnippet>757</a>    <span class="kw">let </span>key = path
+<a href=#758 id=758 data-nosnippet>758</a>        .to_str()
+<a href=#759 id=759 data-nosnippet>759</a>        .ok_or(<span class="string">"audio history requires a UTF-8 source path"</span>)<span class="question-mark">?</span>;
+<a href=#760 id=760 data-nosnippet>760</a>    <span class="kw">let </span>directory = data_dir(args);
+<a href=#761 id=761 data-nosnippet>761</a>    <span class="kw">let </span>_lock = StoreLock::acquire(<span class="kw-2">&amp;</span>directory)<span class="question-mark">?</span>;
+<a href=#762 id=762 data-nosnippet>762</a>    <span class="kw">let </span>user_path = user::user_path(<span class="kw-2">&amp;</span>directory);
+<a href=#763 id=763 data-nosnippet>763</a>    <span class="kw">let </span><span class="kw-2">mut </span>data = user::load(<span class="kw-2">&amp;</span>user_path)<span class="question-mark">?</span>.unwrap_or_default();
+<a href=#764 id=764 data-nosnippet>764</a>    data.record_play(Play {
+<a href=#765 id=765 data-nosnippet>765</a>        owner: LOCAL_USER.to_string(),
+<a href=#766 id=766 data-nosnippet>766</a>        track: EntityRef::new(EntityKind::Track, key.to_owned()),
+<a href=#767 id=767 data-nosnippet>767</a>        at: started,
+<a href=#768 id=768 data-nosnippet>768</a>        ms_played: played_ms,
+<a href=#769 id=769 data-nosnippet>769</a>        completed,
+<a href=#770 id=770 data-nosnippet>770</a>    });
+<a href=#771 id=771 data-nosnippet>771</a>    user::save(<span class="kw-2">&amp;</span>data, <span class="kw-2">&amp;</span>user_path)<span class="question-mark">?</span>;
+<a href=#772 id=772 data-nosnippet>772</a>    <span class="prelude-val">Ok</span>(())
+<a href=#773 id=773 data-nosnippet>773</a>}
+<a href=#774 id=774 data-nosnippet>774</a>
+<a href=#775 id=775 data-nosnippet>775</a><span class="kw">fn </span>peak_db(peak: f32) -&gt; String {
+<a href=#776 id=776 data-nosnippet>776</a>    <span class="kw">if </span>peak == <span class="number">0.0 </span>{
+<a href=#777 id=777 data-nosnippet>777</a>        <span class="string">"−∞"</span>.to_string()
+<a href=#778 id=778 data-nosnippet>778</a>    } <span class="kw">else </span>{
+<a href=#779 id=779 data-nosnippet>779</a>        <span class="macro">format!</span>(<span class="string">"{:+.2}"</span>, <span class="number">20.0 </span>* peak.log10())
+<a href=#780 id=780 data-nosnippet>780</a>    }
+<a href=#781 id=781 data-nosnippet>781</a>}
+<a href=#782 id=782 data-nosnippet>782</a>
+<a href=#783 id=783 data-nosnippet>783</a><span class="attr">#[cfg(test)]
+<a href=#784 id=784 data-nosnippet>784</a>#[path = <span class="string">"play_tests.rs"</span>]
+<a href=#785 id=785 data-nosnippet>785</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_PORT"],"fn":["path_option","serve","server_options","validate_authority"],"mod":["server_jobs"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_PORT"],"fn":["path_option","serve","server_options","validate_authority"],"mod":["desktop","server_jobs"]};

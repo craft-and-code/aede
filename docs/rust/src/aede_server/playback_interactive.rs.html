@@ -755,7 +755,7 @@
 <a href=#755 id=755 data-nosnippet>755</a>                <span class="kw">if </span>send_json(<span class="kw-2">&amp;mut </span>socket,<span class="macro">serde_json::json!</span>({<span class="string">"type"</span>:<span class="string">"recorded"</span>,<span class="string">"occurrence"</span>:visit.occurrence,<span class="string">"track"</span>:visit.listen.source.reference.to_token(),<span class="string">"ms_played"</span>:visit.listen.ms_played,<span class="string">"completed"</span>:visit.listen.completed})).<span class="kw">await</span>.is_err(){<span class="kw">break</span>}
 <a href=#756 id=756 data-nosnippet>756</a>            }
 <a href=#757 id=757 data-nosnippet>757</a>            <span class="kw">if </span>outcome.failed &amp;&amp; failure.is_none() {
-<a href=#758 id=758 data-nosnippet>758</a>                failure = <span class="prelude-val">Some</span>(StreamFailure::HISTORY_FAILED)
+<a href=#758 id=758 data-nosnippet>758</a>                failure = <span class="prelude-val">Some</span>(StreamFailure::HISTORY_SOURCE)
 <a href=#759 id=759 data-nosnippet>759</a>            }
 <a href=#760 id=760 data-nosnippet>760</a>        }
 <a href=#761 id=761 data-nosnippet>761</a>        <span class="prelude-val">Err</span>(error) =&gt; {

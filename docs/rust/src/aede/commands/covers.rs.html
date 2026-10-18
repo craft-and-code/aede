@@ -54,7 +54,7 @@
 <a href=#54 id=54 data-nosnippet>54</a>
 <a href=#55 id=55 data-nosnippet>55</a></span><span class="kw">use </span>aede_core::coverart::{<span class="self">self</span>, Size};
 <a href=#56 id=56 data-nosnippet>56</a><span class="kw">use </span>aede_core::model::{Catalog, EntityKind};
-<a href=#57 id=57 data-nosnippet>57</a><span class="kw">use </span>aede_core::sources::{<span class="self">self</span>, Facts, ReleaseFacts, SourceRecord};
+<a href=#57 id=57 data-nosnippet>57</a><span class="kw">use </span>aede_core::sources::{<span class="self">self</span>, Facts, MusicBrainzReleaseIdentity, ReleaseFacts, SourceRecord};
 <a href=#58 id=58 data-nosnippet>58</a><span class="kw">use </span>aede_core::user::EntityRef;
 <a href=#59 id=59 data-nosnippet>59</a><span class="kw">use </span>aede_core::{clock, musicbrainz};
 <a href=#60 id=60 data-nosnippet>60</a>
@@ -179,8 +179,8 @@
 <a href=#179 id=179 data-nosnippet>179</a>        <span class="comment">// A known address is the image, so there is nothing to look up.
 <a href=#180 id=180 data-nosnippet>180</a>        </span><span class="kw">if </span>target.known {
 <a href=#181 id=181 data-nosnippet>181</a>            <span class="kw">match </span>download(transport, backoff, <span class="kw-2">&amp;</span>target.url, <span class="kw-2">&amp;</span>target.folder) {
-<a href=#182 id=182 data-nosnippet>182</a>                <span class="prelude-val">Ok</span>(()) =&gt; {
-<a href=#183 id=183 data-nosnippet>183</a>                    written += <span class="number">1</span>;
+<a href=#182 id=182 data-nosnippet>182</a>                <span class="prelude-val">Ok</span>(new) =&gt; {
+<a href=#183 id=183 data-nosnippet>183</a>                    written += usize::from(new);
 <a href=#184 id=184 data-nosnippet>184</a>                    done += <span class="number">1</span>;
 <a href=#185 id=185 data-nosnippet>185</a>                }
 <a href=#186 id=186 data-nosnippet>186</a>                <span class="prelude-val">Err</span>(why) <span class="kw">if </span>why.must_stop() =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(why.into()),
@@ -279,8 +279,8 @@
 <a href=#279 id=279 data-nosnippet>279</a>        }
 <a href=#280 id=280 data-nosnippet>280</a>
 <a href=#281 id=281 data-nosnippet>281</a>        <span class="kw">match </span>download(transport, backoff, <span class="kw-2">&amp;</span>front.url, <span class="kw-2">&amp;</span>target.folder) {
-<a href=#282 id=282 data-nosnippet>282</a>            <span class="prelude-val">Ok</span>(()) =&gt; {
-<a href=#283 id=283 data-nosnippet>283</a>                written += <span class="number">1</span>;
+<a href=#282 id=282 data-nosnippet>282</a>            <span class="prelude-val">Ok</span>(new) =&gt; {
+<a href=#283 id=283 data-nosnippet>283</a>                written += usize::from(new);
 <a href=#284 id=284 data-nosnippet>284</a>                store(held, target, <span class="prelude-val">Some</span>(front.url));
 <a href=#285 id=285 data-nosnippet>285</a>                sources::save(held, path)<span class="question-mark">?</span>;
 <a href=#286 id=286 data-nosnippet>286</a>            }
@@ -316,310 +316,333 @@
 <a href=#316 id=316 data-nosnippet>316</a>    <span class="prelude-val">Ok</span>(())
 <a href=#317 id=317 data-nosnippet>317</a>}
 <a href=#318 id=318 data-nosnippet>318</a>
-<a href=#319 id=319 data-nosnippet>319</a><span class="doccomment">/// Downloads one image and writes it beside the music, or says why it did not.
+<a href=#319 id=319 data-nosnippet>319</a><span class="doccomment">/// Downloads a missing front; `false` means the disk already has one.
 <a href=#320 id=320 data-nosnippet>320</a></span><span class="kw">fn </span>download(
 <a href=#321 id=321 data-nosnippet>321</a>    transport: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>Ask,
 <a href=#322 id=322 data-nosnippet>322</a>    backoff: <span class="kw-2">&amp;</span>[std::time::Duration],
 <a href=#323 id=323 data-nosnippet>323</a>    url: <span class="kw-2">&amp;</span>str,
 <a href=#324 id=324 data-nosnippet>324</a>    folder: <span class="kw-2">&amp;</span>str,
-<a href=#325 id=325 data-nosnippet>325</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), Refusal&gt; {
-<a href=#326 id=326 data-nosnippet>326</a>    <span class="kw">let </span>bytes = ask_bytes(transport, url, backoff)<span class="question-mark">?</span>;
-<a href=#327 id=327 data-nosnippet>327</a>    <span class="comment">// Both guards — a recognised image header, and nothing overwritten — live
-<a href=#328 id=328 data-nosnippet>328</a>    // in one place, shared with `aede artwork`. Written twice they would
-<a href=#329 id=329 data-nosnippet>329</a>    // eventually differ, and the difference would only show as a corrupt file
-<a href=#330 id=330 data-nosnippet>330</a>    // in somebody's library.
-<a href=#331 id=331 data-nosnippet>331</a>    </span>coverart::write_beside(std::path::Path::new(folder), <span class="kw-2">&amp;</span>bytes)
-<a href=#332 id=332 data-nosnippet>332</a>        .map(|<span class="kw">_</span>| ())
-<a href=#333 id=333 data-nosnippet>333</a>        .map_err(Refusal::Failed)
-<a href=#334 id=334 data-nosnippet>334</a>}
-<a href=#335 id=335 data-nosnippet>335</a>
-<a href=#336 id=336 data-nosnippet>336</a><span class="doccomment">/// Downloads every image of an index that is not the front, and says how many.
-<a href=#337 id=337 data-nosnippet>337</a>///
-<a href=#338 id=338 data-nosnippet>338</a>/// Into `artwork/`, under names that say what each one is. A picture already on
-<a href=#339 id=339 data-nosnippet>339</a>/// disk is not downloaded twice and is not counted. Only a completed family
-<a href=#340 id=340 data-nosnippet>340</a>/// skips a later run; an interrupted family returns here for its missing files.
-<a href=#341 id=341 data-nosnippet>341</a></span><span class="kw">fn </span>download_others(
-<a href=#342 id=342 data-nosnippet>342</a>    transport: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>Ask,
-<a href=#343 id=343 data-nosnippet>343</a>    backoff: <span class="kw-2">&amp;</span>[std::time::Duration],
-<a href=#344 id=344 data-nosnippet>344</a>    index: <span class="kw-2">&amp;</span>aede_core::json::Json,
-<a href=#345 id=345 data-nosnippet>345</a>    size: Size,
-<a href=#346 id=346 data-nosnippet>346</a>    folder: <span class="kw-2">&amp;</span>str,
-<a href=#347 id=347 data-nosnippet>347</a>) -&gt; <span class="prelude-ty">Result</span>&lt;usize, Refusal&gt; {
-<a href=#348 id=348 data-nosnippet>348</a>    <span class="kw">let </span>all = coverart::images(index, size);
-<a href=#349 id=349 data-nosnippet>349</a>    <span class="kw">let </span>rest: Vec&lt;(coverart::Kind, coverart::Front)&gt; = all
-<a href=#350 id=350 data-nosnippet>350</a>        .into_iter()
-<a href=#351 id=351 data-nosnippet>351</a>        .filter(|(kind, <span class="kw">_</span>)| <span class="kw-2">*</span>kind != coverart::Kind::Front)
-<a href=#352 id=352 data-nosnippet>352</a>        .collect();
-<a href=#353 id=353 data-nosnippet>353</a>    <span class="kw">let </span>kinds: Vec&lt;coverart::Kind&gt; = rest.iter().map(|(kind, <span class="kw">_</span>)| <span class="kw-2">*</span>kind).collect();
-<a href=#354 id=354 data-nosnippet>354</a>    <span class="kw">let </span>places = coverart::positions(<span class="kw-2">&amp;</span>kinds);
-<a href=#355 id=355 data-nosnippet>355</a>    <span class="kw">let </span>into = coverart::extras_in(std::path::Path::new(folder));
-<a href=#356 id=356 data-nosnippet>356</a>
-<a href=#357 id=357 data-nosnippet>357</a>    <span class="kw">let </span><span class="kw-2">mut </span>written = <span class="number">0</span>;
-<a href=#358 id=358 data-nosnippet>358</a>    <span class="kw">for </span>((kind, image), where_) <span class="kw">in </span>rest.iter().zip(places) {
-<a href=#359 id=359 data-nosnippet>359</a>        <span class="kw">if </span>coverart::exists_image(<span class="kw-2">&amp;</span>into, <span class="kw-2">*</span>kind, where_) {
-<a href=#360 id=360 data-nosnippet>360</a>            <span class="kw">continue</span>;
-<a href=#361 id=361 data-nosnippet>361</a>        }
-<a href=#362 id=362 data-nosnippet>362</a>        <span class="kw">let </span>bytes = ask_bytes(transport, <span class="kw-2">&amp;</span>image.url, backoff)<span class="question-mark">?</span>;
-<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">match </span>coverart::write_image(<span class="kw-2">&amp;</span>into, <span class="kw-2">*</span>kind, where_, <span class="kw-2">&amp;</span>bytes).map_err(Refusal::Failed)<span class="question-mark">? </span>{
-<a href=#364 id=364 data-nosnippet>364</a>            coverart::Written::New(<span class="kw">_</span>) =&gt; written += <span class="number">1</span>,
-<a href=#365 id=365 data-nosnippet>365</a>            coverart::Written::Already(<span class="kw">_</span>) =&gt; {}
+<a href=#325 id=325 data-nosnippet>325</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, Refusal&gt; {
+<a href=#326 id=326 data-nosnippet>326</a>    <span class="comment">// A completed download may be newer than the catalog used by this pass.
+<a href=#327 id=327 data-nosnippet>327</a>    // Share the writer's cover lookup so every accepted filename is reused.
+<a href=#328 id=328 data-nosnippet>328</a>    </span><span class="kw">if </span>aede_core::scan::cover_in(std::path::Path::new(folder)).is_some() {
+<a href=#329 id=329 data-nosnippet>329</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#330 id=330 data-nosnippet>330</a>    }
+<a href=#331 id=331 data-nosnippet>331</a>    <span class="kw">let </span>bytes = ask_bytes(transport, url, backoff)<span class="question-mark">?</span>;
+<a href=#332 id=332 data-nosnippet>332</a>    <span class="comment">// Both guards — a recognised image header, and nothing overwritten — live
+<a href=#333 id=333 data-nosnippet>333</a>    // in one place, shared with `aede artwork`. Written twice they would
+<a href=#334 id=334 data-nosnippet>334</a>    // eventually differ, and the difference would only show as a corrupt file
+<a href=#335 id=335 data-nosnippet>335</a>    // in somebody's library.
+<a href=#336 id=336 data-nosnippet>336</a>    </span>coverart::write_beside(std::path::Path::new(folder), <span class="kw-2">&amp;</span>bytes)
+<a href=#337 id=337 data-nosnippet>337</a>        .map(|<span class="kw">_</span>| <span class="bool-val">true</span>)
+<a href=#338 id=338 data-nosnippet>338</a>        .map_err(Refusal::Failed)
+<a href=#339 id=339 data-nosnippet>339</a>}
+<a href=#340 id=340 data-nosnippet>340</a>
+<a href=#341 id=341 data-nosnippet>341</a><span class="doccomment">/// Downloads every image of an index that is not the front, and says how many.
+<a href=#342 id=342 data-nosnippet>342</a>///
+<a href=#343 id=343 data-nosnippet>343</a>/// Into `artwork/`, under names that say what each one is. A picture already on
+<a href=#344 id=344 data-nosnippet>344</a>/// disk is not downloaded twice and is not counted. Only a completed family
+<a href=#345 id=345 data-nosnippet>345</a>/// skips a later run; an interrupted family returns here for its missing files.
+<a href=#346 id=346 data-nosnippet>346</a></span><span class="kw">fn </span>download_others(
+<a href=#347 id=347 data-nosnippet>347</a>    transport: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>Ask,
+<a href=#348 id=348 data-nosnippet>348</a>    backoff: <span class="kw-2">&amp;</span>[std::time::Duration],
+<a href=#349 id=349 data-nosnippet>349</a>    index: <span class="kw-2">&amp;</span>aede_core::json::Json,
+<a href=#350 id=350 data-nosnippet>350</a>    size: Size,
+<a href=#351 id=351 data-nosnippet>351</a>    folder: <span class="kw-2">&amp;</span>str,
+<a href=#352 id=352 data-nosnippet>352</a>) -&gt; <span class="prelude-ty">Result</span>&lt;usize, Refusal&gt; {
+<a href=#353 id=353 data-nosnippet>353</a>    <span class="kw">let </span>all = coverart::images(index, size);
+<a href=#354 id=354 data-nosnippet>354</a>    <span class="kw">let </span>rest: Vec&lt;(coverart::Kind, coverart::Front)&gt; = all
+<a href=#355 id=355 data-nosnippet>355</a>        .into_iter()
+<a href=#356 id=356 data-nosnippet>356</a>        .filter(|(kind, <span class="kw">_</span>)| <span class="kw-2">*</span>kind != coverart::Kind::Front)
+<a href=#357 id=357 data-nosnippet>357</a>        .collect();
+<a href=#358 id=358 data-nosnippet>358</a>    <span class="kw">let </span>kinds: Vec&lt;coverart::Kind&gt; = rest.iter().map(|(kind, <span class="kw">_</span>)| <span class="kw-2">*</span>kind).collect();
+<a href=#359 id=359 data-nosnippet>359</a>    <span class="kw">let </span>places = coverart::positions(<span class="kw-2">&amp;</span>kinds);
+<a href=#360 id=360 data-nosnippet>360</a>    <span class="kw">let </span>into = coverart::extras_in(std::path::Path::new(folder));
+<a href=#361 id=361 data-nosnippet>361</a>
+<a href=#362 id=362 data-nosnippet>362</a>    <span class="kw">let </span><span class="kw-2">mut </span>written = <span class="number">0</span>;
+<a href=#363 id=363 data-nosnippet>363</a>    <span class="kw">for </span>((kind, image), where_) <span class="kw">in </span>rest.iter().zip(places) {
+<a href=#364 id=364 data-nosnippet>364</a>        <span class="kw">if </span>coverart::exists_image(<span class="kw-2">&amp;</span>into, <span class="kw-2">*</span>kind, where_) {
+<a href=#365 id=365 data-nosnippet>365</a>            <span class="kw">continue</span>;
 <a href=#366 id=366 data-nosnippet>366</a>        }
-<a href=#367 id=367 data-nosnippet>367</a>    }
-<a href=#368 id=368 data-nosnippet>368</a>    <span class="prelude-val">Ok</span>(written)
-<a href=#369 id=369 data-nosnippet>369</a>}
-<a href=#370 id=370 data-nosnippet>370</a>
-<a href=#371 id=371 data-nosnippet>371</a><span class="doccomment">/// Files what the archive answered, including when the answer was nothing.
-<a href=#372 id=372 data-nosnippet>372</a></span><span class="kw">fn </span>store(held: <span class="kw-2">&amp;mut </span>sources::Sources, target: <span class="kw-2">&amp;</span>Target, cover: <span class="prelude-ty">Option</span>&lt;String&gt;) {
-<a href=#373 id=373 data-nosnippet>373</a>    held.set(SourceRecord {
-<a href=#374 id=374 data-nosnippet>374</a>        key: target.entity.key.clone(),
-<a href=#375 id=375 data-nosnippet>375</a>        source: coverart::SOURCE.to_string(),
-<a href=#376 id=376 data-nosnippet>376</a>        source_id: <span class="prelude-val">None</span>,
-<a href=#377 id=377 data-nosnippet>377</a>        fetched_at: clock::now_seconds(),
-<a href=#378 id=378 data-nosnippet>378</a>        <span class="comment">// Asked by identifier, through a link the catalog or MusicBrainz
-<a href=#379 id=379 data-nosnippet>379</a>        // supplied: nothing here was matched by name.
-<a href=#380 id=380 data-nosnippet>380</a>        </span>confidence: sources::Confidence::Identified,
-<a href=#381 id=381 data-nosnippet>381</a>        facts: Facts::Release(ReleaseFacts {
-<a href=#382 id=382 data-nosnippet>382</a>            cover_art: cover,
-<a href=#383 id=383 data-nosnippet>383</a>            ..Default::default()
-<a href=#384 id=384 data-nosnippet>384</a>        }),
-<a href=#385 id=385 data-nosnippet>385</a>    });
-<a href=#386 id=386 data-nosnippet>386</a>}
-<a href=#387 id=387 data-nosnippet>387</a>
-<a href=#388 id=388 data-nosnippet>388</a><span class="kw">fn </span>store_artwork(held: <span class="kw-2">&amp;mut </span>sources::Sources, target: <span class="kw-2">&amp;</span>Target) {
-<a href=#389 id=389 data-nosnippet>389</a>    held.set(SourceRecord {
-<a href=#390 id=390 data-nosnippet>390</a>        key: target.entity.key.clone(),
-<a href=#391 id=391 data-nosnippet>391</a>        source: ARTWORK_SOURCE.to_string(),
-<a href=#392 id=392 data-nosnippet>392</a>        source_id: <span class="prelude-val">None</span>,
-<a href=#393 id=393 data-nosnippet>393</a>        fetched_at: clock::now_seconds(),
-<a href=#394 id=394 data-nosnippet>394</a>        confidence: sources::Confidence::Identified,
-<a href=#395 id=395 data-nosnippet>395</a>        facts: Facts::Release(ReleaseFacts::default()),
-<a href=#396 id=396 data-nosnippet>396</a>    });
-<a href=#397 id=397 data-nosnippet>397</a>}
-<a href=#398 id=398 data-nosnippet>398</a>
-<a href=#399 id=399 data-nosnippet>399</a><span class="doccomment">/// What the pass would do, and why it would leave the rest alone.
-<a href=#400 id=400 data-nosnippet>400</a>///
-<a href=#401 id=401 data-nosnippet>401</a>/// The counts are not decoration. The first version printed one sentence for
-<a href=#402 id=402 data-nosnippet>402</a>/// four quite different states — "every album already has a cover, or none has
-<a href=#403 id=403 data-nosnippet>403</a>/// been identified yet" — and a reader who deleted a cover to see what would
-<a href=#404 id=404 data-nosnippet>404</a>/// happen had no way to learn that the image was inside the files all along.
-<a href=#405 id=405 data-nosnippet>405</a>/// **A filter the reader cannot see is a trap**, and this one was four filters
-<a href=#406 id=406 data-nosnippet>406</a>/// wearing a single word.
-<a href=#407 id=407 data-nosnippet>407</a></span><span class="kw">struct </span>Survey {
-<a href=#408 id=408 data-nosnippet>408</a>    <span class="doccomment">/// Albums with no artwork anywhere, that something has identified.
-<a href=#409 id=409 data-nosnippet>409</a>    </span>targets: Vec&lt;Target&gt;,
-<a href=#410 id=410 data-nosnippet>410</a>    <span class="doccomment">/// Skipped: the image is inside the files.
-<a href=#411 id=411 data-nosnippet>411</a>    </span>embedded: usize,
-<a href=#412 id=412 data-nosnippet>412</a>    <span class="doccomment">/// Skipped: an image sits in the folder already.
-<a href=#413 id=413 data-nosnippet>413</a>    </span>beside: usize,
-<a href=#414 id=414 data-nosnippet>414</a>    <span class="doccomment">/// Skipped: no cover, but nothing names this album to the archive.
-<a href=#415 id=415 data-nosnippet>415</a>    </span>unidentified: usize,
-<a href=#416 id=416 data-nosnippet>416</a>    <span class="doccomment">/// Skipped: the archive was already asked, and answered.
-<a href=#417 id=417 data-nosnippet>417</a>    </span>asked: usize,
-<a href=#418 id=418 data-nosnippet>418</a>}
-<a href=#419 id=419 data-nosnippet>419</a>
-<a href=#420 id=420 data-nosnippet>420</a><span class="doccomment">/// Looks at every album and sorts it into one of the five.
-<a href=#421 id=421 data-nosnippet>421</a>///
-<a href=#422 id=422 data-nosnippet>422</a>/// `images` changes what counts as finished. Without it the question is "has
-<a href=#423 id=423 data-nosnippet>423</a>/// this album a cover", and an album that has one is done. With it there is a
-<a href=#424 id=424 data-nosnippet>424</a>/// second question — "has this album's other artwork been fetched" — whose
-<a href=#425 id=425 data-nosnippet>425</a>/// answer is a completed extras record.
-<a href=#426 id=426 data-nosnippet>426</a>/// The directory alone cannot distinguish an interrupted transfer from a
-<a href=#427 id=427 data-nosnippet>427</a>/// finished one. `again` rechecks both negative answers and completed extras.
-<a href=#428 id=428 data-nosnippet>428</a></span><span class="kw">fn </span>survey(
-<a href=#429 id=429 data-nosnippet>429</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
-<a href=#430 id=430 data-nosnippet>430</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
-<a href=#431 id=431 data-nosnippet>431</a>    wanted: <span class="kw-2">&amp;</span>[String],
-<a href=#432 id=432 data-nosnippet>432</a>    scope: <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::Scope,
-<a href=#433 id=433 data-nosnippet>433</a>    images: bool,
-<a href=#434 id=434 data-nosnippet>434</a>    again: bool,
-<a href=#435 id=435 data-nosnippet>435</a>) -&gt; Survey {
-<a href=#436 id=436 data-nosnippet>436</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = Survey {
-<a href=#437 id=437 data-nosnippet>437</a>        targets: Vec::new(),
-<a href=#438 id=438 data-nosnippet>438</a>        embedded: <span class="number">0</span>,
-<a href=#439 id=439 data-nosnippet>439</a>        beside: <span class="number">0</span>,
-<a href=#440 id=440 data-nosnippet>440</a>        unidentified: <span class="number">0</span>,
-<a href=#441 id=441 data-nosnippet>441</a>        asked: <span class="number">0</span>,
-<a href=#442 id=442 data-nosnippet>442</a>    };
-<a href=#443 id=443 data-nosnippet>443</a>    <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
-<a href=#444 id=444 data-nosnippet>444</a>        <span class="comment">// Out of the folders asked about: not counted into any of the five
-<a href=#445 id=445 data-nosnippet>445</a>        // either, for the reason the lyrics pass gives — the counts explain
-<a href=#446 id=446 data-nosnippet>446</a>        // what this run could have asked about, and a record on another shelf
-<a href=#447 id=447 data-nosnippet>447</a>        // was never a candidate.
-<a href=#448 id=448 data-nosnippet>448</a>        </span><span class="kw">if </span>!scope.has_release(release.id) {
-<a href=#449 id=449 data-nosnippet>449</a>            <span class="kw">continue</span>;
-<a href=#450 id=450 data-nosnippet>450</a>        }
-<a href=#451 id=451 data-nosnippet>451</a>        <span class="comment">// A name reaches an album by its title **or** by its artist, the same
-<a href=#452 id=452 data-nosnippet>452</a>        // rule the ordinary fetch uses: `--covers manson` should find the
-<a href=#453 id=453 data-nosnippet>453</a>        // records as well as the person.
-<a href=#454 id=454 data-nosnippet>454</a>        </span><span class="kw">let </span>by = release
-<a href=#455 id=455 data-nosnippet>455</a>            .album_artist_id
-<a href=#456 id=456 data-nosnippet>456</a>            .and_then(|id| catalog.artist(id))
-<a href=#457 id=457 data-nosnippet>457</a>            .map(|a| a.name.as_str())
-<a href=#458 id=458 data-nosnippet>458</a>            .unwrap_or_default();
-<a href=#459 id=459 data-nosnippet>459</a>        <span class="kw">if </span>!<span class="kw">super</span>::fetch::reaches(wanted, <span class="kw-2">&amp;</span>[release.title.as_str(), by]) {
-<a href=#460 id=460 data-nosnippet>460</a>            <span class="kw">continue</span>;
-<a href=#461 id=461 data-nosnippet>461</a>        }
-<a href=#462 id=462 data-nosnippet>462</a>        <span class="comment">// Embedded first, because it is the answer that surprises people: an
-<a href=#463 id=463 data-nosnippet>463</a>        // album can have no `cover.jpg` at all and still not want one.
-<a href=#464 id=464 data-nosnippet>464</a>        </span><span class="kw">let </span>embedded = has_embedded_art(catalog, release);
-<a href=#465 id=465 data-nosnippet>465</a>        <span class="kw">let </span>cover = !embedded &amp;&amp; release.cover_path.is_none();
-<a href=#466 id=466 data-nosnippet>466</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(entity) = EntityRef::of(catalog, EntityKind::Release, release.id) <span class="kw">else </span>{
-<a href=#467 id=467 data-nosnippet>467</a>            out.unidentified += <span class="number">1</span>;
-<a href=#468 id=468 data-nosnippet>468</a>            <span class="kw">continue</span>;
-<a href=#469 id=469 data-nosnippet>469</a>        };
-<a href=#470 id=470 data-nosnippet>470</a>        <span class="kw">let </span>extras = images &amp;&amp; (again || held.get(<span class="kw-2">&amp;</span>entity, ARTWORK_SOURCE).is_none());
-<a href=#471 id=471 data-nosnippet>471</a>        <span class="kw">if </span>!cover &amp;&amp; !extras {
-<a href=#472 id=472 data-nosnippet>472</a>            <span class="kw">match </span>embedded {
-<a href=#473 id=473 data-nosnippet>473</a>                <span class="bool-val">true </span>=&gt; out.embedded += <span class="number">1</span>,
-<a href=#474 id=474 data-nosnippet>474</a>                <span class="bool-val">false </span>=&gt; out.beside += <span class="number">1</span>,
-<a href=#475 id=475 data-nosnippet>475</a>            }
-<a href=#476 id=476 data-nosnippet>476</a>            <span class="kw">continue</span>;
-<a href=#477 id=477 data-nosnippet>477</a>        }
-<a href=#478 id=478 data-nosnippet>478</a>        <span class="comment">// Asked before — but *what* the answer was decides what happens now.
-<a href=#479 id=479 data-nosnippet>479</a>        //
-<a href=#480 id=480 data-nosnippet>480</a>        // "Asked, and the archive holds nothing" is a finished question, and
-<a href=#481 id=481 data-nosnippet>481</a>        // skipping it is what stops a second run costing an hour again. That
-<a href=#482 id=482 data-nosnippet>482</a>        // applies to the front only. Extra images have their own completion
-<a href=#483 id=483 data-nosnippet>483</a>        // record: a missing front says nothing about a booklet or a back.
-<a href=#484 id=484 data-nosnippet>484</a>        //
-<a href=#485 id=485 data-nosnippet>485</a>        // "Asked, and here is the image" is not finished when the image is no
-<a href=#486 id=486 data-nosnippet>486</a>        // longer in the folder. The address is still good, so the picture is
-<a href=#487 id=487 data-nosnippet>487</a>        // fetched again straight from it — one request, and the reader does not
-<a href=#488 id=488 data-nosnippet>488</a>        // have to discover `sources --forget` to get back a file they deleted.
-<a href=#489 id=489 data-nosnippet>489</a>        // With `--images` that shortcut is no use: the stored address is the
-<a href=#490 id=490 data-nosnippet>490</a>        // front and says nothing about the rest, so the index is asked for.
-<a href=#491 id=491 data-nosnippet>491</a>        </span><span class="kw">if </span>!again &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(record) = held.get(<span class="kw-2">&amp;</span>entity, coverart::SOURCE) {
-<a href=#492 id=492 data-nosnippet>492</a>            <span class="kw">let </span>stored = <span class="kw">match </span><span class="kw-2">&amp;</span>record.facts {
-<a href=#493 id=493 data-nosnippet>493</a>                Facts::Release(ReleaseFacts { cover_art, .. }) =&gt; cover_art.clone(),
-<a href=#494 id=494 data-nosnippet>494</a>                <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
-<a href=#495 id=495 data-nosnippet>495</a>            };
-<a href=#496 id=496 data-nosnippet>496</a>            <span class="kw">match </span>(stored, extras) {
-<a href=#497 id=497 data-nosnippet>497</a>                (<span class="prelude-val">Some</span>(url), <span class="bool-val">false</span>) =&gt; {
-<a href=#498 id=498 data-nosnippet>498</a>                    out.targets.push(Target {
-<a href=#499 id=499 data-nosnippet>499</a>                        entity,
-<a href=#500 id=500 data-nosnippet>500</a>                        title: release.title.clone(),
-<a href=#501 id=501 data-nosnippet>501</a>                        folder: release.folder.clone(),
-<a href=#502 id=502 data-nosnippet>502</a>                        url,
-<a href=#503 id=503 data-nosnippet>503</a>                        known: <span class="bool-val">true</span>,
-<a href=#504 id=504 data-nosnippet>504</a>                        cover: <span class="bool-val">true</span>,
-<a href=#505 id=505 data-nosnippet>505</a>                    });
-<a href=#506 id=506 data-nosnippet>506</a>                    <span class="kw">continue</span>;
-<a href=#507 id=507 data-nosnippet>507</a>                }
-<a href=#508 id=508 data-nosnippet>508</a>                (<span class="prelude-val">None</span>, <span class="bool-val">false</span>) =&gt; {
-<a href=#509 id=509 data-nosnippet>509</a>                    out.asked += <span class="number">1</span>;
-<a href=#510 id=510 data-nosnippet>510</a>                    <span class="kw">continue</span>;
-<a href=#511 id=511 data-nosnippet>511</a>                }
-<a href=#512 id=512 data-nosnippet>512</a>                (<span class="kw">_</span>, <span class="bool-val">true</span>) =&gt; {}
-<a href=#513 id=513 data-nosnippet>513</a>            }
-<a href=#514 id=514 data-nosnippet>514</a>        }
-<a href=#515 id=515 data-nosnippet>515</a>        <span class="comment">// The edition the shelf actually holds is a better question than the
-<a href=#516 id=516 data-nosnippet>516</a>        // one somebody else thought representative: a reissue often has other
-<a href=#517 id=517 data-nosnippet>517</a>        // artwork. Falling back to the album when the tags name no edition.
-<a href=#518 id=518 data-nosnippet>518</a>        </span><span class="kw">let </span>url = <span class="kw">match </span>release.mbid.as_deref() {
-<a href=#519 id=519 data-nosnippet>519</a>            <span class="prelude-val">Some</span>(edition) =&gt; coverart::release_index_url(edition),
-<a href=#520 id=520 data-nosnippet>520</a>            <span class="prelude-val">None </span>=&gt; <span class="kw">match </span>release.release_group_mbid.as_deref().or_else(|| {
-<a href=#521 id=521 data-nosnippet>521</a>                held.get(<span class="kw-2">&amp;</span>entity, sources::MUSICBRAINZ)
-<a href=#522 id=522 data-nosnippet>522</a>                    .filter(|record| held.is_trusted(catalog, record))
-<a href=#523 id=523 data-nosnippet>523</a>                    .and_then(|record| record.source_id.as_deref())
-<a href=#524 id=524 data-nosnippet>524</a>            }) {
-<a href=#525 id=525 data-nosnippet>525</a>                <span class="prelude-val">Some</span>(group) =&gt; coverart::index_url(group),
-<a href=#526 id=526 data-nosnippet>526</a>                <span class="prelude-val">None </span>=&gt; {
-<a href=#527 id=527 data-nosnippet>527</a>                    out.unidentified += <span class="number">1</span>;
-<a href=#528 id=528 data-nosnippet>528</a>                    <span class="kw">continue</span>;
-<a href=#529 id=529 data-nosnippet>529</a>                }
-<a href=#530 id=530 data-nosnippet>530</a>            },
-<a href=#531 id=531 data-nosnippet>531</a>        };
-<a href=#532 id=532 data-nosnippet>532</a>        out.targets.push(Target {
-<a href=#533 id=533 data-nosnippet>533</a>            entity,
-<a href=#534 id=534 data-nosnippet>534</a>            title: release.title.clone(),
-<a href=#535 id=535 data-nosnippet>535</a>            folder: release.folder.clone(),
-<a href=#536 id=536 data-nosnippet>536</a>            url,
-<a href=#537 id=537 data-nosnippet>537</a>            known: <span class="bool-val">false</span>,
-<a href=#538 id=538 data-nosnippet>538</a>            cover,
-<a href=#539 id=539 data-nosnippet>539</a>        });
-<a href=#540 id=540 data-nosnippet>540</a>    }
-<a href=#541 id=541 data-nosnippet>541</a>    out
-<a href=#542 id=542 data-nosnippet>542</a>}
-<a href=#543 id=543 data-nosnippet>543</a>
-<a href=#544 id=544 data-nosnippet>544</a><span class="doccomment">/// The albums this pass would ask about.
-<a href=#545 id=545 data-nosnippet>545</a></span><span class="kw">fn </span>targets(catalog: <span class="kw-2">&amp;</span>Catalog, held: <span class="kw-2">&amp;</span>sources::Sources) -&gt; Vec&lt;Target&gt; {
-<a href=#546 id=546 data-nosnippet>546</a>    survey(catalog, held, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::EVERYTHING, <span class="bool-val">false</span>, <span class="bool-val">false</span>).targets
-<a href=#547 id=547 data-nosnippet>547</a>}
-<a href=#548 id=548 data-nosnippet>548</a>
-<a href=#549 id=549 data-nosnippet>549</a><span class="doccomment">/// What was left alone and why, one line per reason that applies.
-<a href=#550 id=550 data-nosnippet>550</a>///
-<a href=#551 id=551 data-nosnippet>551</a>/// Returned rather than printed so that the wording is testable: the line that
-<a href=#552 id=552 data-nosnippet>552</a>/// matters most here is the one naming `aede extract`, and it was missing for a
-<a href=#553 id=553 data-nosnippet>553</a>/// release — a reader who deletes a cover reaches for this command, is told the
-<a href=#554 id=554 data-nosnippet>554</a>/// image is inside the files, and has been handed a fact with no way forward.
-<a href=#555 id=555 data-nosnippet>555</a>/// **A command named only where nobody is looking is a command nobody has.**
-<a href=#556 id=556 data-nosnippet>556</a>///
-<a href=#557 id=557 data-nosnippet>557</a>/// Both forms of every sentence are written out because [`ui::plural`] puts the
-<a href=#558 id=558 data-nosnippet>558</a>/// count *in* the sentence, and a count that opens a sentence takes the verb
-<a href=#559 id=559 data-nosnippet>559</a>/// with it.
-<a href=#560 id=560 data-nosnippet>560</a></span><span class="kw">fn </span>reasons(survey: <span class="kw-2">&amp;</span>Survey) -&gt; Vec&lt;String&gt; {
-<a href=#561 id=561 data-nosnippet>561</a>    <span class="kw">let </span><span class="kw-2">mut </span>lines = Vec::new();
-<a href=#562 id=562 data-nosnippet>562</a>    <span class="kw">for </span>(count, one, many) <span class="kw">in </span>[
-<a href=#563 id=563 data-nosnippet>563</a>        (
-<a href=#564 id=564 data-nosnippet>564</a>            survey.embedded,
-<a href=#565 id=565 data-nosnippet>565</a>            <span class="string">"carries the image inside its files: aede extract writes it out beside them"</span>,
-<a href=#566 id=566 data-nosnippet>566</a>            <span class="string">"carry the image inside their files: aede extract writes it out beside them"</span>,
-<a href=#567 id=567 data-nosnippet>567</a>        ),
-<a href=#568 id=568 data-nosnippet>568</a>        (
-<a href=#569 id=569 data-nosnippet>569</a>            survey.beside,
-<a href=#570 id=570 data-nosnippet>570</a>            <span class="string">"already has an image in its folder"</span>,
-<a href=#571 id=571 data-nosnippet>571</a>            <span class="string">"already have an image in their folders"</span>,
-<a href=#572 id=572 data-nosnippet>572</a>        ),
-<a href=#573 id=573 data-nosnippet>573</a>        (
-<a href=#574 id=574 data-nosnippet>574</a>            survey.unidentified,
-<a href=#575 id=575 data-nosnippet>575</a>            <span class="string">"has no cover and nothing identifying it: aede fetch names it first"</span>,
-<a href=#576 id=576 data-nosnippet>576</a>            <span class="string">"have no cover and nothing identifying them: aede fetch names them first"</span>,
-<a href=#577 id=577 data-nosnippet>577</a>        ),
-<a href=#578 id=578 data-nosnippet>578</a>        <span class="comment">// Only "asked, and the archive had nothing" reaches this line now: an
-<a href=#579 id=579 data-nosnippet>579</a>        // answer that named an image is re-fetched from the address it gave
-<a href=#580 id=580 data-nosnippet>580</a>        // rather than skipped, so nobody has to find `--forget` to get back a
-<a href=#581 id=581 data-nosnippet>581</a>        // file they deleted.
-<a href=#582 id=582 data-nosnippet>582</a>        </span>(
-<a href=#583 id=583 data-nosnippet>583</a>            survey.asked,
-<a href=#584 id=584 data-nosnippet>584</a>            <span class="string">"was asked about already and the archive had no front image for it"</span>,
-<a href=#585 id=585 data-nosnippet>585</a>            <span class="string">"were asked about already and the archive had no front image for them"</span>,
-<a href=#586 id=586 data-nosnippet>586</a>        ),
-<a href=#587 id=587 data-nosnippet>587</a>    ] {
-<a href=#588 id=588 data-nosnippet>588</a>        <span class="kw">if </span>count &gt; <span class="number">0 </span>{
-<a href=#589 id=589 data-nosnippet>589</a>            <span class="kw">let </span>rest = <span class="kw">match </span>count {
-<a href=#590 id=590 data-nosnippet>590</a>                <span class="number">1 </span>=&gt; one,
-<a href=#591 id=591 data-nosnippet>591</a>                <span class="kw">_ </span>=&gt; many,
-<a href=#592 id=592 data-nosnippet>592</a>            };
-<a href=#593 id=593 data-nosnippet>593</a>            lines.push(<span class="macro">format!</span>(<span class="string">"{} {rest}"</span>, ui::plural(count, <span class="string">"album"</span>)));
-<a href=#594 id=594 data-nosnippet>594</a>        }
-<a href=#595 id=595 data-nosnippet>595</a>    }
-<a href=#596 id=596 data-nosnippet>596</a>    lines
-<a href=#597 id=597 data-nosnippet>597</a>}
-<a href=#598 id=598 data-nosnippet>598</a>
-<a href=#599 id=599 data-nosnippet>599</a><span class="doccomment">/// Prints what [`reasons`] worked out, whether or not there is anything to do:
-<a href=#600 id=600 data-nosnippet>600</a>/// the question a reader has when nothing happens — *why is my album not in
-<a href=#601 id=601 data-nosnippet>601</a>/// there* — is the same one they have when something does.
-<a href=#602 id=602 data-nosnippet>602</a></span><span class="kw">fn </span>skipped(survey: <span class="kw-2">&amp;</span>Survey) {
-<a href=#603 id=603 data-nosnippet>603</a>    <span class="kw">for </span>line <span class="kw">in </span>reasons(survey) {
-<a href=#604 id=604 data-nosnippet>604</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="kw-2">&amp;</span>line));
-<a href=#605 id=605 data-nosnippet>605</a>    }
-<a href=#606 id=606 data-nosnippet>606</a>}
-<a href=#607 id=607 data-nosnippet>607</a>
-<a href=#608 id=608 data-nosnippet>608</a><span class="doccomment">/// `true` when any file of the release carries its own image.
-<a href=#609 id=609 data-nosnippet>609</a></span><span class="kw">fn </span>has_embedded_art(catalog: <span class="kw-2">&amp;</span>Catalog, release: <span class="kw-2">&amp;</span>aede_core::model::Release) -&gt; bool {
-<a href=#610 id=610 data-nosnippet>610</a>    release
-<a href=#611 id=611 data-nosnippet>611</a>        .track_ids
-<a href=#612 id=612 data-nosnippet>612</a>        .iter()
-<a href=#613 id=613 data-nosnippet>613</a>        .filter_map(|<span class="kw-2">&amp;</span>id| catalog.track(id))
-<a href=#614 id=614 data-nosnippet>614</a>        .filter_map(|track| catalog.file(track.file_id))
-<a href=#615 id=615 data-nosnippet>615</a>        .any(|file| file.has_embedded_art)
-<a href=#616 id=616 data-nosnippet>616</a>}
-<a href=#617 id=617 data-nosnippet>617</a>
-<a href=#618 id=618 data-nosnippet>618</a><span class="doccomment">/// How many albums a `--covers` pass would ask about, if it ran now.
-<a href=#619 id=619 data-nosnippet>619</a></span><span class="kw">pub fn </span>waiting(catalog: <span class="kw-2">&amp;</span>Catalog, held: <span class="kw-2">&amp;</span>sources::Sources) -&gt; usize {
-<a href=#620 id=620 data-nosnippet>620</a>    targets(catalog, held).len()
-<a href=#621 id=621 data-nosnippet>621</a>}
-<a href=#622 id=622 data-nosnippet>622</a>
-<a href=#623 id=623 data-nosnippet>623</a><span class="attr">#[cfg(test)]
-<a href=#624 id=624 data-nosnippet>624</a>#[path = <span class="string">"covers_tests.rs"</span>]
-<a href=#625 id=625 data-nosnippet>625</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#367 id=367 data-nosnippet>367</a>        <span class="kw">let </span>bytes = ask_bytes(transport, <span class="kw-2">&amp;</span>image.url, backoff)<span class="question-mark">?</span>;
+<a href=#368 id=368 data-nosnippet>368</a>        <span class="kw">match </span>coverart::write_image(<span class="kw-2">&amp;</span>into, <span class="kw-2">*</span>kind, where_, <span class="kw-2">&amp;</span>bytes).map_err(Refusal::Failed)<span class="question-mark">? </span>{
+<a href=#369 id=369 data-nosnippet>369</a>            coverart::Written::New(<span class="kw">_</span>) =&gt; written += <span class="number">1</span>,
+<a href=#370 id=370 data-nosnippet>370</a>            coverart::Written::Already(<span class="kw">_</span>) =&gt; {}
+<a href=#371 id=371 data-nosnippet>371</a>        }
+<a href=#372 id=372 data-nosnippet>372</a>    }
+<a href=#373 id=373 data-nosnippet>373</a>    <span class="prelude-val">Ok</span>(written)
+<a href=#374 id=374 data-nosnippet>374</a>}
+<a href=#375 id=375 data-nosnippet>375</a>
+<a href=#376 id=376 data-nosnippet>376</a><span class="doccomment">/// Files what the archive answered, including when the answer was nothing.
+<a href=#377 id=377 data-nosnippet>377</a></span><span class="kw">fn </span>store(held: <span class="kw-2">&amp;mut </span>sources::Sources, target: <span class="kw-2">&amp;</span>Target, cover: <span class="prelude-ty">Option</span>&lt;String&gt;) {
+<a href=#378 id=378 data-nosnippet>378</a>    held.set(SourceRecord {
+<a href=#379 id=379 data-nosnippet>379</a>        key: target.entity.key.clone(),
+<a href=#380 id=380 data-nosnippet>380</a>        source: coverart::SOURCE.to_string(),
+<a href=#381 id=381 data-nosnippet>381</a>        source_id: <span class="prelude-val">None</span>,
+<a href=#382 id=382 data-nosnippet>382</a>        fetched_at: clock::now_seconds(),
+<a href=#383 id=383 data-nosnippet>383</a>        <span class="comment">// Asked by identifier, through a link the catalog or MusicBrainz
+<a href=#384 id=384 data-nosnippet>384</a>        // supplied: nothing here was matched by name.
+<a href=#385 id=385 data-nosnippet>385</a>        </span>confidence: sources::Confidence::Identified,
+<a href=#386 id=386 data-nosnippet>386</a>        facts: Facts::Release(ReleaseFacts {
+<a href=#387 id=387 data-nosnippet>387</a>            cover_art: cover,
+<a href=#388 id=388 data-nosnippet>388</a>            ..Default::default()
+<a href=#389 id=389 data-nosnippet>389</a>        }),
+<a href=#390 id=390 data-nosnippet>390</a>    });
+<a href=#391 id=391 data-nosnippet>391</a>}
+<a href=#392 id=392 data-nosnippet>392</a>
+<a href=#393 id=393 data-nosnippet>393</a><span class="kw">fn </span>store_artwork(held: <span class="kw-2">&amp;mut </span>sources::Sources, target: <span class="kw-2">&amp;</span>Target) {
+<a href=#394 id=394 data-nosnippet>394</a>    held.set(SourceRecord {
+<a href=#395 id=395 data-nosnippet>395</a>        key: target.entity.key.clone(),
+<a href=#396 id=396 data-nosnippet>396</a>        source: ARTWORK_SOURCE.to_string(),
+<a href=#397 id=397 data-nosnippet>397</a>        source_id: <span class="prelude-val">None</span>,
+<a href=#398 id=398 data-nosnippet>398</a>        fetched_at: clock::now_seconds(),
+<a href=#399 id=399 data-nosnippet>399</a>        confidence: sources::Confidence::Identified,
+<a href=#400 id=400 data-nosnippet>400</a>        facts: Facts::Release(ReleaseFacts::default()),
+<a href=#401 id=401 data-nosnippet>401</a>    });
+<a href=#402 id=402 data-nosnippet>402</a>}
+<a href=#403 id=403 data-nosnippet>403</a>
+<a href=#404 id=404 data-nosnippet>404</a><span class="doccomment">/// What the pass would do, and why it would leave the rest alone.
+<a href=#405 id=405 data-nosnippet>405</a>///
+<a href=#406 id=406 data-nosnippet>406</a>/// The counts are not decoration. The first version printed one sentence for
+<a href=#407 id=407 data-nosnippet>407</a>/// four quite different states — "every album already has a cover, or none has
+<a href=#408 id=408 data-nosnippet>408</a>/// been identified yet" — and a reader who deleted a cover to see what would
+<a href=#409 id=409 data-nosnippet>409</a>/// happen had no way to learn that the image was inside the files all along.
+<a href=#410 id=410 data-nosnippet>410</a>/// **A filter the reader cannot see is a trap**, and this one was four filters
+<a href=#411 id=411 data-nosnippet>411</a>/// wearing a single word.
+<a href=#412 id=412 data-nosnippet>412</a></span><span class="kw">struct </span>Survey {
+<a href=#413 id=413 data-nosnippet>413</a>    <span class="doccomment">/// Albums with no artwork anywhere, that something has identified.
+<a href=#414 id=414 data-nosnippet>414</a>    </span>targets: Vec&lt;Target&gt;,
+<a href=#415 id=415 data-nosnippet>415</a>    <span class="doccomment">/// Skipped: the image is inside the files.
+<a href=#416 id=416 data-nosnippet>416</a>    </span>embedded: usize,
+<a href=#417 id=417 data-nosnippet>417</a>    <span class="doccomment">/// Skipped: an image sits in the folder already.
+<a href=#418 id=418 data-nosnippet>418</a>    </span>beside: usize,
+<a href=#419 id=419 data-nosnippet>419</a>    <span class="doccomment">/// Skipped: no cover, but nothing names this album to the archive.
+<a href=#420 id=420 data-nosnippet>420</a>    </span>unidentified: usize,
+<a href=#421 id=421 data-nosnippet>421</a>    <span class="doccomment">/// Skipped: the archive was already asked, and answered.
+<a href=#422 id=422 data-nosnippet>422</a>    </span>asked: usize,
+<a href=#423 id=423 data-nosnippet>423</a>}
+<a href=#424 id=424 data-nosnippet>424</a>
+<a href=#425 id=425 data-nosnippet>425</a><span class="doccomment">/// Looks at every album and sorts it into one of the five.
+<a href=#426 id=426 data-nosnippet>426</a>///
+<a href=#427 id=427 data-nosnippet>427</a>/// `images` changes what counts as finished. Without it the question is "has
+<a href=#428 id=428 data-nosnippet>428</a>/// this album a cover", and an album that has one is done. With it there is a
+<a href=#429 id=429 data-nosnippet>429</a>/// second question — "has this album's other artwork been fetched" — whose
+<a href=#430 id=430 data-nosnippet>430</a>/// answer is a completed extras record.
+<a href=#431 id=431 data-nosnippet>431</a>/// The directory alone cannot distinguish an interrupted transfer from a
+<a href=#432 id=432 data-nosnippet>432</a>/// finished one. `again` rechecks both negative answers and completed extras.
+<a href=#433 id=433 data-nosnippet>433</a></span><span class="kw">fn </span>survey(
+<a href=#434 id=434 data-nosnippet>434</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
+<a href=#435 id=435 data-nosnippet>435</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
+<a href=#436 id=436 data-nosnippet>436</a>    wanted: <span class="kw-2">&amp;</span>[String],
+<a href=#437 id=437 data-nosnippet>437</a>    scope: <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::Scope,
+<a href=#438 id=438 data-nosnippet>438</a>    images: bool,
+<a href=#439 id=439 data-nosnippet>439</a>    again: bool,
+<a href=#440 id=440 data-nosnippet>440</a>) -&gt; Survey {
+<a href=#441 id=441 data-nosnippet>441</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = Survey {
+<a href=#442 id=442 data-nosnippet>442</a>        targets: Vec::new(),
+<a href=#443 id=443 data-nosnippet>443</a>        embedded: <span class="number">0</span>,
+<a href=#444 id=444 data-nosnippet>444</a>        beside: <span class="number">0</span>,
+<a href=#445 id=445 data-nosnippet>445</a>        unidentified: <span class="number">0</span>,
+<a href=#446 id=446 data-nosnippet>446</a>        asked: <span class="number">0</span>,
+<a href=#447 id=447 data-nosnippet>447</a>    };
+<a href=#448 id=448 data-nosnippet>448</a>    <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
+<a href=#449 id=449 data-nosnippet>449</a>        <span class="comment">// Out of the folders asked about: not counted into any of the five
+<a href=#450 id=450 data-nosnippet>450</a>        // either, for the reason the lyrics pass gives — the counts explain
+<a href=#451 id=451 data-nosnippet>451</a>        // what this run could have asked about, and a record on another shelf
+<a href=#452 id=452 data-nosnippet>452</a>        // was never a candidate.
+<a href=#453 id=453 data-nosnippet>453</a>        </span><span class="kw">if </span>!scope.has_release(release.id) {
+<a href=#454 id=454 data-nosnippet>454</a>            <span class="kw">continue</span>;
+<a href=#455 id=455 data-nosnippet>455</a>        }
+<a href=#456 id=456 data-nosnippet>456</a>        <span class="comment">// A name reaches an album by its title **or** by its artist, the same
+<a href=#457 id=457 data-nosnippet>457</a>        // rule the ordinary fetch uses: `--covers manson` should find the
+<a href=#458 id=458 data-nosnippet>458</a>        // records as well as the person.
+<a href=#459 id=459 data-nosnippet>459</a>        </span><span class="kw">let </span>by = release
+<a href=#460 id=460 data-nosnippet>460</a>            .album_artist_id
+<a href=#461 id=461 data-nosnippet>461</a>            .and_then(|id| catalog.artist(id))
+<a href=#462 id=462 data-nosnippet>462</a>            .map(|a| a.name.as_str())
+<a href=#463 id=463 data-nosnippet>463</a>            .unwrap_or_default();
+<a href=#464 id=464 data-nosnippet>464</a>        <span class="kw">if </span>!<span class="kw">super</span>::fetch::reaches(wanted, <span class="kw-2">&amp;</span>[release.title.as_str(), by]) {
+<a href=#465 id=465 data-nosnippet>465</a>            <span class="kw">continue</span>;
+<a href=#466 id=466 data-nosnippet>466</a>        }
+<a href=#467 id=467 data-nosnippet>467</a>        <span class="comment">// Embedded first, because it is the answer that surprises people: an
+<a href=#468 id=468 data-nosnippet>468</a>        // album can have no `cover.jpg` at all and still not want one.
+<a href=#469 id=469 data-nosnippet>469</a>        </span><span class="kw">let </span>embedded = has_embedded_art(catalog, release);
+<a href=#470 id=470 data-nosnippet>470</a>        <span class="comment">// Only established absence releases a sidecar remembered by the scan.
+<a href=#471 id=471 data-nosnippet>471</a>        </span><span class="kw">let </span>cover = !embedded
+<a href=#472 id=472 data-nosnippet>472</a>            &amp;&amp; release.cover_path.as_deref().is_none_or(|path| {
+<a href=#473 id=473 data-nosnippet>473</a>                <span class="macro">matches!</span>(
+<a href=#474 id=474 data-nosnippet>474</a>                    std::fs::symlink_metadata(path),
+<a href=#475 id=475 data-nosnippet>475</a>                    <span class="prelude-val">Err</span>(error) <span class="kw">if </span>error.kind() == std::io::ErrorKind::NotFound
+<a href=#476 id=476 data-nosnippet>476</a>                )
+<a href=#477 id=477 data-nosnippet>477</a>            });
+<a href=#478 id=478 data-nosnippet>478</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(entity) = EntityRef::of(catalog, EntityKind::Release, release.id) <span class="kw">else </span>{
+<a href=#479 id=479 data-nosnippet>479</a>            out.unidentified += <span class="number">1</span>;
+<a href=#480 id=480 data-nosnippet>480</a>            <span class="kw">continue</span>;
+<a href=#481 id=481 data-nosnippet>481</a>        };
+<a href=#482 id=482 data-nosnippet>482</a>        <span class="kw">let </span>extras = images &amp;&amp; (again || held.get(<span class="kw-2">&amp;</span>entity, ARTWORK_SOURCE).is_none());
+<a href=#483 id=483 data-nosnippet>483</a>        <span class="kw">if </span>!cover &amp;&amp; !extras {
+<a href=#484 id=484 data-nosnippet>484</a>            <span class="kw">match </span>embedded {
+<a href=#485 id=485 data-nosnippet>485</a>                <span class="bool-val">true </span>=&gt; out.embedded += <span class="number">1</span>,
+<a href=#486 id=486 data-nosnippet>486</a>                <span class="bool-val">false </span>=&gt; out.beside += <span class="number">1</span>,
+<a href=#487 id=487 data-nosnippet>487</a>            }
+<a href=#488 id=488 data-nosnippet>488</a>            <span class="kw">continue</span>;
+<a href=#489 id=489 data-nosnippet>489</a>        }
+<a href=#490 id=490 data-nosnippet>490</a>        <span class="comment">// Asked before — but *what* the answer was decides what happens now.
+<a href=#491 id=491 data-nosnippet>491</a>        //
+<a href=#492 id=492 data-nosnippet>492</a>        // "Asked, and the archive holds nothing" is a finished question, and
+<a href=#493 id=493 data-nosnippet>493</a>        // skipping it is what stops a second run costing an hour again. That
+<a href=#494 id=494 data-nosnippet>494</a>        // applies to the front only. Extra images have their own completion
+<a href=#495 id=495 data-nosnippet>495</a>        // record: a missing front says nothing about a booklet or a back.
+<a href=#496 id=496 data-nosnippet>496</a>        //
+<a href=#497 id=497 data-nosnippet>497</a>        // "Asked, and here is the image" is not finished when the image is no
+<a href=#498 id=498 data-nosnippet>498</a>        // longer in the folder. The address is still good, so the picture is
+<a href=#499 id=499 data-nosnippet>499</a>        // fetched again straight from it — one request, and the reader does not
+<a href=#500 id=500 data-nosnippet>500</a>        // have to discover `sources --forget` to get back a file they deleted.
+<a href=#501 id=501 data-nosnippet>501</a>        // With `--images` that shortcut is no use: the stored address is the
+<a href=#502 id=502 data-nosnippet>502</a>        // front and says nothing about the rest, so the index is asked for.
+<a href=#503 id=503 data-nosnippet>503</a>        </span><span class="kw">if </span>!again
+<a href=#504 id=504 data-nosnippet>504</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(record) = held
+<a href=#505 id=505 data-nosnippet>505</a>                .get(<span class="kw-2">&amp;</span>entity, coverart::SOURCE)
+<a href=#506 id=506 data-nosnippet>506</a>                .filter(|record| held.is_trusted(catalog, record))
+<a href=#507 id=507 data-nosnippet>507</a>        {
+<a href=#508 id=508 data-nosnippet>508</a>            <span class="kw">let </span>stored = <span class="kw">match </span><span class="kw-2">&amp;</span>record.facts {
+<a href=#509 id=509 data-nosnippet>509</a>                Facts::Release(ReleaseFacts { cover_art, .. }) =&gt; cover_art.clone(),
+<a href=#510 id=510 data-nosnippet>510</a>                <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#511 id=511 data-nosnippet>511</a>            };
+<a href=#512 id=512 data-nosnippet>512</a>            <span class="kw">match </span>(stored, extras) {
+<a href=#513 id=513 data-nosnippet>513</a>                (<span class="prelude-val">Some</span>(url), <span class="bool-val">false</span>) =&gt; {
+<a href=#514 id=514 data-nosnippet>514</a>                    out.targets.push(Target {
+<a href=#515 id=515 data-nosnippet>515</a>                        entity,
+<a href=#516 id=516 data-nosnippet>516</a>                        title: release.title.clone(),
+<a href=#517 id=517 data-nosnippet>517</a>                        folder: release.folder.clone(),
+<a href=#518 id=518 data-nosnippet>518</a>                        url,
+<a href=#519 id=519 data-nosnippet>519</a>                        known: <span class="bool-val">true</span>,
+<a href=#520 id=520 data-nosnippet>520</a>                        cover: <span class="bool-val">true</span>,
+<a href=#521 id=521 data-nosnippet>521</a>                    });
+<a href=#522 id=522 data-nosnippet>522</a>                    <span class="kw">continue</span>;
+<a href=#523 id=523 data-nosnippet>523</a>                }
+<a href=#524 id=524 data-nosnippet>524</a>                (<span class="prelude-val">None</span>, <span class="bool-val">false</span>) =&gt; {
+<a href=#525 id=525 data-nosnippet>525</a>                    out.asked += <span class="number">1</span>;
+<a href=#526 id=526 data-nosnippet>526</a>                    <span class="kw">continue</span>;
+<a href=#527 id=527 data-nosnippet>527</a>                }
+<a href=#528 id=528 data-nosnippet>528</a>                (<span class="kw">_</span>, <span class="bool-val">true</span>) =&gt; {}
+<a href=#529 id=529 data-nosnippet>529</a>            }
+<a href=#530 id=530 data-nosnippet>530</a>        }
+<a href=#531 id=531 data-nosnippet>531</a>        <span class="comment">// The edition the shelf actually holds is a better question than the
+<a href=#532 id=532 data-nosnippet>532</a>        // one somebody else thought representative: a reissue often has other
+<a href=#533 id=533 data-nosnippet>533</a>        // artwork. Falling back to the album when the tags name no edition.
+<a href=#534 id=534 data-nosnippet>534</a>        </span><span class="kw">let </span>url = <span class="kw">match </span>release.mbid.as_deref() {
+<a href=#535 id=535 data-nosnippet>535</a>            <span class="prelude-val">Some</span>(edition) =&gt; coverart::release_index_url(edition),
+<a href=#536 id=536 data-nosnippet>536</a>            <span class="prelude-val">None </span>=&gt; <span class="kw">match </span>release
+<a href=#537 id=537 data-nosnippet>537</a>                .release_group_mbid
+<a href=#538 id=538 data-nosnippet>538</a>                .as_deref()
+<a href=#539 id=539 data-nosnippet>539</a>                .map(MusicBrainzReleaseIdentity::ReleaseGroup)
+<a href=#540 id=540 data-nosnippet>540</a>                .or_else(|| {
+<a href=#541 id=541 data-nosnippet>541</a>                    held.get(<span class="kw-2">&amp;</span>entity, sources::MUSICBRAINZ)
+<a href=#542 id=542 data-nosnippet>542</a>                        .filter(|record| held.is_trusted(catalog, record))
+<a href=#543 id=543 data-nosnippet>543</a>                        .and_then(SourceRecord::musicbrainz_release_identity)
+<a href=#544 id=544 data-nosnippet>544</a>                }) {
+<a href=#545 id=545 data-nosnippet>545</a>                <span class="prelude-val">Some</span>(MusicBrainzReleaseIdentity::Edition(edition)) =&gt; {
+<a href=#546 id=546 data-nosnippet>546</a>                    coverart::release_index_url(edition)
+<a href=#547 id=547 data-nosnippet>547</a>                }
+<a href=#548 id=548 data-nosnippet>548</a>                <span class="prelude-val">Some</span>(MusicBrainzReleaseIdentity::ReleaseGroup(group)) =&gt; coverart::index_url(group),
+<a href=#549 id=549 data-nosnippet>549</a>                <span class="prelude-val">None </span>=&gt; {
+<a href=#550 id=550 data-nosnippet>550</a>                    out.unidentified += <span class="number">1</span>;
+<a href=#551 id=551 data-nosnippet>551</a>                    <span class="kw">continue</span>;
+<a href=#552 id=552 data-nosnippet>552</a>                }
+<a href=#553 id=553 data-nosnippet>553</a>            },
+<a href=#554 id=554 data-nosnippet>554</a>        };
+<a href=#555 id=555 data-nosnippet>555</a>        out.targets.push(Target {
+<a href=#556 id=556 data-nosnippet>556</a>            entity,
+<a href=#557 id=557 data-nosnippet>557</a>            title: release.title.clone(),
+<a href=#558 id=558 data-nosnippet>558</a>            folder: release.folder.clone(),
+<a href=#559 id=559 data-nosnippet>559</a>            url,
+<a href=#560 id=560 data-nosnippet>560</a>            known: <span class="bool-val">false</span>,
+<a href=#561 id=561 data-nosnippet>561</a>            cover,
+<a href=#562 id=562 data-nosnippet>562</a>        });
+<a href=#563 id=563 data-nosnippet>563</a>    }
+<a href=#564 id=564 data-nosnippet>564</a>    out
+<a href=#565 id=565 data-nosnippet>565</a>}
+<a href=#566 id=566 data-nosnippet>566</a>
+<a href=#567 id=567 data-nosnippet>567</a><span class="doccomment">/// The albums this pass would ask about.
+<a href=#568 id=568 data-nosnippet>568</a></span><span class="kw">fn </span>targets(catalog: <span class="kw-2">&amp;</span>Catalog, held: <span class="kw-2">&amp;</span>sources::Sources) -&gt; Vec&lt;Target&gt; {
+<a href=#569 id=569 data-nosnippet>569</a>    survey(catalog, held, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::EVERYTHING, <span class="bool-val">false</span>, <span class="bool-val">false</span>).targets
+<a href=#570 id=570 data-nosnippet>570</a>}
+<a href=#571 id=571 data-nosnippet>571</a>
+<a href=#572 id=572 data-nosnippet>572</a><span class="doccomment">/// What was left alone and why, one line per reason that applies.
+<a href=#573 id=573 data-nosnippet>573</a>///
+<a href=#574 id=574 data-nosnippet>574</a>/// Returned rather than printed so that the wording is testable: the line that
+<a href=#575 id=575 data-nosnippet>575</a>/// matters most here is the one naming `aede extract`, and it was missing for a
+<a href=#576 id=576 data-nosnippet>576</a>/// release — a reader who deletes a cover reaches for this command, is told the
+<a href=#577 id=577 data-nosnippet>577</a>/// image is inside the files, and has been handed a fact with no way forward.
+<a href=#578 id=578 data-nosnippet>578</a>/// **A command named only where nobody is looking is a command nobody has.**
+<a href=#579 id=579 data-nosnippet>579</a>///
+<a href=#580 id=580 data-nosnippet>580</a>/// Both forms of every sentence are written out because [`ui::plural`] puts the
+<a href=#581 id=581 data-nosnippet>581</a>/// count *in* the sentence, and a count that opens a sentence takes the verb
+<a href=#582 id=582 data-nosnippet>582</a>/// with it.
+<a href=#583 id=583 data-nosnippet>583</a></span><span class="kw">fn </span>reasons(survey: <span class="kw-2">&amp;</span>Survey) -&gt; Vec&lt;String&gt; {
+<a href=#584 id=584 data-nosnippet>584</a>    <span class="kw">let </span><span class="kw-2">mut </span>lines = Vec::new();
+<a href=#585 id=585 data-nosnippet>585</a>    <span class="kw">for </span>(count, one, many) <span class="kw">in </span>[
+<a href=#586 id=586 data-nosnippet>586</a>        (
+<a href=#587 id=587 data-nosnippet>587</a>            survey.embedded,
+<a href=#588 id=588 data-nosnippet>588</a>            <span class="string">"carries the image inside its files: aede extract writes it out beside them"</span>,
+<a href=#589 id=589 data-nosnippet>589</a>            <span class="string">"carry the image inside their files: aede extract writes it out beside them"</span>,
+<a href=#590 id=590 data-nosnippet>590</a>        ),
+<a href=#591 id=591 data-nosnippet>591</a>        (
+<a href=#592 id=592 data-nosnippet>592</a>            survey.beside,
+<a href=#593 id=593 data-nosnippet>593</a>            <span class="string">"already has an image in its folder"</span>,
+<a href=#594 id=594 data-nosnippet>594</a>            <span class="string">"already have an image in their folders"</span>,
+<a href=#595 id=595 data-nosnippet>595</a>        ),
+<a href=#596 id=596 data-nosnippet>596</a>        (
+<a href=#597 id=597 data-nosnippet>597</a>            survey.unidentified,
+<a href=#598 id=598 data-nosnippet>598</a>            <span class="string">"has no cover and nothing identifying it: aede fetch names it first"</span>,
+<a href=#599 id=599 data-nosnippet>599</a>            <span class="string">"have no cover and nothing identifying them: aede fetch names them first"</span>,
+<a href=#600 id=600 data-nosnippet>600</a>        ),
+<a href=#601 id=601 data-nosnippet>601</a>        <span class="comment">// Only "asked, and the archive had nothing" reaches this line now: an
+<a href=#602 id=602 data-nosnippet>602</a>        // answer that named an image is re-fetched from the address it gave
+<a href=#603 id=603 data-nosnippet>603</a>        // rather than skipped, so nobody has to find `--forget` to get back a
+<a href=#604 id=604 data-nosnippet>604</a>        // file they deleted.
+<a href=#605 id=605 data-nosnippet>605</a>        </span>(
+<a href=#606 id=606 data-nosnippet>606</a>            survey.asked,
+<a href=#607 id=607 data-nosnippet>607</a>            <span class="string">"was asked about already and the archive had no front image for it"</span>,
+<a href=#608 id=608 data-nosnippet>608</a>            <span class="string">"were asked about already and the archive had no front image for them"</span>,
+<a href=#609 id=609 data-nosnippet>609</a>        ),
+<a href=#610 id=610 data-nosnippet>610</a>    ] {
+<a href=#611 id=611 data-nosnippet>611</a>        <span class="kw">if </span>count &gt; <span class="number">0 </span>{
+<a href=#612 id=612 data-nosnippet>612</a>            <span class="kw">let </span>rest = <span class="kw">match </span>count {
+<a href=#613 id=613 data-nosnippet>613</a>                <span class="number">1 </span>=&gt; one,
+<a href=#614 id=614 data-nosnippet>614</a>                <span class="kw">_ </span>=&gt; many,
+<a href=#615 id=615 data-nosnippet>615</a>            };
+<a href=#616 id=616 data-nosnippet>616</a>            lines.push(<span class="macro">format!</span>(<span class="string">"{} {rest}"</span>, ui::plural(count, <span class="string">"album"</span>)));
+<a href=#617 id=617 data-nosnippet>617</a>        }
+<a href=#618 id=618 data-nosnippet>618</a>    }
+<a href=#619 id=619 data-nosnippet>619</a>    lines
+<a href=#620 id=620 data-nosnippet>620</a>}
+<a href=#621 id=621 data-nosnippet>621</a>
+<a href=#622 id=622 data-nosnippet>622</a><span class="doccomment">/// Prints what [`reasons`] worked out, whether or not there is anything to do:
+<a href=#623 id=623 data-nosnippet>623</a>/// the question a reader has when nothing happens — *why is my album not in
+<a href=#624 id=624 data-nosnippet>624</a>/// there* — is the same one they have when something does.
+<a href=#625 id=625 data-nosnippet>625</a></span><span class="kw">fn </span>skipped(survey: <span class="kw-2">&amp;</span>Survey) {
+<a href=#626 id=626 data-nosnippet>626</a>    <span class="kw">for </span>line <span class="kw">in </span>reasons(survey) {
+<a href=#627 id=627 data-nosnippet>627</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="kw-2">&amp;</span>line));
+<a href=#628 id=628 data-nosnippet>628</a>    }
+<a href=#629 id=629 data-nosnippet>629</a>}
+<a href=#630 id=630 data-nosnippet>630</a>
+<a href=#631 id=631 data-nosnippet>631</a><span class="doccomment">/// `true` when any file of the release carries its own image.
+<a href=#632 id=632 data-nosnippet>632</a></span><span class="kw">fn </span>has_embedded_art(catalog: <span class="kw-2">&amp;</span>Catalog, release: <span class="kw-2">&amp;</span>aede_core::model::Release) -&gt; bool {
+<a href=#633 id=633 data-nosnippet>633</a>    release
+<a href=#634 id=634 data-nosnippet>634</a>        .track_ids
+<a href=#635 id=635 data-nosnippet>635</a>        .iter()
+<a href=#636 id=636 data-nosnippet>636</a>        .filter_map(|<span class="kw-2">&amp;</span>id| catalog.track(id))
+<a href=#637 id=637 data-nosnippet>637</a>        .filter_map(|track| catalog.file(track.file_id))
+<a href=#638 id=638 data-nosnippet>638</a>        .any(|file| file.has_embedded_art)
+<a href=#639 id=639 data-nosnippet>639</a>}
+<a href=#640 id=640 data-nosnippet>640</a>
+<a href=#641 id=641 data-nosnippet>641</a><span class="doccomment">/// How many albums a `--covers` pass would ask about, if it ran now.
+<a href=#642 id=642 data-nosnippet>642</a></span><span class="kw">pub fn </span>waiting(catalog: <span class="kw-2">&amp;</span>Catalog, held: <span class="kw-2">&amp;</span>sources::Sources) -&gt; usize {
+<a href=#643 id=643 data-nosnippet>643</a>    targets(catalog, held).len()
+<a href=#644 id=644 data-nosnippet>644</a>}
+<a href=#645 id=645 data-nosnippet>645</a>
+<a href=#646 id=646 data-nosnippet>646</a><span class="attr">#[cfg(test)]
+<a href=#647 id=647 data-nosnippet>647</a>#[path = <span class="string">"covers_tests.rs"</span>]
+<a href=#648 id=648 data-nosnippet>648</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

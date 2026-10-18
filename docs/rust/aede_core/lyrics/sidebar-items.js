@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["EXTENSION"],"enum":["ReadError","Source"],"fn":["from_tag","is_sidecar","parse","parse_complete","read","read_current","read_local","sidecar_of"],"struct":["Cue","CurrentTrack","Line","Lyrics","ParseLimitExceeded","Timeline"]};
+window.SIDEBAR_ITEMS = {"constant":["EXTENSION"],"enum":["ReadError","Source"],"fn":["from_tag","has_source","is_sidecar","parse","parse_complete","read","read_current","read_local","sidecar_of"],"struct":["Cue","CurrentTrack","Line","Lyrics","ParseLimitExceeded","Timeline"]};

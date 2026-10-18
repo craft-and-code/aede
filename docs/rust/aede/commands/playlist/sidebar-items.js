@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["albums","discographies","lines","playlist","render_folders","summarise"]};
+window.SIDEBAR_ITEMS = {"fn":["lines","playlist","summarise"]};

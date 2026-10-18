@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["refresh","refresh_online"]};
+window.SIDEBAR_ITEMS = {"fn":["has_wikipedia_biography","refresh","refresh_online","run"],"struct":["UnavailableLabels"]};

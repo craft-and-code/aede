@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["analyze","report_path","reusable","show_progress","show_result"]};
+window.SIDEBAR_ITEMS = {"enum":["ReportDestinationError"],"fn":["analyze","analyze_with_progress","progress_line","report_destination","report_path","result_line","reusable","show_progress","show_result","validate_report_destination"]};

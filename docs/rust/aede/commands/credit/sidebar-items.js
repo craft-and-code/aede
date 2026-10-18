@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MANUAL"],"enum":["Scope"],"fn":["credit","representative_track","resolve_scope"]};
+window.SIDEBAR_ITEMS = {"constant":["MANUAL"],"enum":["Scope"],"fn":["already_attached","credit","representative_track","resolve_scope"]};

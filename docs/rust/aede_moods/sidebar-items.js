@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["PROFILE","RATE"],"enum":["TagScope"],"fn":["audio_recipes","presets"],"mod":["background"],"struct":["AcousticModel","AudioRecipe","Extractor","Features","Match","Rule","Statistics","TagSelector"]};

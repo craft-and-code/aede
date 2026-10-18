@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Error"],"fn":["discover","read"],"struct":["Discovery","Document","File"]};

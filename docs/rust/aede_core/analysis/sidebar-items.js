@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["FLACCOMPAGNON_FORMAT"],"enum":["ImportError"],"fn":["looks_like_a_report","merge_into","parse_report","read_report","reconcile"],"struct":["Attachment","FileAnalysis","Report"]};
+window.SIDEBAR_ITEMS = {"constant":["FLACCOMPAGNON_FORMAT","RESULT_DATE_FIELD"],"enum":["ImportError"],"fn":["looks_like_a_report","merge_into","parse_report","parse_report_at","read_report","reconcile"],"mod":["export"],"struct":["Attachment","FileAnalysis","Report"]};

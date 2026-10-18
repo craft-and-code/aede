@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["albums","discographies","render_folders"]};

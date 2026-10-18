@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["album_files","analyze_album","analyze_album_with_progress"]};
+window.SIDEBAR_ITEMS = {"fn":["album_files","analyze_album","analyze_album_with_progress","report_json_with_dates","saved_report"],"struct":["SavedFileAnalysis"]};

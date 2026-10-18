@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["run","skipped","store","survey","waiting"],"struct":["Survey","Target"]};
+window.SIDEBAR_ITEMS = {"fn":["private_refusal","run","skipped","store","survey","waiting"],"struct":["Survey","Target"]};

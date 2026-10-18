@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["REDRAW_EVERY"],"fn":["announce","convert","copy","destination","free_space","pending_bytes","publish","quality","room_for","room_for_available","run","selection","source_duration","workers","write_one"]};
+window.SIDEBAR_ITEMS = {"constant":["REDRAW_EVERY"],"fn":["announce","convert","copy","destination","encoded_output_is_present","free_space","pending_bytes","publish","quality","room_for","room_for_available","run","selection","source_duration","workers","write_one"]};

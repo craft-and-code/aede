@@ -192,7 +192,7 @@
 <a href=#192 id=192 data-nosnippet>192</a>/// then by the extension: a real library always contains a few `.mp3` files
 <a href=#193 id=193 data-nosnippet>193</a>/// that are in fact FLAC.
 <a href=#194 id=194 data-nosnippet>194</a></span><span class="kw">pub fn </span>read(path: <span class="kw-2">&amp;</span>Path) -&gt; <span class="prelude-ty">Result</span>&lt;RawTags, TagError&gt; {
-<a href=#195 id=195 data-nosnippet>195</a>    <span class="kw">let </span><span class="kw-2">mut </span>file = std::fs::File::open(path)<span class="question-mark">?</span>;
+<a href=#195 id=195 data-nosnippet>195</a>    <span class="kw">let </span><span class="kw-2">mut </span>file = bytes::open_regular(path)<span class="question-mark">?</span>;
 <a href=#196 id=196 data-nosnippet>196</a>    read_opened(<span class="kw-2">&amp;mut </span>file, |<span class="kw">_</span>| foreign::read(path))
 <a href=#197 id=197 data-nosnippet>197</a>}
 <a href=#198 id=198 data-nosnippet>198</a>

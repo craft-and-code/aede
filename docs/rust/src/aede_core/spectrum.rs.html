@@ -165,54 +165,68 @@
 <a href=#165 id=165 data-nosnippet>165</a>/// an installation that has none fails the whole filter graph — losing the
 <a href=#166 id=166 data-nosnippet>166</a>/// picture over a line of text would be a poor trade, and the legend still
 <a href=#167 id=167 data-nosnippet>167</a>/// carries the axis that matters.
-<a href=#168 id=168 data-nosnippet>168</a></span><span class="kw">pub fn </span>render(
-<a href=#169 id=169 data-nosnippet>169</a>    ffmpeg: <span class="kw-2">&amp;</span>str,
-<a href=#170 id=170 data-nosnippet>170</a>    audio: <span class="kw-2">&amp;</span>Path,
-<a href=#171 id=171 data-nosnippet>171</a>    picture: <span class="kw-2">&amp;</span>Path,
-<a href=#172 id=172 data-nosnippet>172</a>    size: Size,
-<a href=#173 id=173 data-nosnippet>173</a>    caption: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;,
-<a href=#174 id=174 data-nosnippet>174</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
-<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(parent) = picture.parent() {
-<a href=#176 id=176 data-nosnippet>176</a>        std::fs::create_dir_all(parent).map_err(|e| <span class="macro">format!</span>(<span class="string">"{}: {e}"</span>, parent.display()))<span class="question-mark">?</span>;
-<a href=#177 id=177 data-nosnippet>177</a>    }
-<a href=#178 id=178 data-nosnippet>178</a>    <span class="kw">let </span>base = filter(size);
-<a href=#179 id=179 data-nosnippet>179</a>    <span class="kw">let </span>with_text = caption.map(|text| {
-<a href=#180 id=180 data-nosnippet>180</a>        <span class="macro">format!</span>(
-<a href=#181 id=181 data-nosnippet>181</a>            <span class="string">"{base},drawtext=text='{text}':fontcolor=white:fontsize=24:\
-<a href=#182 id=182 data-nosnippet>182</a>             x=14:y=12:box=1:boxcolor=black@0.55"
-<a href=#183 id=183 data-nosnippet>183</a>        </span>)
-<a href=#184 id=184 data-nosnippet>184</a>    });
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(with_text) = <span class="kw-2">&amp;</span>with_text
-<a href=#186 id=186 data-nosnippet>186</a>        &amp;&amp; run(ffmpeg, audio, with_text, picture).is_ok()
-<a href=#187 id=187 data-nosnippet>187</a>    {
-<a href=#188 id=188 data-nosnippet>188</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#189 id=189 data-nosnippet>189</a>    }
-<a href=#190 id=190 data-nosnippet>190</a>    run(ffmpeg, audio, <span class="kw-2">&amp;</span>base, picture)
-<a href=#191 id=191 data-nosnippet>191</a>}
-<a href=#192 id=192 data-nosnippet>192</a>
-<a href=#193 id=193 data-nosnippet>193</a><span class="kw">fn </span>run(ffmpeg: <span class="kw-2">&amp;</span>str, audio: <span class="kw-2">&amp;</span>Path, filter: <span class="kw-2">&amp;</span>str, picture: <span class="kw-2">&amp;</span>Path) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
-<a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">let </span>output = Command::new(ffmpeg)
-<a href=#195 id=195 data-nosnippet>195</a>        .args([<span class="string">"-hide_banner"</span>, <span class="string">"-loglevel"</span>, <span class="string">"error"</span>, <span class="string">"-y"</span>, <span class="string">"-i"</span>])
-<a href=#196 id=196 data-nosnippet>196</a>        .arg(audio)
-<a href=#197 id=197 data-nosnippet>197</a>        .args([<span class="string">"-lavfi"</span>, filter, <span class="string">"-frames:v"</span>, <span class="string">"1"</span>])
-<a href=#198 id=198 data-nosnippet>198</a>        .arg(picture)
-<a href=#199 id=199 data-nosnippet>199</a>        .output()
-<a href=#200 id=200 data-nosnippet>200</a>        .map_err(|e| <span class="macro">format!</span>(<span class="string">"ffmpeg could not be run: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#201 id=201 data-nosnippet>201</a>    <span class="kw">if </span>output.status.success() {
-<a href=#202 id=202 data-nosnippet>202</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#203 id=203 data-nosnippet>203</a>    }
-<a href=#204 id=204 data-nosnippet>204</a>    <span class="kw">let </span>said = String::from_utf8_lossy(<span class="kw-2">&amp;</span>output.stderr);
-<a href=#205 id=205 data-nosnippet>205</a>    <span class="kw">let </span>last: Vec&lt;<span class="kw-2">&amp;</span>str&gt; = said.lines().filter(|l| !l.trim().is_empty()).collect();
-<a href=#206 id=206 data-nosnippet>206</a>    <span class="prelude-val">Err</span>(last
-<a href=#207 id=207 data-nosnippet>207</a>        .iter()
-<a href=#208 id=208 data-nosnippet>208</a>        .rev()
-<a href=#209 id=209 data-nosnippet>209</a>        .take(<span class="number">2</span>)
-<a href=#210 id=210 data-nosnippet>210</a>        .rev()
-<a href=#211 id=211 data-nosnippet>211</a>        .cloned()
-<a href=#212 id=212 data-nosnippet>212</a>        .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
-<a href=#213 id=213 data-nosnippet>213</a>        .join(<span class="string">" — "</span>))
-<a href=#214 id=214 data-nosnippet>214</a>}
-<a href=#215 id=215 data-nosnippet>215</a>
-<a href=#216 id=216 data-nosnippet>216</a><span class="attr">#[cfg(test)]
-<a href=#217 id=217 data-nosnippet>217</a>#[path = <span class="string">"spectrum_tests.rs"</span>]
-<a href=#218 id=218 data-nosnippet>218</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#168 id=168 data-nosnippet>168</a>///
+<a href=#169 id=169 data-nosnippet>169</a>/// Both attempts write inside a private temporary directory beside the
+<a href=#170 id=170 data-nosnippet>170</a>/// destination. Only a completed picture replaces the old one; destination
+<a href=#171 id=171 data-nosnippet>171</a>/// links and special files are refused before rendering and publication.
+<a href=#172 id=172 data-nosnippet>172</a></span><span class="kw">pub fn </span>render(
+<a href=#173 id=173 data-nosnippet>173</a>    ffmpeg: <span class="kw-2">&amp;</span>str,
+<a href=#174 id=174 data-nosnippet>174</a>    audio: <span class="kw-2">&amp;</span>Path,
+<a href=#175 id=175 data-nosnippet>175</a>    picture: <span class="kw-2">&amp;</span>Path,
+<a href=#176 id=176 data-nosnippet>176</a>    size: Size,
+<a href=#177 id=177 data-nosnippet>177</a>    caption: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;,
+<a href=#178 id=178 data-nosnippet>178</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#179 id=179 data-nosnippet>179</a>    render_with(picture, size, caption, |filter, output| {
+<a href=#180 id=180 data-nosnippet>180</a>        run(ffmpeg, audio, filter, output)
+<a href=#181 id=181 data-nosnippet>181</a>    })
+<a href=#182 id=182 data-nosnippet>182</a>}
+<a href=#183 id=183 data-nosnippet>183</a>
+<a href=#184 id=184 data-nosnippet>184</a><span class="kw">fn </span>render_with(
+<a href=#185 id=185 data-nosnippet>185</a>    picture: <span class="kw-2">&amp;</span>Path,
+<a href=#186 id=186 data-nosnippet>186</a>    size: Size,
+<a href=#187 id=187 data-nosnippet>187</a>    caption: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;,
+<a href=#188 id=188 data-nosnippet>188</a>    <span class="kw-2">mut </span>render: <span class="kw">impl </span>FnMut(<span class="kw-2">&amp;</span>str, <span class="kw-2">&amp;</span>Path) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt;,
+<a href=#189 id=189 data-nosnippet>189</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">let </span>output = <span class="kw">crate</span>::copy::TemporaryOutput::new(picture)<span class="question-mark">?</span>;
+<a href=#191 id=191 data-nosnippet>191</a>    <span class="kw">let </span>base = filter(size);
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">let </span>with_text = caption.map(|text| {
+<a href=#193 id=193 data-nosnippet>193</a>        <span class="macro">format!</span>(
+<a href=#194 id=194 data-nosnippet>194</a>            <span class="string">"{base},drawtext=text='{text}':fontcolor=white:fontsize=24:\
+<a href=#195 id=195 data-nosnippet>195</a>             x=14:y=12:box=1:boxcolor=black@0.55"
+<a href=#196 id=196 data-nosnippet>196</a>        </span>)
+<a href=#197 id=197 data-nosnippet>197</a>    });
+<a href=#198 id=198 data-nosnippet>198</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(with_text) = <span class="kw-2">&amp;</span>with_text
+<a href=#199 id=199 data-nosnippet>199</a>        &amp;&amp; render(with_text, output.path()).is_ok()
+<a href=#200 id=200 data-nosnippet>200</a>    {
+<a href=#201 id=201 data-nosnippet>201</a>        <span class="kw">return </span>output.publish();
+<a href=#202 id=202 data-nosnippet>202</a>    }
+<a href=#203 id=203 data-nosnippet>203</a>    render(<span class="kw-2">&amp;</span>base, output.path())<span class="question-mark">?</span>;
+<a href=#204 id=204 data-nosnippet>204</a>    output.publish()
+<a href=#205 id=205 data-nosnippet>205</a>}
+<a href=#206 id=206 data-nosnippet>206</a>
+<a href=#207 id=207 data-nosnippet>207</a><span class="kw">fn </span>run(ffmpeg: <span class="kw-2">&amp;</span>str, audio: <span class="kw-2">&amp;</span>Path, filter: <span class="kw-2">&amp;</span>str, picture: <span class="kw-2">&amp;</span>Path) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
+<a href=#208 id=208 data-nosnippet>208</a>    <span class="kw">let </span>output = Command::new(ffmpeg)
+<a href=#209 id=209 data-nosnippet>209</a>        .args([<span class="string">"-hide_banner"</span>, <span class="string">"-loglevel"</span>, <span class="string">"error"</span>, <span class="string">"-y"</span>, <span class="string">"-i"</span>])
+<a href=#210 id=210 data-nosnippet>210</a>        .arg(audio)
+<a href=#211 id=211 data-nosnippet>211</a>        .args([<span class="string">"-lavfi"</span>, filter, <span class="string">"-frames:v"</span>, <span class="string">"1"</span>])
+<a href=#212 id=212 data-nosnippet>212</a>        .arg(picture)
+<a href=#213 id=213 data-nosnippet>213</a>        .output()
+<a href=#214 id=214 data-nosnippet>214</a>        .map_err(|e| <span class="macro">format!</span>(<span class="string">"ffmpeg could not be run: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#215 id=215 data-nosnippet>215</a>    <span class="kw">if </span>output.status.success() {
+<a href=#216 id=216 data-nosnippet>216</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#217 id=217 data-nosnippet>217</a>    }
+<a href=#218 id=218 data-nosnippet>218</a>    <span class="kw">let </span>said = String::from_utf8_lossy(<span class="kw-2">&amp;</span>output.stderr);
+<a href=#219 id=219 data-nosnippet>219</a>    <span class="kw">let </span>last: Vec&lt;<span class="kw-2">&amp;</span>str&gt; = said.lines().filter(|l| !l.trim().is_empty()).collect();
+<a href=#220 id=220 data-nosnippet>220</a>    <span class="prelude-val">Err</span>(last
+<a href=#221 id=221 data-nosnippet>221</a>        .iter()
+<a href=#222 id=222 data-nosnippet>222</a>        .rev()
+<a href=#223 id=223 data-nosnippet>223</a>        .take(<span class="number">2</span>)
+<a href=#224 id=224 data-nosnippet>224</a>        .rev()
+<a href=#225 id=225 data-nosnippet>225</a>        .cloned()
+<a href=#226 id=226 data-nosnippet>226</a>        .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
+<a href=#227 id=227 data-nosnippet>227</a>        .join(<span class="string">" — "</span>))
+<a href=#228 id=228 data-nosnippet>228</a>}
+<a href=#229 id=229 data-nosnippet>229</a>
+<a href=#230 id=230 data-nosnippet>230</a><span class="attr">#[cfg(test)]
+<a href=#231 id=231 data-nosnippet>231</a>#[path = <span class="string">"spectrum_tests.rs"</span>]
+<a href=#232 id=232 data-nosnippet>232</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

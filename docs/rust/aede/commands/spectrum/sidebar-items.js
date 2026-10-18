@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_SIZE"],"fn":["spectrum","to_draw"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_SIZE"],"fn":["draw_pictures","spectrum","to_draw"]};

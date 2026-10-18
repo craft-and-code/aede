@@ -391,7 +391,7 @@
 <a href=#391 id=391 data-nosnippet>391</a>    <span class="kw">for </span>(label, value) <span class="kw">in </span>source_facts(record) {
 <a href=#392 id=392 data-nosnippet>392</a>        card_field(output, label, <span class="kw-2">&amp;</span>value)<span class="question-mark">?</span>;
 <a href=#393 id=393 data-nosnippet>393</a>    }
-<a href=#394 id=394 data-nosnippet>394</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(url) = source_url(item) {
+<a href=#394 id=394 data-nosnippet>394</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(url) = source_url(item, record) {
 <a href=#395 id=395 data-nosnippet>395</a>        card_field(output, <span class="string">"Check"</span>, <span class="kw-2">&amp;</span>url)<span class="question-mark">?</span>;
 <a href=#396 id=396 data-nosnippet>396</a>    }
 <a href=#397 id=397 data-nosnippet>397</a>
@@ -666,13 +666,13 @@
 <a href=#666 id=666 data-nosnippet>666</a>    }
 <a href=#667 id=667 data-nosnippet>667</a>}
 <a href=#668 id=668 data-nosnippet>668</a>
-<a href=#669 id=669 data-nosnippet>669</a><span class="kw">fn </span>source_url(item: <span class="kw-2">&amp;</span>ReviewItem) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#669 id=669 data-nosnippet>669</a><span class="kw">fn </span>source_url(item: <span class="kw-2">&amp;</span>ReviewItem, record: <span class="kw-2">&amp;</span>SourceRecord) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
 <a href=#670 id=670 data-nosnippet>670</a>    <span class="kw">let </span>id = item.source_id.as_deref()<span class="question-mark">?</span>;
 <a href=#671 id=671 data-nosnippet>671</a>    <span class="kw">match </span>item.source.as_str() {
 <a href=#672 id=672 data-nosnippet>672</a>        sources::MUSICBRAINZ =&gt; {
 <a href=#673 id=673 data-nosnippet>673</a>            <span class="kw">let </span>kind = <span class="kw">match </span>item.entity.kind {
 <a href=#674 id=674 data-nosnippet>674</a>                EntityKind::Artist =&gt; <span class="string">"artist"</span>,
-<a href=#675 id=675 data-nosnippet>675</a>                EntityKind::Release =&gt; <span class="string">"release"</span>,
+<a href=#675 id=675 data-nosnippet>675</a>                EntityKind::Release =&gt; <span class="kw">return </span><span class="kw">super</span>::sources::address_of(record),
 <a href=#676 id=676 data-nosnippet>676</a>                EntityKind::Track | EntityKind::Recording =&gt; <span class="string">"recording"</span>,
 <a href=#677 id=677 data-nosnippet>677</a>                EntityKind::Work =&gt; <span class="string">"work"</span>,
 <a href=#678 id=678 data-nosnippet>678</a>                EntityKind::ReleaseGroup =&gt; <span class="string">"release-group"</span>,
@@ -681,7 +681,7 @@
 <a href=#681 id=681 data-nosnippet>681</a>            };
 <a href=#682 id=682 data-nosnippet>682</a>            <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"https://musicbrainz.org/{kind}/{id}"</span>))
 <a href=#683 id=683 data-nosnippet>683</a>        }
-<a href=#684 id=684 data-nosnippet>684</a>        <span class="string">"acoustid" </span>=&gt; <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"https://acoustid.org/track/{id}"</span>)),
+<a href=#684 id=684 data-nosnippet>684</a>        <span class="string">"acoustid" </span>=&gt; <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"https://musicbrainz.org/recording/{id}"</span>)),
 <a href=#685 id=685 data-nosnippet>685</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
 <a href=#686 id=686 data-nosnippet>686</a>    }
 <a href=#687 id=687 data-nosnippet>687</a>}
@@ -757,4 +757,8 @@
 <a href=#757 id=757 data-nosnippet>757</a>        ui::literal(<span class="kw-2">&amp;</span>item.source)
 <a href=#758 id=758 data-nosnippet>758</a>    );
 <a href=#759 id=759 data-nosnippet>759</a>    <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="kw-2">&amp;</span>ui::literal(<span class="kw-2">&amp;</span>path.display().to_string())));
-<a href=#760 id=760 data-nosnippet>760</a>}</code></pre></div></section></main></body></html>
+<a href=#760 id=760 data-nosnippet>760</a>}
+<a href=#761 id=761 data-nosnippet>761</a>
+<a href=#762 id=762 data-nosnippet>762</a><span class="attr">#[cfg(test)]
+<a href=#763 id=763 data-nosnippet>763</a>#[path = <span class="string">"review_tests.rs"</span>]
+<a href=#764 id=764 data-nosnippet>764</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

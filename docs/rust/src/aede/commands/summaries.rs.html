@@ -127,180 +127,192 @@
 <a href=#127 id=127 data-nosnippet>127</a>                    <span class="kw">continue</span>;
 <a href=#128 id=128 data-nosnippet>128</a>                }
 <a href=#129 id=129 data-nosnippet>129</a>            };
-<a href=#130 id=130 data-nosnippet>130</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(article) = wikipedia::article(<span class="kw-2">&amp;</span>entity_doc, <span class="kw-2">&amp;</span>target.id, <span class="kw-2">&amp;</span>langs) <span class="kw">else </span>{
-<a href=#131 id=131 data-nosnippet>131</a>            <span class="comment">// An entity with no article in any language asked for is a real
-<a href=#132 id=132 data-nosnippet>132</a>            // answer, and recording it is what stops the next run asking again.
-<a href=#133 id=133 data-nosnippet>133</a>            </span>empty += <span class="number">1</span>;
-<a href=#134 id=134 data-nosnippet>134</a>            store(held, target, <span class="prelude-val">None</span>);
-<a href=#135 id=135 data-nosnippet>135</a>            sources::save(held, path)<span class="question-mark">?</span>;
-<a href=#136 id=136 data-nosnippet>136</a>            done += <span class="number">1</span>;
-<a href=#137 id=137 data-nosnippet>137</a>            <span class="kw">continue</span>;
-<a href=#138 id=138 data-nosnippet>138</a>        };
-<a href=#139 id=139 data-nosnippet>139</a>
-<a href=#140 id=140 data-nosnippet>140</a>        <span class="kw">let </span>summary_doc =
-<a href=#141 id=141 data-nosnippet>141</a>            <span class="kw">match </span>ask_with_backoff(transport, <span class="kw-2">&amp;</span>wikipedia::summary_url(<span class="kw-2">&amp;</span>article), backoff) {
-<a href=#142 id=142 data-nosnippet>142</a>                <span class="prelude-val">Ok</span>(doc) =&gt; doc,
-<a href=#143 id=143 data-nosnippet>143</a>                <span class="prelude-val">Err</span>(why) <span class="kw">if </span>why.must_stop() =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(why.into()),
-<a href=#144 id=144 data-nosnippet>144</a>                <span class="prelude-val">Err</span>(why) <span class="kw">if </span>defer(<span class="kw-2">&amp;mut </span>pending, target, retried, <span class="kw-2">&amp;</span>why) =&gt; {
-<a href=#145 id=145 data-nosnippet>145</a>                    <span class="kw">continue</span>;
-<a href=#146 id=146 data-nosnippet>146</a>                }
-<a href=#147 id=147 data-nosnippet>147</a>                <span class="prelude-val">Err</span>(why) =&gt; {
-<a href=#148 id=148 data-nosnippet>148</a>                    failed += <span class="number">1</span>;
-<a href=#149 id=149 data-nosnippet>149</a>                    done += <span class="number">1</span>;
-<a href=#150 id=150 data-nosnippet>150</a>                    <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.name, <span class="kw-2">&amp;</span>why);
+<a href=#130 id=130 data-nosnippet>130</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(why) = wikipedia::validate_entity(<span class="kw-2">&amp;</span>entity_doc, <span class="kw-2">&amp;</span>target.id) {
+<a href=#131 id=131 data-nosnippet>131</a>            failed += <span class="number">1</span>;
+<a href=#132 id=132 data-nosnippet>132</a>            done += <span class="number">1</span>;
+<a href=#133 id=133 data-nosnippet>133</a>            <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.name, <span class="kw-2">&amp;</span>why);
+<a href=#134 id=134 data-nosnippet>134</a>            <span class="kw">continue</span>;
+<a href=#135 id=135 data-nosnippet>135</a>        }
+<a href=#136 id=136 data-nosnippet>136</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(article) = wikipedia::article(<span class="kw-2">&amp;</span>entity_doc, <span class="kw-2">&amp;</span>target.id, <span class="kw-2">&amp;</span>langs) <span class="kw">else </span>{
+<a href=#137 id=137 data-nosnippet>137</a>            <span class="comment">// An entity with no article in any language asked for is a real
+<a href=#138 id=138 data-nosnippet>138</a>            // answer, and recording it is what stops the next run asking again.
+<a href=#139 id=139 data-nosnippet>139</a>            </span>empty += <span class="number">1</span>;
+<a href=#140 id=140 data-nosnippet>140</a>            store(held, target, <span class="prelude-val">None</span>);
+<a href=#141 id=141 data-nosnippet>141</a>            sources::save(held, path)<span class="question-mark">?</span>;
+<a href=#142 id=142 data-nosnippet>142</a>            done += <span class="number">1</span>;
+<a href=#143 id=143 data-nosnippet>143</a>            <span class="kw">continue</span>;
+<a href=#144 id=144 data-nosnippet>144</a>        };
+<a href=#145 id=145 data-nosnippet>145</a>
+<a href=#146 id=146 data-nosnippet>146</a>        <span class="kw">let </span>summary_doc =
+<a href=#147 id=147 data-nosnippet>147</a>            <span class="kw">match </span>ask_with_backoff(transport, <span class="kw-2">&amp;</span>wikipedia::summary_url(<span class="kw-2">&amp;</span>article), backoff) {
+<a href=#148 id=148 data-nosnippet>148</a>                <span class="prelude-val">Ok</span>(doc) =&gt; doc,
+<a href=#149 id=149 data-nosnippet>149</a>                <span class="prelude-val">Err</span>(why) <span class="kw">if </span>why.must_stop() =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(why.into()),
+<a href=#150 id=150 data-nosnippet>150</a>                <span class="prelude-val">Err</span>(why) <span class="kw">if </span>defer(<span class="kw-2">&amp;mut </span>pending, target, retried, <span class="kw-2">&amp;</span>why) =&gt; {
 <a href=#151 id=151 data-nosnippet>151</a>                    <span class="kw">continue</span>;
 <a href=#152 id=152 data-nosnippet>152</a>                }
-<a href=#153 id=153 data-nosnippet>153</a>            };
-<a href=#154 id=154 data-nosnippet>154</a>        <span class="kw">match </span>wikipedia::prose(<span class="kw-2">&amp;</span>summary_doc, <span class="kw-2">&amp;</span>article) {
-<a href=#155 id=155 data-nosnippet>155</a>            <span class="prelude-val">Some</span>(prose) =&gt; {
-<a href=#156 id=156 data-nosnippet>156</a>                stored += <span class="number">1</span>;
-<a href=#157 id=157 data-nosnippet>157</a>                store(held, target, <span class="prelude-val">Some</span>(prose));
-<a href=#158 id=158 data-nosnippet>158</a>            }
-<a href=#159 id=159 data-nosnippet>159</a>            <span class="prelude-val">None </span>=&gt; {
-<a href=#160 id=160 data-nosnippet>160</a>                empty += <span class="number">1</span>;
-<a href=#161 id=161 data-nosnippet>161</a>                store(held, target, <span class="prelude-val">None</span>);
-<a href=#162 id=162 data-nosnippet>162</a>            }
-<a href=#163 id=163 data-nosnippet>163</a>        }
-<a href=#164 id=164 data-nosnippet>164</a>        sources::save(held, path)<span class="question-mark">?</span>;
-<a href=#165 id=165 data-nosnippet>165</a>        done += <span class="number">1</span>;
-<a href=#166 id=166 data-nosnippet>166</a>    }
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="macro">println!</span>();
-<a href=#168 id=168 data-nosnippet>168</a>
-<a href=#169 id=169 data-nosnippet>169</a>    <span class="macro">println!</span>(
-<a href=#170 id=170 data-nosnippet>170</a>        <span class="string">"{} {stored} stored, {empty} with nothing to say, {failed} failed"</span>,
-<a href=#171 id=171 data-nosnippet>171</a>        ui::green(<span class="string">"→"</span>)
-<a href=#172 id=172 data-nosnippet>172</a>    );
-<a href=#173 id=173 data-nosnippet>173</a>    <span class="macro">println!</span>(
-<a href=#174 id=174 data-nosnippet>174</a>        <span class="string">"  {}"</span>,
-<a href=#175 id=175 data-nosnippet>175</a>        ui::dim(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
-<a href=#176 id=176 data-nosnippet>176</a>            <span class="string">"wikipedia text is {LICENCE}: it is stored with the page it came from, \
-<a href=#177 id=177 data-nosnippet>177</a>             and shown with it"</span>,
-<a href=#178 id=178 data-nosnippet>178</a>            LICENCE = wikipedia::LICENCE
-<a href=#179 id=179 data-nosnippet>179</a>        ))
-<a href=#180 id=180 data-nosnippet>180</a>    );
-<a href=#181 id=181 data-nosnippet>181</a>    <span class="prelude-val">Ok</span>(())
-<a href=#182 id=182 data-nosnippet>182</a>}
-<a href=#183 id=183 data-nosnippet>183</a>
-<a href=#184 id=184 data-nosnippet>184</a><span class="doccomment">/// Files what Wikipedia said, including when that was nothing.
-<a href=#185 id=185 data-nosnippet>185</a>///
-<a href=#186 id=186 data-nosnippet>186</a>/// A record with an empty summary is not a wasted row: "asked, and there is no
-<a href=#187 id=187 data-nosnippet>187</a>/// article" is exactly what the layer exists to keep apart from "never asked",
-<a href=#188 id=188 data-nosnippet>188</a>/// and without it every run would ask about the same artists forever.
-<a href=#189 id=189 data-nosnippet>189</a></span><span class="kw">fn </span>store(held: <span class="kw-2">&amp;mut </span>sources::Sources, target: <span class="kw-2">&amp;</span>Target, prose: <span class="prelude-ty">Option</span>&lt;aede_core::sources::Prose&gt;) {
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">let </span>facts = <span class="kw">match </span>target.entity.kind {
-<a href=#191 id=191 data-nosnippet>191</a>        aede_core::model::EntityKind::Artist =&gt; Facts::Artist(aede_core::sources::ArtistFacts {
-<a href=#192 id=192 data-nosnippet>192</a>            summary: prose,
-<a href=#193 id=193 data-nosnippet>193</a>            ..Default::default()
-<a href=#194 id=194 data-nosnippet>194</a>        }),
-<a href=#195 id=195 data-nosnippet>195</a>        aede_core::model::EntityKind::Label =&gt; Facts::Label(aede_core::sources::LabelFacts {
-<a href=#196 id=196 data-nosnippet>196</a>            summary: prose,
-<a href=#197 id=197 data-nosnippet>197</a>            ..Default::default()
-<a href=#198 id=198 data-nosnippet>198</a>        }),
-<a href=#199 id=199 data-nosnippet>199</a>        <span class="kw">_ </span>=&gt; <span class="kw">return</span>,
-<a href=#200 id=200 data-nosnippet>200</a>    };
-<a href=#201 id=201 data-nosnippet>201</a>    held.set(SourceRecord {
-<a href=#202 id=202 data-nosnippet>202</a>        key: target.entity.key.clone(),
-<a href=#203 id=203 data-nosnippet>203</a>        source: wikipedia::SOURCE.to_string(),
-<a href=#204 id=204 data-nosnippet>204</a>        <span class="comment">// The Wikidata id, which is what makes a second run an update: the
-<a href=#205 id=205 data-nosnippet>205</a>        // article title can change, the entity does not.
-<a href=#206 id=206 data-nosnippet>206</a>        </span>source_id: <span class="prelude-val">Some</span>(target.id.clone()),
-<a href=#207 id=207 data-nosnippet>207</a>        fetched_at: clock::now_seconds(),
-<a href=#208 id=208 data-nosnippet>208</a>        <span class="comment">// Reached by identifier, through a link MusicBrainz asserts. Nothing
-<a href=#209 id=209 data-nosnippet>209</a>        // was matched by name anywhere in this pass, which is the whole reason
-<a href=#210 id=210 data-nosnippet>210</a>        // it goes through Wikidata.
-<a href=#211 id=211 data-nosnippet>211</a>        </span>confidence: aede_core::sources::Confidence::Identified,
-<a href=#212 id=212 data-nosnippet>212</a>        facts,
-<a href=#213 id=213 data-nosnippet>213</a>    });
-<a href=#214 id=214 data-nosnippet>214</a>}
-<a href=#215 id=215 data-nosnippet>215</a>
-<a href=#216 id=216 data-nosnippet>216</a><span class="doccomment">/// How many artists this pass would ask about, if it ran now.
-<a href=#217 id=217 data-nosnippet>217</a>///
-<a href=#218 id=218 data-nosnippet>218</a>/// Deliberately the same function as the walk, counted rather than re-derived.
-<a href=#219 id=219 data-nosnippet>219</a>/// `fetch` prints this to offer the second pass at the moment it becomes
-<a href=#220 id=220 data-nosnippet>220</a>/// possible, and an offer that counted differently from the run it offers is
-<a href=#221 id=221 data-nosnippet>221</a>/// worse than no offer at all.
-<a href=#222 id=222 data-nosnippet>222</a></span><span class="kw">pub fn </span>waiting(held: <span class="kw-2">&amp;</span>sources::Sources, catalog: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>aede_core::model::Catalog&gt;) -&gt; usize {
-<a href=#223 id=223 data-nosnippet>223</a>    targets(held, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::EVERYTHING, <span class="bool-val">false</span>, catalog).len()
-<a href=#224 id=224 data-nosnippet>224</a>}
-<a href=#225 id=225 data-nosnippet>225</a>
-<a href=#226 id=226 data-nosnippet>226</a><span class="doccomment">/// Who to ask about: artists and labels MusicBrainz gave a Wikidata link for.
-<a href=#227 id=227 data-nosnippet>227</a>///
-<a href=#228 id=228 data-nosnippet>228</a>/// Reads the layer rather than the catalog, because the link is the input and
-<a href=#229 id=229 data-nosnippet>229</a>/// the catalog does not hold it. An artist whose record has already been
-<a href=#230 id=230 data-nosnippet>230</a>/// fetched is skipped unless `again`, for the reason `fetch` skips them: a
-<a href=#231 id=231 data-nosnippet>231</a>/// second run should cost what changed.
-<a href=#232 id=232 data-nosnippet>232</a></span><span class="kw">fn </span>targets(
-<a href=#233 id=233 data-nosnippet>233</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
-<a href=#234 id=234 data-nosnippet>234</a>    wanted: <span class="kw-2">&amp;</span>[String],
-<a href=#235 id=235 data-nosnippet>235</a>    scope: <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::Scope,
-<a href=#236 id=236 data-nosnippet>236</a>    again: bool,
-<a href=#237 id=237 data-nosnippet>237</a>    catalog: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>aede_core::model::Catalog&gt;,
-<a href=#238 id=238 data-nosnippet>238</a>) -&gt; Vec&lt;Target&gt; {
-<a href=#239 id=239 data-nosnippet>239</a>    <span class="kw">let </span><span class="kw-2">mut </span>targets = Vec::new();
-<a href=#240 id=240 data-nosnippet>240</a>    <span class="kw">let </span>empty = aede_core::model::Catalog::default();
-<a href=#241 id=241 data-nosnippet>241</a>    <span class="kw">let </span>catalog = catalog.unwrap_or(<span class="kw-2">&amp;</span>empty);
-<a href=#242 id=242 data-nosnippet>242</a>    <span class="kw">for </span>record <span class="kw">in </span><span class="kw-2">&amp;</span>held.records {
-<a href=#243 id=243 data-nosnippet>243</a>        <span class="kw">if </span>record.source != sources::MUSICBRAINZ || !held.is_trusted(catalog, record) {
-<a href=#244 id=244 data-nosnippet>244</a>            <span class="kw">continue</span>;
-<a href=#245 id=245 data-nosnippet>245</a>        }
-<a href=#246 id=246 data-nosnippet>246</a>        <span class="comment">// The key is the artist's normalised name, and it is the only name
-<a href=#247 id=247 data-nosnippet>247</a>        // this pass has: it never reads the catalog.
-<a href=#248 id=248 data-nosnippet>248</a>        </span><span class="kw">if </span>!<span class="kw">super</span>::fetch::reaches(wanted, <span class="kw-2">&amp;</span>[record.key.as_str()]) {
-<a href=#249 id=249 data-nosnippet>249</a>            <span class="kw">continue</span>;
-<a href=#250 id=250 data-nosnippet>250</a>        }
-<a href=#251 id=251 data-nosnippet>251</a>        <span class="comment">// Which is also why a folder arrives here already turned into a set of
-<a href=#252 id=252 data-nosnippet>252</a>        // those same keys: the walk that answers "who is on that shelf" needs
-<a href=#253 id=253 data-nosnippet>253</a>        // the catalog, and it was done once, in `fetch`, before any pass ran.
-<a href=#254 id=254 data-nosnippet>254</a>        </span><span class="kw">let </span>wikidata = <span class="kw">match </span><span class="kw-2">&amp;</span>record.facts {
-<a href=#255 id=255 data-nosnippet>255</a>            Facts::Artist(artist) <span class="kw">if </span>scope.has_artist(<span class="kw-2">&amp;</span>record.key) =&gt; artist.wikidata.as_deref(),
-<a href=#256 id=256 data-nosnippet>256</a>            Facts::Label(label) <span class="kw">if </span>scope.has_label(<span class="kw-2">&amp;</span>record.key) =&gt; label.wikidata.as_deref(),
-<a href=#257 id=257 data-nosnippet>257</a>            <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
-<a href=#258 id=258 data-nosnippet>258</a>        };
-<a href=#259 id=259 data-nosnippet>259</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(id) = wikidata.and_then(wikipedia::entity_id) <span class="kw">else </span>{
-<a href=#260 id=260 data-nosnippet>260</a>            <span class="kw">continue</span>;
-<a href=#261 id=261 data-nosnippet>261</a>        };
-<a href=#262 id=262 data-nosnippet>262</a>        <span class="kw">let </span>entity = record.entity();
-<a href=#263 id=263 data-nosnippet>263</a>        <span class="kw">if </span>!again &amp;&amp; held.get(<span class="kw-2">&amp;</span>entity, wikipedia::SOURCE).is_some() {
-<a href=#264 id=264 data-nosnippet>264</a>            <span class="kw">continue</span>;
-<a href=#265 id=265 data-nosnippet>265</a>        }
-<a href=#266 id=266 data-nosnippet>266</a>        targets.push(Target {
-<a href=#267 id=267 data-nosnippet>267</a>            <span class="comment">// The key is the artist's normalised name, which is also the only
-<a href=#268 id=268 data-nosnippet>268</a>            // name this pass has: it never reads the catalog.
-<a href=#269 id=269 data-nosnippet>269</a>            </span>name: entity.key.clone(),
-<a href=#270 id=270 data-nosnippet>270</a>            entity,
-<a href=#271 id=271 data-nosnippet>271</a>            id,
-<a href=#272 id=272 data-nosnippet>272</a>        });
-<a href=#273 id=273 data-nosnippet>273</a>    }
-<a href=#274 id=274 data-nosnippet>274</a>    targets
-<a href=#275 id=275 data-nosnippet>275</a>}
-<a href=#276 id=276 data-nosnippet>276</a>
-<a href=#277 id=277 data-nosnippet>277</a><span class="doccomment">/// The languages to look for an article in, best first.
-<a href=#278 id=278 data-nosnippet>278</a>///
-<a href=#279 id=279 data-nosnippet>279</a>/// Taken from the environment rather than from an option: a French reader
-<a href=#280 id=280 data-nosnippet>280</a>/// wants the French article, and asking them to say so on every run is a way
-<a href=#281 id=281 data-nosnippet>281</a>/// of making sure they get the English one. `fr_FR.UTF-8` and `fr` both mean
-<a href=#282 id=282 data-nosnippet>282</a>/// French; anything unrecognisable is ignored rather than sent out as a
-<a href=#283 id=283 data-nosnippet>283</a>/// hostname that does not exist.
-<a href=#284 id=284 data-nosnippet>284</a>///
-<a href=#285 id=285 data-nosnippet>285</a>/// English is always last, because for a great many artists it is the only
-<a href=#286 id=286 data-nosnippet>286</a>/// article there is — and it is only *last*, so it never displaces a reader's
-<a href=#287 id=287 data-nosnippet>287</a>/// own language when both exist.
-<a href=#288 id=288 data-nosnippet>288</a></span><span class="kw">pub fn </span>preferred_langs(locale: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;) -&gt; Vec&lt;String&gt; {
-<a href=#289 id=289 data-nosnippet>289</a>    <span class="kw">let </span><span class="kw-2">mut </span>langs: Vec&lt;String&gt; = Vec::new();
-<a href=#290 id=290 data-nosnippet>290</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(code) = locale
-<a href=#291 id=291 data-nosnippet>291</a>        .map(|l| l.split([<span class="string">'_'</span>, <span class="string">'.'</span>, <span class="string">'@'</span>]).next().unwrap_or(<span class="string">""</span>).to_lowercase())
-<a href=#292 id=292 data-nosnippet>292</a>        .filter(|c| c.len() == <span class="number">2 </span>&amp;&amp; c.bytes().all(|b| b.is_ascii_lowercase()))
-<a href=#293 id=293 data-nosnippet>293</a>    {
-<a href=#294 id=294 data-nosnippet>294</a>        langs.push(code);
-<a href=#295 id=295 data-nosnippet>295</a>    }
-<a href=#296 id=296 data-nosnippet>296</a>    <span class="kw">for </span>fallback <span class="kw">in </span>wikipedia::FALLBACK_LANGS {
-<a href=#297 id=297 data-nosnippet>297</a>        <span class="kw">if </span>!langs.iter().any(|l| l == fallback) {
-<a href=#298 id=298 data-nosnippet>298</a>            langs.push(fallback.to_string());
-<a href=#299 id=299 data-nosnippet>299</a>        }
-<a href=#300 id=300 data-nosnippet>300</a>    }
-<a href=#301 id=301 data-nosnippet>301</a>    langs
-<a href=#302 id=302 data-nosnippet>302</a>}
-<a href=#303 id=303 data-nosnippet>303</a>
-<a href=#304 id=304 data-nosnippet>304</a><span class="attr">#[cfg(test)]
-<a href=#305 id=305 data-nosnippet>305</a>#[path = <span class="string">"summaries_tests.rs"</span>]
-<a href=#306 id=306 data-nosnippet>306</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#153 id=153 data-nosnippet>153</a>                <span class="prelude-val">Err</span>(why) =&gt; {
+<a href=#154 id=154 data-nosnippet>154</a>                    failed += <span class="number">1</span>;
+<a href=#155 id=155 data-nosnippet>155</a>                    done += <span class="number">1</span>;
+<a href=#156 id=156 data-nosnippet>156</a>                    <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.name, <span class="kw-2">&amp;</span>why);
+<a href=#157 id=157 data-nosnippet>157</a>                    <span class="kw">continue</span>;
+<a href=#158 id=158 data-nosnippet>158</a>                }
+<a href=#159 id=159 data-nosnippet>159</a>            };
+<a href=#160 id=160 data-nosnippet>160</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(why) = wikipedia::validate_summary(<span class="kw-2">&amp;</span>summary_doc) {
+<a href=#161 id=161 data-nosnippet>161</a>            failed += <span class="number">1</span>;
+<a href=#162 id=162 data-nosnippet>162</a>            done += <span class="number">1</span>;
+<a href=#163 id=163 data-nosnippet>163</a>            <span class="kw">super</span>::fetch::report_failed(<span class="kw-2">&amp;</span>target.name, <span class="kw-2">&amp;</span>why);
+<a href=#164 id=164 data-nosnippet>164</a>            <span class="kw">continue</span>;
+<a href=#165 id=165 data-nosnippet>165</a>        }
+<a href=#166 id=166 data-nosnippet>166</a>        <span class="kw">match </span>wikipedia::prose(<span class="kw-2">&amp;</span>summary_doc, <span class="kw-2">&amp;</span>article) {
+<a href=#167 id=167 data-nosnippet>167</a>            <span class="prelude-val">Some</span>(prose) =&gt; {
+<a href=#168 id=168 data-nosnippet>168</a>                stored += <span class="number">1</span>;
+<a href=#169 id=169 data-nosnippet>169</a>                store(held, target, <span class="prelude-val">Some</span>(prose));
+<a href=#170 id=170 data-nosnippet>170</a>            }
+<a href=#171 id=171 data-nosnippet>171</a>            <span class="prelude-val">None </span>=&gt; {
+<a href=#172 id=172 data-nosnippet>172</a>                empty += <span class="number">1</span>;
+<a href=#173 id=173 data-nosnippet>173</a>                store(held, target, <span class="prelude-val">None</span>);
+<a href=#174 id=174 data-nosnippet>174</a>            }
+<a href=#175 id=175 data-nosnippet>175</a>        }
+<a href=#176 id=176 data-nosnippet>176</a>        sources::save(held, path)<span class="question-mark">?</span>;
+<a href=#177 id=177 data-nosnippet>177</a>        done += <span class="number">1</span>;
+<a href=#178 id=178 data-nosnippet>178</a>    }
+<a href=#179 id=179 data-nosnippet>179</a>    <span class="macro">println!</span>();
+<a href=#180 id=180 data-nosnippet>180</a>
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="macro">println!</span>(
+<a href=#182 id=182 data-nosnippet>182</a>        <span class="string">"{} {stored} stored, {empty} with nothing to say, {failed} failed"</span>,
+<a href=#183 id=183 data-nosnippet>183</a>        ui::green(<span class="string">"→"</span>)
+<a href=#184 id=184 data-nosnippet>184</a>    );
+<a href=#185 id=185 data-nosnippet>185</a>    <span class="macro">println!</span>(
+<a href=#186 id=186 data-nosnippet>186</a>        <span class="string">"  {}"</span>,
+<a href=#187 id=187 data-nosnippet>187</a>        ui::dim(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
+<a href=#188 id=188 data-nosnippet>188</a>            <span class="string">"wikipedia text is {LICENCE}: it is stored with the page it came from, \
+<a href=#189 id=189 data-nosnippet>189</a>             and shown with it"</span>,
+<a href=#190 id=190 data-nosnippet>190</a>            LICENCE = wikipedia::LICENCE
+<a href=#191 id=191 data-nosnippet>191</a>        ))
+<a href=#192 id=192 data-nosnippet>192</a>    );
+<a href=#193 id=193 data-nosnippet>193</a>    <span class="prelude-val">Ok</span>(())
+<a href=#194 id=194 data-nosnippet>194</a>}
+<a href=#195 id=195 data-nosnippet>195</a>
+<a href=#196 id=196 data-nosnippet>196</a><span class="doccomment">/// Files what Wikipedia said, including when that was nothing.
+<a href=#197 id=197 data-nosnippet>197</a>///
+<a href=#198 id=198 data-nosnippet>198</a>/// A record with an empty summary is not a wasted row: "asked, and there is no
+<a href=#199 id=199 data-nosnippet>199</a>/// article" is exactly what the layer exists to keep apart from "never asked",
+<a href=#200 id=200 data-nosnippet>200</a>/// and without it every run would ask about the same artists forever.
+<a href=#201 id=201 data-nosnippet>201</a></span><span class="kw">fn </span>store(held: <span class="kw-2">&amp;mut </span>sources::Sources, target: <span class="kw-2">&amp;</span>Target, prose: <span class="prelude-ty">Option</span>&lt;aede_core::sources::Prose&gt;) {
+<a href=#202 id=202 data-nosnippet>202</a>    <span class="kw">let </span>facts = <span class="kw">match </span>target.entity.kind {
+<a href=#203 id=203 data-nosnippet>203</a>        aede_core::model::EntityKind::Artist =&gt; Facts::Artist(aede_core::sources::ArtistFacts {
+<a href=#204 id=204 data-nosnippet>204</a>            summary: prose,
+<a href=#205 id=205 data-nosnippet>205</a>            ..Default::default()
+<a href=#206 id=206 data-nosnippet>206</a>        }),
+<a href=#207 id=207 data-nosnippet>207</a>        aede_core::model::EntityKind::Label =&gt; Facts::Label(aede_core::sources::LabelFacts {
+<a href=#208 id=208 data-nosnippet>208</a>            summary: prose,
+<a href=#209 id=209 data-nosnippet>209</a>            ..Default::default()
+<a href=#210 id=210 data-nosnippet>210</a>        }),
+<a href=#211 id=211 data-nosnippet>211</a>        <span class="kw">_ </span>=&gt; <span class="kw">return</span>,
+<a href=#212 id=212 data-nosnippet>212</a>    };
+<a href=#213 id=213 data-nosnippet>213</a>    held.set(SourceRecord {
+<a href=#214 id=214 data-nosnippet>214</a>        key: target.entity.key.clone(),
+<a href=#215 id=215 data-nosnippet>215</a>        source: wikipedia::SOURCE.to_string(),
+<a href=#216 id=216 data-nosnippet>216</a>        <span class="comment">// The Wikidata id, which is what makes a second run an update: the
+<a href=#217 id=217 data-nosnippet>217</a>        // article title can change, the entity does not.
+<a href=#218 id=218 data-nosnippet>218</a>        </span>source_id: <span class="prelude-val">Some</span>(target.id.clone()),
+<a href=#219 id=219 data-nosnippet>219</a>        fetched_at: clock::now_seconds(),
+<a href=#220 id=220 data-nosnippet>220</a>        <span class="comment">// Reached by identifier, through a link MusicBrainz asserts. Nothing
+<a href=#221 id=221 data-nosnippet>221</a>        // was matched by name anywhere in this pass, which is the whole reason
+<a href=#222 id=222 data-nosnippet>222</a>        // it goes through Wikidata.
+<a href=#223 id=223 data-nosnippet>223</a>        </span>confidence: aede_core::sources::Confidence::Identified,
+<a href=#224 id=224 data-nosnippet>224</a>        facts,
+<a href=#225 id=225 data-nosnippet>225</a>    });
+<a href=#226 id=226 data-nosnippet>226</a>}
+<a href=#227 id=227 data-nosnippet>227</a>
+<a href=#228 id=228 data-nosnippet>228</a><span class="doccomment">/// How many artists this pass would ask about, if it ran now.
+<a href=#229 id=229 data-nosnippet>229</a>///
+<a href=#230 id=230 data-nosnippet>230</a>/// Deliberately the same function as the walk, counted rather than re-derived.
+<a href=#231 id=231 data-nosnippet>231</a>/// `fetch` prints this to offer the second pass at the moment it becomes
+<a href=#232 id=232 data-nosnippet>232</a>/// possible, and an offer that counted differently from the run it offers is
+<a href=#233 id=233 data-nosnippet>233</a>/// worse than no offer at all.
+<a href=#234 id=234 data-nosnippet>234</a></span><span class="kw">pub fn </span>waiting(held: <span class="kw-2">&amp;</span>sources::Sources, catalog: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>aede_core::model::Catalog&gt;) -&gt; usize {
+<a href=#235 id=235 data-nosnippet>235</a>    targets(held, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::EVERYTHING, <span class="bool-val">false</span>, catalog).len()
+<a href=#236 id=236 data-nosnippet>236</a>}
+<a href=#237 id=237 data-nosnippet>237</a>
+<a href=#238 id=238 data-nosnippet>238</a><span class="doccomment">/// Who to ask about: artists and labels MusicBrainz gave a Wikidata link for.
+<a href=#239 id=239 data-nosnippet>239</a>///
+<a href=#240 id=240 data-nosnippet>240</a>/// Reads the layer rather than the catalog, because the link is the input and
+<a href=#241 id=241 data-nosnippet>241</a>/// the catalog does not hold it. An artist whose record has already been
+<a href=#242 id=242 data-nosnippet>242</a>/// fetched is skipped unless `again`, for the reason `fetch` skips them: a
+<a href=#243 id=243 data-nosnippet>243</a>/// second run should cost what changed.
+<a href=#244 id=244 data-nosnippet>244</a></span><span class="kw">fn </span>targets(
+<a href=#245 id=245 data-nosnippet>245</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
+<a href=#246 id=246 data-nosnippet>246</a>    wanted: <span class="kw-2">&amp;</span>[String],
+<a href=#247 id=247 data-nosnippet>247</a>    scope: <span class="kw-2">&amp;</span><span class="kw">super</span>::fetch::Scope,
+<a href=#248 id=248 data-nosnippet>248</a>    again: bool,
+<a href=#249 id=249 data-nosnippet>249</a>    catalog: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>aede_core::model::Catalog&gt;,
+<a href=#250 id=250 data-nosnippet>250</a>) -&gt; Vec&lt;Target&gt; {
+<a href=#251 id=251 data-nosnippet>251</a>    <span class="kw">let </span><span class="kw-2">mut </span>targets = Vec::new();
+<a href=#252 id=252 data-nosnippet>252</a>    <span class="kw">let </span>empty = aede_core::model::Catalog::default();
+<a href=#253 id=253 data-nosnippet>253</a>    <span class="kw">let </span>catalog = catalog.unwrap_or(<span class="kw-2">&amp;</span>empty);
+<a href=#254 id=254 data-nosnippet>254</a>    <span class="kw">for </span>record <span class="kw">in </span><span class="kw-2">&amp;</span>held.records {
+<a href=#255 id=255 data-nosnippet>255</a>        <span class="kw">if </span>record.source != sources::MUSICBRAINZ || !held.is_trusted(catalog, record) {
+<a href=#256 id=256 data-nosnippet>256</a>            <span class="kw">continue</span>;
+<a href=#257 id=257 data-nosnippet>257</a>        }
+<a href=#258 id=258 data-nosnippet>258</a>        <span class="comment">// The key is the artist's normalised name, and it is the only name
+<a href=#259 id=259 data-nosnippet>259</a>        // this pass has: it never reads the catalog.
+<a href=#260 id=260 data-nosnippet>260</a>        </span><span class="kw">if </span>!<span class="kw">super</span>::fetch::reaches(wanted, <span class="kw-2">&amp;</span>[record.key.as_str()]) {
+<a href=#261 id=261 data-nosnippet>261</a>            <span class="kw">continue</span>;
+<a href=#262 id=262 data-nosnippet>262</a>        }
+<a href=#263 id=263 data-nosnippet>263</a>        <span class="comment">// Which is also why a folder arrives here already turned into a set of
+<a href=#264 id=264 data-nosnippet>264</a>        // those same keys: the walk that answers "who is on that shelf" needs
+<a href=#265 id=265 data-nosnippet>265</a>        // the catalog, and it was done once, in `fetch`, before any pass ran.
+<a href=#266 id=266 data-nosnippet>266</a>        </span><span class="kw">let </span>wikidata = <span class="kw">match </span><span class="kw-2">&amp;</span>record.facts {
+<a href=#267 id=267 data-nosnippet>267</a>            Facts::Artist(artist) <span class="kw">if </span>scope.has_artist(<span class="kw-2">&amp;</span>record.key) =&gt; artist.wikidata.as_deref(),
+<a href=#268 id=268 data-nosnippet>268</a>            Facts::Label(label) <span class="kw">if </span>scope.has_label(<span class="kw-2">&amp;</span>record.key) =&gt; label.wikidata.as_deref(),
+<a href=#269 id=269 data-nosnippet>269</a>            <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#270 id=270 data-nosnippet>270</a>        };
+<a href=#271 id=271 data-nosnippet>271</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(id) = wikidata.and_then(wikipedia::entity_id) <span class="kw">else </span>{
+<a href=#272 id=272 data-nosnippet>272</a>            <span class="kw">continue</span>;
+<a href=#273 id=273 data-nosnippet>273</a>        };
+<a href=#274 id=274 data-nosnippet>274</a>        <span class="kw">let </span>entity = record.entity();
+<a href=#275 id=275 data-nosnippet>275</a>        <span class="kw">if </span>!again &amp;&amp; held.get(<span class="kw-2">&amp;</span>entity, wikipedia::SOURCE).is_some() {
+<a href=#276 id=276 data-nosnippet>276</a>            <span class="kw">continue</span>;
+<a href=#277 id=277 data-nosnippet>277</a>        }
+<a href=#278 id=278 data-nosnippet>278</a>        targets.push(Target {
+<a href=#279 id=279 data-nosnippet>279</a>            <span class="comment">// The key is the artist's normalised name, which is also the only
+<a href=#280 id=280 data-nosnippet>280</a>            // name this pass has: it never reads the catalog.
+<a href=#281 id=281 data-nosnippet>281</a>            </span>name: entity.key.clone(),
+<a href=#282 id=282 data-nosnippet>282</a>            entity,
+<a href=#283 id=283 data-nosnippet>283</a>            id,
+<a href=#284 id=284 data-nosnippet>284</a>        });
+<a href=#285 id=285 data-nosnippet>285</a>    }
+<a href=#286 id=286 data-nosnippet>286</a>    targets
+<a href=#287 id=287 data-nosnippet>287</a>}
+<a href=#288 id=288 data-nosnippet>288</a>
+<a href=#289 id=289 data-nosnippet>289</a><span class="doccomment">/// The languages to look for an article in, best first.
+<a href=#290 id=290 data-nosnippet>290</a>///
+<a href=#291 id=291 data-nosnippet>291</a>/// Taken from the environment rather than from an option: a French reader
+<a href=#292 id=292 data-nosnippet>292</a>/// wants the French article, and asking them to say so on every run is a way
+<a href=#293 id=293 data-nosnippet>293</a>/// of making sure they get the English one. `fr_FR.UTF-8` and `fr` both mean
+<a href=#294 id=294 data-nosnippet>294</a>/// French; anything unrecognisable is ignored rather than sent out as a
+<a href=#295 id=295 data-nosnippet>295</a>/// hostname that does not exist.
+<a href=#296 id=296 data-nosnippet>296</a>///
+<a href=#297 id=297 data-nosnippet>297</a>/// English is always last, because for a great many artists it is the only
+<a href=#298 id=298 data-nosnippet>298</a>/// article there is — and it is only *last*, so it never displaces a reader's
+<a href=#299 id=299 data-nosnippet>299</a>/// own language when both exist.
+<a href=#300 id=300 data-nosnippet>300</a></span><span class="kw">pub fn </span>preferred_langs(locale: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;) -&gt; Vec&lt;String&gt; {
+<a href=#301 id=301 data-nosnippet>301</a>    <span class="kw">let </span><span class="kw-2">mut </span>langs: Vec&lt;String&gt; = Vec::new();
+<a href=#302 id=302 data-nosnippet>302</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(code) = locale
+<a href=#303 id=303 data-nosnippet>303</a>        .map(|l| l.split([<span class="string">'_'</span>, <span class="string">'.'</span>, <span class="string">'@'</span>]).next().unwrap_or(<span class="string">""</span>).to_lowercase())
+<a href=#304 id=304 data-nosnippet>304</a>        .filter(|c| c.len() == <span class="number">2 </span>&amp;&amp; c.bytes().all(|b| b.is_ascii_lowercase()))
+<a href=#305 id=305 data-nosnippet>305</a>    {
+<a href=#306 id=306 data-nosnippet>306</a>        langs.push(code);
+<a href=#307 id=307 data-nosnippet>307</a>    }
+<a href=#308 id=308 data-nosnippet>308</a>    <span class="kw">for </span>fallback <span class="kw">in </span>wikipedia::FALLBACK_LANGS {
+<a href=#309 id=309 data-nosnippet>309</a>        <span class="kw">if </span>!langs.iter().any(|l| l == fallback) {
+<a href=#310 id=310 data-nosnippet>310</a>            langs.push(fallback.to_string());
+<a href=#311 id=311 data-nosnippet>311</a>        }
+<a href=#312 id=312 data-nosnippet>312</a>    }
+<a href=#313 id=313 data-nosnippet>313</a>    langs
+<a href=#314 id=314 data-nosnippet>314</a>}
+<a href=#315 id=315 data-nosnippet>315</a>
+<a href=#316 id=316 data-nosnippet>316</a><span class="attr">#[cfg(test)]
+<a href=#317 id=317 data-nosnippet>317</a>#[path = <span class="string">"summaries_tests.rs"</span>]
+<a href=#318 id=318 data-nosnippet>318</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

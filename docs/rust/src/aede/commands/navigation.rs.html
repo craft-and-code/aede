@@ -55,75 +55,78 @@
 <a href=#55 id=55 data-nosnippet>55</a>
 <a href=#56 id=56 data-nosnippet>56</a>    <span class="doccomment">/// Prints nothing when the page has nowhere else to go.
 <a href=#57 id=57 data-nosnippet>57</a>    </span><span class="kw">pub fn </span>print(<span class="self">self</span>) {
-<a href=#58 id=58 data-nosnippet>58</a>        <span class="kw">if </span><span class="self">self</span>.rows.is_empty() {
-<a href=#59 id=59 data-nosnippet>59</a>            <span class="kw">return</span>;
-<a href=#60 id=60 data-nosnippet>60</a>        }
-<a href=#61 id=61 data-nosnippet>61</a>        <span class="kw">const </span>LIMIT: usize = <span class="number">30</span>;
-<a href=#62 id=62 data-nosnippet>62</a>        <span class="macro">println!</span>(<span class="string">"{}"</span>, ui::section(<span class="string">"Continue"</span>));
-<a href=#63 id=63 data-nosnippet>63</a>        <span class="kw">let </span><span class="kw-2">mut </span>table = Table::new(<span class="kw-2">&amp;</span>[<span class="string">"Relation"</span>, <span class="string">"Command"</span>])
-<a href=#64 id=64 data-nosnippet>64</a>            .limit(<span class="number">0</span>, <span class="number">30</span>)
-<a href=#65 id=65 data-nosnippet>65</a>            .limit(<span class="number">1</span>, <span class="number">90</span>);
-<a href=#66 id=66 data-nosnippet>66</a>        <span class="kw">let </span>total = <span class="self">self</span>.rows.len();
-<a href=#67 id=67 data-nosnippet>67</a>        <span class="kw">for </span>(relation, command) <span class="kw">in </span><span class="self">self</span>.rows.into_iter().take(LIMIT) {
-<a href=#68 id=68 data-nosnippet>68</a>            table.push(<span class="macro">vec!</span>[relation, command]);
-<a href=#69 id=69 data-nosnippet>69</a>        }
-<a href=#70 id=70 data-nosnippet>70</a>        <span class="macro">print!</span>(<span class="string">"{}"</span>, table.render());
-<a href=#71 id=71 data-nosnippet>71</a>        <span class="kw">if </span>total &gt; LIMIT {
-<a href=#72 id=72 data-nosnippet>72</a>            <span class="macro">println!</span>(
-<a href=#73 id=73 data-nosnippet>73</a>                <span class="string">"  {}"</span>,
-<a href=#74 id=74 data-nosnippet>74</a>                ui::dim(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
-<a href=#75 id=75 data-nosnippet>75</a>                    <span class="string">"{} more navigation targets not shown"</span>,
-<a href=#76 id=76 data-nosnippet>76</a>                    total - LIMIT
-<a href=#77 id=77 data-nosnippet>77</a>                ))
-<a href=#78 id=78 data-nosnippet>78</a>            );
-<a href=#79 id=79 data-nosnippet>79</a>        }
-<a href=#80 id=80 data-nosnippet>80</a>    }
-<a href=#81 id=81 data-nosnippet>81</a>}
-<a href=#82 id=82 data-nosnippet>82</a>
-<a href=#83 id=83 data-nosnippet>83</a><span class="doccomment">/// Command that opens one entity, using an external identity when possible.
-<a href=#84 id=84 data-nosnippet>84</a></span><span class="kw">pub fn </span>open_command(catalog: <span class="kw-2">&amp;</span>Catalog, kind: EntityKind, id: Id) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">let </span>(command, value) = <span class="kw">match </span>kind {
-<a href=#86 id=86 data-nosnippet>86</a>        EntityKind::Artist =&gt; {
-<a href=#87 id=87 data-nosnippet>87</a>            <span class="kw">let </span>artist = catalog.artist(id)<span class="question-mark">?</span>;
-<a href=#88 id=88 data-nosnippet>88</a>            (
-<a href=#89 id=89 data-nosnippet>89</a>                <span class="string">"artist"</span>,
-<a href=#90 id=90 data-nosnippet>90</a>                artist.mbid.clone().unwrap_or_else(|| artist.name.clone()),
-<a href=#91 id=91 data-nosnippet>91</a>            )
-<a href=#92 id=92 data-nosnippet>92</a>        }
-<a href=#93 id=93 data-nosnippet>93</a>        EntityKind::Release =&gt; {
-<a href=#94 id=94 data-nosnippet>94</a>            <span class="kw">let </span>release = catalog.release(id)<span class="question-mark">?</span>;
-<a href=#95 id=95 data-nosnippet>95</a>            (
-<a href=#96 id=96 data-nosnippet>96</a>                <span class="string">"album"</span>,
-<a href=#97 id=97 data-nosnippet>97</a>                release
-<a href=#98 id=98 data-nosnippet>98</a>                    .mbid
-<a href=#99 id=99 data-nosnippet>99</a>                    .clone()
-<a href=#100 id=100 data-nosnippet>100</a>                    .unwrap_or_else(|| release.title.clone()),
-<a href=#101 id=101 data-nosnippet>101</a>            )
-<a href=#102 id=102 data-nosnippet>102</a>        }
-<a href=#103 id=103 data-nosnippet>103</a>        EntityKind::Track =&gt; (<span class="string">"track"</span>, catalog.track(id)<span class="question-mark">?</span>.title.clone()),
-<a href=#104 id=104 data-nosnippet>104</a>        EntityKind::Recording =&gt; {
-<a href=#105 id=105 data-nosnippet>105</a>            <span class="kw">let </span>recording = catalog.recording(id)<span class="question-mark">?</span>;
-<a href=#106 id=106 data-nosnippet>106</a>            (
-<a href=#107 id=107 data-nosnippet>107</a>                <span class="string">"recording"</span>,
-<a href=#108 id=108 data-nosnippet>108</a>                recording
-<a href=#109 id=109 data-nosnippet>109</a>                    .mbid
-<a href=#110 id=110 data-nosnippet>110</a>                    .clone()
-<a href=#111 id=111 data-nosnippet>111</a>                    .unwrap_or_else(|| recording.title.clone()),
-<a href=#112 id=112 data-nosnippet>112</a>            )
-<a href=#113 id=113 data-nosnippet>113</a>        }
-<a href=#114 id=114 data-nosnippet>114</a>        EntityKind::Work =&gt; (<span class="string">"work"</span>, catalog.work(id)<span class="question-mark">?</span>.mbid.clone()),
-<a href=#115 id=115 data-nosnippet>115</a>        EntityKind::ReleaseGroup =&gt; (<span class="string">"release-group"</span>, catalog.release_group(id)<span class="question-mark">?</span>.mbid.clone()),
-<a href=#116 id=116 data-nosnippet>116</a>        EntityKind::Label =&gt; (<span class="string">"label"</span>, catalog.label(id)<span class="question-mark">?</span>.name.clone()),
-<a href=#117 id=117 data-nosnippet>117</a>        EntityKind::Genre =&gt; (<span class="string">"genre"</span>, catalog.genres.get(id <span class="kw">as </span>usize)<span class="question-mark">?</span>.name.clone()),
-<a href=#118 id=118 data-nosnippet>118</a>    };
-<a href=#119 id=119 data-nosnippet>119</a>    <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"aede {command} {}"</span>, shell_arg(<span class="kw-2">&amp;</span>value)))
-<a href=#120 id=120 data-nosnippet>120</a>}
-<a href=#121 id=121 data-nosnippet>121</a>
-<a href=#122 id=122 data-nosnippet>122</a><span class="doccomment">/// One POSIX-shell argument, safe even when a catalog name contains a quote.
-<a href=#123 id=123 data-nosnippet>123</a></span><span class="kw">pub fn </span>shell_arg(value: <span class="kw-2">&amp;</span>str) -&gt; String {
-<a href=#124 id=124 data-nosnippet>124</a>    <span class="macro">format!</span>(<span class="string">"'{}'"</span>, value.replace(<span class="string">'\''</span>, <span class="string">"'\\''"</span>))
-<a href=#125 id=125 data-nosnippet>125</a>}
-<a href=#126 id=126 data-nosnippet>126</a>
-<a href=#127 id=127 data-nosnippet>127</a><span class="attr">#[cfg(test)]
-<a href=#128 id=128 data-nosnippet>128</a>#[path = <span class="string">"navigation_tests.rs"</span>]
-<a href=#129 id=129 data-nosnippet>129</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#58 id=58 data-nosnippet>58</a>        <span class="macro">print!</span>(<span class="string">"{}"</span>, <span class="self">self</span>.render());
+<a href=#59 id=59 data-nosnippet>59</a>    }
+<a href=#60 id=60 data-nosnippet>60</a>
+<a href=#61 id=61 data-nosnippet>61</a>    <span class="kw">fn </span>render(<span class="self">self</span>) -&gt; String {
+<a href=#62 id=62 data-nosnippet>62</a>        <span class="kw">if </span><span class="self">self</span>.rows.is_empty() {
+<a href=#63 id=63 data-nosnippet>63</a>            <span class="kw">return </span>String::new();
+<a href=#64 id=64 data-nosnippet>64</a>        }
+<a href=#65 id=65 data-nosnippet>65</a>        <span class="kw">const </span>LIMIT: usize = <span class="number">30</span>;
+<a href=#66 id=66 data-nosnippet>66</a>        <span class="kw">let </span><span class="kw-2">mut </span>table = Table::new(<span class="kw-2">&amp;</span>[<span class="string">"Relation"</span>, <span class="string">"Command"</span>]).limit(<span class="number">0</span>, <span class="number">30</span>);
+<a href=#67 id=67 data-nosnippet>67</a>        <span class="kw">let </span>total = <span class="self">self</span>.rows.len();
+<a href=#68 id=68 data-nosnippet>68</a>        <span class="kw">for </span>(relation, command) <span class="kw">in </span><span class="self">self</span>.rows.into_iter().take(LIMIT) {
+<a href=#69 id=69 data-nosnippet>69</a>            table.push(<span class="macro">vec!</span>[relation, command]);
+<a href=#70 id=70 data-nosnippet>70</a>        }
+<a href=#71 id=71 data-nosnippet>71</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = <span class="macro">format!</span>(<span class="string">"{}\n{}"</span>, ui::section(<span class="string">"Continue"</span>), table.render());
+<a href=#72 id=72 data-nosnippet>72</a>        <span class="kw">if </span>total &gt; LIMIT {
+<a href=#73 id=73 data-nosnippet>73</a>            output.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
+<a href=#74 id=74 data-nosnippet>74</a>                <span class="string">"  {}\n"</span>,
+<a href=#75 id=75 data-nosnippet>75</a>                ui::dim(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
+<a href=#76 id=76 data-nosnippet>76</a>                    <span class="string">"{} more navigation targets not shown"</span>,
+<a href=#77 id=77 data-nosnippet>77</a>                    total - LIMIT
+<a href=#78 id=78 data-nosnippet>78</a>                ))
+<a href=#79 id=79 data-nosnippet>79</a>            ));
+<a href=#80 id=80 data-nosnippet>80</a>        }
+<a href=#81 id=81 data-nosnippet>81</a>        output
+<a href=#82 id=82 data-nosnippet>82</a>    }
+<a href=#83 id=83 data-nosnippet>83</a>}
+<a href=#84 id=84 data-nosnippet>84</a>
+<a href=#85 id=85 data-nosnippet>85</a><span class="doccomment">/// Command that opens one entity, using an external identity when possible.
+<a href=#86 id=86 data-nosnippet>86</a></span><span class="kw">pub fn </span>open_command(catalog: <span class="kw-2">&amp;</span>Catalog, kind: EntityKind, id: Id) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="kw">let </span>(command, value) = <span class="kw">match </span>kind {
+<a href=#88 id=88 data-nosnippet>88</a>        EntityKind::Artist =&gt; {
+<a href=#89 id=89 data-nosnippet>89</a>            <span class="kw">let </span>artist = catalog.artist(id)<span class="question-mark">?</span>;
+<a href=#90 id=90 data-nosnippet>90</a>            (
+<a href=#91 id=91 data-nosnippet>91</a>                <span class="string">"artist"</span>,
+<a href=#92 id=92 data-nosnippet>92</a>                artist.mbid.clone().unwrap_or_else(|| artist.name.clone()),
+<a href=#93 id=93 data-nosnippet>93</a>            )
+<a href=#94 id=94 data-nosnippet>94</a>        }
+<a href=#95 id=95 data-nosnippet>95</a>        EntityKind::Release =&gt; {
+<a href=#96 id=96 data-nosnippet>96</a>            <span class="kw">let </span>release = catalog.release(id)<span class="question-mark">?</span>;
+<a href=#97 id=97 data-nosnippet>97</a>            (
+<a href=#98 id=98 data-nosnippet>98</a>                <span class="string">"album"</span>,
+<a href=#99 id=99 data-nosnippet>99</a>                release
+<a href=#100 id=100 data-nosnippet>100</a>                    .mbid
+<a href=#101 id=101 data-nosnippet>101</a>                    .clone()
+<a href=#102 id=102 data-nosnippet>102</a>                    .unwrap_or_else(|| release.title.clone()),
+<a href=#103 id=103 data-nosnippet>103</a>            )
+<a href=#104 id=104 data-nosnippet>104</a>        }
+<a href=#105 id=105 data-nosnippet>105</a>        EntityKind::Track =&gt; (<span class="string">"track"</span>, catalog.track(id)<span class="question-mark">?</span>.title.clone()),
+<a href=#106 id=106 data-nosnippet>106</a>        EntityKind::Recording =&gt; {
+<a href=#107 id=107 data-nosnippet>107</a>            <span class="kw">let </span>recording = catalog.recording(id)<span class="question-mark">?</span>;
+<a href=#108 id=108 data-nosnippet>108</a>            <span class="kw">let </span>identity = recording.mbid.clone().or_else(|| {
+<a href=#109 id=109 data-nosnippet>109</a>                recording.track_ids.iter().find_map(|<span class="kw-2">&amp;</span>track_id| {
+<a href=#110 id=110 data-nosnippet>110</a>                    <span class="kw">let </span>track = catalog.track(track_id)<span class="question-mark">?</span>;
+<a href=#111 id=111 data-nosnippet>111</a>                    <span class="kw">let </span>file = catalog.file(track.file_id)<span class="question-mark">?</span>;
+<a href=#112 id=112 data-nosnippet>112</a>                    <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"local:{}"</span>, file.path))
+<a href=#113 id=113 data-nosnippet>113</a>                })
+<a href=#114 id=114 data-nosnippet>114</a>            })<span class="question-mark">?</span>;
+<a href=#115 id=115 data-nosnippet>115</a>            (<span class="string">"recording"</span>, identity)
+<a href=#116 id=116 data-nosnippet>116</a>        }
+<a href=#117 id=117 data-nosnippet>117</a>        EntityKind::Work =&gt; (<span class="string">"work"</span>, catalog.work(id)<span class="question-mark">?</span>.mbid.clone()),
+<a href=#118 id=118 data-nosnippet>118</a>        EntityKind::ReleaseGroup =&gt; (<span class="string">"release-group"</span>, catalog.release_group(id)<span class="question-mark">?</span>.mbid.clone()),
+<a href=#119 id=119 data-nosnippet>119</a>        EntityKind::Label =&gt; (<span class="string">"label"</span>, catalog.label(id)<span class="question-mark">?</span>.name.clone()),
+<a href=#120 id=120 data-nosnippet>120</a>        EntityKind::Genre =&gt; (<span class="string">"genre"</span>, catalog.genres.get(id <span class="kw">as </span>usize)<span class="question-mark">?</span>.name.clone()),
+<a href=#121 id=121 data-nosnippet>121</a>    };
+<a href=#122 id=122 data-nosnippet>122</a>    <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"aede {command} {}"</span>, shell_arg(<span class="kw-2">&amp;</span>value)))
+<a href=#123 id=123 data-nosnippet>123</a>}
+<a href=#124 id=124 data-nosnippet>124</a>
+<a href=#125 id=125 data-nosnippet>125</a><span class="doccomment">/// One POSIX-shell argument, safe even when a catalog name contains a quote.
+<a href=#126 id=126 data-nosnippet>126</a></span><span class="kw">pub fn </span>shell_arg(value: <span class="kw-2">&amp;</span>str) -&gt; String {
+<a href=#127 id=127 data-nosnippet>127</a>    <span class="macro">format!</span>(<span class="string">"'{}'"</span>, value.replace(<span class="string">'\''</span>, <span class="string">"'\\''"</span>))
+<a href=#128 id=128 data-nosnippet>128</a>}
+<a href=#129 id=129 data-nosnippet>129</a>
+<a href=#130 id=130 data-nosnippet>130</a><span class="attr">#[cfg(test)]
+<a href=#131 id=131 data-nosnippet>131</a>#[path = <span class="string">"navigation_tests.rs"</span>]
+<a href=#132 id=132 data-nosnippet>132</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

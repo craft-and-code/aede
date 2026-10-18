@@ -100,50 +100,45 @@
 <a href=#100 id=100 data-nosnippet>100</a>/// timings dropped. Taking the plain form when a timed one exists would throw
 <a href=#101 id=101 data-nosnippet>101</a>/// away something that cannot be recovered.
 <a href=#102 id=102 data-nosnippet>102</a>///
-<a href=#103 id=103 data-nosnippet>103</a>/// A non-instrumental answer whose text is empty is [`Found::Nothing`]: a
-<a href=#104 id=104 data-nosnippet>104</a>/// record with no words in it is not an answer about the words. Use
-<a href=#105 id=105 data-nosnippet>105</a>/// [`read_checked`] at the network boundary to distinguish that from a
-<a href=#106 id=106 data-nosnippet>106</a>/// malformed success body.
+<a href=#103 id=103 data-nosnippet>103</a>/// A non-instrumental answer whose text is empty or only LRC metadata is
+<a href=#104 id=104 data-nosnippet>104</a>/// [`Found::Nothing`]: a record with no words in it is not an answer about the
+<a href=#105 id=105 data-nosnippet>105</a>/// words. Use [`read_checked`] at the network boundary to distinguish that from
+<a href=#106 id=106 data-nosnippet>106</a>/// a malformed success body.
 <a href=#107 id=107 data-nosnippet>107</a></span><span class="kw">pub fn </span>read(value: <span class="kw-2">&amp;</span>Json) -&gt; Found {
 <a href=#108 id=108 data-nosnippet>108</a>    <span class="comment">// Asked before the text, because it is an answer *about* the absence of
 <a href=#109 id=109 data-nosnippet>109</a>    // text and would otherwise be read as a service that failed to have any.
 <a href=#110 id=110 data-nosnippet>110</a>    </span><span class="kw">if </span>value.field_optional_bool(<span class="string">"instrumental"</span>) == <span class="prelude-val">Some</span>(<span class="bool-val">true</span>) {
 <a href=#111 id=111 data-nosnippet>111</a>        <span class="kw">return </span>Found::Instrumental;
 <a href=#112 id=112 data-nosnippet>112</a>    }
-<a href=#113 id=113 data-nosnippet>113</a>    <span class="kw">let </span>synced = value
-<a href=#114 id=114 data-nosnippet>114</a>        .field_str(<span class="string">"syncedLyrics"</span>)
-<a href=#115 id=115 data-nosnippet>115</a>        .filter(|t| !t.trim().is_empty());
-<a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">let </span>plain = value
-<a href=#117 id=117 data-nosnippet>117</a>        .field_str(<span class="string">"plainLyrics"</span>)
-<a href=#118 id=118 data-nosnippet>118</a>        .filter(|t| !t.trim().is_empty());
-<a href=#119 id=119 data-nosnippet>119</a>    <span class="kw">match </span>(synced, plain) {
-<a href=#120 id=120 data-nosnippet>120</a>        (<span class="prelude-val">Some</span>(text), <span class="kw">_</span>) =&gt; Found::Words(Words { text, synced: <span class="bool-val">true </span>}),
-<a href=#121 id=121 data-nosnippet>121</a>        (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(text)) =&gt; Found::Words(Words {
-<a href=#122 id=122 data-nosnippet>122</a>            text,
-<a href=#123 id=123 data-nosnippet>123</a>            synced: <span class="bool-val">false</span>,
-<a href=#124 id=124 data-nosnippet>124</a>        }),
-<a href=#125 id=125 data-nosnippet>125</a>        (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>) =&gt; Found::Nothing,
-<a href=#126 id=126 data-nosnippet>126</a>    }
-<a href=#127 id=127 data-nosnippet>127</a>}
-<a href=#128 id=128 data-nosnippet>128</a>
-<a href=#129 id=129 data-nosnippet>129</a><span class="doccomment">/// Reads a service response, refusing missing or wrongly typed answer fields.
-<a href=#130 id=130 data-nosnippet>130</a>///
-<a href=#131 id=131 data-nosnippet>131</a>/// A successful LRCLIB body carries a boolean `instrumental` and both lyric
-<a href=#132 id=132 data-nosnippet>132</a>/// fields, each either a string or null. An empty but correctly typed answer
-<a href=#133 id=133 data-nosnippet>133</a>/// is [`Found::Nothing`]; an error object is refused rather than counted as an
-<a href=#134 id=134 data-nosnippet>134</a>/// ordinary miss. HTTP 404 must be handled by the caller before this parser.
-<a href=#135 id=135 data-nosnippet>135</a></span><span class="kw">pub fn </span>read_checked(value: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Result</span>&lt;Found, String&gt; {
-<a href=#136 id=136 data-nosnippet>136</a>    <span class="kw">if </span>value.field_optional_bool(<span class="string">"instrumental"</span>).is_none() {
-<a href=#137 id=137 data-nosnippet>137</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"LRCLIB returned no valid instrumental flag"</span>.to_string());
+<a href=#113 id=113 data-nosnippet>113</a>    <span class="kw">for </span>(field, synced) <span class="kw">in </span>[(<span class="string">"syncedLyrics"</span>, <span class="bool-val">true</span>), (<span class="string">"plainLyrics"</span>, <span class="bool-val">false</span>)] {
+<a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(text) = value
+<a href=#115 id=115 data-nosnippet>115</a>            .field_str(field)
+<a href=#116 id=116 data-nosnippet>116</a>            .filter(|text| !<span class="kw">crate</span>::lyrics::parse(text).is_empty())
+<a href=#117 id=117 data-nosnippet>117</a>        {
+<a href=#118 id=118 data-nosnippet>118</a>            <span class="kw">return </span>Found::Words(Words { text, synced });
+<a href=#119 id=119 data-nosnippet>119</a>        }
+<a href=#120 id=120 data-nosnippet>120</a>    }
+<a href=#121 id=121 data-nosnippet>121</a>    Found::Nothing
+<a href=#122 id=122 data-nosnippet>122</a>}
+<a href=#123 id=123 data-nosnippet>123</a>
+<a href=#124 id=124 data-nosnippet>124</a><span class="doccomment">/// Reads a service response, refusing missing or wrongly typed answer fields.
+<a href=#125 id=125 data-nosnippet>125</a>///
+<a href=#126 id=126 data-nosnippet>126</a>/// A successful LRCLIB body carries a boolean `instrumental` and both lyric
+<a href=#127 id=127 data-nosnippet>127</a>/// fields, each either a string or null. An empty but correctly typed answer
+<a href=#128 id=128 data-nosnippet>128</a>/// is [`Found::Nothing`]; an error object is refused rather than counted as an
+<a href=#129 id=129 data-nosnippet>129</a>/// ordinary miss. HTTP 404 must be handled by the caller before this parser.
+<a href=#130 id=130 data-nosnippet>130</a></span><span class="kw">pub fn </span>read_checked(value: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Result</span>&lt;Found, String&gt; {
+<a href=#131 id=131 data-nosnippet>131</a>    <span class="kw">if </span>value.field_optional_bool(<span class="string">"instrumental"</span>).is_none() {
+<a href=#132 id=132 data-nosnippet>132</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"LRCLIB returned no valid instrumental flag"</span>.to_string());
+<a href=#133 id=133 data-nosnippet>133</a>    }
+<a href=#134 id=134 data-nosnippet>134</a>    <span class="kw">for </span>field <span class="kw">in </span>[<span class="string">"plainLyrics"</span>, <span class="string">"syncedLyrics"</span>] {
+<a href=#135 id=135 data-nosnippet>135</a>        <span class="kw">if </span>!<span class="macro">matches!</span>(value.get(field), <span class="prelude-val">Some</span>(Json::Str(<span class="kw">_</span>) | Json::Null)) {
+<a href=#136 id=136 data-nosnippet>136</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">format!</span>(<span class="string">"LRCLIB returned no valid {field} field"</span>));
+<a href=#137 id=137 data-nosnippet>137</a>        }
 <a href=#138 id=138 data-nosnippet>138</a>    }
-<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">for </span>field <span class="kw">in </span>[<span class="string">"plainLyrics"</span>, <span class="string">"syncedLyrics"</span>] {
-<a href=#140 id=140 data-nosnippet>140</a>        <span class="kw">if </span>!<span class="macro">matches!</span>(value.get(field), <span class="prelude-val">Some</span>(Json::Str(<span class="kw">_</span>) | Json::Null)) {
-<a href=#141 id=141 data-nosnippet>141</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">format!</span>(<span class="string">"LRCLIB returned no valid {field} field"</span>));
-<a href=#142 id=142 data-nosnippet>142</a>        }
-<a href=#143 id=143 data-nosnippet>143</a>    }
-<a href=#144 id=144 data-nosnippet>144</a>    <span class="prelude-val">Ok</span>(read(value))
-<a href=#145 id=145 data-nosnippet>145</a>}
-<a href=#146 id=146 data-nosnippet>146</a>
-<a href=#147 id=147 data-nosnippet>147</a><span class="attr">#[cfg(test)]
-<a href=#148 id=148 data-nosnippet>148</a>#[path = <span class="string">"lrclib_tests.rs"</span>]
-<a href=#149 id=149 data-nosnippet>149</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#139 id=139 data-nosnippet>139</a>    <span class="prelude-val">Ok</span>(read(value))
+<a href=#140 id=140 data-nosnippet>140</a>}
+<a href=#141 id=141 data-nosnippet>141</a>
+<a href=#142 id=142 data-nosnippet>142</a><span class="attr">#[cfg(test)]
+<a href=#143 id=143 data-nosnippet>143</a>#[path = <span class="string">"lrclib_tests.rs"</span>]
+<a href=#144 id=144 data-nosnippet>144</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

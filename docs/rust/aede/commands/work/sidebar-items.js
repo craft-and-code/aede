@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["part_position","print_family","print_recordings","show_work"]};
+window.SIDEBAR_ITEMS = {"fn":["part_position","print_family","print_recordings","recordings_of_work","show_work"]};
