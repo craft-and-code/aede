@@ -12,7 +12,7 @@
 <meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Aède — Lecteur audio, bibliothèque musicale et DSP"><meta name="twitter:description" content="Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel."><meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
-<link rel="stylesheet" href="styles.css?v=aa521a6d4041">
+<link rel="stylesheet" href="styles.css?v=5ec9e536b490">
 <script src="language.js?v=cd2025bbb364"></script><script defer src="home-strings.js?v=eddbed938218"></script><script defer src="translations.js?v=e296a82eba78"></script><script defer src="app.js?v=b3b6c69b9484"></script>
 <script type="application/ld+json">{
   "@context": "https://schema.org",
@@ -29,7 +29,7 @@
 <a class="skip-link" href="#main">Aller au contenu</a>
 <div id="aede-motion-concepts">
   <header class="ae-header">
-    <a class="ae-logo cursor-interaction" href="#ae-top" aria-label="Aède, accueil">aède<span>.</span></a>
+    <a class="ae-logo cursor-interaction" href="#ae-top" aria-label="Aède, accueil"><img class="ae-wordmark" src="assets/wordmark.svg" alt="aède."></a>
     <nav aria-label="Navigation principale">
       <a href="https://github.com/craft-and-code/aede" target="_blank" rel="noopener noreferrer">Le projet</a>
       <a href="docs/fr/index.html">Documentation</a>
@@ -69,7 +69,7 @@
         </div>
         <p class="ae-detail" aria-live="polite">Vos fichiers, vos paroles. Une écoute à votre mesure.</p>
       </section>
-      <aside class="ae-origin" aria-label="L’origine du nom Aède"><div><span class="ae-logo ae-origin-word">aède<span>.</span></span><small>nom masculin · du grec aoidós, « chanteur »</small></div><p>Dans la Grèce antique, un poète qui composait et chantait des récits épiques.<br><span>Aujourd’hui, votre musique et les histoires qu’elle porte.</span></p></aside>
+      <aside class="ae-origin" aria-label="L’origine du nom Aède"><div><span class="ae-logo ae-origin-word"><img class="ae-wordmark" src="assets/wordmark.svg" alt="aède."></span><small>nom masculin · du grec aoidós, « chanteur »</small></div><p>Dans la Grèce antique, un poète qui composait et chantait des récits épiques.<br><span>Aujourd’hui, votre musique et les histoires qu’elle porte.</span></p></aside>
       <nav class="ae-index" aria-label="Les quatre parties d’Aède">
         <a href="#ae-cli" class="ae-jump ae-jump-cli cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 4 4-4 4m6 0h4"/></svg><strong>CLI</strong><small>Explorer & préserver</small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
         <a href="#ae-server" class="ae-jump ae-jump-server cursor-interaction"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v6M5 17v-4h14v4"/></svg><strong>Serveur</strong><small>Un catalogue commun</small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
@@ -145,7 +145,7 @@ Audio et tags inchangés.</pre>
         <div class="ae-server-visual" aria-label="Parcours du catalogue local, des fichiers à Aède puis à la CLI ; Phémios est un futur client">
           <div class="ae-server-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2"/><path d="m3 11 3-7h12l3 7m-5 4h2m-11 0h1"/></svg><span>Vos fichiers</span></div>
           <div class="ae-server-wire" aria-hidden="true"><span class="ae-packet ae-packet-source"></span></div>
-          <div class="ae-server-center"><span class="ae-logo">aède<span>.</span></span><small>CATALOGUE · API LOCALE</small></div>
+          <div class="ae-server-center"><span class="ae-logo"><img class="ae-wordmark" src="assets/wordmark.svg" alt="aède."></span><small>CATALOGUE · API LOCALE</small></div>
           <div class="ae-server-branches"><div class="ae-server-cli"><span class="ae-packet ae-packet-client" aria-hidden="true"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 8 4 4-4 4m6 0h4"/></svg><strong>CLI</strong><small>Disponible</small></div><div class="ae-server-planned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg><strong>Phémios</strong><small>Futur client</small></div></div>
           <div class="ae-server-steps" aria-label="Scan, catalogage, consultation"><span>Scan</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Catalogue</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg><span>Consultation</span></div>
         </div>
@@ -229,7 +229,7 @@ Audio et tags inchangés.</pre>
       </section>
       <section class="ae-launch ae-reveal" aria-label="Informations et lancement Kickstarter"><div><p class="ae-eyebrow">LA SUITE S’ÉCRIT ENSEMBLE.</p><h2>Être là pour la suite.</h2><p>Recevez les nouvelles d’Aède et l’annonce du futur lancement Kickstarter.<br>Un e-mail par mois maximum. Aucun spam.<br>Désinscription sur simple réponse.</p></div><form id="ae-launch-form" action="https://formsubmit.co/c3762e030c798f4e53a21164adab9699" method="POST"><label for="ae-email">Votre adresse e-mail</label><div><input id="ae-email" name="email" type="email" required autocomplete="email" placeholder="vous@exemple.fr"><button type="submit" class="cursor-interaction">M’inscrire <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button></div><input type="hidden" name="_subject" value="Aède — inscription aux informations du projet"><input type="hidden" name="_template" value="table"><input type="hidden" name="_next" value="https://craft-and-code.github.io/aede/docs/fr/manual/subscribed.html"><input type="hidden" name="inscription" value="Je souhaite recevoir les informations d’Aède et l’annonce du lancement Kickstarter, un e-mail par mois maximum."><input type="hidden" name="langue" value="fr"><input class="ae-honey" type="text" name="_honey" tabindex="-1" autocomplete="off" aria-hidden="true"><p>En cliquant sur « M’inscrire », vous demandez à recevoir ces informations. Votre adresse sert uniquement à cet envoi. <a href="docs/fr/manual/privacy.html">Confidentialité</a></p></form></section>
     </main>
-    <footer class="ae-footer"><span class="ae-logo">aède<span>.</span></span><a href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">FlacCompagnon</a><a href="docs/fr/index.html">Manuel & documentation</a><a href="docs/rust/aede_core/index.html">Rustdoc</a><a href="https://github.com/craft-and-code/aede">GitHub</a><a href="docs/fr/manual/privacy.html">Confidentialité</a><span>Logiciel libre · MPL-2.0</span></footer>
+    <footer class="ae-footer"><span class="ae-logo"><img class="ae-wordmark" src="assets/wordmark.svg" alt="aède."></span><a href="https://craft-and-code.github.io/FlacCompagnon/" target="_blank" rel="noopener noreferrer">FlacCompagnon</a><a href="docs/fr/index.html">Manuel & documentation</a><a href="docs/rust/aede_core/index.html">Rustdoc</a><a href="https://github.com/craft-and-code/aede">GitHub</a><a href="docs/fr/manual/privacy.html">Confidentialité</a><span>Logiciel libre · MPL-2.0</span></footer>
   </div>
 </div>
 </body></html>

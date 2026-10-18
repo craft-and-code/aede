@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["adapt","make_unique","restricts_names"]};
+window.SIDEBAR_ITEMS = {"fn":["adapt","make_unique","portable_key","restricts_names"]};

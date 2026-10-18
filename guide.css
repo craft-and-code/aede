@@ -122,3 +122,8 @@ body.guide-document[data-section="cli"] { --guide-accent:#d8f36a; }
 @media(max-width:430px) { .guide-header { padding:12px 16px; gap:10px; }.guide-logo { font-size:29px !important; }.guide-header-label { font-size:13px; padding-left:10px; }.guide-header-actions { gap:6px; }.guide-layout { padding:0 20px; }.guide-document .guide-main h1 { font-size:33px; }.guide-cards { grid-template-columns:1fr; }.guide-next { gap:12px; }.guide-next a { padding:13px; font-size:14px; }.guide-footer a { margin-left:13px; font-size:12px; }.dsp-controls { gap:14px; }.dsp-explainer { padding:14px; } }
 @media(prefers-reduced-motion:reduce) { .guide-document * { scroll-behavior:auto !important; transition:none !important; } }
 @media(max-width:380px) { .guide-header-label { display:none; } }
+
+.guide-logo img { display:block; height:1em; width:auto; }
+.guide-footer-logo { height:23px; width:auto; vertical-align:middle; }
+.guide-app-intro { margin:28px 0; padding:22px; border:1px solid var(--guide-border); border-radius:12px; background:var(--guide-panel); }
+.guide-app-intro h2 { margin-top:0; }
