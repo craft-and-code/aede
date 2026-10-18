@@ -159,7 +159,9 @@ pub(super) fn make_unique_portable(name: &str, taken: &mut BTreeSet<String>) -> 
     unique(name, taken, true)
 }
 
-pub(super) fn portable_key(name: &str) -> String {
+/// Conservative component identity for portable copy namespace admission.
+/// This is not a claim about every alias supported by a particular filesystem.
+pub fn portable_key(name: &str) -> String {
     // Remove combining marks before textual folding so an accent inside a
     // word does not become a separator. Uppercase first also joins Unicode
     // case variants such as sigma and final sigma. The filesystem preflight

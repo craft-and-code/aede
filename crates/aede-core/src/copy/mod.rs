@@ -228,6 +228,21 @@ fn conversion_for(
     (!already).then_some(target)
 }
 
+/// Project the output of one already-placed portable source, as used by serial desktop exports.
+/// This reuses codec-aware conversion and single-file placement without touching the filesystem.
+/// The caller must reject collisions between projected outputs from different staged sources.
+pub fn staged_output_path(
+    file: &crate::model::AudioFile,
+    relative: &str,
+    target: Option<transcode::Target>,
+) -> PathBuf {
+    let renamed = match conversion_for(file, target) {
+        Some(target) => with_extension(relative, target.extension()),
+        None => relative.to_owned(),
+    };
+    Placement::default().place(&renamed, relative, true)
+}
+
 /// Works out what copying these tracks would mean. Writes nothing, and reads
 /// the disk only to list what sits beside the audio: every other answer comes
 /// from the catalog.
@@ -367,7 +382,11 @@ pub fn plan(catalog: &Catalog, tracks: &[Id], recipe: &Recipe) -> Plan {
 fn with_extension(relative: &str, extension: &str) -> String {
     let mut path = PathBuf::from(relative);
     path.set_extension(extension);
-    path.to_string_lossy().into_owned()
+    // Placement uses portable separators even when PathBuf changed the suffix on Windows.
+    path.components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// How many files the plan would encode rather than copy.

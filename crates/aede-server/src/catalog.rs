@@ -53,6 +53,8 @@ pub(super) fn release_item(
 
 pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
     let mut capabilities = vec![
+        "original_exports",
+        "export_conversion_plans",
         "dynamic_browse_collections",
         "dynamic_browse_genres",
         "dynamic_browse_personal",

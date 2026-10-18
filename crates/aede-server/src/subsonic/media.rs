@@ -24,6 +24,32 @@ use super::authentication::{self, Identity};
 use crate::ApiState;
 use crate::playback_api::{TrackSource, source_from_catalog, validate_source};
 
+/// Original exports share transport limits while keeping their credential type distinct.
+pub(crate) enum MediaIdentity {
+    Key(Identity),
+    Session(crate::auth::Principal),
+}
+impl From<Identity> for MediaIdentity {
+    fn from(identity: Identity) -> Self {
+        Self::Key(identity)
+    }
+}
+impl MediaIdentity {
+    async fn recheck(&self, state: &ApiState) -> Result<(), ProtocolError> {
+        match self {
+            Self::Key(identity) => authentication::recheck(state, identity).await,
+            Self::Session(identity) => {
+                let state = state.clone();
+                let identity = identity.clone();
+                tokio::task::spawn_blocking(move || crate::exports::admit(&state, &identity))
+                    .await
+                    .map_err(|_| ProtocolError::new(40, "export authorization unavailable"))?
+                    .map_err(|_| ProtocolError::new(40, "export authorization revoked"))
+            }
+        }
+    }
+}
+
 const CHUNK_BYTES: usize = 32 * 1024;
 const QUEUED_CHUNKS: usize = 2;
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -94,11 +120,44 @@ pub(super) async fn response(
     download: bool,
 ) -> Result<Response, ProtocolError> {
     authentication::require_audio(&identity)?;
+    response_for(
+        state,
+        MediaIdentity::Key(identity),
+        track,
+        headers,
+        download,
+        None,
+    )
+    .await
+}
+
+pub(crate) fn source_stamp(source: &TrackSource) -> String {
+    format!(
+        "{}:{}:{:?}",
+        source.file.size, source.file.mtime, source.mtime_subseconds
+    )
+}
+
+pub(crate) async fn response_for(
+    state: ApiState,
+    identity: MediaIdentity,
+    track: EntityRef,
+    headers: HeaderMap,
+    download: bool,
+    expected_stamp: Option<String>,
+) -> Result<Response, ProtocolError> {
+    identity.recheck(&state).await?;
     let source = {
         let catalog = state.catalog.read().await;
         let catalog = catalog.as_ref().ok_or_else(unavailable)?;
         source_from_catalog(catalog, &track).map_err(|_| unavailable())?
     };
+    if expected_stamp
+        .as_ref()
+        .is_some_and(|stamp| stamp.len() > 128 || *stamp != source_stamp(&source))
+    {
+        return Err(unavailable());
+    }
     let range = requested_range(&headers, source.file.size)?;
     let permit = state
         .playback_slots
@@ -116,7 +175,7 @@ pub(super) async fn response(
     };
     tokio::select! {
         _ = shutdown.recv() => return Err(ProtocolError::new(0, "server is shutting down")),
-        confirmation = tokio::time::timeout(AUTH_TIMEOUT, authentication::recheck(&state, &identity)) => {
+        confirmation = tokio::time::timeout(AUTH_TIMEOUT, identity.recheck(&state)) => {
             confirmation.map_err(|_| ProtocolError::new(40, "API key could not be confirmed"))??;
         }
     }
@@ -207,9 +266,10 @@ fn original_body(
     opened: Opened,
     range: ByteRange,
     state: ApiState,
-    identity: Identity,
+    identity: impl Into<MediaIdentity> + Send + 'static,
     shutdown: broadcast::Receiver<()>,
 ) -> OriginalBody {
+    let identity = identity.into();
     let cancelled = Arc::new(AtomicBool::new(false));
     let permit = opened._permit.clone();
     let (producer, chunks) = mpsc::channel(QUEUED_CHUNKS);
@@ -266,9 +326,10 @@ fn guarded_body(
     length: u64,
     cancelled: Arc<AtomicBool>,
     state: ApiState,
-    identity: Identity,
+    identity: impl Into<MediaIdentity> + Send + 'static,
     shutdown: broadcast::Receiver<()>,
 ) -> OriginalBody {
+    let identity = identity.into();
     let (output, receiver) = mpsc::channel(QUEUED_CHUNKS);
     tokio::spawn(forward_original(
         chunks,
@@ -292,9 +353,10 @@ async fn forward_original(
     output: mpsc::Sender<MediaChunk>,
     cancelled: Arc<AtomicBool>,
     state: ApiState,
-    identity: Identity,
+    identity: impl Into<MediaIdentity> + Send + 'static,
     mut shutdown: broadcast::Receiver<()>,
 ) {
+    let identity = identity.into();
     let mut authorization =
         tokio::time::interval_at(tokio::time::Instant::now() + AUTH_INTERVAL, AUTH_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -312,7 +374,7 @@ async fn forward_original(
                 let confirmation = tokio::select! {
                     _ = shutdown.recv() => break,
                     _ = output.closed() => break,
-                    confirmation = tokio::time::timeout(AUTH_TIMEOUT, authentication::recheck(&state, &identity)) => confirmation,
+                    confirmation = tokio::time::timeout(AUTH_TIMEOUT, identity.recheck(&state)) => confirmation,
                 };
                 if !matches!(confirmation, Ok(Ok(()))) {
                     break;

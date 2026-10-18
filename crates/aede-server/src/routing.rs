@@ -29,6 +29,7 @@ fn application_routes(admin_enabled: bool) -> Router<ApiState> {
         .merge(accounts_api::routes())
         .merge(personal::account_routes())
         .merge(playback_api::routes())
+        .merge(exports::routes())
         .merge(crate::parental::http::routes())
         .merge(subsonic::routes())
         .merge(catalog_commands::routes())

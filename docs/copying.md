@@ -97,3 +97,11 @@ Relative entries beginning with whitespace, `#` or `file:` receive an explicit `
 aede copy /Volumes/Player --collection Road --compress mp3 --quality V0 --playlists --verify
 aede copy /Volumes/Player --collection Road --verify-existing
 ```
+
+## Desktop original export
+
+Phémios can retrieve selected originals from a local or remote Aède before using this same copy/conversion engine for a portable destination. The bearer-session API advertises `original_exports` in `/api/v1/status`. `POST /api/me/v1/exports/plan` accepts an explicit `references` array of 1–200 distinct track references, with no query parameters. An optional `format` selects `original` or a supported conversion target; other JSON fields remain refused. It returns version 1, the scan epoch, watched roots and per-track portable relative path components, byte size and an opaque source stamp. It does not create a server-side export or modify the catalogue. The additive `export_conversion_plans` capability advertises `output_components` / `output_key`: projected destination names for each isolated staged file, using the core codec-aware conversion and portable-name rules. Original `components`, sizes and stamps still identify downloaded inputs. Lossy originals keep their format; clients must reject output file/file and file/directory collisions across batches rather than silently replacing them.
+
+`GET /api/me/v1/exports/original?ref=<track-reference>&stamp=<plan-stamp>` streams the exact catalogued file. A changed stamp/source is refused; normal source identity, byte-range and transfer-slot checks are shared with the original-media transport. The response is private, `no-store`, and creates neither history nor completion evidence. Both endpoints require a named user/administrator session; auditors, anonymous access and enabled parental policies are refused. Long responses recheck the exact bearer session and current parental policy while backpressured, independently of persistent Subsonic client-key authentication. They never expose a general filesystem-read route.
+
+The destination remains on the Phémios machine; an export request cannot ask Aède to write a client-supplied path. Updating only Phémios does not add this capability to an older running server: update/restart Aède too.

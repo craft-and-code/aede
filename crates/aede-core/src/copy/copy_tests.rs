@@ -739,3 +739,57 @@ fn a_float_source_cannot_be_planned_as_lossless_integer_flac() {
     assert_eq!(result.rejected.len(), 1);
     assert!(result.rejected[0].reason.contains("floating-point PCM"));
 }
+
+#[test]
+fn serial_export_paths_follow_codec_rules_aliases_and_portable_name_limits() {
+    assert_eq!(
+        with_extension("Artist/Album/01.flac", "mp3"),
+        "Artist/Album/01.mp3"
+    );
+    let mut catalog = catalog_of(&[("/music/01.flac", "Example")], &["/music"]);
+    let file = &mut catalog.files[0];
+    file.properties.lossless = true;
+    file.properties.codec = "flac".into();
+    file.properties.container = "flac".into();
+    assert_eq!(
+        staged_output_path(file, "Artist/01.flac", Some(transcode::Target::Mp3)),
+        PathBuf::from("Artist/01.mp3")
+    );
+    assert_eq!(
+        staged_output_path(file, "Artist/01.flac", Some(transcode::Target::Aac)),
+        PathBuf::from("Artist/01.m4a")
+    );
+    assert_eq!(
+        staged_output_path(file, "Artist/01.flac", None),
+        PathBuf::from("Artist/01.flac")
+    );
+    file.properties.lossless = false;
+    file.properties.codec = "aac".into();
+    file.properties.container = "mp4".into();
+    assert_eq!(
+        staged_output_path(file, "Artist/01.m4a", Some(transcode::Target::Mp3)),
+        PathBuf::from("Artist/01.m4a")
+    );
+    file.properties.lossless = true;
+    file.properties.codec = "alac".into();
+    assert_eq!(
+        staged_output_path(file, "Artist/01.m4a", Some(transcode::Target::Aac)),
+        PathBuf::from("Artist/01.m4a")
+    );
+    let long = format!("{}.ape", "a".repeat(251));
+    let projected = staged_output_path(file, &long, Some(transcode::Target::Flac));
+    assert!(projected.to_str().unwrap().len() <= 255);
+    assert_eq!(projected.extension().unwrap(), "flac");
+    // Compare with the engine's ordinary one-file scan/copy placement, including long suffix changes.
+    file.path = format!("/music/{long}");
+    let recipe = Recipe {
+        extras: Extras::None,
+        restrict_names: true,
+        convert: Some(transcode::Target::Flac),
+        quality: None,
+    };
+    assert_eq!(
+        plan(&catalog, &all_tracks(&catalog), &recipe).items[0].relative,
+        projected
+    );
+}

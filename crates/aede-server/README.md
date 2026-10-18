@@ -341,3 +341,12 @@ See [personal contracts](../../docs/server/personal.md#account-presentation-pref
 ### Album decode test and component versions
 
 `POST /api/admin/v1/check` accepts only a catalog release reference for trusted-local sequential complete decoding. See [job contract](../../docs/server/jobs.md#post-apiadminv1check). `/api/v1/status` additionally reports `versions:{aede,flaccompagnon}`; the FlacCompagnon Core version comes from the locked linked dependency, not an external desktop installation.
+
+### Original audio exports
+
+| Route | Behavior |
+| --- | --- |
+| `POST /api/me/v1/exports/plan` | Explicit 1–200 distinct track references; portable relative paths/collision keys, size, source stamp and scan epoch; no writes |
+| `GET /api/me/v1/exports/original` | Exact selected original with required `ref` and `stamp`; bounded, revocable bearer-session transport; no history |
+
+Both routes require a user/administrator session and refuse supervised/auditor accounts. `original_exports` advertises support. `export_conversion_plans` additionally accepts optional `format` and returns codec-aware `output_components`/`output_key` for isolated staged copies; original retrieval identities are unchanged. A desktop destination path is never accepted. [Copy/export details](../../docs/copying.md#desktop-original-export).

@@ -89,6 +89,7 @@ mod artwork;
 mod audio_features;
 mod errors;
 mod events;
+mod exports;
 mod fetch_service_keys;
 mod inspection;
 mod jobs;
