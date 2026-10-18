@@ -1,6 +1,6 @@
 # Installer Aède
 
-Aède est un exécutable de terminal nommé `aede` (`aede.exe` sous Windows). Il se lance dans Terminal, un terminal Linux ou PowerShell. Aucune application graphique ni service de fond n’est installé automatiquement. Le site décrit le dépôt actuel ; une ancienne version téléchargée peut proposer moins de commandes. Vérifier `aede --version` et l’aide intégrée pour comparer les versions.
+Aède propose deux téléchargements distincts : l’exécutable **CLI** nommé `aede` (`aede.exe` sous Windows), et l’**App** graphique pour choisir les dossiers et démarrer un serveur HTTPS local. Consultez le [guide de l’App serveur](../desktop.md) pour ce parcours et sa connexion à Phémios. Les instructions ci-dessous décrivent la CLI, lancée dans Terminal, un terminal Linux ou PowerShell ; son installation n’ajoute pas automatiquement l’App ni un service de fond. Le site décrit le dépôt actuel ; une ancienne version téléchargée peut proposer moins de commandes. Vérifier `aede --version` et l’aide intégrée pour comparer les versions.
 
 ## Choisir la distribution
 

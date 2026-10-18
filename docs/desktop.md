@@ -2,6 +2,10 @@
 
 Aède 0.6.0 provides two separate distributions: the existing **CLI** and an **App** that starts the same bundled CLI as a local HTTPS server. The application is a server console, not a second music player. Phémios connects to it using its normal server/account interface. Release builds remain unsigned. App packages are built separately from CLI archives; build this checkout to use changes that are not yet published.
 
+## Why this App exists
+
+The desktop console makes the existing engine accessible without learning the CLI: select music folders, start a local encrypted server, check its status and inspect request logs. It is especially useful for testing Aède and Phémios as two separate apps on the same machine. It does not replace Phémios’s player or the headless CLI used on servers and NAS hosts. The App owns a separate data profile; connect Phémios using its exported public connection profile and the account shown in the console.
+
 ## Run the application
 
 Install the App package for your system from the [releases](https://github.com/craft-and-code/aede/releases). CLI archives have `CLI` in their names; desktop installers have `App`. Open **Aède**, add music folders, select a free port (8787 by default), click **Démarrer le serveur**, then **Scanner les dossiers**. Starting the server does not silently scan or fetch external metadata. Scan progress/result and cancellation use the existing [administrative tasks](server/jobs.md).

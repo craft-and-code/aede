@@ -20,3 +20,7 @@ Use the palette SVG for print/layout preparation. The app allows user-custom col
 ## Editorial asset permission
 
 Project-authored logos, illustrations and screenshots in this kit may be reproduced to report on or review Aède, with attribution “Aède / Craft & Code”. This is permission for editorial reproduction, not transfer of the name or an endorsement. Font assets keep their separate OFL licence. Do not imply that third-party album art or artist photography is licensed by this kit; supplied visuals use fictional data or original illustrations. Confirm publication timing, public downloads and supported release platforms with the maintainer rather than inferring them from development screenshots.
+
+The documentation wordmark is the shape reference across the site, App and press kit. Outlined Helvetica Neue Bold preserves its heavier rendering without distributing the proprietary font. Both projects share this weight, close accent dot and unchanged icon background.
+
+The desktop icon source is `desktop/public/icon.svg`, also supplied in the press kit. From `desktop/`, `npm exec tauri -- icon public/icon.svg --output src-tauri/icons` regenerates the platform assets. Both icon variants retain the same dark tile and light initial; only wordmarks invert their letter colour on light backgrounds.

@@ -317,3 +317,7 @@ html{scroll-behavior:smooth;scroll-padding-top:var(--ae-header-height,100px);bac
 @media(max-width:360px){html{scroll-padding-top:124px}#aede-motion-concepts .ae-header{flex-wrap:wrap}#aede-motion-concepts .ae-header nav{width:100%;justify-content:space-between}}
 
 #aede-motion-concepts .ae-audio-trace{position:relative}
+
+/* All live wordmarks use the documentation reference outlines. */
+#aede-motion-concepts .ae-logo { display:inline-flex; align-items:center; font-weight:600; }
+#aede-motion-concepts .ae-wordmark { display:block; width:auto; height:1em; max-width:none; }

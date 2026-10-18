@@ -1,6 +1,6 @@
 # Install Aède
 
-Aède is a command-line executable named `aede` (`aede.exe` on Windows). You run it in Terminal, a Linux terminal or PowerShell. No graphical application or background service is installed automatically. The website documents the current repository; an older downloaded release may expose fewer commands. Check `aede --version` and its bundled help when comparing versions.
+Aède has two separate downloads: the **CLI** executable named `aede` (`aede.exe` on Windows), and the graphical **App** for choosing folders and starting a local HTTPS server. See [the server App guide](../desktop.md) for that setup and its connection to Phémios. The instructions below describe the CLI, which runs in Terminal, a Linux terminal or PowerShell; installing it does not also install the App or a background service. The website documents the current repository; an older downloaded release may expose fewer commands. Check `aede --version` and its bundled help when comparing versions.
 
 ## Choose a distribution
 

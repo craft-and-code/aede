@@ -4,6 +4,8 @@ Aède's server gives other programs access to your music **catalog**: albums, ar
 
 To connect Submariner or another Subsonic/OpenSubsonic client, first create an application key as described in [client setup](subsonic.md). The Aède account password cannot be used for that connection.
 
+For a graphical setup on this computer, use the [Aède server App](../desktop.md): select folders, start HTTPS and connect Phémios without keeping a terminal open. The following instructions describe the independent CLI path.
+
 ## A dedicated home for the library
 
 For a lasting or shared collection, Aède is designed around a dedicated server, NAS or small always-on computer. Music, catalog data and background tasks stay on that host, while listening clients connect from your everyday devices. This gives the library stable paths and availability independent of your laptop's sleep or replacement, with backups managed on the library host.

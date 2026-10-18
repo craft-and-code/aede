@@ -6,6 +6,8 @@ Pour connecter Submariner ou un autre client Subsonic/OpenSubsonic, créez d’a
 
 <div id="a-dedicated-home-for-the-library" data-legacy-anchor></div>
 
+Pour une mise en route graphique sur cet ordinateur, utilisez l’[App serveur Aède](../desktop.md) : choisissez les dossiers, démarrez HTTPS et connectez Phémios sans garder de Terminal ouvert. Les instructions ci-dessous décrivent le parcours CLI indépendant.
+
 ## Un hôte dédié à la bibliothèque
 
 Pour une collection durable ou partagée, Aède est conçu autour d’un serveur dédié, d’un NAS ou d’un petit ordinateur toujours allumé. Musique, données du catalogue et tâches de fond restent sur cet hôte ; les lecteurs s’y connectent depuis vos appareils du quotidien. La bibliothèque dispose ainsi de chemins stables et reste disponible indépendamment de la veille ou du remplacement du portable, avec des sauvegardes gérées sur son hôte.

@@ -48,6 +48,9 @@ Certains artistes ne produisent aucune donnée enregistrée : c’est un fonctio
 
 ## Langue des textes
 
+L’enrichissement Wikipédia conserve le résumé introductif REST, pas toutes les sections de l’article. Une biographie courte ne signifie donc pas nécessairement un échec. Son URL source, sa langue et sa licence restent associées ; Phémios peut suivre explicitement ce titre exact dans sa vue de lecture longue. L’API d’extraction utilisée pour cette lecture omet encore certains tableaux, références et médias.
+
+
 Le résumé est récupéré dans **une seule** langue, puis conservé dans cette langue. Le choix appartient à `fetch`, pas à l’affichage ultérieur :
 
 ```sh

@@ -2,6 +2,10 @@
 
 Aède 0.6.0 propose deux distributions distinctes : la **CLI** existante et une **App** qui lance cette même CLI embarquée comme serveur HTTPS local. Cette application est une console serveur ; Phémios assure la navigation et la lecture. Les builds restent non signés. Les installateurs de l’App sont distincts des archives CLI ; compiler cette branche permet de tester les changements non encore publiés.
 
+## Pourquoi cette application
+
+Cette console rend le moteur existant accessible sans apprendre les commandes du Terminal : choisir les dossiers musicaux, démarrer un serveur local chiffré, vérifier son statut et consulter les journaux de requêtes. Elle facilite notamment les essais d’Aède et de Phémios comme deux applications distinctes sur le même ordinateur. Elle ne remplace ni le lecteur Phémios ni la CLI sans interface graphique destinée aux serveurs et NAS. Elle utilise son propre profil de données ; Phémios s’y connecte avec le profil public exporté et le compte indiqué dans la console.
+
 ## Démarrer
 
 Choisissez le paquet **App** de votre système dans les [publications](https://github.com/craft-and-code/aede/releases). Les archives de la ligne de commande portent **CLI**. Ouvrez **Aède**, ajoutez les dossiers musicaux, choisissez un port libre (8787 par défaut), cliquez sur **Démarrer le serveur**, puis sur **Scanner les dossiers**. Aucun scan ni enrichissement réseau ne démarre implicitement. Le suivi, le résultat et l’arrêt du scan réutilisent les [tâches administratives](server/jobs.md).

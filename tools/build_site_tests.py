@@ -150,6 +150,14 @@ class LinkTests(unittest.TestCase):
 
 
 class HomeTests(unittest.TestCase):
+    def test_documentation_explains_the_app_when_its_guide_is_published(self):
+        pages = builder.load_pages(builder.ROOT)
+        for language, phrase in (("fr", "sans Terminal"), ("en", "without a terminal")):
+            source = builder.overview(pages, language).html
+            self.assertIn(phrase, source)
+            self.assertIn('href="server/reference/desktop.html"', source)
+        self.assertNotIn("guide-app-intro", builder.overview([], "fr").html)
+
     def test_playback_and_md5_images_are_shared_with_bilingual_guides(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "publication"
@@ -271,7 +279,7 @@ class PublishTests(unittest.TestCase):
             root=Path(directory); (root/'site/assets').mkdir(parents=True); (root/'docs').mkdir()
             (root/'site/index.html').write_text('<html lang="fr"><head><title>Accueil</title><meta name="description" content="Accueil Aède"><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head><body><a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a><a href="docs/fr/index.html">Documentation</a></body></html>', encoding="utf-8")
             (root/'site/home-translations.json').write_text(json.dumps({'en':{'Accueil':'Home','Accueil Aède':'Aède home'}}), encoding="utf-8")
-            for asset in ('app.js','styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/og-image.png'):
+            for asset in ('app.js','styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/wordmark.svg','assets/og-image.png'):
                 (root/'site'/asset).write_text('', encoding="utf-8")
             pages=[]
             for section in ('manual','cli','server','dsp'):
@@ -335,7 +343,7 @@ class StatisticsFixture:
     def __init__(self, root):
         self.root = Path(root)
         self.write("site/index.html", '<html lang="fr"><head><title>Aède</title><meta name="description" content="Accueil"></head><body><a href="docs/fr/index.html">Documentation</a></body></html>')
-        for asset in ("styles.css", "guide.css", "guide.js", "explainers.js", "assets/favicon.svg", "assets/og-image.png"):
+        for asset in ("styles.css", "guide.css", "guide.js", "explainers.js", "assets/favicon.svg", "assets/wordmark.svg", "assets/og-image.png"):
             self.write("site/" + asset, "")
         self.write("Cargo.toml", '[workspace]\nmembers = ["crates/aede-core"]\n')
         self.write("crates/aede-core/Cargo.toml", '[package]\nname = "aede-core"\nversion = "0.1.0"\n')

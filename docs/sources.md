@@ -42,6 +42,9 @@ Some artists return with no data stored, which confirms the system is working pr
 
 ## Prose Language
 
+Wikipedia enrichment retains the introductory REST summary, not every article section. A short biography therefore need not indicate a failed request. Its source URL, language and licence remain attached; Phémios can explicitly follow that exact title into its longer article reader. The text-extract API used there still omits some tables, references and media.
+
+
 The summary is fetched in a **single** language and kept as such; the choice belongs to `fetch` and not to the subsequent display:
 
 ```sh
