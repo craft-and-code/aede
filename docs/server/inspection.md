@@ -2,6 +2,10 @@
 
 These are read-only views. They never check audio, fix tags, fetch data or perform a backup. [HTTP basics](http.md) defines common status codes and paging. All ordinary routes below support GET and HEAD.
 
+## GET /
+
+GET and HEAD on `/` return a static connection/help page. This public page contains no catalog, account or installation data; it is not a browser music player or administration console. Account-enabled API routes below still require authentication. See the [desktop guide](../desktop.md#status-request-logs-and-browser-entry) for the app status view and opt-in request logs.
+
 ## GET /api/v1/status
 
 No interpreted parameters or pagination. Use it to check that the process is responding:

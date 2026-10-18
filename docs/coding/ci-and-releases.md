@@ -98,7 +98,7 @@ The Release workflow builds macOS Apple Silicon, Linux x86_64 musl and Windows x
 
 Run Release manually from GitHub Actions to build downloadable artifacts without creating a release. This is the rehearsal for packaging on all three targets.
 
-For a release, commit the intended version and matching lockfile, verify CI, then push the matching version tag (currently `v0.4.0`). The tag must match the workspace version. The workflow attaches archives and SHA-256 checksums to a **draft**. Review its notes and downloads before publishing it in GitHub Releases. Builds are unsigned.
+For a release, commit the intended version and matching lockfile, verify CI, then push the matching version tag (currently `v0.6.0`). The tag must match the workspace version. The workflow attaches archives and SHA-256 checksums to a **draft**. Review its notes and downloads before publishing it in GitHub Releases. Builds are unsigned.
 
 Version-specific highlights live in `docs/releases/vVERSION.md`; the workflow uses them when present and adds download instructions and the commit history. New versions without a notes file receive a reminder to write highlights.
 

@@ -91,6 +91,9 @@ fn explicit_scan_publishes_audio_and_reports_completion() {
     }
     let tracks = host.request("GET", "/api/v1/tracks", None).unwrap();
     assert_eq!(tracks["items"].as_array().unwrap().len(), 1);
+    let diagnostics = serde_json::to_value(host.diagnostics().unwrap()).unwrap();
+    assert_eq!(diagnostics["catalogLoaded"], true);
+    assert_eq!(diagnostics["library"]["tracks"], 1);
 }
 
 #[cfg(feature = "phemios-acceptance")]
@@ -127,4 +130,71 @@ fn phemios_imports_the_exported_profile_and_authenticates_the_real_server() {
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(result["authenticated"], true);
     assert_eq!(result["server"], host.status().unwrap().address.unwrap());
+}
+
+#[test]
+fn running_server_accepts_folder_edits_but_refuses_port_changes() {
+    let fixture = Fixture::new();
+    let mut host = Host::new(fixture.0.clone(), engine()).unwrap();
+    let port = available_port();
+    host.configure(port, vec![]).unwrap();
+    host.start().unwrap();
+    let roots = vec![fixture.0.join("new-music").display().to_string()];
+    let status = host.configure(port, roots.clone()).unwrap();
+    assert!(status.running);
+    assert_eq!(status.roots[0].path, roots[0]);
+    let before = fs::read(fixture.0.join("server.json")).unwrap();
+    assert!(
+        host.configure(if port == 65535 { port - 1 } else { port + 1 }, vec![])
+            .is_err()
+    );
+    assert_eq!(fs::read(fixture.0.join("server.json")).unwrap(), before);
+    let config = read(&fixture.0).unwrap();
+    let agent = crate::http::agent(config.identity.as_ref().unwrap());
+    let root = agent
+        .get(format!("https://127.0.0.1:{port}/"))
+        .call()
+        .unwrap();
+    assert_eq!(root.status().as_u16(), 200);
+    assert!(
+        root.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
+    let denied = agent
+        .get(format!("https://127.0.0.1:{port}/api/v1/status?key=secret"))
+        .call()
+        .unwrap();
+    assert_eq!(denied.status().as_u16(), 401);
+    let diagnostics = serde_json::to_value(host.diagnostics().unwrap()).unwrap();
+    assert_eq!(diagnostics["apiResponding"], true);
+    assert_eq!(diagnostics["catalogLoaded"], true);
+    assert_eq!(diagnostics["library"]["tracks"], 0);
+    // Log delivery is asynchronous; wait for the actual HTTP summary, not just a lifecycle entry.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let snapshot = serde_json::to_string(&host.logs(0).unwrap()).unwrap();
+        assert!(!snapshot.contains(&host.password().unwrap()));
+        assert!(!snapshot.contains("key=secret"));
+        if snapshot.contains("/api/v1/status") && snapshot.contains("401") {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < until,
+            "missing HTTP summary: {snapshot}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    host.stop().unwrap();
+    assert!(
+        !serde_json::to_value(host.logs(0).unwrap()).unwrap()["entries"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        serde_json::to_value(host.diagnostics().unwrap()).unwrap()["running"],
+        false
+    );
 }

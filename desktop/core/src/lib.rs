@@ -1,9 +1,13 @@
 //! Framework-independent launcher for one bundled Aède server and an isolated private profile.
 #![warn(missing_docs)]
 mod configuration;
+mod diagnostics;
 mod http;
+mod logs;
 mod process;
 use configuration::{read, save};
+pub use diagnostics::Diagnostics;
+pub use logs::Snapshot as LogSnapshot;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -29,6 +33,7 @@ pub struct Host {
     root: PathBuf,
     binary: PathBuf,
     process: Option<process::Server>,
+    logs: logs::Logs,
     _lock: configuration::ProfileLock,
 }
 impl Host {
@@ -39,6 +44,7 @@ impl Host {
             root,
             binary,
             process: None,
+            logs: logs::Logs::default(),
             _lock: lock,
         })
     }
@@ -48,6 +54,8 @@ impl Host {
             && !server.running()?
         {
             self.process = None;
+            self.logs
+                .push("warn", "Le processus serveur s’est arrêté.".into());
         }
         let configuration = read(&self.root)?;
         Ok(Status {
@@ -62,16 +70,16 @@ impl Host {
                     path,
                 })
                 .collect(),
-            username: "aede-desktop",
+            username: self.username(),
             data_directory: self.root.join("engine").display().to_string(),
         })
     }
     /// Persist selected roots/port atomically. No scan occurs until explicitly requested.
-    /// A stopped server is required to avoid a port changing beneath an active connection.
+    /// Roots can change live; changing the listening port requires stopping the server.
     pub fn configure(&mut self, port: u16, roots: Vec<String>) -> Result<Status, String> {
         let current = self.status()?;
-        if current.running {
-            return Err("Arrêtez le serveur avant de modifier sa configuration.".into());
+        if current.running && port != current.port {
+            return Err("Arrêtez le serveur avant de modifier son port.".into());
         }
         let mut configuration = read(&self.root)?;
         configuration.port = port;
@@ -90,19 +98,47 @@ impl Host {
             configuration.identity = Some(configuration::Identity::generate()?);
             save(&self.root, &configuration)?;
         }
-        self.process = Some(process::Server::start(
-            &self.root,
-            &self.binary,
-            &configuration,
-        )?);
+        self.logs
+            .push("info", "Démarrage du serveur HTTPS local.".into());
+        self.process = Some(
+            process::Server::start(&self.root, &self.binary, &configuration, self.logs.clone())
+                .inspect_err(|error| self.logs.push("error", error.clone()))?,
+        );
+        self.logs.push(
+            "info",
+            "Serveur HTTPS prêt ; compte administrateur authentifié.".into(),
+        );
         self.status()
     }
     /// Release the owned child, waiting briefly for graceful shutdown before terminating it.
     pub fn stop(&mut self) -> Result<Status, String> {
         if let Some(mut server) = self.process.take() {
             server.stop()?;
+            self.logs.push("info", "Serveur arrêté.".into());
         }
         self.status()
+    }
+    /// Read bounded, process-local diagnostic summaries without private request content.
+    pub fn logs(&self, after: u64) -> Result<LogSnapshot, String> {
+        self.logs.snapshot(after)
+    }
+    /// Export the retained sanitized log tail, independently of a view's incremental cursor.
+    pub fn export_logs(&self) -> Result<String, String> {
+        self.logs.export_json()
+    }
+    /// Return the fixed installation account name without starting the server or exposing secrets.
+    pub fn username(&self) -> &'static str {
+        "aede-desktop"
+    }
+    /// Clear only in-memory diagnostics; catalog and account data are untouched.
+    pub fn clear_logs(&self) -> Result<(), String> {
+        self.logs.clear()
+    }
+    /// Return the address only while the owned process is alive.
+    pub fn address(&mut self) -> Result<String, String> {
+        self.status()?
+            .address
+            .ok_or_else(|| "Démarrez le serveur avant de copier son adresse.".into())
     }
     /// Reveal only the generated installation administrator password, on explicit user request.
     pub fn password(&self) -> Result<String, String> {

@@ -1,5 +1,7 @@
 import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
 import { Action, Icon } from "./Controls";
+import { CopyButton } from "./CopyButton";
+import { StatusView, LogsView } from "./Monitoring";
 import { appendRoots, parsePort, taskActive } from "./policy";
 import {
   hostStatus,
@@ -17,6 +19,7 @@ import {
 } from "./platform";
 /** Minimal server console; catalog, accounts and scans remain Aède engine operations. */
 export function App() {
+  const [page, setPage] = createSignal<"server" | "status" | "logs">("server");
   const [status, setStatus] = createSignal<HostStatus>();
   const [busy, setBusy] = createSignal("");
   const [port, setPort] = createSignal("8787");
@@ -122,209 +125,271 @@ export function App() {
       <header class="app-header">
         <img src="/wordmark.svg" alt="Aède" />
         <span>Serveur de votre bibliothèque musicale</span>
-        <small>{status()?.version ?? "0.5.0"}</small>
+        <small>{status()?.version ?? "—"}</small>
       </header>
       <main>
-        <section class="server-card">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">VOTRE SERVEUR AÈDE</p>
-              <h1>Votre musique, à portée de Phémios.</h1>
-            </div>
-            <span class="server-state" classList={{ running: status()?.running ?? false }}>
-              <i />
-              {status()?.running ? "En ligne" : "Arrêté"}
-            </span>
-          </div>
-          <p class="muted">
-            Ajoutez vos dossiers, démarrez le serveur et connectez Phémios sur ce même ordinateur.
-          </p>
-          <div class="server-address">
-            <Icon name="lock" />
-            <div>
-              <span>Adresse HTTPS locale</span>
-              <strong>{status()?.address ?? `https://127.0.0.1:${port()}`}</strong>
-            </div>
-          </div>
-          <div class="start-controls">
-            <label class="port-label">
-              Port
-              <input
-                inputmode="numeric"
-                value={port()}
-                disabled={!!busy() || status()?.running || !native()}
-                onInput={(event) => setPort(event.currentTarget.value)}
-              />
-            </label>
-            <Action
-              icon="play"
-              class="primary"
-              busy={busy() === "start"}
-              disabled={!native() || !!busy() || status()?.running}
-              onClick={() =>
-                void run("start", async () => {
-                  apply(await hostConfigure(parsePort(port()), roots()));
-                  apply(await hostStart());
-                })
-              }
-            >
-              Démarrer le serveur
-            </Action>
-            <Action
-              icon="stop"
-              busy={busy() === "stop"}
-              disabled={!!busy() || !status()?.running}
-              onClick={() =>
-                void run("stop", async () => {
-                  apply(await hostStop());
-                  setTask(undefined);
-                })
-              }
-            >
-              Arrêter
-            </Action>
-          </div>
-          <small class="hint">
-            Accès limité à cet ordinateur. Le certificat local est vérifié explicitement ; aucun
-            port n’est ouvert sur le réseau.
-          </small>
-        </section>
-        <div class="content-grid">
-          <section class="panel library-panel">
+        <nav class="view-tabs" aria-label="Console Aède">
+          <button
+            type="button"
+            aria-pressed={page() === "server"}
+            onClick={() => setPage("server")}
+          >
+            <Icon name="server" />
+            Serveur
+          </button>
+          <button
+            type="button"
+            aria-pressed={page() === "status"}
+            onClick={() => setPage("status")}
+          >
+            <Icon name="activity" />
+            Statut
+          </button>
+          <button type="button" aria-pressed={page() === "logs"} onClick={() => setPage("logs")}>
+            <Icon name="list" />
+            Journaux
+          </button>
+        </nav>
+        <Show when={page() === "status"}>
+          <StatusView status={status()} />
+        </Show>
+        <Show when={page() === "logs"}>
+          <LogsView />
+        </Show>
+        <Show when={page() === "server"}>
+          <section class="server-card">
             <div class="section-heading">
-              <h2>Dossiers de musique</h2>
+              <div>
+                <p class="eyebrow">VOTRE SERVEUR AÈDE</p>
+                <h1>Votre musique, à portée de Phémios.</h1>
+              </div>
+              <span class="server-state" classList={{ running: status()?.running ?? false }}>
+                <i />
+                {status()?.running ? "En ligne" : "Arrêté"}
+              </span>
+            </div>
+            <p class="muted">
+              Ajoutez vos dossiers, démarrez le serveur et connectez Phémios sur ce même ordinateur.
+            </p>
+            <div class="server-address">
+              <Icon name="lock" />
+              <div>
+                <span>Adresse HTTPS locale</span>
+                <strong>{status()?.address ?? `https://127.0.0.1:${port()}`}</strong>
+              </div>
+              <CopyButton
+                kind="address"
+                disabled={!!busy() || !status()?.running}
+                onError={setError}
+              />
+            </div>
+            <div class="start-controls">
+              <label class="port-label">
+                Port
+                <input
+                  inputmode="numeric"
+                  value={port()}
+                  disabled={!!busy() || status()?.running || !native()}
+                  onInput={(event) => setPort(event.currentTarget.value)}
+                />
+              </label>
               <Action
-                class="icon-button"
-                icon="plus"
-                aria-label="Ajouter des dossiers"
-                title="Ajouter des dossiers"
+                icon="play"
+                class="primary"
+                busy={busy() === "start"}
                 disabled={!native() || !!busy() || status()?.running}
                 onClick={() =>
-                  void run("folders", async () => {
-                    const chosen = await chooseFolders();
-                    if (chosen.length)
-                      apply(await hostConfigure(parsePort(port()), appendRoots(roots(), chosen)));
+                  void run("start", async () => {
+                    apply(await hostConfigure(parsePort(port()), roots()));
+                    apply(await hostStart());
                   })
                 }
-              />
-            </div>
-            <Show
-              when={status()?.roots.length}
-              fallback={
-                <div class="empty">
-                  <Icon name="plus" />
-                  <p>Ajoutez vos premiers dossiers.</p>
-                </div>
-              }
-            >
-              <ul class="root-list">
-                <For each={status()?.roots}>
-                  {(row) => (
-                    <li>
-                      <div>
-                        <span title={row.path}>{row.path}</span>
-                        <small classList={{ offline: !row.available }}>
-                          {row.available ? "Disponible" : "Volume absent — catalogue conservé"}
-                        </small>
-                      </div>
-                      <Action
-                        icon="minus"
-                        class="icon-button"
-                        aria-label={`Retirer ${row.path}`}
-                        title="Retirer de la sélection"
-                        disabled={!!busy() || status()?.running}
-                        onClick={() =>
-                          void run("folders", async () =>
-                            apply(
-                              await hostConfigure(
-                                parsePort(port()),
-                                roots().filter((path) => path !== row.path),
-                              ),
-                            ),
-                          )
-                        }
-                      />
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-            <div class="panel-footer">
-              <Action
-                icon="scan"
-                busy={busy() === "scan" || active()}
-                disabled={!!busy() || !status()?.running || !roots().length || active()}
-                onClick={() => void run("scan", async () => setTask(await hostScan()))}
               >
-                Scanner les dossiers
+                Démarrer le serveur
               </Action>
-              <Show when={active()}>
-                <Action
-                  icon="stop"
-                  disabled={!!busy() || task()?.status === "cancel_requested"}
-                  onClick={() =>
-                    void run("cancel", async () => setTask(await hostTask(task()!.task_id, true)))
-                  }
-                >
-                  Arrêter le scan
-                </Action>
-              </Show>
-            </div>
-            <p class="hint">
-              Arrêtez le serveur pour modifier les dossiers. Un scan applique la sélection sans
-              modifier vos fichiers audio. Les volumes absents sont conservés.
-            </p>
-          </section>
-          <section class="panel connection-panel">
-            <h2>Connecter Phémios</h2>
-            <ol>
-              <li>Démarrez le serveur.</li>
-              <li>
-                Exportez sa connexion locale puis importez-la dans les paramètres Serveur Aède de
-                Phémios.
-              </li>
-              <li>Utilisez le compte ci-dessous et son mot de passe.</li>
-            </ol>
-            <Action
-              icon="download"
-              disabled={!!busy() || !status()?.running}
-              busy={busy() === "export"}
-              onClick={() =>
-                void run("export", async () => {
-                  const path = await exportConnection();
-                  if (path) setMessage(`Connexion exportée : ${path}`);
-                })
-              }
-            >
-              Exporter la connexion
-            </Action>
-            <div class="access">
-              <span>Compte</span>
-              <strong>{status()?.username ?? "aede-desktop"}</strong>
               <Action
-                icon="eye"
+                icon="stop"
+                busy={busy() === "stop"}
                 disabled={!!busy() || !status()?.running}
                 onClick={() =>
-                  void run("password", async () => setSecret(secret() ? "" : await hostPassword()))
+                  void run("stop", async () => {
+                    apply(await hostStop());
+                    setTask(undefined);
+                  })
                 }
               >
-                {secret() ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                Arrêter
               </Action>
-              <Show when={secret()}>
-                <input
-                  class="secret"
-                  aria-label="Mot de passe du serveur"
-                  readonly
-                  value={secret()}
-                />
-              </Show>
             </div>
             <small class="hint">
-              L’export contient uniquement l’adresse, le nom du compte et le certificat public. Le
-              mot de passe reste dans le profil privé de l’application.
+              Accès limité à cet ordinateur. Le certificat local est vérifié explicitement ; aucun
+              port n’est ouvert sur le réseau.
             </small>
           </section>
-        </div>
+          <div class="content-grid">
+            <section class="panel library-panel">
+              <div class="section-heading">
+                <h2>Dossiers de musique</h2>
+                <Action
+                  class="icon-button"
+                  icon="plus"
+                  aria-label="Ajouter des dossiers"
+                  title="Ajouter des dossiers"
+                  disabled={!native() || !!busy() || active()}
+                  onClick={() =>
+                    void run("folders", async () => {
+                      const chosen = await chooseFolders();
+                      if (chosen.length)
+                        apply(await hostConfigure(parsePort(port()), appendRoots(roots(), chosen)));
+                    })
+                  }
+                />
+              </div>
+              <Show
+                when={status()?.roots.length}
+                fallback={
+                  <div class="empty">
+                    <Icon name="plus" />
+                    <p>Ajoutez vos premiers dossiers.</p>
+                  </div>
+                }
+              >
+                <ul class="root-list">
+                  <For each={status()?.roots}>
+                    {(row) => (
+                      <li>
+                        <div>
+                          <span title={row.path}>{row.path}</span>
+                          <small classList={{ offline: !row.available }}>
+                            {row.available ? "Disponible" : "Volume absent — catalogue conservé"}
+                          </small>
+                        </div>
+                        <Action
+                          icon="minus"
+                          class="icon-button"
+                          aria-label={`Retirer ${row.path}`}
+                          title="Retirer de la sélection"
+                          disabled={!!busy() || active()}
+                          onClick={() =>
+                            void run("folders", async () =>
+                              apply(
+                                await hostConfigure(
+                                  parsePort(port()),
+                                  roots().filter((path) => path !== row.path),
+                                ),
+                              ),
+                            )
+                          }
+                        />
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+              <div class="panel-footer">
+                <Action
+                  icon="scan"
+                  busy={busy() === "scan" || active()}
+                  disabled={!!busy() || !status()?.running || !roots().length || active()}
+                  onClick={() => void run("scan", async () => setTask(await hostScan()))}
+                >
+                  Scanner les dossiers
+                </Action>
+                <Show when={active()}>
+                  <Action
+                    icon="stop"
+                    disabled={!!busy() || task()?.status === "cancel_requested"}
+                    onClick={() =>
+                      void run("cancel", async () => setTask(await hostTask(task()!.task_id, true)))
+                    }
+                  >
+                    Arrêter le scan
+                  </Action>
+                </Show>
+              </div>
+              <p class="hint">
+                Vous pouvez modifier les dossiers pendant que le serveur tourne. Lancez ensuite un
+                scan pour appliquer la sélection, sans modifier vos fichiers audio. Les volumes
+                absents sont conservés.
+              </p>
+            </section>
+            <section class="panel connection-panel">
+              <h2>Connecter Phémios</h2>
+              <ol>
+                <li>Démarrez le serveur.</li>
+                <li>
+                  Exportez sa connexion locale puis importez-la dans les paramètres Serveur Aède de
+                  Phémios.
+                </li>
+                <li>Utilisez le compte ci-dessous et son mot de passe.</li>
+              </ol>
+              <Action
+                icon="download"
+                disabled={!!busy() || !status()?.running}
+                busy={busy() === "export"}
+                onClick={() =>
+                  void run("export", async () => {
+                    const path = await exportConnection();
+                    if (path) setMessage(`Connexion exportée : ${path}`);
+                  })
+                }
+              >
+                Exporter la connexion
+              </Action>
+              <div class="access">
+                <span>Compte</span>
+                <strong>{status()?.username ?? "aede-desktop"}</strong>
+                <CopyButton kind="username" disabled={!native() || !!busy()} onError={setError} />
+                <div class="password-actions">
+                  <span>Mot de passe</span>
+                  <Action
+                    class="icon-button"
+                    icon="eye"
+                    title={secret() ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                    aria-label={secret() ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                    disabled={!!busy() || !status()?.running}
+                    onClick={() =>
+                      void run("password", async () =>
+                        setSecret(secret() ? "" : await hostPassword()),
+                      )
+                    }
+                  />
+                  <CopyButton
+                    kind="password"
+                    disabled={!!busy() || !status()?.running}
+                    onError={setError}
+                  />
+                </div>
+                <Show when={secret()}>
+                  <input
+                    class="secret"
+                    aria-label="Mot de passe du serveur"
+                    readonly
+                    value={secret()}
+                  />
+                </Show>
+              </div>
+              <small class="hint">
+                L’export contient uniquement l’adresse, le nom du compte et le certificat public. Le
+                mot de passe reste dans le profil privé de l’application.
+              </small>
+            </section>
+          </div>
+          <Show when={task()}>
+            <section class="panel task-panel">
+              <div class="section-heading">
+                <h2>Scan #{task()?.task_id}</h2>
+                <span class="muted">{active() ? "En cours…" : task()?.status}</span>
+              </div>
+              <Show when={task()?.result}>
+                <pre>
+                  {task()?.result?.stdout}
+                  {task()?.result?.stderr}
+                </pre>
+              </Show>
+            </section>
+          </Show>
+        </Show>
         <Show when={error() || message()}>
           <div
             class="feedback"
@@ -342,20 +407,6 @@ export function App() {
               }}
             />
           </div>
-        </Show>
-        <Show when={task()}>
-          <section class="panel task-panel">
-            <div class="section-heading">
-              <h2>Scan #{task()?.task_id}</h2>
-              <span class="muted">{active() ? "En cours…" : task()?.status}</span>
-            </div>
-            <Show when={task()?.result}>
-              <pre>
-                {task()?.result?.stdout}
-                {task()?.result?.stderr}
-              </pre>
-            </Show>
-          </section>
         </Show>
         <footer>
           <span>

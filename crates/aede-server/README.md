@@ -4,6 +4,12 @@ This crate implements the HTTP/JSON/WebSocket interface and optional direct HTTP
 
 The [Subsonic/OpenSubsonic adapter](../../docs/server/subsonic.md) adds GET/form-POST `/rest/{method}` and `/rest/{method}.view`, using persistent revocable API keys, XML/JSON envelopes, ID3 browsing/search, original audio with byte ranges, verified sidecar artwork and private favourites/ratings/static playlists. Client-declared scrobbles increment private counts without inventing played duration/completion; now-playing reports are temporary and owner-scoped. Native PCM and the graph keep their own contracts. A key may use `apiKey` or the legacy username/password fields, with the complete client key in the password field. The guide gives a macOS Supersonic setup using **Use legacy authentication**, original audio and **Title (A-Z)**, plus supported routes and honest remaining limits. Local Submariner 3.4 authentication, artist/album browsing, FLAC playback, ratings and artist/album favourites are confirmed on macOS. Supersonic's request shape has been checked in its source; broader client interoperability remains to be validated.
 
+## Browser entry and optional request logs
+
+`GET /` and `HEAD /` provide a static connection/help page without catalog, installation or account data. This is an API server, not a browser playback interface. Authenticated API routes retain their existing authorization rules.
+
+Set `AEDE_REQUEST_LOG=1` explicitly to emit bounded `AEDE_HTTP` summaries on stderr: known method, registered route template, status and response-header latency. Queries, concrete resource identifiers, headers and bodies are omitted. Unmatched/early-rejected requests receive a generic route label. The 128-entry writer queue can drop summaries on saturation rather than blocking HTTP workers. The [desktop console](../../docs/desktop.md#status-request-logs-and-browser-entry) enables these summaries for its owned engine and displays them in its Journaux view; these diagnostics are not an audit ledger.
+
 ## Start and read albums
 
 ```sh

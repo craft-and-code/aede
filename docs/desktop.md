@@ -1,12 +1,12 @@
 # Aède desktop server
 
-Aède 0.5.0 introduces two separate distributions: the existing **CLI** and an **App** that starts the same bundled CLI as a local HTTPS server. The application is a server console, not a second music player. Phémios connects to it using its normal server/account interface. Release builds remain unsigned. Until the 0.5.0 release is published, build the app from this checkout; the previous public release does not contain it.
+Aède 0.6.0 provides two separate distributions: the existing **CLI** and an **App** that starts the same bundled CLI as a local HTTPS server. The application is a server console, not a second music player. Phémios connects to it using its normal server/account interface. Release builds remain unsigned. App packages are built separately from CLI archives; build this checkout to use changes that are not yet published.
 
 ## Run the application
 
 Install the App package for your system from the [releases](https://github.com/craft-and-code/aede/releases). CLI archives have `CLI` in their names; desktop installers have `App`. Open **Aède**, add music folders, select a free port (8787 by default), click **Démarrer le serveur**, then **Scanner les dossiers**. Starting the server does not silently scan or fetch external metadata. Scan progress/result and cancellation use the existing [administrative tasks](server/jobs.md).
 
-Folders and the port are edited while stopped. Registration is separate from scanning: a scan applies the current nonempty selection. Removing a folder never deletes music; removing all configured folders does not erase the retained catalog. An absent folder is retained during a scan. The first app detects paths that no longer exist; it cannot yet detect a network mount that has disappeared while leaving an accessible empty mountpoint. Remount such volumes before scanning.
+Folders can be added or removed while the server is running (outside an active app scan); only changing the port requires stopping it. Registration is separate from scanning: a scan applies the current nonempty selection. Removing a folder never deletes music; removing all configured folders does not erase the retained catalog. An absent folder is retained during a scan. The first app detects paths that no longer exist; it cannot yet detect a network mount that has disappeared while leaving an accessible empty mountpoint. Remount such volumes before scanning.
 
 The app listens only on `127.0.0.1`, always over HTTPS. An occupied port is an error, never a reason to adopt another server or fall back to HTTP. Remote/LAN hosting remains available through the [CLI HTTPS configuration](server/remote.md), outside this minimal local console.
 
@@ -18,6 +18,18 @@ The app listens only on `127.0.0.1`, always over HTTPS. An occupied port is an e
 4. After a scan, reload the known catalog in Phémios.
 
 The export contains only the exact HTTPS address, username and public certificate. It contains no password, session token or TLS private key. Phémios admits public profiles only for HTTPS `127.0.0.1` with an explicit port and validates the supplied certificate for HTTP **and WSS**. Import only profiles exported by the Aède app you intend to trust. No system certificate installation, global trust override or TLS-verification bypass is required. Reimport after changing the server port or importing the profile in a new Phémios session.
+
+## Status, request logs and browser entry
+
+The app has three views: **Serveur** for configuration/scans, **Statut** for explicit authenticated HTTPS/API/catalog checks and counts, and **Journaux** for request summaries and process lifecycle. The status view distinguishes an alive process from an answering API and a loaded catalog. Its refresh button performs read-only probes, never scans. Copy icons put the login, active HTTPS address or generated password on the native clipboard; password copy does not reveal that password to the webview and marks it as sensitive for clipboard managers that honor the platform hint. The show/hide icon remains available beside it. These actions do not grant webview clipboard-reading access.
+
+Opening `/` in a browser now shows a static connection/help page, not an administrative or playback website. It exposes no installation path, credential, account metadata or catalog. API endpoints remain authenticated when accounts are enabled. A browser may ask whether to trust the generated local certificate; Phémios instead verifies the exported certificate explicitly.
+
+The app opts its owned engine into `AEDE_REQUEST_LOG=1`. Ordinary CLI servers can opt in explicitly with the same environment setting. Each `AEDE_HTTP` stderr record contains only a known HTTP method, registered route template (never resource IDs or query strings), status code and response-header latency in milliseconds. Early rejections and unmatched paths use a generic label. A bounded 128-entry writer queue keeps a slow log reader off the request workers; saturation may omit diagnostic summaries, so this is not an audit ledger or stream-completion record.
+
+The native app drains stderr using bounded lines and keeps only validated summaries plus fixed lifecycle/diagnostic messages. Raw engine output is not forwarded to the webview; detailed scan output remains in the scan result. The latest 500 entries stay in memory across server stop/start, with incremental view updates, until clearing them or quitting the app. The download icon exports a snapshot of the retained entries as `aede-journaux.json`, using the native save dialog with Downloads as the proposed folder. Export includes only the same sanitized summaries, never raw stderr or credentials. No log file is created automatically, and no remote collection or telemetry is used.
+
+The application contains trackpad gestures without horizontal navigation or elastic scrolling. Actual scrollable panels keep their normal scrolling. Interface text and images cannot be selected or dragged; editable fields retain native text editing. The login, address and password have dedicated copy actions.
 
 ## Data and lifetime
 
@@ -41,3 +53,5 @@ npm run tauri dev
 Engine preparation builds the exact repository CLI using `--locked --offline`; fetch CLI dependencies once from the repository root if missing. `AEDE_DEV_PORT` optionally chooses an exact Vite development port. Without it, the launcher discovers a free development port before opening its webview. `AEDE_DESKTOP_BINARY` can select an explicitly built engine; its reported version must match the app.
 
 Run `bash tools/check.sh` inside `desktop/` before committing app changes, and the root `tools/check.sh` for engine changes. `npm run build:native` produces the host-native package. Release automation checks the engine and app versions, builds/test each on its native runner, and collects separate CLI/App artifacts into a draft GitHub release. macOS, Linux and Windows CI configuration does not replace manual acceptance on each platform.
+
+Updating the engine is separate from scanning folders or synchronizing Phémios. Those actions use the running executable's API; they cannot add a capability to an old process. After installing/building a newer Aède App, restart the server/application, reconnect Phémios if its old session has expired, then explicitly synchronize the client catalog. Composer browsing requires the additive `dynamic_browse_composers` capability in that running engine, even when file tags already contain composer credits.

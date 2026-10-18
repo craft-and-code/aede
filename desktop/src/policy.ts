@@ -11,3 +11,11 @@ export const taskActive = (status: string) =>
 export const appendRoots = (roots: readonly string[], added: readonly string[]) => [
   ...new Set([...roots, ...added]),
 ];
+/** Preserve stable row identities, suppress duplicates and cap the visible log tail. */
+export function mergeLogs<T extends { id: number }>(
+  previous: readonly T[],
+  incoming: readonly T[],
+): T[] {
+  const ids = new Set(previous.map((entry) => entry.id));
+  return [...previous, ...incoming.filter((entry) => !ids.has(entry.id))].slice(-500);
+}

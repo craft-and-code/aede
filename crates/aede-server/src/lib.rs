@@ -74,11 +74,13 @@ pub(crate) const MAX_PLAYBACKS: usize = 4;
 const MAX_WEBSOCKET_MESSAGE: usize = 1024;
 const WEBSOCKET_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod access_log;
 mod accounts_api;
 mod admin;
 mod auth;
 mod catalog;
 mod catalog_commands;
+mod landing;
 /// Network-device controllers; prefer the standalone `aede-devices` crate.
 /// This reexport preserves the original Rust API without duplicating it.
 pub use aede_devices as devices;

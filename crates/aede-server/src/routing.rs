@@ -16,6 +16,7 @@ pub(super) fn remote_router(mut state: ApiState, authority: RemoteAuthority) -> 
 
 fn application_routes(admin_enabled: bool) -> Router<ApiState> {
     let mut routes = Router::new()
+        .route("/", get(landing::page))
         .route("/api/v1/status", get(status))
         .route("/api/v1/library", get(library))
         .route("/api/v1/artists", get(artists))
@@ -52,7 +53,11 @@ fn application_routes(admin_enabled: bool) -> Router<ApiState> {
 fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
     use tower::ServiceExt;
     let remote = matches!(policy, OriginPolicy::Remote(_));
-    let template = application_routes(state.admin.is_some());
+    let access_log = access_log::AccessLog::from_environment();
+    let mut template = application_routes(state.admin.is_some());
+    if access_log.is_some() {
+        template = template.layer(middleware::from_fn(access_log::label));
+    }
     let mut routes =
         Router::new().fallback(move |State(state): State<ApiState>, request: Request| {
             let template = template.clone();
@@ -107,11 +112,15 @@ fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
             enforce_remote_request_budget,
         ));
     }
-    routes
+    let routes = routes
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::enforce_accounts,
         ))
         .layer(middleware::from_fn_with_state(policy, enforce_origin))
-        .with_state(state)
+        .with_state(state);
+    match access_log {
+        Some(log) => routes.layer(middleware::from_fn_with_state(log, access_log::record)),
+        None => routes,
+    }
 }

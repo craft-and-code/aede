@@ -19,6 +19,7 @@ impl Server {
         root: &Path,
         binary: &Path,
         config: &Configuration,
+        logs: crate::logs::Logs,
     ) -> Result<Self, String> {
         let identity = config.identity.as_ref().ok_or("Identité locale absente.")?;
         let mut command = Command::new(binary);
@@ -27,9 +28,10 @@ impl Server {
             .args(["serve", &format!("--port={}", config.port)])
             .env("AEDE_DESKTOP_LEASE", "1")
             .env("NO_COLOR", "1")
+            .env("AEDE_REQUEST_LOG", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         for key in [
             "AEDE_ADMIN_TOKEN",
             "AEDE_FANARTTV_KEY",
@@ -48,6 +50,9 @@ impl Server {
         let mut child = command
             .spawn()
             .map_err(|_| "Le moteur Aède embarqué est introuvable ou ne peut démarrer.")?;
+        if let Some(stderr) = child.stderr.take() {
+            std::thread::spawn(move || logs.drain(BufReader::new(stderr)));
+        }
         let bootstrap = json!({"username":"aede-desktop","password":identity.password,
             "tls":{"certificate":identity.certificate_pem,"private_key":identity.private_key_pem}});
         let mut stdin = match child.stdin.take() {

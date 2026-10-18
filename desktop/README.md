@@ -1,12 +1,12 @@
 # Aède desktop server
 
-Minimal local HTTPS server console for Phémios. See the [English guide](../docs/desktop.md) or [French guide](../docs/fr/desktop.md) for operation, private profile storage, certificate import and platform limitations.
+Local HTTPS server console for Phémios, with Serveur, Statut and bounded Journaux views. Folders can be edited live; only the listening port requires a stopped server. See the [English guide](../docs/desktop.md) or [French guide](../docs/fr/desktop.md) for operation, private profile storage, certificate import and platform limitations.
 
 ## Stack and layout
 
 - `src/`: SolidJS, strict TypeScript, static CSS and one typed IPC boundary.
 - `core/`: framework-independent Rust configuration, lifetime ownership and HTTPS administration. No Tauri dependency.
-- `src-tauri/`: versioned commands, native directory/save dialogs and minimal local capabilities. No webview filesystem, shell or HTTP plugin.
+- `src-tauri/`: versioned commands, native directory/save dialogs, narrowly scoped clipboard writes and minimal local capabilities. No webview filesystem, shell, HTTP or clipboard-reading capability.
 - `scripts/`: offline engine staging, dynamic Vite-port launch and locked Tauri bridge compatibility.
 - `docs/components/`: isolated Storybook on loopback port 6007; public TypeScript contracts are generated separately.
 - `tools/check.sh`: authoritative app verification. Rust unit tests are sibling `*_tests.rs` files; `engine-tests` runs against the exact bundled CLI.

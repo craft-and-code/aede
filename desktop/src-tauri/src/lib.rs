@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 struct Server(Arc<Mutex<Host>>);
 fn bridge(version: u32) -> Result<(), String> {
@@ -120,6 +121,74 @@ async fn host_password(version: u32, state: State<'_, Server>) -> Result<String,
     work(&state, |host| host.password()).await
 }
 #[tauri::command]
+async fn host_logs(
+    version: u32,
+    state: State<'_, Server>,
+    after: u64,
+) -> Result<aede_desktop_core::LogSnapshot, String> {
+    bridge(version)?;
+    work(&state, move |host| host.logs(after)).await
+}
+#[tauri::command]
+async fn host_clear_logs(version: u32, state: State<'_, Server>) -> Result<(), String> {
+    bridge(version)?;
+    work(&state, |host| host.clear_logs()).await
+}
+#[tauri::command]
+async fn host_diagnostics(
+    version: u32,
+    state: State<'_, Server>,
+) -> Result<aede_desktop_core::Diagnostics, String> {
+    bridge(version)?;
+    work(&state, Host::diagnostics).await
+}
+#[tauri::command]
+async fn host_copy_address(
+    version: u32,
+    state: State<'_, Server>,
+    app: AppHandle,
+) -> Result<(), String> {
+    bridge(version)?;
+    let address = work(&state, Host::address).await?;
+    app.clipboard()
+        .write_text(address)
+        .map_err(|_| "Copie de l’adresse impossible.".into())
+}
+#[tauri::command]
+async fn host_copy_password(
+    version: u32,
+    state: State<'_, Server>,
+    app: AppHandle,
+) -> Result<(), String> {
+    bridge(version)?;
+    let password = work(&state, |host| host.password()).await?;
+    app.clipboard()
+        .write_secret(password)
+        .map_err(|_| "Copie du mot de passe impossible.".into())
+}
+#[tauri::command]
+async fn host_copy_username(
+    version: u32,
+    state: State<'_, Server>,
+    app: AppHandle,
+) -> Result<(), String> {
+    bridge(version)?;
+    let username = work(&state, |host| Ok(host.username().to_owned())).await?;
+    app.clipboard()
+        .write_text(username)
+        .map_err(|_| "Copie du login impossible.".into())
+}
+#[tauri::command]
+async fn host_export_logs(
+    version: u32,
+    state: State<'_, Server>,
+    app: AppHandle,
+) -> Result<Option<String>, String> {
+    bridge(version)?;
+    let text = work(&state, |host| host.export_logs()).await?;
+    save_export(app, text, "Journaux Aède", "aede-journaux.json").await
+}
+#[tauri::command]
 async fn host_export(
     version: u32,
     state: State<'_, Server>,
@@ -127,19 +196,31 @@ async fn host_export(
 ) -> Result<Option<String>, String> {
     bridge(version)?;
     let profile = work(&state, |host| host.connection_profile()).await?;
+    save_export(app, profile, "Connexion Aède", "aede-connection.json").await
+}
+// Only fixed native-generated exports reach this helper; no webview path or content is admitted.
+async fn save_export(
+    app: AppHandle,
+    text: String,
+    label: &'static str,
+    filename: &'static str,
+) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(file) = app
+        let mut dialog = app
             .dialog()
             .file()
-            .add_filter("Connexion Aède", &["json"])
-            .set_file_name("aede-connection.json")
-            .blocking_save_file()
-        else {
+            .set_title(label)
+            .add_filter(label, &["json"])
+            .set_file_name(filename);
+        if let Ok(folder) = app.path().download_dir() {
+            dialog = dialog.set_directory(folder);
+        }
+        let Some(file) = dialog.blocking_save_file() else {
             return Ok(None);
         };
         let path = file.into_path().map_err(|_| "Destination invalide.")?;
         let folder = path.parent().ok_or("Destination invalide.")?;
-        let temporary = folder.join(format!(".aede-connection-{}.tmp", std::process::id()));
+        let temporary = folder.join(format!(".{filename}-{}.tmp", std::process::id()));
         let mut options = std::fs::OpenOptions::new();
         options.create_new(true).write(true);
         #[cfg(unix)]
@@ -151,7 +232,7 @@ async fn host_export(
             .open(&temporary)
             .map_err(|_| "Export occupé ou impossible.".to_string())?;
         let result = (|| {
-            file.write_all(profile.as_bytes())?;
+            file.write_all(text.as_bytes())?;
             file.sync_all()?;
             drop(file);
             std::fs::rename(&temporary, &path)
@@ -169,6 +250,7 @@ async fn host_export(
 pub fn run() -> Result<(), tauri::Error> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let binary = std::env::current_exe()?
                 .parent()
@@ -192,7 +274,14 @@ pub fn run() -> Result<(), tauri::Error> {
             host_scan,
             host_task,
             host_password,
-            host_export
+            host_export,
+            host_logs,
+            host_clear_logs,
+            host_diagnostics,
+            host_copy_address,
+            host_copy_password,
+            host_copy_username,
+            host_export_logs
         ])
         .run(tauri::generate_context!())
 }

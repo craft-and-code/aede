@@ -2,6 +2,10 @@
 
 Ces vues sont en lecture seule. Elles ne vérifient pas l’audio, ne réparent pas les tags, ne téléchargent rien et ne font pas de sauvegarde. Les [bases HTTP](http.md) définissent les erreurs et la pagination. Toutes les routes ordinaires ci-dessous acceptent GET et HEAD.
 
+## GET /
+
+GET et HEAD sur `/` renvoient une page statique expliquant la connexion. Aucun compte, chemin privé ou contenu du catalogue n’y figure ; ce n’est ni un lecteur ni une console d’administration web. Les routes API restent authentifiées lorsqu’un compte existe. Voir le [guide de l’App](../desktop.md) pour le statut et les journaux optionnels.
+
 ## GET /api/v1/status
 
 Aucun paramètre interprété ni pagination. Vérifie que le processus répond :

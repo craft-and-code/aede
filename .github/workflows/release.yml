@@ -3,8 +3,8 @@ name: Release
 # Builds distinct CLI and desktop App artifacts for every platform into a
 # GitHub Release. Trigger by pushing a version tag:
 #
-#     git tag v0.5.0
-#     git push origin v0.5.0
+#     git tag v0.6.0
+#     git push origin v0.6.0
 #
 # or run it manually from the Actions tab (workflow_dispatch), which builds the
 # binaries without publishing anything.
@@ -255,8 +255,9 @@ jobs:
           See the desktop-server guide in the project documentation.
 
           Windows archives are built and tested on a native Windows runner.
-          Terminal playback controls and local writer delegation are currently
-          available only on Unix. Linux archives use ffplay for audio output;
+          Windows terminal playback controls are implemented; interactive
+          console/output acceptance remains pending. Local writer delegation
+          remains Unix-only. Linux archives use ffplay for audio output;
           install FFmpeg to use `aede play` on Linux.
 
           ```sh
