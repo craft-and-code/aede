@@ -189,4 +189,4 @@ The release is published as a **draft**, with the commit list generated under a 
 cargo test
 ```
 
-The suite covers binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, public tests that run the binary, and documentation links. The current verified count is recorded only in [Current State](../coding/current-state.md#test-status). `tools/check.sh` requires conversion coverage when ffmpeg is available; `AEDE_REQUIRE_FFMPEG=1` also refuses a verification run without it.
+The suite covers binary parsers (including truncated files and forged signatures), name normalization, graph construction, persistence round-trip, statistics, diagnostics, table alignment, argument parsing, public tests that run the binary, and documentation links. The current verified count is recorded only in [Current State](../coding/current-state.md). `tools/check.sh` requires conversion coverage when ffmpeg is available; `AEDE_REQUIRE_FFMPEG=1` also refuses a verification run without it.

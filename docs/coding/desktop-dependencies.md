@@ -11,7 +11,7 @@ The audit fails for every finding except the exact approved GTK3 combinations be
 
 ## Corrected TLS dependency
 
-Both desktop clients now resolve Rustls 0.23.46. The previous 0.23.45 resolution was reported by OSV, including [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html). The fixed version is reused without a new product package or a certificate-verification bypass.
+Both desktop clients now resolve Rustls 0.23.46. The previous 0.23.45 resolution was reported by OSV, including [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html). The fixed version is reused without a new product package or a certificate-verification bypass. The earlier 0.23.45 lookup also matched [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html) (ECH/early buffered data), [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) (optional Brotli decompression allocation; not enabled here) and [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) (hybrid key-exchange downgrade). Package matches are not demonstrated application exploits; a past corrected lookup is not a fresh audit of the current tree.
 
 ## Outstanding GTK3 findings
 

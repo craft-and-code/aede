@@ -527,9 +527,7 @@ Complete guides to Aède's features and architecture:
 - [Gapless Measurement](docs/coding/gapless-measurement.md) — Whole/split probes, physical capture and bounded idle/load trials
 - [Bit-Perfect Acceptance](docs/coding/bit-perfect-acceptance.md) — Independent PCM references, native ALSA trials and exact digital-capture comparison
 - [M2 Storage Benchmark](docs/coding/m2-storage-benchmark.md) — Reproducible JSON measurements and SQLite decision boundary
-- [M2 Server Review](docs/coding/m2-server-review.md) — Security corrections, verification and remaining requirements before account support
-- [M0–M2 Interaction Review](docs/coding/m0-m2-interactions-review.md) — Cross-milestone report, persistence and derivative-publication corrections
-- [Desktop Branch Review](docs/coding/desktop-branch-review.md) — Integration audit, demonstrated regressions, dependency security and verification limits
+- [M2 Server Review](docs/coding/m2-server-review.md) — Server/account boundaries, analysis retention, safe publication and deployment limits
 - [M0 Review](docs/coding/m0-review.md) — Local catalogue, personal queries and copy/conversion regressions, resource measurements and verification limits
 - [M1 Review](docs/coding/m1-review.md) — Source trust, enrichment, artwork confinement and sourced navigation regressions
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check

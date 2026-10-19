@@ -48,19 +48,13 @@ Native private projections now recheck after CPU/filesystem preparation before a
 
 These guards prevent admission when revocation is already observable at the final check. They do not cancel a filesystem operation already in progress or make logout and an atomic file replacement one cross-resource transaction. No writer lock is held across a network request.
 
-## Verification scope
+## Consumption and cleanup
 
-Fixtures contain only fictional accounts, fake credentials, generic paths and generated personal stores. No existing profile or user store was opened or modified. Bug regressions were observed failing before the corresponding fixes:
+Personal preference saves share the loader's validation and installation/owner capacity rules, so a successful mood write cannot make the common store unreadable. Refusals retain the previous bytes.
 
-- Native/declarative history and merge losing Alice's retained rows after Bob exceeded 500 events.
-- A second administrator reading a legacy personal route with HTTP 200 instead of 403.
-- Sign-out during `locked_update` returning success instead of refusing publication.
-- Private M3U publication returning success despite a failing captured-session confirmation.
-- Embedded oversized personal documents being admitted despite the new disk-store byte budget.
+Supervised PCM closure settles the greater of transmitted and acknowledged audio within the current grant, never their sum; up to approximately one second of received/unplayed prebuffer can count toward quota. Renewals retain simultaneous expired lease identities within the existing eight-slot budget; recycling cannot refund usage. A renewed grant's ACK base follows already transmitted frames, preventing a late ACK from charging the previous grant twice. The 32-day usage-retention bound includes the short prepaid horizon; at most ten seconds at that old boundary can be pruned earlier, without changing current daily/weekly quotas. Listening history retains its separate consumption-ACK contract.
 
-Sibling Rust tests additionally cover each owner's retention and counters, 128,000-row global capacity, refused output/input leaving fixture bytes intact, reconcile/save/reread and backup roundtrips, exact JSON formatting/escaping parity, same-named collection isolation, private criteria under search, identical shared catalog responses, reserved achievement-key refusal, owner-private application documents, native HTTP writes and Subsonic declaration batches. Existing account, preference, achievement, M3U, search and Subsonic adversarial tests remain part of targeted verification.
-
-The integrated `tools/check.sh` passes on 2026-10-12 with 2,264 Rust tests (1,970 active unit tests, 291 integration tests and three doctests), none ignored, helper/site checks, required FFmpeg coverage, Rustdoc and the release build. The new report is linked from the README's documentation map. Targeted no-default-feature and fetch-feature server checks also pass. These results do not establish physical audio or other-platform acceptance.
+Administrative process cancellation and independent cleanup are described in [server safeguards](m2-server-review.md). Regression fixtures use isolated accounts/stores and preserve refusal bytes; current verification scope lives in [current state](current-state.md). These contracts are not a guarantee about hostile same-OS access or arbitrary external-client cooperation.
 
 ## Limits retained
 
