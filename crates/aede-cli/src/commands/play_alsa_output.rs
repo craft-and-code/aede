@@ -847,7 +847,7 @@ impl<T: Transport> Worker<T> {
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-pub(super) struct AlsaOutput {
+pub(in crate::commands::play) struct AlsaOutput {
     source: IntegerPcmFormat,
     exact: ExactOutputFormat,
     encoding: Encoding,

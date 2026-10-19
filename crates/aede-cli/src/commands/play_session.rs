@@ -900,63 +900,61 @@ fn play_selection_with<O: SessionOutput>(
                 }
                 let format = if let Some(session) = &processing {
                     session.output_format()
-                } else {
-                    if let Some(integer) = track.integer_format() {
-                        let reopen = match output.exact_needs_reopen(integer) {
-                            Ok(reopen) => reopen,
-                            Err(error) => {
-                                let end = drain_output(output, controls, &mut playback_clock)?;
-                                records.observe_consumption(output)?;
-                                if end != PlaybackEnd::Natural {
-                                    return Ok(end);
-                                }
-                                records.finish(true, &playback_clock)?;
-                                return Err(error);
-                            }
-                        };
-                        if reopen {
+                } else if let Some(integer) = track.integer_format() {
+                    let reopen = match output.exact_needs_reopen(integer) {
+                        Ok(reopen) => reopen,
+                        Err(error) => {
                             let end = drain_output(output, controls, &mut playback_clock)?;
                             records.observe_consumption(output)?;
                             if end != PlaybackEnd::Natural {
                                 return Ok(end);
                             }
                             records.finish(true, &playback_clock)?;
-                            records.reset_output();
-                            reset_display(&mut playback_clock);
+                            return Err(error);
                         }
-                        let route = match output.prepare_exact(integer) {
-                            Ok(route) => route,
-                            Err(error) => {
-                                let end = drain_output(output, controls, &mut playback_clock)?;
-                                records.observe_consumption(output)?;
-                                if end != PlaybackEnd::Natural {
-                                    return Ok(end);
-                                }
-                                records.finish(true, &playback_clock)?;
-                                return Err(error);
-                            }
-                        };
-                        processing = Some(Processing::exact(integer, route)?);
-                        input_format
-                    } else {
-                        let format = match prepare_output_with(
-                            output,
-                            input_format,
-                            &mut playback_clock,
-                            |output, clock| control_action(controls, output, clock),
-                            PlaybackClock::active_ms,
-                            || std::thread::sleep(Duration::from_millis(25)),
-                        )? {
-                            PreparedOutput::Ready(format) => format,
-                            PreparedOutput::Interrupted(end) => return Ok(end),
-                        };
-                        processing = Some(Processing::processed(
-                            input_format,
-                            format.sample_rate(),
-                            tone,
-                        )?);
-                        format
+                    };
+                    if reopen {
+                        let end = drain_output(output, controls, &mut playback_clock)?;
+                        records.observe_consumption(output)?;
+                        if end != PlaybackEnd::Natural {
+                            return Ok(end);
+                        }
+                        records.finish(true, &playback_clock)?;
+                        records.reset_output();
+                        reset_display(&mut playback_clock);
                     }
+                    let route = match output.prepare_exact(integer) {
+                        Ok(route) => route,
+                        Err(error) => {
+                            let end = drain_output(output, controls, &mut playback_clock)?;
+                            records.observe_consumption(output)?;
+                            if end != PlaybackEnd::Natural {
+                                return Ok(end);
+                            }
+                            records.finish(true, &playback_clock)?;
+                            return Err(error);
+                        }
+                    };
+                    processing = Some(Processing::exact(integer, route)?);
+                    input_format
+                } else {
+                    let format = match prepare_output_with(
+                        output,
+                        input_format,
+                        &mut playback_clock,
+                        |output, clock| control_action(controls, output, clock),
+                        PlaybackClock::active_ms,
+                        || std::thread::sleep(Duration::from_millis(25)),
+                    )? {
+                        PreparedOutput::Ready(format) => format,
+                        PreparedOutput::Interrupted(end) => return Ok(end),
+                    };
+                    processing = Some(Processing::processed(
+                        input_format,
+                        format.sample_rate(),
+                        tone,
+                    )?);
+                    format
                 };
                 playback_clock.clear_visualizer();
                 if playback_clock.visualizer.is_none() {
