@@ -229,8 +229,8 @@
 <a href=#229 id=229 data-nosnippet>229</a>        owner.recheck(<span class="kw-2">&amp;</span>state)<span class="question-mark">?</span>;
 <a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">let </span>rules = rules(<span class="kw-2">&amp;</span>data, <span class="kw-2">&amp;</span>owner.id)<span class="question-mark">?</span>;
 <a href=#231 id=231 data-nosnippet>231</a>        <span class="kw">if </span>query.mood.as_ref().is_some_and(|id| {
-<a href=#232 id=232 data-nosnippet>232</a>            !rules.iter().any(|row| <span class="kw-2">&amp;</span>row.id == id)
-<a href=#233 id=233 data-nosnippet>233</a>                &amp;&amp; !(query.audio &amp;&amp; aede_moods::audio_recipes().iter().any(|row| row.id == id))
+<a href=#232 id=232 data-nosnippet>232</a>            !(rules.iter().any(|row| <span class="kw-2">&amp;</span>row.id == id)
+<a href=#233 id=233 data-nosnippet>233</a>                || query.audio &amp;&amp; aede_moods::audio_recipes().iter().any(|row| row.id == id))
 <a href=#234 id=234 data-nosnippet>234</a>        }) {
 <a href=#235 id=235 data-nosnippet>235</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"unknown atmosphere"</span>));
 <a href=#236 id=236 data-nosnippet>236</a>        }
