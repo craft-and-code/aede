@@ -229,8 +229,8 @@ async fn read(
         owner.recheck(&state)?;
         let rules = rules(&data, &owner.id)?;
         if query.mood.as_ref().is_some_and(|id| {
-            !rules.iter().any(|row| &row.id == id)
-                && !(query.audio && aede_moods::audio_recipes().iter().any(|row| row.id == id))
+            !(rules.iter().any(|row| &row.id == id)
+                || query.audio && aede_moods::audio_recipes().iter().any(|row| row.id == id))
         }) {
             return Err(invalid_query("unknown atmosphere"));
         }

@@ -607,9 +607,13 @@ fn tls_response_without_write_progress_releases_its_admission_slot() {
         let fixture = CertificateFixture::new();
         let mut state = test_support::sample_state();
         state.connection_slots = Arc::new(Semaphore::new(1));
-        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
+        // Bound both ends of the connection: macOS may otherwise keep
+        // accepting TLS writes into its autotuned sender queue after the
+        // receiver stops reading, repeatedly resetting the progress deadline.
+        let server_socket = tokio::net::TcpSocket::new_v4().unwrap();
+        server_socket.set_send_buffer_size(4096).unwrap();
+        server_socket.bind((Ipv4Addr::LOCALHOST, 0).into()).unwrap();
+        let listener = server_socket.listen(16).unwrap();
         let address = listener.local_addr().unwrap();
         let tls = configure(&options(&fixture, AUTHORITY)).unwrap().unwrap();
         let application = Router::new().route(
@@ -647,7 +651,9 @@ fn tls_response_without_write_progress_releases_its_admission_slot() {
         let waiting = Instant::now();
         tokio::time::sleep(Duration::from_millis(250)).await;
         assert_eq!(state.connection_slots.available_permits(), 0);
-        tokio::time::timeout(Duration::from_secs(15), async {
+        // Allow in-flight TCP/TLS records and runner scheduling before the
+        // unchanged ten-second no-progress deadline takes effect.
+        tokio::time::timeout(Duration::from_secs(30), async {
             while state.connection_slots.available_permits() != 1 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }

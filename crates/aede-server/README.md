@@ -350,3 +350,15 @@ See [personal contracts](../../docs/server/personal.md#account-presentation-pref
 | `GET /api/me/v1/exports/original` | Exact selected original with required `ref` and `stamp`; bounded, revocable bearer-session transport; no history |
 
 Both routes require a user/administrator session and refuse supervised/auditor accounts. `original_exports` advertises support. `export_conversion_plans` additionally accepts optional `format` and returns codec-aware `output_components`/`output_key` for isolated staged copies; original retrieval identities are unchanged. A desktop destination path is never accepted. [Copy/export details](../../docs/copying.md#desktop-original-export).
+
+### Authenticated network-player routes
+
+All routes below require a named administrator and retain exact-login ownership. See the [network-player contract](../../docs/server/devices.md#phémios-upnp-api-profile) for limits, Cast trust, leases and cancellation.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/admin/v1/network-audio/discover` | Explicit bounded LAN discovery. |
+| `POST /api/admin/v1/network-audio/inspect` | Observe the selected Cast certificate fingerprint for explicit confirmation. |
+| `POST /api/admin/v1/network-audio/play` | Start selected original tracks through the requested device profile. |
+| `GET /api/admin/v1/network-audio/status` | Read owned playback state and renew its client lease. |
+| `POST /api/admin/v1/network-audio/stop` | Cancel playback owned by this exact login. |
