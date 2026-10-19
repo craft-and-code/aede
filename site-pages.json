@@ -793,6 +793,18 @@
       "navigation": true
     },
     {
+      "slug": "server/reference/desktop",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/desktop.md",
+        "fr": "docs/fr/desktop.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
       "slug": "server/presentation",
       "section": "server",
       "command": null,
@@ -1183,18 +1195,6 @@
       "source": {
         "en": "docs/server/compatible-aede.md",
         "fr": "docs/fr/server/compatible-aede.md"
-      },
-      "explainer": null,
-      "noindex": false,
-      "navigation": true
-    },
-    {
-      "slug": "server/reference/desktop",
-      "section": "server",
-      "command": null,
-      "source": {
-        "en": "docs/desktop.md",
-        "fr": "docs/fr/desktop.md"
       },
       "explainer": null,
       "noindex": false,

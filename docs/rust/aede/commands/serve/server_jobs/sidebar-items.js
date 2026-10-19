@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_OUTPUT"],"fn":["arguments","capture","execute","redact_capture","run","run_one","run_sequence","service_environment"],"mod":["process"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_OUTPUT"],"fn":["arguments","capture","capture_observed","execute_with_progress","redact_capture","run","run_one","run_sequence","service_environment"],"mod":["decode","process"]};
