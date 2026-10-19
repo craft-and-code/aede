@@ -250,7 +250,11 @@ async fn an_existing_receiver_session_requires_explicit_replacement() {
 
 #[tokio::test]
 async fn load_failure_and_external_takeover_never_finish_or_stop_a_foreign_session() {
-    for scenario in [Scenario::Refuse, Scenario::Foreign] {
+    for scenario in [
+        Scenario::Refuse,
+        Scenario::Foreign,
+        Scenario::InitialForeign,
+    ] {
         let (sender, peer) = tokio::io::duplex(4096);
         let task = tokio::spawn(receiver(peer, scenario, None));
         let (_stop, signal) = watch::channel(false);

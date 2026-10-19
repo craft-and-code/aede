@@ -114,3 +114,22 @@ Ces premiers adaptateurs restent expérimentaux jusqu’à validation par des re
 Pour un retour utile : version/commit Aède, système, modèle/firmware du lecteur ou version de Squeezelite, protocole choisi, codec/conteneur, fréquence, résolution et nombre de canaux. Décrire connexion, premier son, passage de piste, pause/déplacement côté lecteur, fin de file et Ctrl-C. Joindre l’erreur exacte et une commande anonymisée. Retirer URL secrètes de session, noms privés et chemins de bibliothèque des captures/journaux.
 
 Commencer avec un FLAC stéréo ordinaire, puis un album, un M3U avec entrée répétée, MP3 et WAV entier pris en charge. Essayer une déconnexion pendant le transfert et une file modifiée sur l’appareil. Décrire le passage entre pistes sans parler de gapless mesuré en l’absence d’une capture appropriée. Utiliser un fichier synthétique ou non privé pour une reproduction. Conserver le premier problème observé plutôt que changer plusieurs réglages à la fois.
+
+## Profil API UPnP de Phémios
+
+La capacité `network_audio_upnp` donne accès à un premier contrôle UPnP fini, réservé aux sessions nominatives administrateur, y compris l’administrateur du moteur local. Les anciens jetons administratifs, les utilisateurs et les auditeurs sont refusés. Ce profil ne fournit pas AirPlay.
+
+- `POST /api/admin/v1/network-audio/discover` reçoit `{ "bind": "192.168.1.10" }` : c’est l’interface du serveur Aède. Une seule découverte est admise à la fois ; `items` contient les noms et descriptions validées.
+- `POST /api/admin/v1/network-audio/play` reçoit `bind`, `device` (URL de description) et 1 à 64 références exactes dans `tracks`. Aucun chemin libre n’est accepté et une session active ne peut pas être remplacée implicitement.
+- `GET /api/admin/v1/network-audio` donne `{id,status}` pour la connexion propriétaire uniquement, ou `null`. Cette consultation renouvelle son bail de cinq secondes.
+- `POST /api/admin/v1/network-audio/stop` reçoit `{id}` et exige la même connexion propriétaire. `stopping` désigne une demande, pas un arrêt confirmé ; les résultats terminaux distinguent `completed`, `stopped`, `failed` et `stop_unconfirmed`.
+
+La révocation, la fermeture du serveur et la perte du bail demandent l’annulation. Un appareil muet peut conserver des données déjà reçues ; Stop reste soumis à confirmation et aucun transfert ne crée un événement d’écoute. Le registre persistant, les contrôles complets et la validation sur matériel réel restent distincts de ce premier profil. Voir le [contrat détaillé](../../server/devices.md#phémios-upnp-api-profile).
+
+## Sélecteur commun de lecteurs réseau
+
+La capacité additive `network_audio_profiles` étend les mêmes routes administrateur à OpenHome, Cast et SlimProto. `{bind}` conserve le comportement UPnP ; `{bind,all:true}` recherche aussi OpenHome et Cast et fournit un champ `protocol` par appareil. La lecture accepte `protocol`, `replace` (faux par défaut) et `certificate_sha256` (Cast uniquement). Les limites de 64 pistes, les contrôles de fichiers, le propriétaire exact et le bail restent communs.
+
+`POST /api/admin/v1/network-audio/inspect` reçoit `{bind,device}` et renvoie `{sha256}` : il observe le certificat Cast sans lecture ni confiance automatique. L’utilisateur doit vérifier cette empreinte avant de la valider. Le remplacement d’une liste OpenHome ou d’une lecture Cast reste explicite. SlimProto nécessite une IPv4 privée renseignée manuellement, puis une connexion du lecteur à Aède sur le port 3483 dans la minute suivant le lancement.
+
+Phémios présente un sélecteur réseau unique, dans l’ordre OpenHome, Cast, SlimProto, UPnP. Les moteurs existants transmettent directement les originaux ; les commandes locales ne deviennent pas des commandes distantes de volume, DSP ou recherche dans le morceau. La validation sur appareil réel reste nécessaire. Voir le [contrat détaillé](../../server/devices.md#shared-graphical-network-player-selector).

@@ -155,3 +155,57 @@ fn decoder_diagnostics_are_bounded_utf8_plain_text_while_the_entire_pipe_is_drai
         "ERROR: MD5 mismatch"
     );
 }
+
+#[test]
+fn json_flushes_each_verified_file_before_starting_the_next_decode() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    struct Writer {
+        data: Rc<RefCell<Vec<u8>>>,
+        flushed: Rc<RefCell<usize>>,
+    }
+    impl std::io::Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.data.borrow_mut().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            *self.flushed.borrow_mut() = self.data.borrow().len();
+            Ok(())
+        }
+    }
+    let data = Rc::new(RefCell::new(Vec::new()));
+    let flushed = Rc::new(RefCell::new(0));
+    let mut writer = Writer {
+        data: data.clone(),
+        flushed: flushed.clone(),
+    };
+    let rows = ["/first.flac", "/second.flac"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| {
+            if index == 1 {
+                assert!(*flushed.borrow() > 0);
+                let text = String::from_utf8(data.borrow().clone()).unwrap();
+                assert!(text.contains("/first.flac"));
+                assert!(!text.contains("/second.flac"));
+            }
+            FileResult {
+                path,
+                outcome: Ok(Verification {
+                    method: "Rust",
+                    hash: true,
+                }),
+            }
+        });
+    assert_eq!(write_json(&mut writer, rows).unwrap(), 0);
+    let parsed =
+        aede_core::json::parse(&String::from_utf8(data.borrow().clone()).unwrap()).unwrap();
+    assert_eq!(
+        parsed
+            .get("version")
+            .and_then(aede_core::json::Json::as_u64),
+        Some(1)
+    );
+    assert_eq!(parsed.get("files").unwrap().as_arr().unwrap().len(), 2);
+}

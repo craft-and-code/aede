@@ -37,7 +37,10 @@ The entry points are blocking and own a bounded Tokio runtime. `cast` monitors
 Ctrl-C, prints listener addresses, requests device Stop and closes its temporary
 media listener when finished. An async API integration must provide a deliberate
 worker/lifecycle/cancellation design rather than call them on a Tokio worker.
-The authenticated server-control API and persistent device registry remain future work.
+The separate `aede-server` integration exposes named-administrator UPnP/OpenHome/Cast/SlimProto
+profiles through [`network-audio` routes](../../docs/server/devices.md#phémios-upnp-api-profile),
+using `cast_controlled` with an owner-managed cancellation flag. A persistent
+shared registry and richer authenticated protocol controls remain future work.
 
 Only specific private, link-local or loopback IPv4 addresses are accepted.
 Selected originals are read-only and checked before/opening/during transfers;

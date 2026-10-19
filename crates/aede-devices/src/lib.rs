@@ -199,6 +199,27 @@ pub fn inspect_cast_certificate(bind: Ipv4Addr, device: &str) -> Result<String, 
 /// PCM consumption acknowledgement. A request to stop is sent on Ctrl-C;
 /// a powered-off or disconnected device cannot acknowledge that request.
 pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
+    cast_inner(options, paths, None)
+}
+
+/// Play an explicitly selected queue until completion or owner-requested cancellation.
+/// The embedding application owns the flag; no process-wide signal handler is installed.
+pub fn cast_controlled(
+    options: CastOptions,
+    paths: Vec<PathBuf>,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<(), String> {
+    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+        return Err("device playback cancelled before admission".into());
+    }
+    cast_inner(options, paths, Some(cancelled))
+}
+
+fn cast_inner(
+    options: CastOptions,
+    paths: Vec<PathBuf>,
+    cancelled: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<(), String> {
     let peer = options.validate()?;
     let sources = media::prepare(paths)?;
     let tracks = sources
@@ -213,9 +234,16 @@ pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
         let media = media::MediaServer::start(options.bind, peer, sources).await?;
         let (shutdown, signal) = watch::channel(false);
         let signal_task = tokio::spawn(async move {
-            let result = tokio::signal::ctrl_c()
-                .await
-                .map_err(|error| format!("cannot monitor Ctrl-C: {error}"));
+            let result = if let Some(cancelled) = cancelled {
+                while !cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                Ok(())
+            } else {
+                tokio::signal::ctrl_c()
+                    .await
+                    .map_err(|error| format!("cannot monitor Ctrl-C: {error}"))
+            };
             let _ = shutdown.send(true);
             result
         });

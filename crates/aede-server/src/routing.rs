@@ -44,6 +44,7 @@ fn application_routes(admin_enabled: bool) -> Router<ApiState> {
         routes = routes
             .route("/api/admin/v1/scan", post(jobs::scan_route))
             .merge(jobs::routes())
+            .merge(network_audio::routes())
             .merge(personal::routes());
     }
     routes

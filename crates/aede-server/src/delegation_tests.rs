@@ -125,6 +125,7 @@ fn command_test_state() -> ApiState {
         missing_covers: Arc::new(crate::missing_cover_cache::CoverService::default()),
         inspection_slots: Arc::new(tokio::sync::Semaphore::new(2)),
         jobs: Arc::new(crate::jobs::JobRegistry::default()),
+        network_audio: Arc::new(crate::network_audio::NetworkAudio::default()),
     }
 }
 

@@ -97,6 +97,7 @@ mod missing_cover_cache;
 pub use fetch_service_keys::FetchServiceKeys;
 mod lyrics;
 mod models;
+mod network_audio;
 mod parental;
 mod personal;
 mod playback_api;
@@ -111,8 +112,8 @@ mod tls;
 mod waveform;
 
 pub use jobs::{
-    FetchRequest, GenerationRequest, GenerationStep, JobOutput, JobRequest, MediaJobRequest,
-    ScanRequest,
+    CheckRequest, FetchRequest, GenerationRequest, GenerationStep, JobOutput, JobRequest,
+    MediaJobRequest, ScanRequest,
 };
 
 use admin::*;

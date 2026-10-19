@@ -56,3 +56,22 @@ fn device_addresses_and_protocol_options_are_explicit_and_local() {
     options.protocol = DeviceProtocol::Openhome;
     assert!(options.validate().is_ok());
 }
+
+#[test]
+fn cancelled_embedded_cast_never_opens_a_source_or_network_listener() {
+    let options = CastOptions {
+        bind: "127.0.0.1".parse().unwrap(),
+        protocol: DeviceProtocol::Upnp,
+        device: "http://127.0.0.1:1/device.xml".into(),
+        port: None,
+        replace: false,
+        volume: None,
+        certificate_sha256: None,
+    };
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    assert!(
+        cast_controlled(options, Vec::new(), flag)
+            .unwrap_err()
+            .contains("cancelled before admission")
+    );
+}

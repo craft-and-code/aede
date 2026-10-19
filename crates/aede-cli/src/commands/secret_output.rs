@@ -36,6 +36,10 @@ pub(super) fn secret_variants(secrets: &[String]) -> Vec<String> {
                 continue;
             }
             variants.push(value.to_string());
+            // Decode reports serialize diagnostics before capture. Mask their
+            // JSON-escaped spelling too, so parsing a report cannot recover a key.
+            let quoted = aede_core::json::Json::Str(value.to_string()).to_string_compact();
+            variants.push(quoted[1..quoted.len() - 1].to_string());
             // Service keys can also appear in an error's query string. The
             // source adapters trim configuration and percent-encode AcoustID keys.
             let mut encoded = String::new();

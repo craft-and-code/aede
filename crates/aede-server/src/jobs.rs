@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{ApiError, ApiState, CatalogEvent, error, refresh_catalog, require_admin, store};
 
+#[path = "job_check_progress.rs"]
+mod check_progress;
+pub use check_progress::CheckRequest;
+
 const MAX_BODY: usize = 16 * 1024;
 const MAX_ACTIVE: usize = 4;
 const MAX_RETAINED: usize = 64;
@@ -169,7 +173,7 @@ pub enum JobRequest {
     /// Whole-catalog derivative work, serialized in the existing CLI worker.
     Generate(GenerationRequest),
     /// Exact catalogued album files, never a client-supplied path or folder expansion.
-    Check(Vec<String>),
+    Check(CheckRequest),
     /// A local scan of watched/newly supplied folders.
     Scan(ScanRequest),
     /// An explicitly requested online pass, or an offline `dry_run` preview.
@@ -221,7 +225,8 @@ impl JobRequest {
                     return Err(invalid("lyrics generation requires the fetch feature"));
                 }
             }
-            Self::Check(files) => {
+            Self::Check(check) => {
+                let files = &check.files;
                 if files.is_empty()
                     || files.len() > 1024
                     || files.iter().map(String::len).sum::<usize>() > 128_000
@@ -395,6 +400,8 @@ struct Task {
     #[serde(skip_serializing_if = "Option::is_none")]
     progress: Option<NativeProgress>,
     result: Option<JobOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partial_result: Option<JobOutput>,
     error: Option<Failure>,
     #[serde(skip)]
     cancellation: Arc<AtomicBool>,
@@ -464,6 +471,7 @@ impl JobRegistry {
                 cancel_requested: false,
                 progress: None,
                 result: None,
+                partial_result: None,
                 error: None,
                 cancellation: cancellation.clone(),
             },
@@ -545,6 +553,9 @@ impl JobRegistry {
                     Status::Failed
                 };
                 task.result = Some(output);
+                if task.status != Status::Cancelled {
+                    task.partial_result = None;
+                }
                 if task.status != Status::Completed {
                     task.error = Some(Failure {
                         code: if task.status == Status::Cancelled {
@@ -837,6 +848,10 @@ async fn run_job(
     run: Arc<JobCallback>,
 ) {
     let kind = request.kind();
+    let request = match request {
+        JobRequest::Check(check) => JobRequest::Check(check_progress::bind(&state, task_id, check)),
+        other => other,
+    };
     let (outcome, _scan_guard) = if state.jobs.running(task_id).is_err() {
         (Err("cannot start administrative task".into()), None)
     } else {
@@ -1115,5 +1130,5 @@ async fn check_route(
     })
     .await?
     .0;
-    enqueue(state, JobRequest::Check(files))
+    enqueue(state, JobRequest::Check(files.into()))
 }

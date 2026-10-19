@@ -8,6 +8,7 @@ pub(super) enum Scenario {
     Busy,
     Refuse,
     Foreign,
+    InitialForeign,
     Wait,
 }
 
@@ -106,8 +107,12 @@ pub(super) async fn receiver_with_original<S: AsyncRead + AsyncWrite + Unpin>(
                         json!({"type":"LOAD_FAILED", "requestId":id}),
                     )
                 } else {
-                    let status = json!({"type":"MEDIA_STATUS", "requestId":id,
+                    let mut status = json!({"type":"MEDIA_STATUS", "requestId":id,
                         "status":[{"mediaSessionId":occurrence, "playerState":"PLAYING", "media":message.payload["media"]}]});
+                    if matches!(scenario, Scenario::InitialForeign) {
+                        status["status"][0]["media"]["contentId"] =
+                            json!("http://127.0.0.1/foreign");
+                    }
                     cast_wire::write(
                         &mut stream,
                         &Message {
@@ -120,7 +125,7 @@ pub(super) async fn receiver_with_original<S: AsyncRead + AsyncWrite + Unpin>(
                     .await
                     .unwrap();
                     match scenario {
-                        Scenario::Wait => continue,
+                        Scenario::Wait | Scenario::InitialForeign => continue,
                         Scenario::Foreign => (
                             MEDIA,
                             "web-test",

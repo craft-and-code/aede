@@ -52,6 +52,7 @@ pub(super) struct ApiState {
     pub(super) missing_covers: Arc<crate::missing_cover_cache::CoverService>,
     pub(super) inspection_slots: Arc<Semaphore>,
     pub(super) jobs: Arc<jobs::JobRegistry>,
+    pub(super) network_audio: Arc<crate::network_audio::NetworkAudio>,
     #[cfg(unix)]
     pub(super) tasks: Arc<delegation::TaskRegistry>,
 }

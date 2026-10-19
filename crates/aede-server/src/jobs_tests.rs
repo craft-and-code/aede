@@ -352,8 +352,13 @@ fn asynchronous_jobs_announce_running_and_refreshing_activity() {
                 } if id == task_id && actual == phase
             ));
         }
+        // Worker completion precedes publishing the final activity event.
+        let completed = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert!(matches!(
-            events.try_recv().unwrap(),
+            completed,
             CatalogEvent::TaskCompleted {
                 task_id: id,
                 task_kind: "identification",
@@ -900,7 +905,7 @@ fn album_decode_job_uses_only_catalog_track_files_and_refuses_extra_options() {
         else {
             panic!("exact check expected")
         };
-        assert_eq!(files, expected);
+        assert_eq!(files.files, expected);
         for body in [
             r#"{"release":"../private"}"#,
             r#"{"release":"release:x","path":"/private"}"#,
@@ -914,11 +919,89 @@ fn album_decode_job_uses_only_catalog_track_files_and_refuses_extra_options() {
                 .is_err()
             );
         }
-        assert!(JobRequest::Check(vec![]).validate().is_err());
+        assert!(JobRequest::Check(vec![].into()).validate().is_err());
         assert!(
-            JobRequest::Check(vec!["relative.flac".into()])
+            JobRequest::Check(vec!["relative.flac".into()].into())
                 .validate()
                 .is_err()
         );
+    });
+}
+
+#[test]
+fn live_album_verdict_is_readable_only_through_admin_task_while_next_file_is_blocked() {
+    runtime().block_on(async {
+        let (sent, received) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let released = Mutex::new(released);
+        let state = state(move |request, _| {
+            let JobRequest::Check(check) = request else { return Err("expected check".into()); };
+            let make = |paths: &[String]| JobOutput {
+                stdout: serde_json::json!({"version":1,"files":paths.iter().map(|path| serde_json::json!({"path":path,"status":"ok","verifier":"Rust"})).collect::<Vec<_>>()} ).to_string(),
+                ..Default::default()
+            };
+            check.report(make(&check.files[..1]));
+            sent.send(()).unwrap();
+            released.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(make(&check.files))
+        });
+        let first = std::env::temp_dir().join("first-progress.flac").to_string_lossy().into_owned();
+        let second = std::env::temp_dir().join("second-progress.flac").to_string_lossy().into_owned();
+        assert!(enqueue(state.clone(), JobRequest::Check(vec![first.clone(), second].into())).is_ok());
+        received.recv_timeout(Duration::from_secs(5)).unwrap();
+        let id = state.jobs.data.lock().unwrap().tasks.keys().next().copied().unwrap();
+        let unauthorized = Request::builder().uri(format!("/api/admin/v1/tasks/{id}")).body(Body::empty()).unwrap();
+        assert!(task_route(State(state.clone()), Path(id.to_string()), unauthorized).await.is_err());
+        let Json(task) = task_route(State(state.clone()), Path(id.to_string()), request("GET", &format!("/api/admin/v1/tasks/{id}"), Body::empty())).await.unwrap();
+        assert_eq!(task.status, Status::Running);
+        assert!(task.result.is_none());
+        let partial: serde_json::Value = serde_json::from_str(&task.partial_result.unwrap().stdout).unwrap();
+        assert_eq!(partial["files"].as_array().unwrap().len(), 1);
+        assert_eq!(partial["files"][0]["path"], first);
+        release.send(()).unwrap();
+        wait_for_jobs(&state).await;
+        let complete = state.jobs.get(id).unwrap();
+        assert_eq!(complete.status, Status::Completed);
+        let report: serde_json::Value = serde_json::from_str(&complete.result.unwrap().stdout).unwrap();
+        assert_eq!(report["files"].as_array().unwrap().len(), 2);
+    });
+}
+
+#[test]
+fn cancelling_a_live_check_retains_only_finished_files_and_refuses_late_publication() {
+    runtime().block_on(async {
+        let (started, received) = std::sync::mpsc::channel();
+        let state = state(move |job, cancelled| {
+            let JobRequest::Check(check) = job else { return Err("check expected".into()); };
+            check.report(JobOutput {
+                stdout: serde_json::json!({"version":1,"files":[{"path":check.files[0],"status":"ok","verifier":"Rust"}]}).to_string(),
+                ..Default::default()
+            });
+            started.send(check.clone()).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !cancelled.load(Ordering::Acquire) {
+                if std::time::Instant::now() > deadline { return Err("test cancellation timeout".into()); }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Ok(JobOutput { exit_code:130, stdout:"{\"version\":1,\"files\":[\n".into(), ..Default::default() })
+        });
+        let paths: Vec<_> = ["cancel-first.flac","cancel-second.flac"].map(|name| std::env::temp_dir().join(name).to_string_lossy().into_owned()).into();
+        let response = enqueue(state.clone(), JobRequest::Check(paths.clone().into())).unwrap();
+        let id = accepted_id(response).await;
+        let retained = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        let url = format!("/api/admin/v1/tasks/{id}/cancel");
+        let denied = Request::builder().method("POST").uri(&url).body(Body::empty()).unwrap();
+        assert!(cancel_route(State(state.clone()), Path(id.to_string()), denied).await.is_err());
+        assert!(cancel_route(State(state.clone()), Path(id.to_string()), request("POST", &url, Body::empty())).await.is_ok());
+        wait_for_jobs(&state).await;
+        let before = state.jobs.get(id).unwrap();
+        assert_eq!(before.status, Status::Cancelled);
+        assert_eq!(before.result.as_ref().unwrap().exit_code, 130);
+        let partial = before.partial_result.as_ref().unwrap();
+        let report: serde_json::Value = serde_json::from_str(&partial.stdout).unwrap();
+        assert_eq!(report["files"].as_array().unwrap().len(), 1);
+        assert_eq!(report["files"][0]["path"], paths[0]);
+        retained.report(JobOutput {stdout:serde_json::json!({"version":1,"files":paths.iter().map(|path|serde_json::json!({"path":path,"status":"ok","verifier":"Rust"})).collect::<Vec<_>>()}).to_string(), ..Default::default()});
+        assert_eq!(state.jobs.get(id).unwrap().partial_result.unwrap().stdout, partial.stdout);
     });
 }

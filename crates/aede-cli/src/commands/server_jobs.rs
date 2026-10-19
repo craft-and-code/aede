@@ -11,6 +11,8 @@ use aede_server::{JobOutput, JobRequest};
 
 use super::super::secret_output::{redact, secret_variants};
 
+#[path = "server_job_decode.rs"]
+mod decode;
 #[path = "server_job_process.rs"]
 mod process;
 
@@ -43,9 +45,9 @@ fn arguments(request: &JobRequest) -> Vec<String> {
             }
             &plan.roots
         }
-        JobRequest::Check(files) => {
+        JobRequest::Check(check) => {
             args.extend(["check", "--decode-test", "--json"].map(String::from));
-            files
+            &check.files
         }
         JobRequest::Scan(scan) => {
             args.push("scan".into());
@@ -269,7 +271,11 @@ fn run_one(
         .filter(|value| !value.is_empty())
         .collect();
     secrets.extend(service_environment(&mut command, &request));
-    execute(command, cancellation, &secrets)
+    let check = match request {
+        JobRequest::Check(check) => Some(check),
+        _ => None,
+    };
+    execute_with_progress(command, cancellation, &secrets, check)
 }
 
 /// Set only the two supported service variables for this child, preserving the parent environment.
@@ -291,10 +297,20 @@ fn service_environment(command: &mut Command, request: &JobRequest) -> Vec<Strin
     secrets
 }
 
+#[cfg(test)]
 fn execute(
+    command: Command,
+    cancellation: Arc<AtomicBool>,
+    secrets: &[String],
+) -> Result<JobOutput, String> {
+    execute_with_progress(command, cancellation, secrets, None)
+}
+
+fn execute_with_progress(
     mut command: Command,
     cancellation: Arc<AtomicBool>,
     secrets: &[String],
+    check: Option<aede_server::CheckRequest>,
 ) -> Result<JobOutput, String> {
     if cancellation.load(Ordering::Acquire) {
         return Ok(JobOutput {
@@ -308,7 +324,13 @@ fn execute(
         .map_err(|error| format!("cannot start administrative command: {error}"))?;
     let stdout = child.stdout.take().ok_or("missing command stdout")?;
     let stderr = child.stderr.take().ok_or("missing command stderr")?;
-    let out = std::thread::spawn(move || capture(stdout));
+    let progress_secrets = secrets.to_vec();
+    let out = std::thread::spawn(move || {
+        let mut snapshots = decode::Snapshots::new(check, progress_secrets);
+        capture_observed(stdout, |bytes, truncated| {
+            snapshots.observe(bytes, truncated)
+        })
+    });
     let err = std::thread::spawn(move || capture(stderr));
     let mut cancelled = false;
     let status = loop {
@@ -348,7 +370,13 @@ fn execute(
     })
 }
 
-fn capture(mut input: impl Read) -> Result<(Vec<u8>, bool), String> {
+fn capture(input: impl Read) -> Result<(Vec<u8>, bool), String> {
+    capture_observed(input, |_, _| {})
+}
+fn capture_observed(
+    mut input: impl Read,
+    mut observe: impl FnMut(&[u8], bool),
+) -> Result<(Vec<u8>, bool), String> {
     let mut captured = Vec::new();
     let mut truncated = false;
     let mut buffer = [0; 8192];
@@ -359,6 +387,7 @@ fn capture(mut input: impl Read) -> Result<(Vec<u8>, bool), String> {
                 let keep = size.min(MAX_OUTPUT.saturating_sub(captured.len()));
                 captured.extend_from_slice(&buffer[..keep]);
                 truncated |= keep < size;
+                observe(&captured, truncated);
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => return Err(format!("cannot read command output: {error}")),

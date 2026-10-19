@@ -130,6 +130,7 @@ pub(crate) fn sample_state() -> ApiState {
         missing_covers: Arc::new(crate::missing_cover_cache::CoverService::default()),
         inspection_slots: Arc::new(Semaphore::new(2)),
         jobs: Arc::new(jobs::JobRegistry::default()),
+        network_audio: Arc::new(crate::network_audio::NetworkAudio::default()),
         #[cfg(unix)]
         tasks: Arc::new(delegation::TaskRegistry::default()),
     }

@@ -334,7 +334,10 @@ impl Controller {
                 .filter(|id| *id > 0)
                 .ok_or("Cast media session ID is missing")?;
             self.session = Some(session);
-            check_content(first, url)?;
+            if let Err(error) = check_content(first, url) {
+                self.owns_application = false;
+                return Err(error);
+            }
             let mut finished = playback_state(first)?;
             let mut next_poll = Instant::now() + Duration::from_secs(2);
             let mut last_status = Instant::now();

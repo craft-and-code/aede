@@ -200,13 +200,19 @@ fn encoded_overlapping_credentials_stay_masked_within_the_capture_bound() {
 #[cfg(unix)]
 #[test]
 fn credentials_cut_by_the_capture_limit_are_redacted_in_both_streams() {
-    let secrets = ["  aB/c+SECRET  ".into(), "éSecret".into()];
+    let secrets = [
+        "  aB/c+SECRET  ".into(),
+        "éSecret".into(),
+        "quoted\"private\\tail".into(),
+    ];
     for (variant, kept) in [
         ("aB/c+SECRET", 4),
         ("  aB/c+SECRET  ", 6),
         ("aB%2Fc%2BSECRET", 7),
         ("aB%2fc%2bSECRET", 7),
         ("éSecret", 1),
+        ("quoted\\\"private\\\\tail", 7),
+        ("quoted\\\"private\\\\tail", 16),
     ] {
         let mut command = Command::new("sh");
         command.args(["-c", "printf '%*s' \"$1\" ''; printf '%s' \"$2\"; printf '%*s' \"$1\" '' >&2; printf '%s' \"$2\" >&2", "redaction-fixture"])
@@ -486,7 +492,7 @@ fn album_decode_arguments_preserve_literal_files_without_folder_expansion() {
         .to_string_lossy()
         .into_owned();
     assert_eq!(
-        arguments(&JobRequest::Check(vec![path.clone()])),
+        arguments(&JobRequest::Check(vec![path.clone()].into())),
         ["check", "--decode-test", "--json", "--", path.as_str()]
     );
 }

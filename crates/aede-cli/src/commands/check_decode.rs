@@ -14,7 +14,7 @@ struct FileResult<'a> {
 }
 
 pub(super) fn run(catalog: &Catalog, scope: &[String], json: bool) -> Res {
-    let rows: Vec<_> = catalog
+    let rows = catalog
         .files
         .iter()
         .filter(|file| super::super::in_scope(&file.path, scope))
@@ -25,12 +25,12 @@ pub(super) fn run(catalog: &Catalog, scope: &[String], json: bool) -> Res {
                 file.properties.codec == "flac",
                 Some(Path::new("flac")),
             ),
-        })
-        .collect();
-    let failed = rows.iter().filter(|row| row.outcome.is_err()).count();
-    if json {
-        println!("{}", structured(&rows).to_string_compact());
+        });
+    let failed = if json {
+        write_json(&mut std::io::stdout().lock(), rows)?
     } else {
+        let rows: Vec<_> = rows.collect();
+        let failed = rows.iter().filter(|row| row.outcome.is_err()).count();
         let mut table = Table::new(&["File", "Result", "Verifier"]).path_limit(0, 60);
         for row in &rows {
             match &row.outcome {
@@ -42,42 +42,63 @@ pub(super) fn run(catalog: &Catalog, scope: &[String], json: bool) -> Res {
         }
         ui::section("Full decode test");
         print!("{}", table.render());
-    }
+        failed
+    };
     if failed > 0 {
         return Err(format!("{failed} file(s) failed the complete decode test").into());
     }
     Ok(())
 }
 
+// Flush after each completed row: the final document remains ordinary version-1 JSON.
+fn write_json<'a>(
+    writer: &mut impl std::io::Write,
+    rows: impl Iterator<Item = FileResult<'a>>,
+) -> std::io::Result<usize> {
+    writeln!(writer, "{{\"version\":1,\"files\":[")?;
+    let mut failed = 0;
+    for (index, row) in rows.enumerate() {
+        failed += usize::from(row.outcome.is_err());
+        writeln!(
+            writer,
+            "{}{}",
+            if index == 0 { "" } else { "," },
+            structured_row(&row).to_string_compact()
+        )?;
+        writer.flush()?;
+    }
+    writeln!(writer, "]}}")?;
+    writer.flush()?;
+    Ok(failed)
+}
+fn structured_row(row: &FileResult<'_>) -> aede_core::json::Json {
+    use aede_core::json::Json;
+    let mut value = Json::obj();
+    value.set("path", Json::Str(row.path.into()));
+    match &row.outcome {
+        Ok(result) => {
+            value.set(
+                "status",
+                Json::Str(if result.hash { "ok" } else { "no_hash" }.into()),
+            );
+            value.set("verifier", Json::Str(result.method.into()));
+        }
+        Err(error) => {
+            value.set("status", Json::Str("ko".into()));
+            value.set("verifier", Json::Str("Failed".into()));
+            value.set("message", Json::Str(error.clone()));
+        }
+    }
+    value
+}
+#[cfg(test)]
 fn structured(rows: &[FileResult<'_>]) -> aede_core::json::Json {
     use aede_core::json::Json;
     let mut report = Json::obj();
     report.set("version", Json::Num(1.0));
     report.set(
         "files",
-        Json::Arr(
-            rows.iter()
-                .map(|row| {
-                    let mut value = Json::obj();
-                    value.set("path", Json::Str(row.path.into()));
-                    match &row.outcome {
-                        Ok(result) => {
-                            value.set(
-                                "status",
-                                Json::Str(if result.hash { "ok" } else { "no_hash" }.into()),
-                            );
-                            value.set("verifier", Json::Str(result.method.into()));
-                        }
-                        Err(error) => {
-                            value.set("status", Json::Str("ko".into()));
-                            value.set("verifier", Json::Str("Failed".into()));
-                            value.set("message", Json::Str(error.clone()));
-                        }
-                    }
-                    value
-                })
-                .collect(),
-        ),
+        Json::Arr(rows.iter().map(structured_row).collect()),
     );
     report
 }
