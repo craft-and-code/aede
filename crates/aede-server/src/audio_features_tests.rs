@@ -1,4 +1,230 @@
 use super::*;
+
+fn cached_features() -> aede_moods::Features {
+    let mut extractor = aede_moods::Extractor::new(1).unwrap();
+    extractor.push(&vec![0.; 4096], || Ok(())).unwrap();
+    extractor.finish().unwrap()
+}
+
+#[test]
+fn unknown_catalogue_precision_does_not_match_a_known_zero_acoustic_stamp() {
+    let state = crate::test_support::sample_state();
+    let mut guard = state.catalog.try_write().unwrap();
+    let catalog = guard.as_mut().unwrap();
+    let file = &catalog.files[0];
+    let id = file.id;
+    let path = file.path.clone();
+    let mut facts = Facts::default();
+    facts.rows.insert(
+        path.clone(),
+        Record {
+            input: InputIdentity {
+                path: path.clone(),
+                size: file.size,
+                modified: file.mtime,
+                nanos: 0,
+            },
+            features: cached_features(),
+        },
+    );
+    catalog.file_mtime_subseconds.remove(&path);
+    assert!(
+        current(&facts, catalog, id).is_none(),
+        "an unknown scanned fraction cannot establish an exact cache identity"
+    );
+    catalog.file_mtime_subseconds.insert(path.clone(), 0);
+    assert!(current(&facts, catalog, id).is_some());
+    catalog.file_mtime_subseconds.insert(path, 1);
+    assert!(current(&facts, catalog, id).is_none());
+}
+
+#[test]
+fn unknown_catalogue_precision_is_unavailable_without_discarding_other_acoustic_work() {
+    use crate::accounts_test_support::{Fixture, http, login};
+    use crate::playback_test_support::{additional_flac, install_wav};
+    use crate::test_support::{start_server, test_runtime};
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let first = install_wav(&fixture, 4096).await;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&first.path)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+            )
+            .unwrap();
+        {
+            let mut guard = fixture.0.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            catalog.files[0].mtime = 1_700_000_000;
+            catalog
+                .file_mtime_subseconds
+                .insert(first.path.to_str().unwrap().into(), 0);
+        }
+        additional_flac(&fixture, "known-precision.flac", false).await;
+        let first_record = {
+            let mut guard = fixture.0.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            let features = cached_features();
+            let records = catalog
+                .files
+                .iter()
+                .map(|file| Record {
+                    input: InputIdentity {
+                        path: file.path.clone(),
+                        size: file.size,
+                        modified: file.mtime,
+                        nanos: catalog.file_mtime_subseconds[&file.path],
+                    },
+                    features: features.clone(),
+                })
+                .collect::<Vec<_>>();
+            for record in &records {
+                aede_core::audio_features::save(&fixture.0.data_dir, record).unwrap();
+            }
+            catalog
+                .file_mtime_subseconds
+                .remove(first.path.to_str().unwrap());
+            store::save_catalog_only(catalog, &store::catalog_path(&fixture.0.data_dir)).unwrap();
+            records.into_iter().next().unwrap()
+        };
+        let before = std::fs::read(&first.path).unwrap();
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let token = login(address, "operator");
+        let (code, task, _) = http(
+            address,
+            "POST",
+            "/api/admin/v1/mood-features",
+            Some(&token),
+            "{}",
+        );
+        assert_eq!(code, 202, "{task}");
+        let id = task["task_id"].as_u64().unwrap();
+        let mut outcome = serde_json::Value::Null;
+        for _ in 0..200 {
+            outcome = http(
+                address,
+                "GET",
+                &format!("/api/admin/v1/tasks/{id}"),
+                Some(&token),
+                "",
+            )
+            .1;
+            if matches!(outcome["status"].as_str(), Some("completed" | "failed")) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        server.abort();
+        assert_eq!(outcome["status"], "failed", "{outcome}");
+        assert_eq!(outcome["progress"]["total"], 2);
+        assert_eq!(outcome["progress"]["done"], 2);
+        assert_eq!(outcome["progress"]["failed"], 1);
+        assert_eq!(outcome["progress"]["reused"], 1);
+        assert!(
+            outcome["result"]["stderr"]
+                .as_str()
+                .unwrap()
+                .contains("rescan")
+        );
+        assert_eq!(std::fs::read(&first.path).unwrap(), before);
+        assert_eq!(
+            aede_core::audio_features::load(&fixture.0.data_dir, &first_record.input).unwrap(),
+            Some(first_record)
+        );
+    });
+}
+
+#[test]
+fn a_supervised_catalogue_cannot_replace_the_shared_acoustic_cache_with_its_subset() {
+    use crate::accounts_test_support::Fixture;
+    use crate::playback_test_support::install_wav;
+    crate::test_support::test_runtime().block_on(async {
+        for preloaded in [true, false] {
+            let fixture = Fixture::new();
+            let installed = install_wav(&fixture, 4096).await;
+            let (record, epoch, blocked) = {
+                let guard = fixture.0.catalog.read().await;
+                let catalog = guard.as_ref().unwrap();
+                let reference = EntityRef::parse_token(&installed.reference).unwrap();
+                let source = playback_api::source_from_catalog(catalog, &reference).unwrap();
+                (
+                    Record {
+                        input: identity(&source),
+                        features: aede_core::audio_features::extract(&installed.path, || Ok(()))
+                            .unwrap(),
+                    },
+                    signature(catalog),
+                    EntityRef::of(catalog, EntityKind::Artist, 0)
+                        .unwrap()
+                        .to_token(),
+                )
+            };
+            aede_core::audio_features::save(&fixture.0.data_dir, &record).unwrap();
+            if preloaded {
+                let mut facts = fixture.0.audio_features.facts.lock().unwrap();
+                facts.rows.insert(record.input.path.clone(), record.clone());
+                facts.epoch = Some(epoch);
+            }
+            let owner = fixture.accounts().find("alice").unwrap().id.clone();
+            let mut policies = aede_core::parental::ParentalStore::default();
+            policies
+                .set_policy(
+                    &owner,
+                    serde_json::from_value(crate::parental_test_support::policy(vec![&blocked]))
+                        .unwrap(),
+                    0,
+                )
+                .unwrap();
+            policies
+                .save(&aede_core::parental::path(&fixture.0.data_dir))
+                .unwrap();
+            let scoped = crate::parental::scoped(fixture.0.clone(), owner, false, true)
+                .await
+                .unwrap();
+            assert!(
+                scoped
+                    .catalog
+                    .read()
+                    .await
+                    .as_ref()
+                    .unwrap()
+                    .files
+                    .is_empty()
+            );
+            warm(&scoped);
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while fixture.0.audio_features.warming.load(Ordering::Acquire) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+            let full = fixture.0.catalog.read().await;
+            let restricted = scoped.catalog.read().await;
+            let facts = fixture.0.audio_features.facts.lock().unwrap();
+            assert_eq!(
+                coverage(&fixture.0, full.as_ref().unwrap(), &facts)["ready"],
+                1,
+                "a restricted read must preserve shared source availability (preloaded={preloaded})"
+            );
+            assert_eq!(
+                coverage(&scoped, restricted.as_ref().unwrap(), &facts)["ready"],
+                0
+            );
+            assert_eq!(facts.epoch, Some(epoch));
+            if preloaded {
+                assert_eq!(
+                    facts.revision, 0,
+                    "unchanged shared evidence must not invalidate paging"
+                );
+            }
+        }
+    });
+}
+
 #[test]
 fn foreground_activity_parks_extraction_and_stop_retires_a_paused_job() {
     let state = crate::test_support::sample_state();
@@ -165,7 +391,7 @@ fn native_job_parks_then_persists_each_source_and_reuses_it_without_rewriting_au
         assert_eq!(first["progress"]["analyzed"], 1);
         let source = tokio::task::spawn_blocking({
             let state = fixture.0.clone();
-            move || sources(&state).unwrap().1.remove(0)
+            move || sources(&state).unwrap().1.remove(0).unwrap()
         })
         .await
         .unwrap();
@@ -230,7 +456,6 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
                 catalog.recordings[0].track_ids.push(n);
             }
             let mut facts = fixture.0.audio_features.facts.lock().unwrap();
-            facts.epoch = Some(signature(catalog));
             let mut extract = aede_moods::Extractor::new(1).unwrap();
             let samples = (0..44100)
                 .map(|n| 0.2 * (std::f32::consts::TAU * 440. * n as f32 / 22050.).sin())
@@ -238,6 +463,7 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
             extract.push(&samples, || Ok(())).unwrap();
             let features = extract.finish().unwrap();
             for file in &catalog.files {
+                catalog.file_mtime_subseconds.insert(file.path.clone(), 0);
                 facts.rows.insert(
                     file.path.clone(),
                     Record {
@@ -251,6 +477,7 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
                     },
                 );
             }
+            facts.epoch = Some(signature(catalog));
             store::save_catalog_only(catalog, &store::catalog_path(&fixture.0.data_dir)).unwrap();
             catalog
                 .tracks

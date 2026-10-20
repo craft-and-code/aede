@@ -40,6 +40,7 @@ impl Controlled {
             revision: snapshot.revision,
             policy: snapshot.policy,
             publication: state.parental.publication.load(Ordering::Acquire),
+            shared_catalog: state.catalog.clone(),
         });
         let session = Session {
             owner: account.id.clone(),

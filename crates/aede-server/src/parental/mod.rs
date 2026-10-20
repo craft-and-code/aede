@@ -15,6 +15,9 @@ pub(super) struct Scope {
     pub(super) revision: u64,
     pub(super) policy: aede_core::parental::Policy,
     publication: u64,
+    // Shared original-audio facts use this graph, never the account projection.
+    // Account-visible responses must continue to use ApiState::catalog.
+    pub(super) shared_catalog: Arc<RwLock<Option<Catalog>>>,
 }
 
 pub(super) fn unavailable() -> ApiError {

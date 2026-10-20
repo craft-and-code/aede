@@ -127,9 +127,10 @@ pub(super) fn run(
                 ..Default::default()
             });
         }
-        let input = identity(&source);
         let result: Result<(Record, bool), String> = (|| {
-            playback_api::validate_source(&source)
+            let source = source.as_ref().map_err(Clone::clone)?;
+            let input = identity(source);
+            playback_api::validate_source(source)
                 .map_err(|_| "audio source changed or unavailable")?;
             if !force
                 && let Some(record) = aede_core::audio_features::load(&state.data_dir, &input)?
@@ -139,7 +140,7 @@ pub(super) fn run(
             let features =
                 aede_core::audio_features::extract(&source.path, || control.checkpoint())?;
             control.checkpoint()?;
-            playback_api::validate_source(&source)
+            playback_api::validate_source(source)
                 .map_err(|_| "audio source changed during extraction")?;
             let catalog = state.catalog.blocking_read();
             if catalog.as_ref().is_none_or(|c| {
@@ -149,8 +150,7 @@ pub(super) fn run(
                     .is_none_or(|f| {
                         f.size != input.size
                             || f.mtime != input.modified
-                            || c.file_mtime_subseconds.get(&f.path).copied().unwrap_or(0)
-                                != input.nanos
+                            || c.file_mtime_subseconds.get(&f.path) != Some(&input.nanos)
                     })
             }) {
                 return Err("catalog source changed during extraction".into());
@@ -189,18 +189,21 @@ pub(super) fn run(
             Err(message) => {
                 control.progress.failed += 1;
                 if failures.len() < 8 {
-                    failures.push(format!(
-                        "{}: {}",
-                        source
-                            .path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .chars()
-                            .take(128)
-                            .collect::<String>(),
-                        message.chars().take(512).collect::<String>()
-                    ));
+                    failures.push(match &source {
+                        Ok(source) => format!(
+                            "{}: {}",
+                            source
+                                .path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .chars()
+                                .take(128)
+                                .collect::<String>(),
+                            message.chars().take(512).collect::<String>()
+                        ),
+                        Err(_) => message.chars().take(512).collect(),
+                    });
                 }
             }
         }

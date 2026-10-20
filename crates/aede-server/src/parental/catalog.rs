@@ -114,11 +114,17 @@ pub(crate) async fn scoped(
     let to_read = owner.clone();
     let snapshot = blocking(&state, move || snapshot(&for_read, &to_read)).await?;
     let publication = state.parental.publication.load(Ordering::Acquire);
+    let shared_catalog = state
+        .parental_scope
+        .as_ref()
+        .map_or(&state.catalog, |scope| &scope.shared_catalog)
+        .clone();
     let scope = Scope {
         owner,
         revision: snapshot.revision,
         policy: snapshot.policy,
         publication,
+        shared_catalog,
     };
     state.parental_scope = Some(scope);
     if project && supervised(&state) {

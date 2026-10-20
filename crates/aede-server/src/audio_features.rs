@@ -66,7 +66,9 @@ pub(super) fn identity(source: &playback_api::TrackSource) -> InputIdentity {
         nanos: source.mtime_subseconds,
     }
 }
-fn sources(state: &ApiState) -> Result<(u64, Vec<playback_api::TrackSource>), String> {
+type SelectedSource = Result<playback_api::TrackSource, String>;
+
+fn sources(state: &ApiState) -> Result<(u64, Vec<SelectedSource>), String> {
     let guard = state.catalog.blocking_read();
     let catalog = guard.as_ref().ok_or("catalog unavailable")?;
     if catalog.files.len() > MAX_FILES {
@@ -77,22 +79,42 @@ fn sources(state: &ApiState) -> Result<(u64, Vec<playback_api::TrackSource>), St
         catalog
             .files
             .iter()
-            .map(|file| playback_api::TrackSource {
-                reference: EntityRef::new(EntityKind::Track, file.path.clone()),
-                path: PathBuf::from(&file.path),
-                file: file.clone(),
-                mtime_subseconds: catalog
+            .map(|file| {
+                let mtime_subseconds = catalog
                     .file_mtime_subseconds
                     .get(&file.path)
                     .copied()
-                    .unwrap_or(0),
+                    .ok_or_else(|| {
+                        format!(
+                            "{}: source timestamp precision unavailable; rescan the library",
+                            Path::new(&file.path)
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .chars()
+                                .take(128)
+                                .collect::<String>()
+                        )
+                    })?;
+                Ok(playback_api::TrackSource {
+                    reference: EntityRef::new(EntityKind::Track, file.path.clone()),
+                    path: PathBuf::from(&file.path),
+                    file: file.clone(),
+                    mtime_subseconds,
+                })
             })
             .collect(),
     ))
 }
 pub(super) fn warm(state: &ApiState) {
-    let epoch = state
-        .catalog
+    // The feature state is installation-wide. Warming a restricted projection
+    // must not replace other accounts' current descriptors or paging revision.
+    let shared_catalog = state
+        .parental_scope
+        .as_ref()
+        .map_or(&state.catalog, |scope| &scope.shared_catalog)
+        .clone();
+    let epoch = shared_catalog
         .try_read()
         .ok()
         .and_then(|c| c.as_ref().map(signature));
@@ -108,7 +130,8 @@ pub(super) fn warm(state: &ApiState) {
     {
         return;
     }
-    let state = state.clone();
+    let mut state = state.clone();
+    state.catalog = shared_catalog;
     tokio::task::spawn_blocking(move || {
         let result: Result<(), String> = (|| {
             let (epoch, sources) = sources(&state)?;
@@ -121,6 +144,9 @@ pub(super) fn warm(state: &ApiState) {
             let mut errors = 0;
             for source in sources {
                 control.checkpoint()?;
+                // Unknown scan precision is missing evidence, not a zero stamp
+                // with which to address a previously measured cache record.
+                let Ok(source) = source else { continue };
                 match aede_core::audio_features::load(&state.data_dir, &identity(&source)) {
                     Ok(Some(record)) => {
                         rows.insert(record.input.path.clone(), record);
@@ -174,12 +200,7 @@ pub(super) fn current<'a>(
     let record = facts.rows.get(&file.path)?;
     (record.input.size == file.size
         && record.input.modified == file.mtime
-        && record.input.nanos
-            == catalog
-                .file_mtime_subseconds
-                .get(&file.path)
-                .copied()
-                .unwrap_or(0))
+        && catalog.file_mtime_subseconds.get(&file.path) == Some(&record.input.nanos))
     .then_some(&record.features)
 }
 pub(super) fn coverage(state: &ApiState, catalog: &Catalog, facts: &Facts) -> serde_json::Value {

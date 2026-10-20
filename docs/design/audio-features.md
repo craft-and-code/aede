@@ -16,7 +16,11 @@ Source descriptors and FFT/scratch/onset state are bounded independently of dura
 
 Each complete input publishes one bounded atomic JSON record below the protected data directory, keyed by profile, canonical catalog path, original size and nanosecond mtime. Interrupted sources publish nothing; completed prior files remain reusable after process restart. Profile/source mismatch is missing evidence, not a fresh result. Malformed caches and unsafe links are reported rather than resetting source/personal data. No original audio, embedded tag, FlacCompagnon report or personal store is rewritten.
 
+A legacy catalogue row without scanned nanosecond precision cannot match a known zero fraction. Cache warming and mood projections leave that source missing; extraction reports it unavailable with a rescan instruction while continuing other sources. Completed cache files are retained. Source validation before cache reuse and after extraction requires the same exact, known scan stamp.
+
 Acoustic descriptors are shared original-audio facts. Exemplar labels and resulting mood projections are derived exclusively from the current owner's rules and annotations. Another owner's tags, stars, notes and history never become training examples or shared models. Shared features cannot persist personal target names or rule membership.
+
+Cache warming uses the installation's shared catalogue, including when requested through a supervised account. A filtered view must neither replace the shared descriptors with its subset nor invalidate other accounts' unchanged paging evidence. The account's own catalogue projection still limits descriptor coverage, examples and returned albums; retaining the shared graph for cache loading does not widen those responses.
 
 ## HTTP and client integration
 

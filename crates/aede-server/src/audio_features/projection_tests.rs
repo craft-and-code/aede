@@ -68,6 +68,7 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
     {
         let mut facts = state.audio_features.facts.lock().unwrap();
         for file in &catalog.files {
+            catalog.file_mtime_subseconds.insert(file.path.clone(), 0);
             facts.rows.insert(
                 file.path.clone(),
                 Record {
@@ -198,6 +199,7 @@ fn large_acoustic_projection_preserves_counts_and_requires_distinct_source_examp
     {
         let mut facts = state.audio_features.facts.lock().unwrap();
         for file in &catalog.files {
+            catalog.file_mtime_subseconds.insert(file.path.clone(), 0);
             facts.rows.insert(
                 file.path.clone(),
                 Record {
