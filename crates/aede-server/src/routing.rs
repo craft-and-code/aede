@@ -6,6 +6,10 @@ pub(super) fn router(state: ApiState, address: SocketAddr) -> Router {
     router_with_policy(state, OriginPolicy::Local(address))
 }
 
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod tests;
+
 /// HTTPS administration requires a named administrator session, never a legacy token.
 pub(super) fn remote_router(mut state: ApiState, authority: RemoteAuthority) -> Router {
     if let Some(admin) = state.admin.as_mut() {
@@ -66,7 +70,19 @@ fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
             let template = template.clone();
             async move {
                 let principal = request.extensions().get::<auth::Principal>().cloned();
-                let scoped = match principal.clone() {
+                let api_read = request.uri().path().starts_with("/api/")
+                    && matches!(
+                        *request.method(),
+                        axum::http::Method::GET | axum::http::Method::HEAD
+                    );
+                let identity = auth::SocketIdentity {
+                    session: principal.clone(),
+                    administrative: request
+                        .extensions()
+                        .get::<auth::AdministrativeAccess>()
+                        .is_some(),
+                };
+                let scoped = match principal {
                     Some(owner)
                         if !request.uri().path().starts_with("/api/auth/")
                             && !request.uri().path().starts_with("/api/admin/")
@@ -93,12 +109,12 @@ fn router_with_policy(state: ApiState, policy: OriginPolicy) -> Router {
                     Ok(response) => response,
                     Err(never) => match never {},
                 };
-                if scoped.parental_scope.is_some() {
+                // Reads can outlive logout or account activation, including
+                // administrator/anonymous reads with no parental projection.
+                if scoped.parental_scope.is_some() || api_read {
                     let for_check = scoped.clone();
                     if let Err(error) = crate::parental::blocking(&scoped, move || {
-                        if let Some(principal) = &principal {
-                            auth::recheck(&for_check, principal)?;
-                        }
+                        auth::confirm_access(&for_check, &identity)?;
                         crate::parental::finish(&for_check)
                     })
                     .await
