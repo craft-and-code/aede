@@ -45,6 +45,7 @@ const SOURCE_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const PRODUCER_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_RECHECK_INTERVAL: Duration = Duration::from_secs(1);
+const AUTH_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 const HISTORY_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const WORKER_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -669,8 +670,8 @@ async fn receive_start(
             _ = &mut deadline => return Err(Some(StreamFailure::INVALID_START)),
             _ = shutdown.recv() => return Err(Some(StreamFailure::SERVER_SHUTDOWN)),
             _ = authorization.tick() => {
-                if !authorized(state, captured, false).await {
-                    return Err(Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)));
+                if let Err(failure) = authorized(state, captured, false, shutdown).await {
+                    return Err(Some(failure));
                 }
             }
             incoming = socket.recv() => {
@@ -715,7 +716,30 @@ async fn wait_for_format(socket: &mut WebSocket) -> Result<bool, StreamFailure> 
     }
 }
 
-async fn authorized(state: &ApiState, captured: &auth::Principal, touch: bool) -> bool {
+async fn authorized(
+    state: &ApiState,
+    captured: &auth::Principal,
+    touch: bool,
+    shutdown: &mut crate::shutdown::Receiver,
+) -> Result<(), StreamFailure> {
+    // Credential/policy workers can outlive this wait. Keep shutdown responsive
+    // and bound how long a disconnected peer can retain a playback connection.
+    let confirmation = tokio::select! {
+        biased;
+        _ = shutdown.recv() => return Err(StreamFailure::SERVER_SHUTDOWN),
+        confirmation = tokio::time::timeout(
+            AUTH_CHECK_TIMEOUT, check_authorized(state, captured, touch),
+        ) => confirmation,
+    };
+    if matches!(confirmation, Ok(true)) {
+        Ok(())
+    } else {
+        Err(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED))
+    }
+}
+
+async fn check_authorized(state: &ApiState, captured: &auth::Principal, touch: bool) -> bool {
+    let publication = state.parental.catalog_revision();
     let Ok(Some(accounts)) = auth::current_accounts(state).await else {
         return false;
     };
@@ -731,18 +755,17 @@ async fn authorized(state: &ApiState, captured: &auth::Principal, touch: bool) -
     if auth::require_mutation(&principal).is_err() {
         return false;
     }
-    if let Some(session) = &state.parental_pcm {
-        return session.check(state).await;
-    }
-    if state.parental_scope.is_some() {
-        let state = state.clone();
+    let policy_allowed = if let Some(session) = &state.parental_pcm {
+        session.check(state).await
+    } else if state.parental_scope.is_some() {
+        let for_check = state.clone();
         let owner = principal.owner.clone();
-        return tokio::task::spawn_blocking(move || {
-            crate::parental::confirm(&state)?;
-            if !crate::parental::supervised(&state) {
+        crate::parental::blocking(state, move || {
+            crate::parental::confirm(&for_check)?;
+            if !crate::parental::supervised(&for_check) {
                 return Ok(());
             }
-            crate::parental::load(&state)?
+            crate::parental::load(&for_check)?
                 .check_schedule(
                     &owner,
                     aede_core::clock::now_seconds(),
@@ -751,9 +774,22 @@ async fn authorized(state: &ApiState, captured: &auth::Principal, touch: bool) -
                 .map_err(|reason| crate::parental::refused(&reason))
         })
         .await
-        .is_ok_and(|result: Result<(), ApiError>| result.is_ok());
-    }
-    true
+        .is_ok()
+    } else {
+        return true;
+    };
+    // Policy/lease work can wait after the first credential read. Its success
+    // must not revive a login revoked while that work was pending.
+    policy_allowed
+        && auth::socket_live(
+            state,
+            &auth::SocketIdentity {
+                session: Some(captured.clone()),
+                administrative: false,
+            },
+        )
+        .await
+        && publication == state.parental.catalog_revision()
 }
 
 async fn send_json(socket: &mut WebSocket, value: impl Serialize) -> Result<(), ()> {
@@ -790,14 +826,13 @@ async fn keep_authorized(
     captured: &auth::Principal,
     last_check: &mut Instant,
     force: bool,
-) -> bool {
+    shutdown: &mut crate::shutdown::Receiver,
+) -> Result<(), StreamFailure> {
     if force || last_check.elapsed() >= AUTH_RECHECK_INTERVAL {
-        if !authorized(state, captured, false).await {
-            return false;
-        }
+        authorized(state, captured, false, shutdown).await?;
         *last_check = Instant::now();
     }
-    true
+    Ok(())
 }
 
 async fn receive_ack(
@@ -903,12 +938,12 @@ async fn drive_inner(
                 },
             },
             _ = authorization.tick() => {
-                if !keep_authorized(state, captured, &mut last_authentication, true).await {
+                if let Err(failure) = keep_authorized(state, captured, &mut last_authentication, true, shutdown).await {
                     return DriveEnd {
                         acknowledged_frames: 0,
                         sample_rate: None,
                         completed: false,
-                        failure: Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)),
+                        failure: Some(failure),
                         notify: true,
                         control: None,
                     };
@@ -988,14 +1023,13 @@ async fn drive_inner(
             true,
         );
     }
-    if !keep_authorized(state, captured, &mut last_authentication, true).await {
+    if let Err(failure) =
+        keep_authorized(state, captured, &mut last_authentication, true, shutdown).await
+    {
         return DriveEnd::stopped(
             &acknowledgements,
             Some(format.sample_rate),
-            Some(
-                crate::parental::pcm::failure(state)
-                    .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
-            ),
+            Some(failure),
             true,
         );
     }
@@ -1087,15 +1121,19 @@ async fn drive_inner(
                             });
                             frames = accepted;
                         }
-                        if !keep_authorized(state, captured, &mut last_authentication, false).await
+                        if let Err(failure) = keep_authorized(
+                            state,
+                            captured,
+                            &mut last_authentication,
+                            false,
+                            shutdown,
+                        )
+                        .await
                         {
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
-                                Some(
-                                    crate::parental::pcm::failure(state)
-                                        .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
-                                ),
+                                Some(failure),
                                 true,
                             );
                         }
@@ -1133,14 +1171,14 @@ async fn drive_inner(
                             true,
                         );
                     }
-                    if !keep_authorized(state, captured, &mut last_authentication, false).await {
+                    if let Err(failure) =
+                        keep_authorized(state, captured, &mut last_authentication, false, shutdown)
+                            .await
+                    {
                         return DriveEnd::stopped(
                             &acknowledgements,
                             Some(format.sample_rate),
-                            Some(
-                                crate::parental::pcm::failure(state)
-                                    .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
-                            ),
+                            Some(failure),
                             true,
                         );
                     }
@@ -1182,15 +1220,19 @@ async fn drive_inner(
                         // device format before any differently laid out bytes.
                         pending = Some(ProducerEvent::Format(next));
                     } else {
-                        if !keep_authorized(state, captured, &mut last_authentication, false).await
+                        if let Err(failure) = keep_authorized(
+                            state,
+                            captured,
+                            &mut last_authentication,
+                            false,
+                            shutdown,
+                        )
+                        .await
                         {
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
-                                Some(
-                                    crate::parental::pcm::failure(state)
-                                        .unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED),
-                                ),
+                                Some(failure),
                                 true,
                             );
                         }
@@ -1313,11 +1355,11 @@ async fn drive_inner(
                 );
             }
             _ = authorization.tick() => {
-                if !keep_authorized(state, captured, &mut last_authentication, true).await {
+                if let Err(failure) = keep_authorized(state, captured, &mut last_authentication, true, shutdown).await {
                     return DriveEnd::stopped(
                         &acknowledgements,
                         Some(format.sample_rate),
-                        Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)),
+                        Some(failure),
                         true,
                     );
                 }
@@ -1332,9 +1374,9 @@ async fn drive_inner(
             }
             incoming = interactive::receive(socket, &mut acknowledgements, interactive) => match incoming {
                 Ok(interactive::Incoming::Control(control)) => {
-                    if !authorized(state, captured, true).await {
+                    if let Err(failure) = authorized(state, captured, true, shutdown).await {
                         return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
-                            Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)), true);
+                            Some(failure), true);
                     }
                     let mut end = DriveEnd::stopped(&acknowledgements, Some(format.sample_rate), None, false);
                     end.control = Some(control);
@@ -1349,11 +1391,11 @@ async fn drive_inner(
                         // Awaiting this read inside `receive_ack` would let
                         // another ready producer event cancel it after the
                         // socket message and frame count were already consumed.
-                        if !authorized(state, captured, true).await {
+                        if let Err(failure) = authorized(state, captured, true, shutdown).await {
                             return DriveEnd::stopped(
                                 &acknowledgements,
                                 Some(format.sample_rate),
-                                Some(crate::parental::pcm::failure(state).unwrap_or(StreamFailure::AUTHENTICATION_EXPIRED)),
+                                Some(failure),
                                 true,
                             );
                         }
@@ -1613,8 +1655,8 @@ async fn playback_stream(
         }
         Err(None) => return,
     };
-    if !authorized(&state, &captured, false).await {
-        send_failure(&mut socket, StreamFailure::AUTHENTICATION_EXPIRED).await;
+    if let Err(failure) = authorized(&state, &captured, false, &mut shutdown).await {
+        send_failure(&mut socket, failure).await;
         return;
     }
     if start.interactive {

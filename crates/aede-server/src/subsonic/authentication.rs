@@ -176,6 +176,26 @@ fn credential(parameters: &Parameters) -> Result<(String, Option<&str>), Protoco
 }
 
 pub(crate) async fn recheck(state: &ApiState, identity: &Identity) -> Result<(), ProtocolError> {
+    let publication = state.parental.catalog_revision();
+    confirm_key(state, identity).await?;
+    if state.parental_scope.is_some() {
+        let for_check = state.clone();
+        crate::parental::blocking(state, move || crate::parental::finish(&for_check))
+            .await
+            .map_err(|_| ProtocolError::new(50, "parental policy changed or is unavailable"))?;
+        // The policy worker may have waited through revocation of this key.
+        confirm_key(state, identity).await?;
+        if publication != state.parental.catalog_revision() {
+            return Err(ProtocolError::new(
+                50,
+                "parental policy changed or is unavailable",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn confirm_key(state: &ApiState, identity: &Identity) -> Result<(), ProtocolError> {
     let accounts = auth::current_accounts(state)
         .await
         .map_err(|_| unavailable())?
@@ -188,12 +208,6 @@ pub(crate) async fn recheck(state: &ApiState, identity: &Identity) -> Result<(),
             identity.revision,
         )
         .ok_or_else(invalid)?;
-    if state.parental_scope.is_some() {
-        let for_check = state.clone();
-        crate::parental::blocking(state, move || crate::parental::finish(&for_check))
-            .await
-            .map_err(|_| ProtocolError::new(50, "parental policy changed or is unavailable"))?;
-    }
     Ok(())
 }
 

@@ -104,4 +104,6 @@ Phémios can retrieve selected originals from a local or remote Aède before usi
 
 `GET /api/me/v1/exports/original?ref=<track-reference>&stamp=<plan-stamp>` streams the exact catalogued file. A changed stamp/source is refused; normal source identity, byte-range and transfer-slot checks are shared with the original-media transport. The response is private, `no-store`, and creates neither history nor completion evidence. Both endpoints require a named user/administrator session; auditors, anonymous access and enabled parental policies are refused. Long responses recheck the exact bearer session and current parental policy while backpressured, independently of persistent Subsonic client-key authentication. They never expose a general filesystem-read route.
 
+Bearer export confirmations share bounded account/policy read admission. Cancelling a response or timing out its confirmation does not free that admission until the queued filesystem worker actually exits; excess confirmations are refused instead of accumulating unbounded work.
+
 The destination remains on the Phémios machine; an export request cannot ask Aède to write a client-supplied path. Updating only Phémios does not add this capability to an older running server: update/restart Aède too.

@@ -321,13 +321,13 @@ async fn reset_ack(
             _ = &mut deadline => return Err(StreamFailure::ACK_TIMEOUT),
             _ = shutdown.recv() => return Err(StreamFailure::SERVER_SHUTDOWN),
             _ = authorization.tick() => {
-                if !authorized(state,captured,false).await { return Err(StreamFailure::AUTHENTICATION_EXPIRED) }
+                authorized(state, captured, false, shutdown).await?;
             }
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Text(input))) => {
                     let ack: ResetAck = serde_json::from_str(&input).map_err(|_| StreamFailure::INVALID_CONTROL)?;
                     if ack.kind != "reset_ack" || ack.epoch != epoch { return Err(StreamFailure::INVALID_CONTROL) }
-                    if !authorized(state,captured,true).await { return Err(StreamFailure::AUTHENTICATION_EXPIRED) }
+                    authorized(state, captured, true, shutdown).await?;
                     return Ok(());
                 }
                 Some(Ok(Message::Ping(payload))) => { events::send_message(socket,Message::Pong(payload)).await.map_err(|_|StreamFailure::STREAM_FAILED)?; }

@@ -39,12 +39,15 @@ impl MediaIdentity {
         match self {
             Self::Key(identity) => authentication::recheck(state, identity).await,
             Self::Session(identity) => {
-                let state = state.clone();
+                let for_check = state.clone();
                 let identity = identity.clone();
-                tokio::task::spawn_blocking(move || crate::exports::admit(&state, &identity))
-                    .await
-                    .map_err(|_| ProtocolError::new(40, "export authorization unavailable"))?
-                    .map_err(|_| ProtocolError::new(40, "export authorization revoked"))
+                // A cancelled HTTP waiter cannot release queued credential and
+                // policy reads before their filesystem worker actually exits.
+                crate::parental::blocking(state, move || {
+                    crate::exports::admit(&for_check, &identity)
+                })
+                .await
+                .map_err(|_| ProtocolError::new(40, "export authorization could not be confirmed"))
             }
         }
     }
@@ -67,6 +70,10 @@ fn unavailable() -> ProtocolError {
         70,
         "Media source is unavailable or changed; refresh the catalog",
     )
+}
+
+fn shutting_down() -> ProtocolError {
+    ProtocolError::new(0, "server is shutting down")
 }
 
 fn valid_opened(source: &TrackSource, metadata: &Metadata) -> bool {
@@ -146,9 +153,19 @@ pub(crate) async fn response_for(
     download: bool,
     expected_stamp: Option<String>,
 ) -> Result<Response, ProtocolError> {
-    identity.recheck(&state).await?;
+    // Retain shutdown through admission/catalogue waits, not only file opening.
+    let mut shutdown = state.shutdown.subscribe();
+    tokio::select! {
+        biased;
+        _ = shutdown.recv() => return Err(shutting_down()),
+        confirmed = identity.recheck(&state) => confirmed?,
+    }
     let source = {
-        let catalog = state.catalog.read().await;
+        let catalog = tokio::select! {
+            biased;
+            _ = shutdown.recv() => return Err(shutting_down()),
+            catalog = state.catalog.read() => catalog,
+        };
         let catalog = catalog.as_ref().ok_or_else(unavailable)?;
         source_from_catalog(catalog, &track).map_err(|_| unavailable())?
     };
@@ -164,17 +181,18 @@ pub(crate) async fn response_for(
         .clone()
         .try_acquire_owned()
         .map_err(|_| ProtocolError::new(0, "Too many active audio transfers; retry later"))?;
-    let mut shutdown = state.shutdown.subscribe();
     let opening = tokio::time::timeout(
         OPEN_TIMEOUT,
         tokio::task::spawn_blocking(move || open_source(source, permit)),
     );
     let opened = tokio::select! {
-        _ = shutdown.recv() => return Err(ProtocolError::new(0, "server is shutting down")),
+        biased;
+        _ = shutdown.recv() => return Err(shutting_down()),
         opened = opening => opened.map_err(|_| unavailable())?.map_err(|_| unavailable())??,
     };
     tokio::select! {
-        _ = shutdown.recv() => return Err(ProtocolError::new(0, "server is shutting down")),
+        biased;
+        _ = shutdown.recv() => return Err(shutting_down()),
         confirmation = tokio::time::timeout(AUTH_TIMEOUT, identity.recheck(&state)) => {
             confirmation.map_err(|_| ProtocolError::new(40, "API key could not be confirmed"))??;
         }

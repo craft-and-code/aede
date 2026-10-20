@@ -18,7 +18,7 @@ The catalogue is graph-based and common to installation accounts. Personal annot
 
 ## Verification status
 
-The 2026-10-20 workspace verification passed 2,648 Rust tests (unit, integration and documentation tests), including M2 account/session publication and notification lifecycle regressions, M3 playback/DSP and M4 network-session regressions, with required FFmpeg coverage. Helper/site/release/terminal checks, Clippy, Rustdoc and the optimized CLI build also passed. This is software evidence; it does not establish live-provider, native-client or physical-output acceptance.
+The 2026-10-20 workspace verification passed 2,663 Rust tests (unit, integration and documentation tests), including M2–M4 retained shutdown, bounded credential/policy workers, revocation during deferred preparation and network-session cancellation regressions, with required FFmpeg coverage. Helper/site/release/terminal checks, Clippy, Rustdoc and the optimized CLI build also passed. This is software evidence; it does not establish live-provider, native-client or physical-output acceptance.
 
 The root gate is `tools/check.sh`; the independent desktop gate is `desktop/tools/check.sh`. The root gate completed in full; the unchanged desktop App was not rebuilt. [CI/release procedures](ci-and-releases.md) describe artifacts and versioning; [desktop dependencies](desktop-dependencies.md) records exact approved GTK warnings. Fresh advisory lookups are separate from offline checks and do not cover pinned Git sources. Release CI and artifacts remain the authority for a tagged platform build.
 

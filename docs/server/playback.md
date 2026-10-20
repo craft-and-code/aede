@@ -177,6 +177,8 @@ A normal early close, timeout or processing failure can record acknowledged part
 
 Four playback slots bound active decoding and associated history work. Additional upgrades return `503 playback_busy`; invalid sessions return `401 unauthorized`, and auditor access returns `403 forbidden`. Control messages are limited to 4 KiB and finite queues to 64 occurrences. The producer has four queued events and the client window is one second. Initial start/source preparation, missing client consumption progress and stalled source production have ten-second deadlines; socket sends have a five-second deadline. A paused client must resume within the consumption deadline or reconnect. History publication has a bounded response wait and retries a busy data lock for at most five seconds before failing.
 
+Account/policy confirmation has a two-second wait limit and remains interruptible by server shutdown, including during start, format transitions, controls and reset acknowledgement. An unavailable confirmation refuses further audio. Pending blocking reads keep their worker admission until they finish; producer and private-store cleanup keep their independent lifetime limits.
+
 After upgrade, failures send `{"type":"error","code":"…","message":"…"}` when the socket remains writable, then close. Inspect `code`; human messages may change:
 
 | Code | Meaning |

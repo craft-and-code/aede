@@ -76,6 +76,13 @@ fn unavailable() -> ApiError {
         "network audio unavailable",
     )
 }
+fn shutting_down() -> ApiError {
+    error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "server_shutdown",
+        "server is shutting down",
+    )
+}
 fn owner(state: &ApiState, request: &Request) -> Result<auth::Principal, ApiError> {
     require_admin(state, request)?;
     let principal = auth::request_principal(request)?;
@@ -219,6 +226,7 @@ async fn play(
     State(state): State<ApiState>,
     request: Request,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let mut shutdown = state.shutdown.subscribe();
     let principal = owner(&state, &request)?;
     let (_, bytes) = super::jobs::administrative_body(&state, request, 1024 * 1024).await?;
     let input: Playback = decode(&bytes)?;
@@ -231,7 +239,11 @@ async fn play(
         .options()
         .map_err(|_| super::invalid_query("invalid network device options"))?;
     let sources = {
-        let catalog = state.catalog.read().await;
+        let catalog = tokio::select! {
+            biased;
+            _ = shutdown.recv() => return Err(shutting_down()),
+            catalog = state.catalog.read() => catalog,
+        };
         let catalog = catalog.as_ref().ok_or_else(unavailable)?;
         input
             .tracks
@@ -262,6 +274,12 @@ async fn play(
     .map_err(|_| unavailable())?
     .map_err(|_| super::invalid_query("track source changed; rescan the library"))?;
     auth::recheck(&state, &principal)?;
+    if !matches!(
+        shutdown.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty)
+    ) {
+        return Err(shutting_down());
+    }
     let id = state.next_task_id.fetch_add(1, Ordering::Relaxed);
     let cancelled = Arc::new(AtomicBool::new(false));
     {
@@ -291,6 +309,7 @@ async fn play(
         cancelled,
         options,
         paths,
+        shutdown,
     ));
     Ok(Json(serde_json::json!({"id":id,"status":"running"})))
 }
@@ -301,10 +320,10 @@ fn supervise(
     cancelled: Arc<AtomicBool>,
     options: aede_devices::CastOptions,
     paths: Vec<PathBuf>,
+    mut shutdown: crate::shutdown::Receiver,
 ) -> impl Future<Output = ()> + Send {
-    // Capture shutdown before spawning: an accepted run must not lose a signal
+    // Keep the receiver captured before source preparation, including signals
     // delivered before this future receives its first poll.
-    let mut shutdown = state.shutdown.subscribe();
     let cancel_on_drop = CancellationGuard(cancelled.clone());
     async move {
         let _cancel_on_drop = cancel_on_drop;
@@ -318,18 +337,34 @@ fn supervise(
         let mut worker = tokio::task::spawn_blocking(move || {
             aede_devices::cast_controlled(options, paths, flag)
         });
-        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        let identity = auth::SocketIdentity {
+            session: Some(principal),
+            administrative: false,
+        };
+        let authorization = async {
+            let mut interval = tokio::time::interval(Duration::from_millis(500));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                if !auth::socket_live(&state, &identity).await {
+                    return;
+                }
+            }
+        };
+        tokio::pin!(authorization);
+        // A queued credential read cannot suspend shutdown or lease expiry.
+        let mut lease = tokio::time::interval(Duration::from_millis(500));
+        lease.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut shutdown_seen = false;
         let outcome = loop {
             tokio::select! {
                 result = &mut worker => break result,
                 _ = shutdown.recv(), if !shutdown_seen => { shutdown_seen = true; cancelled.store(true, Ordering::Release); },
-                _ = interval.tick() => {
-                    let expired = state.network_audio.expired(id);
-                    if expired { cancelled.store(true, Ordering::Release); }
-
-                    let check_state = state.clone(); let check_principal = principal.clone();
-                    if !matches!(tokio::task::spawn_blocking(move || auth::recheck(&check_state, &check_principal)).await, Ok(Ok(()))) {
+                _ = &mut authorization, if !cancelled.load(Ordering::Acquire) => {
+                    cancelled.store(true, Ordering::Release);
+                }
+                _ = lease.tick() => {
+                    if state.network_audio.expired(id) {
                         cancelled.store(true, Ordering::Release);
                     }
                 }

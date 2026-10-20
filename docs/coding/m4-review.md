@@ -8,7 +8,9 @@ Discovery is explicit and bounded. All-profile discovery returns typed rows and 
 
 Every graphical control route rechecks its captured administrator session after bounded body reception, before reading/renewing a run, admitting discovery or inspection, resolving playback, or dispatching Stop. A logout during request reception cannot use the former login to refresh a lease or change a session. Accepted playback retains its existing supervised cancellation lifecycle.
 
-Accepted supervision subscribes to server shutdown before it is scheduled. An intervening shutdown remains visible at its first poll and cancels transport admission; dropping even an unpolled supervisor retains its cancellation guard.
+Network playback captures server shutdown before request/source preparation. Catalogue waits observe that signal, and completed filesystem validation must refuse admission after shutdown. Accepted supervision retains the same receiver when it is scheduled, so an intervening shutdown remains visible at its first poll and cancels transport admission; dropping even an unpolled supervisor retains its cancellation guard.
+
+Credential confirmation runs independently of shutdown and heartbeat expiry. A queued or stalled account read cannot suspend either cancellation signal. Network supervision shares the bounded socket-identity read admission; detached credential workers retain that admission until they actually exit.
 
 ## Ownership and input admission
 

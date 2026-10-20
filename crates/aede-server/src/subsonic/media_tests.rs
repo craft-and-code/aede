@@ -1,6 +1,131 @@
 use super::*;
 
 #[test]
+fn shutdown_during_catalogue_preparation_cannot_start_an_original_transfer() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut late = Vec::new();
+        for bearer in [true, false] {
+            let fixture = crate::accounts_test_support::Fixture::new();
+            let installed = crate::playback_test_support::install_wav(&fixture, 400).await;
+            let identity = if bearer {
+                let accounts = fixture.accounts();
+                let (principal, _) = crate::auth::start_session(
+                    &fixture.0,
+                    &accounts,
+                    accounts.find("alice").unwrap(),
+                )
+                .unwrap();
+                MediaIdentity::Session(principal)
+            } else {
+                let token = crate::subsonic::test_support::key(&fixture, "alice");
+                let identity = authentication::authenticate(
+                    &fixture.0,
+                    &super::super::Parameters::from_pairs(&[("apiKey", &token)]),
+                )
+                .await
+                .unwrap();
+                MediaIdentity::Key(identity)
+            };
+            let _shutdown_observer = fixture.0.shutdown.subscribe();
+            let catalog = fixture.0.catalog.write().await;
+            let mut response = Box::pin(response_for(
+                fixture.0.clone(),
+                identity,
+                EntityRef::parse_token(&installed.reference).unwrap(),
+                HeaderMap::new(),
+                true,
+                None,
+            ));
+            let (release, worker) = crate::test_support::hold_blocking_worker().await;
+            std::future::poll_fn(|context| {
+                assert!(response.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            // Complete admission, then leave the transfer waiting for the catalogue.
+            drop(release);
+            worker.await.unwrap();
+            tokio::task::spawn_blocking(|| ()).await.unwrap();
+            std::future::poll_fn(|context| {
+                assert!(response.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            fixture.0.shutdown.send(()).unwrap();
+            drop(catalog);
+            if let Ok(response) = response.await {
+                let bytes = axum::body::to_bytes(response.into_body(), 1_000_000)
+                    .await
+                    .unwrap();
+                late.push((bearer, bytes.len()));
+            }
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while fixture.0.playback_slots.available_permits() != crate::MAX_PLAYBACKS {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(!aede_core::user::user_path(&fixture.0.data_dir).exists());
+        }
+        assert!(
+            late.is_empty(),
+            "transfers started after server shutdown: {late:?}"
+        );
+    });
+}
+
+#[test]
+fn cancelled_export_confirmations_retain_bounded_worker_admission() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = crate::accounts_test_support::Fixture::new();
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            crate::auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap())
+                .unwrap();
+        let identity = MediaIdentity::Session(principal);
+        let capacity = fixture.0.parental.read_slots.available_permits();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut pending = Vec::new();
+        for _ in 0..capacity {
+            let mut confirmation = Box::pin(identity.recheck(&fixture.0));
+            std::future::poll_fn(|context| {
+                assert!(confirmation.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            pending.push(confirmation);
+        }
+        // Retiring HTTP waiters must not retire their queued filesystem reads.
+        drop(pending);
+        let retained = fixture.0.parental.read_slots.available_permits();
+        let excess =
+            tokio::time::timeout(Duration::from_millis(100), identity.recheck(&fixture.0)).await;
+        drop(release);
+        worker.await.unwrap();
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        assert!(
+            matches!(excess, Ok(Err(_))),
+            "excess confirmations must be refused instead of queueing more workers"
+        );
+        assert_eq!(retained, 0, "cancelled reads must retain their admission");
+        assert_eq!(fixture.0.parental.read_slots.available_permits(), capacity);
+        assert!(identity.recheck(&fixture.0).await.is_ok());
+        assert!(!aede_core::user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
 fn revocation_and_shutdown_stop_full_queues_without_releasing_the_slot_early() {
     crate::test_support::test_runtime().block_on(async {
         for (revoke, frames) in [(true, 400), (true, 131_072), (false, 131_072)] {

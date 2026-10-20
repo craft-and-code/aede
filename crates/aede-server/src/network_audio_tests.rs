@@ -1,4 +1,108 @@
 use super::*;
+
+#[test]
+fn shutdown_during_network_source_preparation_cannot_admit_playback() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        for source_wait in [false, true] {
+            let fixture = crate::accounts_test_support::Fixture::new();
+            let installed = crate::playback_test_support::install_wav(&fixture, 400).await;
+            let accounts = fixture.accounts();
+            let (principal, _) =
+                auth::start_session(&fixture.0, &accounts, accounts.find("operator").unwrap())
+                    .unwrap();
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/api/admin/v1/network-audio/play")
+                .header(
+                    "authorization",
+                    format!("Bearer {}", auth::session_token(&principal)),
+                )
+                .body(axum::body::Body::from(
+                    serde_json::json!({
+                        "bind": "127.0.0.1",
+                        "device": "http://127.0.0.1:1/description.xml",
+                        "tracks": [installed.reference],
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+            request.extensions_mut().insert(principal);
+            let _shutdown_observer = fixture.0.shutdown.subscribe();
+            let catalog = if source_wait {
+                None
+            } else {
+                Some(fixture.0.catalog.write().await)
+            };
+            let (release, worker) = crate::test_support::hold_blocking_worker().await;
+            let mut playback = Box::pin(play(State(fixture.0.clone()), request));
+            std::future::poll_fn(|context| {
+                assert!(playback.as_mut().poll(context).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            drop(release);
+            worker.await.unwrap();
+            tokio::task::spawn_blocking(|| ()).await.unwrap();
+            let validation = if source_wait {
+                Some(crate::test_support::hold_blocking_worker().await)
+            } else {
+                None
+            };
+            std::future::poll_fn(|context| {
+                assert!(playback.as_mut().poll(context).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            fixture.0.shutdown.send(()).unwrap();
+            drop(catalog);
+            if let Some((release, worker)) = validation {
+                drop(release);
+                worker.await.unwrap();
+            }
+            let result = playback.await;
+            let admitted = {
+                let held = fixture.0.network_audio.run.lock().unwrap();
+                if let Some(run) = held.as_ref() {
+                    // The current-thread fixture cancels before the spawned
+                    // supervisor can receive its first poll or contact a device.
+                    run.cancelled.store(true, Ordering::Release);
+                }
+                held.is_some()
+            };
+            if admitted {
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    loop {
+                        if fixture
+                            .0
+                            .network_audio
+                            .run
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .is_none_or(|run| !matches!(run.status, "running" | "stopping"))
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .unwrap();
+            }
+            assert!(
+                result.is_err() && !admitted,
+                "shutdown must refuse admission (source_wait={source_wait})"
+            );
+            assert!(!aede_core::user::user_path(&fixture.0.data_dir).exists());
+        }
+    });
+}
+
 #[test]
 fn network_sessions_are_visible_only_to_the_exact_login() {
     let registry = NetworkAudio::default();
@@ -119,9 +223,102 @@ fn dropping_unpolled_supervision_requests_transport_shutdown() {
         flag.clone(),
         options,
         Vec::new(),
+        fixture.0.shutdown.subscribe(),
     );
     drop(supervision);
     assert!(flag.load(Ordering::Acquire));
+}
+
+#[test]
+fn queued_network_authentication_cannot_delay_shutdown_or_lease_expiry() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut delayed = Vec::new();
+        for shutdown in [true, false] {
+            let fixture = crate::accounts_test_support::Fixture::new();
+            let accounts = fixture.accounts();
+            let principal =
+                auth::start_session(&fixture.0, &accounts, accounts.find("operator").unwrap())
+                    .unwrap()
+                    .0;
+            let source = crate::playback_test_support::install_wav(&fixture, 400).await;
+            let cancelled = Arc::new(AtomicBool::new(false));
+            *fixture.0.network_audio.run.lock().unwrap() = Some(Run {
+                id: 7,
+                owner: auth::session_token(&principal).into(),
+                cancelled: cancelled.clone(),
+                status: "running",
+                last_seen: Instant::now(),
+            });
+            let options = aede_devices::CastOptions {
+                bind: Ipv4Addr::LOCALHOST,
+                protocol: aede_devices::DeviceProtocol::Upnp,
+                device: "http://127.0.0.1:1/description.xml".into(),
+                port: None,
+                replace: false,
+                volume: None,
+                certificate_sha256: None,
+            };
+            let (release, worker) = crate::test_support::hold_blocking_worker().await;
+            let mut supervision = Box::pin(supervise(
+                fixture.0.clone(),
+                principal,
+                7,
+                cancelled.clone(),
+                options,
+                vec![source.path],
+                fixture.0.shutdown.subscribe(),
+            ));
+            poll_pending_supervision(supervision.as_mut()).await;
+            // Let the immediate authorization tick become ready, then queue
+            // its credential worker behind the held blocking pool.
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            poll_pending_supervision(supervision.as_mut()).await;
+            assert!(!cancelled.load(Ordering::Acquire));
+            if shutdown {
+                fixture.0.shutdown.send(()).unwrap();
+            } else {
+                fixture
+                    .0
+                    .network_audio
+                    .run
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .last_seen = Instant::now() - Duration::from_secs(6);
+                tokio::time::sleep(Duration::from_millis(550)).await;
+            }
+            poll_pending_supervision(supervision.as_mut()).await;
+            if !cancelled.load(Ordering::Acquire) {
+                delayed.push(if shutdown { "shutdown" } else { "lease expiry" });
+            }
+            // Drain queued work only after observing the cancellation boundary.
+            // No real renderer is contacted, even on regression failure.
+            cancelled.store(true, Ordering::Release);
+            drop(release);
+            worker.await.unwrap();
+            tokio::time::timeout(Duration::from_secs(3), supervision)
+                .await
+                .unwrap();
+        }
+        assert!(
+            delayed.is_empty(),
+            "pending credential work delayed cancellation: {delayed:?}"
+        );
+    });
+}
+
+async fn poll_pending_supervision(mut future: std::pin::Pin<&mut impl Future<Output = ()>>) {
+    std::future::poll_fn(|context| {
+        assert!(future.as_mut().poll(context).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
 }
 
 #[test]
@@ -160,6 +357,7 @@ fn shutdown_before_network_supervision_first_poll_cancels_accepted_playback() {
             cancelled.clone(),
             options,
             vec![source.path],
+            fixture.0.shutdown.subscribe(),
         );
         fixture.0.shutdown.send(()).unwrap();
         let mut task = tokio::spawn(supervision);

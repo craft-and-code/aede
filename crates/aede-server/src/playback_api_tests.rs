@@ -597,6 +597,160 @@ fn playback_rate_conversion_keeps_the_converter_tail_and_history_duration() {
 }
 
 #[test]
+fn cancelled_pcm_policy_confirmations_keep_the_shared_read_budget() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        let state =
+            crate::parental::scoped(fixture.0.clone(), principal.owner.clone(), false, false)
+                .await
+                .unwrap();
+        let capacity = state.parental.read_slots.available_permits();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut confirmations = Vec::new();
+        for _ in 0..capacity {
+            let mut confirmation = Box::pin(check_authorized(&state, &principal, false));
+            std::future::poll_fn(|context| {
+                assert!(confirmation.as_mut().poll(context).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            confirmations.push(confirmation);
+        }
+        drop(release);
+        worker.await.unwrap();
+        // Drain the credential reads without resuming the waiting futures yet.
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        for confirmation in &mut confirmations {
+            std::future::poll_fn(|context| {
+                assert!(confirmation.as_mut().poll(context).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+        }
+        drop(confirmations);
+        let retained = state.parental.read_slots.available_permits();
+        let excess = tokio::time::timeout(
+            Duration::from_millis(100),
+            crate::parental::blocking(&state, || Ok(())),
+        )
+        .await;
+        drop(release);
+        worker.await.unwrap();
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        assert!(
+            matches!(excess, Ok(Err(_))),
+            "cancelled PCM checks must not bypass the shared account/policy worker bound"
+        );
+        assert_eq!(retained, 0, "queued policy reads retain their admission");
+        assert_eq!(state.parental.read_slots.available_permits(), capacity);
+        assert!(check_authorized(&state, &principal, false).await);
+        assert!(!user::user_path(&state.data_dir).exists());
+    });
+}
+
+#[test]
+fn logout_during_pcm_policy_confirmation_cannot_authorize_more_audio() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        let state =
+            crate::parental::scoped(fixture.0.clone(), principal.owner.clone(), false, false)
+                .await
+                .unwrap();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut confirmation = Box::pin(check_authorized(&state, &principal, false));
+        std::future::poll_fn(|context| {
+            assert!(confirmation.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(release);
+        worker.await.unwrap();
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        std::future::poll_fn(|context| {
+            assert!(confirmation.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        auth::end_session(&state, &principal).unwrap();
+        let (successor, _) =
+            auth::start_session(&state, &accounts, accounts.find("alice").unwrap()).unwrap();
+        drop(release);
+        worker.await.unwrap();
+        let authorized = confirmation.await;
+        assert!(
+            !authorized,
+            "a policy result cannot authorize a login that ended while it was queued"
+        );
+        assert!(check_authorized(&state, &successor, false).await);
+        assert!(!user::user_path(&state.data_dir).exists());
+    });
+}
+
+#[test]
+fn policy_publication_during_final_pcm_identity_check_refuses_the_result() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        let state =
+            crate::parental::scoped(fixture.0.clone(), principal.owner.clone(), false, false)
+                .await
+                .unwrap();
+        let mut confirmation = Box::pin(check_authorized(&state, &principal, false));
+        // Complete the first identity read and the policy read separately.
+        for _ in 0..2 {
+            let (release, worker) = crate::test_support::hold_blocking_worker().await;
+            std::future::poll_fn(|context| {
+                assert!(confirmation.as_mut().poll(context).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            drop(release);
+            worker.await.unwrap();
+            tokio::task::spawn_blocking(|| ()).await.unwrap();
+        }
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        std::future::poll_fn(|context| {
+            assert!(confirmation.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        state.parental.invalidate();
+        drop(release);
+        worker.await.unwrap();
+        assert!(
+            !confirmation.await,
+            "the policy publication changed during the final identity read"
+        );
+        assert!(!user::user_path(&state.data_dir).exists());
+    });
+}
+
+#[test]
 fn accepting_an_acknowledgement_cannot_be_cancelled_by_a_pending_account_read() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .max_blocking_threads(1)
