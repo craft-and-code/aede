@@ -180,8 +180,26 @@ fn read_stsd(data: &[u8], tags: &mut RawTags) {
         return;
     }
     let Some(entry_size) = c.u32_be() else { return };
+    let Some(body_size) = entry_size.checked_sub(8) else {
+        return;
+    };
     let Some(format) = c.take(4) else { return };
     let format = [format[0], format[1], format[2], format[3]];
+    // The loaded stsd window may stop before a large entry ends. Preserve
+    // readable header fields, but never borrow bytes beyond a shorter entry.
+    let Some(body) = c.take((body_size as usize).min(c.remaining())) else {
+        return;
+    };
+    let mut c = Cursor::new(body);
+
+    // Each selected audio description stands on its own. A later AAC or
+    // unknown codec must not inherit ALAC precision or missing stream fields.
+    tags.properties.codec.clear();
+    tags.properties.lossless = false;
+    tags.properties.channels = None;
+    tags.properties.sample_rate = None;
+    tags.properties.bit_depth = None;
+    tags.properties.bitrate_kbps = None;
 
     match &format {
         b"alac" => {
@@ -241,9 +259,9 @@ fn read_stsd(data: &[u8], tags: &mut RawTags) {
     // The ALAC "magic cookie" gives the exact bit depth and sample rate, which
     // are more reliable than the AudioSampleEntry: it often saturates at
     // 16 bits / 44.1 kHz.
-    // The entry starts after the stsd flags/count, not at offset zero. Keep
-    // child boxes inside it so a following description cannot supply a cookie.
-    let limit = 8usize.saturating_add(entry_size as usize).min(data.len());
+    // All fields and child boxes share the bounded sample-entry body, so a
+    // following description cannot supply either header fields or a cookie.
+    let limit = body.len();
     while c.position() + 8 <= limit {
         let Some(size) = c.u32_be() else { break };
         let Some(kind) = c.take(4) else { break };
@@ -254,7 +272,8 @@ fn read_stsd(data: &[u8], tags: &mut RawTags) {
         if payload_len > limit.saturating_sub(c.position()) {
             break;
         }
-        if kind == b"alac" {
+        // Codec-specific configuration cannot override another format's fields.
+        if kind == b"alac" && format == *b"alac" {
             let Some(cookie) = c.take(payload_len) else {
                 break;
             };

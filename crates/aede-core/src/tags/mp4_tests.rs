@@ -172,6 +172,126 @@ fn video_tracks_do_not_replace_the_audio_stream_properties() {
 }
 
 #[test]
+fn later_aac_tracks_cannot_inherit_pcm_precision_from_an_alac_track() {
+    let bytes = include_bytes!("../../tests/fixtures/multi-audio.m4a.bin");
+    let fixture = super::super::test_support::BinaryFile::new("m4a", bytes);
+    for tags in [fixture.read().unwrap(), fixture.read_from_file().unwrap()] {
+        assert_eq!(tags.properties.codec, "aac");
+        assert!(!tags.properties.lossless);
+        assert_eq!(tags.properties.channels, Some(1));
+        assert_eq!(tags.properties.sample_rate, Some(44_100));
+        assert_eq!(tags.properties.bit_depth, None);
+    }
+    assert_eq!(std::fs::read(fixture.path()).unwrap(), bytes);
+}
+
+#[test]
+fn later_aac_tracks_cannot_inherit_the_previous_alac_bitrate() {
+    let bytes = include_bytes!("../../tests/fixtures/multi-audio.m4a.bin");
+    let fixture = super::super::test_support::BinaryFile::new("m4a", bytes);
+    for tags in [fixture.read().unwrap(), fixture.read_from_file().unwrap()] {
+        assert_eq!(tags.properties.codec, "aac");
+        // AAC has no parsed bitrate here: retain the ordinary file-size/time
+        // fallback rather than an ALAC cookie describing a different stream.
+        let milliseconds = tags.properties.duration_ms.unwrap();
+        assert_eq!(
+            tags.properties.bitrate_kbps,
+            Some((bytes.len() as u64 * 8 / milliseconds) as u32)
+        );
+    }
+}
+
+#[test]
+fn short_audio_entries_cannot_borrow_sample_fields_from_bytes_outside_their_boundary() {
+    let mut audio = vec![0; 28];
+    audio[16..18].copy_from_slice(&2u16.to_be_bytes());
+    audio[18..20].copy_from_slice(&24u16.to_be_bytes());
+    audio[24..28].copy_from_slice(&(48_000u32 << 16).to_be_bytes());
+    for size in [0u32, 4, 8, 16, 24, 32, 36, 4096] {
+        let mut description = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        description.extend(size.to_be_bytes());
+        description.extend(b"alac");
+        description.extend(&audio);
+        let table = box_with(b"stbl", &box_with(b"stsd", &description));
+        let mut handler = vec![0; 8];
+        handler.extend(b"soun");
+        handler.extend([0; 12]);
+        let mut media = box_with(b"hdlr", &handler);
+        media.extend(box_with(b"minf", &table));
+        let mut bytes = box_with(b"ftyp", b"M4A \0\0\0\0");
+        bytes.extend(box_with(
+            b"moov",
+            &box_with(b"trak", &box_with(b"mdia", &media)),
+        ));
+        let fixture = super::super::test_support::BinaryFile::new("m4a", &bytes);
+        let tags = fixture.read().unwrap();
+        assert_eq!(
+            tags.properties.channels,
+            (size >= 32).then_some(2),
+            "entry size {size}"
+        );
+        assert_eq!(
+            tags.properties.sample_rate,
+            (size >= 36).then_some(48_000),
+            "entry size {size}"
+        );
+        assert_eq!(
+            tags.properties.bit_depth,
+            (size >= 32).then_some(24),
+            "entry size {size}"
+        );
+    }
+}
+
+#[test]
+fn later_unknown_audio_descriptions_do_not_inherit_known_stream_properties() {
+    let mut known = vec![0; 28];
+    known[16..18].copy_from_slice(&2u16.to_be_bytes());
+    known[18..20].copy_from_slice(&24u16.to_be_bytes());
+    known[24..28].copy_from_slice(&(48_000u32 << 16).to_be_bytes());
+    let mut movie = track_with_handler(b"soun", b"alac", &known);
+    movie.extend(track_with_handler(b"soun", b"zzzz", &[0; 28]));
+    let mut bytes = box_with(b"ftyp", b"M4A \0\0\0\0");
+    bytes.extend(box_with(b"moov", &movie));
+    let fixture = super::super::test_support::BinaryFile::new("mp4", &bytes);
+    let tags = fixture.read().unwrap();
+    assert_eq!(tags.properties.codec, "zzzz");
+    assert!(!tags.properties.lossless);
+    assert_eq!(tags.properties.bit_depth, None);
+    assert_eq!(tags.properties.channels, None);
+    assert_eq!(tags.properties.sample_rate, None);
+}
+
+#[test]
+fn alac_configuration_only_supplies_properties_to_an_alac_description() {
+    let mut cookie = vec![0; 28];
+    cookie[9] = 24;
+    cookie[13] = 6;
+    cookie[20..24].copy_from_slice(&900_000u32.to_be_bytes());
+    cookie[24..28].copy_from_slice(&96_000u32.to_be_bytes());
+    for format in [*b"mp4a", *b"Opus", *b"zzzz", *b"alac"] {
+        let mut audio = vec![0; 28];
+        audio[16..18].copy_from_slice(&2u16.to_be_bytes());
+        audio[18..20].copy_from_slice(&16u16.to_be_bytes());
+        audio[24..28].copy_from_slice(&(44_100u32 << 16).to_be_bytes());
+        audio.extend(box_with(b"alac", &cookie));
+        let mut description = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        description.extend(box_with(&format, &audio));
+        let mut tags = RawTags::default();
+        read_stsd(&description, &mut tags);
+        let alac = format == *b"alac";
+        assert_eq!(tags.properties.bit_depth, alac.then_some(24), "{format:?}");
+        assert_eq!(tags.properties.channels, Some(if alac { 6 } else { 2 }));
+        assert_eq!(
+            tags.properties.sample_rate,
+            Some(if alac { 96_000 } else { 44_100 })
+        );
+        assert_eq!(tags.properties.bitrate_kbps, alac.then_some(900));
+        assert_eq!(tags.properties.lossless, alac);
+    }
+}
+
+#[test]
 fn aac_rates_beyond_the_sample_entry_width_follow_the_decoder_config() {
     let bytes = include_bytes!("../../tests/fixtures/aac96.m4a.bin");
     let fixture = super::super::test_support::BinaryFile::new("m4a", bytes);
