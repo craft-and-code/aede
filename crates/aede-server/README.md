@@ -361,7 +361,7 @@ All routes below require a named administrator and retain exact-login ownership.
 | `POST /api/admin/v1/network-audio/discover` | Explicit bounded LAN discovery. |
 | `POST /api/admin/v1/network-audio/inspect` | Observe the selected Cast certificate fingerprint for explicit confirmation. |
 | `POST /api/admin/v1/network-audio/play` | Start selected original tracks through the requested device profile. |
-| `GET /api/admin/v1/network-audio/status` | Read owned playback state and renew its client lease. |
+| `GET /api/admin/v1/network-audio` | Read owned playback state and renew its client lease. |
 | `POST /api/admin/v1/network-audio/stop` | Cancel playback owned by this exact login. |
 
 

@@ -8,6 +8,20 @@ Ordinary HTTP defaults to loopback. Remote non-loopback service uses direct HTTP
 
 Browser origin validation, connection/body/frame/time limits, TLS handshake slots and request/decode admission are separate safeguards. Partial Unix command connections cannot indefinitely prevent shutdown. The private Unix socket is a same-OS-user capability with protected permissions; delegated commands reuse typed CLI validation and strip installation secrets from children.
 
+Notification upgrades retain shutdown from handshake admission. Waiting for the initial catalogue snapshot remains cancellable by shutdown and peer disconnection, handles control/forbidden frames and periodically rechecks the captured login; publication rechecks that login after the catalogue wait. A disconnected peer releases its notification slot without waiting for a catalogue writer. The initial snapshot has the same revocation boundary as subsequent events.
+
+Established notification streams also monitor shutdown and peer input while a periodic or per-event credential check is pending. Retiring that connection does not release the separate credential-read admission before its queued blocking worker actually exits.
+
+Session metadata uses the same captured-login publication guard as administrative account reads. Logout or revocation while its metadata worker is queued cannot publish an obsolete successful identity response.
+
+All native API GET/HEAD responses repeat the captured-access check after preparing their result, including administrator reads without a parental projection and initially anonymous reads. Logout, revocation or activation of account mode while a catalogue read waits must refuse publication. The trusted installation token retains its explicit administrative boundary; accepted mutation jobs keep their separate lifetime contract.
+
+Login prepares its fallible account/policy view before allocating a bearer. An unavailable view must neither consume session capacity nor evict an existing login.
+
+Credential snapshots read outside the writer lock may predate a later login. Session checks refuse mismatched credentials without deleting sessions from an unorderable generation: pruning on those reads requires a strictly newer revision in the same epoch. New-login admission, serialized with credential writers, still purges all obsolete sessions before enforcing capacity limits.
+
+Credential mutations recheck the captured login after in-memory preparation, including password hashing, immediately before saving under the account writer lock. A process-local logout during that work refuses publication and preserves the credential store. This admission check does not interrupt an atomic filesystem replacement already in progress.
+
 ## Shared persistence and private state
 
 All writers and legacy migrations coordinate through the data-directory lock. Reloading under the lock prevents stale mutation; exact canonical entity references are resolved before personal reads/writes without widening a supplied reference to homonymous display names. Alias navigation retains known source attribution.
