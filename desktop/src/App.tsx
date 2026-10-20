@@ -3,6 +3,7 @@ import { Action, Icon } from "./Controls";
 import { CopyButton } from "./CopyButton";
 import { StatusView, LogsView } from "./Monitoring";
 import { appendRoots, parsePort, taskActive } from "./policy";
+import { createLibraryActions } from "./library-actions";
 import {
   hostStatus,
   hostStart,
@@ -40,6 +41,14 @@ export function App() {
     setPort(String(next.port));
     if (!next.running) setSecret("");
   };
+  const library = createLibraryActions({
+    status,
+    configure: hostConfigure,
+    start: hostStart,
+    scan: hostScan,
+    publish: apply,
+    publishTask: setTask,
+  });
   async function run(name: string, action: () => Promise<unknown>) {
     if (busy()) return;
     revision++;
@@ -97,7 +106,7 @@ export function App() {
           if (!taskActive(next.status))
             setMessage(
               next.status === "completed"
-                ? "Scan terminé. Rechargez le catalogue dans Phémios."
+                ? "Scan terminé. Le catalogue est disponible pour Phémios."
                 : "La tâche s’est arrêtée. Consultez son résultat ci-dessous.",
             );
         }
@@ -198,12 +207,7 @@ export function App() {
                 class="primary"
                 busy={busy() === "start"}
                 disabled={!native() || !!busy() || status()?.running}
-                onClick={() =>
-                  void run("start", async () => {
-                    apply(await hostConfigure(parsePort(port()), roots()));
-                    apply(await hostStart());
-                  })
-                }
+                onClick={() => void run("start", () => library.start(parsePort(port()), roots()))}
               >
                 Démarrer le serveur
               </Action>
@@ -240,7 +244,7 @@ export function App() {
                     void run("folders", async () => {
                       const chosen = await chooseFolders();
                       if (chosen.length)
-                        apply(await hostConfigure(parsePort(port()), appendRoots(roots(), chosen)));
+                        await library.configure(parsePort(port()), appendRoots(roots(), chosen));
                     })
                   }
                 />
@@ -271,12 +275,10 @@ export function App() {
                           title="Retirer de la sélection"
                           disabled={!!busy() || active()}
                           onClick={() =>
-                            void run("folders", async () =>
-                              apply(
-                                await hostConfigure(
-                                  parsePort(port()),
-                                  roots().filter((path) => path !== row.path),
-                                ),
+                            void run("folders", () =>
+                              library.configure(
+                                parsePort(port()),
+                                roots().filter((path) => path !== row.path),
                               ),
                             )
                           }
@@ -308,9 +310,9 @@ export function App() {
                 </Show>
               </div>
               <p class="hint">
-                Vous pouvez modifier les dossiers pendant que le serveur tourne. Lancez ensuite un
-                scan pour appliquer la sélection, sans modifier vos fichiers audio. Les volumes
-                absents sont conservés.
+                Le démarrage du serveur et les changements de dossiers déclenchent un scan en
+                arrière-plan. Vos fichiers audio ne sont pas modifiés. Les volumes absents sont
+                conservés ; une sélection vide conserve le catalogue existant.
               </p>
             </section>
             <section class="panel connection-panel">
@@ -318,10 +320,14 @@ export function App() {
               <ol>
                 <li>Démarrez le serveur.</li>
                 <li>
+                  Attendez la fin du scan automatique pour retrouver les albums de vos dossiers.
+                </li>
+                <li>
                   Exportez sa connexion locale puis importez-la dans les paramètres Serveur Aède de
                   Phémios.
                 </li>
                 <li>Utilisez le compte ci-dessous et son mot de passe.</li>
+                <li>Phémios recharge automatiquement le catalogue après les scans.</li>
               </ol>
               <Action
                 icon="download"

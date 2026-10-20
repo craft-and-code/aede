@@ -20,6 +20,8 @@ pub(super) struct ScanResult {
 
 #[derive(Serialize)]
 pub(super) struct Library {
+    /// Process-local publication marker; unlike scan dates it also changes within one second.
+    pub(super) catalog_revision: String,
     pub(super) scanned_at: u64,
     pub(super) files: usize,
     pub(super) artists: usize,

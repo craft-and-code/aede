@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "catalog_tests.rs"]
+mod tests;
+
 pub(super) fn filter_reference(
     catalog: &Catalog,
     token: &str,
@@ -120,6 +124,7 @@ pub(super) async fn library(State(state): State<ApiState>) -> Result<Json<Librar
     let guard = state.catalog.read().await;
     let catalog = guard.as_ref().ok_or_else(unavailable)?;
     Ok(Json(Library {
+        catalog_revision: state.parental.catalog_revision().to_string(),
         scanned_at: catalog.scanned_at,
         files: catalog.files.len(),
         artists: catalog.artists.len(),

@@ -8,18 +8,19 @@ The desktop console makes the existing engine accessible without learning the CL
 
 ## Run the application
 
-Install the App package for your system from the [releases](https://github.com/craft-and-code/aede/releases). CLI archives have `CLI` in their names; desktop installers have `App`. Open **Aède**, add music folders, select a free port (8787 by default), click **Démarrer le serveur**, then **Scanner les dossiers**. Starting the server does not silently scan or fetch external metadata. Scan progress/result and cancellation use the existing [administrative tasks](server/jobs.md).
+Install the App package for your system from the [releases](https://github.com/craft-and-code/aede/releases). CLI archives have `CLI` in their names; desktop installers have `App`. Open **Aède**, add music folders, select a free port (8787 by default), then click **Démarrer le serveur**. When folders are selected, startup launches an incremental background scan through the existing [administrative tasks](server/jobs.md); its progress, result and cancellation remain visible. Starting the server never fetches external metadata. **Scanner les dossiers** explicitly rescans later file additions or retries a failed/cancelled scan.
 
-Folders can be added or removed while the server is running (outside an active app scan); only changing the port requires stopping it. Registration is separate from scanning: a scan applies the current nonempty selection. Removing a folder never deletes music; removing all configured folders does not erase the retained catalog. An absent folder is retained during a scan. The first app detects paths that no longer exist; it cannot yet detect a network mount that has disappeared while leaving an accessible empty mountpoint. Remount such volumes before scanning.
+Folders can be added or removed while the server is running (outside an active app scan); a changed nonempty selection immediately launches a background replacement scan. While stopped, edits are saved for the next startup scan. Changing the port still requires stopping the server. Removing a folder never deletes music; removing all configured folders does not erase the retained catalog. An absent folder is retained during a scan. The App detects paths that no longer exist; it cannot yet detect a network mount that has disappeared while leaving an accessible empty mountpoint. Remount such volumes before scanning.
 
 The app listens only on `127.0.0.1`, always over HTTPS. An occupied port is an error, never a reason to adopt another server or fall back to HTTP. Remote/LAN hosting remains available through the [CLI HTTPS configuration](server/remote.md), outside this minimal local console.
 
 ## Connect Phémios on the same computer
 
-1. Start Aède and export its local connection profile.
-2. In Phémios, open **Paramètres → Serveur Aède → Importer la connexion de l’application Aède** and choose the exported JSON file.
-3. In Aède, reveal the generated password. Enter it in Phémios with the displayed `aede-desktop` account, then connect.
-4. After a scan, reload the known catalog in Phémios.
+1. Start Aède and wait for the automatic scan of its selected folders to complete.
+2. Export its local connection profile.
+3. In Phémios, open **Paramètres → Serveur Aède → Importer la connexion de l’application Aède** and choose the exported JSON file.
+4. In Aède, reveal the generated password. Enter it in Phémios with the displayed `aede-desktop` account, then connect.
+5. A current Phémios detects catalogue publications in the background, whether produced by this App or a CLI command against the connected server's data directory. Older clients can use **Recharger le catalogue connu** after a scan. Remote folders are displayed read-only in Phémios; edit them in Aède. A client reload itself never scans files.
 
 The export contains only the exact HTTPS address, username and public certificate. It contains no password, session token or TLS private key. Phémios admits public profiles only for HTTPS `127.0.0.1` with an explicit port and validates the supplied certificate for HTTP **and WSS**. Import only profiles exported by the Aède app you intend to trust. No system certificate installation, global trust override or TLS-verification bypass is required. Reimport after changing the server port or importing the profile in a new Phémios session.
 

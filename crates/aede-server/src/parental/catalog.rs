@@ -27,6 +27,11 @@ impl Default for ViewState {
     }
 }
 impl ViewState {
+    /// Publication marker shared by full and supervised catalogue projections.
+    pub(crate) fn catalog_revision(&self) -> u64 {
+        self.publication.load(Ordering::Acquire)
+    }
+
     pub(crate) fn invalidate(&self) {
         self.publication.fetch_add(1, Ordering::AcqRel);
         if let Ok(mut cached) = self.cached.lock() {

@@ -28,12 +28,12 @@ HTTP responses from successful API requests and application errors are UTF-8 JSO
 
 All field names use `snake_case`. Times named `scanned_at` are Unix seconds; durations are milliseconds; file sizes are bytes. Optional scalar values are `null`, not absent. Collections are arrays, including when empty. Names and titles preserve the spelling read from files. Relations between entities use stable `reference` tokens from `EntityRef`, never catalog vector indexes. A track reference is path-based and changes if the file moves. Clients must URL-encode a token when passing it as a query value.
 
-The original `/status` and `/library` routes read snapshot metadata and counts in constant time and do not interpret query parameters. They remain outside the catalog inspection-worker budget; omit query parameters on both. Authentication and transport admission still apply.
+The original `/status` and `/library` routes read snapshot metadata and counts in constant time and do not interpret query parameters. They remain outside the catalog inspection-worker budget; omit query parameters on both. Authentication and transport admission still apply. `/library` adds an opaque decimal-string `catalog_revision` for the current server process: compare it within a session to detect successful catalogue publications, including changes with identical `scanned_at` and counts. Reset the comparison after reconnecting; this marker is not a persistent graph identity or a cross-request snapshot guarantee. Failed reloads retain the preceding revision.
 
 | Request | Response |
 | --- | --- |
 | `GET /api/v1/status` | `{ "status": "ok", "api_version": 1, "catalog_loaded": bool }`, including while the catalog is absent after server startup. |
-| `GET /api/v1/library` | `{ "scanned_at": u64, "files": usize, "artists": usize, "releases": usize, "recordings": usize, "tracks": usize }`. |
+| `GET /api/v1/library` | `{ "catalog_revision": string, "scanned_at": u64, "files": usize, "artists": usize, "releases": usize, "recordings": usize, "tracks": usize }`. |
 | `GET /api/v1/artists` | Page of artist summaries. |
 | `GET /api/v1/releases` | Page of release summaries. |
 | `GET /api/v1/tracks` | Page of track summaries. |
