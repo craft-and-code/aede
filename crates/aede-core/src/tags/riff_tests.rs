@@ -97,7 +97,23 @@ fn extensible_wav_distinguishes_integer_float_and_compressed_subtypes() {
         let tags = read_format(&extensible_format(subtype)).unwrap();
         assert_eq!(tags.properties.codec, expected);
         assert_eq!(tags.properties.lossless, lossless);
-        assert_eq!(tags.properties.bit_depth, Some(32));
+        assert_eq!(tags.properties.bit_depth, lossless.then_some(32));
+    }
+}
+
+#[test]
+fn companded_wav_does_not_report_encoded_word_width_as_pcm_precision() {
+    let file = super::super::test_support::BinaryFile::new(
+        "wav",
+        include_bytes!("../../tests/fixtures/companded-alaw.wav.bin"),
+    );
+    for tags in [file.read().unwrap(), file.read_from_file().unwrap()] {
+        assert_eq!(tags.properties.codec, "wav_0x6");
+        assert!(!tags.properties.lossless);
+        assert_eq!(tags.properties.sample_rate, Some(8000));
+        assert_eq!(tags.properties.channels, Some(1));
+        assert_eq!(tags.properties.duration_ms, Some(50));
+        assert_eq!(tags.properties.bit_depth, None);
     }
 }
 

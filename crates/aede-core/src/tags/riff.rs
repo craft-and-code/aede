@@ -66,15 +66,15 @@ pub fn read_wav(file: &mut File, file_size: u64) -> Result<RawTags, TagError> {
                 if rate > 0 {
                     tags.properties.sample_rate = Some(rate);
                 }
-                if bits > 0 {
-                    tags.properties.bit_depth = Some(bits);
-                }
                 tags.properties.codec = match format {
                     1 => "pcm".into(),
                     3 => "pcm_float".into(),
                     other => format!("wav_{other:#x}"),
                 };
                 tags.properties.lossless = matches!(format, 1 | 3);
+                // Compressed word widths (for example A-law's eight bits)
+                // do not establish decoded linear PCM precision.
+                tags.properties.bit_depth = (tags.properties.lossless && bits > 0).then_some(bits);
             }
             b"data" if byte_rate > 0 => {
                 tags.properties.duration_ms = Some(size * 1000 / byte_rate as u64);
