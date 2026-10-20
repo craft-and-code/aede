@@ -267,26 +267,71 @@ pub(super) fn source_from_catalog(
     })
 }
 
+type CatalogSnapshot = tokio::sync::OwnedRwLockReadGuard<Option<Catalog>>;
+
+/// Reclaim a snapshot if cancellation happens before the blocking worker starts.
+/// Once selection is running, the worker owns the guard until that work finishes.
+struct PendingCatalog(Arc<std::sync::Mutex<Option<CatalogSnapshot>>>);
+
+impl Drop for PendingCatalog {
+    fn drop(&mut self) {
+        if let Ok(mut snapshot) = self.0.lock() {
+            snapshot.take();
+        }
+    }
+}
+
 async fn current_sources(
     state: &ApiState,
     requested: &[EntityRef],
 ) -> Result<(Vec<TrackSource>, Catalog), StreamFailure> {
+    // A catalog publisher may still own the write lock. Wait asynchronously
+    // so shutdown/deadlines do not depend on that writer, and cancellation
+    // cannot strand blocking workers queued behind it.
+    let mut shutdown = state.shutdown.subscribe();
+    let catalog = tokio::select! {
+        biased;
+        _ = shutdown.recv() => return Err(StreamFailure::SERVER_SHUTDOWN),
+        catalog = tokio::time::timeout(SOURCE_READY_TIMEOUT, state.catalog.clone().read_owned()) => {
+            catalog.map_err(|_| StreamFailure::SOURCE_UNAVAILABLE)?
+        }
+    };
     // Track references and selected analyses can each scan a large catalog.
     // The socket's playback permit bounds this work independently of HTTP
     // workers; keep it away from Tokio's network and acknowledgement threads.
     let state = state.clone();
     let requested = requested.to_vec();
-    tokio::task::spawn_blocking(move || selected_sources(&state, &requested))
-        .await
-        .map_err(|_| StreamFailure::STREAM_FAILED)?
+    // A queued task must not keep a read lock after its caller is cancelled:
+    // catalogue publication must not depend on blocking-pool availability.
+    let pending = PendingCatalog(Arc::new(std::sync::Mutex::new(Some(catalog))));
+    let for_worker = pending.0.clone();
+    let mut worker = tokio::task::spawn_blocking(move || {
+        let catalog = for_worker
+            .lock()
+            .map_err(|_| StreamFailure::STREAM_FAILED)?
+            .take()
+            .ok_or(StreamFailure::STREAM_FAILED)?;
+        let catalog = catalog.as_ref().ok_or(StreamFailure::CATALOG_UNAVAILABLE)?;
+        selected_sources(&state, catalog, &requested)
+    });
+    tokio::select! {
+        biased;
+        _ = shutdown.recv() => {
+            // Abort can prevent queued work from starting. PendingCatalog also
+            // releases its snapshot without relying on the blocking pool to run.
+            // An already running selection retains its own guard until it exits.
+            worker.abort();
+            Err(StreamFailure::SERVER_SHUTDOWN)
+        },
+        result = &mut worker => result.map_err(|_| StreamFailure::STREAM_FAILED)?,
+    }
 }
 
 fn selected_sources(
     state: &ApiState,
+    catalog: &Catalog,
     requested: &[EntityRef],
 ) -> Result<(Vec<TrackSource>, Catalog), StreamFailure> {
-    let catalog = state.catalog.blocking_read();
-    let catalog = catalog.as_ref().ok_or(StreamFailure::CATALOG_UNAVAILABLE)?;
     let visible = crate::parental::visible(state, catalog)
         .map_err(|_| StreamFailure::parental("parental_policy_unavailable"))?;
     let held_visible = visible.as_ref().map(|view| view.blocking_read());

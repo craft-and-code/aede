@@ -5,6 +5,65 @@ use crate::playback_test_support::{ServerFrame, Socket, install_wav, upgrade, up
 use crate::test_support::{sample_state, start_server, test_runtime};
 use std::io::ErrorKind;
 
+#[test]
+fn logout_during_volatile_initialization_cannot_publish_a_queue_to_a_replacement_login() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let accounts = fixture.accounts();
+        let (captured, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        let (socket, mut client, server) =
+            crate::playback_test_support::socket_pair(auth::session_token(&captured)).await;
+        let start = Start::parse(
+            &serde_json::json!({"type":"start", "track":installed.reference,
+                "interactive":true, "normalize":"off"})
+            .to_string(),
+        )
+        .unwrap();
+        let permit = fixture
+            .0
+            .playback_slots
+            .clone()
+            .try_acquire_owned()
+            .unwrap();
+        let shutdown = fixture.0.shutdown.subscribe();
+        let writer = fixture.0.catalog.write().await;
+        let mut running = Box::pin(run(
+            socket,
+            fixture.0.clone(),
+            captured.clone(),
+            permit,
+            shutdown,
+            start,
+        ));
+        std::future::poll_fn(|context| {
+            assert!(running.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        auth::end_session(&fixture.0, &captured).unwrap();
+        let (successor, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        drop(writer);
+        let task = tokio::spawn(running);
+        let first = client.next();
+        let finished = tokio::time::timeout(Duration::from_secs(5), task).await;
+        server.abort();
+        assert!(matches!(finished, Ok(Ok(()))));
+        let ServerFrame::Text(frame) = first else {
+            panic!("expected expired-session failure")
+        };
+        assert_eq!(
+            frame["type"], "error",
+            "no queue may precede the expired-session response"
+        );
+        assert_eq!(frame["code"], "authentication_expired");
+        assert!(auth::recheck(&fixture.0, &successor).is_ok());
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
 fn send(socket: &mut Socket, frame: serde_json::Value) {
     socket.send_text(&frame.to_string());
 }

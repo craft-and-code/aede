@@ -340,10 +340,16 @@ async fn reset_ack(
 
 async fn announce(
     socket: &mut WebSocket,
+    state: &ApiState,
+    captured: &auth::Principal,
+    shutdown: &mut crate::shutdown::Receiver,
     snapshot: &PlaybackState,
     epoch: u64,
     reset: bool,
 ) -> Result<(), StreamFailure> {
+    // Source/checkpoint preparation may have yielded to logout or revocation,
+    // including when a volatile queue has no authenticated checkpoint write.
+    authorized(state, captured, false, shutdown).await?;
     let items: Vec<_> = snapshot.entries.iter().map(|entry| serde_json::json!({"occurrence":entry.occurrence,"track":entry.track.to_token()})).collect();
     send_json(socket, serde_json::json!({
         "type":if reset {"reset"} else {"queue"}, "epoch":epoch,"revision":snapshot.revision,
@@ -515,7 +521,17 @@ pub(super) async fn run(
         .unwrap_or(0);
     let mut visits = BTreeMap::new();
     let mut moved = BTreeSet::new();
-    let mut failure = announce(&mut socket, &snapshot, number, false).await.err();
+    let mut failure = announce(
+        &mut socket,
+        &state,
+        &captured,
+        &mut shutdown,
+        &snapshot,
+        number,
+        false,
+    )
+    .await
+    .err();
     let mut final_worker = None;
     let mut completed = false;
     let mut actions = 0;
@@ -667,7 +683,17 @@ pub(super) async fn run(
                 }
             }
             number += 1;
-            if let Err(error) = announce(&mut socket, &snapshot, number, true).await {
+            if let Err(error) = announce(
+                &mut socket,
+                &state,
+                &captured,
+                &mut shutdown,
+                &snapshot,
+                number,
+                true,
+            )
+            .await
+            {
                 failure = Some(error);
                 break;
             }

@@ -353,6 +353,221 @@ fn acknowledgements_cannot_regress_or_exceed_the_sent_window() {
 }
 
 #[test]
+fn shutdown_interrupts_pcm_catalogue_selection_before_the_writer_releases_it() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let reference = EntityRef::parse_token(&installed.reference).unwrap();
+        let references = [reference];
+        let writer = fixture.0.catalog.write().await;
+        let _shutdown = fixture.0.shutdown.subscribe();
+        let mut selection = Box::pin(current_sources(&fixture.0, &references));
+        std::future::poll_fn(|context| {
+            assert!(selection.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        fixture.0.shutdown.send(()).unwrap();
+        let outcome = tokio::time::timeout(Duration::from_millis(500), selection.as_mut()).await;
+        // Release the writer even on the old blocking implementation, so the
+        // failing regression cannot strand a worker during runtime teardown.
+        drop(writer);
+        if outcome.is_err() {
+            let _ = selection.await;
+        }
+        assert!(
+            matches!(
+                outcome,
+                Ok(Err(StreamFailure {
+                    code: "server_shutdown",
+                    ..
+                }))
+            ),
+            "shutdown must interrupt a catalogue wait before any PCM source is admitted"
+        );
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
+fn pcm_catalogue_selection_has_a_deadline_while_the_writer_remains_active() {
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let references = [EntityRef::parse_token(&installed.reference).unwrap()];
+        let writer = fixture.0.catalog.write().await;
+        let mut selection = Box::pin(current_sources(&fixture.0, &references));
+        let outcome = tokio::time::timeout(
+            SOURCE_READY_TIMEOUT + Duration::from_secs(2),
+            selection.as_mut(),
+        )
+        .await;
+        drop(writer);
+        if outcome.is_err() {
+            let _ = selection.await;
+        }
+        assert!(
+            matches!(
+                outcome,
+                Ok(Err(StreamFailure {
+                    code: "source_unavailable",
+                    ..
+                }))
+            ),
+            "catalogue acquisition must observe the source-readiness budget"
+        );
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
+fn cancelling_pcm_catalogue_selection_does_not_leave_a_blocking_worker_waiting() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let references = [EntityRef::parse_token(&installed.reference).unwrap()];
+        let writer = fixture.0.catalog.write().await;
+        let mut selection = Box::pin(current_sources(&fixture.0, &references));
+        std::future::poll_fn(|context| {
+            assert!(selection.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(selection);
+        let mut probe = tokio::task::spawn_blocking(|| ());
+        let available = tokio::time::timeout(Duration::from_millis(500), &mut probe).await;
+        drop(writer);
+        if available.is_err() {
+            probe.await.unwrap();
+        }
+        assert!(
+            matches!(available, Ok(Ok(()))),
+            "a cancelled catalogue wait must not strand the blocking pool"
+        );
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
+fn cancelling_queued_pcm_selection_releases_the_catalogue_for_publication() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let references = [EntityRef::parse_token(&installed.reference).unwrap()];
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut selection = Box::pin(current_sources(&fixture.0, &references));
+        std::future::poll_fn(|context| {
+            assert!(selection.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(selection);
+        let publication_ready = fixture.0.catalog.try_write().is_ok();
+        drop(release);
+        worker.await.unwrap();
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        assert!(
+            publication_ready,
+            "cancelled queued work must release its catalogue snapshot before a worker is available"
+        );
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
+fn shutdown_retires_queued_pcm_selection_without_waiting_for_a_blocking_worker() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let references = [EntityRef::parse_token(&installed.reference).unwrap()];
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut selection = Box::pin(current_sources(&fixture.0, &references));
+        std::future::poll_fn(|context| {
+            assert!(selection.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        fixture.0.shutdown.send(()).unwrap();
+        let outcome = tokio::time::timeout(Duration::from_millis(500), selection.as_mut()).await;
+        let publication_ready = fixture.0.catalog.try_write().is_ok();
+        // Always release and drain the held worker before asserting, including
+        // when the old implementation ignores shutdown during this queue wait.
+        drop(release);
+        worker.await.unwrap();
+        if outcome.is_err() {
+            let _ = selection.await;
+        }
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        assert!(
+            matches!(
+                outcome,
+                Ok(Err(StreamFailure {
+                    code: "server_shutdown",
+                    ..
+                }))
+            ),
+            "shutdown must retire queued source preparation before a worker is available"
+        );
+        assert!(
+            publication_ready,
+            "shutdown must release the queued snapshot"
+        );
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
+fn shutdown_refuses_prepared_pcm_sources_before_the_waiter_resumes() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let installed = install_wav(&fixture, 8).await;
+        let references = [EntityRef::parse_token(&installed.reference).unwrap()];
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut selection = Box::pin(current_sources(&fixture.0, &references));
+        std::future::poll_fn(|context| {
+            assert!(selection.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(release);
+        worker.await.unwrap();
+        // Complete preparation without polling its caller. Both the completed
+        // result and shutdown must be ready when that caller resumes.
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        fixture.0.shutdown.send(()).unwrap();
+        assert!(matches!(
+            selection.await,
+            Err(StreamFailure {
+                code: "server_shutdown",
+                ..
+            })
+        ));
+        assert!(fixture.0.catalog.try_write().is_ok());
+        assert!(!user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
+#[test]
 fn full_playback_admission_and_ack_windows_remain_cancellable_during_shutdown() {
     test_runtime().block_on(async {
         let fixture = Fixture::new();
@@ -762,32 +977,8 @@ fn accepting_an_acknowledgement_cannot_be_cancelled_by_a_pending_account_read() 
         let accounts = fixture.accounts();
         let (principal, _) =
             auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
-        let (send_socket, socket) = tokio::sync::oneshot::channel();
-        let send_socket = Arc::new(std::sync::Mutex::new(Some(send_socket)));
-        let application = Router::new().route(
-            "/api/me/v1/playback",
-            get(move |upgrade: WebSocketUpgrade| {
-                let send_socket = send_socket.clone();
-                async move {
-                    upgrade.on_upgrade(move |socket| async move {
-                        send_socket
-                            .lock()
-                            .unwrap()
-                            .take()
-                            .unwrap()
-                            .send(socket)
-                            .unwrap();
-                    })
-                }
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move { axum::serve(listener, application).await.unwrap() });
-        let mut client = upgraded_socket(address, auth::session_token(&principal));
-        let mut socket = socket.await.unwrap();
+        let (mut socket, mut client, server) =
+            crate::playback_test_support::socket_pair(auth::session_token(&principal)).await;
         let (entered_at_worker, entered) = std::sync::mpsc::channel();
         let (release, released_to_worker) = std::sync::mpsc::channel();
         let worker = tokio::task::spawn_blocking(move || {

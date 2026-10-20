@@ -161,6 +161,42 @@ pub(super) fn upgraded_socket(address: SocketAddr, token: &str) -> Socket {
     Socket { stream, buffered }
 }
 
+/// Hand an upgraded server socket to a transport test with a captured identity.
+pub(super) async fn socket_pair(
+    token: &str,
+) -> (
+    axum::extract::ws::WebSocket,
+    Socket,
+    tokio::task::JoinHandle<()>,
+) {
+    let (send_socket, socket) = tokio::sync::oneshot::channel();
+    let send_socket = std::sync::Arc::new(std::sync::Mutex::new(Some(send_socket)));
+    let application = axum::Router::new().route(
+        "/api/me/v1/playback",
+        axum::routing::get(move |upgrade: axum::extract::ws::WebSocketUpgrade| {
+            let send_socket = send_socket.clone();
+            async move {
+                upgrade.on_upgrade(move |socket| async move {
+                    send_socket
+                        .lock()
+                        .unwrap()
+                        .take()
+                        .unwrap()
+                        .send(socket)
+                        .unwrap();
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, application).await.unwrap() });
+    let client = upgraded_socket(address, token);
+    (socket.await.unwrap(), client, server)
+}
+
 pub(super) fn upgrade(address: SocketAddr, token: &str) -> (TcpStream, String, Vec<u8>) {
     let mut stream = TcpStream::connect(address).expect("local server");
     stream
