@@ -283,6 +283,7 @@ fn score_of(value: &Json) -> u8 {
 fn artist_facts(row: &Json) -> ArtistFacts {
     let life = row.get("life-span");
     ArtistFacts {
+        lookup_mbid: None,
         relationships_complete: false,
         // `country` is a code, `area.name` is the name a reader wants. Both
         // are kept: the name is what a listing shows, the code is what
@@ -736,6 +737,7 @@ pub fn release_groups(response: &Json) -> Vec<Candidate<ReleaseFacts>> {
 /// pressing's label to the album itself.
 fn release_facts(group: &Json) -> ReleaseFacts {
     ReleaseFacts {
+        lookup_mbid: None,
         primary_type: field(group, "primary-type"),
         secondary_types: group
             .get("secondary-types")
@@ -750,6 +752,7 @@ fn release_facts(group: &Json) -> ReleaseFacts {
         // [`crate::coverart`].
         cover_art: None,
         edition_mbid: None,
+        edition_lookup_mbid: None,
         credits: Vec::new(),
         relationships_complete: false,
     }

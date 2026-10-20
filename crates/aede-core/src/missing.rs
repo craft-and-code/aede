@@ -30,8 +30,8 @@ pub struct Absent<'a> {
 ///
 /// Two ways of recognising a record you already have, in this order:
 ///
-/// 1. the **release-group identifier**, when your tags carry one. Exact, and
-///    the only comparison that cannot be wrong.
+/// 1. the **release-group identifier**, when your tags carry one, including a
+///    trusted exact lookup's verified alias. Edition IDs never establish groups.
 /// 2. the **normalised title**, otherwise. `text::normalize` is the same
 ///    function that decides two spellings are one name everywhere else in this
 ///    program, so a shelf that says "Kind Of Blue" is not told it is missing
@@ -54,12 +54,28 @@ pub fn absent<'a>(
     everything: bool,
 ) -> Vec<Absent<'a>> {
     let mut out: Vec<Absent<'a>> = Vec::new();
-    let ids: std::collections::BTreeSet<&str> = catalog
+    let mut ids: std::collections::BTreeSet<&str> = catalog
         .releases
         .iter()
         .filter_map(|release| release.release_group_mbid.as_deref())
         .filter(|id| !id.trim().is_empty())
         .collect();
+    // A verified redirect describes the same group on either side of a retag.
+    // Keep literal tag identities; add only the confirmed equivalent of an
+    // owned group, never an edition fallback or a conflicting accepted claim.
+    for record in &held.records {
+        let (Some(sources::MusicBrainzReleaseIdentity::ReleaseGroup(canonical)), Some(alias)) = (
+            record.musicbrainz_release_identity(),
+            record.musicbrainz_lookup_alias(),
+        ) else {
+            continue;
+        };
+        let local = record.local_musicbrainz_id(catalog);
+        if (local == Some(canonical) || local == Some(alias)) && held.is_trusted(catalog, record) {
+            ids.insert(canonical);
+            ids.insert(alias);
+        }
+    }
     for record in &held.records {
         if record.source != sources::MUSICBRAINZ {
             continue;

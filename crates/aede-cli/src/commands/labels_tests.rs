@@ -115,7 +115,11 @@ fn a_merged_label_search_result_retains_its_match_and_receives_biography_links()
     let record = held
         .get(&entity, sources::MUSICBRAINZ)
         .expect("a merged lookup must not discard the name match");
-    assert_eq!(record.source_id.as_deref(), Some(matched));
+    assert_eq!(
+        record.source_id.as_deref(),
+        Some("22222222-2222-4222-8222-222222222222")
+    );
+    assert_eq!(record.musicbrainz_lookup_alias(), Some(matched));
     assert_eq!(record.confidence, Confidence::matched(95));
     let Facts::Label(facts) = &record.facts else {
         panic!("label");
@@ -126,6 +130,135 @@ fn a_merged_label_search_result_retains_its_match_and_receives_biography_links()
     );
     assert_eq!(transport.asked.len(), 2);
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_redirected_known_label_lookup_keeps_its_identity_and_review() {
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let unrelated = "33333333-3333-4333-8333-333333333333";
+    for tagged in [false, true] {
+        for previous_id in [queried, canonical, unrelated] {
+            for decision in [
+                None,
+                Some(sources::ReviewDecision::Accepted),
+                Some(sources::ReviewDecision::Rejected),
+            ] {
+                let mut catalog = catalog_with_label("Example Records");
+                if tagged {
+                    catalog.labels[0].mbid = Some(queried.into());
+                }
+                let entity =
+                    EntityRef::of(&catalog, EntityKind::Label, catalog.labels[0].id).unwrap();
+                let mut held = Sources::default();
+                if !tagged {
+                    let release =
+                        EntityRef::of(&catalog, EntityKind::Release, catalog.releases[0].id)
+                            .unwrap();
+                    held.set(release_record(
+                        &release.key,
+                        "Example Records",
+                        Some(queried),
+                    ));
+                }
+                held.set(SourceRecord {
+                    key: entity.key.clone(),
+                    source: sources::MUSICBRAINZ.into(),
+                    source_id: Some(previous_id.into()),
+                    fetched_at: 1,
+                    confidence: Confidence::matched(95),
+                    facts: Facts::Label(LabelFacts::default()),
+                });
+                if let Some(decision) = decision {
+                    held.set_review(sources::SourceReview {
+                        entity: entity.clone(),
+                        source: sources::MUSICBRAINZ.into(),
+                        source_id: Some(previous_id.into()),
+                        decision,
+                        reviewed_at: 17,
+                    });
+                }
+                let path = std::env::temp_dir().join(format!(
+                    "aede_label_lookup_redirect_{}_{tagged}_{previous_id}_{decision:?}.json",
+                    std::process::id()
+                ));
+                let asked = crate::commands::fetch::Asked {
+                    scope: &crate::commands::fetch::EVERYTHING,
+                    names: &[],
+                    again: true,
+                    dry_run: false,
+                    size: crate::commands::covers::DEFAULT_SIZE,
+                    images: false,
+                    fanart: Default::default(),
+                    key: None,
+                    portrait_key: None,
+                    langs: vec!["en".into()],
+                    size_requested: false,
+                };
+                for returned in [canonical, unrelated] {
+                    let answer = aede_core::json::parse(&format!(
+                        r#"{{"id":"{returned}","name":"Example Records","relations":[{{"type":"wikidata","url":{{"resource":"https://www.wikidata.org/wiki/Q123"}}}}]}}"#
+                    )).unwrap();
+                    let mut transport = Canned {
+                        answers: vec![answer],
+                        asked: Vec::new(),
+                    };
+                    run(&catalog, &mut transport, &[], &mut held, &path, &asked).unwrap();
+                    held = sources::load_all(&path).unwrap().unwrap();
+                    let record = held.get(&entity, sources::MUSICBRAINZ).unwrap();
+                    let retained = if previous_id == queried || previous_id == canonical {
+                        decision
+                    } else {
+                        None
+                    };
+                    assert_eq!(
+                        held.review_for(record)
+                            .map(|review| (review.decision, review.reviewed_at)),
+                        retained.map(|decision| (decision, 17)),
+                        "a merged lookup keeps only the queried identity's decision"
+                    );
+                    assert_eq!(
+                        held.is_trusted(&catalog, record),
+                        retained != Some(sources::ReviewDecision::Rejected),
+                        "the queried alias must not turn an exact label lookup into a conflict"
+                    );
+                    let mut retagged = catalog.clone();
+                    retagged.labels[0].mbid = Some(returned.into());
+                    let reloaded = sources::load_all(&path).unwrap().unwrap();
+                    let retagged_record = reloaded.get(&entity, sources::MUSICBRAINZ).unwrap();
+                    assert_eq!(
+                        reloaded.is_trusted(&retagged, retagged_record),
+                        retained != Some(sources::ReviewDecision::Rejected),
+                        "the canonical ID confirmed by that lookup remains usable after retagging"
+                    );
+                    assert_eq!(record.source_id.as_deref(), Some(returned));
+                    assert_eq!(record.musicbrainz_lookup_alias(), Some(queried));
+                    let resolved = held.label_identities(&catalog);
+                    if retained == Some(sources::ReviewDecision::Rejected) {
+                        assert!(resolved.is_empty());
+                    } else {
+                        assert_eq!(resolved.len(), 1);
+                        assert_eq!(resolved[0].mbid, returned);
+                    }
+                    assert_eq!(
+                        super::super::summaries::waiting(&held, Some(&catalog)),
+                        usize::from(retained != Some(sources::ReviewDecision::Rejected)),
+                        "only a usable identity can supply the biography link"
+                    );
+                    assert!(transport.asked[0].contains(&format!("/label/{queried}?")));
+                    assert_eq!(transport.asked.len(), 1);
+                    let Facts::Label(facts) = &record.facts else {
+                        panic!("label facts");
+                    };
+                    assert_eq!(
+                        facts.wikidata.as_deref(),
+                        Some("https://www.wikidata.org/wiki/Q123")
+                    );
+                }
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
 }
 
 /// A one-album catalog whose release is tagged with the given label.

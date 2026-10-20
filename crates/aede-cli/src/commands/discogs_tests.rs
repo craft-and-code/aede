@@ -3,6 +3,38 @@ use aede_core::model::builder::{ScannedFile, build};
 use aede_core::sources::{Confidence, Prose};
 use aede_core::tags::RawTags;
 
+#[test]
+fn discogs_link_completion_keeps_the_confirmed_canonical_label_identity() {
+    let original = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let mut catalog = catalog();
+    catalog.labels[0].mbid = Some(original.into());
+    let entity = entity(&catalog);
+    let mut held = Sources::default();
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some(original.into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    let target = path("canonical_label_link");
+    refresh(&catalog, catalog.labels[0].id, &mut held, &target,
+        &mut |_| aede_core::json::parse(&format!(r#"{{"id":"{canonical}","name":"Roadracer Records","relations":[{{"type":"discogs","url":{{"resource":"https://www.discogs.com/label/33088"}}}}]}}"#)).map_err(|error| error.to_string()),
+        &mut |_| aede_core::json::parse(r#"{"id":33088,"name":"Roadracer Records","profile":"A label biography."}"#).map_err(|error| error.to_string())
+    ).unwrap();
+    let saved = sources::load_all(&target).unwrap().unwrap();
+    let identity = saved.get(&entity, sources::MUSICBRAINZ).unwrap();
+    assert!(saved.is_trusted(&catalog, identity));
+    catalog.labels[0].mbid = Some(canonical.into());
+    assert!(
+        saved.is_trusted(&catalog, identity),
+        "retagging must recognize the canonical label confirmed during completion"
+    );
+    std::fs::remove_dir_all(target.parent().unwrap()).unwrap();
+}
+
 fn catalog() -> Catalog {
     let mut tags = RawTags::default();
     tags.insert("artist", "Sepultura");
@@ -783,7 +815,10 @@ fn a_merged_musicbrainz_label_keeps_its_review_and_can_supply_the_discogs_biogra
     let mut held = Sources::default();
     musicbrainz(&mut held, &entity);
     let original = held.get(&entity, sources::MUSICBRAINZ).unwrap().clone();
-    let reviews = held.reviews.clone();
+    let mut reviews = held.reviews.clone();
+    for review in &mut reviews {
+        review.source_id = Some("22222222-2222-4222-8222-222222222222".into());
+    }
     let target = path("merged_label");
     let mut calls = Vec::new();
     refresh(
@@ -807,7 +842,14 @@ fn a_merged_musicbrainz_label_keeps_its_review_and_can_supply_the_discogs_biogra
     assert_eq!(calls, ["https://api.discogs.com/labels/33088"]);
     let saved = sources::load_all(&target).unwrap().unwrap();
     let identity = saved.get(&entity, sources::MUSICBRAINZ).unwrap();
-    assert_eq!(identity.source_id, original.source_id);
+    assert_eq!(
+        identity.source_id.as_deref(),
+        Some("22222222-2222-4222-8222-222222222222")
+    );
+    assert_eq!(
+        identity.musicbrainz_lookup_alias(),
+        original.source_id.as_deref()
+    );
     assert_eq!(identity.confidence, original.confidence);
     assert_eq!(saved.reviews, reviews);
     assert!(saved.get(&entity, discogs::SOURCE).is_some());

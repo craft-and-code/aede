@@ -4,6 +4,71 @@
 //! own child and still reaches its private items through `use super::*`.
 
 use super::*;
+
+#[test]
+fn secondary_artist_redirects_keep_the_local_and_canonical_identities_usable() {
+    let original = "11111111-1111-4111-8111-111111111111";
+    let entity = EntityRef {
+        kind: EntityKind::Artist,
+        key: "example band".into(),
+    };
+    let catalog = aede_core::model::Catalog {
+        artists: vec![aede_core::model::Artist {
+            id: 0,
+            key: entity.key.clone(),
+            name: "Example Band".into(),
+            mbid: Some(original.into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let dir = sandbox("secondary_artist_canonical_identity");
+    let path = sources::sources_path(&dir);
+    let mut layer = sources::Sources::default();
+    layer.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some(original.into()),
+        confidence: Confidence::Identified,
+        fetched_at: 1,
+        facts: Facts::Artist(ArtistFacts::default()),
+    });
+    for returned in [
+        "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333",
+    ] {
+        let mut transport = Canned {
+            answers: vec![Ok(format!(
+                r#"{{"id":"{returned}","name":"Example Band","relations":[]}}"#
+            ))],
+            asked: Vec::new(),
+        };
+        run(
+            &mut transport,
+            &[],
+            &["en".into()],
+            &mut layer,
+            &path,
+            &asked(true),
+            Some(&catalog),
+        )
+        .unwrap();
+        layer = sources::load_all(&path).unwrap().unwrap();
+        let record = layer.get(&entity, sources::MUSICBRAINZ).unwrap();
+        assert!(
+            layer.is_trusted(&catalog, record),
+            "the original tag must remain usable across successive merges"
+        );
+        let mut retagged = catalog.clone();
+        retagged.artists[0].mbid = Some(returned.into());
+        assert!(
+            layer.is_trusted(&retagged, record),
+            "secondary completion must retain the canonical ID it confirmed"
+        );
+        assert_eq!(transport.asked.len(), 1);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
 use aede_core::json::Json;
 use aede_core::model::EntityKind;
 use aede_core::sources::{ArtistFacts, Confidence, LabelFacts, Prose, Sources};
@@ -728,12 +793,20 @@ fn a_merged_artist_link_lookup_keeps_the_reviewed_alias_and_its_confidence() {
     let mut layer = held(None);
     layer.records[0].source_id = Some(id.into());
     layer.records[0].confidence = Confidence::Matched(95);
+    let prior_alias = "33333333-3333-4333-8333-333333333333";
+    let Facts::Artist(facts) = &mut layer.records[0].facts else {
+        panic!("artist facts")
+    };
+    facts.lookup_mbid = Some(prior_alias.into());
     let catalog = aede_core::model::Catalog::default();
     let selector = layer.review_items(&catalog)[0].id.clone();
     layer
         .decide(&catalog, &selector, sources::ReviewDecision::Accepted, 2)
         .unwrap();
-    let reviews = layer.reviews.clone();
+    let mut reviews = layer.reviews.clone();
+    for review in &mut reviews {
+        review.source_id = Some("22222222-2222-4222-8222-222222222222".into());
+    }
     let mut transport = Canned {
         answers: vec![Ok(
             r#"{"id":"22222222-2222-4222-8222-222222222222","name":"Example","relations":[]}"#
@@ -752,13 +825,19 @@ fn a_merged_artist_link_lookup_keeps_the_reviewed_alias_and_its_confidence() {
     )
     .unwrap();
     assert_eq!(transport.asked.len(), 1);
-    assert!(transport.asked[0].contains(id));
+    assert!(transport.asked[0].contains(prior_alias));
     let saved = sources::load_all(&path).unwrap().unwrap();
     let identity = saved.get(&entity(), sources::MUSICBRAINZ).unwrap();
-    assert_eq!(identity.source_id.as_deref(), Some(id));
+    assert_eq!(
+        identity.source_id.as_deref(),
+        Some("22222222-2222-4222-8222-222222222222")
+    );
     assert_eq!(identity.confidence, Confidence::Matched(95));
     assert_eq!(saved.reviews, reviews);
     assert!(matches!(&identity.facts,Facts::Artist(facts) if facts.relationships_complete));
+    assert!(
+        matches!(&identity.facts,Facts::Artist(facts) if facts.lookup_mbid.as_deref() == Some(prior_alias))
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

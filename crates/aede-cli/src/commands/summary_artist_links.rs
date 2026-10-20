@@ -20,7 +20,7 @@ pub(super) fn complete(
             let Facts::Artist(facts) = &record.facts else {
                 return None;
             };
-            let id = record.source_id.as_deref()?;
+            let id = super::super::fetch::lookup_selector(catalog, record)?;
             (record.source == sources::MUSICBRAINZ
                 && musicbrainz::valid_id(id)
                 && held.is_trusted(catalog, record)
@@ -71,16 +71,36 @@ pub(super) fn complete(
             );
             continue;
         };
-        let Facts::Artist(existing) = &mut held.records[index].facts else {
+        let previous = &held.records[index];
+        let review = super::super::fetch::continued_lookup_review(
+            held,
+            &previous.entity(),
+            &found.mbid,
+            Some(&id),
+        );
+        let previous = &mut held.records[index];
+        let Facts::Artist(existing) = &mut previous.facts else {
             continue;
         };
-        // Merged MBIDs may redirect. Keep the reviewed selector and its score;
-        // the requested identifier remains an official alias, not a new match.
+        // A redirect changes its canonical address, not its score or decision.
         let mut facts = found.facts;
+        facts.lookup_mbid = (id != found.mbid)
+            .then_some(id)
+            .or_else(|| existing.lookup_mbid.take());
         facts.discography = std::mem::take(&mut existing.discography);
         facts.discography_fetched_at = existing.discography_fetched_at;
-        *existing = facts;
-        held.records[index].fetched_at = clock::now_seconds();
+        let updated = SourceRecord {
+            key: previous.key.clone(),
+            source: previous.source.clone(),
+            source_id: Some(found.mbid),
+            confidence: previous.confidence,
+            fetched_at: clock::now_seconds(),
+            facts: Facts::Artist(facts),
+        };
+        held.set(updated);
+        if let Some(review) = review {
+            held.set_review(review);
+        }
         sources::save(held, path)?;
     }
     Ok(())

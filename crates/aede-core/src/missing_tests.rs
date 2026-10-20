@@ -45,6 +45,186 @@ fn shelf_for(albums: &[(&str, &str, Option<&str>)]) -> Catalog {
 }
 
 #[test]
+fn a_verified_group_alias_does_not_make_an_owned_album_missing_after_reload() {
+    use crate::model::EntityKind;
+    use crate::sources::{ReleaseFacts, ReviewDecision, SourceReview};
+    use crate::user::EntityRef;
+    let alias = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let other = "33333333-3333-4333-8333-333333333333";
+    for (local, known, source, edition, captured, confidence, equivalent) in [
+        (
+            alias,
+            canonical,
+            sources::MUSICBRAINZ,
+            None,
+            Some(alias),
+            Confidence::Identified,
+            true,
+        ),
+        (
+            canonical,
+            alias,
+            sources::MUSICBRAINZ,
+            None,
+            Some(alias),
+            Confidence::Identified,
+            true,
+        ),
+        (
+            alias,
+            canonical,
+            sources::MUSICBRAINZ,
+            Some(other),
+            Some(alias),
+            Confidence::Identified,
+            true,
+        ),
+        (
+            other,
+            canonical,
+            sources::MUSICBRAINZ,
+            None,
+            Some(alias),
+            Confidence::Identified,
+            false,
+        ),
+        (
+            alias,
+            canonical,
+            sources::MUSICBRAINZ,
+            None,
+            None,
+            Confidence::Identified,
+            false,
+        ),
+        (
+            alias,
+            canonical,
+            sources::MUSICBRAINZ,
+            None,
+            Some("not-an-mbid"),
+            Confidence::Identified,
+            false,
+        ),
+        (
+            alias,
+            canonical,
+            sources::MUSICBRAINZ,
+            Some(canonical),
+            Some(alias),
+            Confidence::Identified,
+            false,
+        ),
+        (
+            alias,
+            canonical,
+            "other",
+            None,
+            Some(alias),
+            Confidence::Identified,
+            false,
+        ),
+        (
+            alias,
+            canonical,
+            sources::MUSICBRAINZ,
+            None,
+            Some(alias),
+            Confidence::Matched(95),
+            true,
+        ),
+    ] {
+        for decision in [
+            None,
+            Some(ReviewDecision::Accepted),
+            Some(ReviewDecision::Rejected),
+        ] {
+            let catalog = shelf(&[("Local Album Title", Some(local))]);
+            let release = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+            let mut held = Sources::default();
+            held.set(SourceRecord {
+                key: "example artist".into(),
+                source: sources::MUSICBRAINZ.into(),
+                source_id: Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".into()),
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: Facts::Artist(ArtistFacts {
+                    discography: vec![KnownRelease {
+                        mbid: known.into(),
+                        title: "Official Album Title".into(),
+                        primary_type: Some("Album".into()),
+                        first_released: None,
+                        secondary_types: vec![],
+                    }],
+                    ..Default::default()
+                }),
+            });
+            held.set(SourceRecord {
+                key: release.key.clone(),
+                source: source.into(),
+                source_id: Some(canonical.into()),
+                fetched_at: 2,
+                confidence,
+                facts: Facts::Release(ReleaseFacts {
+                    lookup_mbid: captured.map(str::to_string),
+                    edition_mbid: edition.map(str::to_string),
+                    ..Default::default()
+                }),
+            });
+            if let Some(decision) = decision {
+                held.set_review(SourceReview {
+                    entity: release.clone(),
+                    source: source.into(),
+                    source_id: Some(canonical.into()),
+                    decision,
+                    reviewed_at: 3,
+                });
+            }
+            let loaded = sources::from_json(&sources::to_json(&held)).unwrap();
+            let trusted = match decision {
+                Some(ReviewDecision::Accepted) => true,
+                Some(ReviewDecision::Rejected) => false,
+                None => confidence.is_certain(),
+            };
+            let expected_missing = usize::from(!(equivalent && trusted));
+            let before = sources::to_json(&loaded);
+            for everything in [false, true] {
+                assert_eq!(
+                    absent(&catalog, &loaded, &[], everything).len(),
+                    expected_missing,
+                    "{local}, {known}, {source}, {edition:?}, {captured:?}, {confidence:?}, {decision:?}"
+                );
+            }
+            let artist = catalog
+                .artists
+                .iter()
+                .find(|artist| artist.key == "example artist")
+                .unwrap();
+            assert_eq!(
+                absent_for(&catalog, &loaded, &[], artist.id),
+                expected_missing
+            );
+            assert_eq!(
+                sources::to_json(&loaded),
+                before,
+                "a cache read must not rewrite source evidence"
+            );
+
+            // A claim no longer attached to any local release cannot manufacture ownership.
+            let mut detached = loaded.clone();
+            detached
+                .records
+                .iter_mut()
+                .find(|record| record.entity() == release)
+                .unwrap()
+                .key = "unavailable release".into();
+            assert_eq!(absent(&catalog, &detached, &[], false).len(), 1);
+        }
+    }
+}
+
+#[test]
 fn owned_group_identifiers_apply_across_artist_shelves_but_titles_do_not() {
     let joint = "11111111-1111-4111-8111-111111111111";
     let own = "22222222-2222-4222-8222-222222222222";

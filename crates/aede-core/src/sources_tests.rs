@@ -7,6 +7,419 @@
 use super::*;
 
 #[test]
+fn edition_aliases_survive_reload_without_widening_other_source_scopes() {
+    let alias = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let group = "33333333-3333-4333-8333-333333333333";
+    let unrelated = "44444444-4444-4444-8444-444444444444";
+    for source in [MUSICBRAINZ, "manual", "other"] {
+        for source_id in [canonical, group, "not-an-mbid"] {
+            for (complete, captured) in [
+                (true, Some(alias)),
+                (false, Some(alias)),
+                (true, None),
+                (true, Some("not-an-mbid")),
+            ] {
+                let mut held = Sources::default();
+                held.set(SourceRecord {
+                    key: "example band|example album|/music/example".into(),
+                    source: source.into(),
+                    source_id: Some(source_id.into()),
+                    fetched_at: 1,
+                    confidence: Confidence::Identified,
+                    facts: Facts::Release(ReleaseFacts {
+                        edition_mbid: Some(canonical.into()),
+                        edition_lookup_mbid: captured.map(str::to_string),
+                        lookup_mbid: Some(unrelated.into()),
+                        relationships_complete: complete,
+                        ..Default::default()
+                    }),
+                });
+                let loaded = from_json(&to_json(&held)).unwrap();
+                assert_eq!(loaded, held);
+                let record = &loaded.records[0];
+                let proven = source == MUSICBRAINZ
+                    && source_id != "not-an-mbid"
+                    && complete
+                    && captured == Some(alias);
+                assert!(record.matches_edition(canonical));
+                assert_eq!(record.matches_edition(alias), proven);
+                assert!(
+                    !record.matches_edition(unrelated),
+                    "a group alias cannot identify an edition"
+                );
+                assert!(!record.matches_edition(""));
+                if source_id == canonical {
+                    assert_eq!(record.musicbrainz_lookup_alias(), proven.then_some(alias));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn label_lookup_aliases_round_trip_without_upgrading_a_name_match() {
+    let alias = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let different = "33333333-3333-4333-8333-333333333333";
+    for (local, captured, confidence, automatic) in [
+        (Some(alias), Some(alias), Confidence::Identified, true),
+        (Some(canonical), Some(alias), Confidence::Identified, true),
+        (None, Some(alias), Confidence::Identified, true),
+        (Some(different), Some(alias), Confidence::Identified, false),
+        (Some(alias), Some(alias), Confidence::Matched(95), false),
+        (Some(alias), None, Confidence::Identified, false),
+        (
+            Some(alias),
+            Some("not-an-mbid"),
+            Confidence::Identified,
+            false,
+        ),
+    ] {
+        for decision in [
+            None,
+            Some(ReviewDecision::Accepted),
+            Some(ReviewDecision::Rejected),
+        ] {
+            let catalog = crate::model::Catalog {
+                labels: vec![crate::model::Label {
+                    id: 0,
+                    key: "example records".into(),
+                    name: "Example Records".into(),
+                    mbid: local.map(str::to_string),
+                }],
+                ..Default::default()
+            };
+            let entity = EntityRef::of(&catalog, EntityKind::Label, 0).unwrap();
+            let mut held = Sources::default();
+            held.set(SourceRecord {
+                key: entity.key.clone(),
+                source: MUSICBRAINZ.into(),
+                source_id: Some(canonical.into()),
+                fetched_at: 1,
+                confidence,
+                facts: Facts::Label(LabelFacts {
+                    lookup_mbid: captured.map(str::to_string),
+                    ..Default::default()
+                }),
+            });
+            if let Some(decision) = decision {
+                held.set_review(SourceReview {
+                    entity: entity.clone(),
+                    source: MUSICBRAINZ.into(),
+                    source_id: Some(canonical.into()),
+                    decision,
+                    reviewed_at: 17,
+                });
+            }
+            let loaded = from_json(&to_json(&held)).unwrap();
+            assert_eq!(loaded, held);
+            let record = loaded.get(&entity, MUSICBRAINZ).unwrap();
+            let expected = match decision {
+                Some(ReviewDecision::Accepted) => true,
+                Some(ReviewDecision::Rejected) => false,
+                None => automatic,
+            };
+            assert_eq!(loaded.is_trusted(&catalog, record), expected);
+            let resolved = loaded.label_identities(&catalog);
+            assert_eq!(resolved.len(), usize::from(expected));
+            if expected {
+                assert_eq!(resolved[0].mbid, canonical);
+            }
+        }
+    }
+}
+
+#[test]
+fn release_group_aliases_round_trip_without_widening_edition_or_review_scope() {
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let different = "33333333-3333-4333-8333-333333333333";
+    for (edition, captured, confidence, expected_alias, automatic) in [
+        (
+            None,
+            Some(queried),
+            Confidence::Identified,
+            Some(queried),
+            true,
+        ),
+        (
+            Some(different),
+            Some(queried),
+            Confidence::Identified,
+            Some(queried),
+            true,
+        ),
+        (
+            Some(canonical),
+            Some(queried),
+            Confidence::Identified,
+            None,
+            false,
+        ),
+        (None, None, Confidence::Identified, None, false),
+        (
+            None,
+            Some("not-an-mbid"),
+            Confidence::Identified,
+            None,
+            false,
+        ),
+        (
+            None,
+            Some(queried),
+            Confidence::Matched(95),
+            Some(queried),
+            false,
+        ),
+    ] {
+        let mut held = Sources::default();
+        held.set(SourceRecord {
+            key: "example band|example album|/music/example".into(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some(canonical.into()),
+            fetched_at: 1,
+            confidence,
+            facts: Facts::Release(ReleaseFacts {
+                lookup_mbid: captured.map(str::to_string),
+                edition_mbid: edition.map(str::to_string),
+                ..Default::default()
+            }),
+        });
+        let loaded = from_json(&to_json(&held)).unwrap();
+        assert_eq!(loaded, held);
+        let record = &loaded.records[0];
+        assert_eq!(record.musicbrainz_lookup_alias(), expected_alias);
+        assert_eq!(
+            trusted_with_identity(record, Some(queried), None),
+            automatic
+        );
+        assert!(!trusted_with_identity(record, Some(different), None));
+        assert!(trusted_with_identity(
+            record,
+            Some(queried),
+            Some(ReviewDecision::Accepted)
+        ));
+        assert!(!trusted_with_identity(
+            record,
+            Some(queried),
+            Some(ReviewDecision::Rejected)
+        ));
+    }
+}
+
+#[test]
+fn recording_cache_identity_rejects_contradictions_but_retains_legacy_single_ids() {
+    let canonical = "11111111-1111-4111-8111-111111111111";
+    let other = "22222222-2222-4222-8222-222222222222";
+    for source in [MUSICBRAINZ, "other"] {
+        for (source_id, recording, expected) in [
+            (Some(canonical), Some(canonical), Some(canonical)),
+            (Some(canonical), None, Some(canonical)),
+            (None, Some(canonical), Some(canonical)),
+            (Some(canonical), Some(other), None),
+            (None, None, None),
+            (Some(""), Some(canonical), None),
+            (
+                Some("legacy-recording"),
+                Some("legacy-recording"),
+                Some("legacy-recording"),
+            ),
+        ] {
+            let held = Sources {
+                records: vec![SourceRecord {
+                    key: "/music/example.flac".into(),
+                    source: source.into(),
+                    source_id: source_id.map(str::to_string),
+                    fetched_at: 1,
+                    confidence: Confidence::Identified,
+                    facts: Facts::Track(TrackFacts {
+                        recording: recording.map(str::to_string),
+                        ..Default::default()
+                    }),
+                }],
+                ..Default::default()
+            };
+            let loaded = from_json(&to_json(&held)).unwrap();
+            assert_eq!(loaded, held);
+            assert_eq!(
+                loaded.records[0].musicbrainz_recording_identity(),
+                if source == MUSICBRAINZ {
+                    expected
+                } else {
+                    None
+                }
+            );
+        }
+    }
+    let release = SourceRecord {
+        key: "example album".into(),
+        source: MUSICBRAINZ.into(),
+        source_id: Some(canonical.into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Release(ReleaseFacts::default()),
+    };
+    assert_eq!(release.musicbrainz_recording_identity(), None);
+}
+
+#[test]
+fn recording_lookup_aliases_need_completed_consistent_evidence() {
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let different = "33333333-3333-4333-8333-333333333333";
+    for (case, complete, recording, captured, expected) in [
+        ("verified alias", true, Some(canonical), Some(queried), true),
+        (
+            "incomplete lookup",
+            false,
+            Some(canonical),
+            Some(queried),
+            false,
+        ),
+        (
+            "inconsistent canonical ID",
+            true,
+            Some(different),
+            Some(queried),
+            false,
+        ),
+        ("missing canonical ID", true, None, Some(queried), false),
+        ("legacy receipt", true, Some(canonical), None, false),
+        (
+            "invalid query",
+            true,
+            Some(canonical),
+            Some("not-an-mbid"),
+            false,
+        ),
+    ] {
+        let record = SourceRecord {
+            key: "/music/example.flac".into(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some(canonical.into()),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Track(TrackFacts {
+                recording: recording.map(str::to_owned),
+                relationships_complete: complete,
+                relationships_for: captured.map(str::to_owned),
+                ..Default::default()
+            }),
+        };
+        assert_eq!(
+            trusted_with_identity(&record, Some(queried), None),
+            expected,
+            "{case}"
+        );
+        assert!(
+            !trusted_with_identity(&record, Some(different), None),
+            "{case}"
+        );
+        assert!(
+            !trusted_with_identity(&record, Some(queried), Some(ReviewDecision::Rejected)),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn verified_artist_lookup_aliases_survive_storage_without_trusting_other_identities() {
+    let alias = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let different = "33333333-3333-4333-8333-333333333333";
+    for (case, local, captured, confidence, automatic) in [
+        ("canonical", canonical, None, Confidence::Identified, true),
+        (
+            "verified alias",
+            alias,
+            Some(alias),
+            Confidence::Identified,
+            true,
+        ),
+        (
+            "different artist",
+            different,
+            Some(alias),
+            Confidence::Identified,
+            false,
+        ),
+        (
+            "pending name match",
+            alias,
+            Some(alias),
+            Confidence::Matched(95),
+            false,
+        ),
+        (
+            "legacy unknown alias",
+            alias,
+            None,
+            Confidence::Identified,
+            false,
+        ),
+        (
+            "invalid alias",
+            alias,
+            Some("not-an-mbid"),
+            Confidence::Identified,
+            false,
+        ),
+    ] {
+        for decision in [
+            None,
+            Some(ReviewDecision::Accepted),
+            Some(ReviewDecision::Rejected),
+        ] {
+            let catalog = crate::model::Catalog {
+                artists: vec![crate::model::Artist {
+                    id: 0,
+                    key: "example band".into(),
+                    name: "Example Band".into(),
+                    mbid: Some(local.into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).unwrap();
+            let mut held = Sources::default();
+            held.set(SourceRecord {
+                key: entity.key.clone(),
+                source: MUSICBRAINZ.into(),
+                source_id: Some(canonical.into()),
+                fetched_at: 1,
+                confidence,
+                facts: Facts::Artist(ArtistFacts {
+                    lookup_mbid: captured.map(str::to_owned),
+                    ..Default::default()
+                }),
+            });
+            if let Some(decision) = decision {
+                held.set_review(SourceReview {
+                    entity: entity.clone(),
+                    source: MUSICBRAINZ.into(),
+                    source_id: Some(canonical.into()),
+                    decision,
+                    reviewed_at: 17,
+                });
+            }
+            let reloaded = from_json(&to_json(&held)).unwrap();
+            assert_eq!(held, reloaded, "{case}");
+            let record = reloaded.get(&entity, MUSICBRAINZ).unwrap();
+            assert_eq!(
+                reloaded.is_trusted(&catalog, record),
+                match decision {
+                    Some(ReviewDecision::Accepted) => true,
+                    Some(ReviewDecision::Rejected) => false,
+                    None => automatic,
+                },
+                "{case}, {decision:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn displaying_a_discography_year_preserves_unreadable_dates_without_panicking() {
     for (date, expected) in [
         (None, None),
@@ -405,6 +818,7 @@ fn a_round_trip_keeps_every_field() {
         fetched_at: 1_700_000_456,
         confidence: Confidence::Identified,
         facts: Facts::Artist(ArtistFacts {
+            lookup_mbid: None,
             relationships_complete: true,
             area: Some("United States".to_string()),
             country_code: Some("US".to_string()),

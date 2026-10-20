@@ -117,6 +117,155 @@ fn distinguishes_unidentified_waiting_incomplete_and_queried_empty() {
 }
 
 #[test]
+fn contradictory_recording_snapshots_do_not_complete_coverage_or_hide_a_valid_placement() {
+    let canonical = "11111111-1111-4111-8111-111111111111";
+    let other = "22222222-2222-4222-8222-222222222222";
+    let mut catalog = catalog();
+    catalog.recordings[0].mbid = Some(canonical.into());
+    for track in catalog
+        .tracks
+        .iter_mut()
+        .filter(|track| track.recording_id == 0)
+    {
+        track.mbid = Some(canonical.into());
+    }
+    for decision in [
+        None,
+        Some(ReviewDecision::Accepted),
+        Some(ReviewDecision::Rejected),
+    ] {
+        let mut bad = source(
+            "/music/first.flac",
+            TrackFacts {
+                recording: Some(other.into()),
+                credits: ["composer", "producer", "engineer"]
+                    .into_iter()
+                    .map(|role| {
+                        let mut link = credit();
+                        link.role = role.into();
+                        link
+                    })
+                    .collect(),
+                relationships_complete: true,
+                ..Default::default()
+            },
+        );
+        bad.source_id = Some(canonical.into());
+        let mut held = Sources::default();
+        held.set(bad.clone());
+        if let Some(decision) = decision {
+            held.set_review(SourceReview {
+                entity: bad.entity(),
+                source: MUSICBRAINZ.into(),
+                source_id: Some(canonical.into()),
+                decision,
+                reviewed_at: 2,
+            });
+        }
+        let mut loaded = crate::sources::from_json(&crate::sources::to_json(&held)).unwrap();
+        let before = crate::sources::to_json(&loaded);
+        let row = recordings(&catalog, &loaded)[0];
+        assert_eq!(
+            row.status,
+            CreditStatus::Waiting,
+            "contradictory selectors cannot establish a completed lookup, even after review"
+        );
+        assert_eq!(row.recording_credits, 0);
+        assert_eq!(row.work_credits, 0);
+        assert_eq!(crate::sources::to_json(&loaded), before);
+
+        let mut valid = source(
+            "/music/reissue.flac",
+            TrackFacts {
+                recording: Some(canonical.into()),
+                credits: vec![credit()],
+                relationships_complete: true,
+                ..Default::default()
+            },
+        );
+        valid.source_id = Some(canonical.into());
+        loaded.set(valid);
+        let row = recordings(&catalog, &loaded)[0];
+        assert_eq!(row.status, CreditStatus::Credited);
+        assert_eq!(
+            row.recording_credits, 1,
+            "a contradictory richer snapshot must not replace valid credits on another placement"
+        );
+        assert_eq!(
+            loaded.review_for(&bad).map(|review| review.decision),
+            decision
+        );
+    }
+}
+
+#[test]
+fn a_legacy_recording_fact_without_source_id_keeps_its_identity_and_explicit_decisions() {
+    let canonical = "11111111-1111-4111-8111-111111111111";
+    let other = "22222222-2222-4222-8222-222222222222";
+    let mut catalog = catalog();
+    catalog.recordings[0].mbid = Some(canonical.into());
+    for claimed in [canonical, other] {
+        for decision in [
+            None,
+            Some(ReviewDecision::Accepted),
+            Some(ReviewDecision::Rejected),
+        ] {
+            let mut legacy = source(
+                "/music/first.flac",
+                TrackFacts {
+                    recording: Some(claimed.into()),
+                    credits: vec![credit()],
+                    relationships_complete: true,
+                    ..Default::default()
+                },
+            );
+            legacy.source_id = None;
+            let mut held = Sources::default();
+            held.set(legacy.clone());
+            if let Some(decision) = decision {
+                held.set_review(SourceReview {
+                    entity: legacy.entity(),
+                    source: MUSICBRAINZ.into(),
+                    source_id: None,
+                    decision,
+                    reviewed_at: 2,
+                });
+            }
+            let loaded = crate::sources::from_json(&crate::sources::to_json(&held)).unwrap();
+            let trusted = match decision {
+                Some(ReviewDecision::Accepted) => true,
+                Some(ReviewDecision::Rejected) => false,
+                None => claimed == canonical,
+            };
+            let snapshot = &loaded.records[0];
+            assert_eq!(
+                loaded.is_trusted(&catalog, snapshot),
+                trusted,
+                "the retained recording fact remains an identity even without a source ID"
+            );
+            let row = recordings(&catalog, &loaded)[0];
+            assert_eq!(
+                row.status,
+                if trusted {
+                    CreditStatus::Credited
+                } else {
+                    CreditStatus::Untrusted
+                }
+            );
+            assert_eq!(row.recording_credits, usize::from(trusted));
+            assert_eq!(
+                loaded
+                    .credit_links(&catalog)
+                    .iter()
+                    .filter(|link| link.trusted)
+                    .count(),
+                usize::from(trusted)
+            );
+        }
+    }
+}
+
+#[test]
 fn counts_direct_and_work_credits_once_across_reissues() {
     let catalog = catalog();
     let mut held = Sources::default();

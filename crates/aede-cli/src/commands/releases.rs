@@ -102,17 +102,50 @@ impl Target {
         musicbrainz::NoMatch,
     > {
         match (&self.edition, &self.group) {
-            (Some(_), _) => musicbrainz::release(answer)
+            (Some(edition), _) => edition_lookup(answer, edition)
                 .map(|c| (c, sources::Confidence::Identified))
                 .ok_or(musicbrainz::NoMatch::Nothing),
             (None, Some(_)) => musicbrainz::release_group(answer)
+                .filter(|candidate| musicbrainz::valid_id(&candidate.mbid))
                 .map(|c| (c, sources::Confidence::Identified))
                 .ok_or(musicbrainz::NoMatch::Nothing),
             (None, None) => {
-                musicbrainz::best_match(&musicbrainz::release_groups(answer), &self.title)
+                let mut candidates = musicbrainz::release_groups(answer);
+                candidates.retain(|candidate| musicbrainz::valid_id(&candidate.mbid));
+                musicbrainz::best_match(&candidates, &self.title)
             }
         }
     }
+}
+
+/// Read an exact edition lookup while retaining the selector actually queried.
+/// MusicBrainz may redirect merged IDs; that does not change the local edition
+/// scope, nor turn an edition-only answer into a release-group claim.
+pub(super) fn edition_lookup(
+    answer: &aede_core::json::Json,
+    queried: &str,
+) -> Option<musicbrainz::Candidate<sources::ReleaseFacts>> {
+    // An absent group permits an edition fallback; a supplied but unreadable
+    // group is not a completed answer and must not replace prior evidence.
+    if let Some(group) = answer.get("release-group")
+        && !matches!(group, aede_core::json::Json::Null)
+        && !group
+            .get("id")
+            .and_then(aede_core::json::Json::as_str)
+            .is_some_and(musicbrainz::valid_id)
+    {
+        return None;
+    }
+    let mut candidate = musicbrainz::release(answer)?;
+    let returned = candidate.facts.edition_mbid.as_deref()?;
+    // A changed selector must be a usable official identifier, not malformed
+    // metadata which happened to arrive at the lookup endpoint.
+    if returned != queried && !musicbrainz::valid_id(returned) {
+        return None;
+    }
+    candidate.facts.edition_lookup_mbid =
+        (returned != queried && musicbrainz::valid_id(queried)).then(|| queried.to_string());
+    Some(candidate)
 }
 
 /// The albums worth asking about.
@@ -216,7 +249,47 @@ pub fn run(
         };
 
         match target.read(&answer) {
-            Ok((candidate, confidence)) => {
+            Ok((mut candidate, confidence)) => {
+                // Only a direct group lookup proves that the requested group
+                // is an alias. An edition lookup names a different namespace.
+                let queried_group = if target.edition.is_none() {
+                    target.group.as_deref()
+                } else {
+                    None
+                };
+                let retained_review = super::fetch::continued_lookup_review(
+                    held,
+                    &target.entity,
+                    &candidate.mbid,
+                    if candidate.facts.edition_mbid.as_deref() == Some(candidate.mbid.as_str()) {
+                        target.edition.as_deref()
+                    } else {
+                        queried_group
+                    },
+                );
+                candidate.facts.lookup_mbid = queried_group
+                    .filter(|id| musicbrainz::valid_id(id) && *id != candidate.mbid)
+                    .map(str::to_string);
+                if let Some(previous) = held.get(&target.entity, sources::MUSICBRAINZ)
+                    && super::fetch::lookup_continues(previous, &candidate.mbid, queried_group)
+                    && let Facts::Release(facts) = &previous.facts
+                {
+                    candidate.facts.lookup_mbid = candidate
+                        .facts
+                        .lookup_mbid
+                        .or_else(|| facts.lookup_mbid.clone());
+                }
+                if let Some(previous) = held.get(&target.entity, sources::MUSICBRAINZ)
+                    && let Facts::Release(facts) = &previous.facts
+                    && candidate.facts.edition_lookup_mbid.is_none()
+                    && candidate
+                        .facts
+                        .edition_mbid
+                        .as_deref()
+                        .is_some_and(|id| previous.matches_edition(id))
+                {
+                    candidate.facts.edition_lookup_mbid = facts.edition_lookup_mbid.clone();
+                }
                 held.set(SourceRecord {
                     key: target.entity.key.clone(),
                     source: sources::MUSICBRAINZ.to_string(),
@@ -225,6 +298,9 @@ pub fn run(
                     confidence,
                     facts: Facts::Release(candidate.facts),
                 });
+                if let Some(review) = retained_review {
+                    held.set_review(review);
+                }
                 stored += 1;
                 sources::save(held, path)?;
             }

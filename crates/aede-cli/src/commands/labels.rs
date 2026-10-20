@@ -161,10 +161,12 @@ pub fn run(
 
         match target.read(&answer) {
             Ok((mut candidate, confidence)) => {
+                let mut queried = target.known_mbid.clone();
                 // Search results omit URL relationships. Read the matched
                 // label by identifier before filing it, so this pass can
                 // supply the Wikidata link needed for a summary immediately.
                 if target.known_mbid.is_none() {
+                    queried = Some(candidate.mbid.clone());
                     let url = format!(
                         "{}/label/{}?fmt=json&inc={}",
                         musicbrainz::WEB_SERVICE,
@@ -185,8 +187,9 @@ pub fn run(
                         .filter(|found| musicbrainz::valid_id(&found.mbid))
                     {
                         Some(found) => {
-                            // Lookup may follow a merged ID; retain the original
-                            // scored search claim, enriching only its facts.
+                            // Keep the search confidence while recording the
+                            // canonical identity confirmed by its exact lookup.
+                            candidate.mbid = found.mbid;
                             candidate.facts = found.facts;
                         }
                         _ => {
@@ -201,6 +204,25 @@ pub fn run(
                         }
                     }
                 }
+                let retained_review = super::fetch::continued_lookup_review(
+                    held,
+                    &target.entity,
+                    &candidate.mbid,
+                    queried.as_deref(),
+                );
+                candidate.facts.lookup_mbid = queried
+                    .as_deref()
+                    .filter(|id| musicbrainz::valid_id(id) && *id != candidate.mbid)
+                    .map(str::to_string);
+                if let Some(previous) = held.get(&target.entity, sources::MUSICBRAINZ)
+                    && super::fetch::lookup_continues(previous, &candidate.mbid, queried.as_deref())
+                    && let Facts::Label(facts) = &previous.facts
+                {
+                    candidate.facts.lookup_mbid = candidate
+                        .facts
+                        .lookup_mbid
+                        .or_else(|| facts.lookup_mbid.clone());
+                }
                 held.set(SourceRecord {
                     key: target.entity.key.clone(),
                     source: sources::MUSICBRAINZ.to_string(),
@@ -209,6 +231,9 @@ pub fn run(
                     confidence,
                     facts: Facts::Label(candidate.facts),
                 });
+                if let Some(review) = retained_review {
+                    held.set_review(review);
+                }
                 stored += 1;
                 sources::save(held, path)?;
             }

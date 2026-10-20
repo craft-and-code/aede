@@ -207,7 +207,7 @@ fn refresh(
     }
     let mbid = previous
         .as_ref()
-        .and_then(|row| row.source_id.clone())
+        .and_then(|row| super::fetch::lookup_selector(catalog, row).map(str::to_string))
         .or_else(|| label.mbid.clone())
         .ok_or("this label has no MusicBrainz ID; run aede fetch --labels first")?;
     let mut link = previous.as_ref().and_then(|row| match &row.facts {
@@ -223,26 +223,34 @@ fn refresh(
         let answer = ask_musicbrainz(&url).map_err(|why| format!("MusicBrainz: {why}"))?;
         let candidate = musicbrainz::label(&answer)
             .filter(|candidate| {
-                // A merged MBID remains an official alias. Keep the reviewed
-                // ID below rather than replacing its consent with the survivor.
+                // A valid merged ID still identifies the reviewed label.
                 musicbrainz::valid_id(&candidate.mbid)
                     && text::normalize(&candidate.name) == text::normalize(&label.name)
             })
             .ok_or("MusicBrainz did not confirm this label's identity")?;
         link = candidate.facts.discogs;
         if let Some(url) = &link {
+            let review =
+                super::fetch::continued_lookup_review(held, &entity, &candidate.mbid, Some(&mbid));
             let mut record = previous.unwrap_or(SourceRecord {
                 key: entity.key.clone(),
                 source: sources::MUSICBRAINZ.to_string(),
-                source_id: Some(mbid),
+                source_id: Some(mbid.clone()),
                 fetched_at: clock::now_seconds(),
                 confidence: sources::Confidence::Identified,
                 facts: Facts::Label(LabelFacts::default()),
             });
             if let Facts::Label(facts) = &mut record.facts {
                 facts.discogs = Some(url.clone());
+                facts.lookup_mbid = (musicbrainz::valid_id(&mbid) && mbid != candidate.mbid)
+                    .then_some(mbid)
+                    .or(facts.lookup_mbid.take());
             }
+            record.source_id = Some(candidate.mbid);
             held.set(record);
+            if let Some(review) = review {
+                held.set_review(review);
+            }
             sources::save(held, path)?;
         }
     }

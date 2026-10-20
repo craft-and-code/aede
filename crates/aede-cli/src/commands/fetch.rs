@@ -841,6 +841,61 @@ fn second_passes(
     }
 }
 
+/// A successful exact lookup can continue a reviewed identity through a merge;
+/// a different name-search candidate or an unverified identifier cannot.
+pub(super) fn lookup_continues(
+    record: &SourceRecord,
+    canonical: &str,
+    queried: Option<&str>,
+) -> bool {
+    if record.source != sources::MUSICBRAINZ {
+        return false;
+    }
+    let previous = record
+        .source_id
+        .as_deref()
+        .or_else(|| record.musicbrainz_recording_identity());
+    previous == Some(canonical)
+        || (musicbrainz::valid_id(canonical)
+            && queried
+                .filter(|id| musicbrainz::valid_id(id))
+                .is_some_and(|id| {
+                    previous == Some(id) || record.musicbrainz_lookup_alias() == Some(id)
+                }))
+}
+
+/// Keep either decision only when the lookup proves it is still this identity.
+pub(super) fn continued_lookup_review(
+    held: &sources::Sources,
+    entity: &EntityRef,
+    canonical: &str,
+    queried: Option<&str>,
+) -> Option<sources::SourceReview> {
+    let previous = held.get(entity, sources::MUSICBRAINZ)?;
+    if !lookup_continues(previous, canonical, queried) {
+        return None;
+    }
+    let mut review = held.review_for(previous)?.clone();
+    review.source_id = Some(canonical.to_string());
+    Some(review)
+}
+
+/// Prefer the current tag only when this claim has confirmed that identity.
+/// Otherwise reuse a retained alias or the source selector, preserving existing
+/// proof during secondary lookups without following a rejected local conflict.
+pub(super) fn lookup_selector<'a>(
+    catalog: &'a Catalog,
+    record: &'a SourceRecord,
+) -> Option<&'a str> {
+    let canonical = record.source_id.as_deref()?;
+    let alias = record.musicbrainz_lookup_alias();
+    record
+        .local_musicbrainz_id(catalog)
+        .filter(|local| *local == canonical || Some(*local) == alias)
+        .or(alias)
+        .or(Some(canonical))
+}
+
 /// Retrieves MusicBrainz recording credits, work relationships and work
 /// credits for recordings local tags already identify. No title search is
 /// offered: without a recording MBID there is no safe question to ask.
@@ -859,9 +914,20 @@ fn rich_credits(
         .records
         .iter()
         .filter(|record| record.source == sources::MUSICBRAINZ)
-        .filter_map(|record| match &record.facts {
-            Facts::Track(facts) if facts.relationships_complete => Some(record.key.as_str()),
-            _ => None,
+        .filter(
+            |record| matches!(&record.facts, Facts::Track(facts) if facts.relationships_complete),
+        )
+        .flat_map(|record| {
+            // Neither a contradictory canonical identity nor an unverified
+            // alias may suppress a necessary lookup. Consistent legacy IDs
+            // and confirmed merged aliases retain their completed receipts.
+            [
+                record.musicbrainz_lookup_alias(),
+                record.musicbrainz_recording_identity(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|id| (record.key.as_str(), id))
         })
         .collect();
     let mut targets = Vec::new();
@@ -897,7 +963,7 @@ fn rich_credits(
                 catalog
                     .track(id)
                     .and_then(|track| catalog.file(track.file_id))
-                    .is_some_and(|file| completed.contains(file.path.as_str()))
+                    .is_some_and(|file| completed.contains(&(file.path.as_str(), mbid)))
             })
         {
             continue;
@@ -937,8 +1003,25 @@ fn rich_credits(
             musicbrainz::RECORDING_INCLUDES
         );
         match ask_with_backoff(transport, &url, backoff) {
-            Ok(answer) => match musicbrainz::recording(&answer) {
-                Some(candidate) => {
+            Ok(answer) => match musicbrainz::recording(&answer).filter(|candidate| {
+                candidate.mbid == mbid || musicbrainz::valid_id(&candidate.mbid)
+            }) {
+                Some(mut candidate) => {
+                    // Refreshing the already confirmed canonical recording
+                    // must not discard its earlier verified lookup alias.
+                    let prior_alias = if candidate.mbid == mbid {
+                        held.get(&entity, sources::MUSICBRAINZ)
+                            .filter(|record| {
+                                record.source_id.as_deref() == Some(candidate.mbid.as_str())
+                            })
+                            .and_then(SourceRecord::musicbrainz_lookup_alias)
+                    } else {
+                        None
+                    };
+                    candidate.facts.relationships_for =
+                        Some(prior_alias.unwrap_or(mbid).to_string());
+                    let review =
+                        continued_lookup_review(held, &entity, &candidate.mbid, Some(mbid));
                     held.set(SourceRecord {
                         key: entity.key,
                         source: sources::MUSICBRAINZ.to_string(),
@@ -947,6 +1030,9 @@ fn rich_credits(
                         confidence: sources::Confidence::Identified,
                         facts: Facts::Track(candidate.facts),
                     });
+                    if let Some(review) = review {
+                        held.set_review(review);
+                    }
                     sources::save(held, path)?;
                     stored += 1;
                 }
@@ -1016,7 +1102,7 @@ fn edition_credits(
                     .is_some_and(|record| {
                         matches!(&record.facts, Facts::Release(facts)
                             if facts.relationships_complete
-                            && facts.edition_mbid.as_deref() == Some(mbid))
+                            && record.matches_edition(mbid))
                     })
             {
                 return None;
@@ -1057,13 +1143,31 @@ fn edition_credits(
             musicbrainz::RELEASE_INCLUDES
         );
         match ask_with_backoff(transport, &url, backoff) {
-            Ok(answer) => match musicbrainz::release(&answer) {
-                Some(candidate) if candidate.facts.edition_mbid.as_deref() == Some(mbid) => {
+            Ok(answer) => match super::releases::edition_lookup(&answer, mbid) {
+                Some(candidate) => {
+                    let retained_review = continued_lookup_review(
+                        held,
+                        &entity,
+                        &candidate.mbid,
+                        (candidate.facts.edition_mbid.as_deref() == Some(candidate.mbid.as_str()))
+                            .then_some(mbid),
+                    );
                     let mut facts = candidate.facts;
-                    if let Some(previous) = held.get(&entity, sources::MUSICBRAINZ)
-                        && let Facts::Release(previous) = &previous.facts
+                    if let Some(previous_record) = held.get(&entity, sources::MUSICBRAINZ)
+                        && let Facts::Release(previous) = &previous_record.facts
                     {
                         facts.cover_art = facts.cover_art.or_else(|| previous.cover_art.clone());
+                        if facts.edition_lookup_mbid.is_none()
+                            && facts
+                                .edition_mbid
+                                .as_deref()
+                                .is_some_and(|id| previous_record.matches_edition(id))
+                        {
+                            facts.edition_lookup_mbid = previous.edition_lookup_mbid.clone();
+                        }
+                        if previous_record.source_id.as_deref() == Some(candidate.mbid.as_str()) {
+                            facts.lookup_mbid = previous.lookup_mbid.clone();
+                        }
                     }
                     held.set(SourceRecord {
                         key: entity.key,
@@ -1073,6 +1177,9 @@ fn edition_credits(
                         confidence: sources::Confidence::Identified,
                         facts: Facts::Release(facts),
                     });
+                    if let Some(review) = retained_review {
+                        held.set_review(review);
+                    }
                     sources::save(held, path)?;
                     stored += 1;
                 }
@@ -1455,15 +1562,22 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                 // therefore erase a successful `fetch --discography` and make
                 // the missing-albums report silently disappear.
                 let mut facts = candidate.facts;
-                if let Some(SourceRecord {
-                    source_id: Some(previous_mbid),
-                    facts: Facts::Artist(existing),
-                    ..
-                }) = held.get(entity, sources::MUSICBRAINZ)
-                    && previous_mbid == &candidate.mbid
+                facts.lookup_mbid = mbid
+                    .as_ref()
+                    .filter(|id| musicbrainz::valid_id(id) && *id != &candidate.mbid)
+                    .cloned();
+                let retained_review =
+                    continued_lookup_review(&held, entity, &candidate.mbid, mbid.as_deref());
+                if let Some(previous) = held.get(entity, sources::MUSICBRAINZ)
+                    && lookup_continues(previous, &candidate.mbid, mbid.as_deref())
+                    && let Facts::Artist(existing) = &previous.facts
                 {
+                    // A lookup may redirect a merged ID. Its separately
+                    // browsed discography still belongs to the queried artist;
+                    // a changed name-search match establishes no such link.
                     facts.discography = existing.discography.clone();
                     facts.discography_fetched_at = existing.discography_fetched_at;
+                    facts.lookup_mbid = facts.lookup_mbid.or_else(|| existing.lookup_mbid.clone());
                 }
                 held.set(SourceRecord {
                     key: entity.key.clone(),
@@ -1473,6 +1587,9 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
                     confidence,
                     facts: Facts::Artist(facts),
                 });
+                if let Some(review) = retained_review {
+                    held.set_review(review);
+                }
                 stored += 1;
                 // Saved after each answer, not at the end: ten minutes of
                 // waiting must not be undone by one interruption.

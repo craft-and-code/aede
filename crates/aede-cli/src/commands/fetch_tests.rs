@@ -522,6 +522,220 @@ fn an_artist_refresh_preserves_a_complete_empty_discography_for_the_same_identit
 }
 
 #[test]
+fn redirected_artist_lookups_keep_trust_and_explicit_review_decisions() {
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    for decision in [
+        None,
+        Some(sources::ReviewDecision::Accepted),
+        Some(sources::ReviewDecision::Rejected),
+    ] {
+        let dir = sandbox(&format!("redirect_artist_trust_{decision:?}"));
+        let mut tags = RawTags::default();
+        for (key, value) in [
+            ("artist", "Example Band"),
+            ("albumartist", "Example Band"),
+            ("album", "Example Album"),
+            ("title", "Example Song"),
+            ("musicbrainz_artistid", queried),
+            ("musicbrainz_albumartistid", queried),
+        ] {
+            tags.insert(key, value);
+        }
+        let catalog = build(
+            vec![ScannedFile {
+                path: dir.join("music/01.flac").to_string_lossy().into_owned(),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }],
+            vec![dir.join("music").to_string_lossy().into_owned()],
+            1,
+            &[],
+        );
+        aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+        let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).unwrap();
+        let mut held = sources::Sources::default();
+        held.set(SourceRecord {
+            key: entity.key.clone(),
+            source: sources::MUSICBRAINZ.into(),
+            source_id: Some(queried.into()),
+            fetched_at: 1,
+            confidence: sources::Confidence::Matched(95),
+            facts: Facts::Artist(sources::ArtistFacts::default()),
+        });
+        if let Some(decision) = decision {
+            held.set_review(sources::SourceReview {
+                entity: entity.clone(),
+                source: sources::MUSICBRAINZ.into(),
+                source_id: Some(queried.into()),
+                decision,
+                reviewed_at: 17,
+            });
+        }
+        let path = sources::sources_path(&dir);
+        sources::save(&held, &path).unwrap();
+        for canonical in [canonical, "33333333-3333-4333-8333-333333333333"] {
+            let mut transport = Canned {
+                answers: vec![
+                    Ok(format!(
+                        r#"{{"id":"{canonical}","name":"Example Band","relations":[
+                {{"type":"wikidata","url":{{"resource":"https://www.wikidata.org/wiki/Q1001"}}}}
+            ]}}"#
+                    )),
+                    Ok(NO_ALBUM.into()),
+                ],
+                asked: Vec::new(),
+            };
+            run_with(&args(&dir, &["--full"]), &mut transport, &NO_WAIT).unwrap();
+            let saved = sources::load_all(&path).unwrap().unwrap();
+            let record = saved.get(&entity, sources::MUSICBRAINZ).unwrap();
+            assert_eq!(record.source_id.as_deref(), Some(canonical));
+            let allowed = decision != Some(sources::ReviewDecision::Rejected);
+            assert_eq!(
+                saved.is_trusted(&catalog, record),
+                allowed,
+                "a valid redirect must not turn an exact lookup into an identity conflict"
+            );
+            let mut retagged = catalog.clone();
+            retagged.artists[0].mbid = Some(canonical.into());
+            let reloaded = sources::load_all(&path).unwrap().unwrap();
+            let retagged_record = reloaded.get(&entity, sources::MUSICBRAINZ).unwrap();
+            assert_eq!(
+                reloaded.is_trusted(&retagged, retagged_record),
+                allowed,
+                "a saved artist claim must remain usable after canonical retagging"
+            );
+            assert_eq!(
+                super::super::summaries::waiting(&reloaded, Some(&retagged)),
+                usize::from(allowed)
+            );
+            assert_eq!(
+                saved
+                    .review_for(record)
+                    .map(|review| (review.decision, review.reviewed_at)),
+                decision.map(|decision| (decision, 17)),
+                "a redirect must not remove consent or rejection"
+            );
+            assert_eq!(
+                super::super::summaries::waiting(&saved, Some(&catalog)),
+                usize::from(allowed)
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn an_artist_lookup_redirect_keeps_only_the_queried_identitys_discography() {
+    let original = "11111111-1111-4111-8111-111111111111";
+    let survivor = "22222222-2222-4222-8222-222222222222";
+    let unrelated = "33333333-3333-4333-8333-333333333333";
+    for (case, tagged, previous, preserve, captured_alias) in [
+        ("merged lookup", true, original, true, false),
+        ("unrelated prior claim", true, unrelated, false, false),
+        ("changed search result", false, original, false, false),
+        ("previously confirmed alias", true, unrelated, true, true),
+    ] {
+        for empty in [false, true] {
+            let dir = sandbox(&format!("redirect_discography_{case}_{empty}"));
+            let mut tags = RawTags::default();
+            for (key, value) in [
+                ("artist", "Fixture Band"),
+                ("albumartist", "Fixture Band"),
+                ("album", "Fixture Album"),
+                ("title", "Fixture Song"),
+            ] {
+                tags.insert(key, value);
+            }
+            if tagged {
+                tags.insert("musicbrainz_artistid", original);
+                tags.insert("musicbrainz_albumartistid", original);
+            }
+            let catalog = build(
+                vec![ScannedFile {
+                    path: dir.join("music/01.flac").to_string_lossy().into_owned(),
+                    size: 1,
+                    mtime: 1,
+                    tags,
+                    folder_cover: None,
+                    sidecar: None,
+                    integrity: None,
+                    fingerprint: None,
+                }],
+                vec![dir.join("music").to_string_lossy().into_owned()],
+                1,
+                &[],
+            );
+            aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+            let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).unwrap();
+            let known = if empty {
+                Vec::new()
+            } else {
+                vec![sources::KnownRelease {
+                    mbid: "44444444-4444-4444-8444-444444444444".into(),
+                    title: "Fixture Missing Album".into(),
+                    first_released: None,
+                    primary_type: Some("Album".into()),
+                    secondary_types: Vec::new(),
+                }]
+            };
+            let mut held = sources::Sources::default();
+            held.set(SourceRecord {
+                key: entity.key.clone(),
+                source: sources::MUSICBRAINZ.into(),
+                source_id: Some(previous.into()),
+                fetched_at: 1,
+                confidence: sources::Confidence::Identified,
+                facts: Facts::Artist(sources::ArtistFacts {
+                    lookup_mbid: captured_alias.then(|| original.to_string()),
+                    discography: known.clone(),
+                    discography_fetched_at: Some(17),
+                    ..Default::default()
+                }),
+            });
+            let path = sources::sources_path(&dir);
+            sources::save(&held, &path).unwrap();
+            let artist = format!(
+                r#"{{"id":"{survivor}","name":"Fixture Band","score":100,"relations":[]}}"#
+            );
+            let response = if tagged {
+                artist
+            } else {
+                format!(r#"{{"artists":[{artist}]}}"#)
+            };
+            let mut transport = Canned {
+                answers: vec![Ok(response), Ok(NO_ALBUM.into())],
+                asked: Vec::new(),
+            };
+            run_with(&args(&dir, &["--full"]), &mut transport, &NO_WAIT).unwrap();
+            assert_eq!(transport.asked.len(), 2);
+            let saved = sources::load_all(&path).unwrap().unwrap();
+            let record = saved.get(&entity, sources::MUSICBRAINZ).unwrap();
+            assert_eq!(record.source_id.as_deref(), Some(survivor));
+            let Facts::Artist(facts) = &record.facts else {
+                panic!("artist facts")
+            };
+            assert_eq!(
+                facts.discography_fetched_at,
+                preserve.then_some(17),
+                "{case}, empty={empty}"
+            );
+            assert_eq!(
+                facts.discography,
+                if preserve { known } else { Vec::new() },
+                "{case}, empty={empty}"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
 fn recording_credit_requests_honour_artist_and_album_names() {
     for name in ["Jimi Hendrix", "Electric Ladyland"] {
         let dir = sandbox(&text::normalize(name).replace(' ', "_"));
@@ -568,7 +782,7 @@ fn recording_credit_requests_honour_artist_and_album_names() {
 
 /// The album in the reference library, as a release-group search answers.
 const ONE_ALBUM: &str = r#"{"release-groups":[
-    {"id":"c9fdb94c","score":100,"title":"Kind of Blue",
+    {"id":"55555555-5555-4555-8555-555555555555","score":100,"title":"Kind of Blue",
      "primary-type":"Album","first-release-date":"1959-08-17"}]}"#;
 
 /// A search that found nothing — for the tests whose subject is the artist
@@ -1416,6 +1630,442 @@ fn a_lookup_asks_for_the_memberships_and_stores_them_dated() {
 }
 
 #[test]
+fn redirected_recording_lookups_keep_trusted_credits_and_explicit_reviews() {
+    use aede_core::credit_coverage::{self, CreditStatus};
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    for legacy in [false, true] {
+        for decision in [
+            None,
+            Some(sources::ReviewDecision::Accepted),
+            Some(sources::ReviewDecision::Rejected),
+        ] {
+            let dir = sandbox(&format!("redirect_recording_trust_{legacy}_{decision:?}"));
+            let mut tags = RawTags::default();
+            for (key, value) in [
+                ("artist", "Example Band"),
+                ("albumartist", "Example Band"),
+                ("album", "Example Album"),
+                ("title", "Example Song"),
+                ("musicbrainz_recordingid", queried),
+            ] {
+                tags.insert(key, value);
+            }
+            let catalog = build(
+                vec![ScannedFile {
+                    path: dir.join("music/01.flac").to_string_lossy().into_owned(),
+                    size: 1,
+                    mtime: 1,
+                    tags,
+                    folder_cover: None,
+                    sidecar: None,
+                    integrity: None,
+                    fingerprint: None,
+                }],
+                vec![dir.join("music").to_string_lossy().into_owned()],
+                1,
+                &[],
+            );
+            aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+            let entity = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+            let mut held = sources::Sources::default();
+            held.set(SourceRecord {
+                key: entity.key.clone(),
+                source: sources::MUSICBRAINZ.into(),
+                source_id: (!legacy).then(|| queried.into()),
+                fetched_at: 1,
+                confidence: sources::Confidence::Identified,
+                facts: Facts::Track(sources::TrackFacts {
+                    recording: legacy.then(|| queried.into()),
+                    ..Default::default()
+                }),
+            });
+            if let Some(decision) = decision {
+                held.set_review(sources::SourceReview {
+                    entity: entity.clone(),
+                    source: sources::MUSICBRAINZ.into(),
+                    source_id: (!legacy).then(|| queried.into()),
+                    decision,
+                    reviewed_at: 17,
+                });
+            }
+            let path = sources::sources_path(&dir);
+            sources::save(&held, &path).unwrap();
+            let response = |id| {
+                format!(
+                    r#"{{"id":"{id}","title":"Example Song","relations":[
+            {{"type":"producer","target-type":"artist","artist":{{
+                "id":"55555555-5555-4555-8555-555555555555","name":"Example Producer"}}}}
+        ]}}"#
+                )
+            };
+            for canonical in [canonical, "33333333-3333-4333-8333-333333333333"] {
+                let mut transport = Canned {
+                    answers: vec![Ok(response(canonical))],
+                    asked: Vec::new(),
+                };
+                run_with(
+                    &args(&dir, &["--credits", "--full"]),
+                    &mut transport,
+                    &NO_WAIT,
+                )
+                .unwrap();
+                let saved = sources::load_all(&path).unwrap().unwrap();
+                let record = saved.get(&entity, sources::MUSICBRAINZ).unwrap();
+                assert_eq!(record.source_id.as_deref(), Some(canonical));
+                let allowed = decision != Some(sources::ReviewDecision::Rejected);
+                assert_eq!(
+                    credit_coverage::recordings(&catalog, &saved)[0].status,
+                    if allowed {
+                        CreditStatus::Credited
+                    } else {
+                        CreditStatus::Untrusted
+                    },
+                    "an exact redirected recording lookup must retain usable credits"
+                );
+                assert_eq!(
+                    saved
+                        .credit_links(&catalog)
+                        .iter()
+                        .filter(|link| link.trusted)
+                        .count(),
+                    usize::from(allowed)
+                );
+                let mut retagged = catalog.clone();
+                retagged.recordings[0].mbid = Some(canonical.into());
+                let reloaded = sources::load_all(&path).unwrap().unwrap();
+                assert_eq!(
+                    credit_coverage::recordings(&retagged, &reloaded)[0].status,
+                    if allowed {
+                        CreditStatus::Credited
+                    } else {
+                        CreditStatus::Untrusted
+                    }
+                );
+                assert_eq!(
+                    reloaded
+                        .credit_links(&retagged)
+                        .iter()
+                        .filter(|link| link.trusted)
+                        .count(),
+                    usize::from(allowed),
+                    "a saved recording claim must remain usable after canonical retagging"
+                );
+                assert_eq!(
+                    saved
+                        .review_for(record)
+                        .map(|review| (review.decision, review.reviewed_at)),
+                    decision.map(|decision| (decision, 17))
+                );
+                if decision.is_none() {
+                    let mut different = catalog.clone();
+                    different.recordings[0].mbid =
+                        Some("44444444-4444-4444-8444-444444444444".into());
+                    assert!(
+                        saved
+                            .credit_links(&different)
+                            .iter()
+                            .all(|link| !link.trusted)
+                    );
+                }
+                let catalog_path = aede_core::store::catalog_path(&dir);
+                aede_core::store::save(&retagged, &catalog_path).unwrap();
+                let mut refreshed_canonical = Canned {
+                    answers: vec![Ok(response(canonical))],
+                    asked: Vec::new(),
+                };
+                run_with(
+                    &args(&dir, &["--credits", "--full"]),
+                    &mut refreshed_canonical,
+                    &NO_WAIT,
+                )
+                .unwrap();
+                let refreshed = sources::load_all(&path).unwrap().unwrap();
+                let record = refreshed.get(&entity, sources::MUSICBRAINZ).unwrap();
+                assert_eq!(
+                    refreshed
+                        .review_for(record)
+                        .map(|review| (review.decision, review.reviewed_at)),
+                    decision.map(|decision| (decision, 17))
+                );
+                for current in [&catalog, &retagged] {
+                    assert_eq!(
+                        credit_coverage::recordings(current, &refreshed)[0].status,
+                        if allowed {
+                            CreditStatus::Credited
+                        } else {
+                            CreditStatus::Untrusted
+                        }
+                    );
+                    assert_eq!(
+                        refreshed
+                            .credit_links(current)
+                            .iter()
+                            .filter(|link| link.trusted)
+                            .count(),
+                        usize::from(allowed)
+                    );
+                }
+                aede_core::store::save(&catalog, &catalog_path).unwrap();
+                let before = std::fs::read(&path).unwrap();
+                let mut malformed = Canned {
+                    answers: vec![Ok(response("not-an-mbid"))],
+                    asked: Vec::new(),
+                };
+                run_with(
+                    &args(&dir, &["--credits", "--full"]),
+                    &mut malformed,
+                    &NO_WAIT,
+                )
+                .unwrap();
+                assert_eq!(
+                    std::fs::read(&path).unwrap(),
+                    before,
+                    "an unreadable redirect must preserve the last completed lookup and its review"
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn inconsistent_recording_receipts_remain_retryable_without_breaking_legacy_cache() {
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let source_id = "22222222-2222-4222-8222-222222222222";
+    let conflicting = "33333333-3333-4333-8333-333333333333";
+    for (case, local, recording, must_retry) in [
+        ("conflicting alias", queried, Some(conflicting), true),
+        ("absent alias evidence", queried, None, true),
+        ("conflicting canonical", source_id, Some(conflicting), true),
+        ("legacy canonical", source_id, None, false),
+    ] {
+        let dir = sandbox(&format!("inconsistent_recording_alias_receipt_{case}"));
+        let mut tags = RawTags::default();
+        for (key, value) in [
+            ("artist", "Example Artist"),
+            ("albumartist", "Example Artist"),
+            ("album", "Example Album"),
+            ("title", "Example Song"),
+            ("musicbrainz_recordingid", local),
+        ] {
+            tags.insert(key, value);
+        }
+        let catalog = build(
+            vec![ScannedFile {
+                path: dir.join("music/01.flac").to_string_lossy().into_owned(),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }],
+            vec![dir.join("music").to_string_lossy().into_owned()],
+            1,
+            &[],
+        );
+        aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+        let entity = EntityRef::of(&catalog, EntityKind::Track, 0).unwrap();
+        let mut held = sources::Sources::default();
+        held.set(SourceRecord {
+            key: entity.key.clone(),
+            source: sources::MUSICBRAINZ.into(),
+            source_id: Some(source_id.into()),
+            fetched_at: 1,
+            confidence: sources::Confidence::Identified,
+            facts: Facts::Track(sources::TrackFacts {
+                recording: recording.map(str::to_string),
+                relationships_complete: true,
+                relationships_for: Some(queried.into()),
+                ..Default::default()
+            }),
+        });
+        let path = sources::sources_path(&dir);
+        sources::save(&held, &path).unwrap();
+        let reloaded = sources::load_all(&path).unwrap().unwrap();
+        assert_eq!(
+            reloaded
+                .get(&entity, sources::MUSICBRAINZ)
+                .unwrap()
+                .musicbrainz_lookup_alias(),
+            None
+        );
+        if local == queried {
+            assert!(!reloaded.is_trusted(
+                &catalog,
+                reloaded.get(&entity, sources::MUSICBRAINZ).unwrap()
+            ));
+        }
+        let before = std::fs::read(&path).unwrap();
+        if !must_retry {
+            let mut reused = Canned {
+                answers: Vec::new(),
+                asked: Vec::new(),
+            };
+            run_with(&args(&dir, &["--credits"]), &mut reused, &NO_WAIT).unwrap();
+            assert!(reused.asked.is_empty());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            std::fs::remove_dir_all(dir).unwrap();
+            continue;
+        }
+        let mut cancelled = Canned {
+            answers: vec![Err(Refusal::TooManyRequests)],
+            asked: Vec::new(),
+        };
+        assert!(
+            run_with(&args(&dir, &["--credits"]), &mut cancelled, &NO_WAIT).is_err(),
+            "an inconsistent receipt cannot conceal the requested lookup"
+        );
+        assert_eq!(cancelled.asked.len(), 1);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let mut retry = Canned {
+            answers: vec![Ok(format!(
+                r#"{{"id":"{local}","title":"Example Song","relations":[]}}"#
+            ))],
+            asked: Vec::new(),
+        };
+        run_with(&args(&dir, &["--credits"]), &mut retry, &NO_WAIT).unwrap();
+        assert_eq!(retry.asked.len(), 1);
+        let recovered = sources::load_all(&path).unwrap().unwrap();
+        assert!(recovered.is_trusted(
+            &catalog,
+            recovered.get(&entity, sources::MUSICBRAINZ).unwrap()
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn recording_credit_receipts_follow_the_queried_identity_after_a_local_correction() {
+    let dir = sandbox("corrected_recording_credit_identity");
+    let path = sources::sources_path(&dir);
+    let old = "11111111-1111-4111-8111-111111111111";
+    let new = "22222222-2222-4222-8222-222222222222";
+    let canonical = "33333333-3333-4333-8333-333333333333";
+    let audio_path = dir.join("music/01.flac");
+    let make_catalog = |mbid: &str| {
+        let mut tags = RawTags::default();
+        for (key, value) in [
+            ("artist", "Example Player"),
+            ("albumartist", "Example Player"),
+            ("album", "Example Album"),
+            ("title", "Example Performance"),
+            ("musicbrainz_recordingid", mbid),
+        ] {
+            tags.insert(key, value);
+        }
+        build(
+            vec![ScannedFile {
+                path: audio_path.to_string_lossy().into_owned(),
+                size: 1,
+                mtime: 1,
+                tags,
+                folder_cover: None,
+                sidecar: None,
+                integrity: None,
+                fingerprint: None,
+            }],
+            vec![dir.join("music").to_string_lossy().into_owned()],
+            1,
+            &[],
+        )
+    };
+    let catalog_path = aede_core::store::catalog_path(&dir);
+    let response =
+        |mbid: &str| format!(r#"{{"id":"{mbid}","title":"Example Performance","relations":[]}}"#);
+    aede_core::store::save(&make_catalog(old), &catalog_path).unwrap();
+    let mut first = Canned {
+        answers: vec![Ok(response(old))],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut first, &NO_WAIT).unwrap();
+    assert_eq!(first.asked.len(), 1);
+
+    // A corrected recording at the same file path is a new question. Its lookup
+    // may itself follow a merged identifier; cache that exact query as well.
+    aede_core::store::save(&make_catalog(new), &catalog_path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut interrupted = Canned {
+        answers: vec![Err(Refusal::TooManyRequests)],
+        asked: Vec::new(),
+    };
+    assert!(run_with(&args(&dir, &["--credits"]), &mut interrupted, &NO_WAIT).is_err());
+    assert_eq!(interrupted.asked.len(), 1);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "an interrupted correction retains its previous receipt and remains retryable"
+    );
+    let mut changed = Canned {
+        answers: vec![Ok(response(canonical))],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut changed, &NO_WAIT).unwrap();
+    assert_eq!(
+        changed.asked.len(),
+        1,
+        "a completed lookup for an old recording cannot suppress the corrected recording"
+    );
+    assert!(changed.asked[0].contains(&format!("/recording/{new}?")));
+    let held = sources::load_all(&path).unwrap().unwrap();
+    assert_eq!(held.records[0].source_id.as_deref(), Some(canonical));
+    assert!(matches!(&held.records[0].facts, Facts::Track(facts)
+        if facts.relationships_for.as_deref() == Some(new)));
+    let mut repeated = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut repeated, &NO_WAIT).unwrap();
+    assert!(
+        repeated.asked.is_empty(),
+        "a merged lookup is still a completed answer"
+    );
+    // Retagging the file with the canonical ID already returned by that lookup
+    // must reuse the answer too; this is not a different recording.
+    aede_core::store::save(&make_catalog(canonical), &catalog_path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut canonicalized = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut canonicalized, &NO_WAIT).unwrap();
+    assert!(
+        canonicalized.asked.is_empty(),
+        "the canonical ID already confirmed by the cached lookup needs no new request"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let mut refresh = Canned {
+        answers: vec![Ok(response(canonical))],
+        asked: Vec::new(),
+    };
+    run_with(
+        &args(&dir, &["--credits", "--full"]),
+        &mut refresh,
+        &NO_WAIT,
+    )
+    .unwrap();
+    let refreshed = sources::load_all(&path).unwrap().unwrap();
+    assert_eq!(
+        aede_core::credit_coverage::recordings(&make_catalog(new), &refreshed)[0].status,
+        aede_core::credit_coverage::CreditStatus::Empty,
+        "refreshing the confirmed canonical recording must retain its earlier verified alias"
+    );
+    aede_core::store::save(&make_catalog(new), &catalog_path).unwrap();
+    let mut restored_alias = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--credits"]), &mut restored_alias, &NO_WAIT).unwrap();
+    assert!(
+        restored_alias.asked.is_empty(),
+        "the confirmed alias remains a completed lookup"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn completed_recording_credit_cache_is_shared_by_all_placements() {
     use aede_core::credit_coverage::{self, CreditStatus};
     const RECORDING: &str = "11111111-1111-4111-8111-111111111111";
@@ -1711,6 +2361,217 @@ fn credits_fetches_recording_and_work_relationships_in_one_request() {
 }
 
 #[test]
+fn merged_edition_lookups_keep_the_queried_scope_and_complete_only_that_edition() {
+    use aede_core::credit_coverage::{self, CreditStatus};
+    let queried = "11111111-1111-4111-8111-111111111111";
+    let surviving = "22222222-2222-4222-8222-222222222222";
+    let group = "33333333-3333-4333-8333-333333333333";
+    let different = "44444444-4444-4444-8444-444444444444";
+    let producer = "55555555-5555-4555-8555-555555555555";
+    for grouped in [false, true] {
+        for primary in [false, true] {
+            for decision in [
+                None,
+                Some(sources::ReviewDecision::Accepted),
+                Some(sources::ReviewDecision::Rejected),
+            ] {
+                let dir = sandbox(&format!(
+                    "merged_edition_credit_scope_{grouped}_{primary}_{decision:?}"
+                ));
+                let make_catalog = |edition| {
+                    let mut tags = RawTags::default();
+                    for (key, value) in [
+                        ("artist", "Example Band"),
+                        ("albumartist", "Example Band"),
+                        ("album", "Example Album"),
+                        ("title", "Example Song"),
+                        ("musicbrainz_albumid", edition),
+                    ] {
+                        tags.insert(key, value);
+                    }
+                    if grouped {
+                        tags.insert("musicbrainz_releasegroupid", group);
+                    }
+                    build(
+                        vec![ScannedFile {
+                            path: dir.join("music/01.flac").to_string_lossy().into_owned(),
+                            size: 1,
+                            mtime: 1,
+                            tags,
+                            folder_cover: None,
+                            sidecar: None,
+                            integrity: None,
+                            fingerprint: None,
+                        }],
+                        vec![dir.join("music").to_string_lossy().into_owned()],
+                        1,
+                        &[],
+                    )
+                };
+                let catalog = make_catalog(queried);
+                aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+                let path = sources::sources_path(&dir);
+                let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+                if let Some(decision) = decision {
+                    let mut held = sources::Sources::default();
+                    let source_id = if grouped { group } else { queried };
+                    held.set(SourceRecord {
+                        key: entity.key.clone(),
+                        source: sources::MUSICBRAINZ.into(),
+                        source_id: Some(source_id.into()),
+                        fetched_at: 1,
+                        confidence: sources::Confidence::Identified,
+                        facts: Facts::Release(sources::ReleaseFacts {
+                            edition_mbid: Some(queried.into()),
+                            ..Default::default()
+                        }),
+                    });
+                    held.set_review(sources::SourceReview {
+                        entity: entity.clone(),
+                        source: sources::MUSICBRAINZ.into(),
+                        source_id: Some(source_id.into()),
+                        decision,
+                        reviewed_at: 17,
+                    });
+                    sources::save(&held, &path).unwrap();
+                }
+                let grouped_facts = if grouped {
+                    format!(r#", "release-group":{{"id":"{group}","title":"Example Album"}}"#)
+                } else {
+                    String::new()
+                };
+                let mut transport = Canned {
+                    answers: vec![Ok(format!(
+                        r#"{{"id":"{surviving}","title":"Example Album"{grouped_facts},
+              "relations":[{{"type":"producer","target-type":"artist",
+                "artist":{{"id":"{producer}","name":"Example Producer"}}}}]}}"#
+                    ))],
+                    asked: Vec::new(),
+                };
+                if primary {
+                    let mut held = sources::load_all(&path).unwrap().unwrap_or_default();
+                    let targets =
+                        super::super::releases::targets(&catalog, &held, &[], &EVERYTHING, true);
+                    super::super::releases::run(
+                        &mut transport,
+                        &NO_WAIT,
+                        &targets,
+                        &mut held,
+                        &path,
+                        0,
+                        1,
+                    )
+                    .unwrap();
+                } else {
+                    run_with(&args(&dir, &["--credits"]), &mut transport, &NO_WAIT).unwrap();
+                }
+                assert_eq!(transport.asked.len(), 1);
+                let held = sources::load_all(&path).unwrap().unwrap_or_default();
+                let record = held.get(&entity, sources::MUSICBRAINZ).unwrap();
+                assert_eq!(
+                    held.review_for(record)
+                        .map(|review| (review.decision, review.reviewed_at)),
+                    decision.map(|decision| (decision, 17))
+                );
+                let allowed = decision != Some(sources::ReviewDecision::Rejected);
+                let expected = if allowed {
+                    CreditStatus::Credited
+                } else {
+                    CreditStatus::Untrusted
+                };
+                assert_eq!(
+                    credit_coverage::editions(&catalog, &held)[0].status,
+                    expected,
+                    "a valid merged edition lookup must supply its credits"
+                );
+                let links = held.edition_credit_links(&catalog);
+                assert_eq!(links.len(), 1);
+                assert_eq!(links[0].trusted, allowed);
+                assert_eq!(links[0].credit.artist_name, "Example Producer");
+                assert!(
+                    held.edition_credit_links(&make_catalog(different))
+                        .is_empty(),
+                    "another edition of the same album must not inherit these credits"
+                );
+                let before_retag = std::fs::read(&path).unwrap();
+                let mut original_repeat = Canned {
+                    answers: Vec::new(),
+                    asked: Vec::new(),
+                };
+                run_with(&args(&dir, &["--credits"]), &mut original_repeat, &NO_WAIT).unwrap();
+                assert!(original_repeat.asked.is_empty());
+                assert_eq!(std::fs::read(&path).unwrap(), before_retag);
+                let retagged = make_catalog(surviving);
+                let reloaded = sources::load_all(&path).unwrap().unwrap();
+                assert_eq!(
+                    credit_coverage::editions(&retagged, &reloaded)[0].status,
+                    expected,
+                    "retagging to the confirmed canonical edition must reuse saved credits"
+                );
+                let retagged_links = reloaded.edition_credit_links(&retagged);
+                assert_eq!(retagged_links.len(), 1);
+                assert_eq!(retagged_links[0].trusted, allowed);
+                aede_core::store::save(&retagged, &aede_core::store::catalog_path(&dir)).unwrap();
+                let before = std::fs::read(&path).unwrap();
+                let mut repeated = Canned {
+                    answers: Vec::new(),
+                    asked: Vec::new(),
+                };
+                run_with(&args(&dir, &["--credits"]), &mut repeated, &NO_WAIT).unwrap();
+                assert!(repeated.asked.is_empty());
+                assert_eq!(std::fs::read(&path).unwrap(), before);
+                let mut refresh = Canned {
+                    answers: vec![Ok(format!(
+                        r#"{{"id":"{surviving}","title":"Example Album"{grouped_facts},"relations":[{{"type":"producer","target-type":"artist","artist":{{"id":"{producer}","name":"Example Producer"}}}}]}}"#
+                    ))],
+                    asked: Vec::new(),
+                };
+                if primary {
+                    let mut held = sources::load_all(&path).unwrap().unwrap();
+                    let targets =
+                        super::super::releases::targets(&retagged, &held, &[], &EVERYTHING, true);
+                    super::super::releases::run(
+                        &mut refresh,
+                        &NO_WAIT,
+                        &targets,
+                        &mut held,
+                        &path,
+                        0,
+                        1,
+                    )
+                    .unwrap();
+                } else {
+                    run_with(
+                        &args(&dir, &["--credits", "--full"]),
+                        &mut refresh,
+                        &NO_WAIT,
+                    )
+                    .unwrap();
+                }
+                let refreshed = sources::load_all(&path).unwrap().unwrap();
+                let record = refreshed.get(&entity, sources::MUSICBRAINZ).unwrap();
+                assert_eq!(
+                    refreshed
+                        .review_for(record)
+                        .map(|review| (review.decision, review.reviewed_at)),
+                    decision.map(|decision| (decision, 17))
+                );
+                assert_eq!(
+                    credit_coverage::editions(&catalog, &refreshed)[0].status,
+                    expected,
+                    "refreshing the canonical edition must not lose its earlier verified alias"
+                );
+                assert_eq!(
+                    credit_coverage::editions(&retagged, &refreshed)[0].status,
+                    expected
+                );
+                std::fs::remove_dir_all(dir).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn credits_fetches_exact_edition_roles_once_without_recording_ids() {
     let dir = sandbox("edition_credits");
     let mut tags = RawTags::default();
@@ -1719,7 +2580,10 @@ fn credits_fetches_exact_edition_roles_once_without_recording_ids() {
     tags.insert("album", "An Album");
     tags.insert("title", "A Song");
     tags.insert("musicbrainz_albumid", "edition-id");
-    tags.insert("musicbrainz_releasegroupid", "group-id");
+    tags.insert(
+        "musicbrainz_releasegroupid",
+        "55555555-5555-4555-8555-555555555555",
+    );
     let catalog = build(
         vec![ScannedFile {
             path: "/music/Band/Album/01.flac".into(),
@@ -1739,7 +2603,7 @@ fn credits_fetches_exact_edition_roles_once_without_recording_ids() {
     let mut transport = Canned {
         answers: vec![Ok(r#"{
           "id":"edition-id","title":"An Album",
-          "release-group":{"id":"group-id","title":"An Album"},
+          "release-group":{"id":"55555555-5555-4555-8555-555555555555","title":"An Album"},
           "relations":[{"id":"producer-rel","type":"producer","target-type":"artist",
             "artist":{"id":"producer-id","name":"An Album Producer"}}]
         }"#
@@ -1804,7 +2668,10 @@ fn malformed_credit_answers_preserve_completed_work_and_initial_retry_eligibilit
             ("title", "A Song"),
             ("musicbrainz_recordingid", "recording-id"),
             ("musicbrainz_albumid", "edition-id"),
-            ("musicbrainz_releasegroupid", "group-id"),
+            (
+                "musicbrainz_releasegroupid",
+                "55555555-5555-4555-8555-555555555555",
+            ),
         ] {
             tags.insert(key, value);
         }
@@ -1833,7 +2700,7 @@ fn malformed_credit_answers_preserve_completed_work_and_initial_retry_eligibilit
                     r#"{{"id":"recording-id","title":"A Song","relations":{recording_relations}}}"#
                 )),
                 Ok(format!(
-                    r#"{{"id":"edition-id","title":"An Album","release-group":{{"id":"group-id","title":"An Album"}},"relations":{edition_relations}}}"#
+                    r#"{{"id":"edition-id","title":"An Album","release-group":{{"id":"55555555-5555-4555-8555-555555555555","title":"An Album"}},"relations":{edition_relations}}}"#
                 )),
             ]
         };
@@ -1857,7 +2724,7 @@ fn malformed_credit_answers_preserve_completed_work_and_initial_retry_eligibilit
                     {"target-type":"artist","type":"composer","artist":{"id":"writer","name":"A Writer"}}
                   ]}}
                 ]}"#.into()),
-                Ok(r#"{"id":"edition-id","title":"An Album","release-group":{"id":"group-id","title":"An Album"},"relations":[
+                Ok(r#"{"id":"edition-id","title":"An Album","release-group":{"id":"55555555-5555-4555-8555-555555555555","title":"An Album"},"relations":[
                   {"target-type":"artist","type":"producer","artist":{"id":"producer","name":"A Producer"}}
                 ]}"#.into()),
             ],
@@ -1875,6 +2742,11 @@ fn malformed_credit_answers_preserve_completed_work_and_initial_retry_eligibilit
             credit_coverage::editions(&catalog, &held)[0].edition_credits,
             1
         );
+        for record in &mut held.records {
+            if let Facts::Release(facts) = &mut record.facts {
+                facts.lookup_mbid = Some("66666666-6666-4666-8666-666666666666".into());
+            }
+        }
         for record in held.records.clone() {
             held.set_review(sources::SourceReview {
                 entity: record.entity(),
@@ -1912,7 +2784,7 @@ fn malformed_credit_answers_preserve_completed_work_and_initial_retry_eligibilit
         let mut empty = Canned {
             answers: vec![
                 Ok(r#"{"id":"recording-id","title":"A Song","relations":[]}"#.into()),
-                Ok(r#"{"id":"edition-id","title":"An Album","release-group":{"id":"group-id","title":"An Album"},"relations":[]}"#.into()),
+                Ok(r#"{"id":"edition-id","title":"An Album","release-group":{"id":"55555555-5555-4555-8555-555555555555","title":"An Album"},"relations":[]}"#.into()),
             ],
             asked: Vec::new(),
         };
@@ -1921,6 +2793,14 @@ fn malformed_credit_answers_preserve_completed_work_and_initial_retry_eligibilit
         assert_eq!(empty.asked.len(), 2);
         let held = sources::load_all(&source_path).unwrap().unwrap();
         assert_eq!(held.reviews, reviews_before);
+        assert!(
+            held.records.iter().any(|record| matches!(
+                &record.facts,
+                Facts::Release(facts)
+                    if facts.lookup_mbid.as_deref() == Some("66666666-6666-4666-8666-666666666666")
+            )),
+            "edition-credit completion must keep a confirmed group alias"
+        );
         assert_eq!(
             credit_coverage::recordings(&catalog, &held)[0].status,
             CreditStatus::Empty

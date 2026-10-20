@@ -223,6 +223,13 @@ pub struct Picture {
 /// do not carry, rather than a second opinion about something they do.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArtistFacts {
+    /// An artist MBID whose exact lookup confirmed this canonical source ID.
+    ///
+    /// Set by the lookup orchestrator when MusicBrainz redirects a merged ID.
+    /// It preserves that verified alias without replacing the canonical ID in
+    /// `SourceRecord::source_id`. Absent on legacy snapshots; name searches
+    /// never establish this evidence.
+    pub lookup_mbid: Option<String>,
     /// A full MusicBrainz lookup checked relationships, including a confirmed absence of URLs.
     pub relationships_complete: bool,
     /// Country or area of origin, as the source names it.
@@ -580,6 +587,10 @@ impl KnownRelease {
 /// where agreement and disagreement can actually be observed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReleaseFacts {
+    /// Release-group MBID whose exact lookup confirmed the canonical source ID.
+    /// Edition lookups never establish this alias. Optional on legacy snapshots;
+    /// it preserves identity through a merge without replacing the local tag.
+    pub lookup_mbid: Option<String>,
     /// Album, Single, EP, Broadcast, Other — the release group's primary type.
     pub primary_type: Option<String>,
     /// Compilation, Soundtrack, Live, Remix, Demo… any number of them.
@@ -614,8 +625,11 @@ pub struct ReleaseFacts {
     /// there is none" — the distinction this whole layer exists for — and so
     /// that a second run costs nothing.
     pub cover_art: Option<String>,
-    /// Exact edition queried for these relationships, absent for a group search.
+    /// Canonical edition returned for these relationships, absent for a group search.
     pub edition_mbid: Option<String>,
+    /// Exact edition selector confirmed by a redirected lookup. This is separate
+    /// from the release-group alias and absent from legacy snapshots.
+    pub edition_lookup_mbid: Option<String>,
     /// Artist relationships on this edition, never on the release group.
     pub credits: Vec<CreditLink>,
     /// Distinguishes an empty lookup from an edition never queried for credits.
@@ -686,10 +700,14 @@ impl Facts {
 /// MusicBrainz supplies the identifier and may link to Wikidata, which can
 /// lead to a credited Wikipedia summary. The identifier itself lives in
 /// [`SourceRecord::source_id`], the same place every other MusicBrainz
-/// identifier in this layer lives, never in the facts beside it. A record
+/// identifier in this layer lives. An optional verified lookup alias can be
+/// retained in its facts without replacing the canonical identity. A record
 /// with no fields still means "asked, and this MBID answered".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LabelFacts {
+    /// Label MBID whose exact lookup confirmed this canonical source ID.
+    /// Optional on older snapshots; it never upgrades a name-search score.
+    pub lookup_mbid: Option<String>,
     /// Wikidata link supplied by a MusicBrainz label lookup.
     pub wikidata: Option<String>,
     /// Discogs page supplied by a MusicBrainz label lookup.
@@ -746,6 +764,17 @@ pub struct TrackFacts {
     /// returned no work or credit. This distinguishes “nothing there” from an
     /// older record that has never been asked for rich relationships.
     pub relationships_complete: bool,
+    /// Recording selector whose completed lookup confirmed this identity.
+    ///
+    /// A merged MusicBrainz ID can return a different canonical `recording`.
+    /// Keeping the question separately lets a corrected local ID reopen the
+    /// lookup without repeatedly requesting unchanged aliases. Refreshing the
+    /// same canonical recording retains an earlier verified alias. Legacy
+    /// receipts use their source identifier until the next successful lookup.
+    /// A completed MusicBrainz snapshot with a consistent canonical recording
+    /// can also establish this alias during identity checks, without overriding
+    /// its confidence or explicit review.
+    pub relationships_for: Option<String>,
 }
 
 /// One artist relationship asserted by MusicBrainz.
@@ -1000,9 +1029,9 @@ pub enum LabelIdentityResolution {
         /// Time of the lookup.
         fetched_at: u64,
     },
-    /// Local tags and the identified source independently agree.
+    /// Local tags and the identified source name the same verified identity.
     Agrees {
-        /// Identifier shared by both claims.
+        /// Canonical identifier, including when the tag names a verified alias.
         mbid: String,
         /// Service confirming the local value.
         source: String,
@@ -1114,6 +1143,95 @@ impl MusicBrainzReleaseIdentity<'_> {
 }
 
 impl SourceRecord {
+    /// Retained MusicBrainz recording identity when its two stored selectors agree.
+    /// Legacy snapshots may carry only the source ID or only the recording fact;
+    /// two contradictory present IDs establish neither as a reusable identity.
+    /// This neither proves lookup completion nor decides confidence/review trust.
+    pub fn musicbrainz_recording_identity(&self) -> Option<&str> {
+        if self.source != MUSICBRAINZ {
+            return None;
+        }
+        let Facts::Track(facts) = &self.facts else {
+            return None;
+        };
+        match (self.source_id.as_deref(), facts.recording.as_deref()) {
+            (Some(source), Some(recording)) if source != recording => None,
+            (source, recording) => source.or(recording),
+        }
+        .filter(|id| !id.trim().is_empty())
+    }
+
+    /// A valid exact-lookup selector confirmed by this canonical MusicBrainz claim.
+    /// Legacy snapshots without query provenance establish no alias. Recording
+    /// receipts must also retain a completed, consistent canonical recording.
+    pub fn musicbrainz_lookup_alias(&self) -> Option<&str> {
+        if self.source != MUSICBRAINZ {
+            return None;
+        }
+        let canonical = self
+            .source_id
+            .as_deref()
+            .filter(|id| crate::musicbrainz::valid_id(id))?;
+        let alias = match &self.facts {
+            Facts::Artist(facts) => facts.lookup_mbid.as_deref(),
+            Facts::Label(facts) => facts.lookup_mbid.as_deref(),
+            Facts::Release(facts)
+                if matches!(
+                    self.musicbrainz_release_identity(),
+                    Some(MusicBrainzReleaseIdentity::ReleaseGroup(_))
+                ) =>
+            {
+                facts.lookup_mbid.as_deref()
+            }
+            Facts::Release(facts)
+                if matches!(
+                    self.musicbrainz_release_identity(),
+                    Some(MusicBrainzReleaseIdentity::Edition(_))
+                ) && facts.relationships_complete =>
+            {
+                facts.edition_lookup_mbid.as_deref()
+            }
+            Facts::Track(facts)
+                if facts.relationships_complete
+                    && facts.recording.is_some()
+                    && self.musicbrainz_recording_identity() == Some(canonical) =>
+            {
+                facts.relationships_for.as_deref()
+            }
+            _ => None,
+        };
+        alias.filter(|id| crate::musicbrainz::valid_id(id))
+    }
+
+    /// Whether retained edition facts describe this exact local edition.
+    /// MusicBrainz may additionally prove one queried alias of the canonical
+    /// edition; manual and other sources keep their literal scope. Neither a
+    /// group alias nor missing/malformed identifiers establishes an edition.
+    pub fn matches_edition(&self, id: &str) -> bool {
+        let Facts::Release(facts) = &self.facts else {
+            return false;
+        };
+        let Some(canonical) = facts
+            .edition_mbid
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+        else {
+            return false;
+        };
+        if id == canonical {
+            return true;
+        }
+        self.source == MUSICBRAINZ
+            && facts.relationships_complete
+            && self
+                .source_id
+                .as_deref()
+                .is_some_and(crate::musicbrainz::valid_id)
+            && crate::musicbrainz::valid_id(canonical)
+            && crate::musicbrainz::valid_id(id)
+            && facts.edition_lookup_mbid.as_deref() == Some(id)
+    }
+
     /// The entity this record describes.
     pub fn entity(&self) -> EntityRef {
         EntityRef {
@@ -1608,11 +1726,10 @@ impl Sources {
                 continue;
             };
             let local_manual = record.source == "manual" && facts.edition_mbid.is_none();
-            let identified_edition = facts
-                .edition_mbid
+            let identified_edition = release
+                .mbid
                 .as_deref()
-                .filter(|id| !id.trim().is_empty())
-                .is_some_and(|id| Some(id) == release.mbid.as_deref());
+                .is_some_and(|id| record.matches_edition(id));
             // The user's explicit local scope is independent of whether its
             // tags carry an MBID. A fetched missing ID proves no edition.
             if !local_manual && !identified_edition {
@@ -1834,11 +1951,13 @@ impl Sources {
                 source: record.source.clone(),
                 fetched_at: record.fetched_at,
             }),
-            Some(local) if local == sourced => Some(LabelIdentityResolution::Agrees {
-                mbid: local.to_string(),
-                source: record.source.clone(),
-                fetched_at: record.fetched_at,
-            }),
+            Some(local) if local == sourced || record.musicbrainz_lookup_alias() == Some(local) => {
+                Some(LabelIdentityResolution::Agrees {
+                    mbid: sourced.to_string(),
+                    source: record.source.clone(),
+                    fetched_at: record.fetched_at,
+                })
+            }
             Some(local) => Some(LabelIdentityResolution::Conflict {
                 local_mbid: local.to_string(),
                 sourced_mbid: sourced.to_string(),
@@ -1979,12 +2098,17 @@ fn identity_conflict_with_id(
     if record.source != MUSICBRAINZ {
         return None;
     }
-    let sourced = record.source_id.as_deref()?.trim();
+    let sourced = record
+        .source_id
+        .as_deref()
+        .or_else(|| record.musicbrainz_recording_identity())?
+        .trim();
     if sourced.is_empty() {
         return None;
     }
     let local = local_id?.trim();
-    (local != sourced).then(|| (local.to_string(), sourced.to_string()))
+    let verified_alias = record.musicbrainz_lookup_alias() == Some(local);
+    (local != sourced && !verified_alias).then(|| (local.to_string(), sourced.to_string()))
 }
 
 /// Apply the ordinary trust rule after a caller has resolved the identity
@@ -2430,6 +2554,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("artists", strings(&t.artists));
                     facts.set("album", opt_str(&t.album));
                     facts.set("relationships_complete", t.relationships_complete.into());
+                    if let Some(id) = &t.relationships_for {
+                        facts.set("relationships_for", id.clone().into());
+                    }
                     facts.set(
                         "credits",
                         Json::Arr(t.credits.iter().map(credit_link_to_json).collect()),
@@ -2506,6 +2633,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     );
                 }
                 Facts::Artist(a) => {
+                    if let Some(id) = &a.lookup_mbid {
+                        facts.set("lookup_mbid", id.clone().into());
+                    }
                     facts.set("relationships_complete", a.relationships_complete.into());
                     facts.set("area", opt_str(&a.area));
                     facts.set("country_code", opt_str(&a.country_code));
@@ -2631,6 +2761,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     );
                 }
                 Facts::Release(rel) => {
+                    if let Some(id) = &rel.lookup_mbid {
+                        facts.set("lookup_mbid", id.clone().into());
+                    }
                     facts.set("primary_type", opt_str(&rel.primary_type));
                     facts.set(
                         "secondary_types",
@@ -2646,6 +2779,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("label_mbid", opt_str(&rel.label_mbid));
                     facts.set("cover_art", opt_str(&rel.cover_art));
                     facts.set("edition_mbid", opt_str(&rel.edition_mbid));
+                    if let Some(id) = &rel.edition_lookup_mbid {
+                        facts.set("edition_lookup_mbid", id.clone().into());
+                    }
                     facts.set(
                         "credits",
                         Json::Arr(rel.credits.iter().map(credit_link_to_json).collect()),
@@ -2653,6 +2789,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("relationships_complete", rel.relationships_complete.into());
                 }
                 Facts::Label(label) => {
+                    if let Some(id) = &label.lookup_mbid {
+                        facts.set("lookup_mbid", id.clone().into());
+                    }
                     facts.set("wikidata", opt_str(&label.wikidata));
                     facts.set("discogs", opt_str(&label.discogs));
                     facts.set("summary_markup", opt_str(&label.summary_markup));
@@ -2800,6 +2939,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
         }
         let facts = match entity.kind {
             EntityKind::Artist => Facts::Artist(ArtistFacts {
+                lookup_mbid: facts.and_then(|f| f.field_str("lookup_mbid")),
                 relationships_complete: match facts.and_then(|f| f.get("relationships_complete")) {
                     None => false,
                     Some(Json::Bool(value)) => *value,
@@ -2909,6 +3049,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 }),
             }),
             EntityKind::Release => Facts::Release(ReleaseFacts {
+                lookup_mbid: facts.and_then(|f| f.field_str("lookup_mbid")),
                 primary_type: facts.and_then(|f| f.field_str("primary_type")),
                 secondary_types: facts
                     .and_then(|f| f.get("secondary_types"))
@@ -2920,6 +3061,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 label_mbid: facts.and_then(|f| f.field_str("label_mbid")),
                 cover_art: facts.and_then(|f| f.field_str("cover_art")),
                 edition_mbid: facts.and_then(|f| f.field_str("edition_mbid")),
+                edition_lookup_mbid: facts.and_then(|f| f.field_str("edition_lookup_mbid")),
                 credits: facts
                     .and_then(|f| f.get("credits"))
                     .and_then(Json::as_arr)
@@ -2949,6 +3091,9 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .and_then(|f| f.get("relationships_complete"))
                     .and_then(Json::as_bool)
                     .unwrap_or(false),
+                relationships_for: facts
+                    .and_then(|f| f.field_str("relationships_for"))
+                    .filter(|id| !id.trim().is_empty()),
                 works: facts
                     .and_then(|f| f.get("works"))
                     .and_then(Json::as_arr)
@@ -3018,6 +3163,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .unwrap_or_default(),
             }),
             EntityKind::Label => Facts::Label(LabelFacts {
+                lookup_mbid: facts.and_then(|f| f.field_str("lookup_mbid")),
                 wikidata: facts.and_then(|f| f.field_str("wikidata")),
                 discogs: facts.and_then(|f| f.field_str("discogs")),
                 summary_markup: facts.and_then(|f| f.field_str("summary_markup")),

@@ -105,8 +105,7 @@ pub fn editions(catalog: &Catalog, sources: &Sources) -> Vec<EditionCreditCovera
                 let Facts::Release(facts) = &record.facts else {
                     continue;
                 };
-                let exact_edition =
-                    usable_id(facts.edition_mbid.as_deref()).is_some_and(|id| Some(id) == local_id);
+                let exact_edition = local_id.is_some_and(|id| record.matches_edition(id));
                 let review = reviews
                     .get(&(
                         record.key.as_str(),
@@ -203,7 +202,9 @@ pub fn recordings(catalog: &Catalog, sources: &Sources) -> Vec<RecordingCreditCo
                 let Facts::Track(facts) = &record.facts else {
                     continue;
                 };
-                if !facts.relationships_complete {
+                if !facts.relationships_complete
+                    || record.musicbrainz_recording_identity().is_none()
+                {
                     continue;
                 }
                 let review = reviews
