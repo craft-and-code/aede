@@ -2,6 +2,71 @@ use super::*;
 use crate::test_support::sample_state;
 
 #[test]
+fn cancelled_native_artwork_waiters_keep_transfer_admission_until_the_worker_finishes() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let state = sample_state();
+        let wanted = {
+            let catalog = state.catalog.read().await;
+            reference(catalog.as_ref().unwrap(), EntityKind::Release, 0).unwrap()
+        };
+        let inspection_capacity = state.inspection_slots.available_permits();
+        let transfer_capacity = state.playback_slots.available_permits();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut pending = Box::pin(read(
+            State(state.clone()),
+            Ok(Query(Parameters {
+                reference: wanted,
+                kind: "cover".into(),
+                size: None,
+            })),
+            Request::new(axum::body::Body::empty()),
+        ));
+        std::future::poll_fn(|context| {
+            assert!(pending.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            state.inspection_slots.available_permits(),
+            inspection_capacity - 1
+        );
+        drop(pending);
+        let retained = state.playback_slots.available_permits();
+        let remaining = (0..transfer_capacity - 1)
+            .map(|_| state.playback_slots.clone().try_acquire_owned().unwrap())
+            .collect::<Vec<_>>();
+        let excess = state.playback_slots.clone().try_acquire_owned();
+        let admitted_excess = excess.is_ok();
+        drop(excess);
+        drop(remaining);
+        drop(release);
+        worker.await.unwrap();
+        // This queues behind the cancelled read's real worker, even though
+        // no HTTP waiter remains to receive its missing-image error.
+        tokio::task::spawn_blocking(|| ()).await.unwrap();
+        assert_eq!(
+            retained,
+            transfer_capacity - 1,
+            "retiring an HTTP waiter must not free a still-running worker's transfer admission"
+        );
+        assert!(
+            !admitted_excess,
+            "cancelled artwork must not admit excess media work"
+        );
+        assert_eq!(
+            state.inspection_slots.available_permits(),
+            inspection_capacity
+        );
+        assert_eq!(state.playback_slots.available_permits(), transfer_capacity);
+    });
+}
+
+#[test]
 fn artist_artwork_cache_follows_trusted_musicbrainz_identity_after_reload_and_retagging() {
     use crate::accounts_test_support::Fixture;
     use aede_core::sources::{ArtistFacts, Confidence, Facts, SourceRecord, Sources};

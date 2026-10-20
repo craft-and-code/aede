@@ -171,7 +171,7 @@ async fn read(
             )
         })?;
     let for_worker = state.clone();
-    let rendered = tokio::time::timeout(
+    let Json((rendered, transfer)) = tokio::time::timeout(
         Duration::from_secs(10),
         inspection::inspect(for_worker, move |state| {
             let guard = state.catalog.blocking_read();
@@ -186,7 +186,10 @@ async fn read(
                 )
             })?;
             auth::confirm_access(state, &identity)?;
-            Ok(rendered)
+            // Cancellation/timeout drops the HTTP waiter, not this blocking
+            // work. Keep both its transfer slot and its eventual response
+            // bytes covered until the real worker or consumer releases them.
+            Ok((rendered, transfer))
         }),
     )
     .await
@@ -197,13 +200,13 @@ async fn read(
             "artwork rendering did not finish",
         )
     })??;
-    let mime = if rendered.0.format == "jpg" {
+    let mime = if rendered.format == "jpg" {
         "image/jpeg"
     } else {
         "image/png"
     };
     // Keep the transfer admission permit until the response bytes are consumed.
-    let bytes = hyper::body::Bytes::from(rendered.0.bytes);
+    let bytes = hyper::body::Bytes::from(rendered.bytes);
     let length = bytes.len();
     let body = ArtworkBody {
         bytes: Some(bytes),
