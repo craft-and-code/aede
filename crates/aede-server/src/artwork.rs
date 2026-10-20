@@ -44,6 +44,42 @@ pub(super) fn artist_folder(catalog: &Catalog, id: Id, data_dir: &Path) -> Optio
     mbid.and_then(|mbid| coverart::artist_destination(catalog, &releases, data_dir, mbid))
 }
 
+/// Shared artwork can be stored under a confirmed provider ID even when local
+/// tags have no MBID or still use a verified merged alias. Keep existing local
+/// images first, and retain both confirmed cache locations after retagging.
+pub(super) fn artist_folders(
+    catalog: &Catalog,
+    sources: &aede_core::sources::Sources,
+    id: Id,
+    data_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut folders: Vec<_> = artist_folder(catalog, id, data_dir).into_iter().collect();
+    let Some(entity) = EntityRef::of(catalog, EntityKind::Artist, id) else {
+        return folders;
+    };
+    let Some(record) = sources
+        .get(&entity, aede_core::sources::MUSICBRAINZ)
+        .filter(|record| sources.is_trusted(catalog, record))
+    else {
+        return folders;
+    };
+    for identifier in [
+        record.source_id.as_deref(),
+        record.musicbrainz_lookup_alias(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|id| aede_core::musicbrainz::valid_id(id))
+    {
+        if let Some(folder) = coverart::asset_destination(data_dir, EntityKind::Artist, identifier)
+            && !folders.contains(&folder)
+        {
+            folders.push(folder);
+        }
+    }
+    folders
+}
+
 pub(super) fn beside(folder: PathBuf, kind: Kind) -> Option<Source> {
     ["jpg", "png"]
         .into_iter()
@@ -70,7 +106,18 @@ fn select(catalog: &Catalog, data_dir: &Path, parameters: &Parameters) -> Result
                 "logo" => Kind::Logo,
                 _ => Kind::Artist,
             };
-            artist_folder(catalog, id, data_dir).and_then(|folder| beside(folder, kind))
+            // Ordinary sidecars need no source-store read. On a cache miss,
+            // use the same trusted provider identities as the availability view.
+            if let Some(source) =
+                artist_folder(catalog, id, data_dir).and_then(|folder| beside(folder, kind))
+            {
+                Some(source)
+            } else {
+                let sources = crate::inspection::held_sources(data_dir)?;
+                artist_folders(catalog, &sources, id, data_dir)
+                    .into_iter()
+                    .find_map(|folder| beside(folder, kind))
+            }
         }
         (EntityKind::Track, "spectrum") => catalog
             .track(id)

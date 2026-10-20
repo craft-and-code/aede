@@ -72,11 +72,11 @@ fn artist_row(
                 None
             }
         });
-    let folder = crate::artwork::artist_folder(catalog, artist.id, data_dir);
+    let folders = crate::artwork::artist_folders(catalog, sources, artist.id, data_dir);
     let media = |kind| {
-        folder
-            .as_ref()
-            .is_some_and(|folder| crate::artwork::beside(folder.clone(), kind).is_some())
+        folders
+            .iter()
+            .any(|folder| crate::artwork::beside(folder.clone(), kind).is_some())
     };
     let relations:Vec<_>=catalog.neighbours_of_artist(artist.id).into_iter().map(|(other,weight,kind)|json!({"reference":reference(catalog,EntityKind::Artist,other.id),"name":other.name,"weight":weight,"kind":kind,"source":"tags"})).collect();
     Ok(

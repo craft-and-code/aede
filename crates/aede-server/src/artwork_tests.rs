@@ -1,5 +1,237 @@
 use super::*;
 use crate::test_support::sample_state;
+
+#[test]
+fn artist_artwork_cache_follows_trusted_musicbrainz_identity_after_reload_and_retagging() {
+    use crate::accounts_test_support::Fixture;
+    use aede_core::sources::{ArtistFacts, Confidence, Facts, SourceRecord, Sources};
+    use tower::ServiceExt;
+
+    crate::test_support::test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let original = "11111111-1111-4111-8111-111111111111";
+        let canonical = "22222222-2222-4222-8222-222222222222";
+        let successor = "33333333-3333-4333-8333-333333333333";
+        let entity = {
+            let mut guard = fixture.0.catalog.write().await;
+            let catalog = guard.as_mut().unwrap();
+            catalog.roots = vec![fixture.0.data_dir.join("music").to_str().unwrap().into()];
+            catalog.releases[0].folder = fixture
+                .0
+                .data_dir
+                .join("music/Album")
+                .to_str()
+                .unwrap()
+                .into();
+            EntityRef::of(catalog, EntityKind::Artist, 0).unwrap()
+        };
+        // This is the same fallback destination selected by CLI enrichment
+        // when an artist's albums share a watched root rather than an artist folder.
+        let destination = {
+            let guard = fixture.0.catalog.read().await;
+            let catalog = guard.as_ref().unwrap();
+            coverart::artist_destination(
+                catalog,
+                &[&catalog.releases[0]],
+                &fixture.0.data_dir,
+                canonical,
+            )
+            .unwrap()
+        };
+        std::fs::create_dir_all(&destination).unwrap();
+        let png = include_bytes!("../../aede-core/tests/fixtures/images/rgba.png");
+        for kind in [Kind::Artist, Kind::Logo, Kind::Banner, Kind::Background] {
+            std::fs::write(
+                destination.join(coverart::image_name(kind, "png", 0, 1)),
+                png,
+            )
+            .unwrap();
+        }
+        let path = aede_core::sources::sources_path(&fixture.0.data_dir);
+        let mut sources = Sources::default();
+        let accounts = fixture.accounts();
+        let principal = auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap())
+            .unwrap()
+            .0;
+        let bearer = format!("Bearer {}", auth::session_token(&principal));
+        let address: SocketAddr = "127.0.0.1:17907".parse().unwrap();
+        let app = crate::router(fixture.0.clone(), address);
+        for (source_id, alias, tag) in [
+            (canonical, Some(original), None),
+            (canonical, Some(original), Some(original)),
+            (canonical, Some(original), Some(canonical)),
+            (successor, Some(canonical), Some(canonical)),
+            (successor, Some(canonical), Some(successor)),
+        ] {
+            sources.set(SourceRecord {
+                key: entity.key.clone(),
+                source: aede_core::sources::MUSICBRAINZ.into(),
+                source_id: Some(source_id.into()),
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: Facts::Artist(ArtistFacts {
+                    lookup_mbid: alias.map(str::to_string),
+                    ..Default::default()
+                }),
+            });
+            aede_core::sources::save(&sources, &path).unwrap();
+            fixture.0.catalog.write().await.as_mut().unwrap().artists[0].mbid =
+                tag.map(str::to_string);
+            for kind in ["portrait", "logo", "banner", "background"] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!(
+                                "/api/v1/artwork?ref={}&kind={kind}",
+                                crate::test_support::encoded(&entity.to_token())
+                            ))
+                            .header(header::HOST, address.to_string())
+                            .header(header::AUTHORIZATION, bearer.clone())
+                            .body(axum::body::Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::OK,
+                    "source={source_id}, tag={tag:?}, kind={kind}"
+                );
+                assert_eq!(
+                    to_bytes(response.into_body(), 100_000)
+                        .await
+                        .unwrap()
+                        .as_ref(),
+                    png
+                );
+            }
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/v1/presentation/artists")
+                        .header(header::HOST, address.to_string())
+                        .header(header::AUTHORIZATION, bearer.clone())
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), 100_000).await.unwrap();
+            let view: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            for kind in ["portrait", "logo", "banner", "background"] {
+                assert_eq!(
+                    view["items"][0]["media"][kind], true,
+                    "source={source_id}, tag={tag:?}, kind={kind}"
+                );
+            }
+        }
+        auth::end_session(&fixture.0, &principal).unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/artwork?ref={}&kind=logo",
+                        crate::test_support::encoded(&entity.to_token())
+                    ))
+                    .header(header::HOST, address.to_string())
+                    .header(header::AUTHORIZATION, bearer)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "a populated shared cache cannot bypass logout"
+        );
+    });
+}
+
+#[test]
+fn provider_artwork_cache_candidates_require_trust_and_confined_identifiers() {
+    use aede_core::sources::{
+        ArtistFacts, Confidence, Facts, ReviewDecision, SourceRecord, SourceReview, Sources,
+    };
+
+    let state = sample_state();
+    let mut catalog = state.catalog.blocking_read().clone().unwrap();
+    catalog.roots = vec!["/music".into()];
+    catalog.releases[0].folder = "/music/Album".into();
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let alias = "11111111-1111-4111-8111-111111111111";
+    let unrelated = "33333333-3333-4333-8333-333333333333";
+    let expected =
+        coverart::asset_destination(&state.data_dir, EntityKind::Artist, canonical).unwrap();
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, 0).unwrap();
+    for (source_id, local_id, confidence, decision, visible) in [
+        (canonical, None, Confidence::Identified, None, true),
+        (canonical, Some(alias), Confidence::Identified, None, true),
+        (
+            canonical,
+            Some(unrelated),
+            Confidence::Identified,
+            None,
+            false,
+        ),
+        (canonical, None, Confidence::matched(95), None, false),
+        (
+            canonical,
+            None,
+            Confidence::matched(95),
+            Some(ReviewDecision::Accepted),
+            true,
+        ),
+        (
+            canonical,
+            None,
+            Confidence::Identified,
+            Some(ReviewDecision::Rejected),
+            false,
+        ),
+        ("../../private", None, Confidence::Identified, None, false),
+    ] {
+        catalog.artists[0].mbid = local_id.map(str::to_string);
+        let mut sources = Sources::default();
+        sources.set(SourceRecord {
+            key: entity.key.clone(),
+            source: aede_core::sources::MUSICBRAINZ.into(),
+            source_id: Some(source_id.into()),
+            confidence,
+            fetched_at: 1,
+            facts: Facts::Artist(ArtistFacts {
+                lookup_mbid: Some(alias.into()),
+                ..Default::default()
+            }),
+        });
+        if let Some(decision) = decision {
+            sources.set_review(SourceReview {
+                entity: entity.clone(),
+                source: aede_core::sources::MUSICBRAINZ.into(),
+                source_id: Some(source_id.into()),
+                decision,
+                reviewed_at: 2,
+            });
+        }
+        let sources =
+            aede_core::sources::from_json(&aede_core::sources::to_json(&sources)).unwrap();
+        let folders = artist_folders(&catalog, &sources, 0, &state.data_dir);
+        assert_eq!(
+            folders.contains(&expected),
+            visible,
+            "source={source_id}, local={local_id:?}, confidence={confidence:?}, decision={decision:?}"
+        );
+        assert!(
+            folders
+                .iter()
+                .all(|folder| folder.starts_with(state.data_dir.join("assets/artists")))
+        );
+    }
+}
+
 #[test]
 fn artwork_selection_rejects_paths_and_wrong_entity_kinds() {
     let state = sample_state();
