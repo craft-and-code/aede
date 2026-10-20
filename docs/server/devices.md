@@ -10,7 +10,7 @@ The decoded FLAC MD5 check performed by local/native PCM playback does not run d
 
 The command reuses local playback selection: a file, folder, M3U/M3U8, collection or catalogued artist/album/track. The first device profile accepts 1–64 occurrences, preserving order and playlist duplicates. It has no repeat/shuffle/seek options or terminal live queue editing. Keep the process running until playback finishes. Ctrl-C requests device Stop and closes the media listener. Disconnected devices cannot confirm Stop; neither a network transfer nor an unauthenticated device status writes a listening event.
 
-This temporary controller is separate from `aede serve`; it neither requires a running API nor exposes catalog, accounts or administration. Long-running authenticated device administration and graphical control will build on a later shared device registry.
+This temporary controller is separate from `aede serve`; it neither requires a running API nor exposes catalog, accounts or administration. The initial authenticated graphical API profiles below reuse these same controllers; a persistent shared device registry and richer device administration remain later work.
 
 The standalone [`aede-devices`](../../crates/aede-devices/README.md) crate implements these protocols and their selected-original HTTP transport. The CLI calls it directly; Subsonic/OpenSubsonic and account authorization stay in `aede-server`. Both transports reuse one original-media MIME/range policy. The existing `aede_server::devices` Rust path remains a reexport of the new crate, without a second implementation.
 
@@ -123,6 +123,8 @@ The additive `network_audio_upnp` capability exposes explicit finite UPnP AVTran
 - `POST /api/admin/v1/network-audio/play` accepts that `bind`, a selected description URL as `device`, and 1–64 `tracks` containing exact catalogue track references. File paths cannot be supplied. Existing source-identity validation precedes the unchanged-original controller; an already active network session is refused, regardless of owner. No takeover or replacement is implicit.
 - `GET /api/admin/v1/network-audio` returns only the current exact login's `{id,status}` or `null`. Polling renews its five-second client lease. Another session cannot read or renew it.
 - `POST /api/admin/v1/network-audio/stop` accepts `{id}` and only the owning login. `stopping` means a request, not confirmed silence. Worker completion distinguishes `completed`, `stopped`, `failed` and `stop_unconfirmed`.
+
+All network-audio routes recheck the captured administrator login after bounded request-body reception. A logout or rights change during reception cannot read or renew a run, admit discovery or certificate inspection, resolve playback, or dispatch Stop.
 
 Session invalidation/revocation, server shutdown, supervision disposal or missing owner heartbeats requests transport cancellation. The worker retains the existing protocol timeouts and best-effort Stop semantics; an unresponsive device may have buffered audio. The selected media listener closes with the worker. Status `running` describes the controller, not an acknowledged audio frame or listening event. No private listening history is inferred.
 

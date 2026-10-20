@@ -708,7 +708,14 @@ pub(super) async fn run(
         return Err("device playback needs one to 64 tracks and matching media URLs".into());
     }
     let target = DeviceUrl::parse(description_url)?;
-    let device = description(&request(&target, "GET", None, None).await?, &target)?;
+    // Description retrieval precedes control ownership, but must still release
+    // a cancelled session without waiting for an unresponsive renderer.
+    let body = tokio::select! {
+        biased;
+        _ = cancelled(&mut shutdown) => return Ok(()),
+        result = request(&target, "GET", None, None) => result?,
+    };
+    let device = description(&body, &target)?;
     let service = match protocol {
         DeviceProtocol::Upnp => device
             .services

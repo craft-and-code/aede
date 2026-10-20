@@ -141,6 +141,9 @@ mod test_support;
 mod accounts_test_support;
 
 #[cfg(test)]
+mod admin_session_test_support;
+
+#[cfg(test)]
 mod playback_test_support;
 
 #[cfg(test)]

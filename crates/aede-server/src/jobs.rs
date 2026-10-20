@@ -675,7 +675,7 @@ pub(super) async fn body(request: Request, limit: usize) -> Result<axum::body::B
 
 /// Body reception yields to logout/password/role changes. Admit the operation
 /// only after rechecking the captured login; accepted jobs remain server-owned.
-async fn administrative_body(
+pub(super) async fn administrative_body(
     state: &ApiState,
     request: Request,
     limit: usize,

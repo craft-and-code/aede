@@ -124,6 +124,8 @@ La capacité `network_audio_upnp` donne accès à un premier contrôle UPnP fini
 - `GET /api/admin/v1/network-audio` donne `{id,status}` pour la connexion propriétaire uniquement, ou `null`. Cette consultation renouvelle son bail de cinq secondes.
 - `POST /api/admin/v1/network-audio/stop` reçoit `{id}` et exige la même connexion propriétaire. `stopping` désigne une demande, pas un arrêt confirmé ; les résultats terminaux distinguent `completed`, `stopped`, `failed` et `stop_unconfirmed`.
 
+Toutes les routes de contrôle réseau revérifient la session administrateur après réception du corps de la requête. Une déconnexion ou un changement de droits pendant cette réception interdit de consulter ou renouveler une session, lancer une découverte ou une inspection de certificat, préparer la lecture ou demander Stop.
+
 La révocation, la fermeture du serveur et la perte du bail demandent l’annulation. Un appareil muet peut conserver des données déjà reçues ; Stop reste soumis à confirmation et aucun transfert ne crée un événement d’écoute. Le registre persistant, les contrôles complets et la validation sur matériel réel restent distincts de ce premier profil. Voir le [contrat détaillé](../../server/devices.md#phémios-upnp-api-profile).
 
 ## Sélecteur commun de lecteurs réseau

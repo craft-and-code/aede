@@ -108,6 +108,58 @@ async fn scripted_device_trigger(
 }
 
 #[test]
+fn cancelled_upnp_profiles_do_not_request_a_device_description() {
+    runtime().block_on(async {
+        for protocol in [DeviceProtocol::Upnp, DeviceProtocol::Openhome] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let (_shutdown, signal) = watch::channel(true);
+            let result = timeout(
+                Duration::from_millis(250),
+                run(
+                    protocol,
+                    &format!("http://127.0.0.1:{port}/description.xml"),
+                    &[track("First")],
+                    &["http://127.0.0.1:9876/token/0".into()],
+                    false,
+                    signal,
+                ),
+            )
+            .await;
+            assert!(matches!(result, Ok(Ok(()))), "{result:?}");
+            assert_eq!(
+                listener.into_std().unwrap().accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+    });
+}
+
+#[test]
+fn cancellation_interrupts_a_stalled_upnp_description_before_playback() {
+    runtime().block_on(async {
+        for protocol in [DeviceProtocol::Upnp, DeviceProtocol::Openhome] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let address = format!("http://127.0.0.1:{port}/description.xml");
+            let tracks = [track("First")];
+            let urls = ["http://127.0.0.1:9876/token/0".into()];
+            let (shutdown, signal) = watch::channel(false);
+            let playback = run(protocol, &address, &tracks, &urls, false, signal);
+            tokio::pin!(playback);
+            let (socket, _) = tokio::select! {
+                result = &mut playback => panic!("playback ended before description: {result:?}"),
+                accepted = timeout(Duration::from_secs(2), listener.accept()) => accepted.unwrap().unwrap(),
+            };
+            shutdown.send(true).unwrap();
+            let result = timeout(Duration::from_millis(250), &mut playback).await;
+            assert!(matches!(result, Ok(Ok(()))), "{result:?}");
+            drop(socket);
+        }
+    });
+}
+
+#[test]
 fn cancellation_stops_an_owned_renderer_without_advancing_the_queue() {
     runtime().block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

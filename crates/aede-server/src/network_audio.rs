@@ -126,7 +126,7 @@ async fn status(
     request: Request,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let principal = owner(&state, &request)?;
-    super::jobs::body(request, 0).await?;
+    super::jobs::administrative_body(&state, request, 0).await?;
     Ok(Json(
         state
             .network_audio
@@ -138,7 +138,8 @@ async fn discover(
     request: Request,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let principal = owner(&state, &request)?;
-    let input: Discovery = decode(&super::jobs::body(request, 1024).await?)?;
+    let (_, bytes) = super::jobs::administrative_body(&state, request, 1024).await?;
+    let input: Discovery = decode(&bytes)?;
     let permit = state
         .network_audio
         .discovery
@@ -193,7 +194,8 @@ async fn inspect(
     request: Request,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let principal = owner(&state, &request)?;
-    let input: Inspection = decode(&super::jobs::body(request, 8192).await?)?;
+    let (_, bytes) = super::jobs::administrative_body(&state, request, 8192).await?;
+    let input: Inspection = decode(&bytes)?;
     let _permit = state
         .network_audio
         .discovery
@@ -218,7 +220,8 @@ async fn play(
     request: Request,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let principal = owner(&state, &request)?;
-    let input: Playback = decode(&super::jobs::body(request, 1024 * 1024).await?)?;
+    let (_, bytes) = super::jobs::administrative_body(&state, request, 1024 * 1024).await?;
+    let input: Playback = decode(&bytes)?;
     if input.tracks.is_empty() || input.tracks.len() > 64 || input.device.len() > 4096 {
         return Err(super::invalid_query(
             "select 1 to 64 catalog tracks and one UPnP device",
@@ -291,48 +294,60 @@ async fn play(
     ));
     Ok(Json(serde_json::json!({"id":id,"status":"running"})))
 }
-async fn supervise(
+fn supervise(
     state: ApiState,
     principal: auth::Principal,
     id: u64,
     cancelled: Arc<AtomicBool>,
     options: aede_devices::CastOptions,
     paths: Vec<PathBuf>,
-) {
-    let _cancel_on_drop = CancellationGuard(cancelled.clone());
-    let flag = cancelled.clone();
-    let mut worker =
-        tokio::task::spawn_blocking(move || aede_devices::cast_controlled(options, paths, flag));
+) -> impl Future<Output = ()> + Send {
+    // Capture shutdown before spawning: an accepted run must not lose a signal
+    // delivered before this future receives its first poll.
     let mut shutdown = state.shutdown.subscribe();
-    let mut interval = tokio::time::interval(Duration::from_millis(500));
-    let mut shutdown_seen = false;
-    let outcome = loop {
-        tokio::select! {
-            result = &mut worker => break result,
-            _ = shutdown.recv(), if !shutdown_seen => { shutdown_seen = true; cancelled.store(true, Ordering::Release); },
-            _ = interval.tick() => {
-                let expired = state.network_audio.expired(id);
-                if expired { cancelled.store(true, Ordering::Release); }
+    let cancel_on_drop = CancellationGuard(cancelled.clone());
+    async move {
+        let _cancel_on_drop = cancel_on_drop;
+        if !matches!(
+            shutdown.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ) {
+            cancelled.store(true, Ordering::Release);
+        }
+        let flag = cancelled.clone();
+        let mut worker = tokio::task::spawn_blocking(move || {
+            aede_devices::cast_controlled(options, paths, flag)
+        });
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        let mut shutdown_seen = false;
+        let outcome = loop {
+            tokio::select! {
+                result = &mut worker => break result,
+                _ = shutdown.recv(), if !shutdown_seen => { shutdown_seen = true; cancelled.store(true, Ordering::Release); },
+                _ = interval.tick() => {
+                    let expired = state.network_audio.expired(id);
+                    if expired { cancelled.store(true, Ordering::Release); }
 
-                let check_state = state.clone(); let check_principal = principal.clone();
-                if !matches!(tokio::task::spawn_blocking(move || auth::recheck(&check_state, &check_principal)).await, Ok(Ok(()))) {
-                    cancelled.store(true, Ordering::Release);
+                    let check_state = state.clone(); let check_principal = principal.clone();
+                    if !matches!(tokio::task::spawn_blocking(move || auth::recheck(&check_state, &check_principal)).await, Ok(Ok(()))) {
+                        cancelled.store(true, Ordering::Release);
+                    }
                 }
             }
-        }
-    };
-    if let Ok(mut held) = state.network_audio.run.lock()
-        && let Some(run) = held.as_mut().filter(|run| run.id == id)
-    {
-        run.status = match (
-            matches!(outcome, Ok(Ok(()))),
-            cancelled.load(Ordering::Acquire),
-        ) {
-            (true, true) => "stopped",
-            (true, false) => "completed",
-            (false, true) => "stop_unconfirmed",
-            (false, false) => "failed",
         };
+        if let Ok(mut held) = state.network_audio.run.lock()
+            && let Some(run) = held.as_mut().filter(|run| run.id == id)
+        {
+            run.status = match (
+                matches!(outcome, Ok(Ok(()))),
+                cancelled.load(Ordering::Acquire),
+            ) {
+                (true, true) => "stopped",
+                (true, false) => "completed",
+                (false, true) => "stop_unconfirmed",
+                (false, false) => "failed",
+            };
+        }
     }
 }
 async fn stop(
@@ -340,7 +355,8 @@ async fn stop(
     request: Request,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let principal = owner(&state, &request)?;
-    let input: Stop = decode(&super::jobs::body(request, 1024).await?)?;
+    let (_, bytes) = super::jobs::administrative_body(&state, request, 1024).await?;
+    let input: Stop = decode(&bytes)?;
     Ok(Json(
         state
             .network_audio

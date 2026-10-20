@@ -97,10 +97,188 @@ fn network_audio_requires_a_named_administrator_not_a_legacy_token_or_user() {
 }
 
 #[test]
-fn aborted_supervision_requests_transport_shutdown() {
+fn dropping_unpolled_supervision_requests_transport_shutdown() {
+    let fixture = crate::accounts_test_support::Fixture::new();
+    let accounts = fixture.accounts();
+    let (principal, _) =
+        auth::start_session(&fixture.0, &accounts, accounts.find("operator").unwrap()).unwrap();
     let flag = Arc::new(AtomicBool::new(false));
-    {
-        let _guard = CancellationGuard(flag.clone());
-    }
+    let options = aede_devices::CastOptions {
+        bind: Ipv4Addr::LOCALHOST,
+        protocol: aede_devices::DeviceProtocol::Upnp,
+        device: "http://127.0.0.1:1/description.xml".into(),
+        port: None,
+        replace: false,
+        volume: None,
+        certificate_sha256: None,
+    };
+    let supervision = supervise(
+        fixture.0.clone(),
+        principal,
+        7,
+        flag.clone(),
+        options,
+        Vec::new(),
+    );
+    drop(supervision);
     assert!(flag.load(Ordering::Acquire));
+}
+
+#[test]
+fn shutdown_before_network_supervision_first_poll_cancels_accepted_playback() {
+    crate::test_support::test_runtime().block_on(async {
+        let fixture = crate::accounts_test_support::Fixture::new();
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("operator").unwrap()).unwrap();
+        let source = crate::playback_test_support::install_wav(&fixture, 400).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        *fixture.0.network_audio.run.lock().unwrap() = Some(Run {
+            id: 7,
+            owner: auth::session_token(&principal).into(),
+            cancelled: cancelled.clone(),
+            status: "running",
+            last_seen: Instant::now(),
+        });
+        let options = aede_devices::CastOptions {
+            bind: Ipv4Addr::LOCALHOST,
+            protocol: aede_devices::DeviceProtocol::Upnp,
+            device: format!("http://{}/description.xml", listener.local_addr().unwrap()),
+            port: None,
+            replace: false,
+            volume: None,
+            certificate_sha256: None,
+        };
+        // Another server listener receives the shutdown even if supervision
+        // has not yet subscribed. The accepted playback must receive it too.
+        let _other_listener = fixture.0.shutdown.subscribe();
+        let supervision = supervise(
+            fixture.0.clone(),
+            principal,
+            7,
+            cancelled.clone(),
+            options,
+            vec![source.path],
+        );
+        fixture.0.shutdown.send(()).unwrap();
+        let mut task = tokio::spawn(supervision);
+        let observed = tokio::time::timeout(Duration::from_secs(1), async {
+            while !cancelled.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        // Release the real transport even when the regression fails.
+        cancelled.store(true, Ordering::Release);
+        let completed = tokio::time::timeout(Duration::from_secs(3), &mut task).await;
+        if completed.is_err() {
+            task.abort();
+        }
+        completed
+            .expect("transport did not finish cancellation")
+            .expect("supervision panicked");
+        assert!(
+            observed.is_ok(),
+            "shutdown sent before the first poll was lost"
+        );
+        assert_eq!(
+            listener.into_std().unwrap().accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "shutdown before the first poll must prevent device contact",
+        );
+    });
+}
+
+#[test]
+fn logout_during_network_status_cannot_publish_or_extend_a_playback_lease() {
+    crate::test_support::test_runtime().block_on(async {
+        let fixture = crate::accounts_test_support::Fixture::new();
+        let mut request = crate::admin_session_test_support::signed_request(&fixture, "");
+        *request.method_mut() = axum::http::Method::GET;
+        *request.uri_mut() = "/api/admin/v1/network-audio".parse().unwrap();
+        let principal = request.extensions().get::<auth::Principal>().unwrap();
+        let seen = Instant::now() - Duration::from_secs(6);
+        *fixture.0.network_audio.run.lock().unwrap() = Some(Run {
+            id: 7,
+            owner: auth::session_token(principal).into(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            status: "running",
+            last_seen: seen,
+        });
+        let result = status(State(fixture.0.clone()), request).await;
+        assert_eq!(
+            result
+                .expect_err("revoked logins cannot see or renew a network run")
+                .status,
+            StatusCode::UNAUTHORIZED,
+        );
+        let held = fixture.0.network_audio.run.lock().unwrap();
+        assert_eq!(held.as_ref().unwrap().last_seen, seen);
+    });
+}
+
+#[test]
+fn logout_during_network_stop_cannot_change_a_playback_run() {
+    crate::test_support::test_runtime().block_on(async {
+        let fixture = crate::accounts_test_support::Fixture::new();
+        let mut request =
+            crate::admin_session_test_support::signed_request(&fixture, r#"{"id":7}"#);
+        *request.uri_mut() = "/api/admin/v1/network-audio/stop".parse().unwrap();
+        let principal = request.extensions().get::<auth::Principal>().unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        *fixture.0.network_audio.run.lock().unwrap() = Some(Run {
+            id: 7,
+            owner: auth::session_token(principal).into(),
+            cancelled: cancelled.clone(),
+            status: "running",
+            last_seen: Instant::now(),
+        });
+        let result = stop(State(fixture.0.clone()), request).await;
+        assert_eq!(
+            result
+                .expect_err("revoked logins cannot dispatch a stop")
+                .status,
+            StatusCode::UNAUTHORIZED,
+        );
+        assert!(!cancelled.load(Ordering::Acquire));
+        let held = fixture.0.network_audio.run.lock().unwrap();
+        assert_eq!(held.as_ref().unwrap().status, "running");
+    });
+}
+
+#[test]
+fn logout_during_device_request_admission_cannot_reach_the_discovery_slot() {
+    crate::test_support::test_runtime().block_on(async {
+        for operation in ["discover", "inspect"] {
+            let fixture = crate::accounts_test_support::Fixture::new();
+            let _permit = fixture
+                .0
+                .network_audio
+                .discovery
+                .clone()
+                .try_acquire_owned()
+                .unwrap();
+            let payload = match operation {
+                "discover" => r#"{"bind":"127.0.0.1"}"#,
+                _ => r#"{"bind":"127.0.0.1","device":"127.0.0.1:1"}"#,
+            };
+            let mut request = crate::admin_session_test_support::signed_request(&fixture, payload);
+            *request.uri_mut() = format!("/api/admin/v1/network-audio/{operation}")
+                .parse()
+                .unwrap();
+            let result = if operation == "discover" {
+                discover(State(fixture.0.clone()), request).await
+            } else {
+                inspect(State(fixture.0.clone()), request).await
+            };
+            assert_eq!(
+                result
+                    .expect_err("revoked requests must stop before device admission")
+                    .status,
+                StatusCode::UNAUTHORIZED,
+                "{operation}",
+            );
+        }
+    });
 }

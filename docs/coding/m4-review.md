@@ -6,6 +6,10 @@ SlimProto, UPnP AVTransport, OpenHome and Google Cast reuse `aede-devices`; the 
 
 Discovery is explicit and bounded. All-profile discovery returns typed rows and partial failures; SlimProto peers can be configured manually. Cast certificate inspection observes a fingerprint but never establishes trust automatically. Protocol-specific options, replacement consent and source selection are validated before work. Clients compensate retired accepted starts with Stop under the original login, not a replacement account.
 
+Every graphical control route rechecks its captured administrator session after bounded body reception, before reading/renewing a run, admitting discovery or inspection, resolving playback, or dispatching Stop. A logout during request reception cannot use the former login to refresh a lease or change a session. Accepted playback retains its existing supervised cancellation lifecycle.
+
+Accepted supervision subscribes to server shutdown before it is scheduled. An intervening shutdown remains visible at its first poll and cancels transport admission; dropping even an unpolled supervisor retains its cancellation guard.
+
 ## Ownership and input admission
 
 Initial and subsequent Cast replies relinquish ownership if media identity differs from the requested content. In particular, a foreign initial LOAD response must not receive STOP during error cleanup. LOAD refusal, foreign takeover and failed Stop confirmation remain distinct from stopping an owned session.
@@ -13,6 +17,8 @@ Initial and subsequent Cast replies relinquish ownership if media identity diffe
 UPnP URI ownership, OpenHome playlist token/ID checks and SlimProto framing preserve their protocol-specific rules. Private IPv4 endpoints, same-authority URLs, redirect/traversal refusal, bounded HTTP/XML/DNS/Cast/SlimProto frames, certificate pins/handshake signatures, transfer slots and selected-original source identity checks remain separate admission boundaries. No arbitrary filesystem path or silent external-session replacement is admitted.
 
 ## Verification and limits
+
+UPnP/OpenHome cancellation also covers the initial device-description request, before any transport ownership or playback command. A pending Stop, revoked owner or lost lease must not wait for the description's network timeout; an already cancelled controller does not contact that endpoint.
 
 Loopback TLS/media fixtures and scripted controllers cover initial/subsequent takeover, cancellation before admission, exact-login replacement, reader/writer teardown and retained media-worker slots. Frontend regressions exercise accepted OpenHome/Cast/SlimProto starts after replacement, cancellation and disposal; retired run/certificate replies cannot publish into a successor profile. These are software evidence, not physical receiver acceptance.
 
