@@ -319,6 +319,8 @@ aede fetch --summaries --full   # ask again about what is already held
   381 of them have a wikidata link — aede fetch --summaries reads the article
 ```
 
+The summaries pass first completes missing detailed MusicBrainz links for already trusted artist identities. An abbreviated accepted name-search result can therefore obtain its Wikidata link without being promoted to identified or losing its original score/review. Valid empty relationships are cached distinctly from legacy incomplete claims; failed/malformed requests remain retryable. Use `--summaries --artist-ref=artist:example` for one exact local artist, without names/folders or other passes. The graphical [source-review contract](server/source-review.md) exposes the same durable decisions to administrators.
+
 This is a **second pass on** `fetch` **data**, not a new Wikipedia name search. The program reads an artist's or label's `wikidata` link, queries Wikidata to get the corresponding article, then retrieves the first paragraph from Wikipedia (two queries per entity). `fetch --labels` now asks MusicBrainz for each label's Wikidata link. A label fetched by an older Aède version can be refreshed with `aede fetch --labels --full <name>` before `aede fetch --summaries <name>`. When MusicBrainz has no Wikidata link, or Wikidata has no article in the requested languages, that pass has no Wikipedia biography to show.
 
 Only standard Wikipedia article summaries become biographies; disambiguation and non-article responses are left alone. Wikidata links must point to Wikidata itself. For portraits, usable preferred P18 statements take precedence over normal ones; deprecated or missing-value statements do not hide a later usable image.

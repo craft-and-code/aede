@@ -80,9 +80,14 @@ impl Target {
     ) -> Result<(musicbrainz::Candidate<LabelFacts>, Confidence), musicbrainz::NoMatch> {
         match &self.known_mbid {
             Some(_) => musicbrainz::label(answer)
+                .filter(|candidate| musicbrainz::valid_id(&candidate.mbid))
                 .map(|c| (c, Confidence::Identified))
                 .ok_or(musicbrainz::NoMatch::Nothing),
-            None => musicbrainz::best_match(&musicbrainz::labels(answer), &self.name),
+            None => {
+                let mut candidates = musicbrainz::labels(answer);
+                candidates.retain(|candidate| musicbrainz::valid_id(&candidate.mbid));
+                musicbrainz::best_match(&candidates, &self.name)
+            }
         }
     }
 }
@@ -176,8 +181,12 @@ pub fn run(
                             continue;
                         }
                     };
-                    match musicbrainz::label(&detail) {
-                        Some(found) if found.mbid == candidate.mbid => {
+                    match musicbrainz::label(&detail)
+                        .filter(|found| musicbrainz::valid_id(&found.mbid))
+                    {
+                        Some(found) => {
+                            // Lookup may follow a merged ID; retain the original
+                            // scored search claim, enriching only its facts.
                             candidate.facts = found.facts;
                         }
                         _ => {

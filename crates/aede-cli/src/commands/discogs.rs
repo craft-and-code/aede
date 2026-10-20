@@ -30,7 +30,8 @@ impl std::fmt::Display for UnavailableLabels {
 impl std::error::Error for UnavailableLabels {}
 
 /// Explicit batch fallback for identified labels in the requested name/folder scope.
-/// Fresh profiles are reused unless `--full` asks again; dry-run performs no I/O.
+/// Fresh profiles for the linked identity are reused unless `--full` asks again;
+/// dry-run performs no I/O.
 pub(super) fn run(
     catalog: &Catalog,
     transport: &mut dyn super::fetch::Ask,
@@ -56,6 +57,7 @@ pub(super) fn run(
                 && (asked.again
                     || !held.get(&entity, discogs::SOURCE).is_some_and(|r| {
                         discogs::fresh(r.fetched_at, clock::now_seconds())
+                            && !held.contradicts_linked_identity(catalog, r)
                             && matches!(&r.facts,Facts::Label(f) if f.summary.is_some())
                     }))
         })
@@ -221,7 +223,9 @@ fn refresh(
         let answer = ask_musicbrainz(&url).map_err(|why| format!("MusicBrainz: {why}"))?;
         let candidate = musicbrainz::label(&answer)
             .filter(|candidate| {
-                candidate.mbid == mbid
+                // A merged MBID remains an official alias. Keep the reviewed
+                // ID below rather than replacing its consent with the survivor.
+                musicbrainz::valid_id(&candidate.mbid)
                     && text::normalize(&candidate.name) == text::normalize(&label.name)
             })
             .ok_or("MusicBrainz did not confirm this label's identity")?;

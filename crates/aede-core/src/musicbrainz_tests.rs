@@ -974,3 +974,19 @@ fn a_label_lookup_keeps_its_external_links() {
         Some("https://www.discogs.com/label/33088")
     );
 }
+
+#[test]
+fn musicbrainz_entity_ids_are_path_components_not_urls_or_queries() {
+    assert!(valid_id("11111111-1111-4111-8111-111111111111"));
+    assert!(valid_id("ABCDEF01-ABCD-ABCD-ABCD-ABCDEF012345"));
+    for value in [
+        "",
+        "11111111-1111-4111-8111-111111111111/",
+        "11111111-1111-4111-8111-111111111111?inc=url-rels",
+        "../artist",
+        "not-an-id",
+        "11111111-1111-4111-8111-11111111111é",
+    ] {
+        assert!(!valid_id(value), "{value}");
+    }
+}

@@ -1005,3 +1005,41 @@ fn cancelling_a_live_check_retains_only_finished_files_and_refuses_late_publicat
         assert_eq!(state.jobs.get(id).unwrap().partial_result.unwrap().stdout, partial.stdout);
     });
 }
+
+#[test]
+fn exact_artist_summaries_cannot_silently_expand_into_other_passes_or_name_scopes() {
+    let valid = || FetchRequest {
+        artist: Some("artist:example".into()),
+        summaries: true,
+        ..Default::default()
+    };
+    assert!(JobRequest::Fetch(valid()).validate().is_ok());
+    let mut invalid = Vec::new();
+    let mut row = valid();
+    row.artist = Some("release:example".into());
+    invalid.push(row);
+    let mut row = valid();
+    row.artist = Some("artist:".into());
+    invalid.push(row);
+    let mut row = valid();
+    row.artist = Some("artist:example\0".into());
+    invalid.push(row);
+    let mut row = valid();
+    row.targets = vec!["Example".into()];
+    invalid.push(row);
+    let mut row = valid();
+    row.musicbrainz = true;
+    invalid.push(row);
+    let mut row = valid();
+    row.covers = true;
+    invalid.push(row);
+    let mut row = valid();
+    row.labels = true;
+    invalid.push(row);
+    let mut row = valid();
+    row.summaries = false;
+    invalid.push(row);
+    for row in invalid {
+        assert!(JobRequest::Fetch(row).validate().is_err());
+    }
+}

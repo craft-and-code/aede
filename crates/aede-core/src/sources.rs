@@ -223,6 +223,8 @@ pub struct Picture {
 /// do not carry, rather than a second opinion about something they do.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArtistFacts {
+    /// A full MusicBrainz lookup checked relationships, including a confirmed absence of URLs.
+    pub relationships_complete: bool,
     /// Country or area of origin, as the source names it.
     pub area: Option<String>,
     /// The same country as a two-letter code, when the source gives one.
@@ -1120,6 +1122,15 @@ impl SourceRecord {
         }
     }
 
+    /// Local identifier in this claim's MusicBrainz namespace, without deciding trust.
+    /// Release editions and release groups must never be compared across namespaces.
+    pub fn local_musicbrainz_id<'a>(&self, catalog: &'a crate::model::Catalog) -> Option<&'a str> {
+        if self.source != MUSICBRAINZ {
+            return None;
+        }
+        local_musicbrainz_id(catalog, self)
+    }
+
     /// The retained MusicBrainz album identifier with its original namespace.
     ///
     /// An edition fallback is identified by the same ID in `source_id` and
@@ -1196,12 +1207,57 @@ impl Sources {
         if let Some(review) = self.review_for(record) {
             return trusted_with_identity(record, None, Some(review.decision));
         }
+        if self.contradicts_linked_identity(catalog, record) {
+            return false;
+        }
         let local_id = if record.source == MUSICBRAINZ && record.confidence.is_certain() {
             local_musicbrainz_id(catalog, record)
         } else {
             None
         };
         trusted_with_identity(record, local_id, None)
+    }
+
+    /// Whether a biography cache belongs to a different known provider identity.
+    ///
+    /// Only a trusted MusicBrainz relationship can establish a contradiction.
+    /// Missing relationships and pending proposals do not invalidate independent
+    /// evidence. This is a cache identity check, not a review decision: explicit
+    /// reviews of the biography itself still take priority in `is_trusted`.
+    pub fn contradicts_linked_identity(
+        &self,
+        catalog: &crate::model::Catalog,
+        record: &SourceRecord,
+    ) -> bool {
+        if !matches!(
+            record.source.as_str(),
+            crate::wikipedia::SOURCE | crate::discogs::SOURCE
+        ) {
+            return false;
+        }
+        let Some(identity) = self.get(&record.entity(), MUSICBRAINZ) else {
+            return false;
+        };
+        if !self.is_trusted(catalog, identity) {
+            return false;
+        }
+        let expected = match (record.source.as_str(), &identity.facts) {
+            (crate::wikipedia::SOURCE, Facts::Artist(facts)) => facts
+                .wikidata
+                .as_deref()
+                .and_then(crate::wikipedia::entity_id),
+            (crate::wikipedia::SOURCE, Facts::Label(facts)) => facts
+                .wikidata
+                .as_deref()
+                .and_then(crate::wikipedia::entity_id),
+            (crate::discogs::SOURCE, Facts::Label(facts)) => facts
+                .discogs
+                .as_deref()
+                .and_then(crate::discogs::label_id)
+                .map(|id| id.to_string()),
+            _ => None,
+        };
+        expected.is_some_and(|id| record.source_id.as_deref() != Some(id.as_str()))
     }
 
     /// Trust a track claim whose canonical recording is already resolved.
@@ -2450,6 +2506,7 @@ pub fn to_json(sources: &Sources) -> Json {
                     );
                 }
                 Facts::Artist(a) => {
+                    facts.set("relationships_complete", a.relationships_complete.into());
                     facts.set("area", opt_str(&a.area));
                     facts.set("country_code", opt_str(&a.country_code));
                     facts.set("began", opt_str(&a.began));
@@ -2743,6 +2800,15 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
         }
         let facts = match entity.kind {
             EntityKind::Artist => Facts::Artist(ArtistFacts {
+                relationships_complete: match facts.and_then(|f| f.get("relationships_complete")) {
+                    None => false,
+                    Some(Json::Bool(value)) => *value,
+                    _ => {
+                        return Err(StoreError::Invalid(
+                            "artist relationship marker must be boolean",
+                        ));
+                    }
+                },
                 area: facts.and_then(|f| f.field_str("area")),
                 // Absent from every record written before this field existed,
                 // which is exactly what `Option` is for: those artists keep

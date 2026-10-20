@@ -53,7 +53,8 @@ Tous les booléens valent false par défaut ; targets est vide. **`{}` n’est p
 | Champ(s) | Sens / contraintes |
 | --- | --- |
 | `targets` | Au plus 64 noms d’artistes/albums ou chemins de dossiers serveur non vides, 4096 octets chacun, sans NUL. Un chemin absolu évite l’ambiguïté de dossier. |
-| `summaries` | Télécharge les textes d’artistes/albums via les sources de la CLI. |
+| `summaries` | Télécharge les textes d’artistes/labels via les sources de la CLI. |
+| `artist` | Référence locale exacte d’artiste, avec `summaries` seul, sans `targets` ni autre passe. Capacité `fetch_artist_summary_links` ; voir [la validation des correspondances](source-review.md). |
 | `discography` | Télécharge la discographie pour examiner ensuite les albums manquants. |
 | `covers` | Obtient les informations de pochettes ; leur téléchargement exige `images`. |
 | `lyrics` | Recherche explicitement les paroles, jamais activées implicitement. |
@@ -130,3 +131,5 @@ Sur Unix, les sous-processus appartiennent à un groupe séparé et l’annulati
 ## POST /api/admin/v1/check
 
 Test complet de décodage d’un album: `{"release":"release:…"}`. Un administrateur authentifié lance un décodage neuf, séquentiel, des fichiers catalogués de cette édition uniquement. Aucun chemin, élargissement au dossier ou option supplémentaire n’est accepté. Les routes habituelles de tâche et d’annulation donnent le résultat réel. La capacité `album_decode_test` annonce cette fonction. La capacité supplémentaire `album_decode_results` annonce le rapport JSON par fichier (version 1, `path` exact, `status: ok | no_hash | ko`, `verifier` et `message` éventuel). Le moteur utilise `check --decode-test --json`, avec `flac -t` pour les FLAC si disponible sur sa machine, sinon son décodeur Rust ; les autres formats utilisent le décodeur existant. Un échec du programme externe ne déclenche pas de repli trompeur. Un MD5 absent ne vaut pas un MD5 vérifié. Les fichiers audio, tags et conclusions CRC/analyses restent intacts. Les erreurs apparaissent par fichier et font échouer la tâche. HTTPS exige une session administrateur nominative.
+
+L’admission des tâches fetch/scan et les routes de liste/lecture/annulation des tâches revérifient la session du compte après réception du corps, avant tout accès au registre. Une déconnexion, un changement de mot de passe/rôle ou la suppression du compte durant cette réception refuse l’action. Une tâche déjà acceptée avant déconnexion reste gérée par le serveur et n’est pas annulée implicitement.

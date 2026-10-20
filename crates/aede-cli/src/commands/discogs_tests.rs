@@ -460,6 +460,18 @@ fn fetch_discogs_is_explicit_scoped_dry_and_reuses_fresh_profiles() {
         }),
     });
     run(&c, &mut Never, &[], &mut held, &p, &asked).unwrap();
+    if let Facts::Label(facts) = &mut held.records[0].facts {
+        facts.discogs = Some(discogs::label_url(33088));
+    }
+    held.set_review(sources::SourceReview {
+        entity: entity.clone(),
+        source: discogs::SOURCE.into(),
+        source_id: Some("33088".into()),
+        decision: sources::ReviewDecision::Rejected,
+        reviewed_at: 3,
+    });
+    // A review decision alone must not force another request for the same ID.
+    run(&c, &mut Never, &[], &mut held, &p, &asked).unwrap();
     let other = ["Other label".into()];
     asked.names = &other;
     asked.again = true;
@@ -703,5 +715,136 @@ fn batch_stops_after_provider_throttling_without_requesting_other_labels() {
     let mut transport = ThrottledTransport(0);
     assert!(run(&catalog, &mut transport, &[], &mut held, &target, &asked).is_err());
     assert_eq!(transport.0, 1);
+    std::fs::remove_dir_all(target.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_fresh_profile_for_an_old_discogs_id_does_not_suppress_the_new_validated_label() {
+    let mut c = catalog();
+    c.labels[0].name = "Control Label".into();
+    c.labels[0].key = "control label".into();
+    let entity = entity(&c);
+    let mut held = Sources::default();
+    musicbrainz(&mut held, &entity);
+    if let Facts::Label(facts) = &mut held.records[0].facts {
+        facts.discogs = Some(discogs::label_url(12345));
+    }
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: discogs::SOURCE.into(),
+        source_id: Some("99999".into()),
+        fetched_at: clock::now_seconds(),
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            summary: Some(Prose {
+                text: "A different label's biography.".into(),
+                url: discogs::label_url(99999),
+                lang: "en".into(),
+                licence: "CC0".into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    let asked = super::super::fetch::Asked {
+        names: &[],
+        scope: &super::super::fetch::EVERYTHING,
+        again: false,
+        dry_run: false,
+        size: super::super::covers::DEFAULT_SIZE,
+        size_requested: false,
+        images: false,
+        fanart: Default::default(),
+        langs: vec!["en".into()],
+        key: None,
+        portrait_key: None,
+    };
+    let p = path("changed_discogs_identity");
+    run(&c, &mut BatchTransport, &[], &mut held, &p, &asked).unwrap();
+    let current = held.get(&entity, discogs::SOURCE).unwrap();
+    assert_eq!(
+        current.source_id.as_deref(),
+        Some("12345"),
+        "cache freshness cannot prove that this is the validated label"
+    );
+    let Facts::Label(facts) = &current.facts else {
+        panic!("label");
+    };
+    assert_eq!(
+        facts.summary.as_ref().unwrap().text,
+        "Original control biography."
+    );
+    std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_merged_musicbrainz_label_keeps_its_review_and_can_supply_the_discogs_biography() {
+    let catalog = catalog();
+    let entity = entity(&catalog);
+    let mut held = Sources::default();
+    musicbrainz(&mut held, &entity);
+    let original = held.get(&entity, sources::MUSICBRAINZ).unwrap().clone();
+    let reviews = held.reviews.clone();
+    let target = path("merged_label");
+    let mut calls = Vec::new();
+    refresh(
+        &catalog,
+        catalog.labels[0].id,
+        &mut held,
+        &target,
+        &mut |url| {
+            assert!(url.contains(original.source_id.as_deref().unwrap()));
+            aede_core::json::parse(
+                r#"{"id":"22222222-2222-4222-8222-222222222222","name":"Roadracer Records","relations":[{"type":"discogs","url":{"resource":"https://www.discogs.com/label/33088"}}]}"#,
+            ).map_err(|error| error.to_string())
+        },
+        &mut |url| {
+            calls.push(url.to_owned());
+            aede_core::json::parse(
+                r#"{"id":33088,"name":"Roadracer Records","profile":"A label biography."}"#,
+            ).map_err(|error| error.to_string())
+        },
+    ).expect("a merged MusicBrainz ID remains a valid official alias");
+    assert_eq!(calls, ["https://api.discogs.com/labels/33088"]);
+    let saved = sources::load_all(&target).unwrap().unwrap();
+    let identity = saved.get(&entity, sources::MUSICBRAINZ).unwrap();
+    assert_eq!(identity.source_id, original.source_id);
+    assert_eq!(identity.confidence, original.confidence);
+    assert_eq!(saved.reviews, reviews);
+    assert!(saved.get(&entity, discogs::SOURCE).is_some());
+    std::fs::remove_dir_all(target.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_malformed_redirect_or_different_label_name_cannot_replace_the_reviewed_source() {
+    let catalog = catalog();
+    let entity = entity(&catalog);
+    let mut held = Sources::default();
+    musicbrainz(&mut held, &entity);
+    let target = path("refused_label_redirect");
+    sources::save(&held, &target).unwrap();
+    let before = std::fs::read(&target).unwrap();
+    for (id, name) in [
+        ("../other", "Roadracer Records"),
+        ("", "Roadracer Records"),
+        ("22222222-2222-4222-8222-222222222222", "Another Label"),
+    ] {
+        let mut retained = held.clone();
+        let answer = format!(
+            r#"{{"id":"{id}","name":"{name}","relations":[{{"type":"discogs","url":{{"resource":"https://www.discogs.com/label/33088"}}}}]}}"#
+        );
+        assert!(
+            refresh(
+                &catalog,
+                catalog.labels[0].id,
+                &mut retained,
+                &target,
+                &mut |_| aede_core::json::parse(&answer).map_err(|error| error.to_string()),
+                &mut |_| panic!("an unreadable or unconfirmed identity must not reach Discogs"),
+            )
+            .is_err()
+        );
+        assert_eq!(retained, held);
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+    }
     std::fs::remove_dir_all(target.parent().unwrap()).unwrap();
 }

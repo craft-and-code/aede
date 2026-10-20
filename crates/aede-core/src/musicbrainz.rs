@@ -23,6 +23,18 @@ use crate::text;
 /// decide.
 pub const WEB_SERVICE: &str = "https://musicbrainz.org/ws/2";
 
+/// Admit an identifier as one URL path component; no name, query or external authority is accepted.
+pub fn valid_id(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
 /// The gap the service requires between two requests, with a small margin.
 ///
 /// One request per second per address is the documented limit, and going over
@@ -271,6 +283,7 @@ fn score_of(value: &Json) -> u8 {
 fn artist_facts(row: &Json) -> ArtistFacts {
     let life = row.get("life-span");
     ArtistFacts {
+        relationships_complete: false,
         // `country` is a code, `area.name` is the name a reader wants. Both
         // are kept: the name is what a listing shows, the code is what
         // somebody types. Preferring one and discarding the other threw away
@@ -458,12 +471,14 @@ fn linked(row: &Json, relation: &str) -> Option<String> {
 pub fn artist(response: &Json) -> Option<Candidate<ArtistFacts>> {
     relationship_rows(response)?;
     let mbid = field(response, "id")?;
+    let mut facts = artist_facts(response);
+    facts.relationships_complete = true;
     Some(Candidate {
         mbid,
         name: field(response, "name").unwrap_or_default(),
         // Nothing was ranked: the service was asked about this one thing.
         score: 100,
-        facts: artist_facts(response),
+        facts,
     })
 }
 

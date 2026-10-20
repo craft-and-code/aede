@@ -28,6 +28,8 @@ use crate::ui;
 
 use super::Res;
 use super::fetch::{Ask, ask_with_backoff, defer, queue};
+#[path = "summary_artist_links.rs"]
+mod artist_links;
 
 /// An artist or label to ask about: where to file the answer, what to call it, and
 /// the Wikidata id MusicBrainz gave.
@@ -51,6 +53,9 @@ pub fn run(
     asked: &super::fetch::Asked,
     catalog: Option<&aede_core::model::Catalog>,
 ) -> Res {
+    // Name-search results are abbreviated. Only an already trusted identity may
+    // supply the exact lookup that completes its missing Wikipedia bridge.
+    artist_links::complete(transport, backoff, held, path, asked, catalog)?;
     let (wanted, again) = (asked.names, asked.again);
     let targets = targets(held, wanted, asked.scope, again, catalog);
     println!("{}", ui::section("Summaries"));
@@ -272,7 +277,11 @@ fn targets(
             continue;
         };
         let entity = record.entity();
-        if !again && held.get(&entity, wikipedia::SOURCE).is_some() {
+        if !again
+            && held
+                .get(&entity, wikipedia::SOURCE)
+                .is_some_and(|cached| cached.source_id.as_deref() == Some(id.as_str()))
+        {
             continue;
         }
         targets.push(Target {

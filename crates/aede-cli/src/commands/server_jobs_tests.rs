@@ -70,6 +70,7 @@ fn failed_or_cancelled_identification_does_not_start_secondary_work() {
 fn every_fetch_option_reaches_the_existing_parser_without_option_injection() {
     let job = JobRequest::Fetch(FetchRequest {
         service_keys: None,
+        artist: None,
         musicbrainz: false,
         targets: vec![
             "Miles Davis".into(),
@@ -584,4 +585,20 @@ fn cancellation_still_stops_descendants_after_the_command_leader_exits() {
             .exit_code,
         130
     );
+}
+
+#[test]
+fn exact_artist_summary_jobs_use_a_value_option_without_positional_name_expansion() {
+    let job = JobRequest::Fetch(FetchRequest {
+        artist: Some("artist:example: --data=elsewhere".into()),
+        summaries: true,
+        yes: true,
+        ..Default::default()
+    });
+    let parsed = Args::parse(arguments(&job));
+    assert_eq!(
+        parsed.value("artist-ref"),
+        Some("artist:example: --data=elsewhere")
+    );
+    assert!(parsed.positionals.is_empty());
 }

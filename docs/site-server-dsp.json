@@ -426,5 +426,12 @@
       "en": "docs/dsp/premium.md",
       "fr": "docs/fr/dsp/premium.md"
     }
+  },
+  {
+    "slug": "server/source-review",
+    "section": "server",
+    "title": {"en": "MusicBrainz identity review", "fr": "Valider les correspondances MusicBrainz"},
+    "description": {"en": "Review stored identities safely, then retrieve one artist biography.", "fr": "Valider les identités conservées, puis récupérer la biographie d’un artiste."},
+    "source": {"en": "docs/server/source-review.md", "fr": "docs/fr/server/source-review.md"}
   }
 ]

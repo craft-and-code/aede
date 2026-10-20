@@ -405,6 +405,7 @@ fn a_round_trip_keeps_every_field() {
         fetched_at: 1_700_000_456,
         confidence: Confidence::Identified,
         facts: Facts::Artist(ArtistFacts {
+            relationships_complete: true,
             area: Some("United States".to_string()),
             country_code: Some("US".to_string()),
             began: Some("1926-05-26".to_string()),
@@ -2348,4 +2349,156 @@ fn release_identity_reviews_compare_the_retained_musicbrainz_namespace() {
             "legacy reads do not infer an edition"
         );
     }
+}
+
+#[test]
+fn artist_relationship_completion_is_optional_versioned_evidence_not_an_inferred_absence() {
+    let mut held = Sources::default();
+    held.set(SourceRecord {
+        key: "example".into(),
+        source: MUSICBRAINZ.into(),
+        source_id: Some("11111111-1111-4111-8111-111111111111".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts {
+            relationships_complete: true,
+            ..Default::default()
+        }),
+    });
+    let encoded = to_json(&held).to_string_pretty();
+    assert_eq!(
+        from_json(&crate::json::parse(&encoded).unwrap()).unwrap(),
+        held
+    );
+    let invalid = encoded.replace(
+        "\"relationships_complete\": true",
+        "\"relationships_complete\": 1",
+    );
+    assert!(from_json(&crate::json::parse(&invalid).unwrap()).is_err());
+    let legacy = encoded.replace("\"relationships_complete\": true,", "");
+    let back = from_json(&crate::json::parse(&legacy).unwrap()).unwrap();
+    let Facts::Artist(facts) = &back.records[0].facts else {
+        panic!("artist");
+    };
+    assert!(!facts.relationships_complete);
+}
+
+#[test]
+fn a_trusted_new_wikidata_identity_does_not_authenticate_a_previous_cached_biography() {
+    let catalog = crate::model::Catalog::default();
+    for kind in [EntityKind::Artist, EntityKind::Label] {
+        let entity = EntityRef {
+            kind,
+            key: "example subject".into(),
+        };
+        let facts = |wikidata: Option<String>| match kind {
+            EntityKind::Artist => Facts::Artist(ArtistFacts {
+                wikidata,
+                ..Default::default()
+            }),
+            EntityKind::Label => Facts::Label(LabelFacts {
+                wikidata,
+                ..Default::default()
+            }),
+            _ => unreachable!(),
+        };
+        let mut held = Sources::default();
+        held.set(SourceRecord {
+            key: entity.key.clone(),
+            source: crate::wikipedia::SOURCE.into(),
+            source_id: Some("Q111".into()),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: facts(None),
+        });
+        assert!(
+            held.is_trusted(
+                &catalog,
+                held.get(&entity, crate::wikipedia::SOURCE).unwrap()
+            ),
+            "retain independent legacy evidence when no contrary identity is known"
+        );
+        held.set(SourceRecord {
+            key: entity.key.clone(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some("11111111-1111-4111-8111-111111111111".into()),
+            fetched_at: 2,
+            confidence: Confidence::Matched(95),
+            facts: facts(Some("https://www.wikidata.org/wiki/Q222".into())),
+        });
+        assert!(
+            held.is_trusted(
+                &catalog,
+                held.get(&entity, crate::wikipedia::SOURCE).unwrap()
+            ),
+            "an unreviewed proposal cannot invalidate another source"
+        );
+        let id = held
+            .review_items(&catalog)
+            .into_iter()
+            .find(|row| row.source == MUSICBRAINZ)
+            .unwrap()
+            .id;
+        held.decide(&catalog, &id, ReviewDecision::Accepted, 3)
+            .unwrap();
+        let before = held.clone();
+        assert!(
+            !held.is_trusted(
+                &catalog,
+                held.get(&entity, crate::wikipedia::SOURCE).unwrap()
+            ),
+            "Q111 is not the now-validated Q222"
+        );
+        assert_eq!(held, before, "stale evidence must be retained, not erased");
+        held.records[1].facts = facts(Some("https://www.wikidata.org/wiki/Q111".into()));
+        assert!(held.is_trusted(
+            &catalog,
+            held.get(&entity, crate::wikipedia::SOURCE).unwrap()
+        ));
+        held.records[1].facts = facts(Some("https://www.wikidata.org/wiki/Q222".into()));
+        held.set_review(SourceReview {
+            entity,
+            source: crate::wikipedia::SOURCE.into(),
+            source_id: Some("Q111".into()),
+            decision: ReviewDecision::Accepted,
+            reviewed_at: 4,
+        });
+        assert!(
+            held.is_trusted(&catalog, &held.records[0]),
+            "an explicit review of that exact Wikipedia claim retains priority"
+        );
+    }
+}
+
+#[test]
+fn a_recent_discogs_biography_for_another_validated_label_is_not_trusted() {
+    let catalog = crate::model::Catalog::default();
+    let mut held = Sources::default();
+    held.set(SourceRecord {
+        key: "example records".into(),
+        source: MUSICBRAINZ.into(),
+        source_id: Some("11111111-1111-4111-8111-111111111111".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts {
+            discogs: Some(crate::discogs::label_url(12345)),
+            ..Default::default()
+        }),
+    });
+    held.set(SourceRecord {
+        key: "example records".into(),
+        source: crate::discogs::SOURCE.into(),
+        source_id: Some("99999".into()),
+        fetched_at: crate::clock::now_seconds(),
+        confidence: Confidence::Identified,
+        facts: Facts::Label(LabelFacts::default()),
+    });
+    let before = held.clone();
+    assert!(
+        !held.is_trusted(&catalog, &held.records[1]),
+        "Discogs 99999 is not the validated linked label 12345"
+    );
+    assert_eq!(held, before);
+    held.records[1].source_id = Some("12345".into());
+    assert!(held.is_trusted(&catalog, &held.records[1]));
 }

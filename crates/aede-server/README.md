@@ -176,6 +176,7 @@ Pass flags: `summaries,discography,covers,lyrics,identify,credits,recordings,por
 
 Additional options:
 
+- `artist`: optional exact artist reference for summaries alone, without `targets` or other passes; see [source review](../../docs/server/source-review.md).
 - `full,dry_run,yes`: repeat stored lookups, preview without external requests, or explicitly accept the CLI's large-run confirmation.
 - `lang: string`: the CLI's prose-language selection.
 - `images: bool` and `size: string` require `covers`; sizes are `250|500|1200|original` (`full` is an alias for original, as in the CLI).
@@ -240,7 +241,7 @@ Every personal read and write obtains the same data-directory lock as the CLI an
 
 ## Deliberately not exposed yet
 
-The native HTTP routes leave static-playlist creation/export, relation annotations, source-review decisions, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution to other interfaces. The [Subsonic adapter](../../docs/server/subsonic.md) exposes private persistent static playlists and verified sidecar artwork under its compatibility contract. Aède's `playlist` CLI command generates an M3U from a current selection, while native collection routes retain query collections. CLI availability does not imply an HTTP route. Native prose/artwork delivery still needs a defined contract; local lyrics use `/lyrics`, and native audio uses the documented PCM WebSocket. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
+The native HTTP routes leave static-playlist creation/export, relation annotations, arbitrary file inspection, check/analyze/fingerprint, copy, backup/restore, reset, merge and generic command execution to other interfaces. The [Subsonic adapter](../../docs/server/subsonic.md) exposes private persistent static playlists and verified sidecar artwork under its compatibility contract. Aède's `playlist` CLI command generates an M3U from a current selection, while native collection routes retain query collections. CLI availability does not imply an HTTP route. Native prose/artwork delivery still needs a defined contract; local lyrics use `/lyrics`, and native audio uses the documented PCM WebSocket. CLI-only arguments such as `--json`, `--csv`, `--output`, personal filters and unsupported presentation switches are rejected by HTTP.
 
 ## Code layout
 
@@ -362,3 +363,8 @@ All routes below require a named administrator and retain exact-login ownership.
 | `POST /api/admin/v1/network-audio/play` | Start selected original tracks through the requested device profile. |
 | `GET /api/admin/v1/network-audio/status` | Read owned playback state and renew its client lease. |
 | `POST /api/admin/v1/network-audio/stop` | Cancel playback owned by this exact login. |
+
+
+### Shared source review
+
+`GET` and `PATCH /api/admin/v1/source-review` expose stored MusicBrainz candidates and the existing durable accept/reject/undo rules to administrators. `source_review` advertises support. The [review contract](../../docs/server/source-review.md) documents paging, exact selectors, optimistic revisions, authentication and the separate `fetch_artist_summary_links` biography task. No browse initiates external enrichment or changes audio tags.

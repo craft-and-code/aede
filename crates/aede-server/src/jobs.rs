@@ -62,6 +62,8 @@ pub struct FetchRequest {
     /// Up to 64 nonempty names or server-folder paths, 4096 bytes each, no NUL.
     /// Empty selects the CLI's ordinary all-catalog scope for the chosen passes.
     pub targets: Vec<String>,
+    /// Exact local artist reference for a summaries-only pass; excludes name/folder targets.
+    pub artist: Option<String>,
     /// Run ordinary MusicBrainz identification before the selected secondary passes.
     pub musicbrainz: bool,
     /// Fetch attributed artist/album prose.
@@ -278,6 +280,34 @@ impl JobRequest {
                 }
             }
             Self::Fetch(fetch) => {
+                if let Some(reference) = &fetch.artist
+                    && (reference.len() > 4096
+                        || reference.contains('\0')
+                        || !reference.starts_with("artist:")
+                        || reference.len() == 7
+                        || !fetch.targets.is_empty()
+                        || !fetch.summaries
+                        || [
+                            fetch.musicbrainz,
+                            fetch.discography,
+                            fetch.covers,
+                            fetch.lyrics,
+                            fetch.identify,
+                            fetch.credits,
+                            fetch.recordings,
+                            fetch.portraits,
+                            fetch.logos,
+                            fetch.labels,
+                            fetch.discogs,
+                            fetch.fanart,
+                        ]
+                        .into_iter()
+                        .any(|pass| pass))
+                {
+                    return Err(invalid(
+                        "artist requires an exact artist reference and summaries only",
+                    ));
+                }
                 if fetch
                     .service_keys
                     .as_ref()
@@ -643,6 +673,25 @@ pub(super) async fn body(request: Request, limit: usize) -> Result<axum::body::B
         })
 }
 
+/// Body reception yields to logout/password/role changes. Admit the operation
+/// only after rechecking the captured login; accepted jobs remain server-owned.
+async fn administrative_body(
+    state: &ApiState,
+    request: Request,
+    limit: usize,
+) -> Result<(axum::http::request::Parts, axum::body::Bytes), ApiError> {
+    check_request(state, &request)?;
+    let (parts, incoming) = request.into_parts();
+    let bytes = body(Request::new(incoming), limit).await?;
+    if let Some(principal) = parts.extensions.get::<super::auth::Principal>().cloned() {
+        let Json(()) = super::inspection::inspect(state.clone(), move |state| {
+            super::auth::recheck(state, &principal)
+        })
+        .await?;
+    }
+    Ok((parts, bytes))
+}
+
 pub(super) fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
     if bytes
         .iter()
@@ -669,9 +718,7 @@ pub(super) async fn scan_route(
     State(state): State<ApiState>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    check_request(&state, &request)?;
-    let (parts, incoming) = request.into_parts();
-    let bytes = body(Request::new(incoming), MAX_BODY).await?;
+    let (parts, bytes) = administrative_body(&state, request, MAX_BODY).await?;
     if bytes.is_empty() {
         return super::admin_scan(State(state), Request::from_parts(parts, Body::empty()))
             .await
@@ -684,8 +731,7 @@ async fn fetch_route(
     State(state): State<ApiState>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    check_request(&state, &request)?;
-    let bytes = body(request, MAX_BODY).await?;
+    let (_, bytes) = administrative_body(&state, request, MAX_BODY).await?;
     enqueue(state, JobRequest::Fetch(decode(&bytes)?))
 }
 
@@ -956,8 +1002,7 @@ async fn task_list_route(
     State(state): State<ApiState>,
     request: Request,
 ) -> Result<Json<Vec<Task>>, ApiError> {
-    check_request(&state, &request)?;
-    body(request, 0).await?;
+    administrative_body(&state, request, 0).await?;
     let data = state.jobs.data.lock().map_err(|_| registry_error())?;
     Ok(Json(data.tasks.values().cloned().collect()))
 }
@@ -967,8 +1012,7 @@ async fn task_route(
     Path(id): Path<String>,
     request: Request,
 ) -> Result<Json<Task>, ApiError> {
-    check_request(&state, &request)?;
-    body(request, 0).await?;
+    administrative_body(&state, request, 0).await?;
     Ok(Json(state.jobs.get(task_id(&id)?)?))
 }
 
@@ -977,8 +1021,7 @@ async fn cancel_route(
     Path(id): Path<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    check_request(&state, &request)?;
-    body(request, 0).await?;
+    administrative_body(&state, request, 0).await?;
     let task_id = task_id(&id)?;
     state.jobs.cancel(task_id)?;
     Ok((
@@ -1132,3 +1175,7 @@ async fn check_route(
     .0;
     enqueue(state, JobRequest::Check(files.into()))
 }
+
+#[cfg(test)]
+#[path = "job_session_tests.rs"]
+mod session_tests;

@@ -33,8 +33,8 @@ fn a_name_search_is_confirmed_by_lookup_and_keeps_the_wikidata_link() {
     let mut held = Sources::default();
     let mut transport = Canned {
         answers: [
-            r#"{"labels":[{"id":"columbia-id","name":"Columbia","score":100}]}"#,
-            r#"{"id":"columbia-id","name":"Columbia","relations":[{"type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q123"}}]}"#,
+            r#"{"labels":[{"id":"11111111-1111-4111-8111-111111111111","name":"Columbia","score":100}]}"#,
+            r#"{"id":"11111111-1111-4111-8111-111111111111","name":"Columbia","relations":[{"type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q123"}}]}"#,
         ]
         .iter()
         .map(|text| aede_core::json::parse(text).expect("fixture"))
@@ -67,6 +67,65 @@ fn a_name_search_is_confirmed_by_lookup_and_keeps_the_wikidata_link() {
         facts.wikidata.as_deref(),
         Some("https://www.wikidata.org/wiki/Q123")
     );
+}
+
+#[test]
+fn malformed_label_search_identifiers_cannot_hide_a_valid_candidate_or_be_selected_alone() {
+    let catalog = catalog_with_label("Columbia");
+    let target = targets_over(&catalog, &Sources::default(), false).remove(0);
+    let answer = aede_core::json::parse(r#"{"labels":[{"id":"not-a-musicbrainz-id","name":"Columbia","score":100},{"id":"11111111-1111-4111-8111-111111111111","name":"Columbia","score":95}]}"#).unwrap();
+    let (candidate, confidence) = target.read(&answer).unwrap();
+    assert_eq!(candidate.mbid, "11111111-1111-4111-8111-111111111111");
+    assert_eq!(confidence, Confidence::Matched(95));
+    let alone = aede_core::json::parse(
+        r#"{"labels":[{"id":"not-a-musicbrainz-id","name":"Columbia","score":100}]}"#,
+    )
+    .unwrap();
+    assert!(target.read(&alone).is_err());
+}
+
+#[test]
+fn a_merged_label_search_result_retains_its_match_and_receives_biography_links() {
+    let catalog = catalog_with_label("Columbia");
+    let mut held = Sources::default();
+    let matched = "11111111-1111-4111-8111-111111111111";
+    let mut transport = Canned {
+        answers: [
+            format!(r#"{{"labels":[{{"id":"{matched}","name":"Columbia","score":100}}]}}"#),
+            r#"{"id":"22222222-2222-4222-8222-222222222222","name":"Columbia","relations":[{"type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q123"}}]}"#.into(),
+        ].iter().map(|text| aede_core::json::parse(text).unwrap()).collect(),
+        asked: Vec::new(),
+    };
+    let path = std::env::temp_dir().join(format!("aede_labels_merged_{}.json", std::process::id()));
+    let asked = crate::commands::fetch::Asked {
+        scope: &crate::commands::fetch::EVERYTHING,
+        names: &[],
+        again: false,
+        dry_run: false,
+        size: crate::commands::covers::DEFAULT_SIZE,
+        images: false,
+        fanart: Default::default(),
+        key: None,
+        portrait_key: None,
+        langs: vec!["en".into()],
+        size_requested: false,
+    };
+    run(&catalog, &mut transport, &[], &mut held, &path, &asked).unwrap();
+    let entity = EntityRef::of(&catalog, EntityKind::Label, catalog.labels[0].id).unwrap();
+    let record = held
+        .get(&entity, sources::MUSICBRAINZ)
+        .expect("a merged lookup must not discard the name match");
+    assert_eq!(record.source_id.as_deref(), Some(matched));
+    assert_eq!(record.confidence, Confidence::matched(95));
+    let Facts::Label(facts) = &record.facts else {
+        panic!("label");
+    };
+    assert_eq!(
+        facts.wikidata.as_deref(),
+        Some("https://www.wikidata.org/wiki/Q123")
+    );
+    assert_eq!(transport.asked.len(), 2);
+    std::fs::remove_file(path).unwrap();
 }
 
 /// A one-album catalog whose release is tagged with the given label.

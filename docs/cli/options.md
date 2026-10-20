@@ -122,6 +122,7 @@ This inventory follows the current dispatcher and handlers. It lists accepted co
 | `--export` | [sources](sources.md), [rules](rules.md), [notes](notes.md) |
 | `--import FILE` | [sources](sources.md), [rules](rules.md), [notes](notes.md) |
 | `--template` | [sources](sources.md) |
+| `--artist-ref REF` | [fetch](fetch.md) |
 | `--summaries` | [fetch](fetch.md) |
 | `--discography` | [fetch](fetch.md) |
 | `--covers` | [fetch](fetch.md) |

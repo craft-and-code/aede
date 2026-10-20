@@ -406,6 +406,11 @@ pub(super) fn has_album(catalog: &Catalog, artist: Id) -> bool {
 /// says both rather than running them together into a list the reader has to
 /// sort out again.
 pub(super) fn narrowing(names: &[String], scope: &Scope) -> String {
+    if scope.folders.is_empty()
+        && let Some(held) = &scope.holds
+    {
+        return held.artists.iter().cloned().collect::<Vec<_>>().join(", ");
+    }
     match (names.is_empty(), scope.is_empty()) {
         (true, true) => String::new(),
         (false, true) => names.join(", "),
@@ -1168,22 +1173,46 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
     // ordinary fetch always does; a pass may not; and a **folder** always
     // does, whatever the pass, because the catalog is the only thing that can
     // say what a folder holds.
-    let catalog = match passes.is_empty()
+    let catalog = match args.has("artist-ref")
+        || passes.is_empty()
         || !folders.is_empty()
         || passes.iter().any(|pass| pass.needs_the_catalog())
     {
         true => Some(super::load(args)?),
         false => aede_core::store::load(&aede_core::store::catalog_path(&data_dir))?,
     };
-    let scope = match &catalog {
+    let mut scope = match &catalog {
         Some(catalog) => Scope::of(catalog, &folders)?,
         // A folder would have loaded one, so there is no folder to place.
         None => Scope::default(),
     };
+    if args.has("artist-ref") {
+        if passes.len() != 1
+            || !matches!(passes[0], Pass::Summaries)
+            || !folders.is_empty()
+            || !wanted.is_empty()
+        {
+            return Err("--artist-ref requires --summaries alone, without names or folders".into());
+        }
+        let entity = args
+            .value("artist-ref")
+            .and_then(EntityRef::parse_token)
+            .filter(|entity| entity.kind == EntityKind::Artist)
+            .ok_or("--artist-ref requires an artist reference")?;
+        let artist_key = catalog
+            .as_ref()
+            .and_then(|catalog| entity.resolve(catalog).and_then(|id| catalog.artist(id)))
+            .map(|artist| artist.key.clone())
+            .ok_or("artist reference is absent or ambiguous in this catalog")?;
+        scope.holds = Some(Held {
+            artists: [artist_key].into_iter().collect(),
+            ..Default::default()
+        });
+    }
     // Said before anything is asked, and on every run that gives one: reading
     // a positional as a folder is a *reading*, and a reading the person cannot
     // see is one they cannot correct.
-    if !scope.is_empty() {
+    if !scope.folders().is_empty() {
         println!(
             "  {}",
             ui::dim(&format!(
@@ -1397,9 +1426,14 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         // certainty, and the only thing in this program that produces one.
         let found = match mbid {
             Some(_) => musicbrainz::artist(&answer)
+                .filter(|candidate| musicbrainz::valid_id(&candidate.mbid))
                 .map(|c| (c, aede_core::sources::Confidence::Identified))
                 .ok_or(musicbrainz::NoMatch::Nothing),
-            None => musicbrainz::best_match(&musicbrainz::artists(&answer), name),
+            None => {
+                let mut candidates = musicbrainz::artists(&answer);
+                candidates.retain(|candidate| musicbrainz::valid_id(&candidate.mbid));
+                musicbrainz::best_match(&candidates, name)
+            }
         };
         match found {
             Ok((candidate, confidence)) => {

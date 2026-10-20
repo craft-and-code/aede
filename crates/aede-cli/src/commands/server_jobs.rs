@@ -113,7 +113,11 @@ fn arguments(request: &JobRequest) -> Vec<String> {
                     args.push(format!("--{flag}"));
                 }
             }
-            for (name, value) in [("size", &fetch.size), ("lang", &fetch.lang)] {
+            for (name, value) in [
+                ("size", &fetch.size),
+                ("lang", &fetch.lang),
+                ("artist-ref", &fetch.artist),
+            ] {
                 if let Some(value) = value {
                     args.push(format!("--{name}={value}"));
                 }

@@ -105,6 +105,48 @@ fn entity() -> EntityRef {
 }
 
 #[test]
+fn an_accepted_name_match_completes_its_missing_artist_links_before_the_biography() {
+    let dir = sandbox("accepted_artist_links");
+    let path = sources::sources_path(&dir);
+    let mut layer = held(None);
+    let mbid = "11111111-1111-4111-8111-111111111111";
+    layer.records[0].source_id = Some(mbid.into());
+    layer.records[0].confidence = Confidence::Matched(95);
+    let catalog = aede_core::model::Catalog::default();
+    let id = layer.review_items(&catalog)[0].id.clone();
+    layer
+        .decide(&catalog, &id, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    let mut transport = Canned {
+        answers: vec![
+            Ok(format!(
+                r#"{{"id":"{mbid}","name":"Example Band","relations":[{{"type":"wikidata","url":{{"resource":"https://www.wikidata.org/wiki/Q11649"}}}}]}}"#
+            )),
+            Ok(ENTITY.into()),
+            Ok(SUMMARY.into()),
+        ],
+        asked: Vec::new(),
+    };
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &path,
+        &asked(false),
+        Some(&catalog),
+    )
+    .unwrap();
+    assert_eq!(transport.asked.len(), 3);
+    assert!(transport.asked[0].contains(&format!("/artist/{mbid}?")));
+    assert!(transport.asked[0].contains("url-rels"));
+    assert_eq!(layer.records[0].confidence, Confidence::Matched(95));
+    assert!(layer.review_for(&layer.records[0]).is_some());
+    assert!(layer.get(&entity(), wikipedia::SOURCE).is_some());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_summary_does_not_turn_a_pending_or_rejected_match_into_an_identity() {
     let dir = sandbox("reviewed_identity");
     let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
@@ -567,4 +609,274 @@ fn the_readers_language_leads_and_english_backs_it_up() {
         );
     }
     assert_eq!(preferred_langs(None), ["en"]);
+}
+
+#[test]
+fn pending_rejected_and_previewed_artist_link_lookups_do_not_contact_services() {
+    let dir = sandbox("artist_link_admission");
+    for decision in [
+        None,
+        Some(sources::ReviewDecision::Rejected),
+        Some(sources::ReviewDecision::Accepted),
+    ] {
+        let mut layer = held(None);
+        layer.records[0].source_id = Some("11111111-1111-4111-8111-111111111111".into());
+        layer.records[0].confidence = Confidence::Matched(95);
+        let catalog = aede_core::model::Catalog::default();
+        if let Some(decision) = decision {
+            let id = layer.review_items(&catalog)[0].id.clone();
+            layer.decide(&catalog, &id, decision, 2).unwrap();
+        }
+        let original = layer.clone();
+        let mut request = asked(false);
+        request.dry_run = decision == Some(sources::ReviewDecision::Accepted);
+        let mut transport = Canned {
+            answers: Vec::new(),
+            asked: Vec::new(),
+        };
+        run(
+            &mut transport,
+            &[],
+            &["en".into()],
+            &mut layer,
+            &sources::sources_path(&dir),
+            &request,
+            Some(&catalog),
+        )
+        .unwrap();
+        assert!(transport.asked.is_empty());
+        assert_eq!(layer, original);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn artist_link_failures_preserve_claims_and_a_confirmed_absence_is_not_retried() {
+    let dir = sandbox("artist_link_retry");
+    let path = sources::sources_path(&dir);
+    let id = "11111111-1111-4111-8111-111111111111";
+    let mut layer = held(None);
+    layer.records[0].source_id = Some(id.into());
+    sources::save(&layer, &path).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    for answer in [
+        Ok("{}".into()),
+        Ok(r#"{"id":"not-a-musicbrainz-id","name":"Example","relations":[]}"#.into()),
+        Err(super::super::fetch::Refusal::Failed("unavailable".into())),
+    ] {
+        let mut transport = Canned {
+            answers: vec![answer],
+            asked: Vec::new(),
+        };
+        run(
+            &mut transport,
+            &[],
+            &["en".into()],
+            &mut layer,
+            &path,
+            &asked(false),
+            None,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(transport.asked.len(), 1, "failure remains retryable");
+    }
+    let mut transport = Canned {
+        answers: vec![Ok(format!(
+            r#"{{"id":"{id}","name":"Example","relations":[]}}"#
+        ))],
+        asked: Vec::new(),
+    };
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &path,
+        &asked(false),
+        None,
+    )
+    .unwrap();
+    let saved = sources::load(&path).unwrap().unwrap();
+    let Facts::Artist(facts) = &saved.records[0].facts else {
+        panic!("artist");
+    };
+    assert!(facts.relationships_complete);
+    let mut repeat = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    run(
+        &mut repeat,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &path,
+        &asked(false),
+        None,
+    )
+    .unwrap();
+    assert!(repeat.asked.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_merged_artist_link_lookup_keeps_the_reviewed_alias_and_its_confidence() {
+    let dir = sandbox("merged_artist_links");
+    let path = sources::sources_path(&dir);
+    let id = "11111111-1111-4111-8111-111111111111";
+    let mut layer = held(None);
+    layer.records[0].source_id = Some(id.into());
+    layer.records[0].confidence = Confidence::Matched(95);
+    let catalog = aede_core::model::Catalog::default();
+    let selector = layer.review_items(&catalog)[0].id.clone();
+    layer
+        .decide(&catalog, &selector, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    let reviews = layer.reviews.clone();
+    let mut transport = Canned {
+        answers: vec![Ok(
+            r#"{"id":"22222222-2222-4222-8222-222222222222","name":"Example","relations":[]}"#
+                .into(),
+        )],
+        asked: Vec::new(),
+    };
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &path,
+        &asked(false),
+        Some(&catalog),
+    )
+    .unwrap();
+    assert_eq!(transport.asked.len(), 1);
+    assert!(transport.asked[0].contains(id));
+    let saved = sources::load_all(&path).unwrap().unwrap();
+    let identity = saved.get(&entity(), sources::MUSICBRAINZ).unwrap();
+    assert_eq!(identity.source_id.as_deref(), Some(id));
+    assert_eq!(identity.confidence, Confidence::Matched(95));
+    assert_eq!(saved.reviews, reviews);
+    assert!(matches!(&identity.facts,Facts::Artist(facts) if facts.relationships_complete));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_biography_cached_for_another_wikidata_identity_cannot_suppress_the_validated_match() {
+    let dir = sandbox("changed_wikidata_identity");
+    let path = sources::sources_path(&dir);
+    let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
+    layer.set(SourceRecord {
+        key: entity().key,
+        source: wikipedia::SOURCE.into(),
+        source_id: Some("Q999".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts {
+            summary: Some(Prose {
+                text: "Biography for a previous identity.".into(),
+                url: "https://en.wikipedia.org/wiki/Previous_identity".into(),
+                lang: "en".into(),
+                licence: wikipedia::LICENCE.into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    let mut transport = Canned {
+        answers: vec![Ok(ENTITY.into()), Ok(SUMMARY.into())],
+        asked: Vec::new(),
+    };
+    run(
+        &mut transport,
+        &[],
+        &["en".into()],
+        &mut layer,
+        &path,
+        &asked(false),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        transport.asked.len(),
+        2,
+        "a cached article for another identity is not a completed answer about the validated identity"
+    );
+    assert_eq!(stored(&layer).unwrap().text, "An American rock band.");
+    assert_eq!(
+        layer
+            .get(&entity(), wikipedia::SOURCE)
+            .unwrap()
+            .source_id
+            .as_deref(),
+        Some("Q11649")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn an_interrupted_biography_refresh_keeps_saved_links_without_showing_the_old_identity() {
+    let dir = sandbox("interrupted_biography_refresh");
+    let path = sources::sources_path(&dir);
+    let mut layer = held(None);
+    let mbid = "11111111-1111-4111-8111-111111111111";
+    layer.records[0].source_id = Some(mbid.into());
+    layer.set(SourceRecord {
+        key: entity().key,
+        source: wikipedia::SOURCE.into(),
+        source_id: Some("Q999".into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts {
+            summary: Some(Prose {
+                text: "Retained old biography.".into(),
+                url: "https://en.wikipedia.org/wiki/Previous_identity".into(),
+                lang: "en".into(),
+                licence: wikipedia::LICENCE.into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    let old = layer.get(&entity(), wikipedia::SOURCE).unwrap().clone();
+    let mut transport = Canned {
+        answers: vec![
+            Ok(format!(
+                r#"{{"id":"{mbid}","name":"Example","relations":[{{"type":"wikidata","url":{{"resource":"https://www.wikidata.org/wiki/Q11649"}}}}]}}"#
+            )),
+            Err(super::super::fetch::Refusal::TooManyRequests),
+        ],
+        asked: Vec::new(),
+    };
+    assert!(
+        run(
+            &mut transport,
+            &[],
+            &["en".into()],
+            &mut layer,
+            &path,
+            &asked(false),
+            None
+        )
+        .is_err()
+    );
+    let saved = sources::load(&path).unwrap().unwrap();
+    let previous = saved.get(&entity(), wikipedia::SOURCE).unwrap();
+    assert_eq!(
+        previous, &old,
+        "an interrupted retrieval cannot erase its retained article"
+    );
+    assert!(!saved.is_trusted(&aede_core::model::Catalog::default(), previous));
+    let Facts::Artist(current) = &saved.records[0].facts else {
+        panic!("artist");
+    };
+    assert_eq!(
+        current.wikidata.as_deref(),
+        Some("https://www.wikidata.org/wiki/Q11649")
+    );
+    assert_eq!(
+        transport.asked.len(),
+        2,
+        "stop after the provider's explicit refusal"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }

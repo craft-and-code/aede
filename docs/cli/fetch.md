@@ -42,12 +42,15 @@ aede fetch [name… | folder…] [options]
 
 Zero or more existing folders or name terms. Quote a multiword name. A path must exist to be treated as a folder.
 
+An optional `--artist-ref REF` narrows `--summaries` alone to one exact local artist reference. It cannot be mixed with positional names/folders or other passes; absent or ambiguous references fail. This is the same selection used by the [administrative review interface](../server/source-review.md), without fuzzy name expansion.
+
 ## Options for this command
 
 | Option | Meaning |
 | --- | --- |
 | `--yes` | Skip the confirmation when this command asks for one. Inspect the intended operation first; use deliberately for unattended execution. |
 | `--full` | Query stored source answers again; never overwrite local artwork or audio. |
+| `--artist-ref REF` | Select one exact artist reference for `--summaries` alone; no positional targets or other passes. |
 | `--summaries` | Fetch Wikipedia introductory prose via Wikidata, with language, attribution and licence. |
 | `--discography` | Fetch MusicBrainz releases credited to artists; missing compares these with the local catalog. |
 | `--covers` | Fetch missing front covers from Cover Art Archive; local images are never replaced. |

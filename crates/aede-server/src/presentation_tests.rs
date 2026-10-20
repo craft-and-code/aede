@@ -549,3 +549,43 @@ fn composer_index_follows_recording_and_work_placements_without_performer_infere
     c.credits = vec![credit];
     assert!(c.composers_by_release().is_empty());
 }
+
+#[test]
+fn a_previous_artists_biography_is_not_shown_as_the_new_validated_identity() {
+    let state = sample_state();
+    let catalog = state.catalog.blocking_read().as_ref().unwrap().clone();
+    let artist = &catalog.artists[0];
+    let mut held = Sources::default();
+    held.set(aede_core::sources::SourceRecord {
+        key: artist.key.clone(),
+        source: aede_core::sources::MUSICBRAINZ.into(),
+        source_id: Some("11111111-1111-4111-8111-111111111111".into()),
+        fetched_at: 2,
+        confidence: aede_core::sources::Confidence::Identified,
+        facts: Facts::Artist(aede_core::sources::ArtistFacts {
+            wikidata: Some("https://www.wikidata.org/wiki/Q222".into()),
+            ..Default::default()
+        }),
+    });
+    held.set(aede_core::sources::SourceRecord {
+        key: artist.key.clone(),
+        source: aede_core::wikipedia::SOURCE.into(),
+        source_id: Some("Q111".into()),
+        fetched_at: 1,
+        confidence: aede_core::sources::Confidence::Identified,
+        facts: Facts::Artist(aede_core::sources::ArtistFacts {
+            summary: Some(aede_core::sources::Prose {
+                text: "Biography of another identity.".into(),
+                url: "https://en.wikipedia.org/wiki/Previous_identity".into(),
+                lang: "en".into(),
+                licence: aede_core::wikipedia::LICENCE.into(),
+            }),
+            ..Default::default()
+        }),
+    });
+    let before = held.clone();
+    let row = artist_row(&catalog, &held, &state.data_dir, artist).unwrap();
+    assert_eq!(row["biography"], "");
+    assert!(row["biography_credit"].is_null());
+    assert_eq!(held, before);
+}

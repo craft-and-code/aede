@@ -46,6 +46,7 @@ Zéro ou plusieurs dossiers existants ou noms. Citer les noms composés. Un chem
 | --- | --- |
 | `--yes` | Accepter la confirmation demandée par cette commande. Vérifier l’opération auparavant ; réserver aux exécutions automatisées maîtrisées. |
 | `--full` | Redemander les réponses mémorisées ; ne jamais écraser images locales ou audio. |
+| `--artist-ref REF` | Limiter `--summaries` seul à une référence exacte d’artiste, sans nom, dossier ni autre passe. |
 | `--summaries` | Récupérer le texte introductif Wikipedia via Wikidata, avec langue, attribution et licence. |
 | `--discography` | Récupérer les parutions MusicBrainz des artistes ; missing les compare au catalogue local. |
 | `--covers` | Récupérer les pochettes manquantes depuis Cover Art Archive ; les images locales ne sont jamais remplacées. |

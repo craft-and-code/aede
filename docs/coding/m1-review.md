@@ -10,6 +10,8 @@ Edition MBIDs and release-group MBIDs are different namespaces. A no-group editi
 
 Do not enforce equality between a queried and returned MusicBrainz MBID: [merged identifiers may redirect to a surviving identifier](https://musicbrainz.org/doc/MusicBrainz_Identifier). A changed canonical ID alone is not a demonstrated unrelated response. Artist/recording source resolution, missing-album identity comparison and credited-person navigation retain this distinction.
 
+Label search completion and Discogs biography-link lookups also permit a valid UUID redirect. Completing those relationships retains the original source selector, search confidence and explicit review; the returned canonical identifier does not replace the reviewed claim.
+
 ## Credits and personal corrections
 
 Canonical recording/work and parent-work evidence reaches every exact supported placement, not only the file that supplied one observation. Role filters include trusted source contributions alongside local graph credits; distinct performers do not collapse under one display name. Uncertain membership dates remain explicitly counted rather than silently hidden or claimed as performance evidence.
@@ -19,6 +21,8 @@ Manual credits retain their selected recording/edition target through later iden
 ## Provider admission and retry semantics
 
 Malformed supplied arrays, nested targets, facts containers and completion markers are refused; unreadable answers are not successful empty results or permanent cached absences. This applies to MusicBrainz relationships, Wikidata portraits, Wikimedia prose and Fanart tables. Unicode dates are validated without unsafe byte slicing. Completion for one canonical recording is not restricted to only one placement.
+
+Artist and label candidates must carry a valid MusicBrainz UUID before ranking, issuing an identifier lookup or replacing a stored claim, including during ordinary identification and label refreshes. Malformed candidates cannot hide a lower-ranked valid match; an unusable response retains the prior facts and reviews and remains retryable. A different valid UUID from a lookup can be a merged identity and is not refused solely for differing from the requested one.
 
 Secondary fetches preserve accepted identification, source trust and exact scope. Existing artwork/lyrics is established from current confined regular files, not remembered catalogue hints alone. Removed sidecars become eligible again; published covers/logos/portraits do not trigger redundant alternate downloads while catalogue metadata catches up. LRC metadata alone does not establish readable words.
 

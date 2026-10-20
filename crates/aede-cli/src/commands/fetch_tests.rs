@@ -81,7 +81,20 @@ fn malformed_artist_and_label_refreshes_preserve_relationships_and_retry() {
             ),
             _ => unreachable!(),
         };
-        for malformed in ["null", "{}", "[null]"] {
+        let mut malformed_answers: Vec<_> = ["null", "{}", "[null]"]
+            .into_iter()
+            .map(|relations| {
+                (
+                    format!("relations={relations}"),
+                    format!(r#"{{"id":"{id}","name":"{name}","relations":{relations}}}"#),
+                )
+            })
+            .collect();
+        malformed_answers.push((
+            "invalid identifier".into(),
+            format!(r#"{{"id":"not-a-musicbrainz-id","name":"{name}","relations":[]}}"#),
+        ));
+        for (malformed, response) in malformed_answers {
             let mut held = sources::Sources::default();
             held.set(SourceRecord {
                 key: entity.key.clone(),
@@ -91,11 +104,17 @@ fn malformed_artist_and_label_refreshes_preserve_relationships_and_retry() {
                 confidence: sources::Confidence::Identified,
                 facts: facts.clone(),
             });
+            // Retained consent may predate a now-exact local attachment.
+            held.set_review(sources::SourceReview {
+                entity: entity.clone(),
+                source: sources::MUSICBRAINZ.into(),
+                source_id: Some(id.into()),
+                decision: sources::ReviewDecision::Accepted,
+                reviewed_at: 1,
+            });
             sources::save(&held, &path).unwrap();
             let before = std::fs::read(&path).unwrap();
-            let mut responses = vec![Ok(format!(
-                r#"{{"id":"{id}","name":"{name}","relations":{malformed}}}"#
-            ))];
+            let mut responses = vec![Ok(response)];
             if kind == EntityKind::Artist {
                 responses.push(Ok(NO_ALBUM.into()));
             }
@@ -446,7 +465,10 @@ fn an_artist_refresh_does_not_transfer_another_identitys_discography() {
         .unwrap()
         .unwrap();
     let record = after.get(&entity, sources::MUSICBRAINZ).unwrap();
-    assert_eq!(record.source_id.as_deref(), Some("561d854a"));
+    assert_eq!(
+        record.source_id.as_deref(),
+        Some("561d854a-6a28-4aa7-8c99-323e6ce46c2a")
+    );
     let Facts::Artist(facts) = &record.facts else {
         panic!("artist facts")
     };
@@ -470,7 +492,7 @@ fn an_artist_refresh_preserves_a_complete_empty_discography_for_the_same_identit
     held.set(SourceRecord {
         key: entity.key.clone(),
         source: sources::MUSICBRAINZ.into(),
-        source_id: Some("561d854a".into()),
+        source_id: Some("561d854a-6a28-4aa7-8c99-323e6ce46c2a".into()),
         fetched_at: 1,
         confidence: sources::Confidence::Identified,
         facts: Facts::Artist(sources::ArtistFacts {
@@ -554,9 +576,53 @@ const ONE_ALBUM: &str = r#"{"release-groups":[
 const NO_ALBUM: &str = r#"{"release-groups":[]}"#;
 
 const ONE_ARTIST: &str = r#"{"artists":[
-    {"id":"561d854a","score":100,"name":"Miles Davis","type":"Person",
+    {"id":"561d854a-6a28-4aa7-8c99-323e6ce46c2a","score":100,"name":"Miles Davis","type":"Person",
      "area":{"name":"United States"},
      "life-span":{"begin":"1926-05-26","end":"1991-09-28","ended":true}}]}"#;
+
+#[test]
+fn an_invalid_artist_search_identifier_cannot_replace_a_reviewed_claim() {
+    let dir = sandbox("invalid_artist_search_identity");
+    let catalog = super::super::load(&args(&dir, &[])).unwrap();
+    let artist = &catalog.artists[0];
+    assert!(artist.mbid.is_none());
+    let entity = EntityRef::of(&catalog, EntityKind::Artist, artist.id).unwrap();
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: entity.key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some("11111111-1111-4111-8111-111111111111".into()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Matched(95),
+        facts: Facts::Artist(sources::ArtistFacts {
+            wikidata: Some("https://www.wikidata.org/wiki/Q123".into()),
+            ..Default::default()
+        }),
+    });
+    let review = held.review_items(&catalog)[0].id.clone();
+    held.decide(&catalog, &review, sources::ReviewDecision::Accepted, 2)
+        .unwrap();
+    let path = sources::sources_path(&dir);
+    sources::save(&held, &path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut transport = Canned {
+        answers: vec![
+            Ok(format!(
+                r#"{{"artists":[{{"id":"not-a-musicbrainz-id","name":"{}","score":100}}]}}"#,
+                artist.name
+            )),
+            Ok(NO_ALBUM.into()),
+        ],
+        asked: Vec::new(),
+    };
+    run_with(&args(&dir, &["--full"]), &mut transport, &NO_WAIT).unwrap();
+    assert!(
+        std::fs::read(&path).unwrap() == before,
+        "an unreadable candidate must not replace the claim or erase consent"
+    );
+    assert_eq!(sources::load_all(&path).unwrap().unwrap(), held);
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
 #[test]
 fn an_answer_is_stored_attributed_and_never_as_a_certainty() {
@@ -593,7 +659,10 @@ fn an_answer_is_stored_attributed_and_never_as_a_certainty() {
         .find(|r| matches!(r.facts, Facts::Artist(_)))
         .expect("the artist row");
     assert_eq!(record.source, sources::MUSICBRAINZ);
-    assert_eq!(record.source_id.as_deref(), Some("561d854a"));
+    assert_eq!(
+        record.source_id.as_deref(),
+        Some("561d854a-6a28-4aa7-8c99-323e6ce46c2a")
+    );
     assert!(
         !record.confidence.is_certain(),
         "a search never produces a certainty: {:?}",
@@ -708,8 +777,8 @@ fn an_ambiguous_answer_stores_nothing_at_all() {
     let mut transport = Canned {
         answers: vec![
             Ok(r#"{"artists":[
-            {"id":"a","score":90,"name":"Someone"},
-            {"id":"b","score":90,"name":"Someone Else"}]}"#
+            {"id":"11111111-1111-4111-8111-111111111111","score":90,"name":"Someone"},
+            {"id":"22222222-2222-4222-8222-222222222222","score":90,"name":"Someone Else"}]}"#
                 .to_string()),
             Ok(NO_ALBUM.to_string()),
         ],
@@ -906,7 +975,7 @@ fn a_full_artist_refresh_keeps_the_browsed_discography() {
     held.set(SourceRecord {
         key: entity.key.clone(),
         source: sources::MUSICBRAINZ.to_string(),
-        source_id: Some("561d854a".to_string()),
+        source_id: Some("561d854a-6a28-4aa7-8c99-323e6ce46c2a".to_string()),
         fetched_at: 1,
         confidence: sources::Confidence::Identified,
         facts: Facts::Artist(sources::ArtistFacts {
@@ -2179,4 +2248,130 @@ fn recording_credit_names_match_each_local_placement_title() {
         std::fs::read(aede_core::store::catalog_path(&dir)).unwrap(),
         before
     );
+}
+
+#[test]
+fn an_exact_artist_summary_scope_excludes_prefix_artists_and_labels() {
+    let dir = sandbox("exact_summary");
+    let mut catalog = super::super::load(&args(&dir, &[])).unwrap();
+    let artist = catalog.artists[0].clone();
+    let reference = EntityRef::of(&catalog, EntityKind::Artist, artist.id)
+        .unwrap()
+        .to_token();
+    let mut other = artist.clone();
+    other.id = artist.id + 1;
+    other.name = format!("{} Ensemble", artist.name);
+    catalog.artists.push(other);
+    aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+    let mut held = sources::Sources::default();
+    for name in [artist.name.as_str(), &format!("{} Ensemble", artist.name)] {
+        held.set(SourceRecord {
+            key: text::normalize(name),
+            source: sources::MUSICBRAINZ.into(),
+            source_id: Some("11111111-1111-4111-8111-111111111111".into()),
+            fetched_at: 1,
+            confidence: sources::Confidence::Identified,
+            facts: Facts::Artist(ArtistFacts {
+                wikidata: Some("https://www.wikidata.org/wiki/Q123".into()),
+                ..Default::default()
+            }),
+        });
+    }
+    held.set(SourceRecord {
+        key: text::normalize(&artist.name),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some("label-id".into()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Identified,
+        facts: Facts::Label(sources::LabelFacts {
+            wikidata: Some("https://www.wikidata.org/wiki/Q456".into()),
+            ..Default::default()
+        }),
+    });
+    sources::save(&held, &sources::sources_path(&dir)).unwrap();
+    let option = format!("--artist-ref={reference}");
+    let mut transport = Canned {
+        answers: vec![Ok(r#"{"entities":{"Q123":{"sitelinks":{}}}}"#.into())],
+        asked: Vec::new(),
+    };
+    run_with(
+        &args(&dir, &["--summaries", &option, "--yes"]),
+        &mut transport,
+        &NO_WAIT,
+    )
+    .unwrap();
+    assert_eq!(
+        transport.asked,
+        ["https://www.wikidata.org/wiki/Special:EntityData/Q123.json"]
+    );
+    let mut transport = Canned {
+        answers: Vec::new(),
+        asked: Vec::new(),
+    };
+    for options in [
+        vec!["--summaries", &option, "Miles"],
+        vec!["--covers", &option],
+        vec!["--summaries", "--artist-ref=release:wrong"],
+        vec!["--summaries", "--artist-ref=artist:absent"],
+    ] {
+        assert!(run_with(&args(&dir, &options), &mut transport, &NO_WAIT).is_err());
+    }
+    assert!(transport.asked.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn exact_artist_scope_names_its_subject_in_empty_and_preview_messages() {
+    let scope = Scope {
+        holds: Some(Held {
+            artists: ["example ensemble".into()].into_iter().collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert_eq!(narrowing(&[], &scope), "example ensemble");
+    assert_eq!(
+        nothing_named(&[], &scope, 0),
+        "nothing here matches example ensemble"
+    );
+}
+
+#[test]
+fn a_valid_mbid_artist_reference_fetches_the_same_biography_as_its_catalogue_key() {
+    let dir = sandbox("summary_mbid_reference");
+    let mut catalog = super::super::load(&args(&dir, &[])).unwrap();
+    let mbid = "11111111-1111-4111-8111-111111111111";
+    catalog.artists[0].mbid = Some(mbid.into());
+    aede_core::store::save(&catalog, &aede_core::store::catalog_path(&dir)).unwrap();
+    let mut held = sources::Sources::default();
+    held.set(SourceRecord {
+        key: catalog.artists[0].key.clone(),
+        source: sources::MUSICBRAINZ.into(),
+        source_id: Some(mbid.into()),
+        fetched_at: 1,
+        confidence: sources::Confidence::Identified,
+        facts: Facts::Artist(ArtistFacts {
+            wikidata: Some("https://www.wikidata.org/wiki/Q123".into()),
+            ..Default::default()
+        }),
+    });
+    sources::save(&held, &sources::sources_path(&dir)).unwrap();
+    let selector = format!("--artist-ref=artist:mbid:{mbid}");
+    let reference = EntityRef::parse_token(&selector[13..]).unwrap();
+    assert_eq!(reference.resolve(&catalog), Some(catalog.artists[0].id));
+    let mut transport = Canned {
+        answers: vec![Ok(r#"{"entities":{"Q123":{"sitelinks":{}}}}"#.into())],
+        asked: Vec::new(),
+    };
+    run_with(
+        &args(&dir, &["--summaries", &selector, "--yes"]),
+        &mut transport,
+        &NO_WAIT,
+    )
+    .unwrap();
+    assert_eq!(
+        transport.asked,
+        ["https://www.wikidata.org/wiki/Special:EntityData/Q123.json"]
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }

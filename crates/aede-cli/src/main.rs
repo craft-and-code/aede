@@ -489,6 +489,7 @@ const OPTIONS: &[&str] = &[
     "import",
     "template",
     "summaries",
+    "artist-ref",
     "discogs",
     "discography",
     "covers",
@@ -715,6 +716,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "full",
         &["scan", "check", "spectrum", "fetch", "fingerprint"],
         "ignore what was already done",
+    ),
+    (
+        "artist-ref",
+        &["fetch"],
+        "exact artist reference for a summaries-only pass",
     ),
     (
         "summaries",
