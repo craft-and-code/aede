@@ -464,7 +464,19 @@ fn check_source_quality(
 
     // A trusted recording may still carry only identification facts. That is
     // not an ambiguous identity any more, but it does mean the graph cannot
-    // claim its credits are complete.
+    // claim its credits are complete. Another placement can already carry a
+    // trusted completed answer for this same canonical recording.
+    let complete_recordings: BTreeSet<_> = crate::credit_coverage::recordings(catalog, sources)
+        .into_iter()
+        .filter(|coverage| {
+            matches!(
+                coverage.status,
+                crate::credit_coverage::CreditStatus::Empty
+                    | crate::credit_coverage::CreditStatus::Credited
+            )
+        })
+        .map(|coverage| coverage.recording_id)
+        .collect();
     let mut reported_recordings = BTreeSet::new();
     let mut incomplete_files = Vec::new();
     for record in &sources.records {
@@ -484,7 +496,8 @@ fn check_source_quality(
         let Some(recording_id) = catalog.track(track_id).map(|track| track.recording_id) else {
             continue;
         };
-        if !reported_recordings.insert(recording_id) {
+        if complete_recordings.contains(&recording_id) || !reported_recordings.insert(recording_id)
+        {
             continue;
         }
         incomplete_files.extend(files_for_entity(catalog, &entity));

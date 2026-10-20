@@ -133,6 +133,135 @@ fn an_approximate_identity_is_reviewed_before_incomplete_credits_are_trusted() {
 }
 
 #[test]
+fn a_completed_recording_on_another_placement_clears_the_incomplete_credit_diagnostic() {
+    use crate::model::{ScannedFile, build};
+    use crate::sources::{MUSICBRAINZ, SourceReview};
+    use crate::tags::RawTags;
+
+    let local = "11111111-1111-4111-8111-111111111111";
+    let canonical = "22222222-2222-4222-8222-222222222222";
+    let catalog = build(
+        ["first", "reissue"]
+            .into_iter()
+            .map(|album| {
+                let mut tags = RawTags::default();
+                for (key, value) in [
+                    ("artist", "Example Artist"),
+                    ("albumartist", "Example Artist"),
+                    ("album", album),
+                    ("title", "Example Recording"),
+                    ("musicbrainz_trackid", local),
+                ] {
+                    tags.insert(key, value);
+                }
+                ScannedFile {
+                    path: format!("/music/{album}/track.flac"),
+                    size: 10,
+                    mtime: 1,
+                    tags,
+                    folder_cover: None,
+                    sidecar: None,
+                    integrity: None,
+                    fingerprint: None,
+                }
+            })
+            .collect(),
+        vec!["/music".into()],
+        1,
+        &[],
+    );
+    assert_eq!(catalog.recordings.len(), 1);
+    let mut sources = Sources::default();
+    sources.set(SourceRecord {
+        key: catalog.files[0].path.clone(),
+        source: MUSICBRAINZ.into(),
+        source_id: Some(local.into()),
+        fetched_at: 1,
+        confidence: Confidence::Identified,
+        facts: Facts::Track(TrackFacts {
+            recording: Some(local.into()),
+            ..Default::default()
+        }),
+    });
+    assert!(
+        diagnose(&catalog, &sources)
+            .iter()
+            .any(|issue| { issue.kind == IssueKind::IncompleteSourceCredits })
+    );
+
+    for (id, recording, complete, confidence, review, incomplete) in [
+        (local, local, true, Confidence::Identified, None, false),
+        (
+            canonical,
+            canonical,
+            true,
+            Confidence::Identified,
+            None,
+            false,
+        ),
+        (canonical, local, true, Confidence::Identified, None, true),
+        (local, local, false, Confidence::Identified, None, true),
+        (local, local, true, Confidence::matched(95), None, true),
+        (
+            local,
+            local,
+            true,
+            Confidence::matched(95),
+            Some(ReviewDecision::Accepted),
+            false,
+        ),
+        (
+            local,
+            local,
+            true,
+            Confidence::Identified,
+            Some(ReviewDecision::Rejected),
+            true,
+        ),
+    ] {
+        let mut held = sources.clone();
+        let record = SourceRecord {
+            key: catalog.files[1].path.clone(),
+            source: MUSICBRAINZ.into(),
+            source_id: Some(id.into()),
+            fetched_at: 2,
+            confidence,
+            facts: Facts::Track(TrackFacts {
+                recording: Some(recording.into()),
+                relationships_for: Some(local.into()),
+                relationships_complete: complete,
+                ..Default::default()
+            }),
+        };
+        if let Some(decision) = review {
+            held.set_review(SourceReview {
+                entity: record.entity(),
+                source: MUSICBRAINZ.into(),
+                source_id: record.source_id.clone(),
+                decision,
+                reviewed_at: 3,
+            });
+        }
+        held.set(record);
+        let snapshot = crate::sources::to_json(&held);
+        let mut held = crate::sources::from_json(&snapshot).expect("readable cache");
+        for reverse in [false, true] {
+            if reverse {
+                held.records.reverse();
+            }
+            let issues = diagnose(&catalog, &held);
+            assert_eq!(
+                issues
+                    .iter()
+                    .any(|issue| issue.kind == IssueKind::IncompleteSourceCredits),
+                incomplete,
+                "id={id}, recording={recording}, complete={complete}, confidence={confidence:?}, review={review:?}, reverse={reverse}"
+            );
+        }
+    }
+}
+
+#[test]
 fn an_exact_identity_conflict_points_to_the_review_command() {
     let mut catalog = catalog_with("Columbia", "1959");
     catalog.labels[0].mbid = Some("local-label".to_string());
