@@ -31,12 +31,7 @@ impl Plan {
             if item.kind == ItemKind::Audio || !is_playlist(&item.source) {
                 continue;
             }
-            let text = std::fs::read_to_string(&item.source).map_err(|error| {
-                format!(
-                    "{}: cannot read playlist as UTF-8: {error}",
-                    item.source.display()
-                )
-            })?;
+            let text = crate::playlist::read_text(&item.source)?;
             let (rendered, removed) = remap(&text, Some(&item.source), &item.relative, &mapping)?;
             omitted += removed;
             item.size = rendered.len() as u64;
@@ -103,7 +98,7 @@ fn remap(
     let mut rendered = String::new();
     let mut pending = Vec::new();
     let mut omitted = 0;
-    for line in text.trim_start_matches('\u{feff}').lines() {
+    for line in text.strip_prefix('\u{feff}').unwrap_or(text).lines() {
         let line = line.trim_end_matches('\r');
         if line.is_empty() {
             continue;

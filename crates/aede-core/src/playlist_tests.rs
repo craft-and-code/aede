@@ -1,5 +1,32 @@
 use super::*;
 
+#[test]
+fn playlist_text_input_preserves_the_exact_limit_and_refuses_excess_bytes() {
+    let directory = crate::store_lock::test_support::Directory::new("playlist_text_limit");
+    let path = directory.path().join("selection.m3u8");
+    let original = "\u{feff}#EXTM3U\r\n one.flac\r\n";
+    std::fs::write(&path, original).unwrap();
+    assert_eq!(read_text(&path).unwrap(), original);
+    // A single comment may occupy the complete budget without being truncated.
+    let mut file = std::fs::File::create(&path).unwrap();
+    std::io::Write::write_all(&mut file, b"#").unwrap();
+    let limit = 16 * 1024 * 1024;
+    file.set_len(limit).unwrap();
+    let text = read_text(&path).unwrap();
+    assert_eq!(text.len() as u64, limit);
+    assert_eq!(text.as_bytes()[0], b'#');
+    drop(text);
+    file.set_len(limit + 1).unwrap();
+    let error = read_text(&path).unwrap_err();
+    assert!(error.contains("playlist exceeds the 16 MiB input limit"));
+    assert!(error.contains(path.to_str().unwrap()));
+    assert_eq!(file.metadata().unwrap().len(), limit + 1);
+    drop(file);
+    std::fs::write(&path, [0xff]).unwrap();
+    assert!(read_text(&path).unwrap_err().contains("UTF-8"));
+    assert!(read_text(directory.path()).is_err());
+}
+
 fn one_track(path: &str) -> Catalog {
     crate::model::build(
         vec![crate::model::ScannedFile {
@@ -38,6 +65,7 @@ fn relative_entries_with_initial_whitespace_resolve_without_renaming_files() {
         "\u{3000}Wide.flac",
         " Leading/01.flac",
         "#Hash.flac",
+        "\u{feff}Marked.flac",
     ] {
         let path = parent.join(relative);
         let catalog = one_track(path.to_str().unwrap());
@@ -47,7 +75,7 @@ fn relative_entries_with_initial_whitespace_resolve_without_renaming_files() {
             assert_eq!(
                 crate::playlist::selection::resolve(&catalog, &rendered, &parent).unwrap(),
                 tracks,
-                "the rendered paths must retain initial whitespace and repeated occurrences"
+                "the rendered paths must retain literal initial characters and repeated occurrences"
             );
             assert_eq!(
                 rendered

@@ -2,7 +2,7 @@
 
 use std::error::Error;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -559,28 +559,10 @@ fn is_m3u(path: &Path) -> bool {
 }
 
 fn read_m3u(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    const MAX_PLAYLIST_BYTES: u64 = 16 * 1024 * 1024;
-    let file = fs::File::open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() {
-        return Err("M3U input must be a regular file".into());
-    }
-    if metadata.len() > MAX_PLAYLIST_BYTES {
-        return Err("playlist exceeds the 16 MiB input limit".into());
-    }
-    let mut contents = String::new();
-    file.take(MAX_PLAYLIST_BYTES + 1)
-        .read_to_string(&mut contents)?;
-    if contents.len() as u64 > MAX_PLAYLIST_BYTES {
-        return Err("playlist exceeds the 16 MiB input limit".into());
-    }
+    let contents = aede_core::playlist::read_text(path)?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut tracks = Vec::new();
-    for (index, raw_line) in contents.trim_start_matches('\u{feff}').lines().enumerate() {
-        let entry = raw_line.trim().trim_start_matches('\u{feff}');
-        if entry.is_empty() || entry.starts_with('#') {
-            continue;
-        }
+    for (index, entry) in aede_core::playlist::entry_lines(&contents) {
         if entry.contains("://") {
             return Err(format!(
                 "{}:{}: remote M3U entries are not supported: {entry}",

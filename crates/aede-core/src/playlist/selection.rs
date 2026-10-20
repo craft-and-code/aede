@@ -38,11 +38,7 @@ pub fn resolve(catalog: &Catalog, content: &str, parent: &Path) -> Result<Vec<Id
         }
     }
     let mut tracks = Vec::new();
-    for (index, raw) in content.trim_start_matches('\u{feff}').lines().enumerate() {
-        let entry = raw.trim();
-        if entry.is_empty() || entry.starts_with('#') {
-            continue;
-        }
+    for (index, entry) in super::entry_lines(content) {
         if tracks.len() >= 4096 {
             return Err("M3U selection exceeds 4096 tracks".into());
         }

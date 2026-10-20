@@ -19,6 +19,52 @@ use std::path::Path;
 
 use crate::model::{Catalog, EntityKind, Id};
 
+/// Read local playlist text, refusing input larger than 16 MiB.
+///
+/// Shared by direct CLI playback and companion remapping during copying.
+/// Static special files are refused before opening; the same regular descriptor
+/// is size-checked and capped while reading in case the file grows. UTF-8 bytes,
+/// the initial BOM and line endings are preserved. Entries are never opened here.
+pub fn read_text(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 16 * 1024 * 1024;
+    let file = crate::tags::bytes::open_regular(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if file.metadata().map_err(|error| error.to_string())?.len() > MAX_BYTES {
+        return Err(format!(
+            "{}: playlist exceeds the 16 MiB input limit",
+            path.display()
+        ));
+    }
+    let mut contents = String::new();
+    file.take(MAX_BYTES + 1)
+        .read_to_string(&mut contents)
+        .map_err(|error| format!("{}: cannot read playlist as UTF-8: {error}", path.display()))?;
+    if contents.len() as u64 > MAX_BYTES {
+        return Err(format!(
+            "{}: playlist exceeds the 16 MiB input limit",
+            path.display()
+        ));
+    }
+    Ok(contents)
+}
+
+/// M3U entries with their zero-based source line numbers, without trimming paths.
+///
+/// Skip one initial encoding BOM, blank lines and first-column comments.
+/// Any following BOM character belongs to the first entry's filename.
+/// Leading whitespace can name a different file, including one beginning with
+/// whitespace followed by `#`; readers must not reinterpret it as formatting.
+/// This only separates lines: callers retain their path and URL admission rules.
+pub fn entry_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
+    content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(content)
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty() && !line.starts_with('#'))
+}
+
 /// Which of the two M3U dialects to write.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Style {
@@ -124,8 +170,12 @@ pub(crate) fn render_with_paths(
 /// Writes a path without exposing its first character to M3U line formatting.
 pub(crate) fn push_path(out: &mut String, path: &str) {
     // An explicit relative prefix preserves literal initial characters that
-    // readers otherwise trim or interpret as a comment or file URI.
-    if path.starts_with('#') || path.starts_with(char::is_whitespace) || path.starts_with("file:") {
+    // readers otherwise trim or interpret as a BOM, comment or file URI.
+    if path.starts_with('#')
+        || path.starts_with('\u{feff}')
+        || path.starts_with(char::is_whitespace)
+        || path.starts_with("file:")
+    {
         out.push_str("./");
     }
     out.push_str(path);

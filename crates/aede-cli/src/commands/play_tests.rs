@@ -200,6 +200,36 @@ fn m3u_refuses_missing_entries_and_remote_urls() {
 }
 
 #[test]
+fn raw_m3u_entries_preserve_initial_whitespace_instead_of_playing_another_file() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "aede-m3u-raw-whitespace-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let names = ["one.flac", " one.flac", "\u{3000}one.flac", " #one.flac"];
+    for name in names {
+        std::fs::write(directory.join(name), b"fixture").unwrap();
+    }
+    let playlist = directory.join("selection.m3u8");
+    std::fs::write(
+        &playlist,
+        "\u{feff}#EXTM3U\r\n \r\n one.flac\r\n\u{3000}one.flac\r\n #one.flac\r\n one.flac\r\n",
+    )
+    .unwrap();
+    let actual = super::resolve(playlist.to_str().unwrap(), None, None)
+        .unwrap()
+        .paths;
+    let expected = [" one.flac", "\u{3000}one.flac", " #one.flac", " one.flac"]
+        .map(|name| directory.join(name).canonicalize().unwrap());
+    std::fs::remove_dir_all(directory).unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn oversized_playlists_are_refused_before_their_contents_are_loaded() {
     let path = std::env::temp_dir().join(format!("aede_play_large_m3u_{}.m3u", std::process::id()));
     let mut file = std::fs::File::create(&path).unwrap();

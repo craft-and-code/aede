@@ -57,6 +57,17 @@ fn simple_and_extended_text_preserve_bom_crlf_duplicates_and_foreign_entries_wit
 }
 
 #[test]
+fn initial_whitespace_before_a_hash_is_part_of_an_entry_not_a_comment() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("whitespace.m3u8");
+    let content = "\u{feff}#EXTM3U\r\n \r\n #track.flac\r\n\u{3000}#other.flac\r\n #track.flac\r\n";
+    fs::write(&path, content).unwrap();
+    let document = read(&fixture.roots(), &[], &metadata(&path).unwrap().id).unwrap();
+    assert_eq!(document.content, content);
+    assert_eq!(document.track_count, 3);
+}
+
+#[test]
 fn invalid_oversized_and_excessive_entry_files_are_listed_but_detail_is_refused() {
     let fixture = Fixture::new();
     for (name, content, reason) in [

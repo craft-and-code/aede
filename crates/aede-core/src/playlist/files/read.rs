@@ -125,12 +125,7 @@ fn read_file(
     {
         return Err(Error::InvalidText);
     }
-    let track_count = content
-        .trim_start_matches('\u{feff}')
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .count();
+    let track_count = crate::playlist::entry_lines(&content).count();
     if track_count > MAX_TRACKS {
         return Err(Error::TooLarge);
     }

@@ -91,6 +91,8 @@ For every option, argument and beginner example, use the [copy command reference
 
 `--playlists` adds an `aede-selection.m3u8` playlist in selection order, with paths relative to the destination. If a companion already reserves that name, a deterministic suffix keeps both distinct. With `--extras all`, copied UTF-8 M3U/M3U8 companions are remapped to the adapted filenames and converted extensions. References outside the selected audio, including remote URLs, are omitted and counted. Original playlists remain untouched. A differing existing destination playlist is preserved and reported unless `--replace` is supplied.
 
+Each source M3U/M3U8 companion must be a regular UTF-8 file no larger than 16 MiB, the same input limit used by CLI playback. Oversized or unreadable input refuses preparation explicitly; it is not silently skipped.
+
 Relative entries beginning with whitespace, `#` or `file:` receive an explicit `./` prefix so playlist readers preserve the literal filename instead of trimming it or reading a comment. Audio names, source playlists, order and repeated occurrences are unchanged.
 
 ```sh

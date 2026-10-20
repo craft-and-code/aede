@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn oversized_companion_playlists_are_refused_without_preparing_a_partial_plan() {
+    let directory = crate::store_lock::test_support::Directory::new("copy_playlist_limit");
+    let path = directory.path().join("large.m3u8");
+    let file = std::fs::File::create(&path).unwrap();
+    let size = 16 * 1024 * 1024 + 1;
+    file.set_len(size).unwrap();
+    drop(file);
+    let mut plan = Plan {
+        items: vec![Item {
+            source: path.clone(),
+            relative: PathBuf::from("large.m3u8"),
+            size,
+            kind: ItemKind::Other,
+            convert: None,
+            contents: None,
+        }],
+        ..Default::default()
+    };
+    let before = plan.clone();
+    let outcome = plan.prepare_playlists(&Catalog::default(), &[]);
+    assert!(
+        outcome.is_err(),
+        "oversized M3U input must not be read as an unbounded companion"
+    );
+    assert_eq!(plan, before);
+    assert_eq!(std::fs::metadata(path).unwrap().len(), size);
+}
+
+#[test]
 fn sidecars_follow_adapted_and_converted_paths_and_drop_unselected_entries() {
     let mapping = BTreeMap::from([
         (
@@ -112,6 +141,33 @@ fn playlist_paths_beginning_with_hash_are_not_comments() {
     )
     .unwrap();
     assert_eq!(rendered, "./#first.flac\n");
+}
+
+#[test]
+fn remapped_filename_bom_is_not_mistaken_for_a_playlist_encoding_mark() {
+    let mapping = BTreeMap::from([(
+        "/music/\u{feff}first.flac".into(),
+        PathBuf::from("\u{feff}first.flac"),
+    )]);
+    for input in [
+        "/music/\u{feff}first.flac\n/music/\u{feff}first.flac\n",
+        "\u{feff}\u{feff}first.flac\n./\u{feff}first.flac\n",
+    ] {
+        let (rendered, omitted) = remap(
+            input,
+            Some(Path::new("/music/selection.m3u8")),
+            Path::new("selection.m3u8"),
+            &mapping,
+        )
+        .unwrap();
+        assert_eq!(omitted, 0);
+        assert_eq!(
+            crate::playlist::entry_lines(&rendered)
+                .map(|(_, path)| path)
+                .collect::<Vec<_>>(),
+            ["./\u{feff}first.flac"; 2]
+        );
+    }
 }
 
 #[test]

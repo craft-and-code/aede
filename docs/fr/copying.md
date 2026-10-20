@@ -102,6 +102,8 @@ Voir [copy](cli/copy.md) pour toutes les options, [backup](cli/backup.md) pour l
 
 `--playlists` crée `aede-selection.m3u8` dans l’ordre de sélection et adapte les M3U/M3U8 UTF-8 copiés avec `--extras all`. Les chemins suivent les noms adaptés et les extensions converties ; les entrées hors sélection, y compris les URL, sont omises et comptées. Une playlist existante différente reste intacte sans `--replace`.
 
+Chaque M3U/M3U8 compagnon doit être un fichier ordinaire UTF-8 de 16 Mio au maximum, comme pour la lecture en ligne de commande. Un fichier trop volumineux ou illisible bloque explicitement la préparation ; il n’est pas ignoré silencieusement.
+
 Un chemin relatif commençant par un espace, `#` ou `file:` reçoit le préfixe explicite `./` pour que le lecteur conserve le nom exact au lieu de le tronquer ou de lire un commentaire. Les noms audio, listes sources, ordre et répétitions restent inchangés.
 
 Les écritures utilisent un dossier temporaire privé créé exclusivement. Les liens symboliques dans les fichiers ou sous-dossiers de destination sont refusés. `--dry-run` ne crée aucune sonde ; sans politique explicite, les noms prévus sont conservateurs. Donner `--safe-names` ou `--raw-names` fixe la politique pour la prévision et le transfert. La conversion WAV conserve la précision entière ou flottante connue de la source ; une précision inconnue ou non prise en charge est refusée. La conversion des sources flottantes en FLAC est refusée, même en prévision : ce format entier quantifierait leurs échantillons. Un fichier déjà au format audio cible reste inchangé même si son extension est un alias. MP3 accepte V0–V9, Vorbis q0–q10, AAC/Opus uniquement un débit.
